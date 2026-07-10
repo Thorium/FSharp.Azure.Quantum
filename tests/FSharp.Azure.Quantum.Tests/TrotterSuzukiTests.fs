@@ -83,14 +83,26 @@ module TrotterSuzukiTests =
         Assert.True(zTerm.IsSome, "Should contain Z operator for [1, -1] eigenvalues")
 
     [<Fact>]
-    let ``decomposeDiagonalMatrixToPauli with uniform eigenvalues produces Z term`` () =
+    let ``decomposeDiagonalMatrixToPauli with uniform eigenvalues produces identity term only`` () =
         let eigenvalues = [| 2.0; 2.0 |]
         let hamiltonian = TrotterSuzuki.decomposeDiagonalMatrixToPauli eigenvalues
         Assert.Equal(1, hamiltonian.NumQubits)
-        // Uniform eigenvalues still produce a Z term because the algorithm
-        // weights by average eigenvalue contribution from set-bit positions
+        // Uniform eigenvalues mean H = 2·I: the Z coefficient (λ₀ − λ₁)/2 vanishes
+        let iTerm = hamiltonian.Terms |> List.tryFind (fun t -> t.Operators = [|'I'|])
+        Assert.True(iTerm.IsSome, "Should contain identity term for uniform eigenvalues")
+        Assert.True(iTerm.Value.Coefficient.Real = 2.0, "Identity coefficient should equal the uniform eigenvalue")
         let zTerm = hamiltonian.Terms |> List.tryFind (fun t -> t.Operators = [|'Z'|])
-        Assert.True(zTerm.IsSome, "Should contain Z operator for uniform eigenvalues")
+        Assert.True(zTerm.IsNone, "Z coefficient must vanish for uniform eigenvalues")
+
+    [<Fact>]
+    let ``decomposeDiagonalMatrixToPauli eigenvalues 1 and 2 gives 1.5 I minus 0.5 Z`` () =
+        let eigenvalues = [| 1.0; 2.0 |]
+        let hamiltonian = TrotterSuzuki.decomposeDiagonalMatrixToPauli eigenvalues
+        Assert.Equal(1, hamiltonian.NumQubits)
+        let iTerm = hamiltonian.Terms |> List.find (fun t -> t.Operators = [|'I'|])
+        let zTerm = hamiltonian.Terms |> List.find (fun t -> t.Operators = [|'Z'|])
+        Assert.Equal(1.5, iTerm.Coefficient.Real, 10)
+        Assert.Equal(-0.5, zTerm.Coefficient.Real, 10)
 
     // ========================================================================
     // SYNTHESIZE PAULI EVOLUTION

@@ -181,30 +181,50 @@ module BraidToGate =
     /// (from R[σ,σ;Vacuum] = e^{-iπ/8}, R[σ,σ;Psi] = e^{3iπ/8})
     /// 
     /// Reference: Simon "Topological Quantum" Eq. 10.9-10.10
-    let isingBraidingToGates (generatorIndex: int) (isClockwise: bool) : CircuitBuilder.Gate list =
-        // Ising: σ_i braiding on qubit i
-        // Clockwise σ_i → S gate (relative phase +π/2)
-        // Counter-clockwise σ_i⁻¹ → S† gate (relative phase -π/2)
-        if isClockwise then 
-            [CircuitBuilder.Gate.S generatorIndex]
-        else 
-            [CircuitBuilder.Gate.SDG generatorIndex]
+    let isingBraidingToGates (generatorIndex: int) (isClockwise: bool) (strandCount: int) : CircuitBuilder.Gate list =
+        // Braid generators use LEAF indexing (GateToBraid convention): qubit q
+        // occupies leaves (2q, 2q+1), so the within-pair exchange of qubit q is
+        // generator σ_{2q} (even index) and maps to S/S† on qubit q = index / 2.
+        // The encoding has 2(n+1) strands: n qubit pairs plus one parity pair at
+        // leaves (2n, 2n+1). Odd indices are cross-pair braids, which have no
+        // single-qubit gate equivalent in this encoding.
+        if generatorIndex % 2 <> 0 then
+            failwith $"Braid generator σ_{generatorIndex} is a cross-pair exchange (odd leaf index) and cannot be mapped to a single-qubit gate in the Ising σ-pair encoding"
+        elif generatorIndex = strandCount - 2 then
+            // Within-pair exchange of the PARITY pair (leaves 2n, 2n+1): acts as
+            // a phase determined by the fixed parity channel — a global phase on
+            // the encoded qubit space, already tracked by accumulateBraidingPhase.
+            []
+        elif generatorIndex >= strandCount - 1 then
+            failwith $"Braid generator σ_{generatorIndex} is out of range for {strandCount} strands"
+        else
+        let qubitIndex = generatorIndex / 2
+        // Clockwise within-pair braid → S gate (relative phase +π/2)
+        // Counter-clockwise → S† gate (relative phase -π/2)
+        if isClockwise then
+            [CircuitBuilder.Gate.S qubitIndex]
+        else
+            [CircuitBuilder.Gate.SDG qubitIndex]
     
     /// Map Fibonacci anyon braiding phase to gate approximation.
     /// 
     /// Fibonacci braiding produces phases like exp(±4πi/5), which don't
     /// correspond to simple gates. We need Solovay-Kitaev approximation.
     let fibonacciBraidingToGates (generatorIndex: int) (isClockwise: bool) (tolerance: float) : CircuitBuilder.Gate list =
-        // Fibonacci: τ×τ→1 braiding produces exp(4πi/5)
-        // This requires approximation using Clifford+T gates
-        let angle = 
+        // Fibonacci uses the same 2-leaves-per-qubit indexing as Ising (σ₁ of
+        // qubit q = leaf index 2q, σ₂ = leaf index 2q+1 crossing to the auxiliary/
+        // next pair). Only the within-pair σ₁ has a single-qubit diagonal action
+        // (R-phase e^{±4πi/5} on the τ channel); σ₂ mixes fusion channels via the
+        // F-matrix and cannot be represented as a single-qubit phase gate.
+        if generatorIndex % 2 <> 0 then
+            failwith $"Fibonacci braid generator σ_{generatorIndex} (cross-pair σ₂ exchange) mixes fusion channels via the F-matrix and cannot be mapped to a phase gate"
+        let qubitIndex = generatorIndex / 2
+        let angle =
             if isClockwise then
                 4.0 * Math.PI / 5.0
             else
                 -4.0 * Math.PI / 5.0
-        
-        // For now, use Rz gate (will implement Solovay-Kitaev later)
-        [CircuitBuilder.Gate.RZ (generatorIndex, angle)]
+        [CircuitBuilder.Gate.RZ (qubitIndex, angle)]
 
     // ========================================================================
     // GATE SEQUENCE OPTIMIZATION
@@ -411,27 +431,34 @@ module BraidToGate =
     // BRAID TO GATE COMPILATION
     // ========================================================================
     
-    /// Compile a single braid generator to gates
-    let compileGenerator 
-        (gen: BraidGroup.BraidGenerator) 
+    /// Compile a single braid generator to gates.
+    /// `strandCount` is the braid word's strand count, needed to distinguish the
+    /// Ising parity-pair exchange (global phase, no gate) from qubit exchanges.
+    let compileGenerator
+        (gen: BraidGroup.BraidGenerator)
         (anyonType: AnyonSpecies.AnyonType)
+        (strandCount: int)
         (options: CompilationOptions) : CircuitBuilder.Gate list =
-        
+
         match anyonType with
         | AnyonSpecies.AnyonType.Ising ->
-            isingBraidingToGates gen.Index gen.IsClockwise
-        
+            isingBraidingToGates gen.Index gen.IsClockwise strandCount
+
         | AnyonSpecies.AnyonType.Fibonacci ->
             fibonacciBraidingToGates gen.Index gen.IsClockwise options.ApproximationTolerance
-        
+
         | _ ->
-            // For other anyon types, use generic phase gate
-            let phase = 
+            // SU(2)_k and other models share the 2-leaves-per-qubit indexing;
+            // within-pair (even) exchanges act as a channel phase on the qubit,
+            // cross-pair (odd) exchanges mix channels and have no gate equivalent.
+            if gen.Index % 2 <> 0 then
+                failwith $"Braid generator σ_{gen.Index} (cross-pair exchange) cannot be mapped to a single-qubit gate for {anyonType}"
+            let phase =
                 if gen.IsClockwise then
                     -Math.PI / 8.0  // Default: Ising-like phase
                 else
                     Math.PI / 8.0
-            [CircuitBuilder.Gate.RZ (gen.Index, phase)]
+            [CircuitBuilder.Gate.RZ (gen.Index / 2, phase)]
     
     /// Compile full braid to gate sequence
     let compileToGates 
@@ -444,13 +471,20 @@ module BraidToGate =
             let allGates =
                 braid.Generators
                 |> List.collect (fun gen ->
-                    compileGenerator gen anyonType options)
-            
+                    compileGenerator gen anyonType braid.StrandCount options)
+
             // Apply optimization
             let optimizedGates = optimizeGates options.OptimizationLevel allGates
-            
+
             // Calculate metadata
-            let numQubits = braid.StrandCount - 1  // n strands = n-1 qubits
+            let numQubits =
+                match anyonType with
+                // Ising σ-pair encoding (GateToBraid convention): 2(n+1) strands
+                // for n qubits (one leaf pair per qubit plus a parity pair)
+                | AnyonSpecies.AnyonType.Ising -> max 1 (braid.StrandCount / 2 - 1)
+                // Fibonacci/SU(2)_k convention (fibonacciOpsToBraidWord /
+                // su2kOpsToBraidWord): 2n+1 strands for n qubits
+                | _ -> max 1 ((braid.StrandCount - 1) / 2)
             let depth = calculateDepth optimizedGates numQubits
             let tCount = countTGates optimizedGates
             

@@ -109,9 +109,11 @@ module AnomalyDetector =
     
     /// Trained anomaly detector
     type Detector = {
-        /// Underlying model (one-class SVM)
+        /// Underlying model container: holds the normal training data and quantum
+        /// feature map used for kernel evaluation at inference time. Scoring uses
+        /// kernel centroid distance rather than the SVM decision function.
         Model: QuantumKernelSVM.SVMModel
-        
+
         /// Detection metadata
         Metadata: DetectorMetadata
         
@@ -131,8 +133,20 @@ module AnomalyDetector =
 
         /// Measurement shots used for kernel evaluation at inference time.
         Shots: int
+
+        /// Mean of the training kernel matrix, (1/n²)·ΣᵢⱼK(xᵢ,xⱼ) — the squared norm
+        /// of the training-set centroid in feature space (centroid-distance scoring).
+        KernelMean: float
+
+        /// Training-set centroid-distance quantile that maps to anomaly score 0.5
+        /// (the learned boundary of normal behaviour).
+        ReferenceDistance: float
+
+        /// Spread (standard deviation) of training centroid distances, used to
+        /// normalize distances to a [0, 1] anomaly score.
+        DistanceScale: float
     }
-    
+
     and DetectorMetadata = {
         Sensitivity: Sensitivity
         TrainingTime: TimeSpan
@@ -213,13 +227,16 @@ module AnomalyDetector =
         // Adjust for expected contamination
         min 0.5 (baseNu + contaminationRate)
     
-    /// Map sensitivity to decision threshold adjustment
-    let private sensitivityToThreshold (sensitivity: Sensitivity) : float =
-        match sensitivity with
-        | Low -> 0.5        // Higher threshold = fewer alarms
-        | Medium -> 0.3
-        | High -> 0.1
-        | VeryHigh -> 0.0   // Lower threshold = more alarms
+    /// Decision threshold on the anomaly score.
+    ///
+    /// The centroid-distance score is sigmoid-normalized so that the learned
+    /// boundary of normal behaviour (the (1 - nu) quantile of training
+    /// distances) sits at exactly 0.5. Sensitivity already controls that
+    /// boundary through nu (sensitivityToNu), so the threshold is the fixed
+    /// boundary score — using sub-0.5 thresholds here would double-count
+    /// sensitivity and flag samples the model itself scores as normal.
+    let private sensitivityToThreshold (_sensitivity: Sensitivity) : float =
+        0.5
     
     // ========================================================================
     // MODEL PERSISTENCE
@@ -233,7 +250,16 @@ module AnomalyDetector =
         
         /// Detector-specific threshold
         Threshold: float
-        
+
+        /// Mean of the training kernel matrix (centroid-distance scoring)
+        KernelMean: float
+
+        /// Training-distance quantile mapping to anomaly score 0.5
+        ReferenceDistance: float
+
+        /// Spread of training distances (score normalization scale)
+        DistanceScale: float
+
         /// Sensitivity level
         Sensitivity: string
         
@@ -255,6 +281,9 @@ module AnomalyDetector =
             let detectorData = {
                 SVMModel = SVMModelSerialization.toSerializable detector.Metadata.Note detector.Model
                 Threshold = detector.Threshold
+                KernelMean = detector.KernelMean
+                ReferenceDistance = detector.ReferenceDistance
+                DistanceScale = detector.DistanceScale
                 Sensitivity =
                     match detector.Metadata.Sensitivity with
                     | Low -> "Low"
@@ -281,7 +310,16 @@ module AnomalyDetector =
             else
                 let json = File.ReadAllText(path)
                 let detectorData = JsonSerializer.Deserialize<SerializableDetector>(json)
-                
+
+                // Files saved before the centroid-distance scoring lack
+                // KernelMean/ReferenceDistance/DistanceScale; System.Text.Json fills
+                // them with 0.0, which would make every score degenerate. A valid
+                // save always has DistanceScale >= 1e-6, so reject instead.
+                if detectorData.DistanceScale <= 0.0 then
+                    Error (QuantumError.ValidationError ("Input",
+                        $"Detector file '{path}' was saved by an older version and lacks the scoring statistics (KernelMean/ReferenceDistance/DistanceScale). Retrain the detector and save it again."))
+                else
+
                 // Reconstruct SVM model
                 SVMModelSerialization.fromSerializable detectorData.SVMModel
                 |> Result.map (fun svmModel ->
@@ -312,6 +350,9 @@ module AnomalyDetector =
                         // Backend is not serialisable; inference uses a local simulator.
                         Backend = None
                         Shots = 1000
+                        KernelMean = detectorData.KernelMean
+                        ReferenceDistance = detectorData.ReferenceDistance
+                        DistanceScale = detectorData.DistanceScale
                     })
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load detector: {ex.Message}"))
@@ -338,37 +379,74 @@ module AnomalyDetector =
             let numQubits = min numFeatures 8
             let featureMap = FeatureMapType.ZZFeatureMap 2
             
-            // One-class SVM configuration
+            // One-class configuration: nu = expected fraction of training points
+            // lying outside the learned boundary of normal behaviour
             let nu = sensitivityToNu problem.Sensitivity problem.ContaminationRate
             let threshold = sensitivityToThreshold problem.Sensitivity
-            
-            // For one-class classification, all training labels are +1
-            // (we're learning the boundary of normal behavior)
+
+            // For one-class detection, all training labels are +1
+            // (kept in the model container for serialization compatibility)
             let labels = Array.create problem.NormalData.Length 1
-            
-            let svmConfig : QuantumKernelSVM.SVMConfig = {
-                C = 1.0 / (float problem.NormalData.Length * nu)
-                Tolerance = 0.001
-                MaxIterations = 1000
-                Verbose = problem.Verbose
-                Logger = problem.Logger
-            }
-            
+
             if problem.Verbose then
                 let log = logInfo problem.Logger
                 log "Training anomaly detector..."
                 log $"  Normal samples: {problem.NormalData.Length}"
                 log $"  Features: {numFeatures}"
                 log $"  Sensitivity: {problem.Sensitivity} (nu={nu:F3})"
-            
-            QuantumKernelSVM.train backend featureMap problem.NormalData labels svmConfig problem.Shots
+
+            // One-class scoring via kernel centroid distance:
+            //   d²(x) = k(x,x) − (2/n)·Σᵢ k(x,xᵢ) + (1/n²)·Σᵢⱼ K(xᵢ,xⱼ)
+            // i.e. the squared distance to the mean of the training points in the
+            // quantum feature space. (A binary SVM is degenerate here: with all
+            // labels identical the SMO bounds collapse and no alpha can move.)
+            QuantumKernels.computeKernelMatrix backend featureMap problem.NormalData problem.Shots
             |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Training failed: {e}"))
-            |> Result.map (fun model ->
-                
+            |> Result.map (fun kernelMatrix ->
+
+                let n = problem.NormalData.Length
+                let nf = float n
+
+                // Row means (1/n)·Σⱼ K(i,j) and the kernel grand mean (1/n²)·Σᵢⱼ K(i,j)
+                let rowMeans =
+                    Array.init n (fun i ->
+                        (Array.init n (fun j -> kernelMatrix.[i, j]) |> Array.sum) / nf)
+                let kernelMean = Array.sum rowMeans / nf
+
+                // Centroid distance of every training point
+                let trainDistances =
+                    Array.init n (fun i ->
+                        sqrt (max 0.0 (kernelMatrix.[i, i] - 2.0 * rowMeans.[i] + kernelMean)))
+
+                // The (1 − nu) quantile of training distances is the boundary of
+                // normal behaviour (maps to anomaly score 0.5); the spread of the
+                // training distances sets the score normalization scale.
+                let sortedDistances = Array.sort trainDistances
+                let quantileIdx = min (n - 1) (int (ceil ((1.0 - nu) * float (n - 1))))
+                let referenceDistance = sortedDistances.[quantileIdx]
+                let distanceScale =
+                    let mean = Array.average trainDistances
+                    let std = sqrt (trainDistances |> Array.averageBy (fun d -> (d - mean) * (d - mean)))
+                    max std 1e-6
+
+                // Model record acts as the serializable container for the training
+                // data and feature map consumed at inference time.
+                let model : QuantumKernelSVM.SVMModel = {
+                    SupportVectorIndices = Array.init n id
+                    Alphas = Array.create n (1.0 / nf)
+                    Bias = 0.0
+                    TrainData = problem.NormalData
+                    TrainLabels = labels
+                    FeatureMap = featureMap
+                }
+
                 let endTime = DateTime.UtcNow
-                
+
                 let detector = {
                     Model = model
+                    KernelMean = kernelMean
+                    ReferenceDistance = referenceDistance
+                    DistanceScale = distanceScale
                     Metadata = {
                         Sensitivity = problem.Sensitivity
                         TrainingTime = endTime - startTime
@@ -407,34 +485,42 @@ module AnomalyDetector =
     // DETECTION
     // ========================================================================
     
-    /// Compute anomaly score for a sample
-    let private computeAnomalyScore 
+    /// Compute anomaly score for a sample using kernel centroid distance:
+    ///   d²(x) = k(x,x) − (2/n)·Σᵢ k(x,xᵢ) + (1/n²)·Σᵢⱼ K(xᵢ,xⱼ)
+    /// For fidelity kernels k(x,x) = 1. The distance is normalized to [0, 1]
+    /// with a sigmoid centred on the training-set reference distance, so
+    /// scores above 0.5 lie outside the learned boundary of normal behaviour
+    /// (higher score = more anomalous).
+    let private computeAnomalyScore
         (backend: IQuantumBackend)
         (detector: Detector)
         (sample: float array)
         (shots: int)
         : QuantumResult<float> =
-        
-        // Use SVM decision value as anomaly score
-        // Positive = normal, Negative = anomaly
-        QuantumKernelSVM.predict backend detector.Model sample shots
-        |> Result.map (fun prediction ->
-            
-            // For one-class SVM:
-            // prediction.Label = 1 means "normal" (inside boundary)
-            // prediction.Label = -1 or 0 means "anomaly" (outside boundary)
-            
-            // Map to [0, 1] score where higher = more anomalous
-            // Use decision value distance from hyperplane
-            let score = 
-                if prediction.Label = 1 then
-                    // Normal - low anomaly score
-                    1.0 / (1.0 + exp(abs(prediction.DecisionValue)))
-                else
-                    // Anomaly - high anomaly score
-                    1.0 / (1.0 + exp(-abs(prediction.DecisionValue)))
-            
-            score)
+
+        let trainData = detector.Model.TrainData
+
+        // Kernel between the sample and every training point
+        let kernelResults =
+            trainData
+            |> Array.map (fun x ->
+                QuantumKernels.computeKernel backend detector.Model.FeatureMap sample x shots)
+
+        match kernelResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None) with
+        | Some e -> Error e
+        | None ->
+            let meanCross =
+                (kernelResults |> Array.sumBy (function Ok k -> k | Error _ -> 0.0))
+                / float trainData.Length
+
+            // k(x,x) = 1 for fidelity kernels: |⟨φ(x)|φ(x)⟩|² = 1
+            let distance = sqrt (max 0.0 (1.0 - 2.0 * meanCross + detector.KernelMean))
+
+            // Sigmoid normalization: reference distance maps to 0.5
+            let scale = max detector.DistanceScale 1e-6
+            let score = 1.0 / (1.0 + exp (-(distance - detector.ReferenceDistance) / scale))
+
+            Ok score
     
     /// Check if sample is anomalous
     let check (sample: float array) (detector: Detector) : QuantumResult<AnomalyResult> =

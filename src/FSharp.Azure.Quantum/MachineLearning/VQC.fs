@@ -1180,8 +1180,13 @@ module VQC =
             if numClasses < 2 then
                 Error (QuantumError.Other "Need at least 2 classes for multi-class classification")
             elif numClasses = 2 then
-                // Binary classification - just train one classifier
-                match train backend featureMap variationalForm initialParameters trainFeatures trainLabels config with
+                // Binary classification - just train one classifier.
+                // The binary trainer (cross-entropy loss and accuracy) assumes labels ∈ {0, 1},
+                // so map the two class labels to 0/1 following ClassLabels ordering:
+                // the classifier's output probability is P(class = classLabels.[1]).
+                let binaryLabels =
+                    trainLabels |> Array.map (fun label -> if label = classLabels.[1] then 1 else 0)
+                match train backend featureMap variationalForm initialParameters trainFeatures binaryLabels config with
                 | Error e -> Error e
                 | Ok result ->
                     Ok {
@@ -1291,23 +1296,36 @@ module VQC =
         | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Multi-class prediction failed: {e}"))
         | _ ->
             let scores = scoreResults |> Array.choose (function Ok s -> Some s | _ -> None)
-            
-            // Normalize measurement probabilities directly
-            // Scores are already probabilities from quantum measurements — softmax is inappropriate here
-            let sumScores = scores |> Array.sum
-            let probabilities = 
-                if sumScores > 0.0 then
-                    scores |> Array.map (fun s -> s / sumScores)
-                else
-                    Array.create result.NumClasses (1.0 / float result.NumClasses)
-            
-            // Predicted class is the one with highest probability
-            // Use Array.mapi and maxBy to avoid floating-point comparison issues
-            let predictedClassIdx = probabilities |> Array.mapi (fun i p -> (i, p)) |> Array.maxBy snd |> fst
-            let predictedLabel = result.ClassLabels.[predictedClassIdx]
-            
-            Ok {
-                Label = predictedLabel
-                Confidence = probabilities.[predictedClassIdx]
-                Probabilities = probabilities
-            }
+
+            if result.NumClasses = 2 && scores.Length = 1 then
+                // Two-class models store a single binary classifier whose score is
+                // p = P(class = ClassLabels.[1]); derive both class probabilities from it.
+                let p = scores.[0]
+                let probabilities = [| 1.0 - p; p |]
+                let predictedClassIdx = if p >= 0.5 then 1 else 0
+
+                Ok {
+                    Label = result.ClassLabels.[predictedClassIdx]
+                    Confidence = probabilities.[predictedClassIdx]
+                    Probabilities = probabilities
+                }
+            else
+                // Normalize measurement probabilities directly
+                // Scores are already probabilities from quantum measurements — softmax is inappropriate here
+                let sumScores = scores |> Array.sum
+                let probabilities =
+                    if sumScores > 0.0 then
+                        scores |> Array.map (fun s -> s / sumScores)
+                    else
+                        Array.create result.NumClasses (1.0 / float result.NumClasses)
+
+                // Predicted class is the one with highest probability
+                // Use Array.mapi and maxBy to avoid floating-point comparison issues
+                let predictedClassIdx = probabilities |> Array.mapi (fun i p -> (i, p)) |> Array.maxBy snd |> fst
+                let predictedLabel = result.ClassLabels.[predictedClassIdx]
+
+                Ok {
+                    Label = predictedLabel
+                    Confidence = probabilities.[predictedClassIdx]
+                    Probabilities = probabilities
+                }

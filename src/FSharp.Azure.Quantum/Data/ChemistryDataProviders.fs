@@ -1564,20 +1564,20 @@ module ChemistryDataProviders =
                             let c = line.[26]
                             if c = ' ' then None else Some c
                         else None
-                    let x = line.[30..37].Trim() |> Double.Parse
-                    let y = line.[38..45].Trim() |> Double.Parse
-                    let z = line.[46..53].Trim() |> Double.Parse
+                    let x = Double.Parse(line.[30..37].Trim(), CultureInfo.InvariantCulture)
+                    let y = Double.Parse(line.[38..45].Trim(), CultureInfo.InvariantCulture)
+                    let z = Double.Parse(line.[46..53].Trim(), CultureInfo.InvariantCulture)
                     
                     let occupancy = 
                         if line.Length >= 60 then
-                            match Double.TryParse(line.[54..59].Trim()) with
+                            match Double.TryParse(line.[54..59].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture) with
                             | true, v -> Some v
                             | _ -> None
                         else None
                     
                     let tempFactor =
                         if line.Length >= 66 then
-                            match Double.TryParse(line.[60..65].Trim()) with
+                            match Double.TryParse(line.[60..65].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture) with
                             | true, v -> Some v
                             | _ -> None
                         else None

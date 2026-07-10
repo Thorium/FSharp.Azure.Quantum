@@ -307,6 +307,13 @@ module RiskEngine =
     // CLASSICAL PATH
     // ========================================================================
 
+    /// Minimum number of valid numeric rows required in a market data file.
+    /// Two sorted returns are the least the VaR percentile index arithmetic can
+    /// handle; small-but-valid files remain accepted (a majority-unparseable
+    /// file is rejected separately as a format mismatch).
+    [<Literal>]
+    let private MinValidMarketDataRows = 2
+
     /// Execute the configured risk analysis (async, cancellable).
     ///
     /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
@@ -316,90 +323,119 @@ module RiskEngine =
         async {
             let startTime = System.DateTime.Now
 
-            // 1. Ingest Data (Real or Mock)
-            let! returns =
-                match config.MarketDataPath with
-                | Some path ->
-                    async {
-                        let! exists = System.Threading.Tasks.Task.Run(fun () -> System.IO.File.Exists(path)) |> Async.AwaitTask
-                        if exists then
-                            let! lines = System.IO.File.ReadAllLinesAsync(path) |> Async.AwaitTask
-                            return
-                                lines
-                                |> Array.skip 1
-                                |> Array.map (fun line ->
-                                    match System.Double.TryParse(line.Trim()) with
-                                    | true, v -> v
-                                    | _ -> 0.0)
-                        else
-                            return generateMockReturns config.SimulationPaths
-                    }
-                | None ->
-                    async { return generateMockReturns config.SimulationPaths }
-
-            // 2. Choose quantum or classical path
-            if config.UseAmplitudeEstimation && config.Backend.IsSome then
-                // Quantum path: amplitude estimation for VaR/CVaR
-                let qBackend = config.Backend.Value
-                let! quantumResult = executeQuantumVaR config qBackend returns
-
-                match quantumResult with
-                | Error err ->
-                    // Business outcome: propagate the quantum failure as Error (no classical fallback).
-                    return Error err
-                | Ok (quantumVaR, quantumCVaR, _tailProb) ->
-                    // Volatility still computed classically (not a tail-risk metric)
-                    let vol =
-                        if List.contains Volatility config.Metrics then
-                            let mean = Array.average returns
-                            let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
-                            ValueSome (sqrt (sumSq / float returns.Length))
-                        else ValueNone
-
-                    let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
-
-                    return Ok {
-                        VaR = if List.contains ValueAtRisk config.Metrics then ValueSome quantumVaR else ValueNone
-                        CVaR = if List.contains ConditionalVaR config.Metrics then ValueSome quantumCVaR else ValueNone
-                        ExpectedShortfall = if List.contains ExpectedShortfall config.Metrics then ValueSome quantumCVaR else ValueNone
-                        Volatility = vol
-                        ConfidenceLevel = config.ConfidenceLevel
-                        ExecutionTimeMs = executionTime
-                        Method = "Quantum Amplitude Estimation"
-                        Configuration = config
-                    }
+            // 0. Validate configuration
+            if config.ConfidenceLevel <= 0.0 || config.ConfidenceLevel >= 1.0 then
+                return Error (QuantumError.ValidationError ("ConfidenceLevel", $"Confidence level must be strictly between 0 and 1, got {config.ConfidenceLevel}"))
             else
-                // Classical path: Monte Carlo
-                let sortedReturns = Array.sort returns
-                let varIndex = int ((1.0 - config.ConfidenceLevel) * float returns.Length)
-                let classicalVaR = -sortedReturns.[varIndex]
+                // 1. Ingest data. Real market data is required when a path is configured;
+                //    mock returns are used only when no MarketDataPath is given.
+                let! returnsResult =
+                    match config.MarketDataPath with
+                    | Some path ->
+                        async {
+                            let! exists = System.Threading.Tasks.Task.Run(fun () -> System.IO.File.Exists(path)) |> Async.AwaitTask
+                            if not exists then
+                                // A configured-but-missing file is an explicit error,
+                                // not a silent fallback to mock data.
+                                return Error (QuantumError.ValidationError ("MarketDataPath", $"Market data file not found: {path}"))
+                            else
+                                let! lines = System.IO.File.ReadAllLinesAsync(path) |> Async.AwaitTask
+                                if lines.Length <= 1 then
+                                    return Error (QuantumError.ValidationError ("MarketDataPath", $"Market data file contains no data rows (empty or header only): {path}"))
+                                else
+                                    // Skip unparseable rows rather than silently treating them as 0.0 returns.
+                                    let parsed =
+                                        lines
+                                        |> Array.skip 1
+                                        |> Array.choose (fun line ->
+                                            match System.Double.TryParse(line.Trim(),
+                                                                         System.Globalization.NumberStyles.Float,
+                                                                         System.Globalization.CultureInfo.InvariantCulture) with
+                                            | true, v -> Some v
+                                            | _ -> None)
+                                    let dataRows = lines.Length - 1
+                                    if parsed.Length < MinValidMarketDataRows then
+                                        // Too few rows for the percentile math (index arithmetic
+                                        // needs at least 2 sorted returns).
+                                        return Error (QuantumError.ValidationError ("MarketDataPath", $"Market data file has only {parsed.Length} valid numeric rows (minimum {MinValidMarketDataRows} required): {path}"))
+                                    elif parsed.Length * 2 < dataRows then
+                                        // Most rows failed to parse — almost certainly a format
+                                        // mismatch (wrong column layout, non-invariant decimal
+                                        // separator), not occasional bad lines. Erroring loudly
+                                        // beats computing VaR from a fraction of the data.
+                                        return Error (QuantumError.ValidationError ("MarketDataPath", $"Only {parsed.Length} of {dataRows} data rows are valid numbers — the file format is probably wrong (expected one invariant-culture numeric return per line): {path}"))
+                                    else
+                                        return Ok parsed
+                        }
+                    | None ->
+                        async { return Ok (generateMockReturns config.SimulationPaths) }
 
-                let vaR = if List.contains ValueAtRisk config.Metrics then ValueSome classicalVaR else ValueNone
+                match returnsResult with
+                | Error err -> return Error err
+                | Ok returns ->
+                    // 2. Choose quantum or classical path
+                    if config.UseAmplitudeEstimation && config.Backend.IsSome then
+                        // Quantum path: amplitude estimation for VaR/CVaR
+                        let qBackend = config.Backend.Value
+                        let! quantumResult = executeQuantumVaR config qBackend returns
 
-                let tailLosses = sortedReturns |> Array.take (varIndex + 1)
-                let cVaRVal = - (Array.average tailLosses)
-                let cVaR = if List.contains ConditionalVaR config.Metrics then ValueSome cVaRVal else ValueNone
-                let es = if List.contains ExpectedShortfall config.Metrics then ValueSome cVaRVal else ValueNone
+                        match quantumResult with
+                        | Error err ->
+                            // Business outcome: propagate the quantum failure as Error (no classical fallback).
+                            return Error err
+                        | Ok (quantumVaR, quantumCVaR, _tailProb) ->
+                            // Volatility still computed classically (not a tail-risk metric)
+                            let vol =
+                                if List.contains Volatility config.Metrics then
+                                    let mean = Array.average returns
+                                    let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
+                                    ValueSome (sqrt (sumSq / float returns.Length))
+                                else ValueNone
 
-                let vol =
-                    if List.contains Volatility config.Metrics then
-                        let mean = Array.average returns
-                        let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
-                        ValueSome (sqrt (sumSq / float returns.Length))
-                    else ValueNone
+                            let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
 
-                let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
+                            return Ok {
+                                VaR = if List.contains ValueAtRisk config.Metrics then ValueSome quantumVaR else ValueNone
+                                CVaR = if List.contains ConditionalVaR config.Metrics then ValueSome quantumCVaR else ValueNone
+                                ExpectedShortfall = if List.contains ExpectedShortfall config.Metrics then ValueSome quantumCVaR else ValueNone
+                                Volatility = vol
+                                ConfidenceLevel = config.ConfidenceLevel
+                                ExecutionTimeMs = executionTime
+                                Method = "Quantum Amplitude Estimation"
+                                Configuration = config
+                            }
+                    else
+                        // Classical path: Monte Carlo
+                        let sortedReturns = Array.sort returns
+                        let varIndex = int ((1.0 - config.ConfidenceLevel) * float returns.Length)
+                        let classicalVaR = -sortedReturns.[varIndex]
 
-                return Ok {
-                    VaR = vaR
-                    CVaR = cVaR
-                    ExpectedShortfall = es
-                    Volatility = vol
-                    ConfidenceLevel = config.ConfidenceLevel
-                    ExecutionTimeMs = executionTime
-                    Method = "Classical Monte Carlo"
-                    Configuration = config
-                }
+                        let vaR = if List.contains ValueAtRisk config.Metrics then ValueSome classicalVaR else ValueNone
+
+                        let tailLosses = sortedReturns |> Array.take (varIndex + 1)
+                        let cVaRVal = - (Array.average tailLosses)
+                        let cVaR = if List.contains ConditionalVaR config.Metrics then ValueSome cVaRVal else ValueNone
+                        let es = if List.contains ExpectedShortfall config.Metrics then ValueSome cVaRVal else ValueNone
+
+                        let vol =
+                            if List.contains Volatility config.Metrics then
+                                let mean = Array.average returns
+                                let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
+                                ValueSome (sqrt (sumSq / float returns.Length))
+                            else ValueNone
+
+                        let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
+
+                        return Ok {
+                            VaR = vaR
+                            CVaR = cVaR
+                            ExpectedShortfall = es
+                            Volatility = vol
+                            ConfidenceLevel = config.ConfidenceLevel
+                            ExecutionTimeMs = executionTime
+                            Method = "Classical Monte Carlo"
+                            Configuration = config
+                        }
         }
 
     /// Execute the configured risk analysis (sync wrapper).

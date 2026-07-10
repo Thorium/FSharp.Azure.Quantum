@@ -76,39 +76,42 @@ module BraidToGateTests =
     
     [<Fact>]
     let ``Ising clockwise braiding compiles to S gate`` () =
-        // Physics: Ising σ×σ relative phase = e^{iπ/2} per braid → S gate
-        // One CW braid = S gate (exact in Ising model)
-        let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+        // Physics: Ising σ×σ relative phase = e^{iπ/2} per braid → S gate.
+        // Leaf indexing: qubit 0 occupies leaves (0,1) → within-pair generator σ_0;
+        // 1 qubit needs 2(1+1) = 4 strands (qubit pair + parity pair).
+        let braid = braidFromGensOrFail 4 [BraidGroup.sigma 0] "Single σ_0"
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Ising compilation"
-        
+
         Assert.Equal(1, sequence.Gates.Length)
         Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[0])
-    
+
     [<Fact>]
     let ``Ising counter-clockwise braiding compiles to S-dagger`` () =
         // Physics: Inverse braiding gives conjugate phase e^{-iπ/2} = S†
-        let braid = braidFromGensOrFail 2 [BraidGroup.sigmaInv 0] "Single σ_0^-1"
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+        let braid = braidFromGensOrFail 4 [BraidGroup.sigmaInv 0] "Single σ_0^-1"
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Ising inverse"
-        
+
         Assert.Equal(1, sequence.Gates.Length)
         Assert.Equal(CircuitBuilder.Gate.SDG 0, sequence.Gates.[0])
-    
+
     [<Fact>]
     let ``Multiple Ising braidings compile to sequence of S gates`` () =
-        // Business meaning: Composing braids = composing gates
-        let braid = 
-            braidFromGensOrFail 3 
-                [BraidGroup.sigma 0; BraidGroup.sigma 1; BraidGroup.sigma 0]
-                "σ_0 σ_1 σ_0"
-        
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+        // Business meaning: Composing braids = composing gates.
+        // Leaf indexing: qubit q = generator 2q, so σ_0 acts on qubit 0 and σ_2
+        // on qubit 1; 2 qubits need 2(2+1) = 6 strands.
+        let braid =
+            braidFromGensOrFail 6
+                [BraidGroup.sigma 0; BraidGroup.sigma 2; BraidGroup.sigma 0]
+                "σ_0 σ_2 σ_0"
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Multiple braidings"
-        
+
         Assert.Equal(3, sequence.Gates.Length)
         Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[0])
         Assert.Equal(CircuitBuilder.Gate.S 1, sequence.Gates.[1])
@@ -125,14 +128,15 @@ module BraidToGateTests =
         Assert.Empty(sequence.Gates)
     
     [<Fact>]
-    let ``Ising braid on n strands produces n-1 qubit circuit`` () =
-        // Business meaning: n anyons on strands ↔ n-1 qubits in gate model
-        let braid = braidFromGensOrFail 4 [BraidGroup.sigma 0] "4 strands"
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+    let ``Ising braid on 2(n+1) strands produces n qubit circuit`` () =
+        // Business meaning: σ-pair encoding uses one leaf pair per qubit plus a
+        // parity pair, so 2(n+1) strands ↔ n qubits.
+        let braid = braidFromGensOrFail 6 [BraidGroup.sigma 0] "6 strands"
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Qubit counting"
-        
-        Assert.Equal(3, sequence.NumQubits)  // 4 strands → 3 qubits
+
+        Assert.Equal(2, sequence.NumQubits)  // 6 strands → 2 qubits
 
     // ========================================================================
     // FIBONACCI ANYON COMPILATION TESTS
@@ -241,9 +245,10 @@ module BraidToGateTests =
     [<Fact>]
     let ``Braid with inverse compiles to optimized empty sequence`` () =
         // Business meaning: σ_i σ_i^-1 = identity after optimization
-        let braid = 
-            braidFromGensOrFail 2 
-                [BraidGroup.sigma 0; BraidGroup.sigmaInv 0] 
+        // (4 strands = 1 qubit + parity pair; σ_0 acts on qubit 0)
+        let braid =
+            braidFromGensOrFail 4
+                [BraidGroup.sigma 0; BraidGroup.sigmaInv 0]
                 "σ_0 σ_0^-1"
         
         let sequence = 
@@ -259,8 +264,8 @@ module BraidToGateTests =
     [<Fact>]
     let ``Sequential gates on same qubit have depth N`` () =
         // Business meaning: Gates on same qubit must execute sequentially
-        let braid = 
-            braidFromGensOrFail 2 
+        let braid =
+            braidFromGensOrFail 4
                 [BraidGroup.sigma 0; BraidGroup.sigma 0; BraidGroup.sigma 0]
                 "Three sequential"
         
@@ -273,32 +278,35 @@ module BraidToGateTests =
     [<Fact>]
     let ``Parallel gates on different qubits have depth 1`` () =
         // Business meaning: Independent operations can execute in parallel
-        let braid = 
-            braidFromGensOrFail 4 
-                [BraidGroup.sigma 0; BraidGroup.sigma 2]  // Non-adjacent
+        // (6 strands = 2 qubits; σ_0 → qubit 0, σ_2 → qubit 1)
+        let braid =
+            braidFromGensOrFail 6
+                [BraidGroup.sigma 0; BraidGroup.sigma 2]
                 "Parallel gates"
-        
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Parallel depth"
-        
+
         Assert.Equal(1, sequence.Depth)
-    
+
     [<Fact>]
-    let ``Adjacent generators compile to independent gates with depth 1`` () =
-        // Business meaning: σ_0 → T(q0) and σ_1 → T(q1) operate on different
-        // qubits, so they can execute in parallel in the gate model!
-        // This shows a key difference: topological adjacency ≠ gate dependence.
-        let braid = 
-            braidFromGensOrFail 3 
-                [BraidGroup.sigma 0; BraidGroup.sigma 1]
-                "Adjacent generators"
-        
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
-                BraidToGate.defaultOptions "Adjacent depth"
-        
-        Assert.Equal(1, sequence.Depth)  // Parallel execution!
+    let ``Parity-pair exchange produces no gate (global phase only)`` () =
+        // Business meaning: exchanging the parity pair (leaves 2n, 2n+1) does not
+        // act on any encoded qubit — it contributes only to the total phase.
+        // 4 strands = 1 qubit (leaves 0,1) + parity pair (leaves 2,3): σ_2 is the
+        // parity-pair exchange.
+        let braid =
+            braidFromGensOrFail 4
+                [BraidGroup.sigma 0; BraidGroup.sigma 2]
+                "Qubit + parity-pair exchange"
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
+                BraidToGate.defaultOptions "Parity pair"
+
+        Assert.Equal(1, sequence.Gates.Length)  // Only σ_0 → S(q0)
+        Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[0])
 
     // ========================================================================
     // METADATA TESTS
@@ -308,15 +316,15 @@ module BraidToGateTests =
     let ``Gate sequence reports correct T-count`` () =
         // Business meaning: T-count is critical metric for fault-tolerant cost
         // With corrected Ising mapping: braids → S/SDG (Clifford), so T-count = 0
-        let braid = 
-            braidFromGensOrFail 3 
-                [BraidGroup.sigma 0; BraidGroup.sigmaInv 1; BraidGroup.sigma 0]
+        let braid =
+            braidFromGensOrFail 6
+                [BraidGroup.sigma 0; BraidGroup.sigmaInv 2; BraidGroup.sigma 0]
                 "Mixed directions"
-        
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "T-count test"
-        
+
         Assert.Equal(0, sequence.TCount)  // S and SDG are Clifford, not counted as T
     
     [<Fact>]
@@ -332,17 +340,17 @@ module BraidToGateTests =
     [<Fact>]
     let ``Gate sequence metadata is consistent`` () =
         // Business meaning: All metadata should accurately reflect the circuit
-        let braid = 
-            braidFromGensOrFail 4 
-                [BraidGroup.sigma 0; BraidGroup.sigma 1; BraidGroup.sigma 2]
+        let braid =
+            braidFromGensOrFail 8
+                [BraidGroup.sigma 0; BraidGroup.sigma 2; BraidGroup.sigma 4]
                 "Full chain"
-        
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Metadata test"
-        
+
         Assert.Equal(3, sequence.Gates.Length)
-        Assert.Equal(3, sequence.NumQubits)
+        Assert.Equal(3, sequence.NumQubits)  // 8 strands = 2(3+1) → 3 qubits
         Assert.True(sequence.Depth > 0)
         Assert.Equal(sequence.TCount, BraidToGate.countTGates sequence.Gates)
 
@@ -421,8 +429,8 @@ module BraidToGateTests =
         // Business meaning: User control over optimization trade-offs
         let opts = { BraidToGate.defaultOptions with OptimizationLevel = 0 }
         
-        let braid = 
-            braidFromGensOrFail 2 
+        let braid =
+            braidFromGensOrFail 4
                 [BraidGroup.sigma 0; BraidGroup.sigmaInv 0]
                 "Should not optimize"
         
@@ -532,11 +540,11 @@ module BraidToGateTests =
         // Business meaning: Total phase = product of per-generator R-matrix phases
         // 3 clockwise + 1 counter-clockwise = net 2 clockwise = exp(2*(-iπ/8)) = exp(-iπ/4)
         let braid =
-            braidFromGensOrFail 3
+            braidFromGensOrFail 6
                 [ BraidGroup.sigma 0
-                  BraidGroup.sigma 1
+                  BraidGroup.sigma 2
                   BraidGroup.sigma 0
-                  BraidGroup.sigmaInv 1 ]
+                  BraidGroup.sigmaInv 2 ]
                 "Mixed generators"
         let sequence =
             compileOrFail braid AnyonSpecies.AnyonType.Ising
@@ -552,10 +560,10 @@ module BraidToGateTests =
     let ``Phase magnitude is always unity (on unit circle)`` () =
         // Business meaning: Braiding phases are unitary, |phase| = 1
         let braid =
-            braidFromGensOrFail 4
-                [ BraidGroup.sigma 0; BraidGroup.sigma 1
-                  BraidGroup.sigma 2; BraidGroup.sigmaInv 0
-                  BraidGroup.sigma 1 ]
+            braidFromGensOrFail 8
+                [ BraidGroup.sigma 0; BraidGroup.sigma 2
+                  BraidGroup.sigma 4; BraidGroup.sigmaInv 0
+                  BraidGroup.sigma 2 ]
                 "Long sequence"
         let sequence =
             compileOrFail braid AnyonSpecies.AnyonType.Ising
@@ -800,7 +808,7 @@ module BraidToGateTests =
     [<Fact>]
     let ``Braid compiles to a gate circuit (compileToCircuit)`` () =
         // Business meaning: a braid program can be turned into a runnable gate circuit.
-        let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
+        let braid = braidFromGensOrFail 4 [BraidGroup.sigma 0] "Single σ_0"
         match BraidToGate.compileToCircuit braid AnyonSpecies.AnyonType.Ising BraidToGate.defaultOptions with
         | Error err -> failwith $"compileToCircuit failed: {err.Message}"
         | Ok circuit ->
@@ -812,7 +820,7 @@ module BraidToGateTests =
     let ``Braid runs on a gate backend (executeOnGateBackend)`` () =
         // Business meaning: a topological (braid) program can be executed/validated
         // on a gate-based simulator/hardware via the wired braid->gate path.
-        let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
+        let braid = braidFromGensOrFail 4 [BraidGroup.sigma 0] "Single σ_0"
         let backend =
             FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend()
             :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend

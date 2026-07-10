@@ -973,11 +973,12 @@ module HybridSolver =
         match forceMethod with
         | Some Classical ->
             solveClassical ()
-            |> createClassicalSolution
-                <| "Classical Graph Coloring solver forced by user override. Quantum Advisor bypassed."
-                <| startTime
-                <| None
-            |> Ok
+            |> Result.map (fun classicalResult ->
+                createClassicalSolution
+                    classicalResult
+                    "Classical Graph Coloring solver forced by user override. Quantum Advisor bypassed."
+                    startTime
+                    None)
 
         | Some Quantum ->
             // Execute quantum Graph Coloring solver using provided backend (or default LocalBackend)
@@ -1010,8 +1011,8 @@ module HybridSolver =
                     | None ->
                         let reasoning = $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
                         solveClassical ()
-                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                        |> Ok
+                        |> Result.map (fun classicalResult ->
+                            createClassicalSolution classicalResult reasoning startTime (Some recommendation))
 
                     | Some actualBackend ->
                         let estimatedCost = estimateBackendCostUSD actualBackend numVertices
@@ -1020,8 +1021,8 @@ module HybridSolver =
                         | Some limit when estimatedCost > limit ->
                             let reasoning = $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
                             solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                            |> Ok
+                            |> Result.map (fun classicalResult ->
+                                createClassicalSolution classicalResult reasoning startTime (Some recommendation))
 
                         | _ ->
                             let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
@@ -1039,8 +1040,8 @@ module HybridSolver =
                 | _ ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical Graph Coloring solver."
                     solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                    |> Ok
+                    |> Result.map (fun classicalResult ->
+                        createClassicalSolution classicalResult reasoning startTime (Some recommendation))
             )
 
     /// Solve Graph Coloring problem using hybrid solver with automatic quantum vs classical selection

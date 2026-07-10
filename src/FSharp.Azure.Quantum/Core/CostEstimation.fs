@@ -560,33 +560,37 @@ module CostEstimation =
         (monthlySpent: decimal<USD>) 
         : BudgetCheckResult =
         
-        // Check per-job limit
+        // Check all Denied conditions first so a Warning on one dimension
+        // never masks a Denial on another.
         match policy.PerJobLimit with
         | Some limit when cost.ExpectedCost > limit ->
-            Denied (sprintf "Job cost $%.2f exceeds per-job limit $%.2f" 
+            Denied (sprintf "Job cost $%.2f exceeds per-job limit $%.2f"
                 (float (cost.ExpectedCost / 1.0M<USD>)) (float (limit / 1.0M<USD>)))
         | _ ->
-            // Check daily limit
             match policy.DailyLimit with
             | Some limit when dailySpent + cost.ExpectedCost > limit ->
                 let remaining = limit - dailySpent
-                Denied (sprintf "Job cost $%.2f would exceed daily limit (remaining: $%.2f)" 
+                Denied (sprintf "Job cost $%.2f would exceed daily limit (remaining: $%.2f)"
                     (float (cost.ExpectedCost / 1.0M<USD>)) (float (remaining / 1.0M<USD>)))
-            | Some limit when (dailySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
-                let percentUsed = (dailySpent + cost.ExpectedCost) / limit * 100.0M
-                Warning (sprintf "Job will use %.1f%% of daily budget" (float percentUsed))
             | _ ->
-                // Check monthly limit
                 match policy.MonthlyLimit with
                 | Some limit when monthlySpent + cost.ExpectedCost > limit ->
                     let remaining = limit - monthlySpent
-                    Denied (sprintf "Job cost $%.2f would exceed monthly limit (remaining: $%.2f)" 
+                    Denied (sprintf "Job cost $%.2f would exceed monthly limit (remaining: $%.2f)"
                         (float (cost.ExpectedCost / 1.0M<USD>)) (float (remaining / 1.0M<USD>)))
-                | Some limit when (monthlySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
-                    let percentUsed = (monthlySpent + cost.ExpectedCost) / limit * 100.0M
-                    Warning (sprintf "Job will use %.1f%% of monthly budget" (float percentUsed))
                 | _ ->
-                    Approved
+                    // No limits exceeded — check warning thresholds
+                    match policy.DailyLimit with
+                    | Some limit when (dailySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
+                        let percentUsed = (dailySpent + cost.ExpectedCost) / limit * 100.0M
+                        Warning (sprintf "Job will use %.1f%% of daily budget" (float percentUsed))
+                    | _ ->
+                        match policy.MonthlyLimit with
+                        | Some limit when (monthlySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
+                            let percentUsed = (monthlySpent + cost.ExpectedCost) / limit * 100.0M
+                            Warning (sprintf "Job will use %.1f%% of monthly budget" (float percentUsed))
+                        | _ ->
+                            Approved
     
     // ============================================================================
     // COST TRACKING

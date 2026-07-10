@@ -350,3 +350,51 @@ module BraidingAmplitudeTests =
 
         Assert.True(diff < 0.05,
             $"Physical 4-braid phase mismatch. Expected +1, got {actualRelNorm}. Diff = {diff}")
+
+    // ========================================================================
+    // MULTI-QUBIT BRAID INDEXING (regression: qubit q → leaves 2q, 2q+1)
+    // ========================================================================
+
+    [<Fact>]
+    let ``S gate on qubit 1 of 2-qubit system produces relative phase i on qubit 1`` () =
+        // Regression: braid generator indices are LEAF indices. S on qubit q must
+        // braid leaves (2q, 2q+1); previously the QUBIT index was used directly,
+        // so S on qubit 1 braided leaves (1, 2) — a cross-pair position — and the
+        // executor's fallback silently applied a global phase (identity). Only
+        // qubit 0 (leaves 0, 1 — index 0) ever worked.
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
+        let state =
+            match backend.InitializeState 2 with
+            | Ok s -> s
+            | Error err -> failwith $"InitializeState failed: {err}"
+
+        // Prepare qubit 1 in |+⟩, then apply S (braid-compilation path) to qubit 1
+        let afterH = applyGate backend (CircuitBuilder.Gate.H 1) state
+        let afterS = applyGate backend (CircuitBuilder.Gate.S 1) afterH
+        let amps = getAmplitudes afterS
+
+        // LSB-first indexing: |q1=0,q0=0⟩ = index 0, |q1=1,q0=0⟩ = index 2
+        let rel = amps.[2] / amps.[0]
+        let relNorm = rel / Complex(Complex.Abs rel, 0.0)
+        let expected = Complex(0.0, 1.0)  // i
+        Assert.True(Complex.Abs (relNorm - expected) < 1e-6,
+            $"S on qubit 1 should give relative phase i on qubit 1, got {relNorm}")
+
+    // ========================================================================
+    // ROTATION PHASES ARE EXACT (regression: no silent snap to π/2 multiples)
+    // ========================================================================
+
+    [<Fact>]
+    let ``RZ with non-Clifford angle applies exact phase instead of snapping to π/2 multiple`` () =
+        // Regression: the braid-compilation tolerance was π/4 + 1e-10 — above the
+        // worst-case rounding error — so ANY rotation angle was accepted and
+        // silently rounded to the nearest π/2 multiple (RZ(π/4) became identity),
+        // corrupting QFT/QPE phases. RZ/P are now amplitude-intercepted on Ising
+        // (exact diag(1, e^{iθ})), and the braid path only accepts exact π/2 multiples.
+        let (backend, state) = initSingleQubit ()
+        let afterH = applyGate backend (CircuitBuilder.Gate.H 0) state
+        let afterRz = applyGate backend (CircuitBuilder.Gate.RZ (0, Math.PI / 4.0)) afterH
+        let amps = getAmplitudes afterRz
+
+        let expectedRelPhase = Complex(cos (Math.PI / 4.0), sin (Math.PI / 4.0))  // e^{iπ/4}
+        assertRelativePhase 1e-6 expectedRelPhase amps "RZ(π/4) on |+⟩"

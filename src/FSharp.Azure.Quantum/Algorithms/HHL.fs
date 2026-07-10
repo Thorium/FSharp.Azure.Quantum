@@ -609,7 +609,8 @@ module HHL =
                              (solutionQubits |> List.toArray)
                              (CircuitBuilder.empty totalQubits)
 
-                     evolved.Gates |> List.map QuantumOperation.Gate
+                     // Circuit.Gates is stored most-recent-first; restore forward order
+                     evolved.Gates |> List.rev |> List.map QuantumOperation.Gate
 
                  let controlledEvolutions =
                      eigenQubits

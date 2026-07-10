@@ -443,17 +443,20 @@ module QuantumGraphColoringSolver =
     // ================================================================================
 
     /// Solve graph coloring using greedy coloring algorithm (classical)
-    /// 
+    ///
     /// This provides a classical baseline for comparison with quantum QAOA.
     /// Uses greedy vertex ordering with first-fit color assignment.
-    /// 
+    ///
     /// Typical performance: Near-optimal for many graph types
-    let internal solveClassical (problem: GraphColoringProblem) : GraphColoringSolution =
+    /// Returns Error when some vertex has all NumColors colors already used by its
+    /// neighbors, i.e. the graph is not colorable with NumColors colors by this
+    /// greedy heuristic.
+    let internal solveClassical (problem: GraphColoringProblem) : Result<GraphColoringSolution, QuantumError> =
         // Build adjacency list for efficient neighbor lookup
-        let adjacencyMap = 
+        let adjacencyMap =
             problem.Vertices
             |> List.map (fun vertex ->
-                let neighbors = 
+                let neighbors =
                     problem.Edges
                     |> List.collect (fun edge ->
                         if edge.Source = vertex then [edge.Target]
@@ -464,57 +467,67 @@ module QuantumGraphColoringSolver =
                 vertex, neighbors
             )
             |> Map.ofList
-        
-        // Greedy coloring algorithm using functional fold
-        let colorAssignments =
+
+        // Greedy coloring algorithm using functional fold, short-circuiting to Error
+        // when no color remains for a vertex
+        let colorAssignmentsResult =
             problem.Vertices
-            |> List.fold (fun assignments vertex ->
-                // Check if vertex has fixed color
-                match Map.tryFind vertex problem.FixedColors with
-                | Some fixedColor ->
-                    assignments |> Map.add vertex fixedColor
-                | None ->
-                    // Find colors used by neighbors
-                    let neighbors = Map.find vertex adjacencyMap
-                    let neighborColors = 
-                        neighbors
-                        |> Set.toList
-                        |> List.choose (fun neighbor -> Map.tryFind neighbor assignments)
-                        |> Set.ofList
-                    
-                    // Assign first available color (not used by any neighbor)
-                    let assignedColor = 
-                        seq { 0 .. problem.NumColors - 1 }
-                        |> Seq.find (fun color -> not (Set.contains color neighborColors))
-                    
-                    assignments |> Map.add vertex assignedColor
-            ) Map.empty
-        
-        // Count distinct colors used
-        let colorsUsed = 
-            colorAssignments 
-            |> Map.toList 
-            |> List.map snd 
-            |> List.distinct 
-            |> List.length
-        
-        // Count conflicts (should be 0 for greedy algorithm)
-        let conflictCount =
-            problem.Edges
-            |> List.filter (fun edge ->
-                let sourceColor = Map.find edge.Source colorAssignments
-                let targetColor = Map.find edge.Target colorAssignments
-                sourceColor = targetColor
-            )
-            |> List.length
-        
-        {
-            ColorAssignments = colorAssignments
-            ColorsUsed = colorsUsed
-            ConflictCount = conflictCount
-            IsValid = conflictCount = 0
-            BackendName = "Classical Greedy"
-            NumShots = 0
-            ElapsedMs = 0.0
-            BestEnergy = 0.0
-        }
+            |> List.fold (fun assignmentsResult vertex ->
+                assignmentsResult
+                |> Result.bind (fun assignments ->
+                    // Check if vertex has fixed color
+                    match Map.tryFind vertex problem.FixedColors with
+                    | Some fixedColor ->
+                        Ok (assignments |> Map.add vertex fixedColor)
+                    | None ->
+                        // Find colors used by neighbors
+                        let neighbors = Map.find vertex adjacencyMap
+                        let neighborColors =
+                            neighbors
+                            |> Set.toList
+                            |> List.choose (fun neighbor -> Map.tryFind neighbor assignments)
+                            |> Set.ofList
+
+                        // Assign first available color (not used by any neighbor)
+                        let availableColor =
+                            seq { 0 .. problem.NumColors - 1 }
+                            |> Seq.tryFind (fun color -> not (Set.contains color neighborColors))
+
+                        match availableColor with
+                        | Some color -> Ok (assignments |> Map.add vertex color)
+                        | None ->
+                            Error (QuantumError.OperationError (
+                                "Classical graph coloring",
+                                $"Graph is not colorable with {problem.NumColors} colors by the greedy heuristic: all colors are already used by neighbors of vertex '{vertex}'. Try increasing the number of colors.")))
+            ) (Ok Map.empty)
+
+        colorAssignmentsResult
+        |> Result.map (fun colorAssignments ->
+            // Count distinct colors used
+            let colorsUsed =
+                colorAssignments
+                |> Map.toList
+                |> List.map snd
+                |> List.distinct
+                |> List.length
+
+            // Count conflicts (should be 0 for greedy algorithm)
+            let conflictCount =
+                problem.Edges
+                |> List.filter (fun edge ->
+                    let sourceColor = Map.find edge.Source colorAssignments
+                    let targetColor = Map.find edge.Target colorAssignments
+                    sourceColor = targetColor
+                )
+                |> List.length
+
+            {
+                ColorAssignments = colorAssignments
+                ColorsUsed = colorsUsed
+                ConflictCount = conflictCount
+                IsValid = conflictCount = 0
+                BackendName = "Classical Greedy"
+                NumShots = 0
+                ElapsedMs = 0.0
+                BestEnergy = 0.0
+            })

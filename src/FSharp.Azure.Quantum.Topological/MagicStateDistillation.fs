@@ -72,10 +72,18 @@ module MagicStateDistillation =
             TopologicalResult.validationError "field" "Magic states only applicable to Ising anyons"
         else
             // Create a qubit state (4 sigma anyons) - linear fusion tree
-            // ((σ × σ) × σ) × σ with vacuum intermediate charges
+            // ((σ × σ → 1) × σ → σ) × σ → 1
+            //
+            // Intermediate charges must respect the Ising fusion rules:
+            //   σ × σ → 1        (first pair in the vacuum channel = |0⟩ sector)
+            //   1 × σ → σ        (ONLY σ is allowed here — a vacuum charge at this
+            //                     node made the tree invalid and rejected by
+            //                     FusionTree.validateState)
+            //   σ × σ → 1        (total charge vacuum: the 4-σ qubit is created
+            //                     from vacuum, as the distillation protocol assumes)
             let sigma = AnyonSpecies.Particle.Sigma
             let vacuum = AnyonSpecies.Particle.Vacuum
-            
+
             let tree =
                 FusionTree.fuse
                     (FusionTree.fuse
@@ -84,7 +92,7 @@ module MagicStateDistillation =
                             (FusionTree.leaf sigma)
                             vacuum)
                         (FusionTree.leaf sigma)
-                        vacuum)
+                        sigma)
                     (FusionTree.leaf sigma)
                     vacuum
             

@@ -96,30 +96,21 @@ module QaoaCircuit =
         /// - Diagonal term Q_ii * x_i => Q_ii/2 * (1 - Z_i)
         /// - Off-diagonal Q_ij * x_i * x_j => Q_ij/4 * (1 - Z_i)(1 - Z_j)
         ///                                   = Q_ij/4 * (1 - Z_i - Z_j + Z_i*Z_j)
-        /// 
+        ///
         /// We keep only the Z terms (constant offset dropped):
-        /// - Diagonal: -Q_ii/2 * Z_i
-        /// - Off-diagonal: Q_ij/4 * Z_i*Z_j
+        /// - Linear: (-Q_ii/2 - Σ_{j≠i} Q_ij/4) * Z_i
+        ///   (each cross term also contributes -Q_ij/4 to Z_i and Z_j)
+        /// - Quadratic: Q_ij/4 * Z_i*Z_j
         let fromQubo (quboMatrix: float[,]) : ProblemHamiltonian =
             let n = Array2D.length1 quboMatrix
-            
+
             if n <> Array2D.length2 quboMatrix then
                 failwith "QUBO matrix must be square"
-            
-            // Collect diagonal terms (single-qubit Z operators)
-            let diagonalTerms =
-                [| 0 .. n - 1 |]
-                |> Array.choose (fun i ->
-                    let qii = quboMatrix[i, i]
-                    if abs qii > 1e-10 then  // Skip near-zero terms
-                        Some {
-                            Coefficient = -qii / 2.0
-                            QubitsIndices = [| i |]
-                            PauliOperators = [| PauliZ |]
-                        }
-                    else
-                        None)
-            
+
+            // Linear Z_i coefficients: -Q_ii/2 from the diagonal,
+            // plus -Q_ij/4 from every cross term involving i.
+            let linearCoeffs = Array.init n (fun i -> -quboMatrix[i, i] / 2.0)
+
             // Collect off-diagonal terms (two-qubit ZZ interactions)
             // QUBO is symmetric, so we only need upper triangle
             let offDiagonalTerms =
@@ -129,6 +120,8 @@ module QaoaCircuit =
                     |> Array.choose (fun j ->
                         let qij = quboMatrix[i, j] + quboMatrix[j, i]  // Symmetrize
                         if abs qij > 1e-10 then  // Skip near-zero terms
+                            linearCoeffs[i] <- linearCoeffs[i] - qij / 4.0
+                            linearCoeffs[j] <- linearCoeffs[j] - qij / 4.0
                             Some {
                                 Coefficient = qij / 4.0
                                 QubitsIndices = [| i; j |]
@@ -136,10 +129,24 @@ module QaoaCircuit =
                             }
                         else
                             None))
-            
+
+            // Collect linear terms (single-qubit Z operators)
+            let linearTerms =
+                [| 0 .. n - 1 |]
+                |> Array.choose (fun i ->
+                    let hi = linearCoeffs[i]
+                    if abs hi > 1e-10 then  // Skip near-zero terms
+                        Some {
+                            Coefficient = hi
+                            QubitsIndices = [| i |]
+                            PauliOperators = [| PauliZ |]
+                        }
+                    else
+                        None)
+
             {
                 NumQubits = n
-                Terms = Array.append diagonalTerms offDiagonalTerms
+                Terms = Array.append linearTerms offDiagonalTerms
             }
 
         /// Convert sparse QUBO (Map<int*int, float>) directly to ProblemHamiltonian
@@ -152,34 +159,42 @@ module QaoaCircuit =
         /// Uses the same Ising mapping as fromQubo:
         ///   Diagonal  Q_ii  => -Q_ii/2 * Z_i
         ///   Off-diag  (i<j) => (Q_ij + Q_ji)/4 * Z_i Z_j
+        ///                      and -(Q_ij + Q_ji)/4 added to both Z_i and Z_j
         ///
         /// Parameters:
         ///   numQubits - number of binary variables
         ///   quboMap   - sparse QUBO entries (i,j) -> coefficient (may be symmetric or upper-triangle)
         let fromQuboSparse (numQubits: int) (quboMap: Map<int * int, float>) : ProblemHamiltonian =
-            // Accumulate diagonal and off-diagonal contributions.
+            // Accumulate linear and off-diagonal contributions.
             // Off-diagonal: collect into (min(i,j), max(i,j)) -> summed coefficient
             // so we handle both upper and lower triangle entries.
-            let mutable diagCoeffs = Map.empty<int, float>
+            let mutable linearCoeffs = Map.empty<int, float>
             let mutable offDiagCoeffs = Map.empty<int * int, float>
+
+            let addLinear i delta =
+                let prev = linearCoeffs |> Map.tryFind i |> Option.defaultValue 0.0
+                linearCoeffs <- linearCoeffs |> Map.add i (prev + delta)
 
             for KeyValue((i, j), qij) in quboMap do
                 if abs qij > 1e-10 then
                     if i = j then
-                        let prev = diagCoeffs |> Map.tryFind i |> Option.defaultValue 0.0
-                        diagCoeffs <- diagCoeffs |> Map.add i (prev + qij)
+                        // Q_ii * x_i => Q_ii/2 * (1 - Z_i): linear -Q_ii/2
+                        addLinear i (-qij / 2.0)
                     else
+                        // Q_ij * x_i x_j => Q_ij/4 * (1 - Z_i - Z_j + Z_i Z_j)
+                        addLinear i (-qij / 4.0)
+                        addLinear j (-qij / 4.0)
                         let key = if i < j then (i, j) else (j, i)
                         let prev = offDiagCoeffs |> Map.tryFind key |> Option.defaultValue 0.0
                         offDiagCoeffs <- offDiagCoeffs |> Map.add key (prev + qij)
 
             let diagonalTerms =
-                diagCoeffs
+                linearCoeffs
                 |> Map.toArray
-                |> Array.choose (fun (i, qii) ->
-                    if abs qii > 1e-10 then
+                |> Array.choose (fun (i, hi) ->
+                    if abs hi > 1e-10 then
                         Some {
-                            Coefficient = -qii / 2.0
+                            Coefficient = hi
                             QubitsIndices = [| i |]
                             PauliOperators = [| PauliZ |]
                         }

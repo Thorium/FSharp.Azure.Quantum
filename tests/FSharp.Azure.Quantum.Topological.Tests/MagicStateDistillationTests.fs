@@ -45,6 +45,18 @@ module MagicStateDistillationTests =
         | Ok state ->
             Assert.Equal(1.0, state.Fidelity)
             Assert.Equal(0.0, state.ErrorRate)
+
+    [<Fact>]
+    let ``Prepared magic state has a valid fusion tree`` () =
+        // Regression: the 4-σ tree assigned Vacuum to the ((σ×σ→1)×σ) node, but
+        // 1 × σ fuses only to σ — the state was rejected by FusionTree.validateState.
+        // The intermediate charge must be σ, with total charge vacuum.
+        match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising with
+        | Error err -> failwith $"Failed to prepare magic state: {err.Message}"
+        | Ok state ->
+            match FusionTree.validateState state.QubitState with
+            | Ok () -> ()
+            | Error err -> failwith $"Magic state fusion tree is invalid: {err.Message}"
     
     // ========================================================================
     // FIDELITY CALCULATION TESTS

@@ -414,17 +414,25 @@ module TopologicalOperations =
                         let! phase = BraidingOperators.element anyon1 anyon2 channel state.AnyonType
                         return normalize { Terms = [ (conjugateIfInverse isClockwise phase, state) ]; AnyonType = state.AnyonType }
                     | None ->
-                        // Fallback: use first allowed fusion channel (phase-only).
+                        // The adjacent pair is NOT explicitly fused in this basis (e.g. a
+                        // cross-pair braid on the σ-pair encoding: leaf 2q+1 with leaf 2q+2).
+                        // Applying such a braid correctly requires F-move basis changes that
+                        // are only implemented for 3-anyon trees above.
+                        //
+                        // The previous fallback applied the FIRST fusion channel's R-phase as
+                        // a constant global phase to the whole state, silently turning the
+                        // braid into (at best) identity. Fail explicitly instead: a wrong
+                        // quantum state reported as success is worse than an honest error.
                         let anyon1 = anyons.[leftIndex]
                         let anyon2 = anyons.[leftIndex + 1]
-                        let! outcomes = FusionRules.fuse anyon1 anyon2 state.AnyonType
-
-                        match outcomes |> List.tryHead with
-                        | None ->
-                            return! TopologicalResult.logicError "fusion" $"No fusion channels for {anyon1} and {anyon2}"
-                        | Some firstOutcome ->
-                            let! phase = BraidingOperators.element anyon1 anyon2 firstOutcome.Result state.AnyonType
-                            return normalize { Terms = [ (conjugateIfInverse isClockwise phase, state) ]; AnyonType = state.AnyonType }
+                        return!
+                            TopologicalResult.notImplemented
+                                "Cross-pair anyon braiding"
+                                (Some ($"Braiding anyons at positions ({leftIndex}, {leftIndex + 1}) [{anyon1} × {anyon2}] " +
+                                       "is not supported for this tree shape: the pair is not an explicitly fused " +
+                                       "leaf pair in the current basis, and the F-move machinery required for " +
+                                       "cross-pair braids is only implemented for 3-anyon trees. Within-pair braids " +
+                                       "(even leaf indices in the σ-pair encoding) are supported."))
             }
 
     let braidAdjacentAnyons (leftIndex: int) (state: FusionTree.State) : TopologicalResult<Superposition> =
@@ -489,28 +497,51 @@ module TopologicalOperations =
                 if outcomes.IsEmpty then
                     return! TopologicalResult.logicError "fusion" $"No fusion channels for {anyon1} and {anyon2}"
                 else
-                    // Born-rule probabilities from quantum dimensions:
-                    // P(c | a × b) = d_c² / Σ_{c'} d_{c'}²
-                    // where d_c is the quantum dimension of fusion outcome c.
-                    // This is the correct topological measurement probability for
-                    // a state whose internal fusion channels are in the canonical basis.
-                    let outcomeDimSq =
-                        outcomes
-                        |> List.map (fun o -> 
-                            let d = AnyonSpecies.quantumDimension o.Result
-                            (o, d * d))
-                    
-                    let totalDimSq = outcomeDimSq |> List.sumBy snd
-                    
+                    // Born-rule outcome probabilities.
+                    //
+                    // Case 1 — the measured pair is explicitly fused in this basis state:
+                    // the tree stores the pair's fusion channel, so this basis state is an
+                    // EIGENSTATE of the measured charge and the outcome is deterministic
+                    // (probability 1 for the stored channel). Superposition weighting
+                    // across basis states is handled by the callers (e.g.
+                    // TopologicalBackend.ApplyMeasure and TopologicalBuilder.measure sum
+                    // |amplitude|² per channel), which together give the correct Born rule
+                    // from the state's actual amplitudes.
+                    //
+                    // Case 2 — the tree stores no channel for this pair (bare/cross-pair
+                    // measurement with no amplitude information): fall back to the
+                    // canonical vacuum-pair Born rule
+                    //     P(c | a × b) = d_c / (d_a · d_b)
+                    // (quantum dimensions enter LINEARLY; note Σ_c N_ab^c d_c = d_a·d_b,
+                    // so these sum to 1). The previous formula d_c²/Σd_c² was incorrect.
+                    let outcomeProbs =
+                        let raw =
+                            match tryFindFusedLeafPairChannel leftIndex state.Tree with
+                            | Some storedChannel ->
+                                outcomes
+                                |> List.map (fun o -> (o, if o.Result = storedChannel then 1.0 else 0.0))
+                            | None ->
+                                let dA = AnyonSpecies.quantumDimension anyon1
+                                let dB = AnyonSpecies.quantumDimension anyon2
+                                outcomes
+                                |> List.map (fun o -> (o, AnyonSpecies.quantumDimension o.Result / (dA * dB)))
+                        // Drop impossible outcomes (probability 0)
+                        raw |> List.filter (fun (_, p) -> p > 1e-15)
+
+                    if outcomeProbs.IsEmpty then
+                        return!
+                            TopologicalResult.logicError
+                                "fusion measurement"
+                                $"Stored fusion channel at position {leftIndex} is not a valid outcome of {anyon1} × {anyon2}"
+                    else
+
                     // Build result list using fold with Result propagation
                     let! results =
-                        outcomeDimSq
-                        |> List.fold (fun resultsResult (outcome, dimSq) ->
+                        outcomeProbs
+                        |> List.fold (fun resultsResult (outcome, probability) ->
                             topologicalResult {
                                 let! results = resultsResult
-                                
-                                let probability = dimSq / totalDimSq
-                                
+
                                 // Create new anyon list with fusion applied - optimized
                                 // Use List.mapi for single-pass construction instead of 3 concatenations
                                 let newAnyons =
@@ -944,6 +975,107 @@ module TopologicalOperations =
             |> combineLikeTerms
             |> normalize
             |> Ok
+
+    /// Phase gate Rz(θ) = P(θ) = diag(1, e^{iθ}) for topological qubits
+    ///
+    /// Applies: |0⟩ → |0⟩, |1⟩ → e^{iθ} |1⟩
+    /// (Convention matches GateToBraid/GateTranspiler: Rz(θ) = diag(1, e^{iθ}),
+    /// so CP decompositions built from RZ+CNOT reproduce the exact CP unitary.)
+    ///
+    /// **PHYSICS**: Ising anyon braiding can only realize θ that are multiples of
+    /// π/2 (Clifford phases). Arbitrary θ requires non-topological supplementation
+    /// (magic states / measurement). This amplitude-level implementation provides
+    /// the exact ideal result of such supplementation, mirroring tGate/tDaggerGate.
+    let phaseGate (qubitIndex: int) (angle: float) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // Rz(θ)|0⟩ = |0⟩          → amplitude unchanged
+            // Rz(θ)|1⟩ = e^{iθ} |1⟩   → amplitude * e^{iθ}, channel unchanged
+            let phase = Complex.Exp(Complex(0.0, angle))
+            let newTerms =
+                superposition.Terms
+                |> List.map (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        if channel = AnyonSpecies.Particle.Psi then
+                            (amp * phase, state)   // e^{iθ} phase for |1⟩
+                        else
+                            (amp, state)           // unchanged for |0⟩
+                    | None -> (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// Apply an arbitrary single-qubit unitary U = [[u00, u01]; [u10, u11]]
+    /// (columns indexed by the input channel: Vacuum=|0⟩, Psi=|1⟩) at the
+    /// amplitude level. **⚠️ SIMULATOR ONLY** — same status as hadamard/phaseGate:
+    /// on real topological hardware this requires non-topological supplementation.
+    let private applySingleQubitUnitary
+        (u00: Complex) (u01: Complex) (u10: Complex) (u11: Complex)
+        (qubitIndex: int)
+        (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            let newTerms =
+                superposition.Terms
+                |> List.collect (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        let isZero = (channel = AnyonSpecies.Particle.Vacuum)
+                        // Select the U column for the input channel
+                        let amp0 = amp * (if isZero then u00 else u01)
+                        let amp1 = amp * (if isZero then u10 else u11)
+
+                        let tree0 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Vacuum state.Tree
+                        let tree1 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Psi state.Tree
+
+                        match tree0, tree1 with
+                        | Some t0, Some t1 ->
+                            [ (amp0, FusionTree.create t0 state.AnyonType)
+                              (amp1, FusionTree.create t1 state.AnyonType) ]
+                        | _ ->
+                            [ (amp, state) ]
+                    | None ->
+                        [ (amp, state) ]
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// RX(θ) = [[cos(θ/2), -i·sin(θ/2)]; [-i·sin(θ/2), cos(θ/2)]] — exact
+    /// amplitude-level X-rotation (simulator-only, like hadamard/phaseGate).
+    let rxGate (qubitIndex: int) (angle: float) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let c = Complex(cos (angle / 2.0), 0.0)
+        let s = Complex(0.0, -sin (angle / 2.0))
+        applySingleQubitUnitary c s s c qubitIndex superposition
+
+    /// RY(θ) = [[cos(θ/2), -sin(θ/2)]; [sin(θ/2), cos(θ/2)]] — exact
+    /// amplitude-level Y-rotation (simulator-only, like hadamard/phaseGate).
+    let ryGate (qubitIndex: int) (angle: float) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let c = Complex(cos (angle / 2.0), 0.0)
+        let s = Complex(sin (angle / 2.0), 0.0)
+        applySingleQubitUnitary c (-s) s c qubitIndex superposition
 
     /// SWAP gate for topological qubits
     ///

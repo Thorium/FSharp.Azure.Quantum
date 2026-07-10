@@ -21,7 +21,10 @@ module QuboExtractionTests =
     /// Create a simple Problem Hamiltonian for testing
     let createSimpleHamiltonian () : ProblemHamiltonian =
         // Hamiltonian: -1.0 * Z_0 + 0.5 * Z_0*Z_1
-        // Expected QUBO: Q_00 = 2.0, Q_01 = 2.0
+        // Expected QUBO (inverse of x=(1-Z)/2 map, cross terms feed the linear parts):
+        //   Q_01 = 4*0.5 = 2.0
+        //   Q_00 = -2*(-1.0 + 0.5) = 1.0
+        //   Q_11 = -2*(0.0 + 0.5) = -1.0
         {
             NumQubits = 2
             Terms = [|
@@ -34,15 +37,19 @@ module QuboExtractionTests =
     let createMaxCutHamiltonian () : ProblemHamiltonian =
         // MaxCut QUBO for edges: (0,1,5.0), (1,2,3.0)
         // QUBO: Q_00=5, Q_11=8, Q_22=3, Q_01=-5, Q_12=-3
-        // Hamiltonian: -2.5*Z_0 - 4*Z_1 - 1.5*Z_2 + 1.25*Z_0*Z_1 + 0.75*Z_1*Z_2
+        // Under x=(1-Z)/2 (cross terms contribute -Q_ij/4 to each incident linear):
+        //   c_0 = -5/2 - (-5)/4 = -1.25
+        //   c_1 = -8/2 - (-5)/4 - (-3)/4 = -2.0
+        //   c_2 = -3/2 - (-3)/4 = -0.75
+        //   c_01 = -5/4 = -1.25, c_12 = -3/4 = -0.75
         {
             NumQubits = 3
             Terms = [|
-                { Coefficient = -2.5; QubitsIndices = [| 0 |]; PauliOperators = [| PauliZ |] }
-                { Coefficient = -4.0; QubitsIndices = [| 1 |]; PauliOperators = [| PauliZ |] }
-                { Coefficient = -1.5; QubitsIndices = [| 2 |]; PauliOperators = [| PauliZ |] }
-                { Coefficient = 1.25; QubitsIndices = [| 0; 1 |]; PauliOperators = [| PauliZ; PauliZ |] }
-                { Coefficient = 0.75; QubitsIndices = [| 1; 2 |]; PauliOperators = [| PauliZ; PauliZ |] }
+                { Coefficient = -1.25; QubitsIndices = [| 0 |]; PauliOperators = [| PauliZ |] }
+                { Coefficient = -2.0; QubitsIndices = [| 1 |]; PauliOperators = [| PauliZ |] }
+                { Coefficient = -0.75; QubitsIndices = [| 2 |]; PauliOperators = [| PauliZ |] }
+                { Coefficient = -1.25; QubitsIndices = [| 0; 1 |]; PauliOperators = [| PauliZ; PauliZ |] }
+                { Coefficient = -0.75; QubitsIndices = [| 1; 2 |]; PauliOperators = [| PauliZ; PauliZ |] }
             |]
         }
     
@@ -81,11 +88,12 @@ module QuboExtractionTests =
         let hamiltonian = createSimpleHamiltonian ()
         
         let qubo = fromProblemHamiltonian hamiltonian
-        
-        // Expected: Q_00 = 2.0, Q_01 = 2.0
-        Assert.Equal(2, Map.count qubo)
-        Assert.Equal(2.0, qubo.[(0, 0)], precision = 10)
+
+        // Expected: Q_00 = -2*(-1.0 + 0.5) = 1.0, Q_01 = 2.0, Q_11 = -2*0.5 = -1.0
+        Assert.Equal(3, Map.count qubo)
+        Assert.Equal(1.0, qubo.[(0, 0)], precision = 10)
         Assert.Equal(2.0, qubo.[(0, 1)], precision = 10)
+        Assert.Equal(-1.0, qubo.[(1, 1)], precision = 10)
     
     [<Fact>]
     let ``fromProblemHamiltonian normalizes indices to upper triangle`` () =
@@ -125,10 +133,10 @@ module QuboExtractionTests =
         Assert.Equal(5.0, qubo.[(0, 0)], precision = 10)
         Assert.Equal(8.0, qubo.[(1, 1)], precision = 10)
         Assert.Equal(3.0, qubo.[(2, 2)], precision = 10)
-        
+
         // Check off-diagonal terms
-        Assert.Equal(5.0, qubo.[(0, 1)], precision = 10)
-        Assert.Equal(3.0, qubo.[(1, 2)], precision = 10)
+        Assert.Equal(-5.0, qubo.[(0, 1)], precision = 10)
+        Assert.Equal(-3.0, qubo.[(1, 2)], precision = 10)
     
     [<Fact>]
     let ``fromProblemHamiltonian rejects higher-order terms`` () =
@@ -359,21 +367,26 @@ module QuboExtractionTests =
     // ============================================================================
     
     [<Fact>]
-    let ``extraction handles large QUBO (100 variables)`` () =
-        let terms = [|
-            for i in 0 .. 99 do
-                yield { Coefficient = -float i / 2.0; QubitsIndices = [| i |]; PauliOperators = [| PauliZ |] }
-            for i in 0 .. 98 do
-                yield { Coefficient = float i / 4.0; QubitsIndices = [| i; i + 1 |]; PauliOperators = [| PauliZ; PauliZ |] }
-        |]
-        
-        let hamiltonian : ProblemHamiltonian = { NumQubits = 100; Terms = terms }
-        
-        let qubo = fromProblemHamiltonian hamiltonian
-        
-        // Should have 100 diagonal + 99 off-diagonal = 199 terms
-        Assert.Equal(199, Map.count qubo)
-        Assert.Equal(100, getNumVariables qubo)
+    let ``extraction round-trips a large QUBO (100 variables) through fromQuboSparse`` () =
+        // Round-trip property: fromProblemHamiltonian must be the exact inverse of
+        // ProblemHamiltonian.fromQuboSparse (this is what the D-Wave path relies on).
+        let originalQubo =
+            Map.ofList [
+                for i in 0 .. 99 do
+                    yield (i, i), float (i + 1)
+                for i in 0 .. 98 do
+                    yield (i, i + 1), float (i + 1) * (if i % 2 = 0 then 1.0 else -1.0)
+            ]
+
+        let hamiltonian = ProblemHamiltonian.fromQuboSparse 100 originalQubo
+        let extracted = fromProblemHamiltonian hamiltonian
+
+        Assert.Equal(Map.count originalQubo, Map.count extracted)
+        Assert.Equal(100, getNumVariables extracted)
+        for KeyValue(key, expected) in originalQubo do
+            match Map.tryFind key extracted with
+            | Some actual -> Assert.Equal(expected, actual, precision = 8)
+            | None -> failwith $"Round-trip lost QUBO term {key}"
     
     [<Fact>]
     let ``extraction preserves negative coefficients`` () =
@@ -387,9 +400,9 @@ module QuboExtractionTests =
         
         let qubo = fromProblemHamiltonian hamiltonian
         
-        // Q_00 = -2 * 2.5 = -5.0 (negative)
+        // Q_00 = -2 * (2.5 + (-1.25)) = -2.5 (negative)
         // Q_01 = 4 * (-1.25) = -5.0 (negative)
-        Assert.Equal(-5.0, qubo.[(0, 0)], precision = 10)
+        Assert.Equal(-2.5, qubo.[(0, 0)], precision = 10)
         Assert.Equal(-5.0, qubo.[(0, 1)], precision = 10)
     
     [<Fact>]
@@ -404,7 +417,8 @@ module QuboExtractionTests =
         
         let qubo = fromProblemHamiltonian hamiltonian
         
-        // Both terms should be preserved (not skipped in extraction)
-        Assert.Equal(2, Map.count qubo)
+        // All terms should be preserved (not skipped in extraction);
+        // the ZZ term also produces a Q_11 diagonal via the linear reconstruction
+        Assert.Equal(3, Map.count qubo)
         Assert.True(abs qubo.[(0, 0)] > 0.0)
         Assert.True(abs qubo.[(0, 1)] > 0.0)

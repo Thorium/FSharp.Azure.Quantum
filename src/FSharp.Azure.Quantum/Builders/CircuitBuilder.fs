@@ -844,12 +844,12 @@ module CircuitBuilder =
             // Conditional: invert the inner unitary, same classical condition
             | Conditional (q, inner) -> Conditional (q, inverseGate inner)
         
-        // Gates are stored in reverse chronological order internally.
-        // Adjoint of [A, B, C] (forward) is [C†, B†, A†] (forward).
-        // Stored reversed: original is [C, B, A], adjoint stored reversed is [A†, B†, C†].
-        // Mapping inverseGate over [C, B, A] gives [C†, B†, A†] which is already the
-        // correct reversed storage for the adjoint — no List.rev needed.
-        { circuit with Gates = circuit.Gates |> List.map inverseGate }
+        // Gates are stored most-recent-first internally (executors List.rev before applying).
+        // Original forward execution: A, B, C — stored as [C; B; A].
+        // Adjoint must execute C†, B†, A† — so its stored (most-recent-first) form is
+        // [A†; B†; C†]. Mapping inverseGate over the stored [C; B; A] gives [C†; B†; A†],
+        // which must then be reversed to obtain the correct storage order.
+        { circuit with Gates = circuit.Gates |> List.map inverseGate |> List.rev }
     
     // ========================================================================
     // COMMON CIRCUIT PATTERNS (Quantum Subroutines)

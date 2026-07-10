@@ -374,35 +374,62 @@ module ToricCodeTests =
     let ``correctionPath between same point returns empty`` () =
         let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
         let p = { ToricCode.X = 2; ToricCode.Y = 2 }
-        let path = ToricCode.correctionPath lattice p p ToricCode.Horizontal
+        let path = ToricCode.correctionPath lattice p p ToricCode.VertexSyndrome
         Assert.Empty(path)
-    
+
     [<Fact>]
     let ``correctionPath along horizontal produces correct length`` () =
         let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
         let p1 = { ToricCode.X = 1; ToricCode.Y = 2 }
         let p2 = { ToricCode.X = 4; ToricCode.Y = 2 }
-        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.Horizontal
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.VertexSyndrome
         // Distance is 3 (direct path), so 3 edges
         Assert.Equal(3, path.Length)
-    
+        // A vertex-to-vertex path moving in x crosses Horizontal edges
+        path |> List.iter (fun e -> Assert.Equal(ToricCode.Horizontal, e.Type))
+
     [<Fact>]
     let ``correctionPath wraps around torus when shorter`` () =
         let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
         let p1 = { ToricCode.X = 0; ToricCode.Y = 0 }
         let p2 = { ToricCode.X = 5; ToricCode.Y = 0 }
-        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.Horizontal
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.VertexSyndrome
         // Wrap-around: 1 edge (go from 0 backwards to 5) vs direct: 5 edges
         Assert.Equal(1, path.Length)
-    
+        // Moving from vertex (0,0) to (5,0) backwards crosses Horizontal edge at (5,0)
+        Assert.Equal(ToricCode.Horizontal, path.Head.Type)
+        Assert.Equal(5, path.Head.Position.X)
+
     [<Fact>]
     let ``correctionPath with both dx and dy produces combined length`` () =
         let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
         let p1 = { ToricCode.X = 1; ToricCode.Y = 1 }
         let p2 = { ToricCode.X = 3; ToricCode.Y = 4 }
-        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.Horizontal
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.VertexSyndrome
         // dx=2, dy=3, total=5 edges
         Assert.Equal(5, path.Length)
+
+    [<Fact>]
+    let ``correctionPath segments carry their actual edge types`` () =
+        // Regression: previously a single EdgeType was stamped on the whole path.
+        // A vertex-lattice path with both x and y segments must mix Horizontal
+        // (x-moves) and Vertical (y-moves) edges.
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let p1 = { ToricCode.X = 1; ToricCode.Y = 1 }
+        let p2 = { ToricCode.X = 3; ToricCode.Y = 4 }
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.VertexSyndrome
+
+        let horizontalCount = path |> List.filter (fun e -> e.Type = ToricCode.Horizontal) |> List.length
+        let verticalCount = path |> List.filter (fun e -> e.Type = ToricCode.Vertical) |> List.length
+        Assert.Equal(2, horizontalCount)  // dx = 2 → 2 Horizontal edges
+        Assert.Equal(3, verticalCount)    // dy = 3 → 3 Vertical edges
+
+        // Dual-lattice (plaquette) paths cross the opposite edge types
+        let dualPath = ToricCode.correctionPath lattice p1 p2 ToricCode.PlaquetteSyndrome
+        let dualHorizontal = dualPath |> List.filter (fun e -> e.Type = ToricCode.Horizontal) |> List.length
+        let dualVertical = dualPath |> List.filter (fun e -> e.Type = ToricCode.Vertical) |> List.length
+        Assert.Equal(3, dualHorizontal)   // dy = 3 → 3 Horizontal edges crossed
+        Assert.Equal(2, dualVertical)     // dx = 2 → 2 Vertical edges crossed
     
     // ========================================================================
     // MWPM DECODER: VERTEX AND PLAQUETTE SYNDROME DECODING
@@ -505,7 +532,7 @@ module ToricCodeTests =
     let ``applyCorrections with empty corrections is identity`` () =
         let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
         let state = ToricCode.initializeGroundState lattice
-        let corrected = ToricCode.applyCorrections state [] ToricCode.Horizontal
+        let corrected = ToricCode.applyCorrections state [] ToricCode.VertexSyndrome
         
         // State should be unchanged
         Assert.Equal(state.Qubits.Count, corrected.Qubits.Count)
@@ -544,4 +571,87 @@ module ToricCodeTests =
                     "Vertex decoder should pair e-particle excitations")
                 Assert.True(vertexResult.Corrections.Length > 0,
                     "Vertex decoder should produce correction chains")
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    // ========================================================================
+    // MWPM DECODER: END-TO-END CORRECTION (REGRESSION)
+    // ========================================================================
+    // Regression tests: the decoder previously applied X corrections to
+    // vertex (e-particle) syndromes, but e-particles are created by Z errors
+    // and must be corrected with Z operators. After decoding, the corrected
+    // state must have an empty syndrome.
+
+    let private assertEmptySyndrome (state: ToricCode.ToricCodeState) =
+        let syndrome = ToricCode.measureSyndrome state
+        Assert.Empty(ToricCode.getElectricExcitations syndrome)
+        Assert.Empty(ToricCode.getMagneticExcitations syndrome)
+
+    [<Fact>]
+    let ``decodeSyndrome fully corrects single Z error on vertical edge`` () =
+        let lattice = { ToricCode.Width = 5; ToricCode.Height = 5 }
+        let state = ToricCode.initializeGroundState lattice
+
+        let edge = {
+            ToricCode.Position = { ToricCode.X = 2; ToricCode.Y = 2 }
+            ToricCode.Type = ToricCode.Vertical
+        }
+        let errorState = ToricCode.applyZError state edge
+
+        // Sanity: the Z error must be visible in the vertex syndrome
+        let preSyndrome = ToricCode.measureSyndrome errorState
+        Assert.Equal(2, (ToricCode.getElectricExcitations preSyndrome).Length)
+
+        match ToricCode.decodeSyndrome errorState with
+        | Ok (correctedState, _, _) -> assertEmptySyndrome correctedState
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    [<Fact>]
+    let ``decodeSyndrome fully corrects single Z error on horizontal edge`` () =
+        let lattice = { ToricCode.Width = 5; ToricCode.Height = 5 }
+        let state = ToricCode.initializeGroundState lattice
+
+        let edge = {
+            ToricCode.Position = { ToricCode.X = 1; ToricCode.Y = 1 }
+            ToricCode.Type = ToricCode.Horizontal
+        }
+        let errorState = ToricCode.applyZError state edge
+
+        match ToricCode.decodeSyndrome errorState with
+        | Ok (correctedState, _, _) -> assertEmptySyndrome correctedState
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    [<Fact>]
+    let ``decodeSyndrome fully corrects Z error across periodic boundary`` () =
+        // Z error on the last horizontal edge: excitations at vertices (4,0) and (0,0);
+        // the shortest correction path wraps around the torus.
+        let lattice = { ToricCode.Width = 5; ToricCode.Height = 5 }
+        let state = ToricCode.initializeGroundState lattice
+
+        let edge = {
+            ToricCode.Position = { ToricCode.X = 4; ToricCode.Y = 0 }
+            ToricCode.Type = ToricCode.Horizontal
+        }
+        let errorState = ToricCode.applyZError state edge
+
+        match ToricCode.decodeSyndrome errorState with
+        | Ok (correctedState, _, _) -> assertEmptySyndrome correctedState
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    [<Fact>]
+    let ``decodeSyndrome fully corrects two separated Z errors`` () =
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let state = ToricCode.initializeGroundState lattice
+
+        let edge1 = {
+            ToricCode.Position = { ToricCode.X = 1; ToricCode.Y = 1 }
+            ToricCode.Type = ToricCode.Horizontal
+        }
+        let edge2 = {
+            ToricCode.Position = { ToricCode.X = 4; ToricCode.Y = 4 }
+            ToricCode.Type = ToricCode.Vertical
+        }
+        let errorState = ToricCode.applyZError (ToricCode.applyZError state edge1) edge2
+
+        match ToricCode.decodeSyndrome errorState with
+        | Ok (correctedState, _, _) -> assertEmptySyndrome correctedState
         | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")

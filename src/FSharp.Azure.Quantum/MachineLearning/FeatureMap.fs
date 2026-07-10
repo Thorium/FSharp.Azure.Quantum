@@ -203,13 +203,15 @@ module FeatureMap =
             let rec applyStep step =
                 if step >= transformed.Length then ()
                 else
-                    for i in 0 .. step .. transformed.Length - 1 do
+                    // Standard iterative WHT butterfly: blocks of size 2*step,
+                    // pairing element i with element i+step within each block.
+                    for blockStart in 0 .. 2 * step .. transformed.Length - 1 do
                         for j in 0 .. step - 1 do
-                            if i + j + step < transformed.Length then
-                                let u = transformed.[i + j]
-                                let v = transformed.[i + j + step]
-                                transformed.[i + j] <- (u + v) / 2.0
-                                transformed.[i + j + step] <- (u - v) / 2.0
+                            if blockStart + j + step < transformed.Length then
+                                let u = transformed.[blockStart + j]
+                                let v = transformed.[blockStart + j + step]
+                                transformed.[blockStart + j] <- (u + v) / 2.0
+                                transformed.[blockStart + j + step] <- (u - v) / 2.0
                     applyStep (step * 2)
             applyStep 1
             transformed

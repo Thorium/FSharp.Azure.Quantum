@@ -46,6 +46,7 @@ namespace FSharp.Azure.Quantum.Data
 /// Example: Molecule.createH2 0.74 creates H2 at 0.74 Å bond length
 
 open System
+open System.Globalization
 
 module MoleculeLibrary =
     
@@ -178,9 +179,9 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                 Some {
                     Element = parts.[0].Trim()
                     Position = (
-                        Double.Parse(parts.[1].Trim()),
-                        Double.Parse(parts.[2].Trim()),
-                        Double.Parse(parts.[3].Trim())
+                        Double.Parse(parts.[1].Trim(), CultureInfo.InvariantCulture),
+                        Double.Parse(parts.[2].Trim(), CultureInfo.InvariantCulture),
+                        Double.Parse(parts.[3].Trim(), CultureInfo.InvariantCulture)
                     )
                 }
             with _ -> None

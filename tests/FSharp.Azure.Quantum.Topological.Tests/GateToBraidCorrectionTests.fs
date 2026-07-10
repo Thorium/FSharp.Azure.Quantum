@@ -20,13 +20,17 @@ module GateToBraidCorrectionTests =
     [<Fact>]
     let ``S gate compiles to single clockwise braid (exact)`` () =
         // Physics: One Ising braid produces relative phase e^{iπ/2} = i = S gate
-        // This is EXACT — no approximation needed
+        // This is EXACT — no approximation needed.
+        // Qubit q occupies fusion-tree leaves (2q, 2q+1), so the within-pair
+        // exchange for qubit 1 is braid generator index 2 (LEAF indexing —
+        // previously the qubit index was used directly, so gates on qubit > 0
+        // silently braided the wrong anyons).
         match GateToBraid.sGateToBraid 1 3 with
         | Error err -> failwith $"Unexpected error: {err.Message}"
         | Ok braid ->
             Assert.Equal(1, braid.Generators.Length)
             Assert.True(braid.Generators.[0].IsClockwise)
-            Assert.Equal(1, braid.Generators.[0].Index)
+            Assert.Equal(2, braid.Generators.[0].Index)  // leaf index 2·q = 2
 
     [<Fact>]
     let ``S† gate compiles to single counter-clockwise braid (exact)`` () =
@@ -48,8 +52,9 @@ module GateToBraidCorrectionTests =
         | Error err -> failwith $"Unexpected error: {err.Message}"
         | Ok braid ->
             Assert.Equal(2, braid.Generators.Length)
-            Assert.Equal(3, braid.StrandCount)  // 2 qubits → 3 strands
+            Assert.Equal(6, braid.StrandCount)  // σ-pair encoding: 2 qubits → 2·(2+1) = 6 strands
             Assert.All(braid.Generators, fun gen -> Assert.True(gen.IsClockwise))
+            Assert.All(braid.Generators, fun gen -> Assert.Equal(0, gen.Index))  // qubit 0 → leaf 0
 
     [<Fact>]
     let ``Z gate compilation has no special warnings`` () =
@@ -225,32 +230,32 @@ module GateToBraidCorrectionTests =
     // ========================================================================
     
     [<Fact>]
-    let ``Hadamard is implemented via Solovay-Kitaev approximation`` () =
+    let ``Hadamard braid compilation returns explicit error (off-diagonal, unreachable)`` () =
+        // Ising within-pair braids generate only the DIAGONAL group {I, S, Z, S†},
+        // so the off-diagonal H can never be approximated by braiding. Previously
+        // the Solovay-Kitaev residual error was silently ignored and a diagonal
+        // braid far from H was returned with reported success — the compilation
+        // must fail explicitly instead. (The TopologicalBackend implements H on
+        // Ising via an exact amplitude-level intercept.)
         let hGate = CircuitBuilder.Gate.H 0
-        
+
         match GateToBraid.compileGateToBraid hGate 2 1e-10 with
-        | Error err -> failwith $"Hadamard should be implemented: {err.Message}"
-        | Ok decomp ->
-            Assert.Equal("H", decomp.GateName)
-            Assert.Equal<int list>([0], decomp.Qubits)
-            Assert.True(decomp.DecompositionNotes.IsSome)
-            Assert.Contains("Solovay-Kitaev", decomp.DecompositionNotes.Value)
-            Assert.True(decomp.BraidSequence.Length > 0)
-    
+        | Ok _ -> failwith "H braid compilation should fail explicitly for Ising anyons"
+        | Error err ->
+            Assert.Contains("diagonal", err.Message)
+
     [<Fact>]
-    let ``CNOT decomposes to H CZ H with optimized gate count`` () =
+    let ``CNOT braid compilation returns explicit error (requires off-diagonal H)`` () =
+        // CNOT = H·CZ·H requires the Hadamard, which is unreachable by Ising
+        // within-pair braiding — the error must propagate instead of emitting a
+        // braid whose unitary is far from CNOT. (The TopologicalBackend executes
+        // CNOT on Ising via an exact amplitude-level intercept.)
         let cnotGate = CircuitBuilder.Gate.CNOT (0, 1)
-        
+
         match GateToBraid.compileGateToBraid cnotGate 2 1e-3 with
-        | Error e -> failwithf "CNOT should be implemented now: %A" e
-        | Ok result ->
-            Assert.Equal("CNOT", result.GateName)
-            Assert.Equal<int list>([0; 1], result.Qubits)
-            Assert.True(result.BraidSequence.Length > 0, "Should have braiding sequence")
-            Assert.True(result.DecompositionNotes.IsSome, "Should have decomposition notes")
-            Assert.Contains("CZ", result.DecompositionNotes.Value)
-            
-            printfn "CNOT gate sequence length: %d" result.BraidSequence.Length
+        | Ok _ -> failwith "CNOT braid compilation should fail explicitly for Ising anyons"
+        | Error err ->
+            Assert.False(System.String.IsNullOrWhiteSpace err.Message)
 
     // ========================================================================
     // COMPILATION SUMMARY TESTS

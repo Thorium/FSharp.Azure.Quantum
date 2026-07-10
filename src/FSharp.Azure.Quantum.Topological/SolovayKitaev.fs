@@ -415,19 +415,24 @@ module SolovayKitaev =
     // TOPOLOGICAL-SPECIFIC SOLOVAY-KITAEV
     // ========================================================================
     
-    /// Build topological base set using only {T, T†, S, S†, Z, I} gates
-    /// 
+    /// Build topological base set using only {S, S†, Z, I} gates
+    ///
     /// **Why Restricted Base Set?**
-    /// For topological quantum computing with Ising anyons:
-    /// - T, S gates are EXACT (single Majorana braiding)
-    /// - H, X, Y gates require APPROXIMATION (would create circular dependency)
-    /// - Using restricted base set avoids recursion and reduces gate count dramatically
-    /// 
-    /// **Performance Impact:**
-    /// - Standard S-K: ~1000-2000 gates for H (includes recursive H approximations)
-    /// - Topological S-K: ~300-500 gates for H (only T/S gates used)
-    /// - **70-80% reduction in gate count!**
-    /// 
+    /// For topological quantum computing with Ising anyons, only these gates are
+    /// EXACT under within-pair braiding (one braid = S, two = Z).
+    ///
+    /// **⚠️ FUNDAMENTAL LIMITATION — DIAGONAL GROUP ONLY:**
+    /// Every gate in {S, S†, Z, I} is diagonal, and products of diagonal matrices
+    /// are diagonal, so the entire generated group is the 4-element diagonal
+    /// Clifford subgroup {I, S, Z, S†} (up to global phase). Off-diagonal targets
+    /// (H, X, Y, generic U3) can NEVER be approximated from this base set — the
+    /// PSU(2) distance from any diagonal matrix to H/X/Y is bounded below by ~1,
+    /// independent of sequence length or recursion depth.
+    ///
+    /// Callers MUST check ApproximationResult.Error against their tolerance; a
+    /// large residual error means the target is unreachable, not "needs more
+    /// iterations". (GateToBraid returns explicit errors for such targets.)
+    ///
     /// **Performance Optimization:** Memoized - topological base sets are cached separately
     let buildTopologicalBaseSet (n: int) : (GateSequence * SU2Matrix) list =
         baseSetCache.GetOrAdd((n, true), fun _ ->
@@ -445,20 +450,15 @@ module SolovayKitaev =
                     (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
                 (round matrix.A, round matrix.B, round matrix.C, round matrix.D)))
     
-    /// Approximate arbitrary SU(2) gate using topological-compatible base set
-    /// 
-    /// **Use Case:** Approximating H, X, Y gates for topological quantum computing
-    /// 
-    /// **Advantages over standard S-K:**
-    /// 1. No circular dependencies (H not in base set)
-    /// 2. 70-80% fewer gates (no nested approximations)
-    /// 3. Faster compilation (no recursive S-K calls)
-    /// 4. All output gates are exact in topological systems (T, S, Z only)
-    /// 
-    /// **Typical Performance:**
-    /// - H gate: ~300-500 T/S gates for ε = 10⁻⁵
-    /// - X gate: ~400-600 T/S gates for ε = 10⁻⁵  
-    /// - Y gate: ~400-600 T/S gates for ε = 10⁻⁵
+    /// Approximate an SU(2) gate using the topological-compatible base set {S, S†, Z, I}.
+    ///
+    /// **Use Case:** Diagonal targets only (phase gates that are π/2 multiples).
+    ///
+    /// **⚠️ WARNING:** The base set generates only the DIAGONAL subgroup
+    /// {I, S, Z, S†}; off-diagonal targets (H, X, Y, generic U3) are unreachable
+    /// and the returned ApproximationResult.Error stays O(1) no matter how hard
+    /// the algorithm tries. Callers MUST check the Error field — GateToBraid
+    /// converts unreachable targets into explicit compilation errors.
     let approximateGateTopological
         (target: SU2Matrix)
         (epsilon: float)
@@ -472,18 +472,23 @@ module SolovayKitaev =
         // Run recursive approximation with restricted base set
         approximate target epsilon baseSet maxDepth 0
     
-    /// Approximate H gate using topological-specific Solovay-Kitaev
-    /// Returns sequence of only {T, S, Z} gates (no H/X/Y!)
+    /// Attempt to approximate H with the diagonal Ising braid gate set.
+    /// **⚠️ CANNOT CONVERGE**: H is off-diagonal, the base set is diagonal —
+    /// the returned Error is always ≥ ~1. Kept for diagnostics only; callers
+    /// must check the Error field (GateToBraid.hadamardGateToBraid returns an
+    /// explicit error instead of using this).
     let approximateHadamardTopological (epsilon: float) : ApproximationResult =
         let hMatrix = gateToMatrix H
-        approximateGateTopological hMatrix epsilon 4 12  // Larger base set for better precision
-    
-    /// Approximate X gate using topological-specific Solovay-Kitaev
+        approximateGateTopological hMatrix epsilon 4 12
+
+    /// Attempt to approximate X with the diagonal Ising braid gate set.
+    /// **⚠️ CANNOT CONVERGE** (off-diagonal target) — see approximateHadamardTopological.
     let approximatePauliXTopological (epsilon: float) : ApproximationResult =
         let xMatrix = gateToMatrix X
         approximateGateTopological xMatrix epsilon 4 12
-    
-    /// Approximate Y gate using topological-specific Solovay-Kitaev
+
+    /// Attempt to approximate Y with the diagonal Ising braid gate set.
+    /// **⚠️ CANNOT CONVERGE** (off-diagonal target) — see approximateHadamardTopological.
     let approximatePauliYTopological (epsilon: float) : ApproximationResult =
         let yMatrix = gateToMatrix Y
         approximateGateTopological yMatrix epsilon 4 12

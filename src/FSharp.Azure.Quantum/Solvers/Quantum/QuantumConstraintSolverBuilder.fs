@@ -27,20 +27,27 @@ open FSharp.Azure.Quantum.Backends
 /// - Graph coloring
 /// - Timetabling
 /// 
+/// SEARCH SPACE SEMANTICS:
+/// `searchSpace` is the TOTAL number of candidate assignments (domainSize ^ numVariables),
+/// NOT the number of variables. The number of variables is derived from it:
+///   numVariables = ceil(log_domainSize(searchSpace))
+/// e.g. searchSpace 81 with domain [1..9] means 81 = 9^2 candidate assignments,
+/// i.e. 2 variables each taking one of 9 values.
+///
 /// EXAMPLE USAGE:
-///   // Simple: Sudoku solver
+///   // Simple: 2 variables over values 1..9 (81 = 9^2 candidate assignments)
 ///   let problem = constraintSolver {
-///       searchSpace 81  // 81 cells
+///       searchSpace 81  // total assignments = domainSize^numVariables (9^2 → 2 variables)
 ///       domain [1..9]   // Values 1-9
-///       satisfies (fun assignment -> checkSudokuRules assignment)
+///       satisfies (fun assignment -> checkRules assignment)
 ///   }
-///   
-///   // Advanced: Job scheduling
+///
+///   // Advanced: Job scheduling (3 workers × 10 shifts → 1000 = 10^3 assignments)
 ///   let problem = constraintSolver {
-///       variables ["worker1"; "worker2"; "worker3"]
+///       searchSpace 1000
 ///       domain [0..9]   // Shift numbers
-///       satisfies (fun assignment -> 
-///           checkSkillMatch assignment && 
+///       satisfies (fun assignment ->
+///           checkSkillMatch assignment &&
 ///           checkAvailability assignment &&
 ///           noOverlappingShifts assignment
 ///       )
@@ -61,7 +68,8 @@ module QuantumConstraintSolver =
     /// Complete quantum constraint satisfaction problem specification.
     /// </summary>
     type ConstraintProblem<'T> = {
-        /// Number of variables (or search space size in bits)
+        /// Total number of candidate assignments (domainSize ^ numVariables).
+        /// The number of variables is derived as ceil(log_domainSize(SearchSpaceSize)).
         SearchSpaceSize: int
         /// Domain of values for each variable
         Domain: 'T list
@@ -131,7 +139,7 @@ module QuantumConstraintSolver =
         
         member _.Yield(_) : ConstraintProblem<'T> =
             {
-                SearchSpaceSize = 8  // Default: 8 variables
+                SearchSpaceSize = 8  // Default: 8 candidate assignments (states)
                 Domain = []
                 Constraints = []
                 Backend = None
@@ -266,32 +274,44 @@ module QuantumConstraintSolver =
                     problem.Backend 
                     |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
-                // Calculate qubits needed
-                let qubitsNeeded = int (ceil (log (float problem.SearchSpaceSize) / log 2.0))
-                
+                // SearchSpaceSize is the TOTAL number of candidate assignments
+                // (domainSize ^ numVariables) — see the type's doc comment. Derive the
+                // variable count from it, then size the qubit register so that every
+                // decodable assignment (domainSize ^ numVariables states) is covered.
+                let domainSize = List.length problem.Domain
+                let numVariables =
+                    if domainSize <= 1 then 1
+                    else max 1 (int (ceil (log (float problem.SearchSpaceSize) / log (float domainSize) - 1e-9)))
+
+                // Total states addressed by the mixed-radix decoding below. Computed in
+                // int64: when SearchSpaceSize is not an exact power of domainSize, rounding
+                // numVariables up can push domainSize^numVariables past SearchSpaceSize.
+                let totalStates = pown (int64 domainSize) numVariables
+                let maxStates = 1L <<< 16
+
+                // Qubits must cover ALL decodable assignments (domainSize ^ numVariables),
+                // not just the nominal SearchSpaceSize.
+                let qubitsNeeded = max 1 (int (ceil (log (float totalStates) / log 2.0 - 1e-9)))
+
+                // Decode a search-space index into a variable assignment using
+                // mixed-radix (base domainSize) positional decoding.
+                let decodeAssignment (idx: int) : Map<int, 'T> =
+                    [0 .. numVariables - 1]
+                    |> List.map (fun varIdx ->
+                        // Calculate which domain value this variable should have
+                        // based on the search index
+                        let quotient = idx / (pown domainSize varIdx)
+                        let domainIdx = quotient % domainSize
+                        (varIdx, problem.Domain.[domainIdx])
+                    )
+                    |> Map.ofList
+
                 // Create combined constraint predicate
                 let combinedPredicate (idx: int) : bool =
-                    // Convert index to assignment
-                    // Decode the index into variable assignments based on domain
-                    // Each variable cycles through the domain values
-                    let domainSize = List.length problem.Domain
-                    if domainSize = 0 then false
-                    else
-                        let assignment = 
-                            [0 .. problem.SearchSpaceSize - 1]
-                            |> List.map (fun varIdx ->
-                                // Calculate which domain value this variable should have
-                                // based on the search index
-                                let quotient = idx / (pown domainSize varIdx)
-                                let domainIdx = quotient % domainSize
-                                (varIdx, problem.Domain.[domainIdx])
-                            )
-                            |> Map.ofList
-                        
-                        // Check all constraints
-                        problem.Constraints
-                        |> List.forall (fun constraintFunc -> constraintFunc assignment)
-                
+                    let assignment = decodeAssignment idx
+                    problem.Constraints
+                    |> List.forall (fun constraintFunc -> constraintFunc assignment)
+
                 // Report progress: Starting search
                 problem.ProgressReporter 
                 |> Option.iter (fun reporter -> 
@@ -299,6 +319,12 @@ module QuantumConstraintSolver =
                 
                 // Create oracle for Grover search using new API
                 result {
+                    // Refuse search spaces the simulator cannot address, aligning with the
+                    // validate() guard (max 2^16 states / 16 qubits). This also protects the
+                    // Int32 `pown domainSize varIdx` in decodeAssignment from overflowing.
+                    do! if totalStates <= maxStates then Ok ()
+                        else Error (QuantumError.ValidationError ("SearchSpaceSize", $"decoding {numVariables} variables over a domain of {domainSize} values spans {totalStates} states ({qubitsNeeded} qubits). Max: 2^16 = 65536 states (16 qubits)"))
+
                     let! oracle = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
                     
                     // Report progress: Oracle created
@@ -327,17 +353,8 @@ module QuantumConstraintSolver =
                     | bestSolution :: _ ->
                         
                         // Decode solution to assignment
-                        // Use the same decoding logic as in combinedPredicate
-                        let domainSize = List.length problem.Domain
-                        let assignment = 
-                            [0 .. problem.SearchSpaceSize - 1]
-                            |> List.map (fun varIdx ->
-                                // Calculate which domain value this variable should have
-                                let quotient = bestSolution / (pown domainSize varIdx)
-                                let domainIdx = quotient % domainSize
-                                (varIdx, problem.Domain.[domainIdx])
-                            )
-                            |> Map.ofList
+                        // (same mixed-radix decoding as in combinedPredicate)
+                        let assignment = decodeAssignment bestSolution
                         
                         // Verify all constraints
                         let allSatisfied = 

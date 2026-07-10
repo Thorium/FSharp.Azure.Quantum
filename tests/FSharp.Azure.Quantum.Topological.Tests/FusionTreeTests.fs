@@ -157,17 +157,53 @@ module FusionTreeTests =
     [<Fact>]
     let ``Fibonacci: Four tau anyons create higher-dimensional space`` () =
         // Fibonacci anyons have richer fusion structure than Ising
-        // The dimension grows according to Fibonacci numbers!
+        // The dimension grows according to Fibonacci numbers:
+        // dim(τⁿ → 1) = Fib(n-1): n=2 → 1, n=3 → 1, n=4 → 2, n=5 → 3, ...
         let fourTaus = List.replicate 4 AnyonSpecies.Particle.Tau
-        match FusionTree.fusionSpaceDimension 
-                  fourTaus 
-                  AnyonSpecies.Particle.Vacuum 
+        match FusionTree.fusionSpaceDimension
+                  fourTaus
+                  AnyonSpecies.Particle.Vacuum
                   AnyonSpecies.AnyonType.Fibonacci with
         | Ok dim ->
-            // Fibonacci fusion creates a 6-dimensional space
-            // (follows Fibonacci number sequence in dimension growth)
-            Assert.Equal(6, dim)
+            // τ⁴ → 1 has dimension 2 (intermediate charges of the canonical
+            // left-associated tree: (ττ→e₁), (e₁τ→e₂), (e₂τ→1) forces e₂=τ,
+            // leaving e₁ ∈ {1, τ})
+            Assert.Equal(2, dim)
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``Ising: Three sigma anyons fusing to sigma have dimension 2`` () =
+        // Regression: dim(σ³ → σ) = 2, from σ×σ → {1, ψ} then 1×σ → σ, ψ×σ → σ.
+        // The buggy recursion (summing over split positions and forcing equal
+        // left/right intermediate charges) got this wrong.
+        match FusionTree.fusionSpaceDimension
+                  (List.replicate 3 AnyonSpecies.Particle.Sigma)
+                  AnyonSpecies.Particle.Sigma
+                  AnyonSpecies.AnyonType.Ising with
+        | Ok dim -> Assert.Equal(2, dim)
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``Fibonacci: Three tau anyons fusing to tau have dimension 2`` () =
+        // dim(τ³ → τ) = Fib(3) = 2: intermediate charge e₁ ∈ {1, τ}
+        match FusionTree.fusionSpaceDimension
+                  (List.replicate 3 AnyonSpecies.Particle.Tau)
+                  AnyonSpecies.Particle.Tau
+                  AnyonSpecies.AnyonType.Fibonacci with
+        | Ok dim -> Assert.Equal(2, dim)
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``Fibonacci: Dimension follows Fibonacci sequence`` () =
+        // dim(τⁿ → 1) = Fib(n-1) with Fib(1)=1, Fib(2)=1, Fib(3)=2, Fib(4)=3, Fib(5)=5
+        let expected = [ (2, 1); (3, 1); (4, 2); (5, 3); (6, 5) ]
+        for (n, expectedDim) in expected do
+            match FusionTree.fusionSpaceDimension
+                      (List.replicate n AnyonSpecies.Particle.Tau)
+                      AnyonSpecies.Particle.Vacuum
+                      AnyonSpecies.AnyonType.Fibonacci with
+            | Ok dim -> Assert.Equal(expectedDim, dim)
+            | Error err -> Assert.Fail($"Expected Ok for n={n} but got Error: {err.Message}")
     
     // ========================================================================
     // TREE STRUCTURE VALIDATION
@@ -268,6 +304,56 @@ module FusionTreeTests =
             Assert.Equal(dimension, trees.Length)
         | Error err, _ | _, Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
     
+    [<Fact>]
+    let ``allTrees for three sigmas fusing to sigma returns exactly 2 canonical trees`` () =
+        // Regression: the buggy enumeration forced left and right subtrees to carry
+        // the SAME intermediate charge and summed over split positions.
+        // Correct: canonical left-associated basis ((σ × σ → e) × σ → σ) with
+        // e ∈ {1, ψ} → exactly 2 trees.
+        let threeSigmas = List.replicate 3 AnyonSpecies.Particle.Sigma
+        match FusionTree.allTrees
+                    threeSigmas
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.AnyonType.Ising with
+        | Ok trees ->
+            Assert.Equal(2, trees.Length)
+
+            // Extract the intermediate charge of each left-associated tree
+            let intermediates =
+                trees
+                |> List.map (fun tree ->
+                    match tree with
+                    | FusionTree.Fusion (FusionTree.Fusion (_, _, e), FusionTree.Leaf _, root) ->
+                        Assert.Equal(AnyonSpecies.Particle.Sigma, root)
+                        e
+                    | _ -> failwith "Expected left-associated tree shape")
+                |> List.sort
+
+            Assert.Equal<AnyonSpecies.Particle list>(
+                [AnyonSpecies.Particle.Vacuum; AnyonSpecies.Particle.Psi] |> List.sort,
+                intermediates)
+
+            // All enumerated trees must be valid
+            trees |> List.iter (fun tree ->
+                match FusionTree.isValid tree AnyonSpecies.AnyonType.Ising with
+                | Ok true -> ()
+                | _ -> Assert.Fail("Expected valid tree"))
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``Enumerated Fibonacci trees match calculated dimension`` () =
+        // Tree count must equal the Hilbert space dimension (no double counting)
+        for n in 2 .. 6 do
+            let taus = List.replicate n AnyonSpecies.Particle.Tau
+            match FusionTree.allTrees
+                        taus AnyonSpecies.Particle.Vacuum AnyonSpecies.AnyonType.Fibonacci,
+                  FusionTree.fusionSpaceDimension
+                        taus AnyonSpecies.Particle.Vacuum AnyonSpecies.AnyonType.Fibonacci with
+            | Ok trees, Ok dimension ->
+                Assert.Equal(dimension, trees.Length)
+            | Error err, _ | _, Error err ->
+                Assert.Fail($"Expected Ok for n={n} but got Error: {err.Message}")
+
     [<Fact>]
     let ``No valid trees exist for impossible fusion`` () =
         // σ × σ → σ is impossible, so no trees should exist

@@ -170,9 +170,13 @@ module TrotterSuzuki =
                 let terms =
                     allPauliStrings
                     |> List.choose (fun pauliOps ->
-                        // ✅ FIXED: Compute proper tensor product of Pauli matrices
-                        let pauliMatrix = 
+                        // Build the matrix for this Pauli string.
+                        // Circuit synthesis maps Operators[i] → qubit i, and qubit i is
+                        // index bit i (little-endian), so Operators[0] must be the LAST
+                        // (least-significant) Kronecker factor: P = op[n-1] ⊗ ... ⊗ op[0].
+                        let pauliMatrix =
                             pauliOps
+                            |> Array.rev
                             |> Array.map getSinglePauliMatrix
                             |> Array.reduce tensorProduct
                         
@@ -197,33 +201,50 @@ module TrotterSuzuki =
                 Ok { Terms = terms; NumQubits = numQubits }
     
     /// Decompose diagonal matrix (fast path)
+    ///
+    /// For a diagonal Hamiltonian H = Σₖ λₖ |k⟩⟨k| the exact Pauli expansion uses
+    /// only I/Z strings. For every qubit subset given by bit mask m (m = 0 is the
+    /// identity term):
+    ///   c_m = (1/2ⁿ) Σₖ (−1)^popcount(k AND m) · λₖ
+    /// since ⟨k| Z_q |k⟩ = (−1)^(bit q of k).
+    ///
+    /// Example: eigenvalues [1; 2] → 1.5·I − 0.5·Z.
     let decomposeDiagonalMatrixToPauli (eigenvalues: float[]) : PauliHamiltonian =
         let n = eigenvalues.Length
-        let numQubits = 
+        let numQubits =
             let rec log2 k = if k <= 1 then 0 else 1 + log2 (k / 2)
             log2 n
-        
-        // For diagonal matrices, use Z basis only
-        // Each eigenvalue corresponds to a computational basis state
-        // H = Σᵢ λᵢ |i⟩⟨i| = Σᵢ λᵢ (I + (-1)^(bit₀)Z₀)/2 ⊗ ... ⊗ (I + (-1)^(bitₙ)Zₙ)/2
-        
-        // Simplified: Use sum of Z terms
+
+        if n <> (1 <<< numQubits) then
+            failwith $"decomposeDiagonalMatrixToPauli requires 2^n eigenvalues, got {n}"
+
+        // The coefficient vector c_m = (1/2ⁿ) Σₖ (−1)^popcount(k AND m) λₖ is the
+        // Walsh–Hadamard transform of the eigenvalues; the in-place butterfly is
+        // O(n log n) versus O(n²·q) for evaluating each mask independently
+        // (which stalls beyond ~14 qubits).
+        let coeffs = Array.copy eigenvalues
+        let mutable step = 1
+        while step < n do
+            let mutable blockStart = 0
+            while blockStart < n do
+                for i in blockStart .. blockStart + step - 1 do
+                    let a = coeffs.[i]
+                    let b = coeffs.[i + step]
+                    coeffs.[i] <- a + b
+                    coeffs.[i + step] <- a - b
+                blockStart <- blockStart + 2 * step
+            step <- 2 * step
+
         let terms =
-            [ for q in 0 .. numQubits - 1 do
-                let pauliOps = Array.create numQubits 'I'
-                pauliOps[q] <- 'Z'
-                
-                // Weight by average eigenvalue contribution from this qubit position
-                let weight = 
-                    eigenvalues
-                    |> Array.mapi (fun idx ev -> 
-                        if (idx &&& (1 <<< q)) <> 0 then ev else 0.0)
-                    |> Array.average
-                
-                if abs weight > 1e-10 then
-                    yield { Operators = pauliOps; Coefficient = Complex(weight, 0.0) }
+            [ for mask in 0 .. n - 1 do
+                let coefficient = coeffs.[mask] / float n
+                if abs coefficient > 1e-10 then
+                    let pauliOps =
+                        Array.init numQubits (fun q ->
+                            if (mask >>> q) &&& 1 = 1 then 'Z' else 'I')
+                    yield { Operators = pauliOps; Coefficient = Complex(coefficient, 0.0) }
             ]
-        
+
         { Terms = terms; NumQubits = numQubits }
     
     // ========================================================================
@@ -337,7 +358,9 @@ module TrotterSuzuki =
             |> Array.filter (fun (_, op) -> op <> 'I')
 
         if nonIdentityIndices.Length = 0 then
-            circuit
+            // e^(-i·c·I·t) is a global phase on the target register, but under control
+            // it is a relative phase on the control's |1⟩ branch: P(-c·t) on the control.
+            circuit |> addGate (P(controlQubit, -pauliString.Coefficient.Real * time))
         elif nonIdentityIndices.Length = 1 then
             let (idx, op) = nonIdentityIndices[0]
             let qubit = qubits[idx]

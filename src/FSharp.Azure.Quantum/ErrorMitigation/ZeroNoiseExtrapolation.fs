@@ -94,8 +94,12 @@ module ZeroNoiseExtrapolation =
                     else
                         insertPairs rest pairs (counter + 1) acc'
             
+            // insertPairs returns gates in program order (it walked getGates, which
+            // reverses the internal storage), but Circuit.Gates is stored
+            // most-recent-first — reverse back so executors (which List.rev before
+            // applying) run the scaled circuit in the correct order.
             let newGates = insertPairs gates numPairsToInsert 1 []
-            { circuit with Gates = newGates }
+            { circuit with Gates = List.rev newGates }
     
     /// Amplify noise by a pulse-stretch factor.
     ///

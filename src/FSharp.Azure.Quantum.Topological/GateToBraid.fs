@@ -22,8 +22,12 @@ open FSharp.Azure.Quantum
 /// 
 /// 3. **Fermion Parity**: Ising anyons have fermion parity constraints.
 ///    Not all braiding sequences are valid - must respect fusion rules.
-/// 
-/// 4. **Qubit Encoding**: n qubits → n+1 anyonic strands (for Jordan-Wigner encoding)
+///
+/// 4. **Qubit Encoding (Ising)**: n qubits → 2(n+1) anyonic strands (σ-pair encoding).
+///    Qubit q occupies fusion-tree leaves (2q, 2q+1); one extra σ-pair enforces
+///    overall fermion parity. Braid generator indices are LEAF indices, matching
+///    the executor (TopologicalOperations.braidSuperpositionDirected): the
+///    within-pair exchange for qubit q is generator index 2q.
 module GateToBraid =
 
     // ========================================================================
@@ -115,6 +119,16 @@ module GateToBraid =
         let error = abs(normalized - approximateAngle)
         (error, numBraids)
 
+    /// Total number of anyonic strands (fusion-tree leaves) in the Ising σ-pair
+    /// encoding: each of the n qubits occupies leaves (2q, 2q+1), plus one extra
+    /// σ-pair enforcing overall fermion parity → 2(n+1) strands.
+    let private isingStrandCount (numQubits: int) : int = 2 * (numQubits + 1)
+
+    /// Braid generator (leaf) index for the within-pair exchange of qubit q.
+    /// Qubit q occupies leaves (2q, 2q+1), so exchanging its two σ anyons is
+    /// braid generator σ_{2q} in the executor's leaf indexing.
+    let private withinPairIndex (qubitIndex: int) : int = 2 * qubitIndex
+
     // ========================================================================
     // T GATE DECOMPOSITION (Ising Anyons)
     // ========================================================================
@@ -149,15 +163,16 @@ module GateToBraid =
     ///   e^{3iπ/8} / e^{-iπ/8} = e^{iπ/2} = i = S gate
     /// Reference: Simon "Topological Quantum" Eq. 10.9-10.10
     let sGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // S = one clockwise braid (exact)
-        let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = true }
-        BraidGroup.fromGenerators (numQubits + 1) [gen]
-    
+        // S = one clockwise within-pair braid (exact).
+        // Qubit q lives on leaves (2q, 2q+1) → generator index 2q (leaf indexing).
+        let gen : BraidGroup.BraidGenerator = { Index = withinPairIndex qubitIndex; IsClockwise = true }
+        BraidGroup.fromGenerators (isingStrandCount numQubits) [gen]
+
     /// Decompose S† gate into braiding
     let sDaggerGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // S† = one counter-clockwise braid (exact)
-        let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = false }
-        BraidGroup.fromGenerators (numQubits + 1) [gen]
+        // S† = one counter-clockwise within-pair braid (exact)
+        let gen : BraidGroup.BraidGenerator = { Index = withinPairIndex qubitIndex; IsClockwise = false }
+        BraidGroup.fromGenerators (isingStrandCount numQubits) [gen]
     
     /// Decompose Pauli Z gate into braiding.
     /// Z = S² = two clockwise braids (EXACT for Ising anyons).
@@ -166,9 +181,9 @@ module GateToBraid =
     ///   (e^{iπ/2})² = e^{iπ} = -1 = Z gate
     /// This is a relative phase (not global), so it IS physically meaningful.
     let zGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Z = S² = 2 clockwise braids (exact)
-        let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = true }
-        BraidGroup.fromGenerators (numQubits + 1) [gen; gen]
+        // Z = S² = 2 clockwise within-pair braids (exact)
+        let gen : BraidGroup.BraidGenerator = { Index = withinPairIndex qubitIndex; IsClockwise = true }
+        BraidGroup.fromGenerators (isingStrandCount numQubits) [gen; gen]
     
     // ========================================================================
     // SOLOVAY-KITAEV GATE APPROXIMATION
@@ -182,7 +197,7 @@ module GateToBraid =
         | SolovayKitaev.S -> sGateToBraid qubitIndex numQubits
         | SolovayKitaev.SDagger -> sDaggerGateToBraid qubitIndex numQubits
         | SolovayKitaev.Z -> zGateToBraid qubitIndex numQubits
-        | SolovayKitaev.I -> BraidGroup.identity (numQubits + 1)
+        | SolovayKitaev.I -> BraidGroup.identity (isingStrandCount numQubits)
         // T/T† are NOT exact for Ising anyons — should not appear in topological S-K output
         | SolovayKitaev.T | SolovayKitaev.TDagger ->
             TopologicalResult.computationError "gateConversion" $"Gate %A{gate} is not exact in Ising anyon braiding and should not appear in topological S-K output"
@@ -190,16 +205,17 @@ module GateToBraid =
         | SolovayKitaev.H | SolovayKitaev.X | SolovayKitaev.Y ->
             TopologicalResult.computationError "gateConversion" $"Gate %A{gate} should not appear in Solovay-Kitaev output for topological systems"
     
-    /// Compose a list of braids (left-to-right)
+    /// Compose a list of braids (left-to-right) in the Ising σ-pair encoding
+    /// (2(n+1) strands for n qubits).
     /// Returns Error if any composition fails (e.g., mismatched strand counts)
     let composeBraids (braids: BraidGroup.BraidWord list) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        braids 
+        braids
         |> List.fold (fun acc braid ->
             match acc with
             | Error _ -> acc  // Propagate previous error
             | Ok current ->
                 BraidGroup.compose current braid
-        ) (BraidGroup.identity (numQubits + 1))
+        ) (BraidGroup.identity (isingStrandCount numQubits))
     
     /// Convert Solovay-Kitaev gate sequence to composed braiding
     let solovayKitaevGatesToBraid (gates: SolovayKitaev.GateSequence) (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
@@ -208,36 +224,43 @@ module GateToBraid =
         |> ResultPrivate.sequence
         |> Result.bind (fun braids -> composeBraids braids numQubits)
     
-    /// Hadamard gate decomposition using topological-specific Solovay-Kitaev
-    /// 
-    /// H cannot be represented exactly with finite braiding sequence.
-    /// Uses topological-specific S-K with base set = {T, S, Z} only.
-    /// 
-    /// **Performance:**
-    /// - Gate count: ~300-500 T/S gates for ε = 10⁻⁵
-    /// - 70-80% reduction vs standard S-K (which would use ~1000-2000 gates)
-    /// - No circular dependencies (H not in base set)
-    /// 
-    /// Achieves error < tolerance using O(log^2.71(1/tolerance)) gates
+    /// Hadamard gate decomposition — NOT REALIZABLE by Ising within-pair braiding.
+    ///
+    /// **PHYSICS**: The braid gates available in the σ-pair encoding executor are
+    /// within-pair exchanges only, generating the DIAGONAL group ⟨S⟩ = {I, S, Z, S†}
+    /// (up to phase). Every product of diagonal matrices is diagonal, so the
+    /// off-diagonal Hadamard can NEVER be approximated — the Solovay-Kitaev
+    /// distance from H to any diagonal unitary is bounded below by 1 (Frobenius).
+    ///
+    /// Realizing H by braiding would require the cross-pair generator σ_{2q+1}
+    /// (F·R·F†-conjugated, off-diagonal), which the fusion-tree executor does not
+    /// support for the σ-pair encoding. Rather than silently returning a diagonal
+    /// braid far from H (the previous behavior), this returns an explicit error.
+    ///
+    /// The TopologicalBackend implements H on Ising via an exact amplitude-level
+    /// intercept (modeling measurement/magic-state supplementation).
     let hadamardGateToBraid (qubitIndex: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Use topological-specific S-K (base set = {T, S, Z} only)
-        let result = SolovayKitaev.approximateHadamardTopological tolerance
-        
-        // Convert gate sequence to braiding (guaranteed to be only T/S/Z gates!)
-        solovayKitaevGatesToBraid result.Gates qubitIndex numQubits
-    
-    /// Pauli X gate decomposition using topological-specific Solovay-Kitaev
-    /// X = H·Z·H, but we use direct approximation for better gate count
+        TopologicalResult.notImplemented
+            "Hadamard braid compilation (Ising)"
+            (Some ("H is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; " +
+                   "no braid sequence can approximate H. Use the backend's amplitude-level intercept " +
+                   "(non-topological supplementation) instead."))
+
+    /// Pauli X gate decomposition — NOT REALIZABLE by Ising within-pair braiding
+    /// (off-diagonal; see hadamardGateToBraid for the physics).
     let pauliXGateToBraid (qubitIndex: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Use topological-specific S-K
-        let result = SolovayKitaev.approximatePauliXTopological tolerance
-        solovayKitaevGatesToBraid result.Gates qubitIndex numQubits
-    
-    /// Pauli Y gate decomposition using topological-specific Solovay-Kitaev
+        TopologicalResult.notImplemented
+            "Pauli-X braid compilation (Ising)"
+            (Some ("X is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; " +
+                   "no braid sequence can approximate X. Use the backend's amplitude-level intercept instead."))
+
+    /// Pauli Y gate decomposition — NOT REALIZABLE by Ising within-pair braiding
+    /// (off-diagonal; see hadamardGateToBraid for the physics).
     let pauliYGateToBraid (qubitIndex: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Use topological-specific S-K
-        let result = SolovayKitaev.approximatePauliYTopological tolerance
-        solovayKitaevGatesToBraid result.Gates qubitIndex numQubits
+        TopologicalResult.notImplemented
+            "Pauli-Y braid compilation (Ising)"
+            (Some ("Y is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; " +
+                   "no braid sequence can approximate Y. Use the backend's amplitude-level intercept instead."))
 
     // ========================================================================
     // ROTATION GATE DECOMPOSITION
@@ -265,11 +288,11 @@ module GateToBraid =
             // Use sign to determine direction: positive → clockwise, negative → counter-clockwise
             let isClockwise = numBraids >= 0
             let absCount = abs numBraids
-            let gens : BraidGroup.BraidGenerator list = 
-                List.init absCount (fun _ -> 
-                    { Index = qubitIndex; IsClockwise = isClockwise })
-            
-            BraidGroup.fromGenerators (numQubits + 1) gens
+            let gens : BraidGroup.BraidGenerator list =
+                List.init absCount (fun _ ->
+                    { Index = withinPairIndex qubitIndex; IsClockwise = isClockwise })
+
+            BraidGroup.fromGenerators (isingStrandCount numQubits) gens
     
     /// Decompose arbitrary phase gate Phase(θ)
     /// 
@@ -286,94 +309,107 @@ module GateToBraid =
     ///  [e^(iφ) sin(θ/2), e^(i(φ+λ)) cos(θ/2)]]
     /// 
     /// This is the most general single-qubit gate (3 real parameters).
-    /// Uses Solovay-Kitaev to approximate with T/S/Z gates.
+    /// Uses Solovay-Kitaev over the Ising-exact braid gates {S, S†, Z, I}.
+    ///
+    /// **IMPORTANT**: The Ising braid gate set is DIAGONAL, so only (near-)diagonal
+    /// U3 instances (θ ≈ 0 with phase a multiple of π/2) can succeed. Off-diagonal
+    /// targets return an explicit error instead of a silently wrong braid — the
+    /// achieved Solovay-Kitaev error is checked against the requested tolerance.
     let u3GateToBraid (qubitIndex: int) (theta: float) (phi: float) (lambda: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
         // Convert U3 parameters to SU2 matrix
         let halfTheta = theta / 2.0
         let cosHalf = cos halfTheta
         let sinHalf = sin halfTheta
-        
+
         let u3Matrix = {
             SolovayKitaev.A = Complex(cosHalf, 0.0)
             SolovayKitaev.B = Complex(-sinHalf * cos lambda, -sinHalf * sin lambda)
             SolovayKitaev.C = Complex(sinHalf * cos phi, sinHalf * sin phi)
             SolovayKitaev.D = Complex(cosHalf * cos (phi + lambda), cosHalf * sin (phi + lambda))
         }
-        
+
         // Use topological Solovay-Kitaev to approximate
         let result = SolovayKitaev.approximateGateTopological u3Matrix tolerance 4 12
-        
-        // Convert gate sequence to braiding
-        solovayKitaevGatesToBraid result.Gates qubitIndex numQubits
+
+        // CRITICAL: verify the approximation actually converged. The Ising braid
+        // gate set {S, S†, Z, I} is diagonal, so off-diagonal targets can never be
+        // approximated — previously the error was ignored and garbage braids were
+        // returned with reported success.
+        if result.Error > tolerance then
+            TopologicalResult.computationError
+                "U3 gate approximation"
+                ($"U3({theta:F4},{phi:F4},{lambda:F4}) cannot be approximated by Ising braiding: " +
+                 $"best achievable error {result.Error:E3} exceeds tolerance {tolerance:E3}. " +
+                 "Ising within-pair braids generate only diagonal gates; off-diagonal rotations " +
+                 "require non-topological supplementation (e.g. magic states).")
+        else
+            // Convert gate sequence to braiding
+            solovayKitaevGatesToBraid result.Gates qubitIndex numQubits
 
 
     // ========================================================================
     // TWO-QUBIT GATE DECOMPOSITION
     // ========================================================================
     
-    /// Create entangling braid between two qubits for CZ gate implementation.
-    /// 
+    /// Create entangling braid between two qubits (cross-pair exchange).
+    ///
     /// **Note on Indexing**
-    /// Our braid generators are indexed by *qubit* (not "2 strands per qubit").
-    /// The backend uses `n = numQubits + 1` strands, so valid generator indices are
-    /// `0..numQubits-1`.
+    /// Braid generator indices are LEAF indices (qubit q occupies leaves 2q, 2q+1).
+    /// The cross-pair exchange between qubit q and qubit q+1 braids leaves
+    /// (2q+1, 2q+2), i.e. generator index 2q+1.
+    ///
+    /// **Callers**: only the Fibonacci and SU(2)_k two-qubit compilation paths —
+    /// the strand count therefore uses THEIR convention (2n+1 strands, matching
+    /// fibonacciOpsToBraidWord / su2kOpsToBraidWord), so the entangling braid can
+    /// be composed with the surrounding single-qubit braid words. The Ising CZ
+    /// path (controlledZGateToBraid) returns notImplemented and never calls this.
+    ///
+    /// **⚠️ EXECUTOR LIMITATION**: The fusion-tree executor
+    /// (TopologicalOperations.braidAdjacentAnyonsDirected) only supports
+    /// cross-pair braids for 3-anyon trees; on the multi-pair σ/τ encodings it
+    /// returns an explicit error rather than a silently wrong result. This braid
+    /// is therefore only meaningful for external consumers / future executors.
     ///
     /// For non-adjacent qubits we synthesize a long-range interaction by
-    /// composing adjacent generators along the qubit interval.
+    /// composing adjacent cross-pair generators along the qubit interval.
     let createEntanglingBraid (controlQubit: int) (targetQubit: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
+        // Fibonacci/SU(2)_k strand convention: 2 τ anyons per qubit + 1 auxiliary
+        let strandCount = max 3 (2 * numQubits + 1)
         if abs (controlQubit - targetQubit) = 1 then
-            // Adjacent qubits: single generator
-            let gen : BraidGroup.BraidGenerator = { Index = min controlQubit targetQubit; IsClockwise = true }
-            BraidGroup.fromGenerators (numQubits + 1) [ gen ]
+            // Adjacent qubits: single cross-pair generator at leaf 2*min+1
+            let gen : BraidGroup.BraidGenerator = { Index = 2 * (min controlQubit targetQubit) + 1; IsClockwise = true }
+            BraidGroup.fromGenerators strandCount [ gen ]
         else
-            // Non-adjacent qubits: chain adjacent generators across the interval
+            // Non-adjacent qubits: chain adjacent cross-pair generators across the interval
             let minQubit = min controlQubit targetQubit
             let maxQubit = max controlQubit targetQubit
 
             let braidGens : BraidGroup.BraidGenerator list =
                 [ minQubit .. maxQubit - 1 ]
-                |> List.map (fun q -> { Index = q; IsClockwise = true })
+                |> List.map (fun q -> { Index = 2 * q + 1; IsClockwise = true })
 
-            BraidGroup.fromGenerators (numQubits + 1) braidGens
+            BraidGroup.fromGenerators strandCount braidGens
     
     /// Decompose Controlled-Z (CZ) gate into braiding sequence.
-    /// 
-    /// **Mathematical Foundation:**
-    /// CZ gate matrix:
-    ///   CZ = diag(1, 1, 1, -1) = |00⟩⟨00| + |01⟩⟨01| + |10⟩⟨10| - |11⟩⟨11|
-    /// 
-    /// For Ising anyons, CZ requires braiding between control and target strands.
-    /// 
-    /// **Decomposition Strategy:**
-    /// We use the fact that CZ is symmetric and can be implemented via:
-    ///   1. Apply S gate to both control and target qubits
-    ///   2. Perform entangling braid between the qubits' anyonic strands
-    ///   3. Apply S† gate to both qubits
-    /// 
-    /// **Topological Implementation:**
-    /// For qubits encoded in anyonic strands:
-    ///   - Qubit i is encoded in strands (2i, 2i+1) 
-    ///   - CZ requires braiding strand 2*control+1 with strand 2*target
-    ///   - This creates the phase flip on |11⟩ state
+    ///
+    /// **NOT SUPPORTED for the Ising σ-pair encoding.**
+    ///
+    /// CZ = diag(1, 1, 1, -1) requires an entangling operation between the two
+    /// qubits' fusion spaces. The previously emitted construction
+    /// (S⊗S · cross-pair-braid · S†⊗S†) is NOT unitarily equal to CZ, and the
+    /// fusion-tree executor cannot apply cross-pair braids on the multi-pair
+    /// encoding at all. Returning that braid silently produced wrong quantum
+    /// states while reporting success — this now fails explicitly.
+    ///
+    /// The TopologicalBackend implements CZ on Ising via transpilation to
+    /// H·CNOT·H with exact amplitude-level intercepts.
     let controlledZGateToBraid (controlQubit: int) (targetQubit: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        topologicalResult {
-            // Step 1: Apply S gates to set up the entangling interaction
-            let! sControl = sGateToBraid controlQubit numQubits
-            let! sTarget = sGateToBraid targetQubit numQubits
-            let! s_both = BraidGroup.compose sControl sTarget
-            
-            // Step 2: Entangling braid between control and target qubits
-            let! entangle = createEntanglingBraid controlQubit targetQubit numQubits
-            
-            // Step 3: Apply S† gates to complete the CZ operation
-            let! sDagControl = sDaggerGateToBraid controlQubit numQubits
-            let! sDagTarget = sDaggerGateToBraid targetQubit numQubits
-            let! sDag_both = BraidGroup.compose sDagControl sDagTarget
-            
-            // Compose: S·S · Entangle · S†·S†
-            let! temp1 = BraidGroup.compose s_both entangle
-            return! BraidGroup.compose temp1 sDag_both
-        }
+        TopologicalResult.notImplemented
+            "CZ braid compilation (Ising)"
+            (Some ($"CZ({controlQubit},{targetQubit}) cannot be realized by the supported within-pair Ising braids: " +
+                   "an entangling cross-pair braid with F-move basis changes would be required, which the " +
+                   "fusion-tree executor does not implement for the σ-pair encoding. The TopologicalBackend " +
+                   "executes CZ via exact amplitude-level operations (transpiled to H·CNOT·H) instead."))
     
     /// Decompose CNOT gate into braiding sequence using Clifford+T decomposition.
     /// 

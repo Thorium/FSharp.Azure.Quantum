@@ -103,17 +103,37 @@ module QuantumSolver =
                         | Some pred, Some succ -> succ.StartTime >= pred.EndTime + lag
                         | _ -> true)
 
+            // A schedule respects resource limits iff at every moment the combined usage of all
+            // concurrently running tasks stays within each resource's capacity. Usage only changes
+            // when a task starts, so checking at each assignment's start time is sufficient.
+            let respectsResources (assignments: TaskAssignment list) =
+                problem.Resources
+                |> List.forall (fun resource ->
+                    assignments
+                    |> List.forall (fun a ->
+                        let usageAtStart =
+                            assignments
+                            |> List.sumBy (fun b ->
+                                if b.StartTime <= a.StartTime && a.StartTime < b.EndTime then
+                                    b.AssignedResources |> Map.tryFind resource.Id |> Option.defaultValue 0.0
+                                else 0.0)
+                        usageAtStart <= resource.Capacity + 1e-9))
+
             let solutions =
                 measurements
                 |> Array.choose (fun bitstring ->
                     let taskStarts = QuboEncoding.decodeBitstring bitstring reverseMapping
 
+                    // One-hot multiplicity is enforced here: decodeBitstring only yields a start
+                    // for tasks with EXACTLY ONE set bit, and buildSolutionFromStarts returns None
+                    // unless every task has a start.
                     match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes with
-                    // Keep only precedence-feasible measurements. The QUBO penalty biases QAOA
-                    // sampling toward these, but the final min-makespan selection must not pick a
-                    // lower-makespan measurement that VIOLATES precedence — otherwise the returned
-                    // "solution" silently breaks the dependencies the user specified.
-                    | Some assignments when respectsDependencies assignments ->
+                    // Keep only fully feasible measurements (precedence AND resource capacity).
+                    // The QUBO penalties bias QAOA sampling toward these, but the final
+                    // min-makespan selection must not pick a lower-makespan measurement that
+                    // VIOLATES the constraints the user specified — otherwise the returned
+                    // "solution" would silently break dependencies or overload resources.
+                    | Some assignments when respectsDependencies assignments && respectsResources assignments ->
                         let makespan = ScheduleMetrics.calculateMakespan assignments
                         Some (makespan, assignments)
                     | _ -> None

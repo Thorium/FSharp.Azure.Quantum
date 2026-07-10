@@ -1129,11 +1129,14 @@ module FinancialData =
         
         let var = portfolio.TotalValue * timeScaledStd * zScore
         
-        // Expected Shortfall (approximate: ES ≈ VaR * (φ(z) / (1-p)))
-        // where φ is standard normal PDF
+        // Expected Shortfall for a normal distribution: ES = V * σ * φ(z) / (1-p)
+        // where φ is the standard normal PDF (note: no extra z factor — that is
+        // already reflected in VaR = V * σ * z, not in ES)
         let normalPdf z = exp(-z * z / 2.0) / sqrt(2.0 * Math.PI)
         let tailProb = 1.0 - riskParams.ConfidenceLevel
-        let es = if tailProb = 0.0 then var else var * (normalPdf zScore) / tailProb
+        let es =
+            if tailProb = 0.0 then var
+            else portfolio.TotalValue * timeScaledStd * (normalPdf zScore) / tailProb
         
         Ok {
             VaR = var

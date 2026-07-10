@@ -16,6 +16,7 @@ namespace FSharp.Azure.Quantum.Data
 ///   let iron = PeriodicTable.byNumber 26
 
 open System
+open System.Globalization
 open System.IO
 open System.Reflection
 
@@ -52,7 +53,7 @@ module PeriodicTable =
     let private parseFloatOption (s: string) : float option =
         if String.IsNullOrWhiteSpace(s) then None
         else 
-            match Double.TryParse(s) with
+            match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
             | true, v -> Some v
             | false, _ -> None
     
@@ -65,7 +66,7 @@ module PeriodicTable =
                     AtomicNumber = Int32.Parse(fields.[0].Trim())
                     Symbol = fields.[1].Trim()
                     Name = fields.[2].Trim()
-                    AtomicMass = Double.Parse(fields.[3].Trim())
+                    AtomicMass = Double.Parse(fields.[3].Trim(), CultureInfo.InvariantCulture)
                     CovalentRadius = parseFloatOption fields.[4]
                     Electronegativity = parseFloatOption fields.[5]
                     Group = Int32.Parse(fields.[6].Trim())

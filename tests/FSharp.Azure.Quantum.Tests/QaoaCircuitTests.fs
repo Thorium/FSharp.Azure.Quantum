@@ -12,24 +12,30 @@ let ``Problem Hamiltonian should construct from 2x2 QUBO matrix`` () =
     // Total: (0.5 + 0.5) * x0*x1 = 1.0 * x0*x1
     //
     // Converting to Ising with x_i = (1 - Z_i)/2:
-    // 1.0 * x0*x1 = 1.0 * (1-Z0)/2 * (1-Z1)/2 
+    // 1.0 * x0*x1 = 1.0 * (1-Z0)/2 * (1-Z1)/2
     //             = 0.25 * (1 - Z0 - Z1 + Z0*Z1)
-    // ZZ term coefficient: 0.25
+    // Linear coefficients: -0.25 for Z0 and Z1; ZZ term coefficient: 0.25
     let quboMatrix = array2D [
         [0.0; 0.5]
         [0.5; 0.0]
     ]
-    
+
     let hamiltonian = ProblemHamiltonian.fromQubo quboMatrix
-    
+
     Assert.NotNull(hamiltonian)
     Assert.Equal(2, hamiltonian.NumQubits)
-    Assert.Equal(1, hamiltonian.Terms.Length)
-    
-    let term = hamiltonian.Terms[0]
-    Assert.Equal(0.25, term.Coefficient)
-    Assert.Equal<int seq>([| 0; 1 |], term.QubitsIndices)
-    Assert.Equal<PauliOperator seq>([| PauliZ; PauliZ |], term.PauliOperators)
+    Assert.Equal(3, hamiltonian.Terms.Length)
+
+    let linearTerms = hamiltonian.Terms |> Array.filter (fun t -> t.QubitsIndices.Length = 1)
+    Assert.Equal(2, linearTerms.Length)
+    for term in linearTerms do
+        Assert.Equal(-0.25, term.Coefficient)
+        Assert.Equal<PauliOperator seq>([| PauliZ |], term.PauliOperators)
+
+    let zzTerm = hamiltonian.Terms |> Array.find (fun t -> t.QubitsIndices.Length = 2)
+    Assert.Equal(0.25, zzTerm.Coefficient)
+    Assert.Equal<int seq>([| 0; 1 |], zzTerm.QubitsIndices)
+    Assert.Equal<PauliOperator seq>([| PauliZ; PauliZ |], zzTerm.PauliOperators)
 
 [<Fact>]
 let ``Problem Hamiltonian should handle diagonal QUBO terms`` () =

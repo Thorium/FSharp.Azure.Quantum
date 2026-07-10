@@ -132,128 +132,133 @@ module FusionTree =
     // ========================================================================
     
     /// Count the number of distinct fusion trees for given anyons and total charge
-    /// 
-    /// This is the Hilbert space dimension for this topological qubit encoding.
-    /// 
+    ///
+    /// This is the Hilbert space dimension dim Hom(a₁ ⊗ ... ⊗ aₙ, c) for this
+    /// topological qubit encoding. The dimension is independent of the tree shape
+    /// (F-moves are unitary basis changes), so we fix ONE canonical shape — the
+    /// left-associated tree — and use the recursion:
+    ///
+    ///   dim(a₁..aₙ → c) = Σₑ dim(a₁..aₙ₋₁ → e) · N^c_{e,aₙ}
+    ///
+    /// Note: summing over different binary split positions would double-count
+    /// tree shapes and overestimate the dimension.
+    ///
     /// Example: 4 Sigma anyons fusing to Vacuum
     ///   Dimension = 2 (two orthogonal quantum states)
     /// Returns Error if anyon type is not implemented.
-    let rec fusionSpaceDimension 
-        (particles: AnyonSpecies.Particle list) 
+    let fusionSpaceDimension
+        (particles: AnyonSpecies.Particle list)
         (totalCharge: AnyonSpecies.Particle)
-        (anyonType: AnyonSpecies.AnyonType) 
+        (anyonType: AnyonSpecies.AnyonType)
         : TopologicalResult<int> =
-        
+
         match particles with
         | [] -> Ok 0
         | [p] -> Ok (if p = totalCharge then 1 else 0)
-        | [a; b] -> FusionRules.multiplicity a b totalCharge anyonType
-        | _ ->
-            // For n > 2 particles, we need to consider all possible binary fusion trees
-            // This is a recursive calculation over tree structures
-            
+        | first :: rest ->
             match AnyonSpecies.particles anyonType with
             | Error err -> Error err
             | Ok allParticles ->
-            
-            // Split particles into left and right groups (all possible splits)
-            let splits = 
-                [1 .. particles.Length - 1]
-                |> List.map (fun i -> 
-                    List.splitAt i particles
-                )
-            
-            // For each split, count trees that fuse to totalCharge via intermediate channels
-            let intermediateResults =
-                splits
-                |> List.collect (fun (leftParticles, rightParticles) ->
-                    // Try all possible intermediate fusion channels
-                    allParticles
-                    |> List.map (fun intermediate ->
-                        match fusionSpaceDimension leftParticles intermediate anyonType,
-                              fusionSpaceDimension rightParticles intermediate anyonType,
-                              FusionRules.multiplicity intermediate intermediate totalCharge anyonType with
-                        | Ok leftDim, Ok rightDim, Ok finalMultiplicity ->
-                            // Total dimension is product of possibilities
-                            Ok (leftDim * rightDim * finalMultiplicity)
-                        | Error err, _, _ -> Error err
-                        | _, Error err, _ -> Error err
-                        | _, _, Error err -> Error err
-                    )
-                )
-            
-            // Aggregate results: stop on first error or sum all dimensions
-            match intermediateResults |> List.choose (function Ok dim -> Some dim | Error _ -> None) with
-            | dims when dims.Length = intermediateResults.Length -> 
-                Ok (List.sum dims)  // All succeeded
-            | _ -> 
-                // Find first error
-                match intermediateResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
-                | Some err -> Error err
-                | None -> Error (TopologicalError.Other "Unexpected state in fusionSpaceDimension")
+
+            // Left-to-right dynamic programming over the left-associated chain:
+            // dims holds, for each reachable intermediate charge e, the number of
+            // fusion paths of the prefix ending in e. One pass per particle keeps
+            // this O(n·k²) in multiplicity lookups (a naive recursion re-solving
+            // the prefix per candidate charge is O(kⁿ) and hangs at ~20 anyons).
+            let fuseStep (dimsResult: TopologicalResult<(AnyonSpecies.Particle * int) list>) (next: AnyonSpecies.Particle) =
+                match dimsResult with
+                | Error err -> Error err
+                | Ok dims ->
+                    let mutable result: TopologicalResult<(AnyonSpecies.Particle * int) list> = Ok []
+                    for (e, d) in dims do
+                        for c in allParticles do
+                            match result with
+                            | Error _ -> ()
+                            | Ok acc ->
+                                match FusionRules.multiplicity e next c anyonType with
+                                | Error err -> result <- Error err
+                                | Ok mult when mult > 0 ->
+                                    let updated =
+                                        match acc |> List.tryFind (fun (p, _) -> p = c) with
+                                        | Some (_, prev) ->
+                                            acc |> List.map (fun (p, v) -> if p = c then (p, prev + d * mult) else (p, v))
+                                        | None -> (c, d * mult) :: acc
+                                    result <- Ok updated
+                                | Ok _ -> ()
+                    result
+
+            rest
+            |> List.fold fuseStep (Ok [ (first, 1) ])
+            |> Result.map (fun dims ->
+                dims
+                |> List.tryFind (fun (p, _) -> p = totalCharge)
+                |> Option.map snd
+                |> Option.defaultValue 0)
     
     // ========================================================================
     // TREE ENUMERATION
     // ========================================================================
     
     /// Generate all valid fusion trees for given particles and total charge
-    /// 
-    /// Returns a list of all possible fusion trees (basis states)
+    ///
+    /// Returns a list of all possible fusion trees (basis states).
+    ///
+    /// Canonical basis choice: trees are enumerated in the LEFT-ASSOCIATED shape
+    ///   ((...((a₁ × a₂ → e₁) × a₃ → e₂) ... ) × aₙ → totalCharge)
+    /// i.e. one tree per assignment of intermediate charges e₁,...,eₙ₋₂ allowed by
+    /// the fusion rules. Different tree shapes are related by unitary F-moves and
+    /// describe the same Hilbert space, so enumerating a single canonical shape
+    /// yields exactly one tree per basis state — the number of trees returned
+    /// equals fusionSpaceDimension. (Enumerating all binary shapes would emit
+    /// F-move-equivalent duplicates.)
+    ///
     /// Returns Error if anyon type is not implemented.
-    let rec allTrees 
+    let rec allTrees
         (particles: AnyonSpecies.Particle list)
         (totalCharge: AnyonSpecies.Particle)
         (anyonType: AnyonSpecies.AnyonType)
         : TopologicalResult<Tree list> =
-        
+
         match particles with
         | [] -> Ok []
-        | [p] -> 
+        | [p] ->
             Ok (if p = totalCharge then [Leaf p] else [])
-        
+
         | [a; b] ->
             // Base case: two particles
             match FusionRules.isPossible a b totalCharge anyonType with
             | Error err -> Error err
             | Ok true -> Ok [Fusion (Leaf a, Leaf b, totalCharge)]
             | Ok false -> Ok []
-        
+
         | _ ->
-            // Recursive case: try all binary splits
+            // Recursive case (left-associated shape): peel off the last particle.
+            // The first n-1 particles fuse to some intermediate charge e; keep every
+            // e with N^{totalCharge}_{e,aₙ} ≥ 1 and recurse on the left side.
             match AnyonSpecies.particles anyonType with
             | Error err -> Error err
             | Ok channels ->
-            
-            let splits = 
-                [1 .. particles.Length - 1]
-                |> List.map (fun i -> List.splitAt i particles)
-            
-            let allResults =
-                splits
-                |> List.collect (fun (leftParticles, rightParticles) ->
-                    channels
-                    |> List.collect (fun intermediate ->
-                        // Get all trees for left side fusing to intermediate
-                        match allTrees leftParticles intermediate anyonType,
-                              allTrees rightParticles intermediate anyonType,
-                              FusionRules.isPossible intermediate intermediate totalCharge anyonType with
-                        | Ok leftTrees, Ok rightTrees, Ok true ->
-                            // Combine all left and right trees
-                            [ for leftTree in leftTrees do
-                              for rightTree in rightTrees do
-                                Ok (Fusion (leftTree, rightTree, totalCharge)) ]
-                        | Ok _, Ok _, Ok false -> []
-                        | Error err, _, _ -> [Error err]
-                        | _, Error err, _ -> [Error err]
-                        | _, _, Error err -> [Error err]
-                    )
+
+            let initParticles = particles |> List.take (particles.Length - 1)
+            let lastParticle = List.last particles
+
+            let channelResults =
+                channels
+                |> List.map (fun intermediate ->
+                    match FusionRules.isPossible intermediate lastParticle totalCharge anyonType with
+                    | Error err -> Error err
+                    | Ok false -> Ok []
+                    | Ok true ->
+                        allTrees initParticles intermediate anyonType
+                        |> Result.map (List.map (fun leftTree ->
+                            Fusion (leftTree, Leaf lastParticle, totalCharge)))
                 )
-            
+
             // Check if any errors occurred
-            match allResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+            match channelResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
             | Some err -> Error err
-            | None -> 
-                Ok (allResults |> List.choose (function Ok tree -> Some tree | Error _ -> None))
+            | None ->
+                Ok (channelResults |> List.collect (function Ok trees -> trees | Error _ -> []))
     
     // ========================================================================
     // TREE EQUALITY

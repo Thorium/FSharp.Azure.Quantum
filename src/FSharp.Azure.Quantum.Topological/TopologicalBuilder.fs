@@ -137,67 +137,75 @@ module TopologicalBuilder =
         task {
             // IQuantumBackend doesn't support returning measurement outcome from ApplyOperation.
             // We implement measurement logic client-side by inspecting the state.
+            // Common outcome shape: (probability, classical outcome particle,
+            // full post-measurement superposition for that outcome).
             let measureResult =
                 match context.CurrentState with
                 | QuantumState.FusionSuperposition fs ->
                     match TopologicalOperations.fromInterface fs with
                     | Some superposition ->
-                         // Check if it's a pure state (single term) which measureFusion supports
-                         match superposition.Terms with
-                         | [(_, singleState)] ->
-                             TopologicalOperations.measureFusion leftIndex singleState
-                             |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBuilder", err.Message))
-                         | multipleTerms ->
-                             // Multi-term superposition measurement (Born rule):
-                             // For each term (amplitude_i, state_i):
-                             //   1. Call measureFusion to get possible outcomes with per-term probabilities
-                             //   2. Weight each outcome probability by |amplitude_i|²
-                             //   3. Aggregate outcomes across terms, summing probabilities for matching particles
-                             // Then sample one outcome based on aggregated probabilities.
-                             let termResults =
-                                 multipleTerms
-                                 |> List.map (fun (amplitude, termState) ->
-                                     let weight = amplitude.Magnitude * amplitude.Magnitude
-                                     TopologicalOperations.measureFusion leftIndex termState
-                                     |> Result.map (fun outcomes ->
-                                         outcomes |> List.map (fun (prob, opResult) -> (prob * weight, opResult))
-                                     )
-                                     |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBuilder", err.Message))
+                         // Multi-term superposition measurement (Born rule):
+                         // For each term (amplitude_i, state_i):
+                         //   1. Call measureFusion to get possible outcomes with per-term probabilities
+                         //   2. Weight each outcome probability by |amplitude_i|²
+                         //   3. Aggregate outcomes across terms, summing probabilities for matching
+                         //      particles — the post-measurement state for an outcome keeps EVERY
+                         //      consistent term (amplitude scaled by √p_i), not just a representative.
+                         // Then sample one outcome based on aggregated probabilities.
+                         let termResults =
+                             superposition.Terms
+                             |> List.map (fun (amplitude, termState) ->
+                                 let weight = amplitude.Magnitude * amplitude.Magnitude
+                                 TopologicalOperations.measureFusion leftIndex termState
+                                 |> Result.map (fun outcomes ->
+                                     outcomes
+                                     |> List.map (fun (prob, opResult) ->
+                                         // Post-measurement amplitude of this term for this
+                                         // outcome: amplitude · √p (Born-rule projection)
+                                         let collapsedAmp = amplitude * Complex(sqrt (max 0.0 prob), 0.0)
+                                         (prob * weight, collapsedAmp, opResult))
                                  )
-                             
-                             // Check for errors
-                             match termResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
-                             | Some err -> Error err
-                             | None ->
-                                 // Flatten all weighted outcomes
-                                 let allOutcomes =
-                                     termResults
-                                     |> List.collect (function Ok outcomes -> outcomes | Error _ -> [])
-                                 
-                                 // Aggregate by classical outcome particle type
-                                 let aggregated =
-                                     allOutcomes
-                                     |> List.groupBy (fun (_, opResult) -> opResult.ClassicalOutcome)
-                                     |> List.choose (fun (maybeParticle, group) ->
-                                         match maybeParticle with
-                                         | Some _ ->
-                                             let totalProb = group |> List.sumBy fst
-                                             // Use the first operationResult as representative (collapsed state)
-                                             let (_, representativeResult) = group |> List.head
-                                             Some (totalProb, representativeResult)
-                                         | None -> None
-                                     )
-                                 
-                                 if aggregated.IsEmpty then
-                                     Error (QuantumError.OperationError ("TopologicalBuilder", "Multi-term measurement produced no outcomes"))
-                                 else
-                                     // Normalize probabilities
-                                     let totalProb = aggregated |> List.sumBy fst
-                                     let normalized =
-                                         if totalProb > 0.0 then
-                                             aggregated |> List.map (fun (p, r) -> (p / totalProb, r))
-                                         else aggregated
-                                     Ok normalized
+                                 |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBuilder", err.Message))
+                             )
+
+                         // Check for errors
+                         match termResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+                         | Some err -> Error err
+                         | None ->
+                             // Flatten all weighted outcomes
+                             let allOutcomes =
+                                 termResults
+                                 |> List.collect (function Ok outcomes -> outcomes | Error _ -> [])
+
+                             // Aggregate by classical outcome particle type
+                             let aggregated =
+                                 allOutcomes
+                                 |> List.groupBy (fun (_, _, opResult) -> opResult.ClassicalOutcome)
+                                 |> List.choose (fun (maybeParticle, group) ->
+                                     match maybeParticle with
+                                     | Some particle ->
+                                         let totalProb = group |> List.sumBy (fun (p, _, _) -> p)
+                                         // Post-measurement state: superposition of ALL terms
+                                         // consistent with this outcome, renormalized.
+                                         let collapsedSup =
+                                             { TopologicalOperations.Superposition.Terms =
+                                                 group |> List.map (fun (_, amp, opResult) -> (amp, opResult.State))
+                                               TopologicalOperations.Superposition.AnyonType = superposition.AnyonType }
+                                             |> TopologicalOperations.normalize
+                                         Some (totalProb, particle, collapsedSup)
+                                     | None -> None
+                                 )
+
+                             if aggregated.IsEmpty then
+                                 Error (QuantumError.OperationError ("TopologicalBuilder", "Measurement produced no outcomes"))
+                             else
+                                 // Normalize probabilities
+                                 let totalProb = aggregated |> List.sumBy (fun (p, _, _) -> p)
+                                 let normalized =
+                                     if totalProb > 0.0 then
+                                         aggregated |> List.map (fun (p, particle, sup) -> (p / totalProb, particle, sup))
+                                     else aggregated
+                                 Ok normalized
                     | None ->
                         Error (QuantumError.ValidationError ("state", "Could not unwrap FusionSuperposition"))
                 | _ ->
@@ -206,8 +214,29 @@ module TopologicalBuilder =
             return
                 match measureResult with
                 | Ok outcomes ->
-                    // Sample one outcome (mimic single-shot behavior)
-                    match List.tryHead outcomes with
+                    // Sample ONE outcome according to the Born-rule probabilities
+                    // (mimic single-shot behavior). Previously this always took the
+                    // FIRST outcome, biasing every measurement to the same result.
+                    // Uses System.Random.Shared, matching the RNG convention of
+                    // TopologicalOperations.measureAll.
+                    let sampledOutcome =
+                        match outcomes with
+                        | [] -> None
+                        | [ single ] -> Some single
+                        | _ ->
+                            let totalProb = outcomes |> List.sumBy fst
+                            if totalProb <= 0.0 then
+                                List.tryHead outcomes
+                            else
+                                let r = System.Random.Shared.NextDouble() * totalProb
+                                let rec pick cumulative remaining =
+                                    match remaining with
+                                    | [] -> List.last outcomes  // numerical edge: r ≈ totalProb
+                                    | (p, res) :: rest ->
+                                        if r <= cumulative + p then (p, res)
+                                        else pick (cumulative + p) rest
+                                Some (pick 0.0 outcomes)
+                    match sampledOutcome with
                     | Some (prob, opResult) ->
                          match opResult.ClassicalOutcome with
                          | Some outcome ->

@@ -482,7 +482,9 @@ module GraphColoring =
                     FixedColors = fixedColors
                 }
                 
-                let classicalResult = QuantumGraphColoringSolver.solveClassical quantumProblem
+                // Propagates Error when the greedy heuristic cannot color the graph
+                // with the available colors (instead of throwing).
+                let! classicalResult = QuantumGraphColoringSolver.solveClassical quantumProblem
                 
                 let indexToColor = 
                     problem.AvailableColors 

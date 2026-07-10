@@ -392,23 +392,43 @@ module ModelSerialization =
                 return Error (QuantumError.ValidationError ("Input", $"Failed to save multi-class model: {ex.Message}"))
         }
     
+    /// Validate a deserialized VQC model. System.Text.Json fills members missing
+    /// from the JSON with defaults (null/0), so a file of a different model kind
+    /// "deserializes successfully" with null arrays — validate the discriminating
+    /// required fields instead of trusting deserialization alone.
+    let private validateVQCModel (filePath: string) (model: SerializableVQCModel) : QuantumResult<SerializableVQCModel> =
+        if isNull (box model) || isNull model.Parameters || model.Parameters.Length = 0 then
+            Error (QuantumError.ValidationError ("Input", $"File is not a VQC model (Parameters missing or empty): {filePath}"))
+        else
+            Ok model
+
+    /// Validate a deserialized multi-class VQC model (see validateVQCModel).
+    let private validateMultiClassVQCModel (filePath: string) (model: SerializableMultiClassVQCModel) : QuantumResult<SerializableMultiClassVQCModel> =
+        if isNull (box model)
+           || isNull model.Classifiers || model.Classifiers.Length = 0
+           || isNull model.ClassLabels
+           || (model.Classifiers |> Array.exists (fun c -> isNull (box c) || isNull c.Parameters || c.Parameters.Length = 0)) then
+            Error (QuantumError.ValidationError ("Input", $"File is not a multi-class VQC model (Classifiers/ClassLabels missing or empty): {filePath}"))
+        else
+            Ok model
+
     /// Load VQC model from JSON file
     ///
     /// Returns: Serializable model with all metadata
     let loadVQCModel
         (filePath: string)
         : QuantumResult<SerializableVQCModel> =
-        
+
         try
             if not (File.Exists filePath) then
                 Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
-                Ok model
+                validateVQCModel filePath model
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
-    
+
     /// Load VQC model from JSON file asynchronously
     let loadVQCModelAsync
         (filePath: string)
@@ -421,28 +441,28 @@ module ModelSerialization =
                 else
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
-                    return Ok model
+                    return validateVQCModel filePath model
             with ex ->
                 return Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
         }
-    
+
     /// Load VQC multi-class model from JSON file
     ///
     /// Returns: Serializable multi-class model with all classifiers
     let loadVQCMultiClassModel
         (filePath: string)
         : QuantumResult<SerializableMultiClassVQCModel> =
-        
+
         try
             if not (File.Exists filePath) then
                 Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
-                Ok model
+                validateMultiClassVQCModel filePath model
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
-    
+
     /// Load VQC multi-class model from JSON file asynchronously
     let loadVQCMultiClassModelAsync
         (filePath: string)
@@ -455,7 +475,7 @@ module ModelSerialization =
                 else
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
-                    return Ok model
+                    return validateMultiClassVQCModel filePath model
             with ex ->
                 return Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
         }

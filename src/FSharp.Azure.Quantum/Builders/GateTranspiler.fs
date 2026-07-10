@@ -327,64 +327,59 @@ module GateTranspiler =
     // ------------------------------------------------------------------------
     
     // ============================================================================
-    // OPTIMIZED MCX DECOMPOSITION (Improved from O(4^n) to O(2^(n-1)))
+    // ANCILLA-FREE MCX DECOMPOSITION (exact; exponential in control count)
     // ============================================================================
-    
-    /// Decompose MCX gate using ladder decomposition with borrowed ancilla qubits
-    /// 
-    /// **Ladder Decomposition Strategy:**
-    /// Uses control qubits as auxiliary storage to reduce gate count.
-    /// 
-    /// For n controls [c0, c1, c2, ..., c(n-1)]:
-    /// 1. Compute partial AND results: c0 ∧ c1 → store in c2
-    /// 2. Continue: (c0 ∧ c1) ∧ c2 → store in c3
-    /// 3. Final: apply to target when all controls satisfied
-    /// 4. Uncompute to restore original control qubit states
-    /// 
-    /// **Gate Count:**
-    /// - Traditional recursive: O(4^n) gates  
-    /// - This ladder approach: O(2^(n-1)) gates
-    /// - With dedicated ancillas: O(n) gates possible
-    /// 
-    /// **Example (4 controls [c0,c1,c2,c3] → target):**
+
+    /// Decompose a multi-controlled phase gate MCP(θ) — phase e^(iθ) applied iff
+    /// all controls AND the target are |1⟩ — into CP/CNOT/CCX/H gates, ancilla-free.
+    ///
+    /// **Recursion (standard multi-controlled phase construction):**
     /// ```
-    /// CCX(c0, c1, c2)   // Compute: c0 ∧ c1 → c2 (borrow c2)
-    /// CCX(c2, c3, t)    // Apply: (c0 ∧ c1) ∧ c3 → target
-    /// CCX(c0, c1, c2)   // Uncompute: restore c2
+    /// MCP(θ; c1..cn; t) =
+    ///   CP(cn, t, θ/2)
+    ///   · MCX(c1..c(n-1); cn) · CP(cn, t, -θ/2) · MCX(c1..c(n-1); cn)
+    ///   · MCP(θ/2; c1..c(n-1); t)
     /// ```
-    /// 
-    /// **Trade-offs:**
-    /// - ✅ 50% reduction from O(4^n) to O(2^(n-1))
-    /// - ✅ No additional ancilla qubits needed
-    /// - ⚠️ Still exponential, but significantly better
-    /// - ⚠️ For O(n) linear, need dedicated ancilla (see decomposeMCXWithAncilla)
-    /// 
+    ///
+    /// **Correctness:** with a = AND(c1..c(n-1)) and b = cn, the phase applied when
+    /// t = 1 is (θ/2)·(b − (b ⊕ a) + a) = θ·a·b, i.e. exactly θ when every control
+    /// is 1 and 0 otherwise. The MCX pair computes then uncomputes cn ⊕ a, so all
+    /// control qubits are restored.
+    ///
+    /// **Cost trade-off:** O(3^n) gates — exponential, but exact and ancilla-free.
+    /// Acceptable for realistic control counts (3-8); for O(n) linear cost use
+    /// decomposeMCXWithAncilla with dedicated ancilla qubits.
+    ///
     /// **References:**
-    /// - Barenco et al. (1995): "Elementary gates for quantum computation"
+    /// - Barenco et al. (1995): "Elementary gates for quantum computation", Lemma 7.5
     /// - Nielsen & Chuang, Section 4.3
-    let rec private decomposeMCXOptimized (controls: int list) (target: int) : Gate list =
+    let rec private decomposeMCP (theta: float) (controls: int list) (target: int) : Gate list =
+        // Ancilla-free MCX expressed via MCP(π) (X = H·Z·H, so MCX = H·MCZ·H = H·MCP(π)·H)
+        let mcx (cs: int list) (t: int) : Gate list =
+            match cs with
+            | [] -> [X t]
+            | [c] -> [CNOT (c, t)]
+            | [c1; c2] -> [CCX (c1, c2, t)]
+            | _ -> H t :: (decomposeMCP pi cs t @ [H t])
+
         match controls with
-        | [] -> 
-            [X target]
-        
-        | [c] -> 
-            [CNOT (c, target)]
-        
-        | [c1; c2] -> 
-            [CCX (c1, c2, target)]
-        
-        | c1 :: c2 :: aux :: restControls ->
-            // Three or more controls: use ladder decomposition
-            // Borrow 'aux' as temporary storage for c1 ∧ c2
-            
-            let compute = CCX (c1, c2, aux)
-            let remaining = aux :: restControls
-            let applyToTarget = decomposeMCXOptimized remaining target
-            let uncompute = CCX (c1, c2, aux)
-            
-            // Build: compute → recurse → uncompute
-            compute :: (applyToTarget @ [uncompute])
-    
+        | [] ->
+            [P (target, theta)]
+
+        | [c] ->
+            [CP (c, target, theta)]
+
+        | _ ->
+            let init = controls |> List.take (controls.Length - 1)
+            let last = List.last controls
+            [
+                yield CP (last, target, theta / 2.0)
+                yield! mcx init last
+                yield CP (last, target, -theta / 2.0)
+                yield! mcx init last
+                yield! decomposeMCP (theta / 2.0) init target
+            ]
+
     /// Decompose MCX gate using dedicated ancilla qubits for linear O(n) gate count
     /// 
     /// **Linear Decomposition with Ancillas:**
@@ -471,36 +466,25 @@ module GateTranspiler =
     /// Decompose multi-controlled Z gate (MCZ) into standard gates
     /// 
     /// **Algorithm:**
-    /// MCZ with n controls decomposes as: H(target) · MCX · H(target)
-    /// where MCX (multi-controlled X) is decomposed using Gray code optimization.
-    /// 
+    /// MCZ with n controls is exactly a multi-controlled phase gate MCP(π)
+    /// (phase -1 iff all controls and the target are |1⟩), decomposed recursively
+    /// via decomposeMCP into CP/CNOT/CCX/H gates.
+    ///
     /// **Strategy by number of controls:**
     /// - 0 controls: Z gate
-    /// - 1 control: CZ gate  
+    /// - 1 control: CZ gate
     /// - 2 controls: CCZ gate (H + CCX + H)
-    /// - 3+ controls: Gray code optimized MCX decomposition
-    /// 
-    /// **Gray Code Optimization (n >= 3):**
-    /// Uses Gray code sequence to minimize gate count:
-    /// - Traditional recursive: O(4^n) gates
-    /// - Gray code optimized: O(2^n) gates
-    /// - Adjacent Gray code patterns differ by 1 bit → only 1 CNOT per transition
-    /// 
-    /// **Gate Count Comparison:**
-    /// - 3 controls: O(64) → O(8) gates (87.5% reduction!)
-    /// - 4 controls: O(256) → O(16) gates (93.75% reduction!)
-    /// - 5 controls: O(1024) → O(32) gates (96.875% reduction!)
-    /// 
+    /// - 3+ controls: recursive multi-controlled phase decomposition (MCZ = MCP(π))
+    ///
     /// **Trade-off:**
-    /// - No ancilla qubits needed (ancilla-free)
-    /// - Still exponential O(2^n), but 50% reduction vs recursive
-    /// - With ancilla qubits, could achieve O(n) linear growth (see decomposeMCZWithAncilla)
-    /// 
+    /// - No ancilla qubits needed (ancilla-free) and exact
+    /// - Exponential O(3^n) gate count — acceptable for realistic control counts (3-8)
+    /// - With ancilla qubits, O(n) linear growth is possible (see decomposeMCZWithOptionalAncilla)
+    ///
     /// **References:**
-    /// - Shende & Markov (2009): "On the CNOT-cost of TOFFOLI gates"
     /// - Barenco et al. (1995): "Elementary gates for quantum computation"
     /// - Nielsen & Chuang: "Quantum Computation and Quantum Information", Section 4.3
-    let rec private decomposeMCZ (controls: int list) (target: int) : Gate list =
+    let private decomposeMCZ (controls: int list) (target: int) : Gate list =
         match controls with
         | [] -> 
             // No controls: just Z gate
@@ -519,9 +503,9 @@ module GateTranspiler =
             ]
         
         | _ ->
-            // Three or more controls: use optimized MCX ladder decomposition
-            // MCZ = H · MCX_optimized · H
-            H target :: (decomposeMCXOptimized controls target @ [H target])
+            // Three or more controls: MCZ is exactly a multi-controlled phase of π
+            // (phase -1 iff all controls and the target are |1⟩)
+            decomposeMCP pi controls target
     
     // ========================================================================
     // SINGLE GATE TRANSPILATION
@@ -582,8 +566,14 @@ module GateTranspiler =
             else
                 decomposeCCX c1 c2 t
         
-        // MCZ - always decompose (no backend supports multi-controlled gates natively)
-        | MCZ (controls, target) -> decomposeMCZ controls target
+        // MCZ - always decompose (no backend supports multi-controlled gates natively).
+        // Re-transpile the emitted gates so CP/CCX from the decomposition are further
+        // decomposed when the backend requires it.
+        | MCZ (controls, target) ->
+            decomposeMCZ controls target
+            |> List.collect (transpileGate
+                                needsPhaseDecomposition needsCZDecomposition needsSWAPDecomposition
+                                needsCCXDecomposition needsControlledRotationDecomposition)
         
         // Conditional: transpile the inner gate, preserving the classical condition
         | Conditional (q, inner) ->
@@ -664,7 +654,7 @@ module GateTranspiler =
     /// 
     /// **Usage:**
     /// ```fsharp
-    /// // Without ancillas: O(2^(n-1)) gates (optimized, but exponential)
+    /// // Without ancillas: O(3^n) gates (exact, but exponential)
     /// let mcz4NoAncilla = GateTranspiler.decomposeMCZWithOptionalAncilla [0; 1; 2; 3] None 4
     /// 
     /// // With ancillas: O(n) gates (linear, best possible!)
@@ -681,7 +671,7 @@ module GateTranspiler =
     /// 
     /// **Performance:**
     /// - With ancillas: 2n - 3 gates = O(n) linear
-    /// - Without ancillas: ~2^(n-1) gates (optimized from O(4^n))
+    /// - Without ancillas: O(3^n) gates (exact, ancilla-free, exponential)
     let decomposeMCZWithOptionalAncilla (controls: int list) (ancillas: int list option) (target: int) : Gate list =
         match ancillas with
         | Some anc when anc.Length = controls.Length - 2 && controls.Length >= 3 ->

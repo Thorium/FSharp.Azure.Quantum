@@ -315,8 +315,17 @@ module PredictiveModel =
     /// Load model from file (async, task-based)
     let loadAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
         async {
-            // Try to load as VQC model first
+            // Try to load as VQC model first.
+            // NOTE: System.Text.Json fills missing members with defaults (null for arrays),
+            // so a file saved as a different model kind can still deserialize "successfully"
+            // into the wrong schema. Validate discriminating required fields (non-null,
+            // non-empty) before accepting each branch.
             let! transferResult = ModelSerialization.loadForTransferLearningAsync path cancellationToken |> Async.AwaitTask
+            let transferResult =
+                match transferResult with
+                | Ok (parameters, _) when isNull parameters || parameters.Length = 0 ->
+                    Error (QuantumError.ValidationError ("Input", "Not a VQC regression model: Parameters missing or empty"))
+                | other -> other
             match transferResult with
             | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
                 let featureMap = 
@@ -360,6 +369,14 @@ module PredictiveModel =
             | Error _ ->
                 // Try to load as multi-class VQC model
                 let! multiClassVqcResult = ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken |> Async.AwaitTask
+                let multiClassVqcResult =
+                    match multiClassVqcResult with
+                    | Ok m when isNull m.Classifiers
+                                || m.Classifiers.Length = 0
+                                || isNull m.ClassLabels
+                                || (m.Classifiers |> Array.exists (fun c -> isNull c.Parameters || c.Parameters.Length = 0)) ->
+                        Error (QuantumError.ValidationError ("Input", "Not a multi-class VQC model: Classifiers missing or empty"))
+                    | other -> other
                 match multiClassVqcResult with
                 | Ok multiClassModel ->
                     let featureMap = 
@@ -407,6 +424,11 @@ module PredictiveModel =
                 | Error _ ->
                     // Try to load as HHL model
                     let! hhlResult = HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken |> Async.AwaitTask
+                    let hhlResult =
+                        match hhlResult with
+                        | Ok r when isNull r.Weights || r.Weights.Length = 0 ->
+                            Error (QuantumError.ValidationError ("Input", "Not an HHL regression model: Weights missing or empty"))
+                        | other -> other
                     match hhlResult with
                     | Ok hhlResult ->
                         return Ok {
@@ -425,6 +447,11 @@ module PredictiveModel =
                     | Error _ ->
                         // Try to load as binary SVM model
                         let! svmResult = SVMModelSerialization.loadSVMModelAsync path cancellationToken |> Async.AwaitTask
+                        let svmResult =
+                            match svmResult with
+                            | Ok m when isNull m.TrainData || m.TrainData.Length = 0 ->
+                                Error (QuantumError.ValidationError ("Input", "Not an SVM model: TrainData missing or empty"))
+                            | other -> other
                         match svmResult with
                         | Ok svmModel ->
                             let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0

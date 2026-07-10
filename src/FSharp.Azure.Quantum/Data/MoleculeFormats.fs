@@ -682,9 +682,9 @@ module MoleculeFormats =
                     let resName = line.Substring(17, 3).Trim()
                     let chainId = if line.Length > 21 && line.[21] <> ' ' then Some line.[21] else None
                     let resSeq = line.Substring(22, 4).Trim() |> int
-                    let x = line.Substring(30, 8).Trim() |> Double.Parse
-                    let y = line.Substring(38, 8).Trim() |> Double.Parse
-                    let z = line.Substring(46, 8).Trim() |> Double.Parse
+                    let x = Double.Parse(line.Substring(30, 8).Trim(), CultureInfo.InvariantCulture)
+                    let y = Double.Parse(line.Substring(38, 8).Trim(), CultureInfo.InvariantCulture)
+                    let z = Double.Parse(line.Substring(46, 8).Trim(), CultureInfo.InvariantCulture)
 
                     // Element is in columns 77-78, or infer from atom name
                     let element =

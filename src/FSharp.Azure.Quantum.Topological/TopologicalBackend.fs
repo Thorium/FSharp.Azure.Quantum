@@ -206,35 +206,38 @@ module TopologicalUnifiedBackend =
         /// On real topological hardware, ALL gates must be implemented via physical
         /// anyon braiding. Amplitude-level manipulation is not a physical operation.
         ///
-        /// For **Ising** anyons: T, T†, H, X, Y, Z, CNOT, SWAP are intercepted.
-        ///   - T/T† because Ising braiding only produces S phases (not T).
-        ///   - H/X/Y because they are off-diagonal (Ising braid set {S,Z} is Clifford-only).
+        /// For **Ising** anyons: T, T†, H, X, Y, Z, RZ, P, CNOT, SWAP are intercepted.
+        ///   - T/T†/RZ/P because Ising braiding only produces π/2-multiple phases
+        ///     (Clifford); arbitrary phases require magic-state supplementation.
+        ///     RZ/P interception is what keeps QFT/QPE phases EXACT — previously
+        ///     arbitrary angles were silently snapped to the nearest π/2 multiple,
+        ///     corrupting results.
+        ///   - H/X/Y because they are off-diagonal (Ising braid set {S,Z} is diagonal-only).
         ///   - Z/CNOT/SWAP for performance (exact amplitude ops avoid S-K overhead).
-        ///   On real Ising hardware, T/H/X/Y would require magic state distillation or
+        ///   On real Ising hardware, T/H/X/Y/RZ/P would require magic state distillation or
         ///   non-topological supplementation — these intercepts model the *ideal* result
         ///   that such supplementation would achieve.
         ///
-        /// For **Fibonacci** anyons: NO gates are intercepted.
-        ///   Fibonacci anyons are computationally universal via braiding alone — all gates
-        ///   (including T, H, CNOT) can be compiled to braid sequences to arbitrary precision.
-        ///   Using the full braid pipeline is physically faithful and demonstrates universality.
+        /// For **Fibonacci** anyons the same set is intercepted. Fibonacci anyons
+        ///   are computationally universal via braiding *in theory*, but this
+        ///   library's executor only implements within-pair (adjacent, fused-pair)
+        ///   braids — the cross-pair σ₂ exchanges that Fibonacci gate compilation
+        ///   requires return an explicit not-implemented error. The intercepts give
+        ///   correct simulator results; the braid-compilation pipeline (GateToBraid)
+        ///   remains available for research use and reports its limitations honestly.
         ///
         /// **IMPORTANT**: This is the single source of truth for amplitude-intercepted gates.
         /// The match arms in ApplyGate MUST be kept in sync with this function.
         member private _.IsAmplitudeIntercepted (gate: CircuitBuilder.Gate) : bool =
-            match anyonType with
-            | AnyonSpecies.AnyonType.Fibonacci ->
-                // Fibonacci anyons are universal — all gates go through braid compilation.
-                // No simulator shortcuts needed.
-                false
-            | _ ->
-                // Ising (and unknown types): intercept gates that can't be braid-compiled
-                // or where amplitude-level ops are significantly faster.
-                match gate with
-                | CircuitBuilder.T _ | CircuitBuilder.TDG _
-                | CircuitBuilder.H _ | CircuitBuilder.X _ | CircuitBuilder.Y _ | CircuitBuilder.Z _
-                | CircuitBuilder.CNOT _ | CircuitBuilder.SWAP _ -> true
-                | _ -> false
+            // Intercept gates that can't be braid-compiled by the executor
+            // or where exact amplitude-level ops avoid S-K overhead.
+            match gate with
+            | CircuitBuilder.T _ | CircuitBuilder.TDG _
+            | CircuitBuilder.H _ | CircuitBuilder.X _ | CircuitBuilder.Y _ | CircuitBuilder.Z _
+            | CircuitBuilder.RZ _ | CircuitBuilder.P _
+            | CircuitBuilder.RX _ | CircuitBuilder.RY _
+            | CircuitBuilder.CNOT _ | CircuitBuilder.SWAP _ -> true
+            | _ -> false
         
         /// Apply braiding operation to fusion superposition
         member private this.ApplyBraid (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
@@ -278,6 +281,19 @@ module TopologicalUnifiedBackend =
                     |> fromTopResult
                 | CircuitBuilder.Gate.Z qubitIndex ->
                     TopologicalOperations.pauliZ qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.RZ (qubitIndex, angle)
+                | CircuitBuilder.Gate.P (qubitIndex, angle) ->
+                    // Exact diagonal phase diag(1, e^{iθ}) — same convention as the
+                    // GateTranspiler CP/CRZ decompositions, so controlled-phase
+                    // constructions built from RZ+CNOT are exact.
+                    TopologicalOperations.phaseGate qubitIndex angle fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.RX (qubitIndex, angle) ->
+                    TopologicalOperations.rxGate qubitIndex angle fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.RY (qubitIndex, angle) ->
+                    TopologicalOperations.ryGate qubitIndex angle fusionState
                     |> fromTopResult
                 | CircuitBuilder.Gate.CNOT (controlIndex, targetIndex) ->
                     TopologicalOperations.cnot controlIndex targetIndex fusionState
@@ -333,9 +349,16 @@ module TopologicalUnifiedBackend =
                 else
                     // Gate did not decompose — it's already elementary.
                     // Compile directly to braid sequence via GateToBraid.
-                    // Tolerance for angle discretization to nearest braid multiple (π/2 for Ising).
-                    // Maximum rounding error when discretizing to π/2 multiples is π/4.
-                    let tolerance = Math.PI / 4.0 + 1e-10
+                    //
+                    // TIGHT tolerance: only rotations that are numerically exact
+                    // multiples of π/2 can be realized by Ising braiding. The previous
+                    // value (π/4 + 1e-10) exceeded the worst-case rounding error, so
+                    // EVERY angle was accepted and silently snapped to the nearest π/2
+                    // multiple, corrupting QFT/QPE phases. Non-π/2 angles now produce
+                    // an explicit unsupported-gate error from rzGateToBraid (which
+                    // reports the offending angle) — note that RZ/P themselves are
+                    // amplitude-intercepted above and never reach this path on Ising.
+                    let tolerance = 1e-9
 
                     let gateSequence: BraidToGate.GateSequence =
                         { NumQubits = numQubits
@@ -777,7 +800,10 @@ module TopologicalUnifiedBackend =
                                           TotalPhase = Complex.One
                                           Depth = 1
                                           TCount = 0 }
-                                    match GateToBraid.compileGateSequence singleGateSeq (Math.PI / 4.0 + 1e-10) anyonType with
+                                    // Tight tolerance (must match ApplyGate): only exact
+                                    // π/2-multiple rotations are braid-compilable on Ising;
+                                    // anything else is honestly reported as unsupported.
+                                    match GateToBraid.compileGateSequence singleGateSeq 1e-9 anyonType with
                                     | Ok _ -> true
                                     | Error _ -> false
                             )
@@ -795,12 +821,14 @@ module TopologicalUnifiedBackend =
                 match initialResult with
                 | Error err -> Error err
                 | Ok initialState ->
-                    // Extract gates from circuit wrapper
+                    // Extract gates from circuit wrapper.
+                    // Circuit.Gates is stored most-recent-first (addGate prepends);
+                    // List.rev restores program order, matching LocalBackend.
                     let operations =
                         match circuit with
-                        | :? CircuitWrapper as wrapper -> 
-                            wrapper.Circuit.Gates |> List.map QuantumOperation.Gate
-                        | _ -> 
+                        | :? CircuitWrapper as wrapper ->
+                            wrapper.Circuit.Gates |> List.rev |> List.map QuantumOperation.Gate
+                        | _ ->
                             []  // Empty circuit if not a CircuitWrapper
                     
                     // Apply each operation in sequence

@@ -12,10 +12,12 @@ open FSharp.Azure.Quantum.Core
 /// - D-Wave backends need QUBO format (not Hamiltonian format)
 /// - Extraction inverts the QUBO → Hamiltonian transformation
 ///
-/// Transformation (inverse of QAOA encoding):
+/// Transformation (inverse of QAOA encoding, x_i = (1 - Z_i)/2):
 ///   Problem Hamiltonian: H = Σ c_i Z_i + Σ c_ij Z_i Z_j
-///   QUBO: Q_ii = -2 * c_i  (diagonal)
-///         Q_ij = 4 * c_ij  (off-diagonal)
+///   QUBO: Q_ij = 4 * c_ij                      (off-diagonal)
+///         Q_ii = -2 * (c_i + Σ_{j≠i} c_ij)     (diagonal; cross terms contribute
+///                                               -Q_ij/4 to each linear c_i in the
+///                                               forward map and must be removed here)
 module QuboExtraction =
     
     open FSharp.Azure.Quantum.Core.QaoaCircuit
@@ -27,9 +29,11 @@ module QuboExtraction =
     
     /// Extract QUBO matrix from Problem Hamiltonian
     ///
-    /// Inverse transformation of QaoaCircuit.ProblemHamiltonian.fromQubo:
-    ///   Hamiltonian term: -Q_ii/2 * Z_i  → QUBO term: Q_ii * x_i
-    ///   Hamiltonian term: Q_ij/4 * Z_i*Z_j → QUBO term: Q_ij * x_i * x_j
+    /// Inverse transformation of QaoaCircuit.ProblemHamiltonian.fromQubo
+    /// (which uses x_i = (1 - Z_i)/2, so Q_ij x_i x_j contributes -Q_ij/4 to
+    /// BOTH linear coefficients c_i, c_j in addition to the Q_ij/4 ZZ term):
+    ///   Off-diagonal: Q_ij = 4 * c_ij
+    ///   Diagonal:     Q_ii = -2 * (c_i + Σ_{j≠i} c_ij)
     ///
     /// Parameters:
     /// - hamiltonian: Problem Hamiltonian from QAOA circuit
@@ -39,36 +43,56 @@ module QuboExtraction =
     ///
     /// Example:
     ///   Hamiltonian: -1.0 * Z_0 + 0.5 * Z_0*Z_1
-    ///   QUBO: Q_00 = 2.0, Q_01 = 2.0
+    ///   QUBO: Q_00 = -2*(-1.0 + 0.5) = 1.0, Q_01 = 2.0, Q_11 = -2*(0 + 0.5) = -1.0
     let fromProblemHamiltonian (hamiltonian: ProblemHamiltonian) : Map<(int * int), float> =
-        
-        // Helper: Add or update QUBO term in map
-        let addQuboTerm (qubo: Map<(int * int), float>) (i: int) (j: int) (value: float) =
-            let key = if i <= j then (i, j) else (j, i)  // Normalize to upper triangle
-            let current = Map.tryFind key qubo |> Option.defaultValue 0.0
-            Map.add key (current + value) qubo
-        
-        // Process each Hamiltonian term, threading the map
-        hamiltonian.Terms
-        |> Seq.fold (fun qubo term ->
+
+        // First pass: collect linear coefficients and ZZ coefficients per qubit
+        let linear = System.Collections.Generic.Dictionary<int, float>()
+        let zzSum = System.Collections.Generic.Dictionary<int, float>()
+        let offDiagonal = System.Collections.Generic.Dictionary<int * int, float>()
+
+        let addTo (d: System.Collections.Generic.Dictionary<'k, float>) key value =
+            match d.TryGetValue key with
+            | true, v -> d.[key] <- v + value
+            | false, _ -> d.[key] <- value
+
+        for term in hamiltonian.Terms do
             match term.QubitsIndices.Length with
             | 1 ->
                 // Single-qubit Z term: c * Z_i
-                // Inverse: Q_ii = -2 * c
-                let i = term.QubitsIndices.[0]
-                addQuboTerm qubo i i (-2.0 * term.Coefficient)
-            
+                addTo linear term.QubitsIndices.[0] term.Coefficient
             | 2 ->
-                // Two-qubit ZZ term: c * Z_i * Z_j
-                // Inverse: Q_ij = 4 * c
+                // Two-qubit ZZ term: c * Z_i * Z_j → Q_ij = 4 * c
                 let i = term.QubitsIndices.[0]
                 let j = term.QubitsIndices.[1]
-                addQuboTerm qubo i j (4.0 * term.Coefficient)
-            
+                let key = if i <= j then (i, j) else (j, i)  // Normalize to upper triangle
+                addTo offDiagonal key (4.0 * term.Coefficient)
+                // Track Σ c_ij per incident qubit for the diagonal reconstruction
+                addTo zzSum i term.Coefficient
+                addTo zzSum j term.Coefficient
             | _ ->
                 // Higher-order terms not supported in QUBO
                 failwith $"Unsupported term order: {term.QubitsIndices.Length} qubits (QUBO supports only 1 and 2)"
-        ) Map.empty
+
+        // Second pass: diagonal Q_ii = -2 * (c_i + Σ_{j≠i} c_ij)
+        let qubits =
+            Seq.append linear.Keys zzSum.Keys |> Seq.distinct
+
+        let diagonal =
+            qubits
+            |> Seq.choose (fun i ->
+                let ci = match linear.TryGetValue i with true, v -> v | _ -> 0.0
+                let si = match zzSum.TryGetValue i with true, v -> v | _ -> 0.0
+                let qii = -2.0 * (ci + si)
+                if abs qii > 1e-12 then Some ((i, i), qii) else None)
+
+        let offDiagonalEntries =
+            offDiagonal
+            |> Seq.filter (fun kv -> abs kv.Value > 1e-12)
+            |> Seq.map (fun kv -> kv.Key, kv.Value)
+
+        Seq.append diagonal offDiagonalEntries
+        |> Map.ofSeq
     
     // ============================================================================
     // QUBO EXTRACTION FROM QAOA CIRCUIT

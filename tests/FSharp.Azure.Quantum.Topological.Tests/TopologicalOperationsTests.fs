@@ -710,3 +710,96 @@ module TopologicalOperationsTests =
 
                 Assert.True(TopologicalOperations.isNormalized result)
 
+    // ========================================================================
+    // BRAID INDEXING AND CROSS-PAIR BRAIDS (regression tests)
+    // ========================================================================
+
+    [<Fact>]
+    let ``Cross-pair braid on multi-pair encoding returns explicit error instead of silent global phase`` () =
+        // Braiding leaves (1, 2) crosses two σ-pairs. The executor cannot apply
+        // this without F-move basis changes (implemented only for 3-anyon trees).
+        // Previously it silently applied the first fusion channel's R-phase as a
+        // GLOBAL phase — i.e. the braid became identity while reporting success.
+        match FusionTree.fromComputationalBasis [0; 0] AnyonSpecies.AnyonType.Ising with
+        | Error err -> Assert.Fail($"Failed to build state: {err.Message}")
+        | Ok tree ->
+            let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
+            match TopologicalOperations.braidAdjacentAnyons 1 state with
+            | Ok _ -> Assert.Fail("Cross-pair braid should fail explicitly")
+            | Error (TopologicalError.NotImplemented (feature, _)) ->
+                Assert.Contains("Cross-pair", feature)
+            | Error err -> Assert.Fail($"Expected NotImplemented but got {err.Category}")
+
+    [<Fact>]
+    let ``Within-pair braid for qubit 1 uses leaf index 2 and applies channel-dependent phase`` () =
+        // Qubit q occupies leaves (2q, 2q+1): braiding leaf index 2 must apply the
+        // R-phase of qubit 1's OWN fusion channel. This is the leaf-index mapping
+        // that gate compilation (S/Z/Rz on qubit q → generator 2q) relies on.
+        let mk bits =
+            match FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising with
+            | Ok tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising
+            | Error err -> failwith $"tree: {err.Message}"
+
+        // [0; 1]: qubit 1 in ψ channel; [0; 0]: qubit 1 in vacuum channel
+        let state01 = mk [0; 1]
+        let state00 = mk [0; 0]
+
+        match TopologicalOperations.braidAdjacentAnyons 2 state01,
+              TopologicalOperations.braidAdjacentAnyons 2 state00 with
+        | Ok braided1, Ok braided0 ->
+            let (amp1, _) = braided1.Terms.[0]
+            let (amp0, _) = braided0.Terms.[0]
+            // R^ψ_σσ / R^1_σσ = e^{3iπ/8} / e^{-iπ/8} = e^{iπ/2} = i (the S phase)
+            let rel = amp1 / amp0
+            Assert.Equal(0.0, rel.Real, 10)
+            Assert.Equal(1.0, rel.Imaginary, 10)
+        | _ -> Assert.Fail("Within-pair braids should succeed")
+
+    // ========================================================================
+    // MEASUREMENT PROBABILITIES (Born rule regression tests)
+    // ========================================================================
+
+    [<Fact>]
+    let ``Measuring an explicitly fused pair is deterministic (channel eigenstate)`` () =
+        // A basis state stores the pair's fusion channel, so it is an eigenstate
+        // of the measured charge: the outcome must be the stored channel with
+        // probability 1 — not a dimension-based split that ignores the state.
+        let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
+        let tree = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi
+        let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
+
+        match TopologicalOperations.measureFusion 0 state with
+        | Error err -> Assert.Fail($"Measurement should succeed: {err.Message}")
+        | Ok outcomes ->
+            Assert.Equal(1, outcomes.Length)
+            let (prob, result) = outcomes.[0]
+            Assert.Equal(1.0, prob, 10)
+            Assert.Equal(Some AnyonSpecies.Particle.Psi, result.ClassicalOutcome)
+
+    [<Fact>]
+    let ``Measuring a pair with no stored channel uses canonical vacuum-pair Born rule`` () =
+        // For a τ×τ pair with no explicit fusion channel, P(c) = d_c/(d_τ·d_τ):
+        //   P(1) = 1/φ² ≈ 0.382,  P(τ) = φ/φ² = 1/φ ≈ 0.618
+        // The previous (incorrect) formula d_c²/Σd_c² gave P(1) = 1/(1+φ²) ≈ 0.276.
+        let tau = FusionTree.leaf AnyonSpecies.Particle.Tau
+        // Right-associated tree τ × (τ × τ → τ) → 1: leaves (0, 1) are NOT an
+        // explicitly fused pair in this basis.
+        let tree =
+            FusionTree.fuse
+                tau
+                (FusionTree.fuse tau tau AnyonSpecies.Particle.Tau)
+                AnyonSpecies.Particle.Vacuum
+        let state = FusionTree.create tree AnyonSpecies.AnyonType.Fibonacci
+
+        match TopologicalOperations.measureFusion 0 state with
+        | Error err -> Assert.Fail($"Measurement should succeed: {err.Message}")
+        | Ok outcomes ->
+            let phi = (1.0 + sqrt 5.0) / 2.0
+            let probOf channel =
+                outcomes
+                |> List.tryPick (fun (p, r) -> if r.ClassicalOutcome = Some channel then Some p else None)
+                |> Option.defaultValue 0.0
+            Assert.Equal(1.0 / (phi * phi), probOf AnyonSpecies.Particle.Vacuum, 10)
+            Assert.Equal(1.0 / phi, probOf AnyonSpecies.Particle.Tau, 10)
+            Assert.Equal(1.0, outcomes |> List.sumBy fst, 10)
+

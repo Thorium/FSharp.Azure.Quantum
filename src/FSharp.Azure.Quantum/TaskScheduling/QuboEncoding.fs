@@ -170,44 +170,76 @@ module QuboEncoding =
                                         |> Option.map (fun varIdx -> (varIdx, usage))
                                     else None)))
                     
-                    // Build terms for this time slot
-                    // Linear terms: λ * (usage² - 2*capacity*usage) * x_i
+                    // Build terms for this time slot.
+                    //
+                    // The ≤-capacity constraint must be encoded with NON-NEGATIVE penalties only.
+                    // The previous encoding expanded the EQUALITY penalty λ(Σuᵢxᵢ − C)², whose
+                    // diagonal λ(u² − 2Cu) is strictly negative whenever u < 2C — extra start bits
+                    // then LOWER the energy, so the QUBO optimum set every start bit and violated
+                    // the one-hot constraint. Instead, penalise only actual overloads:
+                    //   - a single assignment whose usage alone exceeds capacity, and
+                    //   - each pair of assignments whose combined usage exceeds capacity.
+                    // Overloads only detectable at 3+ concurrent tasks (each pair fitting) are not
+                    // captured by a quadratic QUBO term; those schedules are rejected by the
+                    // classical feasibility validation applied when decoding measurements.
+
+                    // Linear terms: λ * (1 + usage - capacity) * x_i when a task alone overloads
                     let linearTerms =
                         overlappingVars
-                        |> List.map (fun (varIdx, usage) ->
-                            let coeff = penaltyResource * (usage * usage - 2.0 * resource.Capacity * usage)
-                            ((varIdx, varIdx), coeff))
-                    
-                    // Quadratic terms: λ * 2*usage_i*usage_j * x_i * x_j
+                        |> List.choose (fun (varIdx, usage) ->
+                            if usage > resource.Capacity then
+                                let coeff = penaltyResource * (1.0 + usage - resource.Capacity)
+                                Some ((varIdx, varIdx), coeff)
+                            else None)
+
+                    // Quadratic terms: λ * (1 + usage_i + usage_j - capacity) * x_i * x_j
+                    // for each pair that would jointly exceed capacity
                     let quadTerms =
                         [0 .. overlappingVars.Length - 1]
                         |> List.collect (fun idx1 ->
                             [idx1 + 1 .. overlappingVars.Length - 1]
-                            |> List.map (fun idx2 ->
+                            |> List.choose (fun idx2 ->
                                 let (varIdx1, usage1) = overlappingVars.[idx1]
                                 let (varIdx2, usage2) = overlappingVars.[idx2]
-                                let (i, j) = if varIdx1 < varIdx2 then (varIdx1, varIdx2) else (varIdx2, varIdx1)
-                                let coeff = penaltyResource * 2.0 * usage1 * usage2
-                                ((i, j), coeff)))
-                    
+                                if usage1 + usage2 > resource.Capacity then
+                                    let (i, j) = if varIdx1 < varIdx2 then (varIdx1, varIdx2) else (varIdx2, varIdx1)
+                                    let coeff = penaltyResource * (1.0 + usage1 + usage2 - resource.Capacity)
+                                    Some ((i, j), coeff)
+                                else None))
+
                     linearTerms @ quadTerms))
             |> List.concat
             |> List.fold (fun acc (key, value) -> addOrUpdate key value acc) Map.empty
     
-    /// Decode bitstring to task start times
+    /// Decode bitstring to task start times.
+    /// A task's start is only returned when EXACTLY ONE of its start bits is set;
+    /// tasks with zero or multiple set bits (one-hot violations) are omitted, so
+    /// downstream validation (buildSolutionFromStarts) rejects the measurement
+    /// instead of silently picking an arbitrary start time.
     let decodeBitstring
         (bitstring: int[])
         (reverseMapping: Map<int, string * int>)
         : Map<string, float> =
-        
+
         bitstring
         |> Array.indexed
         |> Array.choose (fun (i, bit) ->
             if bit = 1 then
-                let (taskId, startTime) = Map.find i reverseMapping
-                Some (taskId, float startTime)
+                match Map.tryFind i reverseMapping with
+                | Some (taskId, startTime) -> Some (taskId, float startTime)
+                | None ->
+                    // A set bit outside the variable mapping means the measurement
+                    // register and the QUBO encoding have drifted out of sync —
+                    // a programming error that must fail loudly, not decode to a
+                    // plausible-looking partial schedule.
+                    failwith $"decodeBitstring: measurement bit {i} is set but has no QUBO variable mapping (bitstring length {bitstring.Length}, mapping size {reverseMapping.Count})"
             else None
         )
+        |> Array.groupBy fst
+        |> Array.choose (fun (taskId, starts) ->
+            match starts with
+            | [| (_, start) |] -> Some (taskId, start)
+            | _ -> None)  // one-hot violated: 2+ start bits set for this task
         |> Map.ofArray
     
     /// Build solution from decoded task START SLOTS, mapping each slot back to a real start time
