@@ -319,24 +319,106 @@ module EntanglementEntropy =
     // EIGENVALUE DECOMPOSITION (Jacobi iteration for Hermitian matrices)
     // ========================================================================
     
+    /// Diagonalize a real SYMMETRIC matrix in place using cyclic Jacobi sweeps
+    /// and return its eigenvalues (unsorted diagonal).
+    ///
+    /// Rotation: for pivot (p,q) with a_pq ≠ 0, the annihilating tangent solves
+    ///   t² + 2θt − 1 = 0,  θ = (a_qq − a_pp) / (2 a_pq)
+    /// and the numerically stable smaller root is
+    ///   t = sgn(θ) / (|θ| + √(θ² + 1))   (t = 1 when θ = 0, i.e. 45° rotation).
+    /// With this t the pivot is annihilated exactly, so setting a_pq = 0 is
+    /// legitimate. (A previous version plugged the RECIPROCAL of θ into this
+    /// formula; that tangent does not annihilate the pivot, yet the code still
+    /// force-zeroed it — corrupting eigenvalues whenever off-diagonal entries
+    /// were present, e.g. [[1/2, 1/2], [1/2, 1/2]] returned {0.7071, 0.2929}
+    /// instead of {1, 0}.)
+    let private jacobiEigenvaluesRealSymmetric
+        (a: float[,])
+        (maxIterations: int)
+        (tolerance: float)
+        : float list =
+
+        let n = Array2D.length1 a
+
+        let offDiagNorm () =
+            let mutable s = 0.0
+            for i in 0 .. n - 2 do
+                for j in i + 1 .. n - 1 do
+                    s <- s + a.[i, j] * a.[i, j]
+            sqrt s
+
+        let mutable iteration = 0
+        while iteration < maxIterations && offDiagNorm () > tolerance do
+            // Sweep over all off-diagonal elements
+            for p in 0 .. n - 2 do
+                for q in p + 1 .. n - 1 do
+                    if abs a.[p, q] > tolerance / (float (n * n)) then
+                        // Jacobi rotation: θ = (a_qq − a_pp) / (2 a_pq),
+                        // t = smaller-magnitude root of t² + 2θt − 1 = 0.
+                        let theta = (a.[q, q] - a.[p, p]) / (2.0 * a.[p, q])
+                        let t =
+                            if theta = 0.0 then 1.0
+                            else
+                                let sgn = if theta >= 0.0 then 1.0 else -1.0
+                                sgn / (abs theta + sqrt (theta * theta + 1.0))
+
+                        let c = 1.0 / sqrt (1.0 + t * t)
+                        let s = t * c
+
+                        // Apply rotation (pivot annihilated exactly by this t)
+                        let app = a.[p, p]
+                        let aqq = a.[q, q]
+                        let apq = a.[p, q]
+
+                        a.[p, p] <- app - t * apq
+                        a.[q, q] <- aqq + t * apq
+                        a.[p, q] <- 0.0
+                        a.[q, p] <- 0.0
+
+                        for r in 0 .. n - 1 do
+                            if r <> p && r <> q then
+                                let arp = a.[r, p]
+                                let arq = a.[r, q]
+                                a.[r, p] <- c * arp - s * arq
+                                a.[p, r] <- a.[r, p]
+                                a.[r, q] <- s * arp + c * arq
+                                a.[q, r] <- a.[r, q]
+
+            iteration <- iteration + 1
+
+        [ for i in 0 .. n - 1 -> a.[i, i] ]
+
     /// Extract real eigenvalues of a Hermitian density matrix using Jacobi iteration.
-    /// 
-    /// The Jacobi eigenvalue algorithm iteratively applies plane rotations to
-    /// reduce off-diagonal elements to zero. For a Hermitian matrix, all
-    /// eigenvalues are real.
-    /// 
+    ///
+    /// Complex Hermitian matrices are handled EXACTLY via the standard real
+    /// embedding: writing H = A + iB (A = Re H symmetric, B = Im H antisymmetric
+    /// for Hermitian H), the real symmetric 2n×2n matrix
+    ///
+    ///     M = [[A, −B],
+    ///          [B,  A]]
+    ///
+    /// has exactly the eigenvalues of H, each appearing twice. We diagonalize M
+    /// with the real-symmetric Jacobi solver, sort descending, verify the
+    /// two-fold pairing, and keep one eigenvalue per pair.
+    ///
+    /// (A previous implementation diagonalized only Re(H), claiming exactness for
+    /// Hermitian matrices. That is false when off-diagonal entries have imaginary
+    /// parts: eigenvalues of Re(ρ) ≠ eigenvalues of ρ. Example:
+    /// ρ = [[1/2, −i/2], [i/2, 1/2]] is a PURE state with eigenvalues {1, 0} and
+    /// entropy 0, but Re(ρ) = I/2 has {1/2, 1/2} and would report entropy log 2.)
+    ///
     /// Parameters:
     ///   matrix - Hermitian density matrix (must be square)
     ///   maxIterations - Maximum sweeps (default: 100)
     ///   tolerance - Convergence threshold for off-diagonal norm
-    /// 
+    ///
     /// Returns eigenvalues sorted in descending order.
-    let eigenvaluesHermitian 
-        (matrix: Complex[,]) 
-        (maxIterations: int) 
-        (tolerance: float) 
+    let eigenvaluesHermitian
+        (matrix: Complex[,])
+        (maxIterations: int)
+        (tolerance: float)
         : TopologicalResult<float list> =
-        
+
         let n = Array2D.length1 matrix
         if n <> Array2D.length2 matrix then
             TopologicalResult.validationError "matrix" "Matrix must be square"
@@ -345,64 +427,53 @@ module EntanglementEntropy =
         elif n = 1 then
             Ok [matrix.[0, 0].Real]
         else
-            // Work with real part (Hermitian matrix has real eigenvalues)
-            // For a density matrix ρ, this is exact since ρ = ρ†
-            let a = Array2D.init n n (fun i j -> matrix.[i, j].Real)
-            
-            let offDiagNorm () =
-                let mutable s = 0.0
-                for i in 0 .. n - 2 do
-                    for j in i + 1 .. n - 1 do
-                        s <- s + a.[i, j] * a.[i, j]
-                sqrt s
-            
-            let mutable iteration = 0
-            while iteration < maxIterations && offDiagNorm () > tolerance do
-                // Sweep over all off-diagonal elements
-                for p in 0 .. n - 2 do
-                    for q in p + 1 .. n - 1 do
-                        if abs a.[p, q] > tolerance / (float (n * n)) then
-                            // Compute Jacobi rotation angle
-                            let tau =
-                                if abs (a.[p, p] - a.[q, q]) < 1e-15 then
-                                    1.0  // θ = π/4
-                                else
-                                    2.0 * a.[p, q] / (a.[p, p] - a.[q, q])
-                            
-                            let t =
-                                let sgn = if tau >= 0.0 then 1.0 else -1.0
-                                sgn / (abs tau + sqrt (tau * tau + 1.0))
-                            
-                            let c = 1.0 / sqrt (1.0 + t * t)
-                            let s = t * c
-                            
-                            // Apply rotation
-                            let app = a.[p, p]
-                            let aqq = a.[q, q]
-                            let apq = a.[p, q]
-                            
-                            a.[p, p] <- app - t * apq
-                            a.[q, q] <- aqq + t * apq
-                            a.[p, q] <- 0.0
-                            a.[q, p] <- 0.0
-                            
-                            for r in 0 .. n - 1 do
-                                if r <> p && r <> q then
-                                    let arp = a.[r, p]
-                                    let arq = a.[r, q]
-                                    a.[r, p] <- c * arp - s * arq
-                                    a.[p, r] <- a.[r, p]
-                                    a.[r, q] <- s * arp + c * arq
-                                    a.[q, r] <- a.[r, q]
-                
-                iteration <- iteration + 1
-            
-            // Extract diagonal eigenvalues, sorted descending
-            let eigenvals = 
-                [ for i in 0 .. n - 1 -> a.[i, i] ]
-                |> List.sortDescending
-            
-            Ok eigenvals
+            // Fast path: a numerically real Hermitian matrix is real symmetric —
+            // diagonalize it directly (n×n instead of 2n×2n).
+            let mutable hasImaginary = false
+            for i in 0 .. n - 1 do
+                for j in 0 .. n - 1 do
+                    if abs matrix.[i, j].Imaginary > 1e-14 then hasImaginary <- true
+
+            if not hasImaginary then
+                // Symmetrize defensively against tiny Hermiticity violations.
+                let a = Array2D.init n n (fun i j ->
+                    0.5 * (matrix.[i, j].Real + matrix.[j, i].Real))
+                Ok (jacobiEigenvaluesRealSymmetric a maxIterations tolerance |> List.sortDescending)
+            else
+                // Complex Hermitian: real embedding M = [[A, −B], [B, A]].
+                // Hermiticity (A symmetric, B antisymmetric) makes M symmetric;
+                // build it from the Hermitian part of the input so tiny numerical
+                // asymmetries cannot break the real-symmetric Jacobi solver.
+                let m = 2 * n
+                let embedded = Array2D.zeroCreate m m
+                for i in 0 .. n - 1 do
+                    for j in 0 .. n - 1 do
+                        let re = 0.5 * (matrix.[i, j].Real + matrix.[j, i].Real)
+                        let im = 0.5 * (matrix.[i, j].Imaginary - matrix.[j, i].Imaginary)
+                        embedded.[i, j] <- re
+                        embedded.[i + n, j + n] <- re
+                        embedded.[i, j + n] <- -im
+                        embedded.[i + n, j] <- im
+
+                let allEigenvals =
+                    jacobiEigenvaluesRealSymmetric embedded maxIterations tolerance
+                    |> List.sortDescending
+                    |> List.toArray
+
+                // Each eigenvalue of H appears exactly twice in the embedding.
+                // Verify the pairing of adjacent sorted values, then keep one per pair.
+                let scale = allEigenvals |> Array.fold (fun acc v -> max acc (abs v)) 1.0
+                let pairTolerance = 1e-8 * scale
+                let mutable pairingOk = true
+                for i in 0 .. n - 1 do
+                    if abs (allEigenvals.[2 * i] - allEigenvals.[2 * i + 1]) > pairTolerance then
+                        pairingOk <- false
+
+                if not pairingOk then
+                    TopologicalResult.computationError "eigenvaluesHermitian"
+                        "Real-embedding eigenvalues did not pair up — input matrix is not Hermitian or Jacobi iteration failed to converge"
+                else
+                    Ok [ for i in 0 .. n - 1 -> allEigenvals.[2 * i] ]
     
     /// Compute von Neumann entropy of a density matrix.
     /// 

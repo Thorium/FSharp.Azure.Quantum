@@ -148,29 +148,40 @@ module KnotConstructors =
     ///   - Identical to its mirror image (achiral)
     /// </summary>
     let figureEight : PlanarDiagram =
-        // Figure-eight knot (4₁): Correct alternating construction
-        // 4 crossings alternating (+,-,+,-), 8 arcs, writhe=0
-        
-        let crossings = 
+        // Figure-eight knot (4₁), constructed as the closure of the 3-strand
+        // braid (σ₁ σ₂⁻¹)² — the standard braid presentation of 4₁.
+        // 4 crossings (2 positive, 2 negative → writhe 0), 8 arcs, 1 component.
+        //
+        // Crossing convention matches torusKnot's braid builder:
+        //   crossing at braid positions (k, k+1): NW = top input, SW = bottom
+        //   input, NE = top output, SE = bottom output.
+        //
+        // Verified against the textbook invariants (Planar evaluator cross-checked
+        // with an independent state-sum implementation):
+        //   ⟨4₁⟩ = A⁸ − A⁴ + 1 − A⁻⁴ + A⁻⁸
+        //   V(t) = t⁻² − t⁻¹ + 1 − t + t²,  |V(−1)| = 5 (= determinant of 4₁)
+        // (A previous hand-built diagram here was not the figure-eight knot —
+        // it evaluated to |V(−1)| = 1 instead of 5.)
+        let crossings =
             Map.ofList [
-                (0, createCrossing 0 Positive 1 3 4 0)   // NW=1, NE=3, SW=4, SE=0
-                (1, createCrossing 1 Negative 7 5 4 0)   // NW=7, NE=5, SW=4, SE=0
-                (2, createCrossing 2 Positive 3 5 6 2)   // NW=3, NE=5, SW=6, SE=2
-                (3, createCrossing 3 Negative 1 6 7 2)   // NW=1, NE=6, SW=7, SE=2
+                (0, createCrossing 0 Positive 7 3 9 4)    // σ₁ : NW=7, NE=3, SW=9, SE=4
+                (1, createCrossing 1 Negative 4 5 10 6)   // σ₂⁻¹: NW=4, NE=5, SW=10, SE=6
+                (2, createCrossing 2 Positive 3 7 5 8)    // σ₁ : NW=3, NE=7, SW=5, SE=8
+                (3, createCrossing 3 Negative 8 9 6 10)   // σ₂⁻¹: NW=8, NE=9, SW=6, SE=10
             ]
-        
+
         let arcs =
             Map.ofList [
-                (0, createArc 0 0 SE 1 SE)   // C0-SE → C1-SE
-                (1, createArc 1 3 NW 0 NW)   // C3-NW → C0-NW
-                (2, createArc 2 2 SE 3 SE)   // C2-SE → C3-SE
-                (3, createArc 3 0 NE 2 NW)   // C0-NE → C2-NW
-                (4, createArc 4 1 SW 0 SW)   // C1-SW → C0-SW
-                (5, createArc 5 2 NE 1 NE)   // C2-NE → C1-NE
-                (6, createArc 6 3 NE 2 SW)   // C3-NE → C2-SW
-                (7, createArc 7 1 NW 3 SW)   // C1-NW → C3-SW
+                (3, createArc 3 0 NE 2 NW)    // C0-NE → C2-NW
+                (4, createArc 4 0 SE 1 NW)    // C0-SE → C1-NW
+                (5, createArc 5 1 NE 2 SW)    // C1-NE → C2-SW
+                (6, createArc 6 1 SE 3 SW)    // C1-SE → C3-SW
+                (7, createArc 7 2 NE 0 NW)    // C2-NE → C0-NW (closure, strand 0)
+                (8, createArc 8 2 SE 3 NW)    // C2-SE → C3-NW
+                (9, createArc 9 3 NE 0 SW)    // C3-NE → C0-SW (closure, strand 1)
+                (10, createArc 10 3 SE 1 SW)  // C3-SE → C1-SW (closure, strand 2)
             ]
-        
+
         { Crossings = crossings; Arcs = arcs }
     
     /// <summary>

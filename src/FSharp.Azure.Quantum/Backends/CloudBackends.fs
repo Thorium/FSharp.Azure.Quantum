@@ -233,12 +233,12 @@ module CloudBackends =
                                         | Ok jobResult ->
                                             match jobResult.OutputData with
                                             | :? string as resultJson ->
-                                                match IonQBackend.parseIonQResult resultJson with
+                                                // Qubit count comes from the submitted circuit rather than being
+                                                // inferred from histogram keys (which are decimal state indices
+                                                // in the Azure "ionq.quantum-results.v1" format).
+                                                match IonQBackend.parseIonQResult ionqCircuit.Qubits shots resultJson with
                                                 | Ok histogram ->
-                                                    let numQubits =
-                                                        CloudBackendHelpers.inferNumQubits histogram
-                                                        |> Option.defaultValue circuit.NumQubits
-                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram ionqCircuit.Qubits)
                                                 | Error msg ->
                                                     return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" msg)))
                                             | other ->

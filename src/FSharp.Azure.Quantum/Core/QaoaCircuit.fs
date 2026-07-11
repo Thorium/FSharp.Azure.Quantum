@@ -85,70 +85,6 @@ module QaoaCircuit =
     
     module ProblemHamiltonian =
         
-        /// Convert QUBO matrix to Problem Hamiltonian
-        /// 
-        /// QUBO formulation: minimize x^T Q x where x ∈ {0,1}^n
-        /// 
-        /// For binary variables x_i ∈ {0,1}, we map to qubits using:
-        /// x_i = (1 - Z_i) / 2
-        /// 
-        /// Substituting this into QUBO:
-        /// - Diagonal term Q_ii * x_i => Q_ii/2 * (1 - Z_i)
-        /// - Off-diagonal Q_ij * x_i * x_j => Q_ij/4 * (1 - Z_i)(1 - Z_j)
-        ///                                   = Q_ij/4 * (1 - Z_i - Z_j + Z_i*Z_j)
-        ///
-        /// We keep only the Z terms (constant offset dropped):
-        /// - Linear: (-Q_ii/2 - Σ_{j≠i} Q_ij/4) * Z_i
-        ///   (each cross term also contributes -Q_ij/4 to Z_i and Z_j)
-        /// - Quadratic: Q_ij/4 * Z_i*Z_j
-        let fromQubo (quboMatrix: float[,]) : ProblemHamiltonian =
-            let n = Array2D.length1 quboMatrix
-
-            if n <> Array2D.length2 quboMatrix then
-                failwith "QUBO matrix must be square"
-
-            // Linear Z_i coefficients: -Q_ii/2 from the diagonal,
-            // plus -Q_ij/4 from every cross term involving i.
-            let linearCoeffs = Array.init n (fun i -> -quboMatrix[i, i] / 2.0)
-
-            // Collect off-diagonal terms (two-qubit ZZ interactions)
-            // QUBO is symmetric, so we only need upper triangle
-            let offDiagonalTerms =
-                [| 0 .. n - 1 |]
-                |> Array.collect (fun i ->
-                    [| i + 1 .. n - 1 |]
-                    |> Array.choose (fun j ->
-                        let qij = quboMatrix[i, j] + quboMatrix[j, i]  // Symmetrize
-                        if abs qij > 1e-10 then  // Skip near-zero terms
-                            linearCoeffs[i] <- linearCoeffs[i] - qij / 4.0
-                            linearCoeffs[j] <- linearCoeffs[j] - qij / 4.0
-                            Some {
-                                Coefficient = qij / 4.0
-                                QubitsIndices = [| i; j |]
-                                PauliOperators = [| PauliZ; PauliZ |]
-                            }
-                        else
-                            None))
-
-            // Collect linear terms (single-qubit Z operators)
-            let linearTerms =
-                [| 0 .. n - 1 |]
-                |> Array.choose (fun i ->
-                    let hi = linearCoeffs[i]
-                    if abs hi > 1e-10 then  // Skip near-zero terms
-                        Some {
-                            Coefficient = hi
-                            QubitsIndices = [| i |]
-                            PauliOperators = [| PauliZ |]
-                        }
-                    else
-                        None)
-
-            {
-                NumQubits = n
-                Terms = Array.append linearTerms offDiagonalTerms
-            }
-
         /// Convert sparse QUBO (Map<int*int, float>) directly to ProblemHamiltonian
         /// without creating an intermediate dense float[,] array.
         ///
@@ -218,7 +154,45 @@ module QaoaCircuit =
                 NumQubits = numQubits
                 Terms = Array.append diagonalTerms offDiagonalTerms
             }
-    
+
+        /// Convert QUBO matrix to Problem Hamiltonian
+        ///
+        /// QUBO formulation: minimize x^T Q x where x ∈ {0,1}^n
+        ///
+        /// For binary variables x_i ∈ {0,1}, we map to qubits using:
+        /// x_i = (1 - Z_i) / 2
+        ///
+        /// Substituting this into QUBO:
+        /// - Diagonal term Q_ii * x_i => Q_ii/2 * (1 - Z_i)
+        /// - Off-diagonal Q_ij * x_i * x_j => Q_ij/4 * (1 - Z_i)(1 - Z_j)
+        ///                                   = Q_ij/4 * (1 - Z_i - Z_j + Z_i*Z_j)
+        ///
+        /// We keep only the Z terms (constant offset dropped):
+        /// - Linear: (-Q_ii/2 - Σ_{j≠i} Q_ij/4) * Z_i
+        ///   (each cross term also contributes -Q_ij/4 to Z_i and Z_j)
+        /// - Quadratic: Q_ij/4 * Z_i*Z_j
+        ///
+        /// Delegates to fromQuboSparse so the x=(1-Z)/2 mapping is maintained in
+        /// exactly one place (they previously drifted apart, dropping the cross-term
+        /// linear contributions here).
+        let fromQubo (quboMatrix: float[,]) : ProblemHamiltonian =
+            let n = Array2D.length1 quboMatrix
+
+            if n <> Array2D.length2 quboMatrix then
+                failwith "QUBO matrix must be square"
+
+            let entries =
+                seq {
+                    for i in 0 .. n - 1 do
+                        for j in 0 .. n - 1 do
+                            let v = quboMatrix[i, j]
+                            if abs v > 1e-10 then
+                                yield ((i, j), v)
+                }
+                |> Map.ofSeq
+
+            fromQuboSparse n entries
+
     // ============================================================================
     // 3. MIXER HAMILTONIAN CONSTRUCTION
     // ============================================================================

@@ -173,27 +173,35 @@ module QuantumNetworkFlowSolver =
                         
                         // Functional collection: penalty terms for (inflow - outflow)^2
                         // Expansion: (Σ x_in)^2 - 2*(Σ x_in)*(Σ x_out) + (Σ x_out)^2
-                        
-                        let incomingSquared =
-                            [ for i in incomingEdges do
-                                for j in incomingEdges do
-                                    let coeff = if i = j then penaltyWeight else 2.0 * penaltyWeight
-                                    let (vi, vj) = if i <= j then (i, j) else (j, i)
-                                    ((vi, vj), coeff) ]
-                        
+                        //
+                        // (Σ x_e)^2 = Σ x_e (diagonal, since x² = x) + 2·Σ_{i<j} x_i·x_j.
+                        // Iterate UNORDERED pairs only: iterating all ORDERED pairs with 2λ
+                        // each and normalising both orderings to the same upper-triangle key
+                        // would accumulate 4λ per pair — punishing perfectly balanced flows.
+                        // Hand check (2-in {a,b} / 2-out {c,d}):
+                        //   (x_a+x_b-x_c-x_d)² = Σ x + 2x_a x_b + 2x_c x_d
+                        //                        - 2x_a x_c - 2x_a x_d - 2x_b x_c - 2x_b x_d
+                        // so the balanced flow a=c=1, b=d=0 scores λ+λ-2λ = 0.
+                        let squaredTerms (edges: int list) =
+                            let diagonal =
+                                edges |> List.map (fun i -> ((i, i), penaltyWeight))
+                            let offDiagonal =
+                                [ for i in edges do
+                                    for j in edges do
+                                        if i < j then
+                                            yield ((i, j), 2.0 * penaltyWeight) ]
+                            diagonal @ offDiagonal
+
+                        let incomingSquared = squaredTerms incomingEdges
+
                         let crossTerms =
                             [ for i in incomingEdges do
                                 for j in outgoingEdges do
                                     let (vi, vj) = if i <= j then (i, j) else (j, i)
                                     ((vi, vj), -2.0 * penaltyWeight) ]
-                        
-                        let outgoingSquared =
-                            [ for i in outgoingEdges do
-                                for j in outgoingEdges do
-                                    let coeff = if i = j then penaltyWeight else 2.0 * penaltyWeight
-                                    let (vi, vj) = if i <= j then (i, j) else (j, i)
-                                    ((vi, vj), coeff) ]
-                        
+
+                        let outgoingSquared = squaredTerms outgoingEdges
+
                         incomingSquared @ crossTerms @ outgoingSquared
                     )
                 
@@ -248,6 +256,42 @@ module QuantumNetworkFlowSolver =
     // SOLUTION DECODING
     // ================================================================================
 
+    /// Classical validation of a decoded flow (1 unit of flow per selected edge).
+    /// A decoded edge set is a valid flow when:
+    ///   - flow is conserved at every intermediate node (inflow = outflow),
+    ///   - node capacities are respected (flow through the node <= capacity),
+    ///   - no source ships more than its supply,
+    ///   - no sink receives more than its demand.
+    /// The QUBO penalties only BIAS sampling toward such states; measurements must
+    /// still be checked classically before one can be returned as the solution.
+    let private isValidFlow (problem: NetworkFlowProblem) (selectedEdges: Edge<float> list) : bool =
+        let inflow node = selectedEdges |> List.filter (fun e -> e.Target = node) |> List.length
+        let outflow node = selectedEdges |> List.filter (fun e -> e.Source = node) |> List.length
+
+        let conservationOk =
+            problem.IntermediateNodes
+            |> List.forall (fun node -> inflow node = outflow node)
+
+        let capacityOk =
+            problem.Capacities
+            |> Map.forall (fun node capacity -> max (inflow node) (outflow node) <= capacity)
+
+        let supplyOk =
+            problem.Sources
+            |> List.forall (fun source ->
+                match Map.tryFind source problem.Supplies with
+                | Some supply -> outflow source <= supply
+                | None -> true)
+
+        let demandOk =
+            problem.Sinks
+            |> List.forall (fun sink ->
+                match Map.tryFind sink problem.Demands with
+                | Some demand -> inflow sink <= demand
+                | None -> true)
+
+        conservationOk && capacityOk && supplyOk && demandOk
+
     /// Decode QUBO solution bitstring to network flow solution
     let private decodeSolution 
         (problem: NetworkFlowProblem) 
@@ -288,14 +332,20 @@ module QuantumNetworkFlowSolver =
                     |> List.sumBy snd 
                     |> float
                 
+                // Actual delivered quantity per sink: inflow units (1 per selected edge),
+                // capped at that sink's demand so FillRate can never exceed 1.0.
                 let demandSatisfied =
-                    selectedEdges
-                    |> List.filter (fun e -> problem.Sinks |> List.contains e.Target)
-                    |> List.length
-                    |> float
-                
-                let fillRate = 
-                    if totalDemand > 0.0 then demandSatisfied / totalDemand 
+                    problem.Sinks
+                    |> List.sumBy (fun sink ->
+                        let inflow =
+                            selectedEdges
+                            |> List.filter (fun e -> e.Target = sink)
+                            |> List.length
+                        let demand = Map.tryFind sink problem.Demands |> Option.defaultValue 0
+                        float (min inflow demand))
+
+                let fillRate =
+                    if totalDemand > 0.0 then demandSatisfied / totalDemand
                     else 0.0
                 
                 Some {
@@ -408,15 +458,21 @@ module QuantumNetworkFlowSolver =
                         |> Option.iter (fun r -> 
                             r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Decoding solutions...")))
                         
+                        // Decode every measurement, then keep only CLASSICALLY VALID flows
+                        // (conservation at intermediate nodes, node capacities, supply and
+                        // demand limits). Selecting min-cost over all non-empty decodings
+                        // would happily return an infeasible edge set — the cheapest
+                        // bitstrings are usually the ones that violate the constraints.
                         let flowResults =
                             measurements
                             |> Array.choose (decodeSolution problem)
-                        
+                            |> Array.filter (fun sol -> isValidFlow problem sol.SelectedEdges)
+
                         if flowResults.Length = 0 then
                             Error (QuantumError.OperationError ("DecodeSolution", "No valid network flow solutions found in quantum measurements"))
                         else
-                            // Select best solution (minimum cost)
-                            let bestSolution = 
+                            // Select best VALID solution (minimum cost)
+                            let bestSolution =
                                 flowResults
                                 |> Array.minBy (fun sol -> sol.TotalCost)
                             

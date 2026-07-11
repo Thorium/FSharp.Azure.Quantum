@@ -119,9 +119,19 @@ module ClassicalSolver =
     // ============================================================================
 
     /// Solve scheduling problem using classical greedy algorithm
-    /// 
+    ///
     /// Note: This solver handles dependencies but ignores resource capacity constraints.
     /// For resource-constrained scheduling, use QuantumSolver.solveQuantum with IQuantumBackend.
+    ///
+    /// Objective handling: the greedy schedule places every task at its earliest
+    /// feasible start, which minimises each task's completion time simultaneously.
+    /// Under this dependency-only model that is optimal for ALL declared objectives:
+    /// - MinimizeMakespan and MinimizeLateness directly (every completion is minimal);
+    /// - MinimizeCost because total resource cost (requirements × duration ×
+    ///   cost-per-unit) does not depend on start times, so every feasible schedule
+    ///   has identical cost;
+    /// - MaximizeResourceUtilization because total usage is fixed, so utilisation
+    ///   is maximised by minimising makespan.
     let solve (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
         // Validate problem first
         match Validation.validateProblem problem with

@@ -164,7 +164,8 @@ module AtomComputingBackend =
     /// - qasmCode: OpenQASM 2.0 string (already transpiled)
     /// - shots: Number of measurement shots
     /// - target: Atom Computing backend (e.g., "atom-computing.sim", "atom-computing.qpu.phoenix")
-    /// 
+    /// - cancellationToken: Cancels job status polling
+    ///
     /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
@@ -174,6 +175,7 @@ module AtomComputingBackend =
         (qasmCode: string)
         (shots: int)
         (target: string)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             // Step 1: Create job submission
@@ -186,7 +188,6 @@ module AtomComputingBackend =
             | Ok jobId ->
                 // Step 3: Poll until complete (10 minute timeout for 100+ qubit circuits, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(10.0)
-                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err

@@ -143,12 +143,14 @@ module Pasqal =
     /// - program      : the neutral-atom analog program to run
     /// - shots        : number of measurement shots
     /// - target       : e.g. "pasqal.sim.emu-tn" or "pasqal.qpu.fresnel"
+    /// - cancellationToken : caller's token; honored by the polling loop
     let submitAndWaitForResultsAsync
         (httpClient: System.Net.Http.HttpClient)
         (workspaceUrl: string)
         (program: RydbergProgram)
         (shots: int)
         (target: string)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             let submission = createJobSubmission (toPulserJson program) shots target
@@ -157,7 +159,6 @@ module Pasqal =
             | Error err -> return Error err
             | Ok jobId ->
                 let timeout = TimeSpan.FromMinutes 10.0   // neutral-atom jobs can queue a while
-                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err

@@ -177,9 +177,11 @@ module QuboExtractionTests =
         Assert.True(result.IsOk, "Extraction should succeed")
         match result with
         | Ok qubo ->
-            Assert.Equal(2, Map.count qubo)
+            // Q_00 = 1.0, Q_01 = 2.0, Q_11 = -1.0 (see createSimpleHamiltonian)
+            Assert.Equal(3, Map.count qubo)
             Assert.True(Map.containsKey (0, 0) qubo)
             Assert.True(Map.containsKey (0, 1) qubo)
+            Assert.True(Map.containsKey (1, 1) qubo)
         | Error e -> Assert.True(false, $"Should not fail: {e}")
     
     [<Fact>]
@@ -190,10 +192,10 @@ module QuboExtractionTests =
         
         match extractFromQaoaCircuit circuit with
         | Ok qubo ->
-            // Verify MaxCut QUBO structure
+            // Verify MaxCut QUBO structure (Q_01 = -5: cut edges REWARD selection)
             Assert.Equal(5.0, qubo.[(0, 0)], precision = 10)
             Assert.Equal(8.0, qubo.[(1, 1)], precision = 10)
-            Assert.Equal(5.0, qubo.[(0, 1)], precision = 10)
+            Assert.Equal(-5.0, qubo.[(0, 1)], precision = 10)
         | Error e -> Assert.True(false, $"Extraction failed: {e}")
     
     // ============================================================================

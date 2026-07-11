@@ -69,8 +69,10 @@ module OpenQasmExport =
     
     /// <summary>
     /// Translate a single gate to an OpenQASM instruction.
-    /// Gate names are the same across all supported versions (qelib1.inc / stdgates.inc).
-    /// The only version-dependent part is measurement syntax, handled separately.
+    /// Most gate names are the same across all supported versions (qelib1.inc / stdgates.inc),
+    /// with two version-dependent exceptions handled elsewhere: measurement syntax, and the
+    /// two-qubit Ising rotations rxx/ryy/rzz, whose definitions are emitted in the header when
+    /// the version's include file lacks them (see missingRotationGateDefs).
     /// </summary>
     let rec private gateToQasm (config: QasmConfig) (gate: Gate) : string =
         match gate with
@@ -139,7 +141,47 @@ module OpenQasmExport =
             | _ ->
                 failwith "Conditional gates require OpenQASM 3.0 export (per-bit if). Use QasmVersion.V3_0."
 
-    
+
+    // ========================================================================
+    // HEADER GATE DEFINITIONS (rxx / ryy / rzz)
+    // ========================================================================
+
+    /// True when any gate in the circuit (including Conditional bodies) matches the predicate.
+    let rec private circuitUses (pred: Gate -> bool) (gates: Gate list) : bool =
+        gates
+        |> List.exists (fun g ->
+            pred g ||
+            (match g with
+             | Conditional (_, inner) -> circuitUses pred [inner]
+             | _ -> false))
+
+    /// Exact inline definitions for the two-qubit Ising rotations, in terms of gates that
+    /// both qelib1.inc and stdgates.inc provide (h, rx, rz, cx):
+    ///   rzz(θ) = CX·(I⊗RZ(θ))·CX
+    ///   rxx(θ) = (H⊗H)·rzz(θ)·(H⊗H)                       (H Z H = X)
+    ///   ryy(θ) = (RX(-π/2)⊗RX(-π/2))·rzz(θ)·(RX(π/2)⊗RX(π/2))   (RX(∓π/2) conjugation maps Z to ∓Y)
+    /// Each is exp(-iθ/2·P⊗P) exactly (not merely up to global phase).
+    let private rxxGateDef = "gate rxx(theta) a,b { h a; h b; cx a,b; rz(theta) b; cx a,b; h a; h b; }"
+    let private ryyGateDef = "gate ryy(theta) a,b { rx(pi/2) a; rx(pi/2) b; cx a,b; rz(theta) b; cx a,b; rx(-pi/2) a; rx(-pi/2) b; }"
+    let private rzzGateDef = "gate rzz(theta) a,b { cx a,b; rz(theta) b; cx a,b; }"
+
+    /// Gate definitions that must be emitted in the header for this circuit.
+    /// qelib1.inc (QASM 1.0/2.0) defines rxx and rzz but NOT ryy; stdgates.inc (QASM 3.0)
+    /// defines none of rxx/ryy/rzz. Emitting a bare rxx/ryy/rzz call without a definition
+    /// makes backends reject the program.
+    let private missingRotationGateDefs (config: QasmConfig) (circuit: Circuit) : string list =
+        let uses pred = circuitUses pred circuit.Gates
+        let usesRxx = uses (function RXX _ -> true | _ -> false)
+        let usesRyy = uses (function RYY _ -> true | _ -> false)
+        let usesRzz = uses (function RZZ _ -> true | _ -> false)
+        match config.Version with
+        | V3_0 ->
+            [ if usesRxx then rxxGateDef
+              if usesRyy then ryyGateDef
+              if usesRzz then rzzGateDef ]
+        | V1_0 | V2_0 ->
+            [ if usesRyy then ryyGateDef ]
+
     // ========================================================================
     // VALIDATION
     // ========================================================================
@@ -260,7 +302,11 @@ module OpenQasmExport =
         // Header
         sb.AppendLine(headerLine config) |> ignore
         sb.AppendLine(includeLine config) |> ignore
-        
+
+        // Inline definitions for two-qubit rotation gates the include file lacks
+        for gateDef in missingRotationGateDefs config circuit do
+            sb.AppendLine(gateDef) |> ignore
+
         // Register declarations
         sb.AppendLine(qubitRegisterDecl config circuit.QubitCount) |> ignore
         

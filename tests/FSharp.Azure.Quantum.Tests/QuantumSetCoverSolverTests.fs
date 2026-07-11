@@ -17,7 +17,10 @@ module QuboEncodingTests =
 
     [<Fact>]
     let ``toQubo produces correct matrix size`` () =
-        // Arrange: 3 subsets covering universe of size 2
+        // Arrange: 3 subsets covering universe of size 2.
+        // Element 0 is in S1 and S3 (2 covering subsets -> 1 coverage slack bit),
+        // element 1 is in S2 and S3 (2 covering subsets -> 1 coverage slack bit),
+        // so the QUBO has 3 decision variables + 2 slack bits = 5 variables.
         let problem : Problem = {
             UniverseSize = 2
             Subsets = [
@@ -30,8 +33,8 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            Assert.Equal(3, Array2D.length1 qubo)
-            Assert.Equal(3, Array2D.length2 qubo)
+            Assert.Equal(5, Array2D.length1 qubo)
+            Assert.Equal(5, Array2D.length2 qubo)
 
     [<Fact>]
     let ``toQubo QUBO is symmetric`` () =
@@ -70,18 +73,32 @@ module QuboEncodingTests =
         | Ok qubo ->
             let eval (bits: int[]) = QaoaExecutionHelpers.evaluateQubo qubo bits
 
-            // S1 only: [1,0,0]
-            let energyS1 = eval [| 1; 0; 0 |]
-            // S2+S3: [0,1,1]
-            let energyS2S3 = eval [| 0; 1; 1 |]
-            // All: [1,1,1]
-            let energyAll = eval [| 1; 1; 1 |]
+            // Variable layout: 3 decision bits, then 1 coverage slack bit per
+            // element (element 0 in {S1,S2}, element 1 in {S1,S3}). The slack
+            // bit encodes (coverage count - 1), so it is 0 for single coverage
+            // and 1 for double coverage.
+            // S1 only: [1,0,0], each element covered once -> slack 0,0
+            let energyS1 = eval [| 1; 0; 0; 0; 0 |]
+            // S2+S3: [0,1,1], each element covered once -> slack 0,0
+            let energyS2S3 = eval [| 0; 1; 1; 0; 0 |]
+            // All: [1,1,1], each element covered twice -> slack 1,1
+            let energyAll = eval [| 1; 1; 1; 1; 1 |]
 
             // S1 is cheapest valid cover
             Assert.True(energyS1 < energyS2S3,
                 $"S1 ({energyS1}) should beat S2+S3 ({energyS2S3})")
             Assert.True(energyS1 < energyAll,
                 $"S1 ({energyS1}) should beat All ({energyAll})")
+
+            // Redundant (double) coverage must NOT be punished like non-coverage:
+            // the fully-selected state with correct slack has zero penalty, so its
+            // energy exceeds S1's exactly by the extra subset costs, and it must
+            // still beat the infeasible empty selection's unpaid coverage penalty.
+            let energyEmpty = eval [| 0; 0; 0; 0; 0 |]
+            Assert.True(energyS1 < energyEmpty,
+                $"Valid cover S1 ({energyS1}) should beat empty selection ({energyEmpty})")
+            Assert.True(energyAll < energyEmpty,
+                $"Redundant cover ({energyAll}) should beat empty selection ({energyEmpty})")
 
     [<Fact>]
     let ``toQubo penalises uncovering solutions`` () =
@@ -324,6 +341,7 @@ module BackendIntegrationTests =
             | None -> Assert.Fail("OptimizedParameters should not be None")
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve validates empty subsets`` () =
         let problem : Problem = { UniverseSize = 2; Subsets = [] }
         let backend = createLocalBackend ()

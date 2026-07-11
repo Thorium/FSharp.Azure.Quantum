@@ -2,10 +2,12 @@
 
 ## Overview
 
-The Quantum Random Number Generator (QRNG) provides **true random numbers** using quantum measurement, as opposed to pseudo-random classical algorithms. Quantum measurements are fundamentally non-deterministic, providing genuine randomness suitable for cryptographic applications, Monte Carlo simulations, and scientific computing.
+The Quantum Random Number Generator (QRNG) models random number generation via quantum measurement. On real quantum hardware, measurements are fundamentally non-deterministic and yield true (quantum) randomness.
+
+> **⚠️ Important — local simulation is not quantum randomness.** By default this module simulates the measurements classically. The unseeded local path draws its outcomes from the OS cryptographically secure RNG (`System.Security.Cryptography.RandomNumberGenerator`) — CSPRNG-quality, suitable for cryptographic key material, but still classical randomness. True quantum randomness requires executing the circuit on a hardware backend that returns per-shot measurement results.
 
 **Key Features:**
-- True randomness from quantum measurement (not pseudo-random)
+- Quantum-measurement model of randomness (local simulation is CSPRNG-backed, not quantum)
 - Multiple output formats (bits, integers, floats, bytes)
 - Backend integration for real quantum hardware
 - Statistical quality testing
@@ -170,7 +172,9 @@ val generateWithBackend :
     Async<Result<QRNGResult, string>>
 ```
 
-Generates random bits using a **real quantum hardware backend** (IonQ, Rigetti, etc.).
+Generates random bits by executing the H-superposition circuit through the specified backend.
+
+**⚠️ Randomness source:** this path obtains a quantum *state* from the backend (`ExecuteToState`) and then samples it once locally with a classical PRNG. With `LocalBackend` — and any backend that returns a simulated state vector — the resulting bits are classical pseudo-randomness, not hardware quantum randomness. For cryptographic key material prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
 
 **⚠️ Cost Warning:** Most real quantum backends charge per circuit execution. For production QRNG, `LocalBackend` is recommended unless you specifically need hardware-generated randomness for cryptographic certification.
 

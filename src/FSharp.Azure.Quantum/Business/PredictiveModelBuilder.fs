@@ -266,7 +266,19 @@ module PredictiveModel =
         
         else
             Ok ()
-    
+
+    // ========================================================================
+    // FEATURE TRUNCATION (VQC qubit cap)
+    // ========================================================================
+
+    /// VQC builds circuits with one qubit per feature dimension (see
+    /// VQC.buildVQCCircuit). The builders cap the qubit count for simulation
+    /// tractability, so samples are truncated to the first numQubits dimensions —
+    /// consistently at training and prediction time — so the circuit matches the
+    /// sized parameter vector.
+    let private truncateFeatures (numQubits: int) (sample: float array) : float array =
+        if sample.Length > numQubits then Array.sub sample 0 numQubits else sample
+
     // ========================================================================
     // PERSISTENCE - Save/Load models (defined before train for forward reference)
     // ========================================================================
@@ -599,12 +611,22 @@ module PredictiveModel =
                         let featureMap = FeatureMapType.ZZFeatureMap 2
                         let varFormDepth = 3
                         let varForm = RealAmplitudes varFormDepth
-                        // VQC uses numQubits = features.Length internally
+                        // VQC uses one qubit per feature dimension; refuse feature counts
+                        // above the simulation cap rather than silently truncating — a
+                        // model trained on a fraction of its inputs while reporting
+                        // success is worse than a clear, actionable error.
                         let numFeatureDims = problem.TrainFeatures.[0].Length
-                        let numQubits = min numFeatureDims 5  // Cap at 5 qubits
+                        let maxQubits = 5  // simulation-tractability cap
+                        if numFeatureDims > maxQubits then
+                            Error (QuantumError.ValidationError ("features",
+                                $"HHL linear regression fit poorly and VQC non-linear regression supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."))
+                        else
+
+                        let numQubits = numFeatureDims
+                        let vqcFeatures = problem.TrainFeatures
                         let numParams = numQubits * varFormDepth  // RealAmplitudes: numQubits × depth
                         let initParams = Array.init numParams (fun _ -> 0.1)
-                        
+
                         let vqcConfig : VQC.TrainingConfig = {
                             LearningRate = problem.LearningRate
                             MaxEpochs = problem.MaxEpochs
@@ -616,7 +638,7 @@ module PredictiveModel =
                             ProgressReporter = problem.ProgressReporter
                         }
                         
-                        VQC.trainRegression backend featureMap varForm initParams problem.TrainFeatures problem.TrainTargets vqcConfig
+                        VQC.trainRegression backend featureMap varForm initParams vqcFeatures problem.TrainTargets vqcConfig
                         |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Both HHL and VQC regression failed: {e}"))
                         |> Result.map (fun vqcResult ->
                             if problem.Verbose then
@@ -650,11 +672,22 @@ module PredictiveModel =
                     let featureMap = FeatureMapType.ZZFeatureMap 2
                     let varFormDepth = 3
                     let varForm = RealAmplitudes varFormDepth
+                    // VQC uses one qubit per feature dimension; refuse feature counts
+                    // above the simulation cap rather than silently truncating — a
+                    // model trained on a fraction of its inputs while reporting
+                    // success is worse than a clear, actionable error.
                     let numFeatureDims = problem.TrainFeatures.[0].Length
-                    let numQubits = min numFeatureDims 5  // Cap at 5 qubits
+                    let maxQubits = 5  // simulation-tractability cap
+                    if numFeatureDims > maxQubits then
+                        Error (QuantumError.ValidationError ("features",
+                            $"VQC multi-class classification supports at most {maxQubits} features (one qubit per feature; {numFeatureDims} supplied). Reduce dimensionality first (e.g. feature selection or PCA)."))
+                    else
+
+                    let numQubits = numFeatureDims
+                    let vqcFeatures = problem.TrainFeatures
                     let numParams = numQubits * varFormDepth
                     let initParams = Array.init numParams (fun _ -> 0.1)
-                    
+
                     // Convert targets to int labels
                     let labels = problem.TrainTargets |> Array.map int
                     
@@ -669,7 +702,7 @@ module PredictiveModel =
                         ProgressReporter = problem.ProgressReporter
                     }
                     
-                    VQC.trainMultiClass backend featureMap varForm initParams problem.TrainFeatures labels vqcConfig
+                    VQC.trainMultiClass backend featureMap varForm initParams vqcFeatures labels vqcConfig
                     |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC multi-class training failed: {e}"))
                     |> Result.map (fun multiClassResult ->
                         if problem.Verbose then
@@ -769,9 +802,10 @@ module PredictiveModel =
         | Regression ->
             try
                 match model.InternalModel with
-                | RegressionVQC (vqcResult, featureMap, varForm, _) ->
-                    // VQC-based non-linear regression
-                    match VQC.predictRegression actualBackend featureMap varForm vqcResult.Parameters features actualShots vqcResult.ValueRange with
+                | RegressionVQC (vqcResult, featureMap, varForm, numQubits) ->
+                    // VQC-based non-linear regression.
+                    // Apply the same feature truncation used at training time (qubit cap).
+                    match VQC.predictRegression actualBackend featureMap varForm vqcResult.Parameters (truncateFeatures numQubits features) actualShots vqcResult.ValueRange with
                     | Ok pred ->
                         Ok {
                             Value = pred.Value
@@ -841,8 +875,9 @@ module PredictiveModel =
             try
                 match model.InternalModel with
                 | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
-                    // VQC multi-class using one-vs-rest strategy
-                    match VQC.predictMultiClass actualBackend featureMap varForm multiClassResult features actualShots with
+                    // VQC multi-class using one-vs-rest strategy.
+                    // Apply the same feature truncation used at training time (qubit cap).
+                    match VQC.predictMultiClass actualBackend featureMap varForm multiClassResult (truncateFeatures numQubits features) actualShots with
                     | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC multi-class prediction failed: {e}"))
                     | Ok prediction ->
                         Ok {

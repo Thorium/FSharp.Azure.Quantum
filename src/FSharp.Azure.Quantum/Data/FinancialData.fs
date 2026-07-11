@@ -367,7 +367,6 @@ module FinancialData =
         (closeColumn: string)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<PriceSeries>> =
-        try
 
             let processContent (allText:string) =
                 let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
@@ -433,12 +432,20 @@ module FinancialData =
                             Frequency = Daily
                         }
             task {
-                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
-                return processContent allText
+                // try/with must live INSIDE the task so exceptions from file I/O and
+                // row parsing (e.g. IndexOutOfRangeException on short rows) become
+                // Error results, matching the sync API, instead of faulting the task.
+                try
+                    let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                    return processContent allText
+                with
+                | :? OperationCanceledException ->
+                    // Preserve cancellation semantics: re-raise so the task is Canceled
+                    cancellationToken.ThrowIfCancellationRequested()
+                    return Error (QuantumError.Other "Operation was canceled")
+                | ex ->
+                    return Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
             }
-
-            with ex ->
-                task { return Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message)) }
 
     // ========================================================================
     // YAHOO FINANCE - LIVE FETCHING
@@ -982,7 +989,6 @@ module FinancialData =
     
     /// Load portfolio from CSV asynchronously
     let loadPortfolioFromCsvAsync (filePath: string) (portfolioName: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Portfolio>> =
-        try
             let processContent (allText:string) =
                 let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
                 if lines.Length < 2 then
@@ -1045,11 +1051,20 @@ module FinancialData =
                     | _ ->
                         Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
             task {
-                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
-                return processContent allText
+                // try/with must live INSIDE the task so exceptions from file I/O and
+                // row parsing (e.g. IndexOutOfRangeException on short rows) become
+                // Error results, matching the sync API, instead of faulting the task.
+                try
+                    let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                    return processContent allText
+                with
+                | :? OperationCanceledException ->
+                    // Preserve cancellation semantics: re-raise so the task is Canceled
+                    cancellationToken.ThrowIfCancellationRequested()
+                    return Error (QuantumError.Other "Operation was canceled")
+                | ex ->
+                    return Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message))
             }
-        with ex ->
-            task { return Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message)) }
     
     /// Create portfolio from position list
     let createPortfolio (name: string) (positions: Position list) : Portfolio =
@@ -1067,8 +1082,9 @@ module FinancialData =
     // VAR CALCULATIONS (Classical baseline)
     // ========================================================================
     
-    /// Calculate parametric VaR (normal distribution assumption)
-    let calculateParametricVaR 
+    /// Calculate parametric VaR (Normal, Student-t, or Log-normal distribution assumption;
+    /// the Historical distribution has no parametric form — use calculateHistoricalVaR)
+    let calculateParametricVaR
         (portfolio: Portfolio) 
         (covMatrix: CovarianceMatrix) 
         (riskParams: RiskParameters) 
@@ -1097,56 +1113,79 @@ module FinancialData =
         // Scale by time horizon (sqrt of time for variance)
         let timeScaledStd = portfolioStd * sqrt(float riskParams.TimeHorizon / 252.0)
         
-        // Z-score for confidence level
-        let zScore =
+        // Standard normal quantile (Beasley-Springer-Moro approximation)
+        let normalQuantile (p: float) =
+            let a = [| 2.50662823884; -18.61500062529; 41.39119773534; -25.44106049637 |]
+            let b = [| -8.47351093090; 23.08336743743; -21.06224101826; 3.13082909833 |]
+            let c = [| 0.3374754822726147; 0.9761690190917186; 0.1607979714918209;
+                       0.0276438810333863; 0.0038405729373609; 0.0003951896511919;
+                       0.0000321767881768; 0.0000002888167364; 0.0000003960315187 |]
+
+            let y = p - 0.5
+            if abs y < 0.42 then
+                let r = y * y
+                y * (((a.[3] * r + a.[2]) * r + a.[1]) * r + a.[0]) /
+                    ((((b.[3] * r + b.[2]) * r + b.[1]) * r + b.[0]) * r + 1.0)
+            else
+                let r = if y < 0.0 then p else 1.0 - p
+                let s = log(-log(r))
+                let sign = if y < 0.0 then -1.0 else 1.0
+                sign * (c.[0] + s * (c.[1] + s * (c.[2] + s * (c.[3] + s * (c.[4] +
+                       s * (c.[5] + s * (c.[6] + s * (c.[7] + s * c.[8]))))))))
+
+        // Distribution-specific quantile ("z-score") for the requested confidence level,
+        // expressed so that VaR = V * σ * z, plus the method label for the result.
+        let zScoreResult =
             match riskParams.Distribution with
-            | Normal -> 
-                // Approximate normal quantile
-                let p = riskParams.ConfidenceLevel
-                // Beasley-Springer-Moro approximation
-                let a = [| 2.50662823884; -18.61500062529; 41.39119773534; -25.44106049637 |]
-                let b = [| -8.47351093090; 23.08336743743; -21.06224101826; 3.13082909833 |]
-                let c = [| 0.3374754822726147; 0.9761690190917186; 0.1607979714918209;
-                           0.0276438810333863; 0.0038405729373609; 0.0003951896511919;
-                           0.0000321767881768; 0.0000002888167364; 0.0000003960315187 |]
-                
-                let y = p - 0.5
-                if abs y < 0.42 then
-                    let r = y * y
-                    y * (((a.[3] * r + a.[2]) * r + a.[1]) * r + a.[0]) /
-                        ((((b.[3] * r + b.[2]) * r + b.[1]) * r + b.[0]) * r + 1.0)
+            | Normal ->
+                Ok (normalQuantile riskParams.ConfidenceLevel, "Parametric (Normal)")
+            | StudentT df ->
+                if df <= 0.0 then
+                    Error (QuantumError.ValidationError ("Distribution", "Student-t degrees of freedom must be > 0"))
                 else
-                    let r = if y < 0.0 then p else 1.0 - p
-                    let s = log(-log(r))
-                    let sign = if y < 0.0 then -1.0 else 1.0
-                    sign * (c.[0] + s * (c.[1] + s * (c.[2] + s * (c.[3] + s * (c.[4] + 
-                           s * (c.[5] + s * (c.[6] + s * (c.[7] + s * c.[8]))))))))
-            | StudentT df -> 
-                // Approximate Student-t quantile (use normal as approximation for large df)
-                2.326  // 99% for df > 30
-            | ReturnDistribution.Historical -> 2.326
-            | LogNormal -> 2.326
-        
-        let var = portfolio.TotalValue * timeScaledStd * zScore
-        
-        // Expected Shortfall for a normal distribution: ES = V * σ * φ(z) / (1-p)
-        // where φ is the standard normal PDF (note: no extra z factor — that is
-        // already reflected in VaR = V * σ * z, not in ES)
-        let normalPdf z = exp(-z * z / 2.0) / sqrt(2.0 * Math.PI)
-        let tailProb = 1.0 - riskParams.ConfidenceLevel
-        let es =
-            if tailProb = 0.0 then var
-            else portfolio.TotalValue * timeScaledStd * (normalPdf zScore) / tailProb
-        
-        Ok {
-            VaR = var
-            ExpectedShortfall = es
-            ConfidenceLevel = riskParams.ConfidenceLevel
-            TimeHorizon = riskParams.TimeHorizon
-            Method = "Parametric (Normal)"
-            PortfolioValue = portfolio.TotalValue
-            VaRPercent = if portfolio.TotalValue = 0.0 then 0.0 else var / portfolio.TotalValue
-        }
+                    let tQuantile =
+                        MathNet.Numerics.Distributions.StudentT.InvCDF(0.0, 1.0, df, riskParams.ConfidenceLevel)
+                    // A standard Student-t has variance df/(df-2); the portfolio σ already
+                    // carries the return variance, so rescale the quantile to unit variance
+                    // when df > 2 (below that the variance is undefined; use the raw quantile).
+                    let z = if df > 2.0 then tQuantile * sqrt ((df - 2.0) / df) else tQuantile
+                    Ok (z, sprintf "Parametric (Student-t, df=%g)" df)
+            | LogNormal ->
+                // Log-normal prices: log-returns are normal with std σ, so the loss
+                // quantile is 1 - exp(-z·σ). Express as an effective z so VaR = V·σ·z_eff.
+                let z = normalQuantile riskParams.ConfidenceLevel
+                let zEff =
+                    if timeScaledStd > 0.0 then (1.0 - exp (-z * timeScaledStd)) / timeScaledStd
+                    else z
+                Ok (zEff, "Parametric (Log-normal)")
+            | ReturnDistribution.Historical ->
+                Error (QuantumError.ValidationError (
+                    "Distribution",
+                    "Historical distribution has no parametric quantile; use calculateHistoricalVaR with return series data"))
+
+        match zScoreResult with
+        | Error e -> Error e
+        | Ok (zScore, methodName) ->
+            let var = portfolio.TotalValue * timeScaledStd * zScore
+
+            // Expected Shortfall: ES = V * σ * φ(z) / (1-p) where φ is the standard normal
+            // PDF (note: no extra z factor — that is already reflected in VaR = V * σ * z,
+            // not in ES). For Student-t/log-normal this normal-PDF form is an approximation.
+            let normalPdf z = exp(-z * z / 2.0) / sqrt(2.0 * Math.PI)
+            let tailProb = 1.0 - riskParams.ConfidenceLevel
+            let es =
+                if tailProb = 0.0 then var
+                else portfolio.TotalValue * timeScaledStd * (normalPdf zScore) / tailProb
+
+            Ok {
+                VaR = var
+                ExpectedShortfall = es
+                ConfidenceLevel = riskParams.ConfidenceLevel
+                TimeHorizon = riskParams.TimeHorizon
+                Method = methodName
+                PortfolioValue = portfolio.TotalValue
+                VaRPercent = if portfolio.TotalValue = 0.0 then 0.0 else var / portfolio.TotalValue
+            }
     
     /// Calculate historical VaR (non-parametric)
     let calculateHistoricalVaR

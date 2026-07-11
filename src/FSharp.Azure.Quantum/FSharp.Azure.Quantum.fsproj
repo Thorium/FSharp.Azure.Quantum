@@ -6,12 +6,60 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.4.5</Version>
+    <Version>1.4.6</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.3: Neutral-atom analog mode, CUDA-Q-style primitives, and new backends
+    <PackageReleaseNotes>v1.4.6: Correctness release — full-library audit (25 critical + ~35 high-severity fixes)
+
+BREAKING CHANGES (vs 1.4.5):
+- submitAndWaitForResultsAsync takes a trailing CancellationToken on IonQ/Rigetti/Quantinuum/AtomComputing/Pasqal backends (polling is now cancellable)
+- QaoaOptimizer.Optimizer.minimizeWithBounds takes tolerance and maxIterations parameters (config values are now honored; non-convergence returns best-so-far instead of throwing)
+- QuantumState gained a MeasurementHistogram case (and QuantumStateType.Sampled) — exhaustive matches must handle or wildcard it
+- MitigationTechnique.ReadoutErrorMitigation payload is now CalibrationMatrix option (no fabricated default calibration; missing calibration = pass-through)
+- QuantumGraphColoringSolver.solveClassical returns Result instead of throwing when colors run out
+- constraintSolver's searchSpace now means NUMBER OF VARIABLES (matching forSudokuStyle/forNQueens); numVariables × log2(domainSize) ≤ 16 qubits is enforced with a clear error
+- Knapsack/set-cover/drug-discovery QUBOs use slack variables for inequality constraints (NumVariables grew; decoders unchanged for item bits)
+- findCheapestBackend/recommendCostOptimization exclude subscription-priced backends (Quantinuum has no per-job USD price); an all-subscription backend list returns an Error / no recommendation
+- Business classification/regression builders REJECT feature counts above the qubit cap (8 binary / 5 predictive) with a clear error instead of failing every epoch (1.4.5) or silently truncating; reduce dimensionality first
+- MitigatedResult gained CorrectionApplied: false means the histogram passed through uncorrected (readout mitigation selected without calibration data)
+
+NEW: Wide cloud hardware support
+- QuantumState.MeasurementHistogram: sampled results with NO qubit-count limit (at most `shots` entries regardless of width)
+- Cloud result tiering everywhere (Braket + Azure backends): dense state ≤ 20 qubits, sparse state 21-31, measurement histogram beyond — Quantinuum H2 (56q), Rigetti Ankaa (~84q), IonQ Forte (36q) results are now usable (previously crashed above 20)
+
+HIGH-severity fixes (selection):
+- IonQ result parser accepts the documented Azure probability-histogram format (decimal state keys); live jobs no longer error
+- OpenQASM export defines rxx/ryy/rzz inline where qelib1/stdgates lack them; importer accepts the definitions
+- VQC gradients apply the chain rule (parameter-shift on circuit expectations × analytic loss derivative) — was a biased finite difference of the loss
+- VQC model serialization stores PauliFeatureMap/TwoLocal configuration losslessly (saveVQCModelWithConfigAsync); AutoML train/validation split is seeded-shuffled
+- Parametric VaR honors the requested confidence for Student-t/log-normal; Historical redirects to the empirical function; Asian options priced via the exact geometric-average distribution (was silently European)
+- Network-flow conservation penalty de-doubled and solutions validated (conservation/supply/demand) before selection; graph-coloring fixed colors enforced; scheduling objective (incl. MinimizeLateness) actually honored
+- Portfolio: negative-return zero-risk assets no longer rank first; quantum decode respects Min/MaxHolding; KnapsackBuilder solveClassicalDP is genuine dynamic programming
+- Shor draws a fresh random base per retry (N=33-style permanent failures fixed; gcd hits return the factor immediately)
+- QRNG local path uses a cryptographic RNG and documentation states it is CSPRNG, not quantum, randomness
+- Molecular CSV labels stay aligned; unlabeled drug screening errors instead of reporting every candidate as a hit; malformed SMILES fail at parse time
+- Cost recommendations exclude subscription-priced backends (Quantinuum HQC no longer 'cheapest' at $0); QAOA optimizer non-convergence returns best-so-far
+- Density-matrix simulator handles Reset/Barrier/Conditional with exact channels; strategy selection no longer allocates a 2^n×2^n placeholder (34 GB at 16 qubits)
+
+v1.4.6 critical fixes (earlier batch):
+- FIXED: Circuit adjoint (CircuitBuilder.reverse) now reverses gate order — corrects amplitude amplification reflections and quantum Monte Carlo Grover operators
+- FIXED: Multi-controlled X/Z decomposition for 3+ controls (correct ancilla-free recursion; the old "borrowed ancilla" ladder computed the wrong predicate) — affects Grover 4+ qubits and HHL eigenvalue inversion
+- FIXED: QUBO -&gt; Ising conversion (fromQubo/fromQuboSparse) now includes cross-term linear contributions, and QuboExtraction is its exact inverse (D-Wave path optimized a corrupted objective before)
+- FIXED: Trotter-Suzuki Pauli decomposition qubit ordering (was bit-reversed vs circuit synthesis) and diagonal decomposition (correct I/Z expansion via Walsh-Hadamard transform); HHL controlled-evolution gate order; controlled evolution of identity terms emits the control phase
+- FIXED: Zero-noise extrapolation scaled circuits executed in reverse gate order
+- FIXED: Budget checks no longer skip the monthly limit when a daily warning fires
+- FIXED: Task scheduling — resource capacity encoded with non-negative overload penalties (equality penalty rewarded infeasible schedules); decoded schedules re-validated classically (one-hot, dependencies, resource capacity) with earliest-slot one-hot repair
+- FIXED: Grover constraint solver — searchSpace is the number of variables (matching forSudokuStyle/forNQueens), with a 16-qubit feasibility guard; mixed-radix decode no longer overflows
+- FIXED: Graph coloring greedy solver returns Result instead of throwing when colors run out (HybridSolver propagates)
+- FIXED: ML — amplitude-encoding Walsh-Hadamard butterfly (wrong state for 3+ qubits), 2-class VQC prediction (always returned first class), anomaly detection rebuilt on kernel centroid distance (one-class SVM was degenerate and could never learn); model loaders validate model kind (wrong-kind files no longer load as VQC-regression with null parameters)
+- FIXED: Invariant-culture number parsing in chemistry and market data (comma-decimal locales silently lost elements/atoms/returns)
+- FIXED: Parametric Expected Shortfall no longer overstated by factor z (~2.33x at 99%); risk engine errors on missing/malformed data instead of fabricating zeros or mock returns
+- FIXED: D-Wave direct backend speaks the documented SAPI v2 qp wire format (base64 lin/quad against solver topology; correct submit/poll/answer decoding); problems off the hardware graph error explicitly (minor-embedding not implemented)
+- NOTE: P(theta) transpiles to RZ(theta) on backends without a native phase gate (equal up to global phase)
+
+v1.4.3: Neutral-atom analog mode, CUDA-Q-style primitives, and new backends
 - NEW: Neutral-atom (Rydberg) analog programming - NeutralAtom module Trotterizes an analog program to gates; PasqalBackend (RydbergProgram -&gt; Pulser JSON -&gt; Azure Quantum) and QueraBackend (RydbergProgram -&gt; Braket AHS JSON)
 - NEW: CUDA-Q-style execution primitives (Primitives: sample/observe/run/getState) over IQuantumBackend, plus CudaQBridge
 - NEW: ADAPT-VQE and ADAPT-QAOA adaptive-ansatz algorithms (AdaptVqe, AdaptQaoa)

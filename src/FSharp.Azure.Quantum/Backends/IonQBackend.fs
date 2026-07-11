@@ -198,21 +198,49 @@ module IonQBackend =
     // RESULT PARSING
     // ============================================================================
     
-    /// Parse IonQ result JSON into measurement counts histogram
-    /// 
-    /// IonQ returns results as:
-    /// {
-    ///   "histogram": {
-    ///     "00": 492,
-    ///     "01": 12,
-    ///     "10": 8,
-    ///     "11": 488
-    ///   }
-    /// }
-    /// 
+    /// Parse IonQ result JSON into a measurement-count histogram keyed by bitstrings
+    /// (rightmost character = qubit 0, matching the local simulators).
+    ///
+    /// Accepts both histogram shapes an IonQ job can produce:
+    ///
+    /// 1. Azure Quantum's documented "ionq.quantum-results.v1" format — keys are DECIMAL
+    ///    basis-state indices and values are PROBABILITIES, converted to counts via
+    ///    round(p × shots):
+    ///    { "histogram": { "0": 0.492, "3": 0.508 } }
+    ///
+    /// 2. Bitstring-keyed integer counts (mock backends / pre-aggregated tooling):
+    ///    { "histogram": { "00": 492, "01": 12, "10": 8, "11": 488 } }
+    ///
+    /// Parameters:
+    /// - numQubits: qubit count of the submitted circuit (sizes the bitstring keys)
+    /// - shots: shot count the job was submitted with (scales probabilities to counts)
+    /// - jsonResult: raw result JSON
+    ///
     /// Returns: Map<bitstring, count>, or an error describing how the
     /// payload deviated from the expected shape
-    let parseIonQResult (jsonResult: string) : Result<Map<string, int>, string> =
+    let parseIonQResult (numQubits: int) (shots: int) (jsonResult: string) : Result<Map<string, int>, string> =
+        // Normalise a histogram key to a bitstring of length numQubits.
+        // The interpretation is decided ONCE for the whole histogram (not per key):
+        // count histograms whose keys are all 0/1 are bitstrings (possibly unpadded —
+        // "10" for 3 qubits means binary 010, not decimal ten), while the Azure
+        // Quantum "ionq.quantum-results.v1" probability shape keys by decimal
+        // basis-state index. A per-key decision would misread short binary keys
+        // as decimal indices.
+        let normalizeKey (treatAsBitstring: bool) (key: string) : Result<string, string> =
+            let isBinary = key.Length > 0 && key |> Seq.forall (fun c -> c = '0' || c = '1')
+            if treatAsBitstring && isBinary then
+                if key.Length > numQubits then
+                    Error $"Bitstring key '{key}' is longer than the circuit's {numQubits} qubits"
+                else
+                    Ok (key.PadLeft(numQubits, '0'))
+            else
+                match Int64.TryParse key with
+                | true, index when index >= 0L && (numQubits >= 63 || index < (1L <<< numQubits)) ->
+                    Ok (Convert.ToString(index, 2).PadLeft(numQubits, '0'))
+                | true, index ->
+                    Error $"State index {index} is out of range for {numQubits} qubits"
+                | false, _ ->
+                    Error $"Histogram key '{key}' is neither a bitstring nor a decimal state index"
         try
             use jsonDoc = JsonDocument.Parse(jsonResult)
             match jsonDoc.RootElement.TryGetProperty("histogram") with
@@ -221,13 +249,45 @@ module IonQBackend =
             | true, histogram when histogram.ValueKind <> JsonValueKind.Object ->
                 Error $"Expected 'histogram' to be a JSON object, got {histogram.ValueKind}"
             | true, histogram ->
-                (Ok Map.empty, histogram.EnumerateObject())
-                ||> Seq.fold (fun acc prop ->
-                    acc
-                    |> Result.bind (fun counts ->
-                        match prop.Value.TryGetInt32() with
-                        | true, count -> Ok (counts |> Map.add prop.Name count)
-                        | false, _ -> Error $"Count for outcome '{prop.Name}' is not an integer"))
+                let entries =
+                    (Ok [], histogram.EnumerateObject())
+                    ||> Seq.fold (fun acc prop ->
+                        acc
+                        |> Result.bind (fun entries ->
+                            match prop.Value.ValueKind with
+                            | JsonValueKind.Number -> Ok ((prop.Name, prop.Value.GetDouble()) :: entries)
+                            | kind -> Error $"Value for outcome '{prop.Name}' is not a number, got {kind}"))
+                entries
+                |> Result.bind (fun entries ->
+                    if entries |> List.exists (fun (_, v) -> v < 0.0) then
+                        Error "Histogram values must be non-negative"
+                    else
+                        // Values are probabilities when any has a fractional part, or when the
+                        // whole histogram sums to ≤ 1 (e.g. a deterministic outcome serialised
+                        // as {"0": 1}); otherwise they are integer shot counts.
+                        let isProbability =
+                            entries |> List.exists (fun (_, v) -> v <> Math.Floor v)
+                            || (entries |> List.sumBy snd) <= 1.0 + 1e-9
+                        if isProbability && entries |> List.exists (fun (_, v) -> v > 1.0) then
+                            Error "Histogram mixes fractional probabilities with values greater than 1"
+                        else
+                            // Whole-histogram key interpretation: integer-count histograms
+                            // with exclusively 0/1 keys are (possibly unpadded) bitstrings;
+                            // the probability shape (and any non-binary key) is decimal-indexed.
+                            let treatAsBitstring =
+                                not isProbability
+                                && entries |> List.forall (fun (k, _) ->
+                                    k.Length > 0 && k |> Seq.forall (fun c -> c = '0' || c = '1'))
+                            let toCount (v: float) =
+                                if isProbability then int (Math.Round(v * float shots)) else int (Math.Round v)
+                            (Ok Map.empty, entries)
+                            ||> List.fold (fun acc (key, value) ->
+                                acc
+                                |> Result.bind (fun counts ->
+                                    normalizeKey treatAsBitstring key
+                                    |> Result.map (fun bitstring ->
+                                        let merged = (counts |> Map.tryFind bitstring |> Option.defaultValue 0) + toCount value
+                                        counts |> Map.add bitstring merged))))
         with
         | :? JsonException as ex -> Error $"Invalid JSON in IonQ result: {ex.Message}"
     
@@ -287,7 +347,8 @@ module IonQBackend =
     /// - circuit: IonQ circuit to execute
     /// - shots: Number of measurement shots
     /// - target: IonQ backend (e.g., "ionq.simulator", "ionq.qpu.aria-1")
-    /// 
+    /// - cancellationToken: Cancels job status polling
+    ///
     /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
@@ -297,6 +358,7 @@ module IonQBackend =
         (circuit: IonQCircuit)
         (shots: int)
         (target: string)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             // Step 1: Create job submission
@@ -309,7 +371,6 @@ module IonQBackend =
             | Ok jobId ->
                 // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
@@ -329,7 +390,7 @@ module IonQBackend =
                                 // Step 5: Parse histogram from OutputData
                                 match jobResult.OutputData with
                                 | :? string as resultJson ->
-                                    match parseIonQResult resultJson with
+                                    match parseIonQResult circuit.Qubits shots resultJson with
                                     | Ok histogram -> return Ok histogram
                                     | Error msg -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" msg)))
                                 | other ->
@@ -358,7 +419,8 @@ module IonQBackend =
     /// - shots: Number of measurement shots
     /// - target: IonQ backend target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
     /// - constraints: Optional backend constraints (auto-detected from target if None)
-    /// 
+    /// - cancellationToken: Cancels job status polling
+    ///
     /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with validation or execution details
@@ -369,6 +431,7 @@ module IonQBackend =
         (shots: int)
         (target: string)
         (constraints: CircuitValidator.BackendConstraints option)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             // Step 1: Determine constraints (auto-detect or use provided)
@@ -393,5 +456,5 @@ module IonQBackend =
                 return Error (QuantumError.ValidationError("circuit", String.concat "; " errorMessages))
             | Ok () ->
                 // Step 4: Submit circuit (validation passed)
-                return! submitAndWaitForResultsAsync httpClient workspaceUrl circuit shots target |> Async.AwaitTask
+                return! submitAndWaitForResultsAsync httpClient workspaceUrl circuit shots target cancellationToken
         }

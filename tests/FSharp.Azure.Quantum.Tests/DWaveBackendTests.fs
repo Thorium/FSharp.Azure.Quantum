@@ -39,6 +39,23 @@ module DWaveBackendTests =
         let qaoaCircuit = QaoaCircuit.build hamiltonian mixerHam parameters
         QaoaCircuitWrapper(qaoaCircuit) :> ICircuit
     
+    /// Create a QAOA circuit whose QUBO has DEGENERATE minima ({01, 10}), so a
+    /// simulated annealer produces multiple distinct solutions across shots.
+    /// (A pure ZZ coupling: Q_01 = 2, Q_00 = Q_11 = -1 → E(01) = E(10) = -1.)
+    /// Used by the stochasticity tests — a problem with a unique ground state
+    /// legitimately converges to the same solution on every shot.
+    let createDegenerateQaoaCircuit () : ICircuit =
+        let hamiltonian : ProblemHamiltonian = {
+            NumQubits = 2
+            Terms = [|
+                { Coefficient = 0.5; QubitsIndices = [| 0; 1 |]; PauliOperators = [| PauliZ; PauliZ |] }
+            |]
+        }
+        let mixerHam = MixerHamiltonian.create 2
+        let parameters = [| (0.5, 0.3) |]
+        let qaoaCircuit = QaoaCircuit.build hamiltonian mixerHam parameters
+        QaoaCircuitWrapper(qaoaCircuit) :> ICircuit
+
     /// Create MaxCut QAOA circuit
     let createMaxCutCircuit () : ICircuit =
         let hamiltonian : ProblemHamiltonian = {
@@ -104,23 +121,29 @@ module DWaveBackendTests =
         | _ -> Assert.True(false, "Both executions should succeed")
     
     [<Fact>]
-    let ``Execute without seed produces different results`` () =
-        let backend1 = createMockDWaveBackend Advantage_System6_1 None
-        let backend2 = createMockDWaveBackend Advantage_System6_1 None
-        let circuit = createSimpleQaoaCircuit ()
-        
+    let ``Execute with different seeds produces different results`` () =
+        // Deterministic version of the "randomness plumbing" check: two DIFFERENT
+        // seeds must give different sample sequences. (The previous "no seed ⇒
+        // different results" assertion was inherently flaky: on the degenerate
+        // two-minimum problem, two unseeded 100-shot runs produce identical
+        // occurrence counts with ~5% probability — the annealer converging to the
+        // same physics is correct behavior, not a seeding bug.)
+        let backend1 = createMockDWaveBackend Advantage_System6_1 (Some 1)
+        let backend2 = createMockDWaveBackend Advantage_System6_1 (Some 2)
+        // Degenerate ground states ({01, 10}) make seed-dependent sampling visible;
+        // the simple circuit's unique minimum would legitimately give identical runs.
+        let circuit = createDegenerateQaoaCircuit ()
+
         let result1 = backend1.Execute circuit 100
         let result2 = backend2.Execute circuit 100
-        
+
         match result1, result2 with
         | Ok exec1, Ok exec2 ->
-            // Results should differ (with very high probability)
-            // Check if at least one measurement differs
-            let allSame = 
-                exec1.Measurements 
+            let allSame =
+                exec1.Measurements
                 |> Array.zip exec2.Measurements
                 |> Array.forall (fun (m1, m2) -> m1 = m2)
-            Assert.False(allSame, "Results should differ without seed")
+            Assert.False(allSame, "Different seeds should produce different sample sequences")
         | _ -> Assert.True(false, "Both executions should succeed")
     
     [<Fact>]
@@ -139,7 +162,9 @@ module DWaveBackendTests =
     [<Fact>]
     let ``Execute produces multiple distinct solutions`` () =
         let backend = createDefaultMockBackend ()
-        let circuit = createSimpleQaoaCircuit ()
+        // Degenerate ground states ({01, 10}) guarantee multiple distinct
+        // solutions; the simple circuit's unique minimum would not.
+        let circuit = createDegenerateQaoaCircuit ()
         
         match backend.Execute circuit 1000 with
         | Ok execResult ->

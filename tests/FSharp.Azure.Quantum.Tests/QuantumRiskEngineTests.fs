@@ -235,6 +235,7 @@ module QuantumRiskEngineTests =
         | Error err -> failwith $"Expected Ok from classical path, got Error: {err.Message}"
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``executeAsync with cancellation token should respect cancellation`` () =
         let cts = new Threading.CancellationTokenSource()
         cts.Cancel()

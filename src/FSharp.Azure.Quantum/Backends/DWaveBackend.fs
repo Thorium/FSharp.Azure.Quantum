@@ -72,85 +72,93 @@ module DWaveBackend =
         /// - numReads: Number of annealing runs
         /// - seed: Random seed for reproducibility
         ///
-        /// Returns: List of solutions with energies and occurrence counts
-        let solve (problem: IsingProblem) (numReads: int) (seed: int option) : DWaveSolution list =
-            let rng = 
+        /// Returns: Ok with a list of solutions (energies and occurrence counts), or a
+        /// validation Error for an empty problem (no variables to anneal)
+        let solve (problem: IsingProblem) (numReads: int) (seed: int option) : Result<DWaveSolution list, QuantumError> =
+            let rng =
                 match seed with
                 | Some s -> Random(s)
                 | None -> Random()
-            
-            let numQubits = 
+
+            let numQubits =
                 let linearQubits = problem.LinearCoeffs |> Map.toSeq |> Seq.map fst
-                let quadraticQubits = 
-                    problem.QuadraticCoeffs 
-                    |> Map.toSeq 
+                let quadraticQubits =
+                    problem.QuadraticCoeffs
+                    |> Map.toSeq
                     |> Seq.collect (fun ((i, j), _) -> [i; j])
-                
+
                 if Seq.isEmpty linearQubits && Seq.isEmpty quadraticQubits then
                     0
                 else
                     Seq.concat [linearQubits; quadraticQubits] |> Seq.max |> (+) 1
-            
-            /// Generate random spin configuration
-            let randomSpins () : Map<int, int> =
-                [0 .. numQubits - 1]
-                |> List.map (fun i -> (i, if rng.NextDouble() < 0.5 then -1 else 1))
-                |> Map.ofList
-            
-            /// Flip a single spin
-            let flipSpin (spins: Map<int, int>) (qubit: int) : Map<int, int> =
-                Map.add qubit (-spins.[qubit]) spins
-            
-            /// Simulated annealing run using recursive approach
-            let anneal (initialTemp: float) (coolingRate: float) (maxSteps: int) =
-                let initialSpins = randomSpins ()
-                let initialEnergy = isingEnergy problem initialSpins
-                
-                let rec annealStep step temperature currentSpins currentEnergy =
-                    if step > maxSteps then
-                        (currentSpins, currentEnergy)
-                    else
-                        // Random qubit to flip
-                        let qubit = rng.Next(numQubits)
-                        let newSpins = flipSpin currentSpins qubit
-                        let newEnergy = isingEnergy problem newSpins
-                        
-                        // Accept move with Metropolis criterion
-                        let deltaE = newEnergy - currentEnergy
-                        let acceptProb = if deltaE < 0.0 then 1.0 else exp(-deltaE / temperature)
-                        
-                        let (nextSpins, nextEnergy) =
-                            if rng.NextDouble() < acceptProb 
-                            then (newSpins, newEnergy)
-                            else (currentSpins, currentEnergy)
-                        
-                        // Cool down and continue
-                        annealStep (step + 1) (temperature * coolingRate) nextSpins nextEnergy
-                
-                annealStep 1 initialTemp initialSpins initialEnergy
-            
-            // Run multiple annealing cycles
-            let results = 
-                [1 .. numReads]
-                |> List.map (fun _ -> anneal 10.0 0.95 100)
-            
-            // Group by spin configuration and count occurrences
-            results
-            |> List.groupBy fst
-            |> List.map (fun (spins, group) ->
-                // List.groupBy guarantees non-empty groups, but use pattern matching for clarity
-                let energy = 
-                    match group with
-                    | (_, e) :: _ -> e  // Extract energy from first item
-                    | [] -> 0.0  // Should never happen, but safe fallback
-                {
-                    Spins = spins
-                    Energy = energy
-                    NumOccurrences = List.length group
-                    ChainBreakFraction = 0.0  // Mock: no chain breaks in simulation
-                }
-            )
-            |> List.sortBy (fun sol -> sol.Energy)  // Sort by energy (best first)
+
+            if numQubits = 0 then
+                // An empty problem has no spins to flip; annealing it would crash on the
+                // first spin flip, so reject it up front with a clear validation error.
+                Error (QuantumError.ValidationError ("problem",
+                    "Ising problem has no variables (empty linear and quadratic coefficients); nothing to anneal."))
+            else
+                /// Generate random spin configuration
+                let randomSpins () : Map<int, int> =
+                    [0 .. numQubits - 1]
+                    |> List.map (fun i -> (i, if rng.NextDouble() < 0.5 then -1 else 1))
+                    |> Map.ofList
+
+                /// Flip a single spin
+                let flipSpin (spins: Map<int, int>) (qubit: int) : Map<int, int> =
+                    Map.add qubit (-spins.[qubit]) spins
+
+                /// Simulated annealing run using recursive approach
+                let anneal (initialTemp: float) (coolingRate: float) (maxSteps: int) =
+                    let initialSpins = randomSpins ()
+                    let initialEnergy = isingEnergy problem initialSpins
+
+                    let rec annealStep step temperature currentSpins currentEnergy =
+                        if step > maxSteps then
+                            (currentSpins, currentEnergy)
+                        else
+                            // Random qubit to flip
+                            let qubit = rng.Next(numQubits)
+                            let newSpins = flipSpin currentSpins qubit
+                            let newEnergy = isingEnergy problem newSpins
+
+                            // Accept move with Metropolis criterion
+                            let deltaE = newEnergy - currentEnergy
+                            let acceptProb = if deltaE < 0.0 then 1.0 else exp(-deltaE / temperature)
+
+                            let (nextSpins, nextEnergy) =
+                                if rng.NextDouble() < acceptProb
+                                then (newSpins, newEnergy)
+                                else (currentSpins, currentEnergy)
+
+                            // Cool down and continue
+                            annealStep (step + 1) (temperature * coolingRate) nextSpins nextEnergy
+
+                    annealStep 1 initialTemp initialSpins initialEnergy
+
+                // Run multiple annealing cycles
+                let results =
+                    [1 .. numReads]
+                    |> List.map (fun _ -> anneal 10.0 0.95 100)
+
+                // Group by spin configuration and count occurrences
+                results
+                |> List.groupBy fst
+                |> List.map (fun (spins, group) ->
+                    // List.groupBy guarantees non-empty groups, but use pattern matching for clarity
+                    let energy =
+                        match group with
+                        | (_, e) :: _ -> e  // Extract energy from first item
+                        | [] -> 0.0  // Should never happen, but safe fallback
+                    {
+                        Spins = spins
+                        Energy = energy
+                        NumOccurrences = List.length group
+                        ChainBreakFraction = 0.0  // Mock: no chain breaks in simulation
+                    }
+                )
+                |> List.sortBy (fun sol -> sol.Energy)  // Sort by energy (best first)
+                |> Ok
     
     // ============================================================================
     // MOCK D-WAVE BACKEND (IDIOMATIC F#)
@@ -205,42 +213,43 @@ module DWaveBackend =
                     if numQubits > maxQubits then
                         Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {solverName} supports max {maxQubits}"))
                     else
-                        // Step 4: Run simulated annealing
-                        let solutions = MockSimulatedAnnealing.solve ising numShots seed
-                        
-                        // Step 5: Validate solutions list is not empty
-                        match solutions with
-                        | [] -> Error (QuantumError.OperationError ("simulated annealing", "No solutions found"))
-                        | bestSolution :: _ ->
-                            // Step 6: Convert Ising solutions back to binary measurements
-                            // Expand each solution by its occurrence count
-                            let measurements = 
-                                solutions
-                                |> List.collect (fun sol ->
-                                    let binary = isingToQubo sol.Spins
-                                    let bitstring = 
-                                        [0 .. numQubits - 1]
-                                        |> List.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
-                                        |> List.toArray
-                                    // Repeat bitstring NumOccurrences times
-                                    List.replicate sol.NumOccurrences bitstring
-                                )
-                                |> List.toArray
-                            
-                            // Step 7: Create ExecutionResult
-                            let metadata = Map.ofList [
-                                ("backend_type", box "mock_dwave")
-                                ("solver", box solverName)
-                                ("best_energy", box bestSolution.Energy)
-                                ("num_solutions", box solutions.Length)
-                            ]
-                            
-                            Ok {
-                                Measurements = measurements
-                                NumShots = numShots
-                                BackendName = $"Mock D-Wave {solverName}"
-                                Metadata = metadata
-                            }
+                        // Step 4: Run simulated annealing (rejects empty problems with a validation error)
+                        match MockSimulatedAnnealing.solve ising numShots seed with
+                        | Error e -> Error e
+                        | Ok solutions ->
+                            // Step 5: Validate solutions list is not empty
+                            match solutions with
+                            | [] -> Error (QuantumError.OperationError ("simulated annealing", "No solutions found"))
+                            | bestSolution :: _ ->
+                                // Step 6: Convert Ising solutions back to binary measurements
+                                // Expand each solution by its occurrence count
+                                let measurements =
+                                    solutions
+                                    |> List.collect (fun sol ->
+                                        let binary = isingToQubo sol.Spins
+                                        let bitstring =
+                                            [0 .. numQubits - 1]
+                                            |> List.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
+                                            |> List.toArray
+                                        // Repeat bitstring NumOccurrences times
+                                        List.replicate sol.NumOccurrences bitstring
+                                    )
+                                    |> List.toArray
+
+                                // Step 7: Create ExecutionResult
+                                let metadata = Map.ofList [
+                                    ("backend_type", box "mock_dwave")
+                                    ("solver", box solverName)
+                                    ("best_energy", box bestSolution.Energy)
+                                    ("num_solutions", box solutions.Length)
+                                ]
+
+                                Ok {
+                                    Measurements = measurements
+                                    NumShots = numShots
+                                    BackendName = $"Mock D-Wave {solverName}"
+                                    Metadata = metadata
+                                }
         
         // ====================================================================
         // IQuantumBackend interface implementation
@@ -256,10 +265,9 @@ module DWaveBackend =
                 | Error e -> Error (QuantumError.ValidationError ("QUBO extraction", e))
                 | Ok qubo ->
                     let ising = quboToIsing qubo
-                    let solutions = MockSimulatedAnnealing.solve ising 1 seed
-                    
-                    // Return as IsingSamples state
-                    Ok (QuantumState.IsingSamples (box ising, box solutions))
+                    // Return as IsingSamples state (empty problems yield a validation Error)
+                    MockSimulatedAnnealing.solve ising 1 seed
+                    |> Result.map (fun solutions -> QuantumState.IsingSamples (box ising, box solutions))
             
             /// Get backend's native state type (Annealing)
             member _.NativeStateType = QuantumStateType.Annealing
@@ -296,8 +304,8 @@ module DWaveBackend =
                         match state with
                         | QuantumState.IsingSamples _ ->
                             let runSeed = annealOp.Seed |> Option.orElse seed
-                            let solutions = MockSimulatedAnnealing.solve annealOp.Problem annealOp.NumReads runSeed
-                            Ok (QuantumState.IsingSamples (box annealOp.Problem, box solutions))
+                            MockSimulatedAnnealing.solve annealOp.Problem annealOp.NumReads runSeed
+                            |> Result.map (fun solutions -> QuantumState.IsingSamples (box annealOp.Problem, box solutions))
                         | _ ->
                             Error (QuantumError.OperationError ("ApplyOperation", $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}"))
 

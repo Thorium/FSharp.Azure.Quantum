@@ -44,6 +44,7 @@ let ``MultiClassSVM train should succeed with 3 classes`` () =
         Assert.Equal<seq<int>>([| 0; 1; 2 |], model.ClassLabels)
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``MultiClassSVM train should succeed with 4 classes`` () =
     let featureMap = FeatureMapType.ZZFeatureMap 1
     let (trainData, trainLabels) = createFourClassDataset ()
@@ -74,6 +75,7 @@ let ``MultiClassSVM predict should classify training samples`` () =
             Assert.True(prediction.Label >= 0 && prediction.Label <= 2)
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``MultiClassSVM evaluate should compute accuracy`` () =
     let featureMap = FeatureMapType.ZZFeatureMap 1
     let (trainData, trainLabels) = createThreeClassDataset ()

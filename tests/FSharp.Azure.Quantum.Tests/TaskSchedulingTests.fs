@@ -74,6 +74,7 @@ module TaskSchedulingTests =
     // ============================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``Two independent tasks should schedule in parallel`` () =
         // Arrange - Two tasks with NO dependencies
         let taskA = scheduledTask {

@@ -366,7 +366,7 @@ module ShorTests =
         Assert.True(true)
     
     [<Fact>]
-    [<Trait("Category", "Slow")>]   // genuine end-to-end factoring of 15 (~5 min)
+    [<Trait("Category", "ExtraSlow")>]   // genuine end-to-end factoring of 15 (~5 min)
     let ``Shor works with LocalBackend`` () =
         // Validate that LocalBackend is compatible
         let backend = LocalBackend() :> IQuantumBackend
@@ -540,9 +540,17 @@ module ShorTests =
     [<Fact>]
     let ``Shor demonstrates QPE for period finding`` () =
         let backend = createBackend()
-        
-        // Test that QPE is being used (even if classically assisted)
-        match factorClassicallyAssisted 15 backend with
+
+        // Test that QPE is being used (even if classically assisted).
+        // Pin the base: with an auto-selected random base, a lucky gcd(a, 15) > 1
+        // factors 15 classically without running period finding (no PeriodResult).
+        let config = {
+            NumberToFactor = 15
+            RandomBase = Some 7
+            PrecisionQubits = 8
+            MaxAttempts = 3
+        }
+        match executeClassicallyAssisted config backend with
         | Ok result when result.PeriodResult.IsSome ->
             let pr = result.PeriodResult.Value
             // Phase estimate should be in range [0, 1)

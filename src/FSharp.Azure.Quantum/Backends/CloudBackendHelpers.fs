@@ -17,59 +17,84 @@ module CloudBackendHelpers =
     // HISTOGRAM → QUANTUM STATE CONVERSION
     // ============================================================================
 
-    /// Convert a measurement histogram to an approximate QuantumState.StateVector.
+    /// Convert a measurement histogram to a QuantumState. Three tiers:
     ///
-    /// Cloud backends return Map<string, int> histograms (bitstring → count).
-    /// We approximate amplitudes as sqrt(count / totalShots) with zero phase,
-    /// since measurement destroys phase information.
+    /// - ≤ 20 qubits: dense StateVector (amplitudes = sqrt(count/totalShots),
+    ///   zero phase — measurement destroys phase information)
+    /// - 21–31 qubits: SparseState — only observed outcomes carry amplitude
+    ///   (≤ shots entries), avoiding the 2^n dense allocation
+    /// - > 31 qubits: MeasurementHistogram — the honest sampled-data
+    ///   representation with NO width limit (basis indices no longer fit Int32).
+    ///   This is what makes wide cloud hardware usable through this path
+    ///   (Quantinuum H2 56q, Rigetti Ankaa ~84q, IBM 127q+).
+    ///
+    /// Bitstring convention IN: rightmost char = qubit 0 (Azure histograms).
+    /// MeasurementHistogram keys OUT use leftmost char = qubit 0 (the
+    /// QuantumState convention), so keys are left-padded and reversed there.
     ///
     /// Parameters:
     ///   histogram - Map<bitstring, count> from cloud execution (e.g., {"00": 480, "11": 520})
     ///   numQubits - Number of qubits in the circuit
-    ///
-    /// Returns:
-    ///   QuantumState.StateVector with approximate amplitudes
-    ///
-    /// Example:
-    ///   {"00": 500, "11": 500} with 1000 shots, 2 qubits →
-    ///   |ψ⟩ ≈ 0.707|00⟩ + 0.707|11⟩  (approximate Bell state)
-    ///
-    /// Limitations:
-    ///   - Phase information is lost (all amplitudes are real and non-negative)
-    ///   - Accuracy depends on number of shots (more shots = better approximation)
-    ///   - For exact state reconstruction, use quantum state tomography
     let histogramToQuantumState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
-        // A dense state vector is only feasible (and `1 <<< numQubits` only non-overflowing) up to
-        // the simulator's 20-qubit limit. Fail fast with a clear message — callers wrap this in
-        // try/with and surface it as an Error — rather than allocating multiple GB or overflowing.
-        if numQubits > 20 then
-            failwithf "Cannot materialise a dense state vector for %d qubits (limit 20); parse the measurement histogram directly for larger circuits." numQubits
-        let dimension = 1 <<< numQubits
-        let totalShots =
-            histogram
-            |> Map.fold (fun acc _ count -> acc + count) 0
-            |> float
-
-        let amplitudes = Array.create dimension Complex.Zero
-
-        for kvp in histogram do
-            let bitstring = kvp.Key
-            let count = kvp.Value
-
-            // Parse bitstring to basis state index
-            // "00" → 0, "01" → 1, "10" → 2, "11" → 3
+        // Parse bitstring (rightmost char = qubit 0) to basis state index
+        // "00" → 0, "01" → 1, "10" → 2, "11" → 3
+        let bitstringToIndex (bitstring: string) =
             let mutable index = 0
             for i in 0 .. bitstring.Length - 1 do
                 if bitstring.[i] = '1' then
                     index <- index ||| (1 <<< (bitstring.Length - 1 - i))
+            index
 
-            if index >= 0 && index < dimension then
-                // Approximate amplitude = sqrt(count / totalShots)
-                // Phase is unknown from measurements, so use real positive amplitudes
-                let amplitude = sqrt (float count / totalShots)
-                amplitudes.[index] <- Complex(amplitude, 0.0)
+        let maxDenseQubits = 20   // StateVector: 2^n amplitudes
+        let maxSparseQubits = 31  // SparseState: basis indices must fit Int32
 
-        QuantumState.StateVector (StateVector.create amplitudes)
+        if numQubits > maxSparseQubits then
+            // Normalize keys to the MeasurementHistogram convention
+            // (leftmost char = qubit 0): left-pad, reverse, merge collisions.
+            let normalized =
+                histogram
+                |> Map.fold (fun acc (bitstring: string) count ->
+                    let padded = bitstring.PadLeft(numQubits, '0')
+                    let key = String(Array.rev (padded.ToCharArray()))
+                    let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
+                    acc |> Map.add key merged) Map.empty
+            QuantumState.MeasurementHistogram (normalized, numQubits)
+
+        elif numQubits > maxDenseQubits then
+            let totalShots =
+                histogram |> Map.fold (fun acc _ count -> acc + count) 0 |> max 1 |> float
+            // Merge counts per index first (keys of differing lengths can collide),
+            // then take sqrt once per basis state.
+            let countsByIndex =
+                histogram
+                |> Map.fold (fun acc (bitstring: string) count ->
+                    let index = bitstringToIndex bitstring
+                    let merged = (acc |> Map.tryFind index |> Option.defaultValue 0) + count
+                    acc |> Map.add index merged) Map.empty
+            let amplitudes =
+                countsByIndex
+                |> Map.map (fun _ count -> Complex(sqrt (float count / totalShots), 0.0))
+            QuantumState.SparseState (amplitudes, numQubits)
+
+        else
+            let dimension = 1 <<< numQubits
+            let totalShots =
+                histogram
+                |> Map.fold (fun acc _ count -> acc + count) 0
+                |> max 1
+                |> float
+
+            let amplitudes = Array.create dimension Complex.Zero
+
+            for kvp in histogram do
+                let index = bitstringToIndex kvp.Key
+                if index >= 0 && index < dimension then
+                    // Approximate amplitude = sqrt(count / totalShots)
+                    // Phase is unknown from measurements, so use real positive amplitudes
+                    let amplitude = sqrt (float kvp.Value / totalShots)
+                    amplitudes.[index] <- Complex(amplitude, 0.0)
+
+            QuantumState.StateVector (StateVector.create amplitudes)
 
     /// Undo the logical→physical qubit permutation introduced by routing on a
     /// measurement histogram, so results are reported in the caller's logical

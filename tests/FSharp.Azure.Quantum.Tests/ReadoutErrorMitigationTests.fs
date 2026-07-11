@@ -759,6 +759,7 @@ module ReadoutErrorMitigationTests =
             Assert.True(false, sprintf "2-qubit calibration should succeed: %s" msg)
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``Integration: 2-qubit REM should reduce errors`` () =
         // Arrange: Circuit that prepares |00⟩
         let circuit = CircuitBuilder.empty 2

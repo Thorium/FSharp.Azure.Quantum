@@ -73,8 +73,12 @@ let! result =
 
 ## Notes
 
-- Dense state-vector materialisation from a result histogram is capped at 24 qubits (~256 MB).
-  For larger circuits, parse the measurement histogram directly.
+- `ExecuteToState` reconstructs a `QuantumState` from the measurement histogram in three tiers:
+  a dense state vector up to 20 qubits, a `SparseState` (observed outcomes only) for 21–31
+  qubits, and `QuantumState.MeasurementHistogram` (bitstring → count) beyond that. The
+  histogram tier has no width limit — it holds at most `shots` entries regardless of qubit
+  count, so wide devices (Rigetti Ankaa, QuEra-scale) work. To get the raw histogram at any
+  width, call `BraketBackend.ExecuteToHistogramAsync (circuit, ct)`.
 - `ApplyOperation` is not supported (Braket runs whole circuits, not incremental gates); use
   `ExecuteToState` with a complete circuit.
 

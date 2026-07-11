@@ -409,7 +409,8 @@ module RigettiBackend =
     /// - program: Quil program to execute
     /// - shots: Number of measurement shots
     /// - target: Rigetti backend (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
-    /// 
+    /// - cancellationToken: Cancels job status polling
+    ///
     /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
@@ -419,6 +420,7 @@ module RigettiBackend =
         (program: QuilProgram)
         (shots: int)
         (target: string)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             // Step 1: Create job submission
@@ -431,7 +433,6 @@ module RigettiBackend =
             | Ok jobId ->
                 // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
@@ -480,7 +481,8 @@ module RigettiBackend =
     /// - shots: Number of measurement shots
     /// - target: Rigetti backend target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     /// - constraints: Optional backend constraints (auto-detected from target if None)
-    /// 
+    /// - cancellationToken: Cancels job status polling
+    ///
     /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with validation or execution details
@@ -491,6 +493,7 @@ module RigettiBackend =
         (shots: int)
         (target: string)
         (constraints: CircuitValidator.BackendConstraints option)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             // Pre-flight validation
@@ -498,5 +501,5 @@ module RigettiBackend =
             | Error validationError -> return Error validationError
             | Ok () ->
                 // Validation passed, submit to Azure
-                return! submitAndWaitForResultsAsync httpClient workspaceUrl program shots target |> Async.AwaitTask
+                return! submitAndWaitForResultsAsync httpClient workspaceUrl program shots target cancellationToken
         }

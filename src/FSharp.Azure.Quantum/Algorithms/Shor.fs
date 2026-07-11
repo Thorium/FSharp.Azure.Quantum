@@ -772,20 +772,20 @@ module Shor =
             Config = config
         }
 
+    /// Choose the base a for Shor's algorithm.
+    ///
+    /// A caller-provided base is honored when it lies in (1, N) and is coprime to N.
+    /// Otherwise a ∈ [2, N-2] is drawn uniformly at random (Random.Shared is fine here —
+    /// this is algorithmic randomness, not cryptography). The draw is deliberately NOT
+    /// filtered for coprimality: gcd(a, N) > 1 already reveals a non-trivial factor,
+    /// and callers turn that case into an immediate success.
     let private chooseRandomBase (n: int) (provided: int option) : int =
         match provided with
         | Some a when a > 1 && a < n && gcd a n = 1 -> a
-        | Some _ ->
-            // Invalid provided base, fall back to default.
-            // For N=15: use 7, for N=21: use 2, otherwise use 2.
-            if n = 15 then 7
-            elif n = 21 then 2
-            else 2
-        | None ->
-            // No base provided, use defaults.
-            if n = 15 then 7
-            elif n = 21 then 2
-            else 2
+        | _ ->
+            // Random draw from [2, N-2] (upper bound of Next is exclusive).
+            // Only reached for odd composite N ≥ 9, so the range is never empty.
+            Random.Shared.Next(2, n - 1)
 
     /// Plan Shor execution strategy.
     ///
@@ -841,23 +841,30 @@ module Shor =
         match plan with
         | ShorPlan.ReturnResult result -> Ok result
         | ShorPlan.ExecuteQuantum (baseNum, modulus, precisionQubits, exactness, method, maxAttempts, config) ->
-            let findPeriodOnce () =
+            let findPeriodOnce a =
                 match method with
-                | PeriodFindingMethod.Quantum -> findPeriodQuantum baseNum modulus precisionQubits backend
+                | PeriodFindingMethod.Quantum -> findPeriodQuantum a modulus precisionQubits backend
                 | PeriodFindingMethod.ClassicallyAssisted ->
                     // `plan` accepts up to 20 precision qubits and may have degraded the method
                     // from Quantum for a large N, but the classically-assisted QPE demo is capped
                     // at 16 (planPeriodFinding validation) — clamp so the fallback path actually
                     // runs instead of tripping that validation.
-                    findPeriodWith baseNum modulus (min 16 precisionQubits) exactness backend
-            let rec tryFindFactors attempt : Result<ShorsResult, QuantumError> =
+                    findPeriodWith a modulus (min 16 precisionQubits) exactness backend
+            let rec tryFindFactors attempt a : Result<ShorsResult, QuantumError> =
                 result {
                     if attempt > maxAttempts then
                         return mkResult modulus None None false $"Failed to find factors after {maxAttempts} attempts" config
                     else
-                        let! periodResult = findPeriodOnce ()
+                        let g = gcd a modulus
+                        if g <> 1 then
+                            // A freshly drawn retry base sharing a factor with N is a lucky
+                            // classical hit — no period finding needed.
+                            return mkResult modulus (Some (g, modulus / g)) None true $"Lucky! gcd({a}, {modulus}) = {g} (non-trivial factor)" config
+                        else
 
-                        match extractFactorsFromPeriod baseNum periodResult.Period modulus with
+                        let! periodResult = findPeriodOnce a
+
+                        match extractFactorsFromPeriod a periodResult.Period modulus with
                         | Some (p, q) ->
                             return
                                 mkResult
@@ -868,10 +875,14 @@ module Shor =
                                     $"Factors found using period r={periodResult.Period}"
                                     config
                         | None ->
-                            return! tryFindFactors (attempt + 1)
+                            // Period finding is deterministic for a given base on the
+                            // classically-assisted path, so retrying the SAME base would fail
+                            // forever (e.g. N=33 with a=2: r=10, 2^5 ≡ -1 mod 33). Draw a fresh
+                            // random base for each retry.
+                            return! tryFindFactors (attempt + 1) (chooseRandomBase modulus None)
                 }
 
-            tryFindFactors 1
+            tryFindFactors 1 baseNum
 
     // ========================================================================
     // MAIN SHOR'S ALGORITHM EXECUTION

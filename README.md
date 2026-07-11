@@ -683,7 +683,7 @@ var treeSearch = QuantumTreeSearch(
     moveGenerator: x => new[] { x + 1, x + 2 });
 var searchResult = SolveTreeSearch(treeSearch);
 
-// Constraint Solver: search-space size, domain, and a constraint predicate
+// Constraint Solver: number of variables, domain, and a constraint predicate
 var satProblem = QuantumConstraintSolver(
     searchSpaceSize: 3,
     domain: new[] { 0, 1 },
@@ -3262,7 +3262,7 @@ Small registers only (it Trotterizes onto the state-vector simulator). ▶ Runna
 **Run on real neutral-atom hardware — Pasqal.** The *same* `RydbergProgram` can be submitted
 natively to **Pasqal** on Azure Quantum: `Algorithms.Pasqal` compiles it to a **Pulser**
 abstract-representation sequence (`Pasqal.toPulserJson`) and submits it to a Pasqal target
-(`Pasqal.submitAndWaitForResultsAsync httpClient workspaceUrl program shots "pasqal.qpu.fresnel"`).
+(`Pasqal.submitAndWaitForResultsAsync httpClient workspaceUrl program shots "pasqal.qpu.fresnel" cancellationToken`).
 So one analog program has three execution paths — Trotterized onto any gate backend for local
 simulation, native analog execution on **Pasqal** (Azure Quantum, via Pulser), or native analog
 execution on **QuEra Aquila** (AWS Braket, via `QuEra.toAhsProgram` → a `braket.ir.ahs.program`
@@ -3277,7 +3277,9 @@ consumes — **OpenQASM 3.0** for gate devices (`OpenQasm.exportV3`) and **AHS**
 
 - **`BraketExecution.BraketBackend`** — a gate `IQuantumBackend` that submits OpenQASM 3.0 to any
   Braket gate device by ARN: **IonQ, Rigetti, IQM, OQC, Infleqtion**, and the SV1/DM1/TN1
-  simulators (`Braket.Devices.*`).
+  simulators (`Braket.Devices.*`). Results come back as a `QuantumState` reconstructed from the
+  measurement histogram (dense ≤20 qubits, sparse 21–31, `MeasurementHistogram` above — no width
+  limit); `ExecuteToHistogramAsync` returns the raw bitstring→count histogram at any width.
 - **`BraketExecution.submitAhsAsync`** — submits a neutral-atom `RydbergProgram` to **QuEra Aquila**.
 
 So adding the AWS SDK is opt-in (reference the plugin); users who only need Azure never pull it in.

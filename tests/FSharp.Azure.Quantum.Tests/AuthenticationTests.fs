@@ -33,6 +33,7 @@ let ``TokenManager should acquire token on first request`` () =
     } |> Async.StartAsTask
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``TokenManager should cache token on subsequent requests`` () =
     let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
     let mutable callCount = 0

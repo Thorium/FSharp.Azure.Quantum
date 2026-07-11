@@ -122,17 +122,18 @@ module PortfolioSolver =
         let messages = 
             [
                 yield! validateConstraintsInternal constraints
-                
-                // Check if budget is sufficient for at least one asset
-                let minPrice = assets |> List.map (fun a -> a.Price) |> List.min
-                if constraints.Budget < minPrice then
-                    yield $"Budget ({constraints.Budget}) is insufficient to purchase any asset (minimum price: {minPrice})"
-                
-                // Check if constraints allow valid allocations
-                if constraints.MinHolding > 0.0 then
-                    let minPurchase = assets |> List.map (fun a -> a.Price) |> List.min
-                    if constraints.MinHolding < minPurchase then
-                        yield $"MinHolding ({constraints.MinHolding}) is less than minimum asset price ({minPurchase})"
+
+                if List.isEmpty assets then
+                    yield "Asset list cannot be empty"
+                else
+                    // Check if budget is sufficient for at least one asset
+                    let minPrice = assets |> List.map (fun a -> a.Price) |> List.min
+                    if constraints.Budget < minPrice then
+                        yield $"Budget ({constraints.Budget}) is insufficient to purchase any asset (minimum price: {minPrice})"
+
+                    // Check if constraints allow valid allocations
+                    if constraints.MinHolding > 0.0 && constraints.MinHolding < minPrice then
+                        yield $"MinHolding ({constraints.MinHolding}) is less than minimum asset price ({minPrice})"
             ]
         
         if List.isEmpty messages then
@@ -145,9 +146,14 @@ module PortfolioSolver =
     // ================================================================================
     
     /// Calculate return-to-risk ratio (Sharpe-like ratio without risk-free rate)
+    /// Sign-aware: a zero-risk asset is only "infinitely good" when its expected
+    /// return is positive; otherwise it is ranked by the (non-positive) return itself.
     let private calculateRatio (asset: Asset) : float =
         if asset.Risk = 0.0 then
-            Double.MaxValue  // Zero risk with positive return = infinite ratio
+            if asset.ExpectedReturn > 0.0 then
+                Double.MaxValue  // Zero risk with positive return = infinite ratio
+            else
+                asset.ExpectedReturn  // Zero/negative return: rank by return, never "infinite"
         else
             asset.ExpectedReturn / asset.Risk
     
@@ -186,9 +192,13 @@ module PortfolioSolver =
     let internal solveGreedyByRatio (assets: Asset list) (constraints: Constraints) (config: PortfolioConfig) : PortfolioSolution =
         let startTime = DateTime.UtcNow
         
-        // Sort assets by return/risk ratio (descending)
-        let sortedAssets = 
+        // Sort assets by return/risk ratio (descending).
+        // Assets with negative expected return can never improve the portfolio
+        // in a long-only greedy allocation, so exclude them entirely (otherwise
+        // leftover budget would still be spent on them at the end of the loop).
+        let sortedAssets =
             assets
+            |> List.filter (fun asset -> asset.ExpectedReturn >= 0.0)
             |> List.map (fun asset -> (asset, calculateRatio asset))
             |> List.sortByDescending snd
             |> List.map fst

@@ -352,15 +352,42 @@ module BraidingConsistencyTests =
         // Business meaning: SU(2)_k consistency verification works for all valid k,
         // including k=5 which exercises the general 6j-symbol computation
         // with correct zero-valued F-symbol storage and the phase convention fix.
-        // Pentagon equations (F-matrix only) must pass; hexagon equations
-        // (F+R matrices) are a separate verification area for general SU(2)_k.
+        // Pentagon equations (F-matrix only) must pass, and — with the corrected
+        // exchange R-symbols R = (-1)^(j1+j2-j3)·exp(iπ(h1+h2-h3)) — the hexagon
+        // equations must now pass as well. (The previous monodromy formula
+        // exp(2πi(h1+h2-h3)) violated the hexagon with max deviation 2.0.)
         match BraidingConsistency.verifyConsistency (AnyonSpecies.AnyonType.SU2Level 5) with
         | Ok summary ->
             Assert.NotEmpty(summary.PentagonChecks)
             let allPentagonsPassed = summary.PentagonChecks |> List.forall (fun c -> c.IsSatisfied)
             Assert.True(allPentagonsPassed, "SU(2)_5 pentagon equations should all be satisfied")
+
+            Assert.NotEmpty(summary.HexagonChecks)
+            let failedHexagons =
+                summary.HexagonChecks |> List.filter (fun c -> not c.IsSatisfied)
+            let sample =
+                failedHexagons
+                |> List.truncate 3
+                |> List.map (fun c -> $"{c.Equation}: {c.Details}")
+                |> String.concat "; "
+            Assert.True(failedHexagons.IsEmpty,
+                $"SU(2)_5 hexagon equations should all be satisfied ({failedHexagons.Length} failed; e.g. {sample})")
         | Error err ->
             failwith $"SU(2)_5 consistency check should succeed but got: {err.Message}"
+
+    [<Fact>]
+    let ``Hexagon equations hold for SU(2)_3 with exchange R-symbols`` () =
+        // Regression for the R-matrix monodromy bug: braiding phases must be the
+        // single-exchange eigenvalues (-1)^(j1+j2-j3)·exp(iπ(h1+h2-h3)), which
+        // satisfy the hexagon with the 6j-symbol F-matrices to machine precision.
+        // The previously used monodromy exp(2πi(h1+h2-h3)) failed these checks.
+        let summary = verifyConsistencyOrFail (AnyonSpecies.AnyonType.SU2Level 3)
+
+        Assert.NotEmpty(summary.HexagonChecks)
+        summary.HexagonChecks
+        |> List.iter (fun check ->
+            Assert.True(check.IsSatisfied,
+                $"SU(2)_3 hexagon check failed: {check.Equation} - {check.Details}"))
     
     [<Fact>]
     let ``Consistency check results include equation names for diagnostics`` () =

@@ -345,7 +345,16 @@ module OpenQasmImport =
             // Include statement
             elif includePattern.IsMatch(cleanLine) then
                 Ok state  // Ignore include statements
-            
+
+            // Gate definition, e.g. "gate ryy(theta) a,b { ... }" (the exporter emits these
+            // for rotation gates missing from qelib1.inc/stdgates.inc). The body only
+            // *defines* the gate, so it is skipped; calls to it are parsed as normal gates.
+            elif cleanLine.StartsWith("gate ") || cleanLine.StartsWith("gate\t") || cleanLine = "gate" then
+                if cleanLine.Contains("{") && cleanLine.TrimEnd().EndsWith("}") then
+                    Ok state  // Complete single-line definition — skip
+                else
+                    Error $"Line {state.LineNumber}: Multi-line gate definitions are not supported"
+
             // OpenQASM 3.0 qubit declaration: qubit[n] q;
             elif qubitDeclPattern.IsMatch(cleanLine) then
                 let m = qubitDeclPattern.Match(cleanLine)

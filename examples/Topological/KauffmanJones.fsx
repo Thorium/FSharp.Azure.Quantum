@@ -5,6 +5,13 @@
     Knot invariant calculations using the Kauffman bracket and Jones
     polynomial, following Steven Simon's "Topological Quantum" (Ch. 2).
 
+    Examples 1-7 use the rigorous planar-diagram model (KauffmanBracket.Planar
+    + KnotConstructors), which carries full arc connectivity and computes real
+    knot invariants (e.g. the trefoil bracket -A^5 - A^-3 + A^-7). Example 8
+    uses the SIMPLIFIED crossing-list model, which treats each crossing as an
+    isolated curl -- a per-crossing approximation useful for writhe algebra,
+    NOT a knot invariant.
+
     Examples:
       1  Unknot (simplest case)
       2  Trefoil (right-handed, simplest non-trivial)
@@ -13,7 +20,7 @@
       5  Hopf link (simplest non-trivial link)
       6  TQFT evaluations (Ising / Fibonacci / Jones@-1)
       7  Knot comparison table
-      8  Custom knot construction
+      8  Custom crossing list (simplified curl approximation)
 
     Run with: dotnet fsi KauffmanJones.fsx
               dotnet fsi KauffmanJones.fsx -- --example 6
@@ -98,18 +105,18 @@ if shouldRun 1 then
     pr "EXAMPLE 1: Unknot (Simple Loop)"
     separator ()
 
-    let diagram = unknot
-    let bracket = evaluateBracket diagram standardA
-    let w = writhe diagram
-    let jones = jonesPolynomial diagram standardA
+    let diagram = KnotConstructors.unknot
+    let bracket = Planar.evaluateBracket diagram standardA
+    let w = Planar.writhe diagram
+    let jones = Planar.jonesPolynomial diagram standardA
 
-    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    pr "  Crossings: %d   Writhe: %d" diagram.Crossings.Count w
     printComplex "Kauffman bracket" bracket
     printComplex "Jones polynomial" jones
     pr "  Expected Jones(unknot) = 1.0"
 
-    jsonResults <- ("1_unknot", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "1_unknot"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
+    jsonResults <- ("1_unknot", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "1_unknot"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Trefoil
@@ -119,18 +126,19 @@ if shouldRun 2 then
     pr "EXAMPLE 2: Trefoil Knot (Right-Handed)"
     separator ()
 
-    let diagram = trefoil true
-    let bracket = evaluateBracket diagram standardA
-    let w = writhe diagram
-    let jones = jonesPolynomial diagram standardA
+    let diagram = KnotConstructors.trefoil true
+    let bracket = Planar.evaluateBracket diagram standardA
+    let w = Planar.writhe diagram
+    let jones = Planar.jonesPolynomial diagram standardA
 
-    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    pr "  Crossings: %d   Writhe: %d" diagram.Crossings.Count w
     printComplex "Kauffman bracket" bracket
     printComplex "Jones polynomial" jones
     pr "  All positive crossings, writhe = +3"
+    pr "  Textbook bracket: <3_1> = -A^5 - A^-3 + A^-7 (evaluated at A above)"
 
-    jsonResults <- ("2_trefoil", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "2_trefoil"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
+    jsonResults <- ("2_trefoil", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "2_trefoil"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 3 -- Mirror symmetry
@@ -140,10 +148,10 @@ if shouldRun 3 then
     pr "EXAMPLE 3: Mirror Symmetry (Chirality)"
     separator ()
 
-    let left = trefoil false
-    let right = trefoil true
-    let leftJ = jonesPolynomial left standardA
-    let rightJ = jonesPolynomial right standardA
+    let left = KnotConstructors.trefoil false
+    let right = KnotConstructors.trefoil true
+    let leftJ = Planar.jonesPolynomial left standardA
+    let rightJ = Planar.jonesPolynomial right standardA
 
     printComplex "Left  Jones" leftJ
     printComplex "Right Jones" rightJ
@@ -160,18 +168,19 @@ if shouldRun 4 then
     pr "EXAMPLE 4: Figure-Eight Knot"
     separator ()
 
-    let diagram = figureEight
-    let w = writhe diagram
-    let bracket = evaluateBracket diagram standardA
-    let jones = jonesPolynomial diagram standardA
+    let diagram = KnotConstructors.figureEight
+    let w = Planar.writhe diagram
+    let bracket = Planar.evaluateBracket diagram standardA
+    let jones = Planar.jonesPolynomial diagram standardA
 
-    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    pr "  Crossings: %d   Writhe: %d" diagram.Crossings.Count w
     printComplex "Kauffman bracket" bracket
     printComplex "Jones polynomial" jones
     pr "  Achiral: identical to its mirror image"
+    pr "  Textbook bracket: <4_1> = A^8 - A^4 + 1 - A^-4 + A^-8"
 
-    jsonResults <- ("4_figure_eight", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "4_figure_eight"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
+    jsonResults <- ("4_figure_eight", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "4_figure_eight"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 5 -- Hopf link
@@ -181,18 +190,19 @@ if shouldRun 5 then
     pr "EXAMPLE 5: Hopf Link (Two Components)"
     separator ()
 
-    let diagram = hopfLink
-    let w = writhe diagram
-    let bracket = evaluateBracket diagram standardA
-    let jones = jonesPolynomial diagram standardA
+    let diagram = KnotConstructors.hopfLink true
+    let w = Planar.writhe diagram
+    let bracket = Planar.evaluateBracket diagram standardA
+    let jones = Planar.jonesPolynomial diagram standardA
 
-    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    pr "  Crossings: %d   Writhe: %d" diagram.Crossings.Count w
     printComplex "Kauffman bracket" bracket
     printComplex "Jones polynomial" jones
     pr "  Two components linked together"
+    pr "  Textbook bracket: <Hopf> = -A^4 - A^-4"
 
-    jsonResults <- ("5_hopf_link", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "5_hopf_link"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
+    jsonResults <- ("5_hopf_link", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "5_hopf_link"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 6 -- TQFT evaluations
@@ -202,32 +212,32 @@ if shouldRun 6 then
     pr "EXAMPLE 6: TQFT Special Values"
     separator ()
 
-    let knots = [ ("unknot", unknot); ("trefoil", trefoil true); ("figure-eight", figureEight) ]
+    let knots = [ ("unknot", KnotConstructors.unknot); ("trefoil", KnotConstructors.trefoil true); ("figure-eight", KnotConstructors.figureEight) ]
 
     pr ""
     pr "--- Ising Anyon Theory (A = e^(ipi/4)) ---"
     for (name, diagram) in knots do
-        let v = evaluateIsing diagram
+        let v = Planar.evaluateBracket diagram Planar.isingA
         printComplex (sprintf "Ising(%s)" name) v
 
     pr ""
-    pr "--- Fibonacci Anyon Theory (A = e^(4pi*i/5)) ---"
+    pr "--- Fibonacci Anyon Theory (A = e^(ipi/5)) ---"
     for (name, diagram) in knots do
-        let v = evaluateFibonacci diagram
+        let v = Planar.evaluateBracket diagram Planar.fibonacciA
         printComplex (sprintf "Fibonacci(%s)" name) v
 
     pr ""
-    pr "--- Jones Polynomial at t = -1 ---"
+    pr "--- Jones Polynomial at t = -1 (A = e^(ipi/4)) ---"
     for (name, diagram) in knots do
-        let v = evaluateJonesAtMinusOne diagram
+        let v = Planar.jonesPolynomial diagram Planar.standardA
         printComplex (sprintf "J(%s,-1)" name) v
 
     pr ""
     pr "  Ising: Topological superconductors"
     pr "  Fibonacci: Non-abelian anyons (universal QC)"
-    pr "  Jones at -1: Connection to quantum dimensions"
+    pr "  |J(K,-1)| = knot determinant (3 for trefoil, 5 for figure-eight)"
 
-    let isingVals = knots |> List.map (fun (n,d) -> (n, fmtComplex (evaluateIsing d)))
+    let isingVals = knots |> List.map (fun (n,d) -> (n, fmtComplex (Planar.evaluateBracket d Planar.isingA)))
     jsonResults <- ("6_tqft", box {| ising = isingVals |}) :: jsonResults
     csvRows <- ("6_tqft" :: (isingVals |> List.map snd)) :: csvRows
 
@@ -240,11 +250,11 @@ if shouldRun 7 then
     separator ()
 
     let knots = [
-        ("Unknot",        unknot)
-        ("Right Trefoil", trefoil true)
-        ("Left Trefoil",  trefoil false)
-        ("Figure-Eight",  figureEight)
-        ("Hopf Link",     hopfLink)
+        ("Unknot",        KnotConstructors.unknot)
+        ("Right Trefoil", KnotConstructors.trefoil true)
+        ("Left Trefoil",  KnotConstructors.trefoil false)
+        ("Figure-Eight",  KnotConstructors.figureEight)
+        ("Hopf Link",     KnotConstructors.hopfLink true)
     ]
 
     pr "%-20s %10s %8s %20s" "Knot" "Crossings" "Writhe" "Jones@std"
@@ -252,9 +262,9 @@ if shouldRun 7 then
 
     let tableRows =
         knots |> List.map (fun (name, diagram) ->
-            let c = diagram.Length
-            let w = writhe diagram
-            let j = jonesPolynomial diagram standardA
+            let c = diagram.Crossings.Count
+            let w = Planar.writhe diagram
+            let j = Planar.jonesPolynomial diagram standardA
             let js = fmtComplex j
             pr "%-20s %10d %8d %20s" name c w js
             [ name; string c; string w; js ])
@@ -263,11 +273,11 @@ if shouldRun 7 then
     csvRows <- csvRows @ tableRows
 
 // ---------------------------------------------------------------------------
-// Example 8 -- Custom knot
+// Example 8 -- Custom crossing list (simplified curl approximation)
 // ---------------------------------------------------------------------------
 if shouldRun 8 then
     separator ()
-    pr "EXAMPLE 8: Custom Knot Construction"
+    pr "EXAMPLE 8: Custom Crossing List (Simplified Curl Model)"
     separator ()
 
     let customKnot =
@@ -278,10 +288,15 @@ if shouldRun 8 then
     pr "  Diagram: %A" customKnot
     pr "  Crossings: %d   Writhe: %d" customKnot.Length (writhe customKnot)
 
+    // NOTE: a bare crossing list has no arc connectivity, so evaluateBracket
+    // resolves each crossing as an isolated Reidemeister-I curl. The result is
+    // the monomial (-A^-3)^(#pos) * (-A^3)^(#neg) -- a per-crossing
+    // approximation for writhe/curl algebra, NOT a knot invariant. For real
+    // invariants build a PlanarDiagram (KnotConstructors, Examples 1-7).
     let bracket = evaluateBracket customKnot standardA
     let jones = jonesPolynomial customKnot standardA
-    printComplex "Kauffman bracket" bracket
-    printComplex "Jones polynomial" jones
+    printComplex "Curl-model bracket (approximation)" bracket
+    printComplex "Writhe-normalized value (approximation)" jones
     pr "  Tip: --crossings P,P,N,P,N to specify your own"
 
     jsonResults <- ("8_custom", box {| crossings = customKnot.Length; writhe = writhe customKnot; jones = fmtComplex jones |}) :: jsonResults
@@ -293,9 +308,10 @@ if shouldRun 8 then
 if not quiet then
     separator ()
     pr "Summary:"
-    pr "  Kauffman bracket via skein relations"
+    pr "  Kauffman bracket via skein relations on planar diagrams (Examples 1-7)"
     pr "  Jones poly = (-A^3)^(-writhe) * bracket"
     pr "  TQFT evaluations: Ising, Fibonacci, Jones@-1"
+    pr "  Example 8: simplified crossing-list model (curl approximation only)"
     pr "  All calculations follow Steven Simon Ch. 2"
     separator ()
 

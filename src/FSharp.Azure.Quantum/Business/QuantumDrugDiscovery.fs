@@ -421,17 +421,23 @@ type QuantumDrugDiscoveryBuilder() =
             // Run screening method
             match state.Method with
             | QuantumKernelSVM ->
-                match state.Backend with
-                | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
-                | Some backend ->
-                    let labels = labelsOpt |> Option.defaultWith (fun () -> Array.create features.Length 0)
+                match state.Backend, labelsOpt with
+                | None, _ -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
+                | _, None ->
+                    Error (QuantumError.ValidationError (
+                        "labels",
+                        "QuantumKernelSVM screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."))
+                | Some backend, Some labels ->
                     let featureMap = this.MapFeatureMap state.FeatureMap
                     this.TrainQuantumKernelSVM backend featureMap features labels state.BatchSize state.Shots identifiers state
             | VQCClassifier ->
-                match state.Backend with
-                | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
-                | Some backend ->
-                    let labels = labelsOpt |> Option.defaultWith (fun () -> Array.create features.Length 0)
+                match state.Backend, labelsOpt with
+                | None, _ -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
+                | _, None ->
+                    Error (QuantumError.ValidationError (
+                        "labels",
+                        "VQCClassifier screening requires an activity/label column in the candidate dataset; found none. Provide labeled training data or use QAOADiverseSelection for unlabeled candidates."))
+                | Some backend, Some labels ->
                     let featureMap = this.MapFeatureMap state.FeatureMap
                     this.TrainVQCClassifier backend featureMap features labels identifiers state
             | QAOADiverseSelection ->

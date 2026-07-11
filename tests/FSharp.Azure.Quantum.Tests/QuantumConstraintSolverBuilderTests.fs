@@ -49,16 +49,17 @@ module QuantumConstraintSolverBuilderTests =
         Assert.Contains("must be at least 1", ex.Message)
     
     [<Fact>]
-    let ``Builder should reject SearchSpaceSize > 2^16`` () =
-        // Arrange & Act & Assert
+    let ``Builder should reject oversized variable count`` () =
+        // Arrange & Act & Assert - 100000 variables over a 4-value domain needs
+        // 200000 qubits, far past the 16-qubit simulator limit
         let ex = Assert.Throws<Exception>(fun () ->
             QuantumConstraintSolver.constraintSolver {
-                searchSpace 100000  // Too large
+                searchSpace 100000  // Too many variables
                 domain [1..4]
                 satisfies allEvenConstraint
             } |> ignore
         )
-        Assert.Contains("exceeds maximum", ex.Message)
+        Assert.Contains("Max: 16", ex.Message)
     
     [<Fact>]
     let ``Builder should reject empty domain`` () =
@@ -86,28 +87,27 @@ module QuantumConstraintSolverBuilderTests =
     
     [<Fact>]
     let ``Builder should reject problem requiring > 16 qubits`` () =
-        // Arrange & Act & Assert
+        // Arrange & Act & Assert - 9 variables × 2 bits (4-value domain) = 18 qubits
         let ex = Assert.Throws<Exception>(fun () ->
             QuantumConstraintSolver.constraintSolver {
-                searchSpace (1 <<< 17)  // 2^17, needs 17 qubits
+                searchSpace 9
                 domain [1..4]
                 satisfies allEvenConstraint
             } |> ignore
         )
-        // Error message says "exceeds maximum" rather than "requires X qubits"
-        Assert.Contains("exceeds maximum", ex.Message)
-    
+        Assert.Contains("requires 18 qubits", ex.Message)
+
     [<Fact>]
     let ``Builder should accept valid problem`` () =
-        // Arrange & Act
+        // Arrange & Act - 8 variables × 2 bits = 16 qubits (at the limit)
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 16
+            searchSpace 8
             domain [1..4]
             satisfies allEvenConstraint
         }
-        
+
         // Assert - if we got here, validation passed
-        Assert.Equal(16, problem.SearchSpaceSize)
+        Assert.Equal(8, problem.SearchSpaceSize)
         Assert.Equal(4, List.length problem.Domain)
         Assert.Equal(1, List.length problem.Constraints)
     
@@ -119,15 +119,15 @@ module QuantumConstraintSolverBuilderTests =
     let ``constraintSolver builder should create problem with all fields`` () =
         // Arrange & Act
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 32
+            searchSpace 8
             domain [1; 2; 3; 4]
             satisfies allEvenConstraint
             satisfies noDuplicates
             shots 2000
         }
-        
+
         // Assert
-        Assert.Equal(32, problem.SearchSpaceSize)
+        Assert.Equal(8, problem.SearchSpaceSize)
         Assert.Equal(4, List.length problem.Domain)
         Assert.Equal(2, List.length problem.Constraints)
         Assert.Equal(2000, problem.Shots)
@@ -152,7 +152,7 @@ module QuantumConstraintSolverBuilderTests =
         
         // Act
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 16
+            searchSpace 8
             domain [1..4]
             satisfies allEvenConstraint
             backend myBackend
@@ -165,7 +165,7 @@ module QuantumConstraintSolverBuilderTests =
     let ``constraintSolver builder should accept multiple constraints`` () =
         // Arrange & Act
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 16
+            searchSpace 5
             domain [1..9]
             satisfies allEvenConstraint
             satisfies (sumLessThan 20)
@@ -179,7 +179,7 @@ module QuantumConstraintSolverBuilderTests =
     let ``constraintSolver builder should accept maxIterations`` () =
         // Arrange & Act
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 16
+            searchSpace 8
             domain [1..4]
             satisfies allEvenConstraint
             maxIterations 5
@@ -225,9 +225,9 @@ module QuantumConstraintSolverBuilderTests =
     let ``QuantumConstraintSolver.solve should handle simple constraint`` () =
         // Arrange - Simple constraint: find any even number
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 8
+            searchSpace 2   // 2 variables over 8 values = 64 states (6 qubits)
             domain [0..7]
-            satisfies (fun assignment -> 
+            satisfies (fun assignment ->
                 assignment |> Map.exists (fun _ value -> value % 2 = 0)
             )
         }
@@ -266,7 +266,7 @@ module QuantumConstraintSolverBuilderTests =
         // Arrange
         let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 8
+            searchSpace 2   // 2 variables over 4 values = 16 states (4 qubits)
             domain [1..4]
             satisfies allEvenConstraint
             backend myBackend
@@ -287,9 +287,9 @@ module QuantumConstraintSolverBuilderTests =
     
     [<Fact>]
     let ``QuantumConstraintSolver.solve should return sensible qubit requirements`` () =
-        // Arrange - search space 256 = 2^8 → 8 qubits
+        // Arrange - 2 variables over 16 values = 16^2 = 256 states → 8 qubits
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 256
+            searchSpace 2
             domain [1..16]
             satisfies allEvenConstraint
         }
@@ -394,8 +394,8 @@ module QuantumConstraintSolverBuilderTests =
         // Assert
         match result with
         | Error err ->
-            // Error says "exceeds maximum" for large search space
-            Assert.Contains("exceeds maximum", err.Message)
+            // Oversized variable count is rejected by the 16-qubit guard
+            Assert.Contains("Max: 16", err.Message)
         | Ok _ ->
             Assert.Fail("Expected solve to return error")
     
@@ -405,7 +405,7 @@ module QuantumConstraintSolverBuilderTests =
         let impossibleConstraint (assignment: Map<int, int>) : bool = false
         
         let problem = QuantumConstraintSolver.constraintSolver {
-            searchSpace 8
+            searchSpace 3   // 3 variables over 4 values = 64 states (6 qubits)
             domain [1..4]
             satisfies impossibleConstraint
         }

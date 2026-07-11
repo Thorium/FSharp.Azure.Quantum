@@ -53,6 +53,10 @@ module CudaQBridge =
             let args = (controls @ [ t ]) |> List.map q |> String.concat ", "
             line (sprintf "z.ctrl(%s)" args)
         | CircuitBuilder.Measure _ -> Ok None   // all qubits are measured with mz(q) at the end
+        | CircuitBuilder.Reset i -> line (sprintf "reset(%s)" (q i))
+        | CircuitBuilder.Barrier _ -> Ok None   // scheduling hint only — no effect on simulation, safe to skip
+        | CircuitBuilder.Conditional _ ->
+            Error "Conditional (classically controlled) gates are not supported — this translation skips mid-circuit measurements and measures all qubits once at the end"
         | CircuitBuilder.RXX _ | CircuitBuilder.RYY _ | CircuitBuilder.RZZ _ ->
             Error "RXX/RYY/RZZ have no direct CUDA-Q builtin — transpile to elementary gates first"
 

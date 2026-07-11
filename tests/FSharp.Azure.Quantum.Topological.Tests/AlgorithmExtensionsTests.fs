@@ -181,24 +181,17 @@ module AlgorithmExtensionsTests =
     // Bug 1 fixed HHL's FusionSuperposition post-processing (5 functions that
     // silently returned garbage for topological states).
     //
-    // Verified behavior (Ising backend, diagonal matrices): HHL takes the
-    // native diagonal path — StateVector→FusionSuperposition conversion
-    // followed by a single ancilla RY rotation. Post-selection on ancilla |1⟩
-    // fails because the rotation does not move enough amplitude into the
-    // ancilla-1 subspace when executed through braid compilation. This yields:
-    //   - Solution: all-zero (ancilla-mask extraction reads the wrong subspace)
-    //   - SuccessProbability: 0.0
-    //   - PostSelectionSuccess: false
-    //   - EstimatedEigenvalues: correct (passed through from diagonal config)
-    //
-    // These tests assert the *actual* behavior so regressions and future
-    // improvements (magic state distillation, Fibonacci backend) are detected
-    // immediately — a change from zero to non-zero results will break a test,
-    // signaling that the assertions should be upgraded to validate correctness.
+    // Behavior since RY became an exact amplitude-level intercept on the Ising
+    // backend (it previously reached braid compilation, which cannot realize
+    // arbitrary rotations, leaving the ancilla-|1⟩ subspace empty): the native
+    // diagonal HHL path executes exactly, post-selection succeeds, and the
+    // solution is genuinely A⁻¹b (up to normalization). These tests validate
+    // correctness of that result.
 
     [<Fact>]
-    let ``HHL on topological backend returns Ok with zero solution for Ising diagonal`` () =
+    let ``HHL on topological backend solves Ising diagonal system`` () =
         // Arrange: Simple 2x2 diagonal system Ax=b where A=diag(2,3), b=[1,0]
+        // → x ∝ [1, 0] (second component exactly zero)
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 40
 
         let matrixRes = HHLTypes.createDiagonalMatrix [| 2.0; 3.0 |]
@@ -210,12 +203,12 @@ module AlgorithmExtensionsTests =
 
             match result with
             | Ok hhlResult ->
-                // Native diagonal HHL on Ising: ancilla RY rotation compiled through braids
-                // does not produce post-selectable amplitude. Solution extraction yields zeros.
                 Assert.Equal(2, hhlResult.Solution.Length)
-                let allZero = hhlResult.Solution |> Array.forall (fun c -> c.Magnitude < 1e-10)
-                Assert.True(allZero,
-                    $"Expected all-zero solution from Ising diagonal HHL, got {hhlResult.Solution}")
+                Assert.True(hhlResult.Solution.[0].Magnitude > 1e-6,
+                    $"Expected non-zero first component, got %A{hhlResult.Solution}")
+                // b has no overlap with the second eigenvector, so x_1 = 0
+                Assert.True(hhlResult.Solution.[1].Magnitude < 1e-6,
+                    $"Expected zero second component, got %A{hhlResult.Solution}")
             | Error (QuantumError.NotImplemented _) ->
                 // Acceptable: conversion pipeline may change in future refactors
                 ()
@@ -226,7 +219,7 @@ module AlgorithmExtensionsTests =
         | _ -> Assert.Fail("Failed to create HHL test data")
 
     [<Fact>]
-    let ``HHL on topological backend returns zero success probability for Ising diagonal`` () =
+    let ``HHL on topological backend post-selects successfully for Ising diagonal`` () =
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 40
 
         let matrixRes = HHLTypes.createDiagonalMatrix [| 2.0; 3.0 |]
@@ -238,11 +231,12 @@ module AlgorithmExtensionsTests =
 
             match result with
             | Ok hhlResult ->
-                // Post-selection fails on Ising diagonal HHL: ancilla never reaches |1⟩
-                // with sufficient amplitude through braid-compiled RY.
-                Assert.Equal(0.0, hhlResult.SuccessProbability)
-                Assert.False(hhlResult.PostSelectionSuccess,
-                    "Post-selection should fail for Ising diagonal HHL")
+                // With the exact RY intercept the ancilla rotation is applied
+                // faithfully, so post-selection on ancilla |1⟩ succeeds.
+                Assert.True(hhlResult.SuccessProbability > 0.0,
+                    $"Expected positive success probability, got {hhlResult.SuccessProbability}")
+                Assert.True(hhlResult.PostSelectionSuccess,
+                    "Post-selection should succeed for Ising diagonal HHL")
             | Error (QuantumError.NotImplemented _) -> ()
             | Error (QuantumError.OperationError (name, _)) ->
                 Assert.Equal("TopologicalBackend", name)
@@ -276,8 +270,8 @@ module AlgorithmExtensionsTests =
         | _ -> Assert.Fail("Failed to create HHL test data")
 
     [<Fact>]
-    let ``HHL on topological backend with identity matrix returns zero solution`` () =
-        // Arrange: Ix = b means x = b (classically), but Ising HHL can't solve this
+    let ``HHL on topological backend with identity matrix recovers b`` () =
+        // Arrange: Ix = b means x = b = [1, 0]
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 40
 
         let matrixRes = HHLTypes.createDiagonalMatrix [| 1.0; 1.0 |]
@@ -289,13 +283,15 @@ module AlgorithmExtensionsTests =
 
             match result with
             | Ok hhlResult ->
-                // Same limitation as diag(2,3): native diagonal path on Ising
-                // yields all-zero solutions with failed post-selection.
+                // With the exact RY intercept the solution is x = b (up to
+                // normalization): dominant first component, zero second.
                 Assert.Equal(2, hhlResult.Solution.Length)
-                let allZero = hhlResult.Solution |> Array.forall (fun c -> c.Magnitude < 1e-10)
-                Assert.True(allZero,
-                    $"Expected all-zero solution from Ising identity HHL, got {hhlResult.Solution}")
-                Assert.Equal(0.0, hhlResult.SuccessProbability)
+                Assert.True(hhlResult.Solution.[0].Magnitude > 1e-6,
+                    $"Expected non-zero first component, got %A{hhlResult.Solution}")
+                Assert.True(hhlResult.Solution.[1].Magnitude < 1e-6,
+                    $"Expected zero second component, got %A{hhlResult.Solution}")
+                Assert.True(hhlResult.SuccessProbability > 0.0,
+                    $"Expected positive success probability, got {hhlResult.SuccessProbability}")
                 Assert.Equal(2, hhlResult.EstimatedEigenvalues.Length)
                 Assert.Equal(1.0, hhlResult.EstimatedEigenvalues.[0])
                 Assert.Equal(1.0, hhlResult.EstimatedEigenvalues.[1])

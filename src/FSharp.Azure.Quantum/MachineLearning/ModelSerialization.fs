@@ -40,15 +40,31 @@ module ModelSerialization =
         
         /// Variational form type name
         VariationalFormType: string
-        
+
         /// Variational form depth
         VariationalFormDepth: int
-        
+
+        /// Pauli strings for PauliFeatureMap (lossless configuration).
+        /// None for other feature map types and for legacy files saved before this
+        /// field existed; legacy PauliFeatureMap files load with the historical
+        /// default ["Z"; "ZZ"].
+        FeatureMapPaulis: string list option
+
+        /// Rotation gate name for TwoLocal variational form (lossless configuration).
+        /// None for other forms and for legacy files; legacy TwoLocal files load
+        /// with the historical default "RY".
+        VariationalFormRotation: string option
+
+        /// Entanglement gate name for TwoLocal variational form (lossless configuration).
+        /// None for other forms and for legacy files; legacy TwoLocal files load
+        /// with the historical default "CX".
+        VariationalFormEntanglement: string option
+
         /// Optional metadata
         SavedAt: string
         Note: string option
     }
-    
+
     /// Serializable binary classifier (for multi-class OVR)
     type SerializableBinaryClassifier = {
         /// Classifier parameters
@@ -103,7 +119,32 @@ module ModelSerialization =
     // VQC SERIALIZATION
     // ========================================================================
     
+    /// Core writer shared by the string-based and configuration-based save functions.
+    let private writeVQCModelAsync
+        (filePath: string)
+        (model: SerializableVQCModel)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
+            try
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+
+                let json = JsonSerializer.Serialize(model, options)
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
+
+                return Ok ()
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to save model: {ex.Message}"))
+        }
+
     /// Save VQC model to JSON file
+    ///
+    /// NOTE: This string-based API cannot capture the full configuration of
+    /// PauliFeatureMap (Pauli string list) or TwoLocal (rotation/entanglement gates).
+    /// Models saved this way load with the historical defaults (["Z"; "ZZ"] and
+    /// ("RY", "CX") respectively). For non-default configurations use
+    /// saveVQCModelWithConfigAsync, which serializes the configuration losslessly.
     ///
     /// Parameters:
     ///   filePath - Path to save JSON file
@@ -112,7 +153,7 @@ module ModelSerialization =
     ///   numQubits - Number of qubits used
     ///   featureMapType - Feature map type name (e.g., "ZZFeatureMap")
     ///   featureMapDepth - Feature map depth
-    ///   variationalFormType - Variational form type name (e.g., "RealAmplitudes")  
+    ///   variationalFormType - Variational form type name (e.g., "RealAmplitudes")
     ///   variationalFormDepth - Variational form depth
     ///   note - Optional note about the model
     let saveVQCModelAsync
@@ -127,31 +168,73 @@ module ModelSerialization =
         (note: string option)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<unit>> =
-        task {
-            try
-                let model = {
-                    Parameters = parameters
-                    FinalLoss = finalLoss
-                    NumQubits = numQubits
-                    FeatureMapType = featureMapType
-                    FeatureMapDepth = featureMapDepth
-                    VariationalFormType = variationalFormType
-                    VariationalFormDepth = variationalFormDepth
-                    SavedAt = DateTime.UtcNow.ToString("o")
-                    Note = note
-                }
-                
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
-                
-                let json = JsonSerializer.Serialize(model, options)
-                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
-                
-                return Ok ()
-            with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to save model: {ex.Message}"))
-        }
-    
+        writeVQCModelAsync
+            filePath
+            {
+                Parameters = parameters
+                FinalLoss = finalLoss
+                NumQubits = numQubits
+                FeatureMapType = featureMapType
+                FeatureMapDepth = featureMapDepth
+                VariationalFormType = variationalFormType
+                VariationalFormDepth = variationalFormDepth
+                FeatureMapPaulis = None
+                VariationalFormRotation = None
+                VariationalFormEntanglement = None
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
+            cancellationToken
+
+    /// Save VQC model to JSON file with the feature map and variational form
+    /// configuration serialized losslessly (Pauli strings, TwoLocal gate names).
+    ///
+    /// Prefer this over the string-based saveVQCModelAsync: a model trained with a
+    /// non-default PauliFeatureMap or TwoLocal configuration would otherwise be
+    /// reconstructed as a DIFFERENT circuit on load, producing silently wrong
+    /// predictions with the saved weights.
+    let saveVQCModelWithConfigAsync
+        (filePath: string)
+        (parameters: float array)
+        (finalLoss: float)
+        (numQubits: int)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (note: string option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        let (fmType, fmDepth, fmPaulis) =
+            match featureMap with
+            | FeatureMapType.ZZFeatureMap depth -> ("ZZFeatureMap", depth, None)
+            | FeatureMapType.PauliFeatureMap (paulis, depth) -> ("PauliFeatureMap", depth, Some paulis)
+            | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0, None)
+            | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0, None)
+
+        let (vfType, vfDepth, vfRotation, vfEntanglement) =
+            match variationalForm with
+            | VariationalForm.RealAmplitudes depth -> ("RealAmplitudes", depth, None, None)
+            | VariationalForm.EfficientSU2 depth -> ("EfficientSU2", depth, None, None)
+            | VariationalForm.TwoLocal (rotation, entanglement, depth) ->
+                ("TwoLocal", depth, Some rotation, Some entanglement)
+
+        writeVQCModelAsync
+            filePath
+            {
+                Parameters = parameters
+                FinalLoss = finalLoss
+                NumQubits = numQubits
+                FeatureMapType = fmType
+                FeatureMapDepth = fmDepth
+                VariationalFormType = vfType
+                VariationalFormDepth = vfDepth
+                FeatureMapPaulis = fmPaulis
+                VariationalFormRotation = vfRotation
+                VariationalFormEntanglement = vfEntanglement
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
+            cancellationToken
+
     [<System.Obsolete("Use saveVQCModelAsync for better performance and to avoid blocking threads")>]
     let saveVQCModel
         (filePath: string)
@@ -713,30 +796,72 @@ module ModelSerialization =
                 param - learningRate * gradients.[i]  // Apply gradient update
         )
     
-    /// Parse FeatureMapType from saved string representation
+    /// Parse FeatureMapType from saved string representation plus the lossless
+    /// configuration stored in FeatureMapPaulis.
     ///
-    /// Helper for reconstructing feature map from serialized model
-    let parseFeatureMapType (fmType: string) (fmDepth: int) : QuantumResult<FeatureMapType> =
+    /// When paulis is None (legacy files saved before the field existed, or the
+    /// string-based save API), PauliFeatureMap falls back to the historical
+    /// default ["Z"; "ZZ"].
+    let parseFeatureMapTypeWithConfig
+        (fmType: string)
+        (fmDepth: int)
+        (paulis: string list option)
+        : QuantumResult<FeatureMapType> =
         match fmType with
         | "ZZFeatureMap" -> Ok (FeatureMapType.ZZFeatureMap fmDepth)
-        | "PauliFeatureMap" -> 
-            // Default Pauli string for saved models
-            Ok (FeatureMapType.PauliFeatureMap (["Z"; "ZZ"], fmDepth))
+        | "PauliFeatureMap" ->
+            let paulis = paulis |> Option.defaultValue ["Z"; "ZZ"]
+            Ok (FeatureMapType.PauliFeatureMap (paulis, fmDepth))
         | "AngleEncoding" -> Ok FeatureMapType.AngleEncoding
         | "AmplitudeEncoding" -> Ok FeatureMapType.AmplitudeEncoding
         | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown feature map type: {fmType}"))
-    
-    /// Parse VariationalForm from saved string representation
+
+    /// Parse FeatureMapType from saved string representation
     ///
-    /// Helper for reconstructing variational form from serialized model
-    let parseVariationalForm (vfType: string) (vfDepth: int) : QuantumResult<VariationalForm> =
+    /// Helper for reconstructing feature map from serialized model.
+    /// WARNING: assumes the default Pauli list ["Z"; "ZZ"] for PauliFeatureMap.
+    [<System.Obsolete("Use parseFeatureMapTypeWithConfig (with the model's FeatureMapPaulis) to reconstruct PauliFeatureMap losslessly")>]
+    let parseFeatureMapType (fmType: string) (fmDepth: int) : QuantumResult<FeatureMapType> =
+        parseFeatureMapTypeWithConfig fmType fmDepth None
+
+    /// Parse VariationalForm from saved string representation plus the lossless
+    /// configuration stored in VariationalFormRotation/VariationalFormEntanglement.
+    ///
+    /// When rotation/entanglement are None (legacy files saved before the fields
+    /// existed, or the string-based save API), TwoLocal falls back to the
+    /// historical defaults ("RY", "CX").
+    let parseVariationalFormWithConfig
+        (vfType: string)
+        (vfDepth: int)
+        (rotation: string option)
+        (entanglement: string option)
+        : QuantumResult<VariationalForm> =
         match vfType with
         | "RealAmplitudes" -> Ok (VariationalForm.RealAmplitudes vfDepth)
         | "EfficientSU2" -> Ok (VariationalForm.EfficientSU2 vfDepth)
         | "TwoLocal" ->
-            // Default two-local configuration
-            Ok (VariationalForm.TwoLocal ("RY", "CX", vfDepth))
+            let rotation = rotation |> Option.defaultValue "RY"
+            let entanglement = entanglement |> Option.defaultValue "CX"
+            Ok (VariationalForm.TwoLocal (rotation, entanglement, vfDepth))
         | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown variational form type: {vfType}"))
+
+    /// Parse VariationalForm from saved string representation
+    ///
+    /// Helper for reconstructing variational form from serialized model.
+    /// WARNING: assumes the default ("RY", "CX") configuration for TwoLocal.
+    [<System.Obsolete("Use parseVariationalFormWithConfig (with the model's VariationalFormRotation/VariationalFormEntanglement) to reconstruct TwoLocal losslessly")>]
+    let parseVariationalForm (vfType: string) (vfDepth: int) : QuantumResult<VariationalForm> =
+        parseVariationalFormWithConfig vfType vfDepth None None
+
+    /// Reconstruct the FeatureMapType from a loaded model, using the lossless
+    /// configuration fields when present (legacy files fall back to defaults).
+    let featureMapFromModel (model: SerializableVQCModel) : QuantumResult<FeatureMapType> =
+        parseFeatureMapTypeWithConfig model.FeatureMapType model.FeatureMapDepth model.FeatureMapPaulis
+
+    /// Reconstruct the VariationalForm from a loaded model, using the lossless
+    /// configuration fields when present (legacy files fall back to defaults).
+    let variationalFormFromModel (model: SerializableVQCModel) : QuantumResult<VariationalForm> =
+        parseVariationalFormWithConfig model.VariationalFormType model.VariationalFormDepth model.VariationalFormRotation model.VariationalFormEntanglement
     
     // ========================================================================
     // TRANSFER LEARNING UTILITIES
@@ -758,7 +883,11 @@ module ModelSerialization =
                 m1.FeatureMapType = m2.FeatureMapType &&
                 m1.FeatureMapDepth = m2.FeatureMapDepth &&
                 m1.VariationalFormType = m2.VariationalFormType &&
-                m1.VariationalFormDepth = m2.VariationalFormDepth))
+                m1.VariationalFormDepth = m2.VariationalFormDepth &&
+                // Lossless configuration fields (None on legacy files = default config)
+                m1.FeatureMapPaulis = m2.FeatureMapPaulis &&
+                m1.VariationalFormRotation = m2.VariationalFormRotation &&
+                m1.VariationalFormEntanglement = m2.VariationalFormEntanglement))
     
     /// Extract feature extractor (frozen layers) from pre-trained model
     ///

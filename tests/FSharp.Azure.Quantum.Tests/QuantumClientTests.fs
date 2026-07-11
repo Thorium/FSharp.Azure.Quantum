@@ -415,6 +415,7 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
     }
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``SubmitJobAsync should not retry on non-transient errors`` () =
     async {
         let mutable attemptCount = 0

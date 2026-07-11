@@ -321,45 +321,112 @@ module Knapsack =
             IsQuantum = false
         }
 
+    /// Upper bound on DP table cells ((items+1) * (scaled capacity+1)).
+    /// Keeps memory bounded (~40 MB of floats worst case).
+    let private maxDpCells = 5_000_000
+
+    /// Exact 0/1 knapsack via the standard O(n*W) dynamic-programming table.
+    ///
+    /// Item weights are floats, so they are discretized first: the finest
+    /// power-of-ten scale (up to 10^4, i.e. 4 decimal digits) that keeps the
+    /// DP table within maxDpCells is chosen. Item weights are rounded UP and
+    /// the capacity DOWN, so any selection the DP reports feasible is feasible
+    /// for the original float weights. For weights with no more decimal digits
+    /// than the chosen scale the result is exactly optimal; otherwise it is
+    /// optimal for the conservatively rounded problem.
+    ///
+    /// Returns None when even integer resolution (scale 1) would exceed the
+    /// table budget, in which case the caller should fall back to a heuristic.
+    let private trySolveDpExact (items: Item list) (capacity: float) : Item list option =
+        let n = items.Length
+        if n = 0 || capacity <= 0.0 then
+            Some []
+        else
+            let scale =
+                [ 10_000; 1_000; 100; 10; 1 ]
+                |> List.tryFind (fun s ->
+                    let w = floor (capacity * float s + 1e-9)
+                    float (n + 1) * (w + 1.0) <= float maxDpCells)
+
+            match scale with
+            | None -> None
+            | Some s ->
+                let cap = int (floor (capacity * float s + 1e-9))
+                let itemsArr = List.toArray items
+                // Round item weights UP so DP-feasible implies truly feasible.
+                // Items heavier than the capacity are clamped to cap+1 (never
+                // selectable) to avoid int overflow on extreme weights.
+                let weights =
+                    itemsArr
+                    |> Array.map (fun item ->
+                        let scaled = ceil (item.Weight * float s - 1e-9)
+                        if scaled <= 0.0 then 0
+                        elif scaled > float cap then cap + 1
+                        else int scaled)
+
+                // dp.[i].[w] = best value using the first i items with weight budget w
+                let dp = Array.init (n + 1) (fun _ -> Array.zeroCreate<float> (cap + 1))
+                for i in 1 .. n do
+                    let wi = weights.[i - 1]
+                    let vi = itemsArr.[i - 1].Value
+                    for w in 0 .. cap do
+                        let without = dp.[i - 1].[w]
+                        dp.[i].[w] <-
+                            if wi <= w then max without (dp.[i - 1].[w - wi] + vi)
+                            else without
+
+                // Backtrack to recover the selected items
+                let selected = ResizeArray<Item>()
+                let mutable w = cap
+                for i = n downto 1 do
+                    if dp.[i].[w] > dp.[i - 1].[w] then
+                        selected.Add itemsArr.[i - 1]
+                        w <- w - weights.[i - 1]
+
+                selected |> Seq.rev |> List.ofSeq |> Some
+
     /// Solve Knapsack using dynamic programming (classical, optimal)
-    /// 
+    ///
+    /// Uses the standard O(n*W) 0/1 knapsack DP over discretized weights
+    /// (see trySolveDpExact for the precision guarantees). If the problem is
+    /// too large for the DP table even at integer weight resolution, falls
+    /// back to the greedy heuristic and labels the result honestly.
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem with items and capacity
-    /// 
+    ///
     /// RETURNS:
     ///   Optimal solution using classical DP algorithm
-    /// 
+    ///
     /// EXAMPLE:
     ///   let optimalSolution = Knapsack.solveClassicalDP problem
     let internal solveClassicalDP (problem: Problem) : Solution =
-        // Convert to quantum solver format
-        let quantumProblem : QuantumKnapsackSolver.KnapsackProblem =
-            { Items = problem.Items; Capacity = problem.Capacity }
-        
-        let dpResult = QuantumKnapsackSolver.solveClassical quantumProblem
-        
-        let efficiency = 
-            if dpResult.TotalWeight > 0.0 then
-                dpResult.TotalValue / dpResult.TotalWeight
-            else 0.0
-        
-        let capacityUtilization = 
-            if problem.Capacity > 0.0 then
-                (dpResult.TotalWeight / problem.Capacity) * 100.0
-            else 0.0
-        
-        let selectedItems = dpResult.SelectedItems
-        
-        {
-            SelectedItems = selectedItems
-            TotalWeight = dpResult.TotalWeight
-            TotalValue = dpResult.TotalValue
-            IsFeasible = dpResult.IsFeasible
-            Efficiency = efficiency
-            CapacityUtilization = capacityUtilization
-            BackendName = "Classical DP (Optimal)"
-            IsQuantum = false
-        }
+        match trySolveDpExact problem.Items problem.Capacity with
+        | None ->
+            // DP table intractable at integer resolution: be honest about the method
+            { (solveClassicalGreedy problem) with BackendName = "Classical Greedy (DP intractable, heuristic fallback)" }
+        | Some selectedItems ->
+            let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
+            let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
+
+            let efficiency =
+                if totalWeight > 0.0 then totalValue / totalWeight else 0.0
+
+            let capacityUtilization =
+                if problem.Capacity > 0.0 then
+                    (totalWeight / problem.Capacity) * 100.0
+                else 0.0
+
+            {
+                SelectedItems = selectedItems
+                TotalWeight = totalWeight
+                TotalValue = totalValue
+                IsFeasible = totalWeight <= problem.Capacity
+                Efficiency = efficiency
+                CapacityUtilization = capacityUtilization
+                BackendName = "Classical DP (Optimal)"
+                IsQuantum = false
+            }
 
     /// Convenience function: Create problem and solve in one step using quantum optimization
     /// 

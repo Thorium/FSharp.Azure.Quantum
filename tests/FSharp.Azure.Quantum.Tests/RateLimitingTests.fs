@@ -170,6 +170,7 @@ let ``ThrottlingHandler should parse rate limit headers from responses`` () =
 // ============================================================================
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``ThrottlingHandler should return 429 response when rate limit is exceeded`` () =
     async {
         // Arrange

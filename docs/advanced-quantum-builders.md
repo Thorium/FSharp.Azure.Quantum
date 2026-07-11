@@ -191,7 +191,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumConstraintSolver
 
 let problem = constraintSolver {
-    searchSpace 16           // 16 variables
+    searchSpace 8            // 8 variables (8 × log2(4) = 16 qubits, the maximum)
     domain [1..4]            // Each variable in range 1-4
     satisfies checkAllConstraints
     backend localBackend
@@ -210,7 +210,7 @@ match solve problem with
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `searchSpace` | `int` | Number of variables | *Required* |
+| `searchSpace` | `int` | Number of variables (numVariables × log2(domainSize) must be ≤ 16 qubits) | *Required* |
 | `domain` | `int list` | Possible values for each variable | *Required* |
 | `satisfies` | `Map<int,int> -> bool` | Constraint checking function | *Required* |
 | `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
@@ -218,11 +218,13 @@ match solve problem with
 
 **Result Type**:
 ```fsharp
-type ConstraintSolution = {
-    Assignment: Map<int, int>  // Variable assignments
+type ConstraintSolution<'T> = {
+    Assignment: Map<int, 'T>   // Variable assignments (variable index -> value)
+    SuccessProbability: float
     AllConstraintsSatisfied: bool
-    SearchSpaceSize: int
+    BackendName: string
     QubitsRequired: int
+    IterationsUsed: int
 }
 ```
 
@@ -230,21 +232,19 @@ type ConstraintSolution = {
 
 #### Sudoku Solver
 
-**Problem**: Fill a 9×9 grid with numbers 1-9 satisfying row, column, and box constraints.
+**Problem**: Fill the empty cells of a 4×4 grid with numbers 1-4 satisfying row, column, and box constraints.
 
-**Solution**: Quantum search through 9^81 ≈ 10^77 states classically becomes √10^77 ≈ 10^38 quantum.
-
-**Note**: Classical sudoku solvers are highly optimized (constraint propagation). Quantum advantage only for expensive constraint checking.
+**Note**: `searchSpace` is the number of variables, and the local simulator caps the register at 16 qubits — a full 9×9 grid (81 variables over 1..9 ≈ 257 qubits) is correctly rejected. Use one variable per *empty* cell of a small grid instead. Classical sudoku solvers are highly optimized (constraint propagation); quantum advantage only for expensive constraint checking.
 
 ```fsharp
 let checkSudoku (assignment: Map<int, int>) =
-    // Check all rows, columns, boxes
+    // Merge assignment into the puzzle's empty cells, then check rows/columns/boxes
     let grid = buildGrid assignment
     rowsValid grid && colsValid grid && boxesValid grid
 
 let problem = constraintSolver {
-    searchSpace 81  // 9×9 grid
-    domain [1..9]
+    searchSpace 6   // one variable per empty cell (6 × log2(4) = 12 qubits)
+    domain [1..4]
     satisfies checkSudoku
     backend localBackend
 }
@@ -264,8 +264,9 @@ let checkQueens (assignment: Map<int, int>) =
     noDiagonalConflicts positions && uniqueColumns positions
 
 let problem = constraintSolver {
-    searchSpace 8  // 8 queens
-    domain [0..7]  // Columns 0-7
+    searchSpace 4  // 4 queens, one variable per row (4 × log2(4) = 8 qubits;
+                   // 8-queens over 0..7 would need 24 qubits — over the 16-qubit limit)
+    domain [0..3]  // Columns 0-3
     satisfies checkQueens
 }
 ```

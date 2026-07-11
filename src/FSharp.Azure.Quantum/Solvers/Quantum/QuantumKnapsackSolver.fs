@@ -103,36 +103,52 @@ module QuantumKnapsackSolver =
     // QUBO ENCODING FOR KNAPSACK
     // ================================================================================
 
-    /// Encode Knapsack problem as QUBO
-    /// 
+    /// Number of binary slack bits needed to represent an integer in [0, b]:
+    /// T = ceil(log2(b + 1)), minimum 1 bit for b > 0, 0 bits for b = 0.
+    /// Mirrors QuantumBinaryILPSolver.slackBitsForBound (integer bit counting
+    /// avoids floating-point precision issues).
+    let private slackBitsForBound (b: float) : int =
+        if b <= 0.0 then 0
+        elif b < 1.0 then 1
+        else
+            let bInt = int (System.Math.Ceiling b)
+            let rec countBits value bits =
+                if value <= 0 then bits
+                else countBits (value >>> 1) (bits + 1)
+            max 1 (countBits bInt 0)
+
+    /// Encode Knapsack problem as QUBO (standard Lucas encoding with slack bits)
+    ///
     /// Knapsack QUBO formulation:
-    /// 
-    /// Variables: x_i ∈ {0, 1} where x_i = 1 means item i is selected
-    /// 
+    ///
+    /// Variables: x_i ∈ {0, 1} where x_i = 1 means item i is selected,
+    ///            plus slack bits s_t ∈ {0, 1}, t = 0 .. T-1, T = ceil(log2(W+1))
+    ///
     /// Objective (to MAXIMIZE):
     ///   Value = Σ v_i * x_i
-    /// 
-    /// Constraint (capacity):
+    ///
+    /// Constraint (capacity, INEQUALITY):
     ///   Σ w_i * x_i ≤ W
-    /// 
-    /// QUBO form (to MINIMIZE for QAOA, so we negate and add penalty):
-    ///   Minimize: -Σ v_i * x_i + λ * (Σ w_i * x_i - W)²
-    /// 
-    /// Where λ is a penalty weight ensuring capacity constraint is satisfied.
-    /// The penalty term is 0 when constraint is met, and grows quadratically
-    /// when violated.
-    /// 
-    /// Expanded penalty term:
-    ///   (Σ w_i * x_i - W)² = (Σ w_i * x_i)² - 2W * Σ w_i * x_i + W²
-    ///                      = Σ w_i² * x_i + Σ Σ 2*w_i*w_j*x_i*x_j - 2W * Σ w_i * x_i + W²
-    /// 
-    /// QUBO matrix Q (ignoring constant W²):
-    ///   Q_ii = -v_i + λ * (w_i² - 2W*w_i)     (linear terms)
-    ///   Q_ij = λ * 2*w_i*w_j for i < j        (quadratic terms)
+    ///
+    /// The inequality is turned into an equality with binary slack variables
+    /// (same pattern as QuantumBinaryILPSolver):
+    ///   Σ w_i * x_i + Σ_t 2^t * s_t = W
+    /// so under-capacity selections are NOT penalised — the slack absorbs the
+    /// unused capacity. (The previous slack-free penalty λ(Σw_i x_i − W)² was an
+    /// EQUALITY penalty: it punished feasible under-capacity picks as violations,
+    /// letting a near-worthless capacity-saturating pick win the QUBO argmin.)
+    ///
+    /// QUBO form (to MINIMIZE for QAOA):
+    ///   Minimize: -Σ v_i * x_i + λ * (Σ w_i * x_i + Σ_t 2^t * s_t - W)²
+    ///
+    /// With the unified coefficient vector c (c_i = w_i for items, c_{n+t} = 2^t
+    /// for slack bits) and using b² = b for binary b, ignoring the constant W²:
+    ///   Q_vv = [-v_i for items] + λ * (c_v² - 2W*c_v)   (linear terms)
+    ///   Q_uv = λ * 2*c_u*c_v for u < v                  (quadratic terms)
     let toQubo (problem: KnapsackProblem) : Result<QuboMatrix, QuantumError> =
         try
             let numItems = problem.Items.Length
-            
+
             if numItems = 0 then
                 Error (QuantumError.ValidationError ("numItems", "Knapsack problem has no items"))
             elif problem.Capacity <= 0.0 then
@@ -142,35 +158,39 @@ module QuantumKnapsackSolver =
                 // Penalty must be large enough to dominate objective violations
                 let maxValue = problem.Items |> List.map (fun item -> item.Value) |> List.max
                 let totalValue = problem.Items |> List.sumBy (fun item -> item.Value)
-                
+
                 // Use shared Lucas Rule helper: penalty >> objective magnitude
                 let penalty = Qubo.computeLucasPenalties (max maxValue totalValue) numItems
-                
-                // Build QUBO terms as Map<(int * int), float>
-                // Linear terms (diagonal)
+
+                let W = problem.Capacity
+                let numSlackBits = slackBitsForBound W
+                let numVars = numItems + numSlackBits
+
+                // Unified coefficient vector: item weights, then slack powers of two
+                let coeffs =
+                    [ for i in 0 .. numItems - 1 -> (i, problem.Items.[i].Weight) ]
+                    @ [ for t in 0 .. numSlackBits - 1 -> (numItems + t, pown 2.0 t) ]
+
+                // Linear terms (diagonal): objective on items, penalty on all vars
                 let linearTerms =
-                    [ for i in 0 .. numItems - 1 do
-                        let item = problem.Items.[i]
-                        let w = item.Weight
-                        let v = item.Value
-                        let W = problem.Capacity
-                        // Q_ii = -v_i + λ * (w_i² - 2W*w_i)
-                        yield (i, i), -v + penalty * (w * w - 2.0 * W * w) ]
-                
-                // Quadratic terms (upper triangle)
+                    coeffs
+                    |> List.map (fun (idx, c) ->
+                        let objective =
+                            if idx < numItems then -problem.Items.[idx].Value else 0.0
+                        (idx, idx), objective + penalty * (c * c - 2.0 * W * c))
+
+                // Quadratic terms (upper triangle): λ * 2*c_u*c_v
                 let quadraticTerms =
-                    [ for i in 0 .. numItems - 1 do
-                        for j in i + 1 .. numItems - 1 do
-                            let w_i = problem.Items.[i].Weight
-                            let w_j = problem.Items.[j].Weight
-                            // Q_ij = λ * 2*w_i*w_j
-                            yield (i, j), penalty * 2.0 * w_i * w_j ]
-                
+                    [ for (u, cu) in coeffs do
+                        for (v, cv) in coeffs do
+                            if u < v then
+                                yield (u, v), penalty * 2.0 * cu * cv ]
+
                 let quboTerms = linearTerms @ quadraticTerms |> Map.ofList
-                
+
                 Ok {
                     Q = quboTerms
-                    NumVariables = numItems
+                    NumVariables = numVars
                 }
         with ex ->
             Error (QuantumError.OperationError ("QuboEncoding", sprintf "Knapsack QUBO encoding failed: %s" ex.Message))
@@ -181,6 +201,8 @@ module QuantumKnapsackSolver =
 
     /// Decode binary solution to Knapsack selection
     ///
+    /// Only the first numItems bits are decision variables; any trailing bits are
+    /// the capacity slack bits from the QUBO encoding and are ignored here.
     /// Returns None when the measurement has fewer bits than there are items
     /// (a malformed backend response), rather than indexing out of range.
     let private decodeSolution (problem: KnapsackProblem) (bitstring: int[]) : KnapsackSolution option =
@@ -269,9 +291,11 @@ module QuantumKnapsackSolver =
         let startTime = DateTime.Now
         
         try
-            // Step 1: Validate problem size against backend
+            // Step 1: Validate problem
+            // Qubit count = numItems + ceil(log2(Capacity+1)) capacity slack bits;
+            // the actual count comes from the QUBO's NumVariables below.
             let numQubits = problem.Items.Length
-            
+
             // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
             // Backends will return errors if qubit count exceeded
             if numQubits = 0 then

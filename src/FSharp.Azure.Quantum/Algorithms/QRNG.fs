@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open System.Security.Cryptography
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -8,14 +9,22 @@ open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum
 
 /// Quantum Random Number Generator (QRNG)
-/// 
-/// Generates true random numbers using quantum measurement.
-/// Quantum measurements are fundamentally non-deterministic, providing
-/// true randomness (as opposed to pseudo-random classical algorithms).
-/// 
+///
+/// Models random number generation via quantum measurement: measuring a qubit
+/// in uniform superposition is fundamentally non-deterministic, so a QRNG run
+/// on real quantum hardware yields true (quantum) randomness.
+///
+/// **IMPORTANT — randomness source:** this module runs on a LOCAL SIMULATOR by
+/// default, so the "measurements" are simulated classically. The unseeded local
+/// path draws its outcomes from the OS cryptographically secure RNG
+/// (System.Security.Cryptography.RandomNumberGenerator), i.e. CSPRNG-quality but
+/// still classical randomness — NOT quantum randomness. True quantum randomness
+/// requires executing the circuit on a hardware backend that returns per-shot
+/// measurement results.
+///
 /// **Use Cases:**
-/// - Cryptographic key generation
-/// - Monte Carlo simulations requiring true randomness
+/// - Cryptographic key generation (local simulation: CSPRNG-backed)
+/// - Monte Carlo simulations
 /// - Randomized algorithms
 /// - Scientific simulations
 /// 
@@ -69,7 +78,9 @@ module QRNG =
         /// Number of random bits to generate
         NumBits: int
         
-        /// Random seed for reproducible results (optional, None = true randomness)
+        /// Random seed for reproducible results (optional).
+        /// None = fresh randomness from the OS CSPRNG (cryptographically secure,
+        /// but classical — not quantum — when running on the local simulator).
         Seed: int option
     }
     
@@ -84,7 +95,9 @@ module QRNG =
         /// Generated random bits as byte array
         AsBytes: byte[]
         
-        /// Statistical entropy estimate (0.0-1.0, should be close to 1.0)
+        /// Shannon entropy of the generated sample (0.0-1.0, should be close to 1.0).
+        /// This is a statistical measure of bias in the produced bits — it is NOT a
+        /// certification of quantum entropy (locally generated bits are simulated).
         Entropy: float
     }
     
@@ -92,47 +105,58 @@ module QRNG =
     // CORE ALGORITHM
     // ========================================================================
     
-    /// Generate random bits using quantum measurement
-    /// 
-    /// Algorithm:
+    /// Generate random bits by simulating quantum measurement locally
+    ///
+    /// Algorithm (simulated):
     /// 1. Initialize qubits to |0⟩
     /// 2. Apply Hadamard gate to each qubit → uniform superposition
     /// 3. Measure each qubit in computational basis
     /// 4. Each measurement gives 0 or 1 with 50% probability
-    /// 
-    /// **Quantum Advantage:** True randomness vs pseudo-random classical RNG
+    ///
+    /// **Randomness source:** the measurement is simulated classically, so the
+    /// output is NOT quantum randomness:
+    /// - `seed = Some s` → deterministic `System.Random(s)` (reproducible; for tests)
+    /// - `seed = None`   → OS CSPRNG (`RandomNumberGenerator`): cryptographically
+    ///   secure, but still classical pseudo-randomness
+    /// True quantum randomness requires running on quantum hardware.
     let generateBits (numBits: int) (seed: int option) : QRNGResult =
-        
+
         if numBits <= 0 then
             failwith "NumBits must be positive"
-        
+
         if numBits > 1000000 then
             failwith "NumBits too large (max 1,000,000)"
-        
-        // Create random number generator (for measurement simulation)
-        let rng = 
-            match seed with
-            | Some s -> Random(s)
-            | None -> Random()
-        
-        // Generate random bits using quantum measurement
-        // Since qubits are independent (no entanglement), we measure 1 qubit at a time
-        // This is MUCH faster than batching: 2^1 = 2 amplitudes vs 2^20 = 1M amplitudes!
+
         let bits =
-            [0 .. numBits - 1]
-            |> List.map (fun _ ->
-                // Initialize single-qubit state |0⟩
-                let state = StateVector.init 1
-                
-                // Apply Hadamard → (|0⟩ + |1⟩)/√2
-                let superpositionState = Gates.applyH 0 state
-                
-                // Measure qubit (50% chance of 0 or 1)
-                let measurementOutcome = Measurement.measureComputationalBasis rng superpositionState
-                
-                // Extract bit from measurement (0 or 1)
-                measurementOutcome = 1)
-            |> Array.ofList
+            match seed with
+            | Some s ->
+                // Reproducible path: simulate the quantum measurement with a seeded PRNG.
+                // Since qubits are independent (no entanglement), we measure 1 qubit at a time
+                // This is MUCH faster than batching: 2^1 = 2 amplitudes vs 2^20 = 1M amplitudes!
+                let rng = Random(s)
+                [0 .. numBits - 1]
+                |> List.map (fun _ ->
+                    // Initialize single-qubit state |0⟩
+                    let state = StateVector.init 1
+
+                    // Apply Hadamard → (|0⟩ + |1⟩)/√2
+                    let superpositionState = Gates.applyH 0 state
+
+                    // Measure qubit (50% chance of 0 or 1)
+                    let measurementOutcome = Measurement.measureComputationalBasis rng superpositionState
+
+                    // Extract bit from measurement (0 or 1)
+                    measurementOutcome = 1)
+                |> Array.ofList
+            | None ->
+                // Unseeded path: measuring H|0⟩ is exactly an unbiased coin flip, so draw
+                // each outcome from the OS cryptographically secure RNG. This makes locally
+                // generated bits at least CSPRNG-quality (a clock-seeded System.Random is
+                // not suitable for the cryptographic uses this module documents), while
+                // reproducing the same 50/50 measurement statistics.
+                let randomBytes = RandomNumberGenerator.GetBytes((numBits + 7) / 8)
+                Array.init numBits (fun i ->
+                    (randomBytes.[i / 8] >>> (i % 8)) &&& 1uy = 1uy)
         
         // Convert bits to bytes
         let numBytes = (numBits + 7) / 8
@@ -228,10 +252,19 @@ module QRNG =
     // ========================================================================
     
     /// Generate random bits using specified quantum backend
-    /// 
+    ///
     /// **Note:** Most real quantum backends charge per circuit execution.
     /// For production use, LocalBackend is recommended for QRNG unless you
     /// specifically need hardware-generated randomness for cryptographic purposes.
+    ///
+    /// **Randomness source (IMPORTANT):** this path executes the H-superposition
+    /// circuit through the backend's state pipeline (`ExecuteToState`) and then
+    /// samples the returned state ONCE locally with a classical PRNG
+    /// (`QuantumState.measure`). For LocalBackend — and any backend that returns a
+    /// simulated state vector — the bits are therefore classical pseudo-randomness,
+    /// NOT hardware quantum randomness. For cryptographic key material prefer
+    /// `generateBits`/`generateBytes` (unseeded → OS CSPRNG), or a hardware backend
+    /// integration that returns genuine per-shot measurement results.
     let generateWithBackend 
         (numBits: int) 
         (backend: IQuantumBackend) 
@@ -365,7 +398,12 @@ module QRNG =
     // EXAMPLES
     // ========================================================================
     
-    /// Example: Generate random bytes for cryptographic key
+    /// Example: Generate random bytes for a 256-bit cryptographic key.
+    ///
+    /// NOTE: On the local simulator the key material comes from the OS CSPRNG
+    /// (System.Security.Cryptography.RandomNumberGenerator) — cryptographically
+    /// secure, but classical. It is NOT quantum randomness; that requires
+    /// executing the circuit on real quantum hardware.
     let example_CryptographicKey () =
         // Generate 256-bit (32-byte) key
         let keyBytes = generateBytes 32

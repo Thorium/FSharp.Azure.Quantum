@@ -820,6 +820,7 @@ module SocialNetworkAnalyzerTests =
         | Error e -> failwith $"Should succeed with explicit Grover strategy, got error: {e}"
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``useQaoa with FindMonitorSet should succeed`` () =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
         let result = socialNetwork {

@@ -171,7 +171,7 @@ module QuantumPeriodFinderBuilderTests =
     // ========================================================================
     
     [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``solve should factor N=15 (classic example)`` () =
         let problem = periodFinder {
             number 15  // 15 = 3 × 5
@@ -210,7 +210,7 @@ module QuantumPeriodFinderBuilderTests =
                 Assert.NotEmpty(err.Message)
     
     [<Fact>]
-    [<Trait("Category", "Slow")>]   // ~78 min genuine factoring of 21
+    [<Trait("Category", "ExtraSlow")>]   // ~78 min genuine factoring of 21
     let ``solve should factor N=21 (3 × 7)`` () =
         let problem = periodFinder {
             number 21
@@ -342,7 +342,7 @@ module QuantumPeriodFinderBuilderTests =
             | Error err -> Assert.True(false, $"Solve failed: {err.Message}")
     
     [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``solve should use higher precision for better success`` () =
         let lowPrecision = periodFinder {
             number 15
@@ -404,7 +404,7 @@ module QuantumPeriodFinderBuilderTests =
         Assert.Contains("Qubits", estimate)
     
     [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``describeResult should format human-readable output`` () =
         let problem = periodFinder {
             number 15
@@ -466,8 +466,12 @@ module QuantumPeriodFinderBuilderTests =
                 Assert.Contains("Simulator", result.BackendName)
                 Assert.NotEmpty(result.Message)
                 
-                // Period may be incorrect with dirty ancillas
-                Assert.True(result.Period > 0, "Period should be positive")
+                // Period may be incorrect with dirty ancillas. With an auto-selected
+                // random base, a lucky gcd(a, N) > 1 factors N classically without
+                // any period finding, in which case Period is 0.
+                let luckyGcdHit = result.Message.StartsWith("Lucky!")
+                Assert.True(luckyGcdHit || result.Period > 0,
+                    $"Period should be positive unless a lucky gcd hit factored N directly: {result.Message}")
                 
                 // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
                 // When temp qubits are perfectly uncomputed:

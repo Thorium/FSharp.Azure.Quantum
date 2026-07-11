@@ -4,10 +4,27 @@ open System.Collections.Generic
 
 /// <summary>
 /// Kauffman Bracket Invariant and Jones Polynomial for Knot Theory
-/// 
-/// This module provides both simplified and rigorous implementations of the Kauffman bracket
-/// polynomial invariant. The simplified version works with crossing lists (suitable for
-/// standard knots), while the rigorous version uses full planar diagrams with arc connectivity.
+///
+/// This module provides two models:
+///
+/// 1. A SIMPLIFIED crossing-list model (`KnotDiagram = Crossing list`). It carries
+///    NO arc-connectivity information, so its `evaluateBracket` necessarily
+///    resolves every crossing independently — mathematically it evaluates each
+///    crossing as an isolated Reidemeister-I curl (each positive crossing
+///    contributes a factor −A⁻³, each negative crossing −A³). This is EXACT only
+///    for diagrams that really are disjoint unions of curls; for genuine knots
+///    (trefoil, figure-eight, Hopf link, ...) it does NOT compute the knot's
+///    Kauffman bracket or Jones polynomial (it returns a monomial). Its writhe
+///    and crossing-count bookkeeping remain correct. Use it for writhe/curl
+///    algebra only.
+///
+/// 2. A RIGOROUS planar-diagram model (`Planar` submodule, `PlanarDiagram`) with
+///    full arc connectivity, which computes the actual Kauffman bracket / Jones
+///    polynomial via skein recursion or the equivalent state sum. Use this
+///    (with the constructors in `KnotConstructors`) for real knot invariants;
+///    it reproduces textbook values, e.g. ⟨trefoil⟩ = −A⁵ − A⁻³ + A⁻⁷,
+///    ⟨Hopf⟩ = −A⁴ − A⁻⁴, and |V(t = −1)| = knot determinant
+///    (3 for the trefoil, 5 for the figure-eight, 2 for the Hopf link).
 ///
 /// Based on:
 /// - Steven Simon (2023). "Topological Quantum", Chapter 2 (Kauffman Bracket), Chapter 23 (State-Sum TQFTs)
@@ -35,8 +52,14 @@ module KauffmanBracket =
         | Negative
 
     /// <summary>
-    /// Simplified knot diagram as a list of crossings.
-    /// Suitable for standard knots (unknot, trefoil, figure-eight, Hopf link).
+    /// Simplified knot diagram as a bare list of crossing signs.
+    ///
+    /// ⚠ This type records only how many positive/negative crossings a diagram
+    /// has — it does NOT record which strands the crossings connect. It suffices
+    /// for writhe computation, but bracket evaluation on it treats every
+    /// crossing as an isolated curl (see `evaluateBracket`). For actual knot
+    /// invariants use `PlanarDiagram` with the `Planar` module and the
+    /// constructors in `KnotConstructors`.
     /// </summary>
     type KnotDiagram = Crossing list
 
@@ -91,14 +114,21 @@ module KauffmanBracket =
     // ========================================
 
     /// <summary>
-    /// Evaluate Kauffman bracket using skein relations (simplified model).
-    /// 
-    /// Skein rules:
-    /// 1. Simple loop → d = -A^2 - A^(-2)
-    /// 2. Crossing resolution:
-    ///    [crossing] = A * [0-resolution] + A^(-1) * [1-resolution]
-    /// 
-    /// This works correctly for standard knots where the crossing structure is well-defined.
+    /// Evaluate the Kauffman bracket of a crossing list as a DISJOINT UNION OF
+    /// CURLS (per-crossing approximation).
+    ///
+    /// ⚠ LIMITATION — this is NOT a knot invariant computation. A `KnotDiagram`
+    /// has no arc connectivity, so each crossing is resolved independently as an
+    /// isolated Reidemeister-I curl:
+    ///   positive crossing → A + A⁻¹·d = −A⁻³
+    ///   negative crossing → A⁻¹ + A·d = −A³
+    /// giving ⟨diagram⟩ = (−A⁻³)^(#positive) · (−A³)^(#negative) — a monomial.
+    /// This is exact ONLY when the diagram really is n disjoint curls. For real
+    /// knots (whose crossings share strands, so smoothings change the global
+    /// loop count non-locally) the result is wrong — e.g. the true trefoil
+    /// bracket −A⁵ − A⁻³ + A⁻⁷ is a trinomial. Use
+    /// `Planar.evaluateBracket` with `KnotConstructors` diagrams for genuine
+    /// invariants.
     /// </summary>
     let rec evaluateBracket (diagram: KnotDiagram) (a: Complex) : Complex =
         match diagram with
@@ -107,20 +137,17 @@ module KauffmanBracket =
             // The Kauffman bracket of the unknot is 1 (by normalization convention).
             // Each ADDITIONAL loop contributes a factor of d = -A² - A⁻².
             Complex.One
-        
+
         | Positive :: rest ->
-            // Positive crossing: A * [0-smoothing] + A⁻¹ * [1-smoothing]
-            // In the simplified crossing-list model, removing a crossing either:
-            //   - 0-smoothing: reconnects strands horizontally (same number of loops)
-            //   - 1-smoothing: reconnects strands vertically (may create an extra loop)
-            // For this simplified model (standard alternating knots), the vertical
-            // smoothing creates one extra loop, contributing a factor of d.
+            // Positive curl: A * [0-smoothing] + A⁻¹ * [1-smoothing], where the
+            // 1-smoothing of an isolated curl detaches one extra loop (factor d).
+            // Net factor: A + A⁻¹·d = −A⁻³ (Reidemeister-I twist factor).
             let horizontal = evaluateBracket rest a
             let vertical = (loopValue a) * (evaluateBracket rest a)
             a * horizontal + (Complex.One / a) * vertical
-        
+
         | Negative :: rest ->
-            // Negative crossing: A⁻¹ * [0-smoothing] + A * [1-smoothing]
+            // Negative curl: A⁻¹ * [0-smoothing] + A * [1-smoothing] = −A³ overall
             let horizontal = evaluateBracket rest a
             let vertical = (loopValue a) * (evaluateBracket rest a)
             (Complex.One / a) * horizontal + a * vertical
@@ -135,11 +162,17 @@ module KauffmanBracket =
             | Negative -> -1)
 
     /// <summary>
-    /// Compute Jones polynomial from Kauffman bracket (simplified model).
-    /// 
+    /// Writhe-normalize the simplified (per-crossing curl) bracket:
+    ///
     /// V(K) = (-A)^(-3w) * ⟨K⟩
-    /// 
-    /// where w = writhe(K) and ⟨K⟩ is the Kauffman bracket.
+    ///
+    /// where w = writhe(K) and ⟨K⟩ is `evaluateBracket` above.
+    ///
+    /// ⚠ LIMITATION — since `evaluateBracket` treats every crossing as an
+    /// isolated curl, the result is always the monomial
+    ///   (-A)^(-3w) · (−A⁻³)^(#positive) · (−A³)^(#negative) = A^(−6w),
+    /// It is NOT the Jones polynomial of the trefoil/figure-eight/Hopf link —
+    /// use `Planar.jonesPolynomial` with `KnotConstructors` diagrams for those.
     /// </summary>
     let jonesPolynomial (diagram: KnotDiagram) (a: Complex) : Complex =
         let w = writhe diagram
@@ -148,43 +181,53 @@ module KauffmanBracket =
         normalization * bracket
 
     // ========================================
-    // Standard Knot Constructors (Simplified)
+    // Standard Knot Constructors (Simplified — crossing signs ONLY)
     // ========================================
+    //
+    // ⚠ These constructors record only the CROSSING SIGNS of the standard
+    // diagrams (correct crossing counts and writhes). They carry no strand
+    // connectivity, so evaluating the simplified bracket/Jones on them does NOT
+    // give the corresponding knot invariants (see `evaluateBracket`). For real
+    // invariants use the planar constructors: `KnotConstructors.trefoil`,
+    // `KnotConstructors.figureEight`, `KnotConstructors.hopfLink`.
 
     /// Create unknot (simple loop, no crossings)
     let unknot : KnotDiagram = []
 
-    /// Create trefoil knot (3 crossings)
+    /// Crossing-sign list of the standard trefoil diagram (3 crossings, writhe ±3).
+    /// ⚠ Signs only — for the trefoil's actual invariants use `KnotConstructors.trefoil`.
     let trefoil (rightHanded: bool) : KnotDiagram =
         if rightHanded then
             [Positive; Positive; Positive]
         else
             [Negative; Negative; Negative]
 
-    /// Create figure-eight knot (4 crossings)
+    /// Crossing-sign list of the standard figure-eight diagram (4 crossings, writhe 0).
+    /// ⚠ Signs only — for the figure-eight's actual invariants use `KnotConstructors.figureEight`.
     let figureEight : KnotDiagram =
         [Positive; Negative; Positive; Negative]
 
-    /// Create Hopf link (2 crossings)
+    /// Crossing-sign list of the positive Hopf link diagram (2 crossings, writhe +2).
+    /// ⚠ Signs only — for the Hopf link's actual invariants use `KnotConstructors.hopfLink`.
     let hopfLink : KnotDiagram =
         [Positive; Positive]
 
     // ========================================
-    // Standard TQFT Values
+    // Standard TQFT Values (simplified model — same curl-only caveat as above)
     // ========================================
 
-    /// Evaluate at Ising TQFT value: A = exp(iπ/4)
+    /// Evaluate the simplified (per-crossing curl) bracket at the Ising TQFT value A = exp(iπ/4)
     let evaluateIsing (diagram: KnotDiagram) : Complex =
         let a = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
         evaluateBracket diagram a
 
-    /// Evaluate at Fibonacci TQFT value: A = exp(i*pi/4 + i*pi/10)
+    /// Evaluate the simplified (per-crossing curl) bracket at the Fibonacci TQFT value A = exp(i*pi/4 + i*pi/10)
     let evaluateFibonacci (diagram: KnotDiagram) : Complex =
         let angle = Math.PI / 4.0 + Math.PI / 10.0
         let a = Complex(Math.Cos(angle), Math.Sin(angle))
         evaluateBracket diagram a
 
-    /// Evaluate Jones polynomial at t = -1
+    /// Evaluate the simplified (per-crossing curl) Jones value at t = -1 (A = exp(iπ/4))
     let evaluateJonesAtMinusOne (diagram: KnotDiagram) : Complex =
         let a = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
         jonesPolynomial diagram a
@@ -277,99 +320,137 @@ module KauffmanBracket =
                     else
                         count) 0
 
-        /// Resolve crossing by applying skein relation (with full arc reconnection)
+        /// Resolve a crossing by applying the skein relation (with full arc reconnection).
+        ///
+        /// Returns (0-smoothing, 1-smoothing), where geometrically the
+        /// 0-smoothing joins positions (NW,NE) and (SW,SE) and the 1-smoothing
+        /// joins (NW,SW) and (NE,SE). The A / A⁻¹ weights (which depend on the
+        /// crossing sign) are applied by the evaluators, not here.
+        ///
+        /// The reconnection walks complete strands through the removed crossing, so
+        /// degenerate connectivity is handled correctly:
+        ///   - an arc that directly connects two joined positions closes into a
+        ///     standalone loop, recorded as a FreeEnd–FreeEnd arc (which
+        ///     countComponents counts as one component, like the unknot);
+        ///   - an arc whose far end re-enters the SAME crossing at another position
+        ///     is followed through the other smoothing junction (chained strands).
+        ///
+        /// (A previous implementation merged arcs pairwise via a position-blind
+        /// "other end" lookup: merged arcs kept endpoints referencing the REMOVED
+        /// crossing, so countComponents found no strand continuation and counted
+        /// every merged arc as its own loop. That inflated loop counts and produced
+        /// wrong invariants — e.g. the Hopf link bracket came out as (A²+A⁻²+2)·d
+        /// instead of −A⁴−A⁻⁴, and the trefoil bracket as a wrong trinomial.)
         let resolveCrossing (diagram: PlanarDiagram) (crossingId: int) : (PlanarDiagram * PlanarDiagram) =
             match Map.tryFind crossingId diagram.Crossings with
             | None -> (diagram, diagram)
             | Some crossing ->
-                let arcNW = crossing.Connections.[NW]
-                let arcNE = crossing.Connections.[NE]
-                let arcSW = crossing.Connections.[SW]
-                let arcSE = crossing.Connections.[SE]
-                
+
+            // Build one smoothed diagram for the given junction pairs.
+            let smooth (pairs: (CrossingPosition * CrossingPosition) list) : PlanarDiagram =
                 let remainingCrossings = Map.remove crossingId diagram.Crossings
-                
-                let getOtherEnd (arcId: int) (atCrossingId: int) : ArcEnd =
+
+                // The junction partner of a position under this smoothing.
+                let partner (pos: CrossingPosition) : CrossingPosition =
+                    pairs
+                    |> List.pick (fun (a, b) ->
+                        if a = pos then Some b
+                        elif b = pos then Some a
+                        else None)
+
+                // The arc occupying a given position, and the endpoint reached by
+                // traversing that arc AWAY from this position (position-aware:
+                // an arc may have both endpoints on this crossing).
+                let farEndOf (pos: CrossingPosition) : int * ArcEnd =
+                    let arcId = crossing.Connections.[pos]
                     let arc = diagram.Arcs.[arcId]
-                    match arc.Start, arc.End with
-                    | AtCrossing (cid, _), other when cid = atCrossingId -> other
-                    | other, AtCrossing (cid, _) when cid = atCrossingId -> other
-                    | start, _ -> start
-                
-                let mergeArcs (arc1Id: int) (arc2Id: int) (newId: int) : Arc =
-                    let start = getOtherEnd arc1Id crossingId
-                    let endPoint = getOtherEnd arc2Id crossingId
-                    { Id = newId; Start = start; End = endPoint }
-                
-                let updateCrossingConnections (arcs: Map<int, Arc>) (oldToNew: Map<int, int>) : Map<int, PlanarCrossing> =
-                    remainingCrossings
-                    |> Map.map (fun cid c ->
-                        let updatedConnections =
-                            c.Connections
-                            |> Map.map (fun pos arcId ->
-                                match Map.tryFind arcId oldToNew with
-                                | Some newId -> newId
-                                | None -> arcId)
-                        { c with Connections = updatedConnections })
-                
-                let nextId = 
+                    let isHere (e: ArcEnd) =
+                        match e with
+                        | AtCrossing (cid, p) -> cid = crossingId && p = pos
+                        | FreeEnd _ -> false
+                    if isHere arc.Start then (arcId, arc.End)
+                    elif isHere arc.End then (arcId, arc.Start)
+                    else
+                        // Defensive fallback for diagrams whose endpoint metadata is
+                        // inconsistent with the crossing's connection map: prefer
+                        // the end that is not at this crossing.
+                        match arc.Start with
+                        | AtCrossing (cid, _) when cid = crossingId -> (arcId, arc.End)
+                        | _ -> (arcId, arc.Start)
+
+                let mutable visited : Set<CrossingPosition> = Set.empty
+                let mutable nextId =
                     if Map.isEmpty diagram.Arcs then 0
                     else (diagram.Arcs.Keys |> Seq.max) + 1
-                
-                match crossing.Sign with
-                | Positive ->
-                    // 0-smoothing: NW→NE and SW→SE
-                    let newArc1_0 = mergeArcs arcNW arcNE nextId
-                    let newArc2_0 = mergeArcs arcSW arcSE (nextId + 1)
-                    let oldToNew0 = Map.ofList [(arcNW, nextId); (arcNE, nextId); (arcSW, nextId + 1); (arcSE, nextId + 1)]
-                    
-                    let arcs0 = 
-                        diagram.Arcs
-                        |> Map.remove arcNW |> Map.remove arcNE |> Map.remove arcSW |> Map.remove arcSE
-                        |> Map.add nextId newArc1_0 |> Map.add (nextId + 1) newArc2_0
-                    
-                    let diagram0 = { Crossings = updateCrossingConnections arcs0 oldToNew0; Arcs = arcs0 }
-                    
-                    // 1-smoothing: NW→SW and NE→SE
-                    let newArc1_1 = mergeArcs arcNW arcSW (nextId + 2)
-                    let newArc2_1 = mergeArcs arcNE arcSE (nextId + 3)
-                    let oldToNew1 = Map.ofList [(arcNW, nextId + 2); (arcSW, nextId + 2); (arcNE, nextId + 3); (arcSE, nextId + 3)]
-                    
-                    let arcs1 = 
-                        diagram.Arcs
-                        |> Map.remove arcNW |> Map.remove arcNE |> Map.remove arcSW |> Map.remove arcSE
-                        |> Map.add (nextId + 2) newArc1_1 |> Map.add (nextId + 3) newArc2_1
-                    
-                    let diagram1 = { Crossings = updateCrossingConnections arcs1 oldToNew1; Arcs = arcs1 }
-                    
-                    (diagram0, diagram1)
-                
-                | Negative ->
-                    // 0-smoothing: NE→NW and SE→SW
-                    let newArc1_0 = mergeArcs arcNE arcNW nextId
-                    let newArc2_0 = mergeArcs arcSE arcSW (nextId + 1)
-                    let oldToNew0 = Map.ofList [(arcNE, nextId); (arcNW, nextId); (arcSE, nextId + 1); (arcSW, nextId + 1)]
-                    
-                    let arcs0 = 
-                        diagram.Arcs
-                        |> Map.remove arcNW |> Map.remove arcNE |> Map.remove arcSW |> Map.remove arcSE
-                        |> Map.add nextId newArc1_0 |> Map.add (nextId + 1) newArc2_0
-                    
-                    let diagram0 = { Crossings = updateCrossingConnections arcs0 oldToNew0; Arcs = arcs0 }
-                    
-                    // 1-smoothing: NE→SE and NW→SW
-                    let newArc1_1 = mergeArcs arcNE arcSE (nextId + 2)
-                    let newArc2_1 = mergeArcs arcNW arcSW (nextId + 3)
-                    let oldToNew1 = Map.ofList [(arcNE, nextId + 2); (arcSE, nextId + 2); (arcNW, nextId + 3); (arcSW, nextId + 3)]
-                    
-                    let arcs1 = 
-                        diagram.Arcs
-                        |> Map.remove arcNW |> Map.remove arcNE |> Map.remove arcSW |> Map.remove arcSE
-                        |> Map.add (nextId + 2) newArc1_1 |> Map.add (nextId + 3) newArc2_1
-                    
-                    let diagram1 = { Crossings = updateCrossingConnections arcs1 oldToNew1; Arcs = arcs1 }
-                    
-                    (diagram0, diagram1)
+                let mutable newArcs : Arc list = []
+                let mutable oldToNew : Map<int, int> = Map.empty
+                let mutable consumedArcs : Set<int> = Set.empty
+
+                // Walk away from `pos` through its arc, hopping across further
+                // junctions of THIS crossing, until reaching an endpoint away from
+                // this crossing (Some ext) or closing onto an already-visited
+                // junction (None = the strand is a closed loop).
+                let rec walkFrom (pos: CrossingPosition) (acc: int list) : ArcEnd option * int list =
+                    visited <- Set.add pos visited
+                    let (arcId, far) = farEndOf pos
+                    let acc = arcId :: acc
+                    match far with
+                    | AtCrossing (cid, p) when cid = crossingId ->
+                        visited <- Set.add p visited
+                        let p2 = partner p
+                        if visited.Contains p2 then (None, acc)   // strand closed into a loop
+                        else walkFrom p2 acc
+                    | ext -> (Some ext, acc)
+
+                let registerStrand (endpoints: (ArcEnd * ArcEnd) option) (arcIds: int list) =
+                    let newArc =
+                        match endpoints with
+                        | Some (e1, e2) -> { Id = nextId; Start = e1; End = e2 }
+                        | None -> { Id = nextId; Start = FreeEnd 0; End = FreeEnd 0 }  // standalone loop
+                    newArcs <- newArc :: newArcs
+                    for a in arcIds do
+                        oldToNew <- Map.add a nextId oldToNew
+                        consumedArcs <- Set.add a consumedArcs
+                    nextId <- nextId + 1
+
+                for (u, v) in pairs do
+                    if not (visited.Contains u || visited.Contains v) then
+                        match walkFrom u [] with
+                        | (None, arcsU) ->
+                            // Closed loop through this junction (v was consumed by the walk)
+                            registerStrand None arcsU
+                        | (Some e1, arcsU) ->
+                            let (endV, arcsV) = walkFrom v []
+                            match endV with
+                            | Some e2 -> registerStrand (Some (e1, e2)) (arcsU @ arcsV)
+                            | None ->
+                                // Unreachable for well-formed diagrams (the v-side
+                                // can only close onto positions already consumed,
+                                // in which case the u-side walk would have closed
+                                // first); treat defensively as a loop.
+                                registerStrand None (arcsU @ arcsV)
+
+                let arcsAfter =
+                    let survivors =
+                        diagram.Arcs |> Map.filter (fun id _ -> not (consumedArcs.Contains id))
+                    newArcs |> List.fold (fun acc (a: Arc) -> Map.add a.Id a acc) survivors
+
+                let crossingsAfter =
+                    remainingCrossings
+                    |> Map.map (fun _ c ->
+                        { c with
+                            Connections =
+                                c.Connections
+                                |> Map.map (fun _ arcId ->
+                                    match Map.tryFind arcId oldToNew with
+                                    | Some newId -> newId
+                                    | None -> arcId) })
+
+                { Crossings = crossingsAfter; Arcs = arcsAfter }
+
+            let smoothing0 = smooth [ (NW, NE); (SW, SE) ]
+            let smoothing1 = smooth [ (NW, SW); (NE, SE) ]
+            (smoothing0, smoothing1)
 
         /// Memoization cache for bracket evaluation (thread-safe)
         let private bracketCache = System.Collections.Concurrent.ConcurrentDictionary<string * Complex, Complex>()
@@ -466,22 +547,40 @@ module KauffmanBracket =
                 let (d0, d1) = resolveCrossing d cid
                 if smoothing = 0 then d0 else d1) diagram
 
-        /// Calculate weight of a state: A^(#A-smoothings - #B-smoothings) * d^(#loops - 1)
+        /// Calculate weight of a state: (product of per-crossing A/A⁻¹ factors) * d^(#loops - 1)
+        ///
+        /// The smoothing factor is SIGN-AWARE, matching the recursive skein
+        /// evaluator: a 0-smoothing contributes A at a positive crossing but A⁻¹
+        /// at a negative crossing (and vice versa for the 1-smoothing).
+        /// (A previous version used A^(#0-smoothings − #1-smoothings) regardless
+        /// of crossing sign — correct only for all-positive or all-negative
+        /// diagrams; it disagreed with the recursive evaluator on mixed-sign
+        /// diagrams such as the figure-eight knot.)
         let stateWeight (diagram: PlanarDiagram) (state: State) (a: Complex) : Complex =
             let resolved = applyState diagram state
             let loops = countComponents resolved
-            
-            // Count A-smoothings vs B-smoothings
-            let aCount = state |> Map.toList |> List.filter (fun (_, s) -> s = 0) |> List.length
-            let bCount = state |> Map.toList |> List.filter (fun (_, s) -> s = 1) |> List.length
-            
-            let exponent = aCount - bCount
+
+            // Per-crossing smoothing factors, matching evaluateBracket:
+            //   Positive: 0-smoothing → A,   1-smoothing → A⁻¹
+            //   Negative: 0-smoothing → A⁻¹, 1-smoothing → A
+            let smoothingFactor =
+                state
+                |> Map.fold (fun acc cid smoothing ->
+                    let factor =
+                        match Map.tryFind cid diagram.Crossings with
+                        | Some crossing ->
+                            match crossing.Sign, smoothing with
+                            | Positive, 0 | Negative, 1 -> a
+                            | _ -> Complex.One / a
+                        | None -> Complex.One  // state entry for a non-existent crossing
+                    acc * factor) Complex.One
+
             // d^(n-1): single loop = 1, each additional loop contributes d
-            let loopFactor = 
+            let loopFactor =
                 if loops <= 1 then Complex.One
                 else Complex.Pow(loopValue a, float (loops - 1))
-            
-            Complex.Pow(a, float exponent) * loopFactor
+
+            smoothingFactor * loopFactor
 
         /// Evaluate bracket using state-sum formulation (slower but pedagogically clear)
         let evaluateBracketStateSum (diagram: PlanarDiagram) (a: Complex) : Complex =

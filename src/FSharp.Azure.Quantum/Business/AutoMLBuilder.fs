@@ -576,9 +576,47 @@ module AutoML =
         |> List.truncate problem.MaxTrials
     
     // ========================================================================
+    // TRAIN / VALIDATION SPLIT
+    // ========================================================================
+
+    /// Shuffle the dataset with a seeded Fisher-Yates permutation, then split into
+    /// train/validation sets.
+    ///
+    /// A plain head/tail split is degenerate on ordered datasets (e.g. label-sorted
+    /// data puts one class entirely in the validation set), making every trial score
+    /// meaningless. Shuffling first gives both splits the same distribution.
+    /// Uses RandomSeed when provided (default 42) so searches are reproducible.
+    let private shuffledTrainValSplit
+        (features: float array array)
+        (labels: float array)
+        (validationSplit: float)
+        (seed: int option)
+        : (float array array * float array * float array array * float array) =
+
+        let n = features.Length
+        let rng = Random(seed |> Option.defaultValue 42)
+
+        // Fisher-Yates shuffle of indices
+        let indices = Array.init n id
+        for i in n - 1 .. -1 .. 1 do
+            let j = rng.Next(i + 1)
+            let tmp = indices.[i]
+            indices.[i] <- indices.[j]
+            indices.[j] <- tmp
+
+        let splitIndex = int (float n * (1.0 - validationSplit))
+        let trainIdx = indices.[.. splitIndex - 1]
+        let valIdx = indices.[splitIndex ..]
+
+        (trainIdx |> Array.map (fun i -> features.[i]),
+         trainIdx |> Array.map (fun i -> labels.[i]),
+         valIdx |> Array.map (fun i -> features.[i]),
+         valIdx |> Array.map (fun i -> labels.[i]))
+
+    // ========================================================================
     // AUTO ML SEARCH
     // ========================================================================
-    
+
     /// Run AutoML search to find best model
     [<System.Obsolete("Uses Async.Parallel |> Async.RunSynchronously internally. Use searchAsync for non-blocking parallelization.")>]
     let search (problem: AutoMLProblem) : QuantumResult<AutoMLResult> =
@@ -601,12 +639,10 @@ module AutoML =
                 logInfo problem.Logger $"   Architectures: {problem.TryArchitectures.Length}"
                 logInfo problem.Logger ""
             
-            // Split data into train/validation
-            let splitIndex = int (float problem.TrainFeatures.Length * (1.0 - problem.ValidationSplit))
-            let trainX = problem.TrainFeatures.[..splitIndex-1]
-            let trainY = problem.TrainLabels.[..splitIndex-1]
-            let valX = problem.TrainFeatures.[splitIndex..]
-            let valY = problem.TrainLabels.[splitIndex..]
+            // Split data into train/validation (shuffled so ordered/label-sorted
+            // datasets don't yield degenerate splits)
+            let (trainX, trainY, valX, valY) =
+                shuffledTrainValSplit problem.TrainFeatures problem.TrainLabels problem.ValidationSplit problem.RandomSeed
             
             if problem.Verbose then
                 logInfo problem.Logger $"Train/Val Split: {trainX.Length}/{valX.Length} samples\n"
@@ -903,11 +939,10 @@ module AutoML =
                         logInfo problemWithToken.Logger $"   Architectures: {problemWithToken.TryArchitectures.Length}"
                         logInfo problemWithToken.Logger ""
 
-                    let splitIndex = int (float problemWithToken.TrainFeatures.Length * (1.0 - problemWithToken.ValidationSplit))
-                    let trainX = problemWithToken.TrainFeatures.[..splitIndex-1]
-                    let trainY = problemWithToken.TrainLabels.[..splitIndex-1]
-                    let valX = problemWithToken.TrainFeatures.[splitIndex..]
-                    let valY = problemWithToken.TrainLabels.[splitIndex..]
+                    // Split data into train/validation (shuffled so ordered/label-sorted
+                    // datasets don't yield degenerate splits)
+                    let (trainX, trainY, valX, valY) =
+                        shuffledTrainValSplit problemWithToken.TrainFeatures problemWithToken.TrainLabels problemWithToken.ValidationSplit problemWithToken.RandomSeed
 
                     if problemWithToken.Verbose then
                         logInfo problemWithToken.Logger $"Train/Val Split: {trainX.Length}/{valX.Length} samples\n"

@@ -75,10 +75,13 @@ module OptionPricing =
         /// European put: max(K - S_T, 0)
         | EuropeanPut
         
-        /// Asian call: max(Avg(S_t) - K, 0)
+        /// Asian call: max(Avg(S_t) - K, 0) with timeSteps monitoring dates.
+        /// Priced via the geometric-average closed-form approximation (slightly
+        /// conservative vs the arithmetic average; see logPriceParameters).
         | AsianCall of timeSteps: int
-        
-        /// Asian put: max(K - Avg(S_t), 0)
+
+        /// Asian put: max(K - Avg(S_t), 0) with timeSteps monitoring dates.
+        /// Priced via the geometric-average closed-form approximation.
         | AsianPut of timeSteps: int
     
     /// Result of option pricing
@@ -113,31 +116,62 @@ module OptionPricing =
     // ========================================================================
     // PRIVATE - GBM Distribution Encoding (using Möttönen)
     // ========================================================================
-    
+
+    /// Log-space parameters (mean, std) of the price variable priced for each option type.
+    ///
+    /// European: terminal price S_T with ln S_T ~ N(ln S₀ + (r - σ²/2)T, σ²T).
+    ///
+    /// Asian: the GEOMETRIC average G = (∏ᵢ S_{tᵢ})^(1/n) over n equally spaced
+    /// monitoring dates tᵢ = i·T/n, which is exactly log-normal under GBM:
+    ///   E[ln G]   = ln S₀ + (r - σ²/2)·T·(n+1)/(2n)
+    ///   Var[ln G] = σ²·T·(n+1)(2n+1)/(6n²)
+    ///
+    /// **APPROXIMATION (documented)**: pricing on the geometric average is the standard
+    /// closed-form approximation to the arithmetic-average Asian option. Since the
+    /// geometric mean never exceeds the arithmetic mean, Asian call prices are slightly
+    /// conservative (low) and puts slightly high; the result's Method field labels this.
+    let private logPriceParameters
+        (optionType: OptionType)
+        (marketParams: MarketParameters)
+        : float * float =
+
+        let sigma2 = marketParams.Volatility * marketParams.Volatility
+        let T = marketParams.TimeToExpiry
+        match optionType with
+        | EuropeanCall | EuropeanPut ->
+            let logMean = log marketParams.SpotPrice + (marketParams.RiskFreeRate - 0.5 * sigma2) * T
+            (logMean, marketParams.Volatility * sqrt T)
+        | AsianCall timeSteps | AsianPut timeSteps ->
+            let n = float timeSteps
+            let logMean =
+                log marketParams.SpotPrice
+                + (marketParams.RiskFreeRate - 0.5 * sigma2) * T * (n + 1.0) / (2.0 * n)
+            let logVar = sigma2 * T * (n + 1.0) * (2.0 * n + 1.0) / (6.0 * n * n)
+            (logMean, sqrt logVar)
+
     /// Encode Geometric Brownian Motion distribution as quantum state
-    /// 
+    ///
     /// Creates circuit that prepares |ψ⟩ = ∑ᵢ √p(Sᵢ) |i⟩
-    /// where p(Sᵢ) is log-normal distribution from Black-Scholes GBM
-    /// 
+    /// where p(Sᵢ) is the log-normal distribution of the priced variable:
+    /// terminal price for European options, geometric-average price for Asian options.
+    ///
     /// Uses Möttönen state preparation for exact amplitude encoding
     let private encodeGBMDistribution
+        (optionType: OptionType)
         (marketParams: MarketParameters)
         (numQubits: int)
         : CircuitBuilder.Circuit =
-        
+
         let numLevels = 1 <<< numQubits
-        
-        // GBM parameters: S_T = S_0 * exp(μT + σ√T * Z)
-        let mu = marketParams.RiskFreeRate - 0.5 * marketParams.Volatility * marketParams.Volatility
-        let sigma = marketParams.Volatility * sqrt marketParams.TimeToExpiry
-        
-        // Discretize log-normal distribution
-        let priceLevels = 
-            StatisticalDistributions.discretizeLogNormal 
-                (log marketParams.SpotPrice + mu * marketParams.TimeToExpiry)
-                (sigma)
+
+        // Discretize log-normal distribution of the priced variable
+        let logMean, logStd = logPriceParameters optionType marketParams
+        let priceLevels =
+            StatisticalDistributions.discretizeLogNormal
+                logMean
+                logStd
                 numLevels
-        
+
         // Convert probabilities to amplitudes: α_i = √p_i
         let amplitudes =
             priceLevels
@@ -182,12 +216,12 @@ module OptionPricing =
             let numLevels = 1 <<< numQubits
 
             // Discretize the same log-normal distribution used by encodeGBMDistribution
-            let mu = marketParams.RiskFreeRate - 0.5 * marketParams.Volatility * marketParams.Volatility
-            let sigma = marketParams.Volatility * sqrt marketParams.TimeToExpiry
+            // (terminal price for European, geometric-average price for Asian)
+            let logMean, logStd = logPriceParameters optionType marketParams
             let priceLevels =
                 StatisticalDistributions.discretizeLogNormal
-                    (log marketParams.SpotPrice + mu * marketParams.TimeToExpiry)
-                    sigma
+                    logMean
+                    logStd
                     numLevels
 
             // Determine which basis states are in-the-money
@@ -288,10 +322,12 @@ module OptionPricing =
                 return Error (QuantumError.ValidationError ("TimeToExpiry", "Must be > 0"))
             elif marketParams.TimeToExpiry > 10.0 then
                 return Error (QuantumError.ValidationError ("TimeToExpiry", "Time > 10 years is beyond typical option maturities"))
+            elif (match optionType with AsianCall n | AsianPut n -> n < 1 | _ -> false) then
+                return Error (QuantumError.ValidationError ("timeSteps", "Asian options require at least 1 averaging time step"))
             else
-                
+
                 // Build quantum state preparation (encode GBM using Möttönen)
-                let statePrep = encodeGBMDistribution marketParams numQubits
+                let statePrep = encodeGBMDistribution optionType marketParams numQubits
                 
                 // Build quantum oracle (encode payoff)
                 let oracle = encodePayoffOracle optionType marketParams numQubits
@@ -321,15 +357,17 @@ module OptionPricing =
                 // Calculate discount factor
                 let discountFactor = exp (-marketParams.RiskFreeRate * marketParams.TimeToExpiry)
 
-                // Reconstruct the same discretized terminal price grid used for state preparation.
+                // Reconstruct the same discretized price grid used for state preparation
+                // (terminal price for European, geometric-average price for Asian).
                 let numLevels = 1 <<< numQubits
-                let mu = marketParams.RiskFreeRate - 0.5 * marketParams.Volatility * marketParams.Volatility
-                let sigma = marketParams.Volatility * sqrt marketParams.TimeToExpiry
+                let logMean, logStd = logPriceParameters optionType marketParams
                 let priceLevels =
                     StatisticalDistributions.discretizeLogNormal
-                        (log marketParams.SpotPrice + mu * marketParams.TimeToExpiry)
-                        sigma
+                        logMean
+                        logStd
                         numLevels
+                // For Asian options the grid variable is the (geometric) average price,
+                // so the same strike comparison prices the average-price payoff.
                 let payoffAt (price: float) =
                     match optionType with
                     | EuropeanCall | AsianCall _ -> max (price - marketParams.StrikePrice) 0.0
@@ -349,11 +387,17 @@ module OptionPricing =
                     let prices = priceLevels |> Array.map fst
                     let priceRange = Array.max prices - Array.min prices
                     let confidenceInterval = discountFactor * result.StandardError * priceRange
+                    let methodName =
+                        match optionType with
+                        | EuropeanCall | EuropeanPut ->
+                            "Quantum Monte Carlo (Möttönen + Grover)"
+                        | AsianCall _ | AsianPut _ ->
+                            "Quantum Monte Carlo (geometric-average Asian approximation, Möttönen + Grover)"
                     return Ok {
                         Price = optionPrice
                         ConfidenceInterval = confidenceInterval
                         Speedup = result.SpeedupFactor
-                        Method = "Quantum Monte Carlo (Möttönen + Grover)"
+                        Method = methodName
                         QubitsUsed = numQubits
                     }
         }

@@ -598,39 +598,70 @@ module DrugDiscoverySolvers =
             OptimizationConverged: bool option
         }
         
-        /// Build QUBO for Diverse Subset Selection
+        /// Number of binary slack bits needed to represent an integer in [0, b]:
+        /// T = ceil(log2(b + 1)). Mirrors QuantumBinaryILPSolver.slackBitsForBound.
+        let private slackBitsForBound (b: float) : int =
+            if b <= 0.0 then 0
+            elif b < 1.0 then 1
+            else
+                let bInt = int (System.Math.Ceiling b)
+                let rec countBits value bits =
+                    if value <= 0 then bits
+                    else countBits (value >>> 1) (bits + 1)
+                max 1 (countBits bInt 0)
+
+        /// Build QUBO for Diverse Subset Selection.
+        ///
+        /// The budget INEQUALITY Σ cost_i·x_i ≤ budget is encoded with binary slack
+        /// bits (standard Lucas / QuantumBinaryILPSolver pattern):
+        ///   Σ cost_i·x_i + Σ_t 2^t·s_t = budget
+        /// penalised as λ·(Σ cost_i·x_i + Σ_t 2^t·s_t − budget)², so under-budget
+        /// selections are NOT punished — the slack absorbs unused budget. (The
+        /// previous slack-free λ(Σcost·x − budget)² was an equality penalty that
+        /// pushed the optimum toward budget-saturating picks regardless of value.)
+        /// Matrix layout: n item variables first, then the slack bits.
         let toQubo (problem: Problem) : float[,] =
             let n = problem.Items.Length
             let beta = problem.DiversityWeight
             let budget = problem.Budget
-            let qubo = Array2D.zeroCreate n n
-            
+            let numSlackBits = slackBitsForBound budget
+            let numVars = n + numSlackBits
+            let qubo = Array2D.zeroCreate numVars numVars
+
             // Penalty weight for budget constraint
             let maxValue = problem.Items |> List.sumBy (fun item -> abs item.Value)
-            let maxDiversity = 
+            let maxDiversity =
                 [ for i in 0 .. n - 1 do
                     for j in i + 1 .. n - 1 do
                         yield abs problem.Diversity.[i, j] ]
                 |> List.sum
             let penalty = 2.0 * (maxValue + beta * maxDiversity + 1.0)
-            
+
+            // Unified budget-constraint coefficient vector:
+            // item costs first, then slack powers of two
+            let coeffs =
+                [ for i in 0 .. n - 1 -> (i, problem.Items.[i].Cost) ]
+                @ [ for t in 0 .. numSlackBits - 1 -> (n + t, pown 2.0 t) ]
+
             // Linear terms:
-            // From objective: -value_i (maximize value)
-            // From constraint: λ * (cost_i² - 2*budget*cost_i)
-            for i, item in problem.Items |> List.indexed do
-                let costTerm = penalty * (item.Cost * item.Cost - 2.0 * budget * item.Cost)
-                qubo.[i, i] <- -item.Value + costTerm
-            
-            // Quadratic terms:
-            // From diversity: -β * diversity_ij (maximize diversity, negated)
-            // From constraint: λ * 2 * cost_i * cost_j
-            for i in 0 .. n - 1 do
-                for j in i + 1 .. n - 1 do
-                    let diversityBonus = -beta * problem.Diversity.[i, j] / 2.0
-                    let costPenalty = penalty * problem.Items.[i].Cost * problem.Items.[j].Cost
-                    qubo.[i, j] <- qubo.[i, j] + diversityBonus + costPenalty
-                    qubo.[j, i] <- qubo.[j, i] + diversityBonus + costPenalty
-            
+            // From objective: -value_i (maximize value, items only)
+            // From constraint: λ * (c_v² - 2*budget*c_v) for every variable
+            for (v, c) in coeffs do
+                let objective = if v < n then -problem.Items.[v].Value else 0.0
+                qubo.[v, v] <- objective + penalty * (c * c - 2.0 * budget * c)
+
+            // Quadratic terms (symmetric split, half at each of [u,v] and [v,u]):
+            // From diversity: -β * diversity_ij (maximize diversity, items only)
+            // From constraint: λ * c_u * c_v per side (total 2λ·c_u·c_v per pair)
+            for (u, cu) in coeffs do
+                for (v, cv) in coeffs do
+                    if u < v then
+                        let diversityBonus =
+                            if v < n then -beta * problem.Diversity.[u, v] / 2.0 else 0.0
+                        let costPenalty = penalty * cu * cv
+                        qubo.[u, v] <- qubo.[u, v] + diversityBonus + costPenalty
+                        qubo.[v, u] <- qubo.[v, u] + diversityBonus + costPenalty
+
             qubo
         
         /// Constraint repair: remove items to get within budget (remove lowest value first)

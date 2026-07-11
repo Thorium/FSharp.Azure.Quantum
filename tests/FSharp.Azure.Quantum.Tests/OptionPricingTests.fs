@@ -313,6 +313,7 @@ module OptionPricingTests =
         test |> Async.RunSynchronously |> ignore
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``Greeks for deep ITM call should have Delta near 1`` () =
         let test = async {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend

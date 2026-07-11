@@ -53,7 +53,10 @@ module QaoaExecutionHelpers =
         FinalShots = 1000
         EnableOptimization = true
         EnableConstraintRepair = true
-        MaxOptimizationIterations = 200
+        // 1000 matches the budget that was hardcoded in the optimizer before
+        // MaxOptimizationIterations was honored — smaller values here would
+        // silently cut optimization quality for existing callers.
+        MaxOptimizationIterations = 1000
     }
 
     /// Fast configuration (for quick prototyping / grid search only)
@@ -63,6 +66,8 @@ module QaoaExecutionHelpers =
         FinalShots = 500
         EnableOptimization = false
         EnableConstraintRepair = true
+        // Unused while EnableOptimization = false; kept low deliberately so
+        // turning optimization on in a copied fast config stays fast.
         MaxOptimizationIterations = 100
     }
 
@@ -73,7 +78,8 @@ module QaoaExecutionHelpers =
         FinalShots = 2000
         EnableOptimization = true
         EnableConstraintRepair = true
-        MaxOptimizationIterations = 500
+        // Not lower than the pre-fix hardcoded 1000 (see defaultConfig note)
+        MaxOptimizationIterations = 1000
     }
 
     // ================================================================================
@@ -253,21 +259,16 @@ module QaoaExecutionHelpers =
         let upperBounds = Array.init (2 * config.NumLayers) (fun i ->
             if i % 2 = 0 then Math.PI else Math.PI / 2.0)
         
-        // Run Nelder-Mead optimization (may throw MaximumIterationsException)
-        let optimResult, converged = 
-            try
-                let result = QaoaOptimizer.Optimizer.minimizeWithBounds 
-                                objectiveFunc initialParams lowerBounds upperBounds
-                (result, result.Converged)
-            with
-            | :? MathNet.Numerics.Optimization.MaximumIterationsException ->
-                // Optimizer didn't converge - use initial parameters as fallback
-                ({ QaoaOptimizer.OptimizationResult.OptimizedParameters = initialParams
-                   QaoaOptimizer.OptimizationResult.FinalObjectiveValue = System.Double.MaxValue
-                   QaoaOptimizer.OptimizationResult.Converged = false
-                   QaoaOptimizer.OptimizationResult.Iterations = config.MaxOptimizationIterations }, false)
-        
-        // Extract optimized parameters (or initial if optimization failed)
+        // Run Nelder-Mead optimization.
+        // On non-convergence the optimizer returns the best evaluation seen so far
+        // with Converged = false instead of throwing.
+        let optimResult =
+            QaoaOptimizer.Optimizer.minimizeWithBounds
+                objectiveFunc initialParams lowerBounds upperBounds
+                1e-6 config.MaxOptimizationIterations
+        let converged = optimResult.Converged
+
+        // Extract optimized parameters (best-so-far if optimization did not converge)
         let optimizedParams =
             Array.init config.NumLayers (fun i ->
                 (optimResult.OptimizedParameters.[2 * i], 
@@ -530,17 +531,13 @@ module QaoaExecutionHelpers =
         let upperBounds = Array.init (2 * config.NumLayers) (fun i ->
             if i % 2 = 0 then Math.PI else Math.PI / 2.0)
 
-        let optimResult, converged =
-            try
-                let result = QaoaOptimizer.Optimizer.minimizeWithBounds
-                                objectiveFunc initialParams lowerBounds upperBounds
-                (result, result.Converged)
-            with
-            | :? MathNet.Numerics.Optimization.MaximumIterationsException ->
-                ({ QaoaOptimizer.OptimizationResult.OptimizedParameters = initialParams
-                   QaoaOptimizer.OptimizationResult.FinalObjectiveValue = System.Double.MaxValue
-                   QaoaOptimizer.OptimizationResult.Converged = false
-                   QaoaOptimizer.OptimizationResult.Iterations = config.MaxOptimizationIterations }, false)
+        // On non-convergence the optimizer returns the best evaluation seen so far
+        // with Converged = false instead of throwing.
+        let optimResult =
+            QaoaOptimizer.Optimizer.minimizeWithBounds
+                objectiveFunc initialParams lowerBounds upperBounds
+                1e-6 config.MaxOptimizationIterations
+        let converged = optimResult.Converged
 
         let optimizedParams =
             Array.init config.NumLayers (fun i ->

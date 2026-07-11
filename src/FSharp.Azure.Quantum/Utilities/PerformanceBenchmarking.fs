@@ -265,6 +265,14 @@ module PerformanceBenchmarking =
     // COMPARISON AND REPORTING
     // ============================================================================
 
+    /// Whether higher SolutionQuality is better for the given problem type.
+    /// Portfolio benchmarks store SolutionQuality = ExpectedReturn (maximization),
+    /// while TSP benchmarks store SolutionQuality = TotalDistance (minimization).
+    let private isMaximizationProblem (problemType: string) : bool =
+        match problemType with
+        | "Portfolio" -> true
+        | _ -> false
+
     /// Generate comparison report
     let generateComparisonReport (results: BenchmarkResult list) : ComparisonReport list =
         results
@@ -272,12 +280,17 @@ module PerformanceBenchmarking =
         |> List.choose (fun ((ptype, psize), group) ->
             let classicalOpt = group |> List.tryFind (fun r -> r.Solver = "Classical")
             let quantum = group |> List.filter (fun r -> r.Solver <> "Classical")
-            
+
             match classicalOpt with
             | Some classical ->
-                let quantumAdvantage = 
-                    quantum 
-                    |> List.exists (fun q -> q.SolutionQuality < classical.SolutionQuality)
+                // Compare in the correct direction for the problem type:
+                // maximization problems (Portfolio) want higher quality,
+                // minimization problems (TSP) want lower quality
+                let quantumAdvantage =
+                    quantum
+                    |> List.exists (fun q ->
+                        if isMaximizationProblem ptype then q.SolutionQuality > classical.SolutionQuality
+                        else q.SolutionQuality < classical.SolutionQuality)
                 
                 let speedup = 
                     quantum 

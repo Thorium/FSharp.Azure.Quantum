@@ -69,43 +69,45 @@ module CircuitAbstraction =
         // ========================================================================
         
         /// Convert CircuitBuilder.Gate to QaoaCircuit.QuantumGate
-        /// 
-        /// Note: Some gates require decomposition into multiple QAOA gates.
-        /// This function only converts gates 1-to-1. For gates requiring
-        /// decomposition (SWAP, CZ), use circuitToQaoaCircuit which handles
-        /// gate sequences.
-        let private circuitBuilderGateToQaoaGate (gate: CircuitBuilder.Gate) : QuantumGate list =
+        ///
+        /// Note: Some gates require decomposition into multiple QAOA gates,
+        /// so each convertible gate maps to a gate sequence (Ok [...]).
+        /// Gates that have no QAOA representation (MCZ, Reset, Conditional)
+        /// return Error with the reason, so conversion is total and callers
+        /// (e.g. circuitToQaoaCircuit) can propagate a proper Error instead
+        /// of crashing.
+        let private circuitBuilderGateToQaoaGate (gate: CircuitBuilder.Gate) : Result<QuantumGate list, string> =
             match gate with
-            | CircuitBuilder.H q -> [QuantumGate.H q]
-            | CircuitBuilder.X q -> [QuantumGate.RX (q, Math.PI)]  // X = RX(π)
-            | CircuitBuilder.Y q -> [QuantumGate.RY (q, Math.PI)]  // Y = RY(π)
-            | CircuitBuilder.Z q -> [QuantumGate.RZ (q, Math.PI)]  // Z = RZ(π)
-            | CircuitBuilder.RX (q, angle) -> [QuantumGate.RX (q, angle)]
-            | CircuitBuilder.RY (q, angle) -> [QuantumGate.RY (q, angle)]
-            | CircuitBuilder.RZ (q, angle) -> [QuantumGate.RZ (q, angle)]
+            | CircuitBuilder.H q -> Ok [QuantumGate.H q]
+            | CircuitBuilder.X q -> Ok [QuantumGate.RX (q, Math.PI)]  // X = RX(π)
+            | CircuitBuilder.Y q -> Ok [QuantumGate.RY (q, Math.PI)]  // Y = RY(π)
+            | CircuitBuilder.Z q -> Ok [QuantumGate.RZ (q, Math.PI)]  // Z = RZ(π)
+            | CircuitBuilder.RX (q, angle) -> Ok [QuantumGate.RX (q, angle)]
+            | CircuitBuilder.RY (q, angle) -> Ok [QuantumGate.RY (q, angle)]
+            | CircuitBuilder.RZ (q, angle) -> Ok [QuantumGate.RZ (q, angle)]
             | CircuitBuilder.U3 (q, theta, phi, lambda) ->
                 // U3(θ,φ,λ) = RZ(φ) RY(θ) RZ(λ) decomposition
-                [QuantumGate.RZ (q, lambda); QuantumGate.RY (q, theta); QuantumGate.RZ (q, phi)]
-            | CircuitBuilder.CNOT (c, t) -> [QuantumGate.CNOT (c, t)]
-            | CircuitBuilder.CZ (c, t) -> 
+                Ok [QuantumGate.RZ (q, lambda); QuantumGate.RY (q, theta); QuantumGate.RZ (q, phi)]
+            | CircuitBuilder.CNOT (c, t) -> Ok [QuantumGate.CNOT (c, t)]
+            | CircuitBuilder.CZ (c, t) ->
                 // CZ = H(target) CNOT(c,t) H(target)
-                [QuantumGate.H t; QuantumGate.CNOT (c, t); QuantumGate.H t]
+                Ok [QuantumGate.H t; QuantumGate.CNOT (c, t); QuantumGate.H t]
             | CircuitBuilder.SWAP (q1, q2) ->
                 // SWAP = CNOT(q1,q2) CNOT(q2,q1) CNOT(q1,q2)
-                [QuantumGate.CNOT (q1, q2); QuantumGate.CNOT (q2, q1); QuantumGate.CNOT (q1, q2)]
+                Ok [QuantumGate.CNOT (q1, q2); QuantumGate.CNOT (q2, q1); QuantumGate.CNOT (q1, q2)]
             | CircuitBuilder.RZZ (q1, q2, angle) ->
                 // RZZ(θ) = CNOT(q1,q2) · RZ_q2(θ) · CNOT(q1,q2)
-                [QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)]
+                Ok [QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)]
             | CircuitBuilder.RXX (q1, q2, angle) ->
                 // RXX(θ) = (H⊗H) · RZZ(θ) · (H⊗H)
-                [
+                Ok [
                     QuantumGate.H q1; QuantumGate.H q2
                     QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)
                     QuantumGate.H q1; QuantumGate.H q2
                 ]
             | CircuitBuilder.RYY (q1, q2, angle) ->
                 // RYY(θ) = (RX(π/2)⊗RX(π/2)) · RZZ(θ) · (RX(-π/2)⊗RX(-π/2))
-                [
+                Ok [
                     QuantumGate.RX (q1, -Math.PI / 2.0); QuantumGate.RX (q2, -Math.PI / 2.0)
                     QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)
                     QuantumGate.RX (q1, Math.PI / 2.0); QuantumGate.RX (q2, Math.PI / 2.0)
@@ -114,7 +116,7 @@ module CircuitAbstraction =
                 // Toffoli (CCX) decomposition using 6 CNOTs + T gates (Barenco decomposition)
                 // Reference: Nielsen & Chuang, p. 182
                 // Simplified version using H + CNOT + RZ for QAOA compatibility
-                [
+                Ok [
                     QuantumGate.H t
                     QuantumGate.CNOT (c2, t)
                     QuantumGate.RZ (t, -Math.PI / 4.0)  // T† gate
@@ -131,33 +133,33 @@ module CircuitAbstraction =
                     QuantumGate.CNOT (c1, c2)
                     QuantumGate.RZ (c1, Math.PI / 4.0)  // T gate on c1
                 ]
-            | CircuitBuilder.S q -> 
+            | CircuitBuilder.S q ->
                 // S = P(π/2) = diag(1, i)
                 // Note: S ≠ RZ(π/2)! They differ by global phase e^(-iπ/4)
                 // For QAOA simulation: Use RZ but add phase correction if needed
-                [QuantumGate.RZ (q, Math.PI / 2.0)]
-            | CircuitBuilder.T q -> 
+                Ok [QuantumGate.RZ (q, Math.PI / 2.0)]
+            | CircuitBuilder.T q ->
                 // T = P(π/4) = diag(1, e^(iπ/4))
                 // Note: T ≠ RZ(π/4)! They differ by global phase e^(-iπ/8)
-                [QuantumGate.RZ (q, Math.PI / 4.0)]
-            | CircuitBuilder.SDG q -> [QuantumGate.RZ (q, -Math.PI / 2.0)]
-            | CircuitBuilder.TDG q -> [QuantumGate.RZ (q, -Math.PI / 4.0)]
-            | CircuitBuilder.P (q, theta) -> 
+                Ok [QuantumGate.RZ (q, Math.PI / 4.0)]
+            | CircuitBuilder.SDG q -> Ok [QuantumGate.RZ (q, -Math.PI / 2.0)]
+            | CircuitBuilder.TDG q -> Ok [QuantumGate.RZ (q, -Math.PI / 4.0)]
+            | CircuitBuilder.P (q, theta) ->
                 // P(θ) = diag(1, e^(iθ)) - phase gate
                 // Note: P(θ) and RZ(θ) differ by global phase e^(-iθ/2)
                 // RZ(θ) = e^(-iθ/2) * P(θ), so P(θ) = e^(iθ/2) * RZ(θ)
-                // 
+                //
                 // For QAOA simulation: Use RZ(θ) approximation
                 // Global phase doesn't affect measurement outcomes in QAOA,
                 // so this approximation is correct for optimization purposes
                 // (but DOES affect controlled operations and interference patterns).
-                [QuantumGate.RZ (q, theta)]
+                Ok [QuantumGate.RZ (q, theta)]
             | CircuitBuilder.CP (c, t, theta) ->
                 // CP(θ) = Controlled-P(θ) = diag(1, 1, 1, e^(iθ))
                 // Standard decomposition using CNOT and RZ gates
                 // Reference: Nielsen & Chuang, Section 4.3
                 let halfTheta = theta / 2.0
-                [
+                Ok [
                     QuantumGate.RZ (c, halfTheta)
                     QuantumGate.RZ (t, halfTheta)
                     QuantumGate.CNOT (c, t)
@@ -168,7 +170,7 @@ module CircuitAbstraction =
                 // CRX(θ) = Controlled-RX(θ) decomposition
                 // Reference: Nielsen & Chuang
                 let halfAngle = angle / 2.0
-                [
+                Ok [
                     QuantumGate.RX (t, halfAngle)
                     QuantumGate.CNOT (c, t)
                     QuantumGate.RX (t, -halfAngle)
@@ -177,7 +179,7 @@ module CircuitAbstraction =
             | CircuitBuilder.CRY (c, t, angle) ->
                 // CRY(θ) = Controlled-RY(θ) decomposition
                 let halfAngle = angle / 2.0
-                [
+                Ok [
                     QuantumGate.RY (t, halfAngle)
                     QuantumGate.CNOT (c, t)
                     QuantumGate.RY (t, -halfAngle)
@@ -186,28 +188,27 @@ module CircuitAbstraction =
             | CircuitBuilder.CRZ (c, t, angle) ->
                 // CRZ(θ) = Controlled-RZ(θ) decomposition
                 let halfAngle = angle / 2.0
-                [
+                Ok [
                     QuantumGate.RZ (t, halfAngle)
                     QuantumGate.CNOT (c, t)
                     QuantumGate.RZ (t, -halfAngle)
                     QuantumGate.CNOT (c, t)
                 ]
-            | CircuitBuilder.MCZ (controls, target) ->
+            | CircuitBuilder.MCZ _ ->
                 // Multi-controlled Z gate - not directly supported in QAOA
                 // MCZ gates are primarily used in Grover's algorithm via LocalBackend
-                // For QAOA contexts, this gate should not appear
-                failwith "MCZ (multi-controlled Z) gate cannot be converted to QAOA gates. Use LocalBackend for Grover's algorithm."
+                Error "MCZ (multi-controlled Z) gate cannot be converted to QAOA gates. Use LocalBackend for Grover's algorithm."
             | CircuitBuilder.Measure _ ->
                 // Measurements are handled separately by the backend
                 // Don't include in gate sequence
-                []
+                Ok []
             | CircuitBuilder.Reset _ ->
-                failwith "Reset gate cannot be converted to QAOA gates (not unitary)"
+                Error "Reset gate cannot be converted to QAOA gates (not unitary)"
             | CircuitBuilder.Conditional _ ->
-                failwith "Conditional gates cannot be converted to QAOA gates (QAOA circuits have no classical control flow)"
+                Error "Conditional gates cannot be converted to QAOA gates (QAOA circuits have no classical control flow)"
             | CircuitBuilder.Barrier _ ->
                 // Barrier is a synchronization directive with no physical effect
-                []
+                Ok []
         
         // ========================================================================
         // CONVERSION: CircuitBuilder.Circuit → QaoaCircuit
@@ -221,27 +222,25 @@ module CircuitAbstraction =
         /// 
         /// Returns Error if circuit cannot be converted.
         let circuitToQaoaCircuit (circuit: CircuitBuilder.Circuit) : Result<QaoaCircuit, QuantumError> =
-            // Convert gates, collecting decomposed sequences
-            let convertedGates = 
+            // Convert gates, collecting decomposed sequences or per-gate conversion errors
+            let gateResults =
                 circuit.Gates
                 |> List.rev
-                |> List.collect circuitBuilderGateToQaoaGate
-            
-            // Check if any non-measurement/non-barrier gates failed to convert
-            // Measure gates intentionally return [] (handled separately by the backend)
-            // Barrier gates intentionally return [] (synchronization directive, no physical effect)
-            let unconvertedCount = 
-                circuit.Gates 
-                |> List.filter (fun gate -> match gate with CircuitBuilder.Measure _ | CircuitBuilder.Barrier _ -> false | _ -> true)
-                |> List.map circuitBuilderGateToQaoaGate 
-                |> List.filter (fun gates -> gates.IsEmpty)
-                |> List.length
-            
-            if unconvertedCount > 0 then
+                |> List.map circuitBuilderGateToQaoaGate
+
+            let conversionErrors =
+                gateResults
+                |> List.choose (function Error reason -> Some reason | Ok _ -> None)
+
+            if not conversionErrors.IsEmpty then
+                let details = conversionErrors |> List.distinct |> String.concat "; "
                 Error (QuantumError.OperationError(
-                    "Circuit conversion", 
-                    $"Failed to convert {unconvertedCount} gates from CircuitBuilder to QAOA format - some gate types are not supported in QAOA"))
+                    "Circuit conversion",
+                    sprintf "Failed to convert %d gate(s) from CircuitBuilder to QAOA format: %s" conversionErrors.Length details))
             else
+                let convertedGates =
+                    gateResults
+                    |> List.collect (function Ok gates -> gates | Error _ -> [])
                 // Create placeholder Hamiltonians (for general circuits, these are empty)
                 let problemHamiltonian : ProblemHamiltonian = {
                     NumQubits = circuit.QubitCount

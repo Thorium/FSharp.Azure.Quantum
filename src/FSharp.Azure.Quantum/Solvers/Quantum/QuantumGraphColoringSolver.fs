@@ -169,14 +169,19 @@ module QuantumGraphColoringSolver =
                         let vertexName = problem.Vertices.[v]
                         match Map.tryFind vertexName problem.FixedColors with
                         | Some fixedColor ->
-                            // For fixed color: force x_{v,fixedColor} = 1, others = 0
-                            // Add large penalty to other colors
+                            // For fixed color: force x_{v,fixedColor} = 1, others = 0.
+                            // Penalise the other colour bits AND reward the fixed bit
+                            // with a strong negative diagonal term. Penalising the
+                            // others alone leaves nothing forcing the fixed bit to 1 —
+                            // the colour-count objective then actively pushes it to 0
+                            // and the pre-assignment is silently dropped at decode.
                             [0 .. numColors - 1]
                             |> List.fold (fun q c ->
+                                let varIdx = getVarIndex v c
                                 if c <> fixedColor then
-                                    let varIdx = getVarIndex v c
                                     q |> addTerm (varIdx, varIdx) (penaltyWeight * 10.0)
-                                else q) qubo
+                                else
+                                    q |> addTerm (varIdx, varIdx) (-(penaltyWeight * 10.0))) qubo
                         | None ->
                             // Normal one-hot constraint using shared helper
                             let varIndices = [ for c in 0 .. numColors - 1 -> getVarIndex v c ]
@@ -246,23 +251,31 @@ module QuantumGraphColoringSolver =
         let numColors = problem.NumColors
         
         // Decode color assignments (handle one-hot encoding)
-        let colorAssignments = 
+        let colorAssignments =
             problem.Vertices
             |> List.map (fun vertex ->
+                // A user-fixed vertex ALWAYS gets its fixed colour, regardless of
+                // what the measured bits say: defaulting a bit-less fixed vertex to
+                // colour 0 would silently violate the user's pre-assignment, and
+                // conflict counting below must use the actual fixed colours.
+                match Map.tryFind vertex problem.FixedColors with
+                | Some fixedColor -> vertex, fixedColor
+                | None ->
+
                 // Find which color variable is set to 1 for this vertex
                 let vertexIdx = problem.Vertices |> List.findIndex ((=) vertex)
-                let assignedColors = 
+                let assignedColors =
                     [for c in 0 .. numColors - 1 do
                         let varIdx = vertexIdx * numColors + c
                         if varIdx < bitstring.Length && bitstring.[varIdx] = 1 then
                             yield c]
-                
+
                 // Take first assigned color (or 0 if none/multiple)
-                let color = 
+                let color =
                     match assignedColors with
                     | [] -> 0  // No color assigned, default to color 0
                     | c :: _ -> c  // Take first color
-                
+
                 vertex, color
             )
             |> Map.ofList

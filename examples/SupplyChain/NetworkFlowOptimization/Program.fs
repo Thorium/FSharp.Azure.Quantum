@@ -109,7 +109,16 @@ module private Model =
         let sinks = nodes |> List.choose (fun n -> if n.NodeType = Sink then Some n.Id else None)
         let intermediates = nodes |> List.choose (fun n -> if n.NodeType = Intermediate then Some n.Id else None)
 
-        let capacities = nodes |> List.map (fun n -> n.Id, n.Capacity) |> Map.ofList
+        // Only intermediate nodes carry a throughput capacity in this model:
+        // sources are limited by Supply and sinks by Demand. The CSV uses
+        // capacity=0 for sinks as "not applicable", so including them in the
+        // solver's Capacities map would make every flow that serves a sink
+        // invalid under the solver's classical flow validation.
+        let capacities =
+            nodes
+            |> List.choose (fun n ->
+                if n.NodeType = Intermediate then Some (n.Id, n.Capacity) else None)
+            |> Map.ofList
         let demands =
             nodes
             |> List.choose (fun n -> n.Demand |> Option.map (fun d -> n.Id, d))
@@ -312,7 +321,9 @@ module Program =
                               node = ""
                               details = "quantum solver failed" }
 
-                        ([], nan, 0.0, [ solverError ])
+                        // 0.0 (not nan) so metrics stay JSON-serializable; the
+                        // solver_error violation row records the failure.
+                        ([], 0.0, 0.0, [ solverError ])
                     | Ok sol ->
                         let v = Validate.validateBinaryFlow problem sol.SelectedEdges
                         (sol.SelectedEdges, sol.TotalCost, sol.FillRate, v)

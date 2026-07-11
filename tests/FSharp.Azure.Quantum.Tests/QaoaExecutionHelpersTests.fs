@@ -25,7 +25,9 @@ module ConfigTests =
         Assert.Equal(1000, defaultConfig.FinalShots)
         Assert.True(defaultConfig.EnableOptimization)
         Assert.True(defaultConfig.EnableConstraintRepair)
-        Assert.Equal(200, defaultConfig.MaxOptimizationIterations)
+        // 1000 = the budget hardcoded in the optimizer before MaxOptimizationIterations
+        // was honored; presets keep the old effective behavior
+        Assert.Equal(1000, defaultConfig.MaxOptimizationIterations)
 
     [<Fact>]
     let ``fastConfig prioritizes speed over quality`` () =
@@ -43,7 +45,7 @@ module ConfigTests =
         Assert.Equal(2000, highQualityConfig.FinalShots)
         Assert.True(highQualityConfig.EnableOptimization)
         Assert.True(highQualityConfig.EnableConstraintRepair)
-        Assert.Equal(500, highQualityConfig.MaxOptimizationIterations)
+        Assert.Equal(1000, highQualityConfig.MaxOptimizationIterations)
 
     [<Fact>]
     let ``fastConfig has fewer layers than defaultConfig`` () =

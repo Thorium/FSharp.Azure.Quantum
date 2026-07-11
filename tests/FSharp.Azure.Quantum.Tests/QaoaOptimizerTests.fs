@@ -49,7 +49,7 @@ let ``Optimizer should enforce parameter bounds for QAOA angles`` () =
     let upperBounds = [| System.Math.PI; System.Math.PI |]
     
     // Run optimizer with bounds
-    let result = Optimizer.minimizeWithBounds objectiveFunction initialParameters lowerBounds upperBounds
+    let result = Optimizer.minimizeWithBounds objectiveFunction initialParameters lowerBounds upperBounds 1e-6 1000
     
     // Verify convergence
     Assert.True(result.Converged, "Optimizer should converge")

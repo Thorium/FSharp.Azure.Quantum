@@ -181,6 +181,7 @@ let ``train - should handle balanced classes`` () =
 // ============================================================================
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``predict - should return valid label`` () =
     let featureMap = AngleEncoding
     let (trainData, trainLabels) = createSimpleDataset ()

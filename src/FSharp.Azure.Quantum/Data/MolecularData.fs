@@ -20,7 +20,10 @@ module MolecularData =
     type private SmilesParseState =
         { LastAtomIndex: int
           CurrentBondOrder: int
-          ErrorsRev: string list }
+          ErrorsRev: string list
+          /// Structural error that makes the molecule invalid (e.g. ring closure
+          /// before any atom). Causes parseSmiles to return Error instead of Ok.
+          FatalError: string option }
     
     // ========================================================================
     // CORE TYPES
@@ -287,7 +290,7 @@ module MolecularData =
                 let ringClosures = System.Collections.Generic.Dictionary<int, int>()
                 let branchStack = System.Collections.Generic.Stack<int>()
 
-                let initialState: SmilesParseState = { LastAtomIndex = -1; CurrentBondOrder = 1; ErrorsRev = [] }
+                let initialState: SmilesParseState = { LastAtomIndex = -1; CurrentBondOrder = 1; ErrorsRev = []; FatalError = None }
 
                 let step state token =
                     match token with
@@ -315,18 +318,26 @@ module MolecularData =
 
                     // Ring closure
                     | _ when Regex.IsMatch(token, @"^%?\d+$") ->
-                        let ringNum =
-                            if token.StartsWith("%") then Int32.Parse(token.Substring(1))
-                            else Int32.Parse(token)
-
-                        if ringClosures.ContainsKey(ringNum) then
-                            let startAtom = ringClosures.[ringNum]
-                            bonds.Add({ Atom1 = startAtom; Atom2 = state.LastAtomIndex; Order = state.CurrentBondOrder })
-                            ringClosures.Remove(ringNum) |> ignore
+                        if state.LastAtomIndex < 0 then
+                            // A ring-closure digit before any atom (e.g. "1CC1" or a digit
+                            // right after a '.' fragment separator) has no atom to bond to.
+                            // Recording it would create a bond with index -1 that crashes
+                            // fingerprint/descriptor calculation later — fail the parse.
+                            let msg = sprintf "Ring closure '%s' must follow an atom" token
+                            { state with FatalError = state.FatalError |> Option.orElse (Some msg) }
                         else
-                            ringClosures.[ringNum] <- state.LastAtomIndex
+                            let ringNum =
+                                if token.StartsWith("%") then Int32.Parse(token.Substring(1))
+                                else Int32.Parse(token)
 
-                        { state with CurrentBondOrder = 1 }
+                            if ringClosures.ContainsKey(ringNum) then
+                                let startAtom = ringClosures.[ringNum]
+                                bonds.Add({ Atom1 = startAtom; Atom2 = state.LastAtomIndex; Order = state.CurrentBondOrder })
+                                ringClosures.Remove(ringNum) |> ignore
+                            else
+                                ringClosures.[ringNum] <- state.LastAtomIndex
+
+                            { state with CurrentBondOrder = 1 }
 
                     | _ ->
                         match parseAtom token atoms.Count with
@@ -344,30 +355,34 @@ module MolecularData =
 
                 let finalState =
                     tokens |> List.fold step initialState
-                
-                // Calculate molecular formula
-                let formula =
-                    atoms
-                    |> Seq.groupBy (fun a -> a.Element)
-                    |> Seq.sortBy (fun (elem, _) -> 
-                        // Hill system: C first, then H, then alphabetical
-                        match elem with
-                        | "C" -> "0C"
-                        | "H" -> "1H"
-                        | _ -> "2" + elem)
-                    |> Seq.map (fun (elem, group) ->
-                        let count = Seq.length group
-                        if count = 1 then elem
-                        else sprintf "%s%d" elem count)
-                    |> String.concat ""
-                
-                Ok {
-                    Smiles = smiles
-                    Atoms = atoms.ToArray()
-                    Bonds = bonds.ToArray()
-                    Formula = formula
-                    ParseErrors = List.rev finalState.ErrorsRev
-                }
+
+                match finalState.FatalError with
+                | Some msg ->
+                    Error (QuantumError.ValidationError ("smiles", sprintf "Invalid SMILES '%s': %s" smiles msg))
+                | None ->
+                    // Calculate molecular formula
+                    let formula =
+                        atoms
+                        |> Seq.groupBy (fun a -> a.Element)
+                        |> Seq.sortBy (fun (elem, _) ->
+                            // Hill system: C first, then H, then alphabetical
+                            match elem with
+                            | "C" -> "0C"
+                            | "H" -> "1H"
+                            | _ -> "2" + elem)
+                        |> Seq.map (fun (elem, group) ->
+                            let count = Seq.length group
+                            if count = 1 then elem
+                            else sprintf "%s%d" elem count)
+                        |> String.concat ""
+
+                    Ok {
+                        Smiles = smiles
+                        Atoms = atoms.ToArray()
+                        Bonds = bonds.ToArray()
+                        Formula = formula
+                        ParseErrors = List.rev finalState.ErrorsRev
+                    }
             with ex ->
                 Error (QuantumError.Other (sprintf "SMILES parse error: %s" ex.Message))
     
@@ -614,14 +629,20 @@ module MolecularData =
                             if fields.Length > sIdx then
                                 match parseSmiles fields.[sIdx] with
                                 | Ok mol ->
-                                    let label =
-                                        match labelIdx with
-                                        | Some lIdx when fields.Length > lIdx ->
-                                            match Int32.TryParse(fields.[lIdx]) with
-                                            | true, v -> Some v
-                                            | false, _ -> Some 0
-                                        | _ -> None
-                                    Some (mol, label)
+                                    match labelIdx with
+                                    | Some lIdx ->
+                                        // A label column was requested: drop rows whose label
+                                        // field is missing so molecules and labels stay aligned
+                                        // (a partial labels array would silently shift every
+                                        // subsequent label onto the wrong molecule).
+                                        if fields.Length > lIdx then
+                                            let label =
+                                                match Int32.TryParse(fields.[lIdx]) with
+                                                | true, v -> v
+                                                | false, _ -> 0
+                                            Some (mol, Some label)
+                                        else None
+                                    | None -> Some (mol, None)
                                 | Error _ -> None
                             else None)
                     

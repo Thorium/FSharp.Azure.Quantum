@@ -354,6 +354,7 @@ module QuantumSolverTests =
             Assert.Equal("Local Simulator", solution.BackendName)
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve returns valid matching for path graph`` () =
         let backend = createLocalBackend ()
         // Path: 0-1-2-3 (3 edges)

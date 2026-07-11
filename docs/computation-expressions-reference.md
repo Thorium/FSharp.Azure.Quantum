@@ -102,15 +102,15 @@ let node1 = coloredNode {
 **Example**:
 ```fsharp
 let sudokuRow = constraintSolver<int> {
-    searchSpace 9
-    domain [1..9]
+    searchSpace 4   // 4 variables (4 × log2(4) = 8 qubits)
+    domain [1..4]
     satisfies (fun vars -> allDifferent vars)
     shots 1000
 }
 ```
 
 **Custom Operations**:
-- `searchSpace` - Number of variables (or search space size in bits)
+- `searchSpace` - Number of variables; each takes one value from `domain`. numVariables × log2(domainSize) must be ≤ 16 qubits
 - `domain` - Domain of values for each variable
 - `satisfies` - Add constraint predicate (all must be satisfied)
 - `backend` - Quantum backend to use (None = LocalBackend)
@@ -1008,11 +1008,11 @@ let superposition = circuit {
         H q
 }
 
-// Constraint Solver: Add row constraints for Sudoku
+// Constraint Solver: Add row constraints for a 4×4 Sudoku
 let sudoku = constraintSolver<int> {
-    searchSpace 81
-    domain [1..9]
-    for row in [0..8] do
+    searchSpace 6   // one variable per empty cell (6 × log2(4) = 12 qubits)
+    domain [1..4]
+    for row in [0..3] do
         satisfies (checkRow row)
 }
 

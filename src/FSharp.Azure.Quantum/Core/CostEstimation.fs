@@ -422,21 +422,37 @@ module CostEstimation =
         ) (Ok [])
         |> Result.map List.rev
     
-    /// Find the cheapest backend from a list of options
-    let findCheapestBackend 
-        (backends: CostBackend list) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
+    /// Backends priced via subscription quota (e.g. Quantinuum HQC) report
+    /// ExpectedCost = 0 USD, so their estimates cannot be compared with
+    /// per-job USD pricing.
+    let isSubscriptionPriced (backend: CostBackend) : bool =
+        match backend with
+        | Quantinuum -> true
+        | IonQ _ | Rigetti -> false
+
+    /// Find the cheapest backend from a list of options.
+    /// Subscription-priced backends (e.g. Quantinuum) are excluded from the
+    /// comparison because their ExpectedCost of 0 USD is not a usable per-job price.
+    let findCheapestBackend
+        (backends: CostBackend list)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
         : Result<CostBackend * CostEstimate, QuantumError> =
-        
+
         if backends.IsEmpty then
             Error (QuantumError.ValidationError("backends", "No backends provided - at least one backend is required"))
         else
-            compareCosts backends circuit shots
-            |> Result.map (fun estimates ->
-                estimates 
-                |> List.minBy (fun est -> est.ExpectedCost)
-                |> fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate))
+            match backends |> List.filter (isSubscriptionPriced >> not) with
+            | [] ->
+                Error (QuantumError.ValidationError(
+                    "backends",
+                    "No backends with per-job pricing available - subscription-priced backends (e.g. Quantinuum HQC) cannot be compared by expected cost"))
+            | comparableBackends ->
+                compareCosts comparableBackends circuit shots
+                |> Result.map (fun estimates ->
+                    estimates
+                    |> List.minBy (fun est -> est.ExpectedCost)
+                    |> fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate))
     
     // ============================================================================
     // COST OPTIMIZATION RECOMMENDATIONS
@@ -483,32 +499,49 @@ module CostEstimation =
         match estimateCost currentBackend circuit shots with
         | Error msg -> Error msg
         | Ok currentEstimate ->
-            match findCheapestBackend availableBackends circuit shots with
-            | Error msg -> Error msg
-            | Ok (cheapest, cheapestEstimate) ->
-                let savings = currentEstimate.ExpectedCost - cheapestEstimate.ExpectedCost
-                let savingsPercent =
-                    // Subscription-based backends (e.g. Quantinuum HQC) can have ExpectedCost = 0
-                    if currentEstimate.ExpectedCost = 0.0M<USD> then 0.0
-                    else (float (savings / currentEstimate.ExpectedCost)) * 100.0
-                
-                // Only recommend if savings >= 20%
-                if savings > 0.0M<USD> && savingsPercent >= 20.0 && cheapest <> currentBackend then
-                    let recommendation = {
-                        CurrentBackend = currentBackend
-                        RecommendedBackend = cheapest
-                        PotentialSavings = savings
-                        Reasoning = sprintf "Save $%.2f (%.0f%% reduction) by switching from %s to %s"
-                            (float (savings / 1.0M<USD>))
-                            savingsPercent
-                            (formatBackendName currentBackend)
-                            (formatBackendName cheapest)
-                        CurrentCost = currentEstimate
-                        RecommendedCost = cheapestEstimate
-                    }
-                    Ok (Some recommendation)
-                else
-                    Ok None
+            // Subscription-priced backends (e.g. Quantinuum HQC) report ExpectedCost = 0 USD,
+            // so they cannot participate in a per-job savings comparison.
+            let comparableBackends = availableBackends |> List.filter (isSubscriptionPriced >> not)
+            let subscriptionExcluded = availableBackends |> List.exists isSubscriptionPriced
+
+            match comparableBackends with
+            | [] ->
+                // No per-job priced backends to compare against - no recommendation possible
+                Ok None
+            | _ ->
+                match findCheapestBackend comparableBackends circuit shots with
+                | Error msg -> Error msg
+                | Ok (cheapest, cheapestEstimate) ->
+                    let savings = currentEstimate.ExpectedCost - cheapestEstimate.ExpectedCost
+                    let savingsPercent =
+                        // Subscription-based backends (e.g. Quantinuum HQC) can have ExpectedCost = 0
+                        if currentEstimate.ExpectedCost = 0.0M<USD> then 0.0
+                        else (float (savings / currentEstimate.ExpectedCost)) * 100.0
+
+                    // Only recommend if savings >= 20%
+                    if savings > 0.0M<USD> && savingsPercent >= 20.0 && cheapest <> currentBackend then
+                        let baseReasoning =
+                            sprintf "Save $%.2f (%.0f%% reduction) by switching from %s to %s"
+                                (float (savings / 1.0M<USD>))
+                                savingsPercent
+                                (formatBackendName currentBackend)
+                                (formatBackendName cheapest)
+                        let reasoning =
+                            if subscriptionExcluded then
+                                baseReasoning + ". Note: subscription-priced backends (e.g. Quantinuum HQC) were excluded from the comparison because they have no per-job USD price."
+                            else
+                                baseReasoning
+                        let recommendation = {
+                            CurrentBackend = currentBackend
+                            RecommendedBackend = cheapest
+                            PotentialSavings = savings
+                            Reasoning = reasoning
+                            CurrentCost = currentEstimate
+                            RecommendedCost = cheapestEstimate
+                        }
+                        Ok (Some recommendation)
+                    else
+                        Ok None
     
     // ============================================================================
     // BUDGET ENFORCEMENT

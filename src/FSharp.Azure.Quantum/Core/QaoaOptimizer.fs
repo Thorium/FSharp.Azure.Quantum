@@ -56,23 +56,35 @@ module QaoaOptimizer =
         ///   initialParameters - Initial guess for parameters
         ///   lowerBounds - Lower bounds for each parameter
         ///   upperBounds - Upper bounds for each parameter
+        ///   tolerance - Convergence tolerance for the Nelder-Mead simplex
+        ///   maxIterations - Maximum number of optimizer iterations
         /// Returns:
-        ///   OptimizationResult with optimized parameters and convergence info
-        let minimizeWithBounds 
-            (objectiveFunction: float[] -> float) 
-            (initialParameters: float[]) 
+        ///   OptimizationResult with optimized parameters and convergence info.
+        ///   If the iteration limit is reached, the best evaluation seen so far is
+        ///   returned with Converged = false instead of throwing.
+        let minimizeWithBounds
+            (objectiveFunction: float[] -> float)
+            (initialParameters: float[])
             (lowerBounds: float[])
-            (upperBounds: float[]) : OptimizationResult =
-            
+            (upperBounds: float[])
+            (tolerance: float)
+            (maxIterations: int) : OptimizationResult =
+
             // Create penalty-based objective function that enforces bounds
             // Uses quadratic penalty for parameters outside bounds
             let penaltyWeight = 1e6
+
+            // Track the best evaluation seen so far, so a usable result can be
+            // returned even when the optimizer does not converge
+            let bestParameters = ref (Array.copy initialParameters)
+            let bestPenalizedValue = ref infinity
+
             let boundedObjective (parameters: float[]) =
                 let baseValue = objectiveFunction parameters
-                
+
                 // Add penalty for violating bounds
-                let penalty = 
-                    parameters 
+                let penalty =
+                    parameters
                     |> Array.mapi (fun i p ->
                         let lower = lowerBounds[i]
                         let upper = upperBounds[i]
@@ -81,36 +93,49 @@ module QaoaOptimizer =
                         else 0.0
                     )
                     |> Array.sum
-                
-                baseValue + penalty
-            
+
+                let penalizedValue = baseValue + penalty
+                if penalizedValue < bestPenalizedValue.Value then
+                    bestPenalizedValue.Value <- penalizedValue
+                    bestParameters.Value <- Array.copy parameters
+                penalizedValue
+
             // Create objective function model for Math.NET
             let objModel = ObjectiveFunction.Value(fun (parameters: Vector<float>) ->
                 boundedObjective (parameters.ToArray())
             )
-            
+
             // Use Nelder-Mead with penalty function
-            // Increase max iterations for bounded problems
-            let solver = NelderMeadSimplex(1e-6, 1000)
-            
+            let solver = NelderMeadSimplex(tolerance, maxIterations)
+
             // Run optimization
             let initialVector = Vector<float>.Build.DenseOfArray(initialParameters)
-            let result = solver.FindMinimum(objModel, initialVector)
-            
+
+            let (minimizingPoint, iterations, converged) =
+                try
+                    let result = solver.FindMinimum(objModel, initialVector)
+                    (result.MinimizingPoint.ToArray(),
+                     result.Iterations,
+                     result.ReasonForExit = ExitCondition.Converged ||
+                     result.ReasonForExit = ExitCondition.BoundTolerance)
+                with
+                | :? MaximumIterationsException ->
+                    // Did not converge within maxIterations:
+                    // fall back to the best evaluation seen so far rather than crashing
+                    (bestParameters.Value, maxIterations, false)
+
             // Clamp final result to bounds (in case of numerical errors)
-            let clampedParameters = 
-                result.MinimizingPoint.ToArray()
+            let clampedParameters =
+                minimizingPoint
                 |> Array.mapi (fun i p ->
                     let lower = lowerBounds[i]
                     let upper = upperBounds[i]
                     max lower (min upper p)
                 )
-            
+
             {
                 OptimizedParameters = clampedParameters
                 FinalObjectiveValue = objectiveFunction clampedParameters  // Use original objective
-                Converged = 
-                    result.ReasonForExit = ExitCondition.Converged || 
-                    result.ReasonForExit = ExitCondition.BoundTolerance
-                Iterations = result.Iterations
+                Converged = converged
+                Iterations = iterations
             }

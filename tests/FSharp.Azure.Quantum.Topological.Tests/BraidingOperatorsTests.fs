@@ -134,6 +134,94 @@ module BraidingOperatorsTests =
             | Error err -> Assert.Fail($"SU(2)_2 fusionBasisChange failed: {err.Message}")
         | Error err -> Assert.Fail($"Ising fusionBasisChange failed: {err.Message}")
     
+    // ============================================================================
+    // F-MATRIX SPECIAL-VALUE REGRESSION TESTS (vacuum legs and Ising ±1 signs)
+    // ============================================================================
+    // These pin the fix that routes ALL matrixElement lookups through the
+    // pentagon-verified FMatrix module. Previously a local catch-all returned
+    // +1 for F^{σψσ}_ψ and F^{ψσψ}_σ (pentagon fixes them at −1), returned φ⁻¹
+    // for the 1×1 unitary F^{τττ}_1 (must be 1), and dropped valid vacuum-leg
+    // configurations to 0 (breaking F-move unitarity).
+
+    [<Fact>]
+    let ``F-matrix element: vacuum external leg gives trivial coefficient 1`` () =
+        // a = Vacuum: valid paths force e = b and f = d, coefficient 1.
+        // F[1,σ,σ,ψ; σ,ψ] passes fusion validation (1×σ→σ, σ×σ→ψ, σ×σ→ψ, 1×ψ→ψ)
+        // and previously fell through to 0.
+        match BraidingOperators.matrixElement
+                    AnyonSpecies.Particle.Vacuum
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Psi
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Psi
+                    AnyonSpecies.AnyonType.Ising with
+        | Ok value -> assertComplexEqual Complex.One value 1e-10
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``F-matrix: fusionBasisChange with vacuum external leg is unitary`` () =
+        // Unitarity regression: with a = Vacuum the F-move is trivial, so the
+        // (1×1) F-matrix must have unit magnitude — no amplitude loss.
+        for d in [ AnyonSpecies.Particle.Vacuum; AnyonSpecies.Particle.Psi ] do
+            match BraidingOperators.fusionBasisChange
+                        AnyonSpecies.Particle.Vacuum
+                        AnyonSpecies.Particle.Sigma
+                        AnyonSpecies.Particle.Sigma
+                        d
+                        AnyonSpecies.AnyonType.Ising with
+            | Ok f ->
+                Assert.Equal(1, Array2D.length1 f)
+                Assert.Equal(1, Array2D.length2 f)
+                Assert.True(abs (Complex.Abs f.[0, 0] - 1.0) < 1e-10,
+                    $"F-move with vacuum leg (d = {d}) should be unitary, got |F| = {Complex.Abs f.[0, 0]}")
+            | Error err -> Assert.Fail($"fusionBasisChange failed for d = {d}: {err.Message}")
+
+    [<Fact>]
+    let ``F-matrix element: Ising F(sigma psi sigma -> psi) is minus one`` () =
+        // Pentagon consistency fixes F^{σψσ}_ψ = −1 (Kitaev 2006); a previous
+        // local catch-all returned +1.
+        match BraidingOperators.matrixElement
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Psi
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Psi
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.AnyonType.Ising with
+        | Ok value -> assertComplexEqual (Complex(-1.0, 0.0)) value 1e-10
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``F-matrix element: Ising F(psi sigma psi -> sigma) is minus one`` () =
+        // Pentagon consistency fixes F^{ψσψ}_σ = −1 (Kitaev 2006).
+        match BraidingOperators.matrixElement
+                    AnyonSpecies.Particle.Psi
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Psi
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.Particle.Sigma
+                    AnyonSpecies.AnyonType.Ising with
+        | Ok value -> assertComplexEqual (Complex(-1.0, 0.0)) value 1e-10
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
+    [<Fact>]
+    let ``F-matrix element: Fibonacci F(tau tau tau -> vacuum) is one`` () =
+        // F^{τττ}_1 is a 1×1 unitary matrix, so its entry must have magnitude 1
+        // (value 1 in this gauge). A previous local table used φ⁻¹, which is not
+        // unitary and disagreed with FMatrix.computeFibonacciFSymbols.
+        match BraidingOperators.matrixElement
+                    AnyonSpecies.Particle.Tau
+                    AnyonSpecies.Particle.Tau
+                    AnyonSpecies.Particle.Tau
+                    AnyonSpecies.Particle.Vacuum
+                    AnyonSpecies.Particle.Tau
+                    AnyonSpecies.Particle.Tau
+                    AnyonSpecies.AnyonType.Fibonacci with
+        | Ok value -> assertComplexEqual Complex.One value 1e-10
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+
     [<Fact>]
     let ``F-matrix element: SU(2)_k returns zero for invalid fusion channels`` () =
         // Invalid fusion: j=1/2 × j=1/2 cannot fuse to j=3/2 in SU(2)_3

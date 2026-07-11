@@ -4,7 +4,9 @@
 ///
 /// PROBLEM: Classical PRNGs are deterministic; quantum measurement is fundamentally
 /// random. This module uses QRNG to produce samples from Normal, LogNormal,
-/// Exponential, Uniform, and custom distributions with true quantum entropy.
+/// Exponential, Uniform, and custom distributions. True quantum entropy requires
+/// a hardware backend; local simulation draws its outcomes from the OS
+/// cryptographically secure RNG (CSPRNG) — high quality, but classical.
 ///
 /// Applications: Monte Carlo simulations, financial modelling, scientific computing.
 

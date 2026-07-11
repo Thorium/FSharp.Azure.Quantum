@@ -7,9 +7,14 @@
 /// solution space when constraints are expensive to evaluate.
 ///
 /// This script demonstrates three constraint satisfaction problems:
-///   1. 4x4 Sudoku Solver
-///   2. 8-Queens Puzzle
+///   1. 4x4 Sudoku Solver (one variable per empty cell)
+///   2. 4-Queens Puzzle
 ///   3. Job Scheduling with Constraints
+///
+/// NOTE: `searchSpace` is the NUMBER OF VARIABLES. The local simulator caps
+/// the search register at 16 qubits, so numVariables * log2(domainSize) must
+/// be <= 16 (e.g. 6 cells over 1..4 = 12 qubits; 81 cells over 1..9 would
+/// need 257 qubits and is correctly rejected).
 
 (*
 ===============================================================================
@@ -51,7 +56,7 @@ Usage:
   dotnet fsi SudokuSolver.fsx                                   (defaults)
   dotnet fsi SudokuSolver.fsx -- --help                         (show options)
   dotnet fsi SudokuSolver.fsx -- --example sudoku               (run Sudoku)
-  dotnet fsi SudokuSolver.fsx -- --example queens               (run 8-Queens)
+  dotnet fsi SudokuSolver.fsx -- --example queens               (run 4-Queens)
   dotnet fsi SudokuSolver.fsx -- --example all --shots 2000     (run all)
   dotnet fsi SudokuSolver.fsx -- --quiet --output results.json  (pipeline mode)
 *)
@@ -129,12 +134,17 @@ type Shift =
 // EXAMPLE DATA
 // ==============================================================================
 
-/// 4x4 Sudoku puzzle (0 = empty cell)
+/// 4x4 Sudoku puzzle (0 = empty cell). 10 clues, 6 empty cells — the solver
+/// uses ONE VARIABLE PER EMPTY CELL (6 variables over domain 1..4 = 12 qubits,
+/// within the 16-qubit limit of the local simulator).
 let puzzle4x4 =
-    [| 1; 0; 0; 0
-       0; 0; 0; 2
-       0; 3; 0; 0
-       0; 0; 4; 0 |]
+    [| 1; 2; 0; 0
+       3; 0; 1; 2
+       2; 0; 4; 3
+       0; 3; 0; 1 |]
+
+/// Indices of the empty cells in puzzle4x4 — solver variable i fills emptyCells.[i]
+let emptyCells = [| 2; 3; 5; 9; 12; 14 |]
 
 let workers =
     [ { Id = 0; Name = "Alice";   Skills = ["Machine A"; "Machine B"]; AvailableShifts = [0; 1; 2] }
@@ -155,16 +165,14 @@ let shifts =
 // ==============================================================================
 
 let checkSudoku4x4 (assignment: Map<int, int>) =
-    if assignment.Count < 16 then false
+    if assignment.Count < emptyCells.Length then false
     else
-        let grid = Array.create 16 0
-        for cell in 0 .. 15 do
-            grid.[cell] <-
-                if puzzle4x4.[cell] <> 0 then puzzle4x4.[cell]
-                else
-                    match Map.tryFind cell assignment with
-                    | Some value -> value
-                    | None -> 0
+        let grid = Array.copy puzzle4x4
+        emptyCells
+        |> Array.iteri (fun varIdx cell ->
+            match Map.tryFind varIdx assignment with
+            | Some value -> grid.[cell] <- value
+            | None -> ())
 
         let rowsValid =
             [ 0 .. 3 ]
@@ -190,18 +198,18 @@ let checkSudoku4x4 (assignment: Map<int, int>) =
         rowsValid && colsValid && boxesValid
 
 let checkQueens (assignment: Map<int, int>) =
-    if assignment.Count < 8 then false
+    if assignment.Count < 4 then false
     else
         let positions =
-            [ 0 .. 7 ]
+            [ 0 .. 3 ]
             |> List.choose (fun row ->
                 Map.tryFind row assignment
                 |> Option.map (fun col -> (row, col)))
 
-        if positions.Length < 8 then false
+        if positions.Length < 4 then false
         else
             let uniqueCols =
-                positions |> List.map snd |> List.distinct |> List.length = 8
+                positions |> List.map snd |> List.distinct |> List.length = 4
 
             let noDiagonalAttacks =
                 positions
@@ -257,18 +265,18 @@ let runSudoku () =
 
     if not quiet then
         printfn ""
-        printfn "Initial Puzzle:"
-        printfn "  1 _ _ _"
-        printfn "  _ _ _ 2"
-        printfn "  _ 3 _ _"
-        printfn "  _ _ 4 _"
+        printfn "Initial Puzzle (10 clues, 6 empty cells):"
+        printfn "  1 2 _ _"
+        printfn "  3 _ 1 2"
+        printfn "  2 _ 4 3"
+        printfn "  _ 3 _ 1"
         printfn ""
         printfn "Solving with Quantum Constraint Solver (Grover's algorithm)..."
         printfn ""
 
     let problem =
         constraintSolver {
-            searchSpace 16
+            searchSpace 6      // one variable per EMPTY cell (6 vars x 2 bits = 12 qubits)
             domain [ 1 .. 4 ]
             satisfies checkSudoku4x4
             backend localBackend
@@ -278,9 +286,9 @@ let runSudoku () =
     match solve problem with
     | Ok solution ->
         let solvedGrid = Array.copy puzzle4x4
-        for (cellStr, value) in Map.toList solution.Assignment do
-            let cell = int cellStr
-            solvedGrid.[cell] <- value
+        for (varIdx, value) in Map.toList solution.Assignment do
+            if varIdx >= 0 && varIdx < emptyCells.Length then
+                solvedGrid.[emptyCells.[varIdx]] <- value
 
         if not quiet then
             printfn "Solution found!"
@@ -294,8 +302,8 @@ let runSudoku () =
                     solvedGrid.[row * 4 + 3]
             printfn ""
             printfn "  Constraints satisfied: %b" solution.AllConstraintsSatisfied
-            printfn "  Cells filled: %d/16" solution.Assignment.Count
-            printfn "  Search space: 4096 states"
+            printfn "  Empty cells filled: %d/6" solution.Assignment.Count
+            printfn "  Search space: 4^6 = 4096 states (12 qubits)"
             printfn "  Quantum advantage: sqrt(4096) = 64x fewer evaluations"
             printfn ""
 
@@ -311,18 +319,19 @@ let runSudoku () =
         if not quiet then printfn "Error: %s" err.Message
 
 let runQueens () =
-    printHeader "Example 2: 8-Queens Puzzle"
+    printHeader "Example 2: 4-Queens Puzzle"
 
     if not quiet then
         printfn ""
-        printfn "Problem: Place 8 queens on 8x8 board with no attacks"
+        printfn "Problem: Place 4 queens on 4x4 board with no attacks"
+        printfn "(8-Queens would need 8 vars x 3 bits = 24 qubits, beyond the 16-qubit limit)"
         printfn "Solving with Quantum Constraint Solver..."
         printfn ""
 
     let problem =
         constraintSolver {
-            searchSpace 8
-            domain [ 0 .. 7 ]
+            searchSpace 4      // one variable per row (4 vars x 2 bits = 8 qubits)
+            domain [ 0 .. 3 ]
             satisfies checkQueens
             backend localBackend
             shots numShots
@@ -334,24 +343,24 @@ let runQueens () =
             printfn "Solution found!"
             printfn ""
             printfn "  Queen Positions (row, column):"
-            for row in 0 .. 7 do
+            for row in 0 .. 3 do
                 let col = solution.Assignment.[row]
                 printfn "    Row %d: Column %d" row col
 
             printfn ""
             printfn "  Board Visualization:"
-            for row in 0 .. 7 do
+            for row in 0 .. 3 do
                 let col = solution.Assignment.[row]
                 let board =
-                    [ 0 .. 7 ]
+                    [ 0 .. 3 ]
                     |> List.map (fun c -> if c = col then "Q" else ".")
                 printfn "    %s" (String.concat " " board)
 
             printfn ""
             printfn "  Constraints satisfied: %b" solution.AllConstraintsSatisfied
-            printfn "  Queens placed: 8/8"
-            printfn "  Search space: 16,777,216 states"
-            printfn "  Quantum advantage: sqrt(16M) = 4096x fewer evaluations"
+            printfn "  Queens placed: 4/4"
+            printfn "  Search space: 4^4 = 256 states (8 qubits)"
+            printfn "  Quantum advantage: sqrt(256) = 16x fewer evaluations"
             printfn ""
 
         allResults.Add(Map.ofList
@@ -359,7 +368,7 @@ let runQueens () =
               "status",               "solved"
               "constraints_met",      sprintf "%b" solution.AllConstraintsSatisfied
               "assignments",          sprintf "%d" solution.Assignment.Count
-              "search_space",         "16777216"
+              "search_space",         "256"
               "backend",              "LocalBackend" ])
 
     | Error err ->

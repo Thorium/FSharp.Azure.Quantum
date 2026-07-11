@@ -196,23 +196,42 @@ module BinaryClassifier =
     // ========================================================================
     // TRAINING
     // ========================================================================
-    
+
+    /// VQC builds circuits with one qubit per feature dimension (see
+    /// VQC.buildVQCCircuit). When the feature count exceeds the qubit cap, samples
+    /// are truncated to the first numQubits dimensions — consistently at training
+    /// and prediction time — so the circuit matches the sized parameter vector.
+    let private truncateFeatures (numQubits: int) (sample: float array) : float array =
+        if sample.Length > numQubits then Array.sub sample 0 numQubits else sample
+
     /// Train quantum VQC classifier
-    let private trainQuantum 
+    let private trainQuantum
         (backend: IQuantumBackend)
         (features: float array array)
         (labels: int array)
         (config: ClassificationProblem)
         : QuantumResult<Classifier> =
-        
+
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
-        
+
         // Smart defaults for quantum architecture
-        let numQubits = min numFeatures 8  // Cap at 8 qubits for reasonable simulation time
+        let maxQubits = 8  // Cap for reasonable local simulation time
+        let numQubits = min numFeatures maxQubits
         let featureMap = FeatureMapType.ZZFeatureMap 2
         let variationalForm = VariationalForm.RealAmplitudes 2
-        
+
+        // VQC uses one qubit per feature dimension. Refuse feature counts above
+        // the qubit cap rather than silently truncating: a classifier that
+        // ignores most of its input features while reporting success is worse
+        // than a clear error the user can act on.
+        if numFeatures > maxQubits then
+            Error (QuantumError.ValidationError ("features",
+                $"Quantum classification supports at most {maxQubits} features (one qubit per feature; {numFeatures} supplied). Reduce dimensionality first (e.g. feature selection or PCA), or use the Classical architecture."))
+        else
+
+        let trainFeatures = features
+
         // Training configuration
         let trainConfig = {
             VQC.LearningRate = config.LearningRate
@@ -235,7 +254,7 @@ module BinaryClassifier =
         let rng = Random()
         let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
         
-        VQC.train backend featureMap variationalForm initialParams features labels trainConfig
+        VQC.train backend featureMap variationalForm initialParams trainFeatures labels trainConfig
         |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC training failed: {e}"))
         |> Result.map (fun result ->
             
@@ -357,7 +376,8 @@ module BinaryClassifier =
         let backend = classifier.Backend
         match classifier.Model with
         | VQCModel (result, featureMap, varForm, numQubits) ->
-            VQC.predict backend featureMap varForm result.Parameters sample 1000
+            // Apply the same feature truncation used at training time (qubit cap)
+            VQC.predict backend featureMap varForm result.Parameters (truncateFeatures numQubits sample) 1000
             |> Result.map (fun vqcPred ->
                 {
                     Label = vqcPred.Label

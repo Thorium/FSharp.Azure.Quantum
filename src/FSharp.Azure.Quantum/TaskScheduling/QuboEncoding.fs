@@ -60,7 +60,7 @@ module QuboEncoding =
         
         (penaltyOneHot, penaltyDependency, penaltyResource)
     
-    /// Build objective QUBO terms (minimize makespan)
+    /// Build objective QUBO terms (minimize makespan: sum of completion times)
     let private buildObjectiveTerms
         (tasks: ScheduledTask<'T> list)
         (varMapping: Map<string * int, int>)
@@ -76,6 +76,34 @@ module QuboEncoding =
                 |> Option.map (fun varIdx ->
                     let completionTime = float t + float (durationToSlots slotMinutes task.Duration)
                     ((varIdx, varIdx), completionTime))))
+        |> List.fold (fun acc (key, value) -> addOrUpdate key value acc) Map.empty
+
+    /// Build objective QUBO terms for MinimizeLateness: starting a task at slot t
+    /// costs max(0, completion - deadline) in slot units; tasks without deadlines
+    /// (or on-time start slots) contribute nothing. A small completion-time term
+    /// breaks ties toward earlier schedules so the objective still discriminates
+    /// when every candidate start is on time.
+    let private buildLatenessTerms
+        (tasks: ScheduledTask<'T> list)
+        (varMapping: Map<string * int, int>)
+        (timeHorizon: int)
+        (slotMinutes: float)
+        : Map<int * int, float> =
+
+        let tieBreakWeight = 0.01
+        tasks
+        |> List.collect (fun task ->
+            [0 .. timeHorizon - 1]
+            |> List.choose (fun t ->
+                Map.tryFind (task.Id, t) varMapping
+                |> Option.map (fun varIdx ->
+                    let completionSlots = float t + float (durationToSlots slotMinutes task.Duration)
+                    let latenessSlots =
+                        match task.Deadline with
+                        | Some deadline when slotMinutes > 0.0 ->
+                            max 0.0 (completionSlots - deadline.TotalMinutes / slotMinutes)
+                        | _ -> 0.0
+                    ((varIdx, varIdx), latenessSlots + tieBreakWeight * completionSlots))))
         |> List.fold (fun acc (key, value) -> addOrUpdate key value acc) Map.empty
     
     /// Build one-hot constraint QUBO terms (each task starts exactly once)
@@ -241,7 +269,36 @@ module QuboEncoding =
             | [| (_, start) |] -> Some (taskId, start)
             | _ -> None)  // one-hot violated: 2+ start bits set for this task
         |> Map.ofArray
-    
+
+    /// Decode bitstring with one-hot REPAIR: a task with multiple set start bits
+    /// gets its EARLIEST set slot (deterministic, biased toward low makespan);
+    /// a task with zero set bits is still omitted (nothing to repair from).
+    ///
+    /// Rationale: QAOA at fixed initial parameters rarely samples exact one-hot
+    /// states, so the strict decode rejects almost every measurement. Repairing
+    /// keeps sampling usable — SAFELY, because the quantum solver re-validates
+    /// every repaired schedule classically (dependencies + resource capacity)
+    /// before it can be returned.
+    let decodeBitstringWithRepair
+        (bitstring: int[])
+        (reverseMapping: Map<int, string * int>)
+        : Map<string, float> =
+
+        bitstring
+        |> Array.indexed
+        |> Array.choose (fun (i, bit) ->
+            if bit = 1 then
+                match Map.tryFind i reverseMapping with
+                | Some (taskId, startTime) -> Some (taskId, float startTime)
+                | None ->
+                    failwith $"decodeBitstringWithRepair: measurement bit {i} is set but has no QUBO variable mapping (bitstring length {bitstring.Length}, mapping size {reverseMapping.Count})"
+            else None
+        )
+        |> Array.groupBy fst
+        |> Array.map (fun (taskId, starts) ->
+            (taskId, starts |> Array.map snd |> Array.min))
+        |> Map.ofArray
+
     /// Build solution from decoded task START SLOTS, mapping each slot back to a real start time
     /// (slot index × slotMinutes) so the returned schedule is in genuine time units.
     let buildSolutionFromStarts
@@ -274,15 +331,24 @@ module QuboEncoding =
     // ============================================================================
 
     /// Encode resource-constrained scheduling as QUBO problem
-    /// 
+    ///
     /// ENCODING SCHEME:
     /// - Variables: x_{task,time} ∈ {0,1} where x_{task,time}=1 means task starts at time
     /// - Time discretized into slots (0, 1, 2, ..., T-1)
     /// - Each task must start at exactly one time slot
-    /// 
-    /// OBJECTIVE (minimize makespan):
-    ///   Σ_{task,time} time * x_{task,time}  (weighted by latest completion)
-    /// 
+    ///
+    /// OBJECTIVE (per problem.Objective — the declared objective IS honoured):
+    /// - MinimizeMakespan: Σ_{task,time} completion(task,time) * x_{task,time}
+    /// - MinimizeLateness: Σ_{task,time} max(0, completion - deadline) * x_{task,time}
+    /// - MinimizeCost: in this encoding every task is always assigned exactly its
+    ///   ResourceRequirements for its fixed Duration, so total resource cost is
+    ///   IDENTICAL for every feasible schedule — every feasible schedule is
+    ///   cost-optimal. The completion-time objective is used purely to bias the
+    ///   search toward compact feasible schedules.
+    /// - MaximizeResourceUtilization: total usage is likewise schedule-invariant,
+    ///   so utilisation = usage / (capacity × makespan) is maximised exactly by
+    ///   minimising makespan; encoded as the makespan objective.
+    ///
     /// CONSTRAINTS (encoded as penalties):
     ///   1. One-hot: Each task starts exactly once: Σ_time x_{task,time} = 1
     ///   2. Dependencies: Successor starts after predecessor finishes
@@ -310,8 +376,21 @@ module QuboEncoding =
             let (penaltyOneHot, penaltyDependency, penaltyResource) =
                 computePenaltyWeights problem.Tasks timeHorizon slotMinutes
 
-            // Build QUBO terms functionally
-            let objectiveTerms = buildObjectiveTerms problem.Tasks varMapping timeHorizon slotMinutes
+            // Build QUBO terms functionally.
+            // The objective term follows problem.Objective (previously the field was
+            // never read and MinimizeCost silently optimised completion times):
+            // MinimizeCost and MaximizeResourceUtilization are schedule-invariant /
+            // makespan-equivalent under this encoding (see doc comment above), so
+            // they share the completion-time objective; MinimizeLateness gets a
+            // genuinely different deadline-based objective.
+            let objectiveTerms =
+                match problem.Objective with
+                | MinimizeMakespan
+                | MinimizeCost
+                | MaximizeResourceUtilization ->
+                    buildObjectiveTerms problem.Tasks varMapping timeHorizon slotMinutes
+                | MinimizeLateness ->
+                    buildLatenessTerms problem.Tasks varMapping timeHorizon slotMinutes
             let oneHotTerms = buildOneHotTerms problem.Tasks varMapping timeHorizon penaltyOneHot
             let dependencyTerms = buildDependencyTerms problem.Tasks problem.Dependencies varMapping timeHorizon slotMinutes penaltyDependency
             let resourceTerms = buildResourceTerms problem.Tasks problem.Resources varMapping timeHorizon slotMinutes penaltyResource

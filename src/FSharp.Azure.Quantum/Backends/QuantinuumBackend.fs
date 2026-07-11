@@ -152,7 +152,8 @@ module QuantinuumBackend =
     /// - qasmCode: OpenQASM 2.0 string (already transpiled)
     /// - shots: Number of measurement shots
     /// - target: Quantinuum backend (e.g., "quantinuum.sim.h1-1sc", "quantinuum.qpu.h1-1")
-    /// 
+    /// - cancellationToken: Cancels job status polling
+    ///
     /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
@@ -162,6 +163,7 @@ module QuantinuumBackend =
         (qasmCode: string)
         (shots: int)
         (target: string)
+        (cancellationToken: System.Threading.CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             // Step 1: Create job submission
@@ -174,7 +176,6 @@ module QuantinuumBackend =
             | Ok jobId ->
                 // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err

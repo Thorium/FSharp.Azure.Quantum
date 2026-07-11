@@ -1776,6 +1776,7 @@ module H2ReferenceIntegralTests =
         | Error e -> Assert.Fail($"Provider-backed build should succeed, got {e}")
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``ChemistryVQE UCCSD converges to FCI for H2 within chemical accuracy`` () =
         // End-to-end VQE: the UCCSD ansatz must reach the H2 ground state. Guards
         // against the two convergence bugs — the ansatz rotation using Coefficient.Real

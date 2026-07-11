@@ -512,3 +512,75 @@ let ``Knot name recognition works`` () =
     Assert.Contains("Unknot", unknotName)
     Assert.Contains("trefoil", trefoilName)
     Assert.Contains("Figure-eight", fig8Name)
+
+// ========================================
+// Knot Invariant Value Regressions
+// ========================================
+// Pin the actual textbook invariants for the shipped planar constructors.
+// These distinguish the rigorous planar evaluator from the simplified
+// per-crossing (curl) model, whose results are monomials (magnitude-1 Jones
+// values), and they caught a previously wrong figure-eight diagram
+// (|V(-1)| was 1 instead of 5).
+
+/// A generic (non-root-of-unity) unit-modulus value of A for polynomial identity checks
+let private genericA = Complex(cos 0.37, sin 0.37)
+
+[<Fact>]
+let ``Trefoil bracket matches closed form`` () =
+    // <right trefoil (all-positive diagram)> = -A^5 - A^-3 + A^-7
+    let a = genericA
+    let expected = -Complex.Pow(a, 5.0) - Complex.Pow(a, -3.0) + Complex.Pow(a, -7.0)
+    let actual = evaluateBracket (trefoil true) a
+    assertComplexEqual expected actual 1e-9
+
+[<Fact>]
+let ``Left trefoil bracket is the mirror closed form`` () =
+    // Mirror image: A -> A^-1, so <left trefoil> = -A^-5 - A^3 + A^7
+    let a = genericA
+    let expected = -Complex.Pow(a, -5.0) - Complex.Pow(a, 3.0) + Complex.Pow(a, 7.0)
+    let actual = evaluateBracket (trefoil false) a
+    assertComplexEqual expected actual 1e-9
+
+[<Fact>]
+let ``Figure-eight bracket matches closed form`` () =
+    // <4_1> = A^8 - A^4 + 1 - A^-4 + A^-8 (achiral, writhe 0)
+    let a = genericA
+    let expected =
+        Complex.Pow(a, 8.0) - Complex.Pow(a, 4.0) + Complex.One
+        - Complex.Pow(a, -4.0) + Complex.Pow(a, -8.0)
+    let actual = evaluateBracket figureEight a
+    assertComplexEqual expected actual 1e-9
+
+[<Fact>]
+let ``Hopf link bracket matches closed form`` () =
+    // <Hopf> = -A^4 - A^-4
+    let a = genericA
+    let expected = -Complex.Pow(a, 4.0) - Complex.Pow(a, -4.0)
+    let actual = evaluateBracket (hopfLink true) a
+    assertComplexEqual expected actual 1e-9
+
+[<Fact>]
+let ``Jones magnitude at t = -1 equals the knot determinant`` () =
+    // At A = e^{i*pi/4}, t = A^-4 = -1 and |V(-1)| = det(K):
+    // unknot 1, trefoil 3, figure-eight 5, Hopf link 2.
+    let a = testA
+    let check name expected diagram =
+        let v = jonesPolynomial diagram a
+        Assert.True(abs (v.Magnitude - expected) < 1e-9,
+            $"{name}: |V(-1)| should be {expected}, got {v.Magnitude}")
+    check "unknot" 1.0 unknot
+    check "right trefoil" 3.0 (trefoil true)
+    check "left trefoil" 3.0 (trefoil false)
+    check "figure-eight" 5.0 figureEight
+    check "Hopf link" 2.0 (hopfLink true)
+
+[<Fact>]
+let ``Figure-eight is a knot (single component)`` () =
+    Assert.Equal(1, countComponents figureEight)
+
+[<Fact>]
+let ``Figure-eight state-sum agrees with recursive evaluator`` () =
+    let a = genericA
+    let recursive = evaluateBracket figureEight a
+    let stateSum = evaluateBracketStateSum figureEight a
+    assertComplexEqual recursive stateSum 1e-9

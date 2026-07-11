@@ -260,9 +260,10 @@ module QuantumTspSolver =
                         let upperBounds = [| 2.0 * Math.PI; 2.0 * Math.PI |]
                         
                         // Run classical optimizer to find best parameters
-                        let optimizationResult = 
-                            QaoaOptimizer.Optimizer.minimizeWithBounds 
-                                objectiveFn initialGuess lowerBounds upperBounds
+                        // (default tolerance/iteration budget; QuantumTspConfig has no such fields)
+                        let optimizationResult =
+                            QaoaOptimizer.Optimizer.minimizeWithBounds
+                                objectiveFn initialGuess lowerBounds upperBounds 1e-6 1000
                         
                         let optGamma = optimizationResult.OptimizedParameters.[0]
                         let optBeta = optimizationResult.OptimizedParameters.[1]

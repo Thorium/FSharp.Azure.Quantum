@@ -19,7 +19,9 @@ namespace FSharp.Azure.Quantum.Topological
 /// SU(2)_k R-Matrices (Conformal Field Theory):
 /// For SU(2)_k theories, R-matrices are computed using conformal weights:
 ///   h_j = j(j+1)/(k+2)  where j ∈ {0, 1/2, 1, ..., k/2}
-///   R[j1,j2;j3] = exp(2πi * (h_j1 + h_j2 - h_j3))
+///   R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h_j1 + h_j2 - h_j3))
+/// (single-exchange braid eigenvalue; the MONODROMY — a full 2π winding —
+/// is its square, exp(2πi(h_j3 - h_j1 - h_j2)) up to conjugation)
 ///
 /// Examples:
 /// - SU(2)_2 ≅ Ising: j ∈ {0, 1/2, 1} → particles {1, σ, ψ}
@@ -173,23 +175,39 @@ module RMatrix =
     ///   h_{1/2} = (1/2)*(3/2)/5 = 3/20
     ///   h_1 = 1*2/5 = 2/5
     ///   h_{3/2} = (3/2)*(5/2)/5 = 3/4
-    /// 
-    /// The R-matrix phase is then: R[j1,j2;j3] = exp(2πi * (h_j1 + h_j2 - h_j3))
+    ///
+    /// The R-matrix phase is then:
+    ///   R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h_j1 + h_j2 - h_j3))
     let private conformalWeight (j: float) (k: int) : float =
         j * (j + 1.0) / float (k + 2)
     
     /// Compute SU(2)_k R-matrices using conformal field theory formula
-    /// 
+    ///
     /// Theory: SU(2)_k Chern-Simons Theory / Wess-Zumino-Witten (WZW) Model
-    /// 
-    /// Formula from Witten (1989) and Moore-Seiberg (1989):
-    ///   R[j1, j2; j3] = exp(2πi * θ(j1, j2, j3))
-    /// 
+    ///
+    /// Exchange (single-braid) eigenvalue, NOT the monodromy:
+    ///   R[j1, j2; j3] = (-1)^(j1+j2-j3) · exp(iπ (h_j1 + h_j2 - h_j3))
+    ///
     /// where:
-    ///   θ(j1, j2, j3) = h_j1 + h_j2 - h_j3  (conformal weight combination)
     ///   h_j = j(j+1)/(k+2)                  (conformal dimension)
     ///   j ∈ {0, 1/2, 1, 3/2, ..., k/2}      (allowed representations)
-    /// 
+    ///   j1+j2-j3 is an integer for every allowed fusion channel, so the
+    ///   parity prefactor is ±1.
+    ///
+    /// The previously used exp(2πi(h1+h2-h3)) is the (conjugated) MONODROMY —
+    /// the phase of a full 2π winding, i.e. the SQUARE of the exchange — and
+    /// violates the hexagon equation (numerically: max deviation 2.0 for k=3..5
+    /// against the 6j-symbol F-matrices of FMatrix.fs, vs ~1e-15 for this formula).
+    ///
+    /// Convention/orientation note: the sign of the exponent (together with the
+    /// parity factor) is fixed so that the Fibonacci subcategory of SU(2)_3
+    /// (integer spins, j=1 ↔ τ, h_1 = 2/5) reproduces this library's hardcoded
+    /// Fibonacci R-symbols exactly:
+    ///   R[1,1;0] = (+1)·e^{iπ·4/5}        = e^{4πi/5}  = R[τ,τ;1] ✓
+    ///   R[1,1;1] = (−1)·e^{iπ(4/5−2/5)}   = e^{−3πi/5} = R[τ,τ;τ] ✓
+    /// The opposite orientation (exponent iπ(h3−h1−h2)) also satisfies the
+    /// hexagon (the SU(2)_k F-symbols are real) but yields the conjugates.
+    ///
     /// Fusion Rules:
     ///   j1 × j2 → j3 where |j1-j2| ≤ j3 ≤ min(j1+j2, k-j1-j2) in steps of 1
     /// 
@@ -233,10 +251,14 @@ module RMatrix =
                             // Extract spin values and compute conformal weights
                             let j1, j2, j3 = spinValue a, spinValue b, spinValue c
                             let h1, h2, h3 = conformalWeight j1 k, conformalWeight j2 k, conformalWeight j3 k
-                            
-                            // R-matrix formula: R[j1,j2;j3] = exp(2πi * (h1 + h2 - h3))
+
+                            // Exchange braid eigenvalue (see doc comment above):
+                            // R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h1 + h2 - h3))
+                            // j1+j2-j3 is an integer for allowed fusion channels.
+                            let parity =
+                                if (int (round (j1 + j2 - j3))) % 2 = 0 then 1.0 else -1.0
                             let theta = h1 + h2 - h3
-                            let rValue = expI (2.0 * π * theta)
+                            let rValue = Complex(parity, 0.0) * expI (π * theta)
                             
                             { A = a; B = b; C = c }, rValue)
                         |> Ok

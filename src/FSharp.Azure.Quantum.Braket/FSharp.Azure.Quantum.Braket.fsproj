@@ -6,7 +6,7 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.5</Version>
+    <Version>0.4.6</Version>
     <PackageId>FSharp.Azure.Quantum.Braket</PackageId>
     <Title>FSharp.Azure.Quantum.Braket</Title>
     <Description>AWS Braket plugin for FSharp.Azure.Quantum. Submits circuits to Braket gate QPUs (IonQ, Rigetti, IQM, OQC, Infleqtion) and simulators (SV1/DM1/TN1) via OpenQASM 3.0, and neutral-atom analog programs to QuEra Aquila via the Braket AHS format. This is the only package that depends on the AWS SDK — the core FSharp.Azure.Quantum package stays AWS-free. Requires FSharp.Azure.Quantum.</Description>
@@ -14,7 +14,13 @@
 
     <Authors>Tuomas Hietanen</Authors>
     <PackageTags>F#;FSharp;Quantum;AWS;Braket;QuEra;OQC;Infleqtion;NeutralAtom</PackageTags>
-    <PackageReleaseNotes>v0.4.3: Initial public release of the AWS Braket plugin
+    <PackageReleaseNotes>v0.4.6: Wide-device result support + correctness fixes
+- NEW: ExecuteToState returns tiered results — dense state vector ≤ 20 qubits, sparse state 21-31, QuantumState.MeasurementHistogram beyond (NO width limit: at most `shots` entries regardless of qubit count) — Rigetti Ankaa (~84q) and other wide gate devices are now usable end to end
+- NEW: BraketBackend.ExecuteToHistogramAsync — raw measurement histogram (bitstring → count) at any width
+- FIXED: 21+-qubit results no longer crash with an unhandled exception (previous cap mismatch: accepted 24, state vector limit 20)
+- Requires FSharp.Azure.Quantum v1.4.6+
+
+v0.4.3: Initial public release of the AWS Braket plugin
 - Submit gate circuits to Braket QPUs (IonQ, Rigetti, IQM, OQC, Infleqtion) and simulators (SV1/DM1/TN1) via OpenQASM 3.0
 - Submit QuEra Aquila neutral-atom analog programs via the Braket AHS format
 - Isolates the AWS SDK dependency so the core FSharp.Azure.Quantum package stays AWS-free

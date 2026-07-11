@@ -707,13 +707,17 @@ module SolovayKitaev =
     //   σ₁ = diag(R[1/2,1/2;0], R[1/2,1/2;1])   (diagonal in fusion basis)
     //   σ₂ = F⁻¹ · R · F                          (basis change via F-matrix)
     //
-    // The R-matrix phases come from the CFT conformal weight formula:
-    //   R[j1,j2;j3] = exp(2πi * (h_{j1} + h_{j2} - h_{j3}))
+    // The R-matrix phases are the exchange braid eigenvalues from CFT:
+    //   R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h_{j1} + h_{j2} - h_{j3}))
     //   h_j = j(j+1)/(k+2)
+    // (see RMatrix.computeSU2KRMatrices; the monodromy exp(2πi(...)) previously
+    // used here was the square of the exchange and violated the hexagon equation).
+    // For k=3 this gives σ₁ = diag(e^{-7πi/10}, e^{-πi/10}).
     //
-    // IMPORTANT: SU(2)_3 is NOT the same as Fibonacci despite both being related
-    // to the SU(2)_3 theory. The Fibonacci model uses specific hardcoded phases
-    // (R^1_ττ = exp(4πi/5)) that differ from the SU(2)_3 CFT formula.
+    // IMPORTANT: the j=1/2 sector of SU(2)_3 is NOT the same as Fibonacci.
+    // The Fibonacci phases (R^1_ττ = exp(4πi/5), R^τ_ττ = exp(-3πi/5)) are
+    // reproduced by the SU(2)_3 formula in the integer-spin (j=1 ↔ τ) sector,
+    // not the j=1/2 encoding used here.
     //
     // Universality by k:
     //   k=1: Trivial (abelian)

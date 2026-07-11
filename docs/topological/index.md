@@ -201,9 +201,10 @@ let program = topological backend {
 let channels = FusionRules.channels sigma sigma ising
 let R = BraidingOperators.element sigma sigma AnyonSpecies.Particle.Vacuum ising
 
-// Knot invariants
-let trefoil = KnotConstructors.trefoilKnot true
-let jones = KauffmanBracket.jonesPolynomial trefoil standardA
+// Knot invariants — use the planar-diagram path (KnotConstructors + KauffmanBracket.Planar)
+// for real invariants, e.g. ⟨trefoil⟩ = −A⁵ − A⁻³ + A⁻⁷
+let trefoil = KnotConstructors.trefoil true
+let jones = KauffmanBracket.Planar.jonesPolynomial trefoil KauffmanBracket.Planar.standardA
 
 // Magic state distillation
 let magicState = MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonType.Ising

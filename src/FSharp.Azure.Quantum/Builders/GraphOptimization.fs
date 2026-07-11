@@ -927,7 +927,26 @@ module GraphOptimization =
                 | None -> true
             
             | GraphConstraint.Custom predicate ->
-                // Custom constraint validation using provided predicate
-                // Note: predicate takes the graph, not problem/solution
-                predicate (box problem.Graph :?> Graph<obj, obj>)
+                // Custom constraint validation using provided predicate.
+                // Note: predicate takes the graph, not problem/solution.
+                // The predicate is typed over Graph<obj, obj>, so box the node/edge
+                // payloads into a new graph value (a direct cast of Graph<'TNode, 'TEdge>
+                // throws InvalidCastException for any concretely-typed graph).
+                let boxedGraph : Graph<obj, obj> = {
+                    Nodes =
+                        problem.Graph.Nodes
+                        |> Map.map (fun _ n -> { Id = n.Id; Value = box n.Value; Properties = n.Properties })
+                    Edges =
+                        problem.Graph.Edges
+                        |> List.map (fun e ->
+                            { Source = e.Source
+                              Target = e.Target
+                              Weight = e.Weight
+                              Directed = e.Directed
+                              Value = e.Value |> Option.map box
+                              Properties = e.Properties })
+                    Directed = problem.Graph.Directed
+                    Adjacency = problem.Graph.Adjacency
+                }
+                predicate boxedGraph
         )

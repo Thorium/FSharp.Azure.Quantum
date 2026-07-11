@@ -281,8 +281,9 @@ module QaoaParameterOptimizer =
             
             value
         
-        // Run optimization
-        let result = Optimizer.minimizeWithBounds trackedObjective flatParams lowerBounds upperBounds
+        // Run optimization (tolerance/max iterations come from the config;
+        // non-convergence returns the best-so-far result with Converged = false)
+        let result = Optimizer.minimizeWithBounds trackedObjective flatParams lowerBounds upperBounds tol maxIter
         
         (result, List.rev historyRef.Value)
     

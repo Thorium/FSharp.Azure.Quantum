@@ -496,24 +496,50 @@ module QuantumPortfolioSolver =
                     // Violates budget - return None
                     None
                 else
-                    // Calculate allocations (equal weight for selected assets)
+                    // Calculate allocations: equal split of the budget, capped at
+                    // MaxHolding. MaxHolding is a single per-asset cap, so
+                    // redistributing surplus to other assets could never exceed
+                    // it either — any surplus budget simply stays uninvested.
                     let numSelected = selectedAssetList.Length
-                    let valuePerAsset = problem.Constraints.Budget / float numSelected
-                    
-                    let allocations =
+                    let equalShare = problem.Constraints.Budget / float numSelected
+                    let valuePerAsset = min equalShare problem.Constraints.MaxHolding
+
+                    let allocationData =
                         selectedAssetList
                         |> List.map (fun asset ->
                             let shares = if asset.Price = 0.0 then 0.0 else valuePerAsset / asset.Price
                             let actualValue = shares * asset.Price
+                            (asset, shares, actualValue))
+
+                    let totalValue = allocationData |> List.sumBy (fun (_, _, v) -> v)
+
+                    // Validate the decoded allocation against the constraints
+                    // before returning: per-asset MinHolding/MaxHolding and budget.
+                    let satisfiesConstraints =
+                        totalValue > 0.0
+                        && totalValue <= problem.Constraints.Budget
+                        && allocationData
+                           |> List.forall (fun (_, _, v) ->
+                               v <= problem.Constraints.MaxHolding
+                               && (problem.Constraints.MinHolding <= 0.0
+                                   || v >= problem.Constraints.MinHolding))
+
+                    if not satisfiesConstraints then
+                        // Selection cannot be allocated within the user's
+                        // holding constraints - treat as infeasible
+                        None
+                    else
+
+                    let allocations =
+                        allocationData
+                        |> List.map (fun (asset, shares, actualValue) ->
                             {
                                 PortfolioSolver.Allocation.Asset = asset
                                 PortfolioSolver.Allocation.Shares = shares
                                 PortfolioSolver.Allocation.Value = actualValue
-                                PortfolioSolver.Allocation.Percentage = actualValue / problem.Constraints.Budget
+                                PortfolioSolver.Allocation.Percentage = actualValue / totalValue
                             })
-                    
-                    let totalValue = allocations |> List.sumBy (fun a -> a.Value)
-                    
+
                     // Calculate portfolio metrics
                     let expectedReturn =
                         allocations

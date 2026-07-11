@@ -190,6 +190,11 @@ module Primitives =
             Error (QuantumError.OperationError ("observe",
                 "Expectation values are not defined for annealing samples; observe requires a state-vector, " +
                 "topological, sparse, or density-matrix backend."))
+        | QuantumState.MeasurementHistogram _ ->
+            Error (QuantumError.OperationError ("observe",
+                "Expectation values cannot be computed from sampled measurement histograms: off-diagonal " +
+                "(X/Y) Pauli terms require amplitudes, which Z-basis counts do not determine. Use a " +
+                "state-vector, topological, sparse, or density-matrix backend."))
 
     /// Execute a circuit and return the expectation value ⟨H⟩ of a Pauli
     /// Hamiltonian. Counterpart of `cudaq.observe`. Works on any amplitude-carrying or

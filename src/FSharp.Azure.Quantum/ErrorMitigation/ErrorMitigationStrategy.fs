@@ -21,8 +21,11 @@ module ErrorMitigationStrategy =
         /// Probabilistic Error Cancellation: 2-3x accuracy improvement, 10-100x overhead
         | ProbabilisticErrorCancellation of ProbabilisticErrorCancellation.PECConfig
         
-        /// Readout Error Mitigation: 50-90% readout correction, ~0x overhead (after calibration)
-        | ReadoutErrorMitigation of ReadoutErrorMitigation.CalibrationMatrix
+        /// Readout Error Mitigation: 50-90% readout correction, ~0x overhead (after calibration).
+        /// The calibration matrix is None when no measured calibration data was available at
+        /// selection time (SelectionCriteria.Calibration = None); applyStrategy then passes
+        /// counts through uncorrected until real calibration data is supplied.
+        | ReadoutErrorMitigation of ReadoutErrorMitigation.CalibrationMatrix option
         
         /// Combined techniques applied in sequence
         | Combined of techniques: MitigationTechnique list
@@ -45,9 +48,10 @@ module ErrorMitigationStrategy =
         RequiredAccuracy: float option
         
         /// User-supplied calibration matrix from actual hardware characterization.
-        /// When None, a default placeholder (98% readout fidelity) is used for strategy
-        /// selection heuristics. For production use, supply real calibration data measured
-        /// via ReadoutErrorMitigation.measureCalibrationMatrix.
+        /// When None, strategy selection still recommends readout mitigation where
+        /// appropriate, but applyStrategy passes counts through uncorrected. For actual
+        /// correction, supply real calibration data measured via
+        /// ReadoutErrorMitigation.measureCalibrationMatrix.
         Calibration: ReadoutErrorMitigation.CalibrationMatrix option
     }
     
@@ -73,15 +77,21 @@ module ErrorMitigationStrategy =
     type MitigatedResult = {
         /// Corrected measurement histogram
         Histogram: Map<string, float>
-        
+
         /// Technique that was successfully applied
         AppliedTechnique: MitigationTechnique
-        
+
         /// Whether fallback was used
         UsedFallback: bool
-        
+
         /// Actual cost multiplier achieved
         ActualCostMultiplier: float
+
+        /// Whether a correction was actually performed. False when the selected
+        /// readout component carried no measured calibration data — the histogram
+        /// then passed through UNCORRECTED. Check this before treating the result
+        /// as error-mitigated.
+        CorrectionApplied: bool
     }
     
     // ============================================================================
@@ -153,25 +163,6 @@ module ErrorMitigationStrategy =
             Seed = None
         }
     
-    /// Create default calibration matrix for readout error mitigation.
-    /// WARNING: This uses a fabricated 98%/2% readout fidelity model for strategy
-    /// selection heuristics ONLY. For actual error correction, supply real calibration
-    /// data measured via ReadoutErrorMitigation.measureCalibrationMatrix.
-    let private createDefaultCalibration (backend: Types.Backend) (qubits: int) : ReadoutErrorMitigation.CalibrationMatrix =
-        // For strategy selection, use placeholder calibration
-        // Real calibration would be measured via ReadoutErrorMitigation.measureCalibrationMatrix
-        let dim = 1 <<< qubits  // 2^qubits
-        let matrix = Array2D.init dim dim (fun i j ->
-            if i = j then 0.98 else 0.02 / float (dim - 1)
-        )
-        {
-            Matrix = matrix
-            Qubits = qubits
-            Timestamp = DateTime.UtcNow
-            Backend = backend.Id
-            CalibrationShots = 10000
-        }
-    
     /// Select optimal mitigation strategy based on problem characteristics.
     /// 
     /// Decision tree implements cost-benefit heuristics:
@@ -183,10 +174,11 @@ module ErrorMitigationStrategy =
         
         let zneConfig = createDefaultZNEConfig criteria.Backend
         let pecConfig = createDefaultPECConfig criteria.Backend
-        let calibration = 
-            criteria.Calibration
-            |> Option.defaultWith (fun () -> createDefaultCalibration criteria.Backend criteria.QubitCount)
-        
+        // Pass the user-supplied calibration through as-is. No placeholder is fabricated
+        // when it is None: the selection heuristics below never read matrix contents, and
+        // a dense 2^n x 2^n placeholder would OOM for larger circuits (16 qubits ≈ 34 GB).
+        let calibration = criteria.Calibration
+
         // Decision tree based on cost-benefit analysis
         match criteria with
         
@@ -282,12 +274,15 @@ module ErrorMitigationStrategy =
     // Strategy Application (Placeholder for async execution)
     // ============================================================================
     
-    /// The readout calibration carried by a technique, if any. Readout error mitigation is
-    /// the only component that can be applied to a finished measurement histogram.
-    let rec private readoutCalibrationOf (technique: MitigationTechnique) : ReadoutErrorMitigation.CalibrationMatrix option =
+    /// The readout-mitigation component carried by a technique, if any. Readout error
+    /// mitigation is the only component that can be applied to a finished measurement
+    /// histogram. Outer option: whether the technique contains a readout component at all;
+    /// inner option: the calibration data it carries (None when the strategy was selected
+    /// without measured calibration data).
+    let rec private readoutComponentOf (technique: MitigationTechnique) : ReadoutErrorMitigation.CalibrationMatrix option option =
         match technique with
         | ReadoutErrorMitigation calibration -> Some calibration
-        | Combined techniques -> techniques |> List.tryPick readoutCalibrationOf
+        | Combined techniques -> techniques |> List.tryPick readoutComponentOf
         | ZeroNoiseExtrapolation _ | ProbabilisticErrorCancellation _ -> None
 
     /// Apply a mitigation strategy to a measurement histogram.
@@ -300,42 +295,53 @@ module ErrorMitigationStrategy =
     /// with a circuit executor.
     ///
     /// This genuinely applies the readout-correction component of the chosen technique (whether
-    /// a bare ReadoutErrorMitigation or a Combined strategy that contains one). If the primary
-    /// carries no applicable readout calibration it falls back to the secondary strategy.
+    /// a bare ReadoutErrorMitigation or a Combined strategy that contains one). A readout
+    /// component selected without calibration data (SelectionCriteria.Calibration = None) has
+    /// no confusion matrix to invert, so the counts pass through uncorrected. If the primary
+    /// carries no applicable readout component it falls back to the secondary strategy.
     let applyStrategy
         (histogram: Map<string, int>)
         (strategy: RecommendedStrategy)
         : QuantumResult<MitigatedResult> =
 
-        let applyTechnique (technique: MitigationTechnique) : QuantumResult<Map<string, float>> =
-            match readoutCalibrationOf technique with
-            | Some calibration ->
+        // Returns the (possibly corrected) histogram and whether a correction was
+        // actually performed (false = calibration-less pass-through).
+        let applyTechnique (technique: MitigationTechnique) : QuantumResult<Map<string, float> * bool> =
+            match readoutComponentOf technique with
+            | Some (Some calibration) ->
                 ReadoutErrorMitigation.correctReadoutErrors histogram calibration ReadoutErrorMitigation.defaultConfig
-                |> Result.map (fun corrected -> corrected.Histogram)
+                |> Result.map (fun corrected -> corrected.Histogram, true)
                 |> Result.mapError (fun msg -> QuantumError.OperationError ("Readout error mitigation", msg))
+            | Some None ->
+                // Readout mitigation was recommended without measured calibration data:
+                // there is nothing to invert, so return the counts uncorrected —
+                // flagged via CorrectionApplied = false on the result.
+                Ok (histogram |> Map.map (fun _ count -> float count), false)
             | None ->
                 Error (QuantumError.NotImplemented (
                     "post-hoc circuit-level mitigation (ZNE/PEC)",
                     Some "Zero-Noise Extrapolation and Probabilistic Error Cancellation must execute the circuit at multiple noise levels; they cannot be applied to a finished histogram. Use their mitigate functions with a circuit executor, or include a ReadoutErrorMitigation calibration in the strategy."))
 
         match applyTechnique strategy.Primary with
-        | Ok corrected ->
+        | Ok (corrected, correctionApplied) ->
             Ok {
                 Histogram = corrected
                 AppliedTechnique = strategy.Primary
                 UsedFallback = false
                 ActualCostMultiplier = strategy.EstimatedCostMultiplier
+                CorrectionApplied = correctionApplied
             }
         | Error primaryErr ->
             match strategy.Fallback with
             | Some fallback ->
                 match applyTechnique fallback with
-                | Ok corrected ->
+                | Ok (corrected, correctionApplied) ->
                     Ok {
                         Histogram = corrected
                         AppliedTechnique = fallback
                         UsedFallback = true
                         ActualCostMultiplier = strategy.EstimatedCostMultiplier / 2.0
+                        CorrectionApplied = correctionApplied
                     }
                 | Error fallbackErr ->
                     Error (QuantumError.OperationError (

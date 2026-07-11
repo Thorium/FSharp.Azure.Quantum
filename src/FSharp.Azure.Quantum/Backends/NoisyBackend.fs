@@ -39,19 +39,10 @@ module DensityMatrixSimulator =
 
     let private maxQubits = 8
 
+    /// Qubits a gate acts on — delegates to CircuitBuilder so every Gate case
+    /// (including Reset, Barrier and Conditional) is covered.
     let private qubitsOf (g: CircuitBuilder.Gate) : int list =
-        match g with
-        | CircuitBuilder.X q | CircuitBuilder.Y q | CircuitBuilder.Z q | CircuitBuilder.H q
-        | CircuitBuilder.S q | CircuitBuilder.SDG q | CircuitBuilder.T q | CircuitBuilder.TDG q
-        | CircuitBuilder.Measure q -> [ q ]
-        | CircuitBuilder.P (q, _) | CircuitBuilder.RX (q, _) | CircuitBuilder.RY (q, _) | CircuitBuilder.RZ (q, _) -> [ q ]
-        | CircuitBuilder.U3 (q, _, _, _) -> [ q ]
-        | CircuitBuilder.CNOT (a, b) | CircuitBuilder.CZ (a, b) | CircuitBuilder.SWAP (a, b) -> [ a; b ]
-        | CircuitBuilder.CP (a, b, _) | CircuitBuilder.CRX (a, b, _) | CircuitBuilder.CRY (a, b, _)
-        | CircuitBuilder.CRZ (a, b, _) | CircuitBuilder.RXX (a, b, _) | CircuitBuilder.RYY (a, b, _)
-        | CircuitBuilder.RZZ (a, b, _) -> [ a; b ]
-        | CircuitBuilder.CCX (a, b, c) -> [ a; b; c ]
-        | CircuitBuilder.MCZ (controls, t) -> t :: controls
+        CircuitBuilder.getAffectedQubits g
 
     let private conjTranspose (dim: int) (m: Complex[,]) : Complex[,] =
         Array2D.init dim dim (fun i j -> Complex.Conjugate m.[j, i])
@@ -102,11 +93,36 @@ module DensityMatrixSimulator =
                 let final =
                     circuit.Gates
                     |> List.rev   // Gates are stored most-recent-first; execute in program order.
-                    |> List.fold (fun rho gate ->
+                    |> List.fold (fun (rho: Complex[,]) gate ->
                         match gate with
                         | CircuitBuilder.Measure _ -> rho   // terminal measurement is read off the diagonal
+                        | CircuitBuilder.Barrier _ -> rho   // synchronization directive — no physical effect
                         | _ ->
-                            let afterGate = conjugateByGate backend dim gate rho
+                            let afterGate =
+                                match gate with
+                                | CircuitBuilder.Reset q ->
+                                    // Reset = measure q, flip to |0⟩ on outcome 1 — the (non-unitary)
+                                    // channel ρ → P₀ρP₀ + X P₁ρP₁ X, computed elementwise: both terms
+                                    // land in the bit_q = 0 block.
+                                    let mask = 1 <<< q
+                                    Array2D.init dim dim (fun i j ->
+                                        if i &&& mask = 0 && j &&& mask = 0 then
+                                            rho.[i, j] + rho.[i ||| mask, j ||| mask]
+                                        else Complex.Zero)
+                                | CircuitBuilder.Conditional (q, inner) ->
+                                    // Classically-controlled gate: ρ → P₀ρP₀ + (U P₁)ρ(P₁U†).
+                                    // The projections encode the (dephasing) measurement of q, so
+                                    // repeated conditionals on the same qubit stay correlated with
+                                    // the same outcome.
+                                    let mask = 1 <<< q
+                                    let block (want: int) =
+                                        Array2D.init dim dim (fun i j ->
+                                            if i &&& mask = want && j &&& mask = want then rho.[i, j]
+                                            else Complex.Zero)
+                                    let untriggered = block 0
+                                    let triggered = conjugateByGate backend dim inner (block mask)
+                                    Array2D.init dim dim (fun i j -> untriggered.[i, j] + triggered.[i, j])
+                                | _ -> conjugateByGate backend dim gate rho
                             let qubits, p =
                                 match qubitsOf gate with
                                 | [ single ] -> [ single ], config.SingleQubitDepolarizing

@@ -88,16 +88,20 @@ module SU2kCompilationTests =
 
     [<Fact>]
     let ``SU(2)_3 sigma1 diagonal elements have correct phases from CFT`` () =
-        // From CFT: h_j = j(j+1)/(k+2) for SU(2)_k
-        // For k=3: h_{1/2} = (1/2)(3/2)/5 = 3/20
-        // R[1/2,1/2;0] = exp(2πi * (h_{1/2} + h_{1/2} - h_0)) = exp(2πi * 3/10) = exp(3πi/5)
-        // R[1/2,1/2;1] = exp(2πi * (h_{1/2} + h_{1/2} - h_1)) = exp(2πi * (3/10 - 2/5)) = exp(-πi/5)
+        // From CFT: h_j = j(j+1)/(k+2) for SU(2)_k; k=3: h_{1/2} = 3/20, h_1 = 2/5.
+        // Exchange (single-braid) eigenvalue, NOT the monodromy:
+        //   R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h_{j1} + h_{j2} - h_{j3}))
+        // R[1/2,1/2;0] = (-1)^1 · exp(iπ·3/10)          = exp(-7πi/10)
+        // R[1/2,1/2;1] = (-1)^0 · exp(iπ(3/10 - 2/5))   = exp(-πi/10)
+        // (The old expectation exp(2πi(h1+h2-h3)) — exp(3πi/5), exp(-πi/5) — was
+        // the conjugated monodromy, the SQUARE of the exchange; it violates the
+        // hexagon equation with the 6j-symbol F-matrices.)
         let result = SolovayKitaev.computeSU2kSigmaMatrices 3
         let (sigma1, _) = unwrapResult result "SU(2)_3 sigma matrices"
 
         let i = Complex.ImaginaryOne
-        let expectedR0 = Complex.Exp(i * 3.0 * Math.PI / 5.0)     // R[1/2,1/2;0] = exp(3πi/5)
-        let expectedR1 = Complex.Exp(-i * Math.PI / 5.0)           // R[1/2,1/2;1] = exp(-πi/5)
+        let expectedR0 = Complex.Exp(-i * 7.0 * Math.PI / 10.0)   // R[1/2,1/2;0] = exp(-7πi/10)
+        let expectedR1 = Complex.Exp(-i * Math.PI / 10.0)          // R[1/2,1/2;1] = exp(-πi/10)
 
         let diffA = (sigma1.A - expectedR0).Magnitude
         let diffD = (sigma1.D - expectedR1).Magnitude
@@ -106,6 +110,37 @@ module SU2kCompilationTests =
             $"sigma1.A = {sigma1.A}, expected {expectedR0} (diff = {diffA})")
         Assert.True(diffD < 1e-10,
             $"sigma1.D = {sigma1.D}, expected {expectedR1} (diff = {diffD})")
+
+    [<Fact>]
+    let ``SU(2)_3 integer-spin sector reproduces Fibonacci R-symbols`` () =
+        // The Fibonacci theory is the integer-spin subcategory of SU(2)_3
+        // (j=1 ↔ τ, h_1 = 2/5). The corrected exchange formula must reproduce
+        // the library's hardcoded Fibonacci values exactly:
+        //   R[1,1;0] = (+1)·e^{iπ·4/5}       = e^{4πi/5}  = R[τ,τ;1]
+        //   R[1,1;1] = (−1)·e^{iπ(4/5−2/5)}  = e^{−3πi/5} = R[τ,τ;τ]
+        let spin1 = AnyonSpecies.Particle.SpinJ(2, 3)   // j=1
+        let spin0 = AnyonSpecies.Particle.SpinJ(0, 3)   // j=0
+
+        let rData =
+            unwrapResult (RMatrix.computeRMatrix (AnyonSpecies.AnyonType.SU2Level 3)) "SU(2)_3 R-matrix"
+
+        let r0 =
+            unwrapResult
+                (RMatrix.getRSymbol rData { RMatrix.RMatrixIndex.A = spin1; RMatrix.RMatrixIndex.B = spin1; RMatrix.RMatrixIndex.C = spin0 })
+                "R[1,1;0]"
+        let r1 =
+            unwrapResult
+                (RMatrix.getRSymbol rData { RMatrix.RMatrixIndex.A = spin1; RMatrix.RMatrixIndex.B = spin1; RMatrix.RMatrixIndex.C = spin1 })
+                "R[1,1;1]"
+
+        let i = Complex.ImaginaryOne
+        let fibVacuum = Complex.Exp(i * 4.0 * Math.PI / 5.0)   // R[τ,τ;1] = e^{4πi/5}
+        let fibTau = Complex.Exp(-i * 3.0 * Math.PI / 5.0)     // R[τ,τ;τ] = e^{−3πi/5}
+
+        Assert.True((r0 - fibVacuum).Magnitude < 1e-10,
+            $"R[1,1;0] = {r0}, expected Fibonacci R[τ,τ;1] = {fibVacuum}")
+        Assert.True((r1 - fibTau).Magnitude < 1e-10,
+            $"R[1,1;1] = {r1}, expected Fibonacci R[τ,τ;τ] = {fibTau}")
 
     [<Fact>]
     let ``computeSU2kSigmaMatrices returns Ok for SU(2)_5`` () =

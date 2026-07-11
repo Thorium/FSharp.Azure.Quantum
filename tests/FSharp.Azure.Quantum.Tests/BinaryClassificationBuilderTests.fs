@@ -210,6 +210,7 @@ module BinaryClassificationBuilderTests =
     // ========================================================================
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``train with Quantum architecture should succeed`` () =
         let features, labels = makeTrainData()
         let problem = {

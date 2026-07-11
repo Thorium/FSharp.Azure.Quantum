@@ -28,23 +28,23 @@ open FSharp.Azure.Quantum.Backends
 /// - Timetabling
 /// 
 /// SEARCH SPACE SEMANTICS:
-/// `searchSpace` is the TOTAL number of candidate assignments (domainSize ^ numVariables),
-/// NOT the number of variables. The number of variables is derived from it:
-///   numVariables = ceil(log_domainSize(searchSpace))
-/// e.g. searchSpace 81 with domain [1..9] means 81 = 9^2 candidate assignments,
-/// i.e. 2 variables each taking one of 9 values.
+/// `searchSpace` is the NUMBER OF VARIABLES in the problem. Each variable takes
+/// one value from `domain`, so the solver explores domainSize ^ numVariables
+/// candidate assignments; constraint functions receive an assignment Map with
+/// keys 0 .. numVariables-1. The total state count is limited to 2^16 (16 qubits)
+/// by the local simulator, so numVariables × log2(domainSize) must be ≤ 16.
 ///
 /// EXAMPLE USAGE:
-///   // Simple: 2 variables over values 1..9 (81 = 9^2 candidate assignments)
+///   // Simple: 4 variables over values 1..9 (9^4 = 6561 candidate assignments)
 ///   let problem = constraintSolver {
-///       searchSpace 81  // total assignments = domainSize^numVariables (9^2 → 2 variables)
+///       searchSpace 4   // number of variables
 ///       domain [1..9]   // Values 1-9
 ///       satisfies (fun assignment -> checkRules assignment)
 ///   }
 ///
-///   // Advanced: Job scheduling (3 workers × 10 shifts → 1000 = 10^3 assignments)
+///   // Advanced: Job scheduling (3 workers, each assigned one of 10 shifts)
 ///   let problem = constraintSolver {
-///       searchSpace 1000
+///       searchSpace 3   // one variable per worker
 ///       domain [0..9]   // Shift numbers
 ///       satisfies (fun assignment ->
 ///           checkSkillMatch assignment &&
@@ -68,8 +68,9 @@ module QuantumConstraintSolver =
     /// Complete quantum constraint satisfaction problem specification.
     /// </summary>
     type ConstraintProblem<'T> = {
-        /// Total number of candidate assignments (domainSize ^ numVariables).
-        /// The number of variables is derived as ceil(log_domainSize(SearchSpaceSize)).
+        /// Number of variables in the problem. Each variable takes one value from
+        /// Domain, so the search explores domainSize ^ SearchSpaceSize candidate
+        /// assignments; constraint functions receive Maps keyed 0..SearchSpaceSize-1.
         SearchSpaceSize: int
         /// Domain of values for each variable
         Domain: 'T list
@@ -112,9 +113,7 @@ module QuantumConstraintSolver =
     /// </summary>
     let validate (problem: ConstraintProblem<'T>) : Result<unit, QuantumError> =
         if problem.SearchSpaceSize < 1 then
-            Error (QuantumError.ValidationError ("SearchSpaceSize", "must be at least 1"))
-        elif problem.SearchSpaceSize > (1 <<< 16) then
-            Error (QuantumError.ValidationError ("SearchSpaceSize", $"{problem.SearchSpaceSize} exceeds maximum (2^16 = 65536)"))
+            Error (QuantumError.ValidationError ("SearchSpaceSize", "must be at least 1 variable"))
         elif List.isEmpty problem.Domain then
             Error (QuantumError.ValidationError ("Domain", "cannot be empty"))
         elif List.isEmpty problem.Constraints then
@@ -122,9 +121,14 @@ module QuantumConstraintSolver =
         elif problem.Shots < 1 then
             Error (QuantumError.ValidationError ("Shots", "must be at least 1"))
         else
-            let qubitsNeeded = int (ceil (log (float problem.SearchSpaceSize) / log 2.0))
+            // Qubits to address domainSize ^ numVariables states, computed in
+            // floating point so oversized problems error instead of overflowing.
+            let domainSize = List.length problem.Domain
+            let qubitsNeeded =
+                if domainSize <= 1 then 1
+                else max 1 (int (ceil (float problem.SearchSpaceSize * log (float domainSize) / log 2.0 - 1e-9)))
             if qubitsNeeded > 16 then
-                Error (QuantumError.ValidationError ("SearchSpaceSize", $"requires {qubitsNeeded} qubits (search space {problem.SearchSpaceSize}). Max: 16"))
+                Error (QuantumError.ValidationError ("SearchSpaceSize", $"{problem.SearchSpaceSize} variables over a domain of {domainSize} values requires {qubitsNeeded} qubits. Max: 16 (2^16 states)"))
             else
                 Ok ()
     
@@ -139,7 +143,7 @@ module QuantumConstraintSolver =
         
         member _.Yield(_) : ConstraintProblem<'T> =
             {
-                SearchSpaceSize = 8  // Default: 8 candidate assignments (states)
+                SearchSpaceSize = 8  // Default: 8 variables
                 Domain = []
                 Constraints = []
                 Backend = None
@@ -255,7 +259,7 @@ module QuantumConstraintSolver =
     ///   
     ///   // Cloud execution: Problem with IonQ backend
     ///   let problem = constraintSolver {
-    ///       searchSpace 16
+    ///       searchSpace 4   // 4 variables (4^4 = 256 assignments, 8 qubits)
     ///       domain [1..4]
     ///       satisfies checkConstraints
     ///       backend ionqBackend
@@ -274,24 +278,21 @@ module QuantumConstraintSolver =
                     problem.Backend 
                     |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
-                // SearchSpaceSize is the TOTAL number of candidate assignments
-                // (domainSize ^ numVariables) — see the type's doc comment. Derive the
-                // variable count from it, then size the qubit register so that every
-                // decodable assignment (domainSize ^ numVariables states) is covered.
+                // SearchSpaceSize is the NUMBER OF VARIABLES (matching the shipped
+                // helpers: forSudokuStyle = grid², forNQueens = board² — one variable
+                // per cell). Constraint functions receive an assignment Map with keys
+                // 0 .. numVariables-1; the qubit register covers every assignment
+                // (domainSize ^ numVariables states).
                 let domainSize = List.length problem.Domain
-                let numVariables =
+                let numVariables = max 1 problem.SearchSpaceSize
+
+                // Qubits to address domainSize ^ numVariables states, computed in
+                // floating point BEFORE any pown so oversized problems produce a clear
+                // error instead of an integer overflow.
+                let qubitsNeeded =
                     if domainSize <= 1 then 1
-                    else max 1 (int (ceil (log (float problem.SearchSpaceSize) / log (float domainSize) - 1e-9)))
-
-                // Total states addressed by the mixed-radix decoding below. Computed in
-                // int64: when SearchSpaceSize is not an exact power of domainSize, rounding
-                // numVariables up can push domainSize^numVariables past SearchSpaceSize.
-                let totalStates = pown (int64 domainSize) numVariables
-                let maxStates = 1L <<< 16
-
-                // Qubits must cover ALL decodable assignments (domainSize ^ numVariables),
-                // not just the nominal SearchSpaceSize.
-                let qubitsNeeded = max 1 (int (ceil (log (float totalStates) / log 2.0 - 1e-9)))
+                    else max 1 (int (ceil (float numVariables * log (float domainSize) / log 2.0 - 1e-9)))
+                let maxQubits = 16
 
                 // Decode a search-space index into a variable assignment using
                 // mixed-radix (base domainSize) positional decoding.
@@ -322,15 +323,15 @@ module QuantumConstraintSolver =
                     // Refuse search spaces the simulator cannot address, aligning with the
                     // validate() guard (max 2^16 states / 16 qubits). This also protects the
                     // Int32 `pown domainSize varIdx` in decodeAssignment from overflowing.
-                    do! if totalStates <= maxStates then Ok ()
-                        else Error (QuantumError.ValidationError ("SearchSpaceSize", $"decoding {numVariables} variables over a domain of {domainSize} values spans {totalStates} states ({qubitsNeeded} qubits). Max: 2^16 = 65536 states (16 qubits)"))
+                    do! if qubitsNeeded <= maxQubits then Ok ()
+                        else Error (QuantumError.ValidationError ("SearchSpaceSize", $"searching {numVariables} variables over a domain of {domainSize} values requires {qubitsNeeded} qubits. Max: {maxQubits} (2^16 states)"))
 
                     let! oracle = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
-                    
+
                     // Report progress: Oracle created
-                    problem.ProgressReporter 
-                    |> Option.iter (fun reporter -> 
-                        reporter.Report(Progress.PhaseChanged("Quantum Search", Some $"Searching {problem.SearchSpaceSize} states with {qubitsNeeded} qubits...")))
+                    problem.ProgressReporter
+                    |> Option.iter (fun reporter ->
+                        reporter.Report(Progress.PhaseChanged("Quantum Search", Some $"Searching {numVariables} variables ({qubitsNeeded} qubits)...")))
                     
                     // Create Grover config with optional iterations
                     let groverConfig = {

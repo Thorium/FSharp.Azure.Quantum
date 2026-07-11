@@ -122,11 +122,14 @@ module QuantumSolver =
             let solutions =
                 measurements
                 |> Array.choose (fun bitstring ->
-                    let taskStarts = QuboEncoding.decodeBitstring bitstring reverseMapping
+                    // One-hot REPAIR decode: tasks with multiple set start bits take
+                    // their earliest set slot (QAOA rarely samples exact one-hot
+                    // states, so the strict decode would reject nearly every shot);
+                    // tasks with zero set bits still yield no start, making
+                    // buildSolutionFromStarts return None. Feasibility of repaired
+                    // schedules is enforced by the classical validation below.
+                    let taskStarts = QuboEncoding.decodeBitstringWithRepair bitstring reverseMapping
 
-                    // One-hot multiplicity is enforced here: decodeBitstring only yields a start
-                    // for tasks with EXACTLY ONE set bit, and buildSolutionFromStarts returns None
-                    // unless every task has a start.
                     match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes with
                     // Keep only fully feasible measurements (precedence AND resource capacity).
                     // The QUBO penalties bias QAOA sampling toward these, but the final
@@ -142,8 +145,32 @@ module QuantumSolver =
             if Array.isEmpty solutions then
                 return Error (QuantumError.OperationError ("Quantum scheduling", "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."))
             else
-                // Select best solution (minimum makespan)
-                let (bestMakespan, bestAssignments) = solutions |> Array.minBy fst
+                // Select the best feasible solution PER THE DECLARED OBJECTIVE.
+                // MinimizeCost and MaximizeResourceUtilization share the makespan
+                // selection because, in this model, resource assignments always equal
+                // each task's fixed requirements: total cost is identical for every
+                // feasible schedule, and utilisation is maximised by minimising
+                // makespan (see QuboEncoding.toQubo).
+                let totalLatenessMinutes (assignments: TaskAssignment list) =
+                    assignments
+                    |> List.sumBy (fun a ->
+                        problem.Tasks
+                        |> List.tryFind (fun t -> t.Id = a.TaskId)
+                        |> Option.bind (fun t -> t.Deadline)
+                        |> Option.map (fun deadline -> max 0.0 (a.EndTime - deadline).TotalMinutes)
+                        |> Option.defaultValue 0.0)
+
+                let (bestMakespan, bestAssignments) =
+                    match problem.Objective with
+                    | MinimizeLateness ->
+                        // Least total lateness first; makespan breaks ties.
+                        solutions
+                        |> Array.minBy (fun (makespan, assignments) ->
+                            (totalLatenessMinutes assignments, makespan))
+                    | MinimizeMakespan
+                    | MinimizeCost
+                    | MaximizeResourceUtilization ->
+                        solutions |> Array.minBy fst
                 
                 // Score the quantum-decoded schedule with the shared ScheduleMetrics helpers
                 // (pure metric calculation — no classical solving in the quantum path)

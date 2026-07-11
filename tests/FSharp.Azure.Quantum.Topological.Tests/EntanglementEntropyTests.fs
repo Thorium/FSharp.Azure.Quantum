@@ -633,14 +633,76 @@ module EntanglementEntropyTests =
         // I/2 = [[0.5, 0], [0, 0.5]]
         let matrix = Array2D.init 2 2 (fun i j ->
             if i = j then System.Numerics.Complex(0.5, 0.0) else System.Numerics.Complex.Zero)
-        
+
         match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
         | Ok eigenvals ->
             Assert.Equal(2, eigenvals.Length)
             Assert.Equal(0.5, eigenvals.[0], 8)
             Assert.Equal(0.5, eigenvals.[1], 8)
         | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
-    
+
+    [<Fact>]
+    let ``eigenvaluesHermitian of real matrix with off-diagonals is exact`` () =
+        // |+⟩⟨+| = [[1/2, 1/2], [1/2, 1/2]] is a pure state: eigenvalues {1, 0}.
+        // Regression for the Jacobi rotation-angle bug (the old reciprocal-θ
+        // tangent with forced pivot zeroing returned {0.7071, 0.2929}).
+        let matrix = Array2D.init 2 2 (fun _ _ -> System.Numerics.Complex(0.5, 0.0))
+
+        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
+        | Ok eigenvals ->
+            Assert.Equal(2, eigenvals.Length)
+            Assert.Equal(1.0, eigenvals.[0], 8)
+            Assert.Equal(0.0, eigenvals.[1], 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    [<Fact>]
+    let ``eigenvaluesHermitian of complex Hermitian matrix is exact`` () =
+        // ρ = [[1/2, −i/2], [i/2, 1/2]] = |ψ⟩⟨ψ| with |ψ⟩ = (|0⟩ + i|1⟩)/√2:
+        // a PURE state with eigenvalues {1, 0}. The old implementation
+        // diagonalized only Re(ρ) = I/2 and returned {1/2, 1/2}.
+        let matrix = Array2D.init 2 2 (fun i j ->
+            match i, j with
+            | 0, 0 | 1, 1 -> System.Numerics.Complex(0.5, 0.0)
+            | 0, 1 -> System.Numerics.Complex(0.0, -0.5)
+            | _ -> System.Numerics.Complex(0.0, 0.5))
+
+        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
+        | Ok eigenvals ->
+            Assert.Equal(2, eigenvals.Length)
+            Assert.Equal(1.0, eigenvals.[0], 8)
+            Assert.Equal(0.0, eigenvals.[1], 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    [<Fact>]
+    let ``vonNeumannEntropyFromDensityMatrix of complex pure state is zero`` () =
+        // Same ρ as above: entropy of a pure state must be 0
+        // (the old Re-only diagonalization reported the MAXIMAL value log 2).
+        let rho = Array2D.init 2 2 (fun i j ->
+            match i, j with
+            | 0, 0 | 1, 1 -> System.Numerics.Complex(0.5, 0.0)
+            | 0, 1 -> System.Numerics.Complex(0.0, -0.5)
+            | _ -> System.Numerics.Complex(0.0, 0.5))
+
+        match EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho with
+        | Ok result -> Assert.Equal(0.0, result.Entropy, 6)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
+    [<Fact>]
+    let ``entanglementEntropy of complex-phase product state is zero`` () =
+        // |ψ⟩ = ((|0⟩ + i|1⟩)/√2) ⊗ |0⟩ = [1/√2, 0, i/√2, 0]: a product state,
+        // so S(ρ_A) = 0. Its reduced matrix ρ_A = [[1/2, −i/2], [i/2, 1/2]] has
+        // complex off-diagonals — full pipeline regression for the Re-only bug.
+        let s = 1.0 / sqrt 2.0
+        let amps = [
+            System.Numerics.Complex(s, 0.0)
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex(0.0, s)
+            System.Numerics.Complex.Zero
+        ]
+        match EntanglementEntropy.entanglementEntropy amps 2 2 with
+        | Ok result -> Assert.Equal(0.0, result.Entropy, 6)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+
     // ========================================================================
     // VON NEUMANN ENTROPY FROM DENSITY MATRIX
     // ========================================================================

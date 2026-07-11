@@ -209,6 +209,7 @@ let ``LocalBackend MaxCut on triangle produces optimal cut`` () =
         Assert.Fail($"LocalBackend should not fail on triangle: {err}")
 
 [<Fact>]
+[<Trait("Category", "Slow")>]
 let ``LocalBackend MaxCut on 4-vertex path produces optimal cut`` () =
     // Baseline: gate-based LocalBackend on 4-qubit problem
     let backend = createLocalBackend ()

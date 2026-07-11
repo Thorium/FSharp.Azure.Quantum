@@ -803,3 +803,114 @@ module TopologicalOperationsTests =
             Assert.Equal(1.0 / phi, probOf AnyonSpecies.Particle.Tau, 10)
             Assert.Equal(1.0, outcomes |> List.sumBy fst, 10)
 
+
+    // ========================================================================
+    // GATE FUSION-CONSISTENCY REGRESSIONS
+    // ========================================================================
+    // Channel-flipping gates (X/Y/H/CNOT/SWAP/...) must produce trees whose
+    // intermediate charges and Ising parity pair are updated consistently.
+    // A previous replaceQubitChannel swapped only the pair channel, so EVERY
+    // post-gate tree failed FusionTree.validateState (stale running charges,
+    // total charge ψ instead of vacuum) and AnyonicErrorCorrection would have
+    // "repaired" legitimate states.
+
+    /// Helper: assert every term of a superposition is a valid fusion tree
+    let private assertAllTermsValid (context: string) (sup: TopologicalOperations.Superposition) =
+        sup.Terms
+        |> List.iter (fun (_, st) ->
+            match FusionTree.validateState st with
+            | Ok () -> ()
+            | Error err ->
+                Assert.Fail($"{context}: post-gate tree violates fusion rules: {FusionTree.toString st.Tree} — {err.Message}"))
+
+    [<Fact>]
+    let ``Pauli-X on 2-qubit basis state keeps fusion tree valid`` () =
+        let sup00 = mkBasisState [0; 0]
+
+        match TopologicalOperations.pauliX 0 sup00 with
+        | Error err -> Assert.Fail($"Pauli-X should succeed: {err.Message}")
+        | Ok result ->
+            assertAllTermsValid "X(0)|00⟩" result
+
+            // Still exactly |10⟩ with the parity pair and total charge updated
+            Assert.Equal(1, result.Terms.Length)
+            let (_, st) = result.Terms.[0]
+            Assert.Equal<int list>([1; 0], FusionTree.toComputationalBasis st.Tree)
+            Assert.Equal(
+                AnyonSpecies.Particle.Vacuum,
+                FusionTree.totalCharge st.Tree st.AnyonType)
+
+    [<Fact>]
+    let ``Hadamard output trees satisfy fusion rules`` () =
+        let sup00 = mkBasisState [0; 0]
+
+        match TopologicalOperations.hadamard 0 sup00 with
+        | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
+        | Ok result ->
+            Assert.Equal(2, result.Terms.Length)
+            assertAllTermsValid "H(0)|00⟩" result
+
+    [<Fact>]
+    let ``CNOT output trees satisfy fusion rules`` () =
+        // Prepare |10⟩ then CNOT(0→1): expect |11⟩ with a valid tree
+        let sup10 = mkBasisState [1; 0]
+
+        match TopologicalOperations.cnot 0 1 sup10 with
+        | Error err -> Assert.Fail($"CNOT should succeed: {err.Message}")
+        | Ok result ->
+            assertAllTermsValid "CNOT(0,1)|10⟩" result
+            Assert.Equal(1, result.Terms.Length)
+            let (_, st) = result.Terms.[0]
+            Assert.Equal<int list>([1; 1], FusionTree.toComputationalBasis st.Tree)
+            Assert.Equal(
+                AnyonSpecies.Particle.Vacuum,
+                FusionTree.totalCharge st.Tree st.AnyonType)
+
+    [<Fact>]
+    let ``SWAP output trees satisfy fusion rules`` () =
+        let sup10 = mkBasisState [1; 0]
+
+        match TopologicalOperations.swap 0 1 sup10 with
+        | Error err -> Assert.Fail($"SWAP should succeed: {err.Message}")
+        | Ok result ->
+            assertAllTermsValid "SWAP(0,1)|10⟩" result
+            Assert.Equal(1, result.Terms.Length)
+            let (_, st) = result.Terms.[0]
+            Assert.Equal<int list>([0; 1], FusionTree.toComputationalBasis st.Tree)
+
+    [<Fact>]
+    let ``Pauli-Y output trees satisfy fusion rules`` () =
+        let sup0 = mkBasisState [0]
+
+        match TopologicalOperations.pauliY 0 sup0 with
+        | Error err -> Assert.Fail($"Pauli-Y should succeed: {err.Message}")
+        | Ok result ->
+            assertAllTermsValid "Y(0)|0⟩" result
+            let (amp, st) = result.Terms.[0]
+            Assert.Equal<int list>([1], FusionTree.toComputationalBasis st.Tree)
+            // Y|0⟩ = i|1⟩
+            Assert.Equal(0.0, amp.Real, 10)
+            Assert.Equal(1.0, amp.Imaginary, 10)
+
+    // ========================================================================
+    // MEASUREALL SAMPLING ROBUSTNESS
+    // ========================================================================
+
+    [<Fact>]
+    let ``measureAll of empty superposition raises a proper error`` () =
+        // Previously this fell through List.findIndex and threw
+        // KeyNotFoundException from deep inside sampling.
+        let empty : TopologicalOperations.Superposition =
+            { Terms = []; AnyonType = AnyonSpecies.AnyonType.Ising }
+
+        Assert.Throws<System.InvalidOperationException>(fun () ->
+            TopologicalOperations.measureAll empty 1 |> ignore)
+
+    [<Fact>]
+    let ``measureAll of basis state returns that bitstring for every shot`` () =
+        let sup10 = mkBasisState [1; 0]
+
+        let results = TopologicalOperations.measureAll sup10 20
+        Assert.Equal(20, results.Length)
+        results |> Array.iter (fun bits ->
+            Assert.Equal<int[]>([| 1; 0 |], bits))

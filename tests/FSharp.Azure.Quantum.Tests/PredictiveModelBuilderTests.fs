@@ -385,6 +385,7 @@ module PredictiveModelBuilderTests =
     // ========================================================================
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``evaluateMultiClass should return valid metrics`` () =
         let features, targets = makeMultiClassData ()
         let intLabels = targets |> Array.map int

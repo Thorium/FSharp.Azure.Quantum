@@ -224,6 +224,7 @@ module VQCTests =
             Assert.True(result.LossHistory.Length > 0, "Should have loss history")
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``train - returns trained parameters with correct length`` () =
         let backend = createTestBackend()
         let featureMap = AngleEncoding
@@ -654,6 +655,7 @@ module VQCTests =
             Assert.True(false, "Should have rejected mismatched lengths")
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``predictMultiClass - returns valid prediction`` () =
         let backend = createTestBackend()
         let featureMap = AngleEncoding

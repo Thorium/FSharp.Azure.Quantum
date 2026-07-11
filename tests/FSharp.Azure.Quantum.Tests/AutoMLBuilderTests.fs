@@ -218,6 +218,7 @@ module AutoMLBuilderTests =
     // ========================================================================
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``search result should have correct metadata`` () =
         match search defaultProblem with
         | Ok result ->

@@ -207,6 +207,7 @@ module JobLifecycleTests =
     // ============================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``pollJobUntilCompleteAsync should poll until job succeeds`` () : Task =
         task {
             // Arrange: Mock that returns Executing twice, then Succeeded

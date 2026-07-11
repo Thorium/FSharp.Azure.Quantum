@@ -12,19 +12,22 @@ open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 /// Problem: Given universe U = {1,...,m} and collection S = {S_1,...,S_n}
 /// of subsets with costs, find minimum-cost subsets whose union equals U.
 ///
-/// QUBO Formulation:
-///   Variables: x_j in {0,1} per subset (1 = selected)
+/// QUBO Formulation (inequality encoding with binary slack bits):
+///   Variables: x_j in {0,1} per subset (1 = selected), plus slack bits z_{e,t}
 ///   Objective: Minimize Sum_j c_j * x_j
-///   Constraint: Each element e must be covered by at least one subset.
-///     For each element e, let T_e = {j : e in S_j}
-///     Penalty: lambda_e * (1 - Sum_{j in T_e} x_j)^2
-///            = lambda_e * (1 - 2*Sum x_j + (Sum x_j)^2)
-///     Expands to:
-///       qubo[j,j] -= lambda_e  for each j in T_e
-///       qubo[j,k] += 2*lambda_e  for each pair j < k in T_e
-///     (Constant term lambda_e is ignored.)
+///   Constraint: Each element e must be covered by AT LEAST one subset.
+///     For each element e, let T_e = {j : e in S_j} with m = |T_e|.
+///     The inequality Sum_{j in T_e} x_j >= 1 is rewritten as the equality
+///       Sum_{j in T_e} x_j - 1 = s_e,   s_e in [0, m-1]
+///     with s_e = Sum_t 2^t * z_{e,t} over ceil(log2 m) binary slack bits
+///     (the same slack-bit pattern as QuantumBinaryILPSolver), and penalised as
+///       lambda * (Sum_{j in T_e} x_j - Sum_t 2^t * z_{e,t} - 1)^2
+///     This is 0 for ANY coverage count in 1..m — unlike the exact-one penalty
+///     lambda*(1 - Sum x_j)^2, which punished double coverage like non-coverage
+///     and made overlapping covers lose to infeasible selections.
+///     For m = 1 no slack bit is needed (the constraint degenerates to x_j = 1).
 ///
-/// Qubits: n (one per subset, NOT per element)
+/// Qubits: n (one per subset) + Sum_e ceil(log2 |T_e|) slack bits
 ///
 /// RULE 1 COMPLIANCE:
 /// All public solve functions require IQuantumBackend parameter.
@@ -85,16 +88,7 @@ module QuantumSetCoverSolver =
     let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
-    // QUBIT ESTIMATION (Decision 11)
-    // ========================================================================
-
-    /// Estimate the number of qubits required for a set cover problem.
-    /// One qubit per subset.
-    let estimateQubits (problem: Problem) : int =
-        problem.Subsets.Length
-
-    // ========================================================================
-    // QUBO CONSTRUCTION (Decision 9: sparse internally, Decision 5: dense output)
+    // COVERAGE MAP & SLACK LAYOUT
     // ========================================================================
 
     /// Build a map from element -> list of subset indices that contain it.
@@ -108,19 +102,63 @@ module QuantumSetCoverSolver =
         |> List.map (fun (e, pairs) -> (e, pairs |> List.map snd))
         |> Map.ofList
 
+    /// Number of binary slack bits for an element covered by m candidate subsets.
+    /// The coverage inequality Sum_{j in T_e} x_j >= 1 becomes the equality
+    /// Sum x_j - 1 = s_e with slack s_e in [0, m-1], needing ceil(log2 m) bits
+    /// (0 bits when m <= 1: with a single candidate the constraint is x_j = 1).
+    /// Integer bit counting mirrors QuantumBinaryILPSolver.slackBitsForBound.
+    let private slackBitsForCoverage (m: int) : int =
+        if m <= 1 then 0
+        else
+            let bound = m - 1
+            let rec countBits value bits =
+                if value <= 0 then bits
+                else countBits (value >>> 1) (bits + 1)
+            countBits bound 0
+
+    /// Covered elements in deterministic (ascending) order with their covering
+    /// subset indices — the layout order for slack variables after the n
+    /// subset-selection variables.
+    let private coverageEntries (problem: Problem) : (int * int list) list =
+        let coverageMap = buildCoverageMap problem
+        [ 0 .. problem.UniverseSize - 1 ]
+        |> List.choose (fun e ->
+            coverageMap
+            |> Map.tryFind e
+            |> Option.map (fun subsetIndices -> (e, subsetIndices)))
+
+    // ========================================================================
+    // QUBIT ESTIMATION (Decision 11)
+    // ========================================================================
+
+    /// Estimate the number of qubits required for a set cover problem.
+    /// One qubit per subset plus ceil(log2 |T_e|) coverage slack bits per element.
+    let estimateQubits (problem: Problem) : int =
+        problem.Subsets.Length
+        + (coverageEntries problem
+           |> List.sumBy (fun (_, subsetIndices) -> slackBitsForCoverage subsetIndices.Length))
+
+    // ========================================================================
+    // QUBO CONSTRUCTION (Decision 9: sparse internally, Decision 5: dense output)
+    // ========================================================================
+
     /// Build the QUBO as a sparse map.
     ///
     /// Objective: minimize Sum_j c_j * x_j
     ///   Diagonal Q[j,j] += c_j
     ///
-    /// Coverage constraint per element e:
-    ///   Penalty: lambda * (1 - Sum_{j in T_e} x_j)^2
-    ///   Expands to (dropping constant):
-    ///     Q[j,j] -= lambda  for each j in T_e (linear from -2*Sum x_j)
-    ///     Q[j,k] += 2*lambda  for each pair j<k in T_e (from (Sum x_j)^2)
-    ///   Symmetric split: Q[j,k] += lambda, Q[k,j] += lambda
+    /// Coverage constraint per element e (see module header):
+    ///   Penalty: lambda * (Sum_{j in T_e} x_j - Sum_t 2^t * z_{e,t} - 1)^2
+    ///   With coefficient a_v (+1 for x_j, -2^t for z_{e,t}) and constant -1,
+    ///   the expansion (using v^2 = v for binary v) gives, dropping the constant:
+    ///     Diagonal:     Q[v,v] += lambda * (a_v^2 - 2*a_v)
+    ///     Off-diagonal: Q[u,v] += lambda * a_u * a_v  (symmetric split, both orders)
+    ///   For x_j this reproduces the previous -lambda diagonal and +lambda
+    ///   symmetric pair terms; the slack terms make any coverage count in
+    ///   1..|T_e| penalty-free instead of only exactly-one.
     let private buildQuboMap (problem: Problem) : Map<int * int, float> =
-        let coverageMap = buildCoverageMap problem
+        let n = problem.Subsets.Length
+        let entries = coverageEntries problem
 
         // Penalty must dominate objective. Max objective = sum of all costs.
         let totalCost = problem.Subsets |> List.sumBy (fun s -> abs s.Cost)
@@ -132,34 +170,37 @@ module QuantumSetCoverSolver =
             |> List.indexed
             |> List.map (fun (j, subset) -> ((j, j), subset.Cost))
 
-        // Coverage constraint terms per element
-        let constraintTerms =
-            [ 0 .. problem.UniverseSize - 1 ]
-            |> List.collect (fun e ->
-                match coverageMap |> Map.tryFind e with
-                | None -> []  // Element not in any subset (will be uncoverable)
-                | Some subsetIndices ->
-                    // Linear: Q[j,j] -= lambda for each j in T_e
-                    let linear =
-                        subsetIndices
-                        |> List.map (fun j -> ((j, j), -penalty))
+        // Coverage constraint terms per element, laying out each element's slack
+        // bits consecutively after the n decision variables.
+        let (_, constraintTerms) =
+            ((n, []), entries)
+            ||> List.fold (fun (slackStart, acc) (_, subsetIndices) ->
+                let numSlackBits = slackBitsForCoverage subsetIndices.Length
 
-                    // Quadratic: Q[j,k] += lambda (symmetric) for each pair j<k in T_e
-                    let quadratic =
-                        subsetIndices
-                        |> List.collect (fun j ->
-                            subsetIndices
-                            |> List.filter (fun k -> k > j)
-                            |> List.collect (fun k ->
-                                [ ((j, k), penalty)
-                                  ((k, j), penalty) ]))
+                // Unified coefficient vector for (Sum x_j - Sum 2^t z_t - 1)^2
+                let coeffs =
+                    (subsetIndices |> List.map (fun j -> (j, 1.0)))
+                    @ [ for t in 0 .. numSlackBits - 1 -> (slackStart + t, -(pown 2.0 t)) ]
 
-                    linear @ quadratic)
+                // Diagonal: lambda * (a^2 - 2*a)  (the -2a comes from the -1 constant)
+                let diagonal =
+                    coeffs
+                    |> List.map (fun (v, a) -> ((v, v), penalty * (a * a - 2.0 * a)))
+
+                // Off-diagonal: 2 * lambda * a_u * a_v, symmetric split across (u,v) and (v,u)
+                let offDiagonal =
+                    [ for (u, au) in coeffs do
+                        for (v, av) in coeffs do
+                            if u < v then
+                                yield ((u, v), penalty * au * av)
+                                yield ((v, u), penalty * au * av) ]
+
+                (slackStart + numSlackBits, acc @ diagonal @ offDiagonal))
 
         (objectiveTerms @ constraintTerms)
         |> List.fold (fun acc (key, value) -> Qubo.combineTerms key value acc) Map.empty
 
-    /// Convert problem to dense QUBO matrix.
+    /// Convert problem to dense QUBO matrix (decision variables + coverage slack bits).
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         if problem.Subsets.IsEmpty then
@@ -167,9 +208,9 @@ module QuantumSetCoverSolver =
         elif problem.UniverseSize <= 0 then
             Error (QuantumError.ValidationError ("universeSize", "Universe size must be positive"))
         else
-            let n = problem.Subsets.Length
+            let numVars = estimateQubits problem
             let quboMap = buildQuboMap problem
-            Ok (Qubo.toDenseArray n quboMap)
+            Ok (Qubo.toDenseArray numVars quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -343,11 +384,18 @@ module QuantumSetCoverSolver =
                     match result with
                     | Error err -> Error err
                     | Ok (bits, optParams, converged) ->
+                        // Keep only the subset-selection bits: the trailing coverage
+                        // slack bits encode the >=1 inequality inside the QUBO and
+                        // carry no solution content.
+                        let numSubsets = subProblem.Subsets.Length
+                        let decisionBits =
+                            if bits.Length > numSubsets then bits.[0 .. numSubsets - 1] else bits
+
                         let finalBits, wasRepaired =
-                            if config.EnableConstraintRepair && not (isValid subProblem bits) then
-                                (repairConstraints subProblem bits, true)
+                            if config.EnableConstraintRepair && not (isValid subProblem decisionBits) then
+                                (repairConstraints subProblem decisionBits, true)
                             else
-                                (bits, false)
+                                (decisionBits, false)
 
                         let solution = decodeSolution subProblem finalBits
                         Ok { solution with

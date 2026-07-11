@@ -536,6 +536,9 @@ module GateTranspiler =
         | SDG q when needsPhaseDecomposition -> decomposeSDG q
         | T q when needsPhaseDecomposition -> decomposeT q
         | TDG q when needsPhaseDecomposition -> decomposeTDG q
+        // P(θ) = diag(1, e^{iθ}) = e^{iθ/2}·RZ(θ): identical up to an
+        // unobservable global phase, so RZ is a faithful native substitute
+        | P (q, angle) when needsPhaseDecomposition -> [RZ (q, angle)]
         
         // CZ - decompose if needed (for IonQ)
         | CZ (c, t) when needsCZDecomposition -> decomposeCZ c t

@@ -373,7 +373,7 @@ module BraidToGateTests =
     [<Fact>]
     let ``Gate sequence display includes circuit metadata`` () =
         // Business meaning: Full summary helps understand circuit complexity
-        let braid = braidFromGensOrFail 3 [BraidGroup.sigma 0; BraidGroup.sigma 1] "Test"
+        let braid = braidFromGensOrFail 6 [BraidGroup.sigma 0; BraidGroup.sigma 2] "Test"
         let sequence = 
             compileOrFail braid AnyonSpecies.AnyonType.Ising 
                 BraidToGate.defaultOptions "Display test"
@@ -387,13 +387,13 @@ module BraidToGateTests =
     [<Fact>]
     let ``Statistics display shows gate breakdown`` () =
         // Business meaning: Understanding gate composition helps optimization
-        let braid = 
-            braidFromGensOrFail 3 
-                [BraidGroup.sigma 0; BraidGroup.sigmaInv 1; BraidGroup.sigma 0]
+        let braid =
+            braidFromGensOrFail 6
+                [BraidGroup.sigma 0; BraidGroup.sigmaInv 2; BraidGroup.sigma 0]
                 "Mixed"
-        
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Ising 
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Stats test"
         
         let stats = BraidToGate.displayStatistics sequence

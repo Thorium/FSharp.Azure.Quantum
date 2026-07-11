@@ -162,7 +162,7 @@ module TopologicalBuilder =
                                      |> List.map (fun (prob, opResult) ->
                                          // Post-measurement amplitude of this term for this
                                          // outcome: amplitude · √p (Born-rule projection)
-                                         let collapsedAmp = amplitude * Complex(sqrt (max 0.0 prob), 0.0)
+                                         let collapsedAmp = amplitude * System.Numerics.Complex(sqrt (max 0.0 prob), 0.0)
                                          (prob * weight, collapsedAmp, opResult))
                                  )
                                  |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBuilder", err.Message))
@@ -224,7 +224,7 @@ module TopologicalBuilder =
                         | [] -> None
                         | [ single ] -> Some single
                         | _ ->
-                            let totalProb = outcomes |> List.sumBy fst
+                            let totalProb = outcomes |> List.sumBy (fun (p, _, _) -> p)
                             if totalProb <= 0.0 then
                                 List.tryHead outcomes
                             else
@@ -232,26 +232,23 @@ module TopologicalBuilder =
                                 let rec pick cumulative remaining =
                                     match remaining with
                                     | [] -> List.last outcomes  // numerical edge: r ≈ totalProb
-                                    | (p, res) :: rest ->
-                                        if r <= cumulative + p then (p, res)
+                                    | ((p, _, _) as candidate) :: rest ->
+                                        if r <= cumulative + p then candidate
                                         else pick (cumulative + p) rest
                                 Some (pick 0.0 outcomes)
                     match sampledOutcome with
-                    | Some (prob, opResult) ->
-                         match opResult.ClassicalOutcome with
-                         | Some outcome ->
-                             // Correct: Re-wrap the raw FusionTree.State (opResult.State) into a Superposition
-                             let collapsedSuperposition = TopologicalOperations.pureState opResult.State
-                             let collapsedState = 
-                                 QuantumState.FusionSuperposition (TopologicalOperations.toInterface collapsedSuperposition)
-                             
-                             let ctx = updateState context collapsedState
-                             let ctx' = addMeasurement ctx (outcome, prob)
-                             let ctx'' = log ctx' $"Measured fusion at index {leftIndex}: {outcome} (p={prob:F4})"
-                             let ctx''' = addHistory ctx'' (Measure (leftIndex, outcome, prob))
-                             Ok (outcome, ctx''')
-                         | None ->
-                             Error (QuantumError.OperationError ("TopologicalBuilder", "Measurement produced no classical outcome"))
+                    | Some (prob, outcome, collapsedSuperposition) ->
+                         // Post-measurement state: ALL superposition terms consistent
+                         // with the sampled outcome (renormalized), not a single
+                         // representative term.
+                         let collapsedState =
+                             QuantumState.FusionSuperposition (TopologicalOperations.toInterface collapsedSuperposition)
+
+                         let ctx = updateState context collapsedState
+                         let ctx' = addMeasurement ctx (outcome, prob)
+                         let ctx'' = log ctx' $"Measured fusion at index {leftIndex}: {outcome} (p={prob:F4})"
+                         let ctx''' = addHistory ctx'' (Measure (leftIndex, outcome, prob))
+                         Ok (outcome, ctx''')
                     | None ->
                         Error (QuantumError.OperationError ("TopologicalBuilder", "Measurement returned no outcomes"))
                 | Error err ->

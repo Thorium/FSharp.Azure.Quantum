@@ -432,6 +432,7 @@ module QuantumSolverTests =
             Assert.Equal("Local Simulator", solution.BackendName)
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve returns Ok for single-variable single-constraint`` () =
         let backend = createLocalBackend ()
         // min x0 subject to x0 <= 1

@@ -175,25 +175,52 @@ type QuantumState =
     ///       printfn "Best energy: %f" best.Energy
     | IsingSamples of problem: obj * solutions: obj  // Using obj to avoid circular dependency with DWaveTypes
 
+    /// Measurement histogram (sampled results from cloud quantum hardware)
+    ///
+    /// Representation: Map<bitstring, count> where bitstring.[q] = qubit q
+    /// ('0'/'1' chars, leftmost char = qubit 0) + explicit qubit count.
+    ///
+    /// This is the NATIVE result format of wide cloud devices (Rigetti Ankaa
+    /// ~84q, IBM 127q+, QuEra 256 atoms): with `shots` samples the histogram
+    /// holds at most `shots` entries REGARDLESS of qubit count, so it has no
+    /// width limit — unlike StateVector (2^n amplitudes, ≤ 20 qubits) or
+    /// SparseState (Int32 basis indices, ≤ 31 qubits).
+    ///
+    /// Properties:
+    /// - Classical sample data (like IsingSamples): measurement collapses the
+    ///   state, and phases are not observable from counts, so this is NOT a
+    ///   reconstructable pure state
+    /// - Memory: O(min(shots, distinct outcomes)) — independent of qubit count
+    /// - measure: exact resampling from the recorded counts
+    /// - probability: empirical count / total
+    ///
+    /// Best for:
+    /// - Results from hardware wider than the simulators can represent
+    /// - Sampling-oriented algorithms (QAOA, optimization, VQE estimation)
+    | MeasurementHistogram of histogram: Map<string, int> * numQubits: int
+
 /// Metadata about quantum state representation type
-/// 
+///
 /// Used to determine optimal backend and operations.
 [<Struct>]
 type QuantumStateType =
     /// Gate-based representation (StateVector)
     | GateBased
-    
+
     /// Topological representation (FusionSuperposition)
     | TopologicalBraiding
-    
+
     /// Sparse representation (SparseState)
     | Sparse
-    
+
     /// Mixed state representation (DensityMatrix)
     | Mixed
-    
+
     /// Quantum annealing representation (IsingSamples)
     | Annealing
+
+    /// Sampled measurement results (MeasurementHistogram)
+    | Sampled
 
 /// Error types for quantum state operations
 type QuantumStateError =
@@ -282,11 +309,14 @@ module QuantumState =
                     yield! Map.keys quadraticCoeffs |> Seq.collect (fun (i, j) -> [i; j])
                 }
             
-            if Seq.isEmpty allIndices then 
+            if Seq.isEmpty allIndices then
                 0
-            else 
+            else
                 Seq.max allIndices + 1
-    
+
+        | QuantumState.MeasurementHistogram (_, n) ->
+            n
+
     /// Convert StateVector.StateVector to QuantumState
     /// 
     /// Creates a QuantumState from a LocalSimulator StateVector.
@@ -311,6 +341,7 @@ module QuantumState =
         | QuantumState.SparseState _ -> Sparse
         | QuantumState.DensityMatrix _ -> Mixed
         | QuantumState.IsingSamples _ -> Annealing
+        | QuantumState.MeasurementHistogram _ -> Sampled
     
     /// Check if state is pure (vs mixed)
     /// 
@@ -327,10 +358,19 @@ module QuantumState =
         | QuantumState.SparseState _ -> true
         | QuantumState.DensityMatrix _ -> false
         | QuantumState.IsingSamples _ -> false  // Annealing samples are classical (collapsed)
+        | QuantumState.MeasurementHistogram _ -> false  // Measurement samples are classical (collapsed)
     
-    /// Get dimension of state space (2^n for n qubits)
+    /// Get dimension of state space (2^n for n qubits).
+    ///
+    /// Only meaningful for states narrow enough that 2^n fits in Int32 (n ≤ 30).
+    /// Wide sampled states (MeasurementHistogram from 56/84/256-qubit hardware)
+    /// deliberately have no materialisable dimension — callers should work with
+    /// the histogram entries instead. Throws rather than silently wrapping the
+    /// shift (1 <<< 56 would "equal" 2^24 under .NET's mod-32 shift semantics).
     let dimension (state: QuantumState) : int =
         let n = numQubits state
+        if n > 30 then
+            invalidOp $"State-space dimension 2^{n} does not fit in Int32; wide states (n > 30) have no materialisable dimension — consume the state via measure/probability or its histogram entries instead."
         1 <<< n  // 2^n
     
     /// Measure all qubits and get classical bitstrings
@@ -418,7 +458,8 @@ module QuantumState =
                     |> Option.defaultValue 0)
             
             if Seq.isEmpty solutionsSeq then
-                Array.replicate shots (Array.zeroCreate n)
+                // Array.init (not replicate): independent arrays per shot, safe to mutate
+                Array.init shots (fun _ -> Array.zeroCreate n)
             else
                 // Build weighted sample pool based on NumOccurrences
                 let samplePool =
@@ -430,11 +471,35 @@ module QuantumState =
                         Seq.replicate occurrences spins
                     )
                     |> Array.ofSeq
-                
+
                 // Sample with replacement from solution pool
-                Array.init shots (fun _ -> 
+                Array.init shots (fun _ ->
                     samplePool.[rng.Next(samplePool.Length)] |> spinsToBitstring)
-    
+
+        | QuantumState.MeasurementHistogram (histogram, n) ->
+            // Resample bitstrings proportional to their recorded counts.
+            // Key convention: key.[q] = qubit q ('0'/'1', leftmost char = qubit 0).
+            // Works at any width — no basis indices are ever materialised.
+            // Fallbacks use Array.init (NOT Array.replicate) so each shot gets an
+            // independent array — callers may mutate results in place.
+            let rng = Random()
+            let entries = histogram |> Map.toArray
+            if entries.Length = 0 then
+                Array.init shots (fun _ -> Array.zeroCreate n)
+            else
+                let toBits (key: string) =
+                    Array.init n (fun q -> if q < key.Length && key.[q] = '1' then 1 else 0)
+                let cumulative =
+                    entries |> Array.scan (fun acc (_, count) -> acc + max 0 count) 0 |> Array.tail
+                let total = cumulative.[cumulative.Length - 1]
+                if total <= 0 then
+                    Array.init shots (fun _ -> Array.zeroCreate n)
+                else
+                    Array.init shots (fun _ ->
+                        let r = rng.Next(total)
+                        let idx = cumulative |> Array.findIndex (fun c -> r < c)
+                        toBits (fst entries.[idx]))
+
     /// Get probability of measuring specific bitstring
     /// 
     /// Parameters:
@@ -453,12 +518,14 @@ module QuantumState =
         let n = numQubits state
         if bitstring.Length <> n then
             invalidArg (nameof bitstring) $"Bitstring length {bitstring.Length} does not match state qubits {n}"
-        
-        let index = bitstringToIndex bitstring
-        
+
+        // Lazy: only index-based representations need it, and it would overflow
+        // Int32 for the wide (n > 31) states that MeasurementHistogram carries.
+        let index = lazy (bitstringToIndex bitstring)
+
         match state with
         | QuantumState.StateVector sv ->
-            let amplitude = StateVector.getAmplitude index sv
+            let amplitude = StateVector.getAmplitude index.Value sv
             let prob = amplitude.Magnitude
             prob * prob  // |α|²
         
@@ -469,15 +536,15 @@ module QuantumState =
         
         | QuantumState.SparseState (amplitudes, _) ->
             amplitudes
-            |> Map.tryFind index
-            |> Option.map (fun amplitude -> 
+            |> Map.tryFind index.Value
+            |> Option.map (fun amplitude ->
                 let prob = amplitude.Magnitude
                 prob * prob)
             |> Option.defaultValue 0.0  // Not in sparse representation → amplitude is 0
-        
+
         | QuantumState.DensityMatrix (rho, _) ->
             // Probability = ⟨bitstring|ρ|bitstring⟩ = ρ[i,i]
-            rho.[index, index].Magnitude  // Already real for density matrix diagonal
+            rho.[index.Value, index.Value].Magnitude  // Already real for density matrix diagonal
         
         | QuantumState.IsingSamples (problem, solutions) ->
             // For annealing samples, compute empirical probability from solution occurrences
@@ -514,7 +581,18 @@ module QuantumState =
                     ) (0, 0)
                 
                 float matchingOcc / float totalOcc
-    
+
+        | QuantumState.MeasurementHistogram (histogram, _) ->
+            // Empirical probability from sampled counts (classical, like IsingSamples)
+            let key = System.String(bitstring |> Array.map (fun b -> if b = 1 then '1' else '0'))
+            let total = histogram |> Map.fold (fun acc _ count -> acc + max 0 count) 0
+            if total = 0 then 0.0
+            else
+                histogram
+                |> Map.tryFind key
+                |> Option.map (fun count -> float (max 0 count) / float total)
+                |> Option.defaultValue 0.0
+
     /// Check if state is normalized (‖ψ‖ = 1)
     /// 
     /// Returns true if state is properly normalized, false otherwise.
@@ -560,17 +638,25 @@ module QuantumState =
             // Annealing samples are always "normalized" (they are classical samples)
             // No quantum superposition to normalize
             true
-    
+
+        | QuantumState.MeasurementHistogram _ ->
+            // Measurement samples are classical counts; the empirical distribution
+            // is normalized by construction
+            true
+
     /// Create string representation of state (for debugging)
     /// 
     /// Returns human-readable description of quantum state.
     /// For large states, truncates output.
     let toString (state: QuantumState) : string =
         let n = numQubits state
-        let dim = dimension state
-        
+        // Lazy: `dimension` throws for wide (n > 30) states, which only the
+        // narrow representations below actually use.
+        let dim = lazy (dimension state)
+
         match state with
         | QuantumState.StateVector sv ->
+            let dim = dim.Value
             if dim <= 8 then
                 // Small state: Show all amplitudes
                 let amplitudeStrs =
@@ -593,9 +679,12 @@ module QuantumState =
         
         | QuantumState.SparseState (amplitudes, _) ->
             let numNonZero = Map.count amplitudes
-            $"SparseState ({n} qubits, {numNonZero}/{dim} non-zero amplitudes)"
-        
+            // n can be up to 31 here (cloud sparse tier) where 2^n overflows the
+            // Int32 `dimension`; report 2^n symbolically instead.
+            $"SparseState ({n} qubits, {numNonZero}/2^{n} non-zero amplitudes)"
+
         | QuantumState.DensityMatrix _ ->
+            let dim = dim.Value
             $"DensityMatrix ({n} qubits, {dim}×{dim} matrix, {dim * dim * 16}B memory)"
         
         | QuantumState.IsingSamples (_, solutions) ->
@@ -618,3 +707,9 @@ module QuantumState =
                     ) (0, Double.MaxValue)
                 
                 $"IsingSamples ({n} variables, {numSolutions} unique solutions, {totalSamples} samples, best energy: {bestEnergy:F4})"
+
+        | QuantumState.MeasurementHistogram (histogram, _) ->
+            // Note: deliberately avoids `dim` — 2^n overflows Int32 for the wide
+            // states this case exists for (e.g. 84-qubit Rigetti, 256-atom QuEra)
+            let totalSamples = histogram |> Map.fold (fun acc _ count -> acc + max 0 count) 0
+            $"MeasurementHistogram ({n} qubits, {Map.count histogram} distinct outcomes, {totalSamples} samples)"

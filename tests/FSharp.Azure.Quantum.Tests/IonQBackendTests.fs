@@ -317,10 +317,10 @@ module IonQBackendTests =
         
         // Act
         let result =
-            match parseIonQResult ionqResultJson with
+            match parseIonQResult 2 1000 ionqResultJson with
             | Ok histogram -> histogram
             | Error msg -> failwith $"Expected successful parse, got error: {msg}"
-        
+
         // Assert
         Assert.Equal(4, result.Count)
         Assert.Equal(492, result.["00"])
@@ -339,10 +339,10 @@ module IonQBackendTests =
         
         // Act
         let result =
-            match parseIonQResult ionqResultJson with
+            match parseIonQResult 3 1000 ionqResultJson with
             | Ok histogram -> histogram
             | Error msg -> failwith $"Expected successful parse, got error: {msg}"
-        
+
         // Assert
         Assert.Equal(1, result.Count)
         Assert.Equal(1000, result.["000"])
@@ -361,14 +361,54 @@ module IonQBackendTests =
         
         // Act
         let result =
-            match parseIonQResult ionqResultJson with
+            match parseIonQResult 2 1000 ionqResultJson with
             | Ok histogram -> histogram
             | Error msg -> failwith $"Expected successful parse, got error: {msg}"
-        
+
         // Assert
         Assert.Equal(4, result.Count)
         let totalCounts = result |> Map.toSeq |> Seq.sumBy snd
         Assert.Equal(1000, totalCounts)
+
+    [<Fact>]
+    let ``parseIonQResult - Parses Azure "ionq.quantum-results.v1" format (decimal keys, probabilities)`` () =
+        // Arrange - documented Azure Quantum IonQ output: probabilities keyed by decimal state index
+        let ionqResultJson = """{
+            "histogram": {
+                "0": 0.492,
+                "3": 0.508
+            }
+        }"""
+
+        // Act
+        let result =
+            match parseIonQResult 2 1000 ionqResultJson with
+            | Ok histogram -> histogram
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+
+        // Assert - decimal indices become bitstrings, probabilities become counts (round(p * shots))
+        Assert.Equal(2, result.Count)
+        Assert.Equal(492, result.["00"])
+        Assert.Equal(508, result.["11"])
+
+    [<Fact>]
+    let ``parseIonQResult - Deterministic probability-1 outcome scales to shot count`` () =
+        // Arrange - a deterministic result may serialise the probability as the integer 1
+        let ionqResultJson = """{
+            "histogram": {
+                "3": 1
+            }
+        }"""
+
+        // Act
+        let result =
+            match parseIonQResult 2 500 ionqResultJson with
+            | Ok histogram -> histogram
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+
+        // Assert
+        Assert.Equal(1, result.Count)
+        Assert.Equal(500, result.["11"])
     
     // ============================================================================
     // TDD CYCLE 6: Error Mapping from IonQ to QuantumError
@@ -474,9 +514,9 @@ module IonQBackendTests =
         
         // Act - Verify function signature compiles (no actual execution)
         let workflowFunc = submitAndWaitForResultsAsync
-        
+
         // Assert - Function exists and has expected type
-        // (HttpClient -> string -> IonQCircuit -> int -> string -> Task<Result<Map<string, int>, QuantumError>>)
+        // (HttpClient -> string -> IonQCircuit -> int -> string -> CancellationToken -> Task<Result<Map<string, int>, QuantumError>>)
         Assert.NotNull(workflowFunc)
         
         // Verify we can create a submission (doesn't require HTTP)

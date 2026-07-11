@@ -597,64 +597,127 @@ module TopologicalOperations =
     // COMPOSITE GATES
     // ========================================================================
     
-    /// Hadamard gate for topological qubits
-    /// 
-    /// Creates superposition: |0⟩ → (|0⟩ + |1⟩)/√2, |1⟩ → (|0⟩ - |1⟩)/√2
-    /// 
-    /// Operates at the amplitude level by transforming σ-pair fusion channels
-    /// (Vacuum ↔ Psi) with the standard Hadamard matrix coefficients.
+    /// The pair-encoding computational-basis fusion channels (|0⟩-channel, |1⟩-channel)
+    /// for each anyon theory, matching FusionTree.fromComputationalBasis:
+    ///   Ising:     σ×σ → 1 (bit 0) or ψ (bit 1)
+    ///   Fibonacci: τ×τ → 1 (bit 0) or τ (bit 1)
+    ///   SU(2)_k:   ½×½ → j=0 (bit 0) or j=1 (bit 1)
+    let private qubitChannels (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle * AnyonSpecies.Particle =
+        match anyonType with
+        | AnyonSpecies.AnyonType.Fibonacci ->
+            AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau
+        | AnyonSpecies.AnyonType.SU2Level k ->
+            AnyonSpecies.Particle.SpinJ(0, k), AnyonSpecies.Particle.SpinJ(2, k)
+        | _ ->
+            AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi
+
+    /// Replace the fusion channel for a specific qubit's anyon pair within a tree,
+    /// returning the new, FUSION-CONSISTENT tree. The qubit's pair is the
+    /// `qubitIndex`-th (0-based) leaf pair of the left-associated pair chain
+    ///   (((pair0 × pair1 → ch01) × pair2 → ch012) × ... )
+    /// as produced by FusionTree.fromComputationalBasis.
     ///
-    /// Note: TopologicalBackend.ApplyGate handles braiding-faithful H compilation
-    /// via GateToBraid + SolovayKitaev. This function provides the exact mathematical
-    /// result for direct simulation use.
-    /// Replace the fusion channel for a specific qubit's σ-pair within a tree,
-    /// returning the new tree. The qubit's pair is at depth-first σ-pair index
-    /// `qubitIndex` (0-based). Returns None if the qubit pair cannot be found.
+    /// After swapping the pair channel this function ALSO:
+    ///   1. Recomputes every intermediate (running) charge along the chain with
+    ///      the same convention as fromComputationalBasis (vacuum-like charges act
+    ///      as identity; equal non-vacuum charges fuse to the vacuum-like charge),
+    ///      so each internal node still satisfies the fusion rules; and
+    ///   2. For the Ising σ-pair encoding (all-σ leaves, ≥ 2 pairs), updates the
+    ///      trailing PARITY pair so the total charge remains Vacuum.
+    /// A previous implementation swapped only the pair channel, leaving stale
+    /// intermediate charges and parity — every post-gate tree then failed
+    /// FusionTree.validateState (and error correction would have "repaired"
+    /// legitimate states).
+    ///
+    /// Returns None if the tree is not a left-associated chain of leaf pairs or
+    /// the index is out of range (callers keep the term unchanged in that case).
     let private replaceQubitChannel
+        (anyonType: AnyonSpecies.AnyonType)
         (qubitIndex: int)
         (newChannel: AnyonSpecies.Particle)
         (tree: FusionTree.Tree)
         : FusionTree.Tree option =
 
-        // In the σ-pair encoding, the tree is a left-associated chain of σ-pairs:
-        //   (((pair0 × pair1 → ch01) × pair2 → ch012) × ... × parityPair → Vacuum)
-        // Each pairN = Fusion(Leaf σ, Leaf σ, channel_N)
-        //
-        // We flatten to a list of pairs, replace the channel for the target qubit,
-        // and reconstruct.
-        let rec collectPairs (t: FusionTree.Tree) : (AnyonSpecies.Particle * FusionTree.Tree) list option =
+        // Flatten the left-associated chain into its leaf pairs (a, b, channel).
+        let rec collectPairs (t: FusionTree.Tree)
+            : (AnyonSpecies.Particle * AnyonSpecies.Particle * AnyonSpecies.Particle) list option =
             match t with
-            | FusionTree.Fusion (FusionTree.Leaf _, FusionTree.Leaf _, _) ->
-                // Single pair — base case
-                Some [(AnyonSpecies.Particle.Vacuum, t)]  // channel placeholder, we'll use the tree directly
-            | FusionTree.Fusion (left, right, outerChannel) ->
-                match collectPairs left with
-                | Some leftPairs ->
-                    // right should be a leaf-pair
-                    Some (leftPairs @ [(outerChannel, right)])
-                | None -> None
-            | FusionTree.Leaf _ -> None
+            | FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, ch) ->
+                Some [ (a, b, ch) ]
+            | FusionTree.Fusion (left, FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, ch), _) ->
+                collectPairs left |> Option.map (fun ps -> ps @ [ (a, b, ch) ])
+            | _ -> None
 
-        // Simpler approach: directly modify the tree by navigating to the target pair
-        let rec replaceAtPairIndex (idx: int) (currentPairIdx: int) (t: FusionTree.Tree) : (int * FusionTree.Tree) option =
-            match t with
-            | FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, _ch) ->
-                // This is a σ-pair (leaf pair)
-                if currentPairIdx = idx then
-                    Some (currentPairIdx + 1, FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, newChannel))
-                else
-                    Some (currentPairIdx + 1, t)  // not our target, keep unchanged
-            | FusionTree.Fusion (left, right, ch) ->
-                match replaceAtPairIndex idx currentPairIdx left with
-                | Some (nextIdx, newLeft) ->
-                    match replaceAtPairIndex idx nextIdx right with
-                    | Some (finalIdx, newRight) ->
-                        Some (finalIdx, FusionTree.Fusion (newLeft, newRight, ch))
-                    | None -> None
-                | None -> None
-            | FusionTree.Leaf _ -> Some (currentPairIdx, t)
+        // Vacuum-like ("zero") charge of the theory, e.g. SpinJ(0,k) for SU(2)_k.
+        let zeroCharge = fst (qubitChannels anyonType)
+        let isZeroLike (p: AnyonSpecies.Particle) =
+            p = zeroCharge || p = AnyonSpecies.Particle.Vacuum
 
-        replaceAtPairIndex qubitIndex 0 tree |> Option.map snd
+        // Running-charge fusion, mirroring FusionTree.fromComputationalBasis:
+        // vacuum-like is the identity; equal charges annihilate to vacuum-like
+        // (1×ψ→ψ, ψ×ψ→1; τ×τ→1 by encoding convention; j1×j1→j0 likewise).
+        let fuseCharges (c1: AnyonSpecies.Particle) (c2: AnyonSpecies.Particle) =
+            if isZeroLike c1 then c2
+            elif isZeroLike c2 then c1
+            else zeroCharge
+
+        match collectPairs tree with
+        | None -> None
+        | Some pairs ->
+
+        // Ising σ-pair encoding carries a trailing parity pair (see
+        // FusionTree.numQubits): all-σ leaves, ≥ 4 anyons. The parity pair is not
+        // an addressable qubit.
+        let isIsingParityEncoding =
+            pairs.Length >= 2
+            && pairs |> List.forall (fun (a, b, _) ->
+                a = AnyonSpecies.Particle.Sigma && b = AnyonSpecies.Particle.Sigma)
+            && (match anyonType with
+                | AnyonSpecies.AnyonType.Ising -> true
+                | _ -> false)
+
+        let qubitPairCount = if isIsingParityEncoding then pairs.Length - 1 else pairs.Length
+
+        if qubitIndex < 0 || qubitIndex >= qubitPairCount then None
+        else
+
+        // 1. Swap the target pair's channel.
+        let withNewChannel =
+            pairs |> List.mapi (fun i (a, b, ch) ->
+                if i = qubitIndex then (a, b, newChannel) else (a, b, ch))
+
+        // 2. Recompute the Ising parity-pair channel so the total charge is Vacuum:
+        //    parity = ψ iff an odd number of qubit pairs carry ψ.
+        let updatedPairs =
+            if isIsingParityEncoding then
+                let qubitChs =
+                    withNewChannel |> List.take (pairs.Length - 1) |> List.map (fun (_, _, ch) -> ch)
+                let psiCount =
+                    qubitChs |> List.filter ((=) AnyonSpecies.Particle.Psi) |> List.length
+                let parityChannel =
+                    if psiCount % 2 = 0 then AnyonSpecies.Particle.Vacuum
+                    else AnyonSpecies.Particle.Psi
+                withNewChannel
+                |> List.mapi (fun i (a, b, ch) ->
+                    if i = pairs.Length - 1 then (a, b, parityChannel) else (a, b, ch))
+            else withNewChannel
+
+        // 3. Rebuild the left-associated chain, recomputing intermediate charges.
+        let mkPair (a, b, ch) =
+            FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, ch)
+        let channelOf (_, _, ch) = ch
+
+        match updatedPairs with
+        | [] -> None
+        | [ single ] -> Some (mkPair single)
+        | first :: rest ->
+            rest
+            |> List.fold (fun (acc, runningCharge) p ->
+                let newCharge = fuseCharges runningCharge (channelOf p)
+                (FusionTree.Fusion (acc, mkPair p, newCharge), newCharge))
+                (mkPair first, channelOf first)
+            |> fst
+            |> Some
 
     /// Get the fusion channel for a specific qubit's σ-pair.
     /// Returns the channel (Vacuum = |0⟩, Psi = |1⟩) for the qubit at the given index.
@@ -672,6 +735,17 @@ module TopologicalOperations =
 
         findAtPairIndex qubitIndex 0 tree |> snd
 
+    /// Hadamard gate for topological qubits
+    ///
+    /// Creates superposition: |0⟩ → (|0⟩ + |1⟩)/√2, |1⟩ → (|0⟩ - |1⟩)/√2
+    ///
+    /// Operates at the amplitude level by transforming the qubit pair's fusion
+    /// channel (Vacuum ↔ ψ for Ising, 1 ↔ τ for Fibonacci) with the standard
+    /// Hadamard matrix coefficients.
+    ///
+    /// Note: TopologicalBackend.ApplyGate handles braiding-faithful H compilation
+    /// via GateToBraid + SolovayKitaev. This function provides the exact mathematical
+    /// result for direct simulation use.
     let hadamard (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
         // Validate qubit index
         let numQubits =
@@ -698,7 +772,8 @@ module TopologicalOperations =
                 |> List.collect (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        let isZero = (channel = AnyonSpecies.Particle.Vacuum)
+                        let chZero, chOne = qubitChannels state.AnyonType
+                        let isZero = (channel = chZero)
                         // H|0⟩ = (|0⟩ + |1⟩)/√2  →  amp/√2 for both |0⟩ and |1⟩
                         // H|1⟩ = (|0⟩ - |1⟩)/√2  →  amp/√2 for |0⟩, -amp/√2 for |1⟩
                         let amp0 = amp * Complex(invSqrt2, 0.0)
@@ -706,8 +781,8 @@ module TopologicalOperations =
                             if isZero then amp * Complex(invSqrt2, 0.0)
                             else amp * Complex(-invSqrt2, 0.0)
 
-                        let tree0 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Vacuum state.Tree
-                        let tree1 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Psi state.Tree
+                        let tree0 = replaceQubitChannel state.AnyonType qubitIndex chZero state.Tree
+                        let tree1 = replaceQubitChannel state.AnyonType qubitIndex chOne state.Tree
 
                         match tree0, tree1 with
                         | Some t0, Some t1 ->
@@ -760,16 +835,15 @@ module TopologicalOperations =
             let newTerms =
                 superposition.Terms
                 |> List.choose (fun (amp, state) ->
+                    let chZero, chOne = qubitChannels state.AnyonType
                     match getQubitChannel controlIndex state.Tree with
                     | Some controlChannel ->
-                        if controlChannel = AnyonSpecies.Particle.Psi then
+                        if controlChannel = chOne then
                             // Control is |1⟩ — flip target channel
                             match getQubitChannel targetIndex state.Tree with
                             | Some targetChannel ->
-                                let flipped =
-                                    if targetChannel = AnyonSpecies.Particle.Vacuum then AnyonSpecies.Particle.Psi
-                                    else AnyonSpecies.Particle.Vacuum
-                                match replaceQubitChannel targetIndex flipped state.Tree with
+                                let flipped = if targetChannel = chZero then chOne else chZero
+                                match replaceQubitChannel state.AnyonType targetIndex flipped state.Tree with
                                 | Some newTree -> Some (amp, FusionTree.create newTree state.AnyonType)
                                 | None -> Some (amp, state)
                             | None -> Some (amp, state)
@@ -802,16 +876,15 @@ module TopologicalOperations =
                 $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
         else
             // X|0⟩ = |1⟩, X|1⟩ = |0⟩
-            // Simply swap the fusion channel: Vacuum ↔ Psi
+            // Simply swap the fusion channel (Vacuum ↔ ψ for Ising, 1 ↔ τ for Fibonacci)
             let newTerms =
                 superposition.Terms
                 |> List.choose (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        let flipped =
-                            if channel = AnyonSpecies.Particle.Vacuum then AnyonSpecies.Particle.Psi
-                            else AnyonSpecies.Particle.Vacuum
-                        match replaceQubitChannel qubitIndex flipped state.Tree with
+                        let chZero, chOne = qubitChannels state.AnyonType
+                        let flipped = if channel = chZero then chOne else chZero
+                        match replaceQubitChannel state.AnyonType qubitIndex flipped state.Tree with
                         | Some newTree -> Some (amp, FusionTree.create newTree state.AnyonType)
                         | None -> Some (amp, state) // fallback: keep unchanged
                     | None -> Some (amp, state)
@@ -839,21 +912,20 @@ module TopologicalOperations =
                 "qubitIndex"
                 $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
         else
-            // Y|0⟩ = i|1⟩   → amplitude * i, channel Vacuum → Psi
-            // Y|1⟩ = -i|0⟩  → amplitude * (-i), channel Psi → Vacuum
+            // Y|0⟩ = i|1⟩   → amplitude * i, channel |0⟩-channel → |1⟩-channel
+            // Y|1⟩ = -i|0⟩  → amplitude * (-i), channel |1⟩-channel → |0⟩-channel
             let newTerms =
                 superposition.Terms
                 |> List.choose (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        let isZero = (channel = AnyonSpecies.Particle.Vacuum)
+                        let chZero, chOne = qubitChannels state.AnyonType
+                        let isZero = (channel = chZero)
                         let newAmp =
                             if isZero then amp * Complex(0.0, 1.0)   // * i
                             else amp * Complex(0.0, -1.0)            // * (-i)
-                        let flipped =
-                            if isZero then AnyonSpecies.Particle.Psi
-                            else AnyonSpecies.Particle.Vacuum
-                        match replaceQubitChannel qubitIndex flipped state.Tree with
+                        let flipped = if isZero then chOne else chZero
+                        match replaceQubitChannel state.AnyonType qubitIndex flipped state.Tree with
                         | Some newTree -> Some (newAmp, FusionTree.create newTree state.AnyonType)
                         | None -> Some (amp, state)
                     | None -> Some (amp, state)
@@ -889,7 +961,7 @@ module TopologicalOperations =
                 |> List.map (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        if channel = AnyonSpecies.Particle.Psi then
+                        if channel = snd (qubitChannels state.AnyonType) then
                             (amp * Complex(-1.0, 0.0), state)  // -1 phase for |1⟩
                         else
                             (amp, state)  // unchanged for |0⟩
@@ -928,7 +1000,7 @@ module TopologicalOperations =
                 |> List.map (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        if channel = AnyonSpecies.Particle.Psi then
+                        if channel = snd (qubitChannels state.AnyonType) then
                             (amp * tPhase, state)  // e^{iπ/4} phase for |1⟩
                         else
                             (amp, state)  // unchanged for |0⟩
@@ -964,7 +1036,7 @@ module TopologicalOperations =
                 |> List.map (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        if channel = AnyonSpecies.Particle.Psi then
+                        if channel = snd (qubitChannels state.AnyonType) then
                             (amp * tDaggerPhase, state)  // e^{-iπ/4} phase for |1⟩
                         else
                             (amp, state)  // unchanged for |0⟩
@@ -1005,7 +1077,7 @@ module TopologicalOperations =
                 |> List.map (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        if channel = AnyonSpecies.Particle.Psi then
+                        if channel = snd (qubitChannels state.AnyonType) then
                             (amp * phase, state)   // e^{iθ} phase for |1⟩
                         else
                             (amp, state)           // unchanged for |0⟩
@@ -1040,13 +1112,14 @@ module TopologicalOperations =
                 |> List.collect (fun (amp, state) ->
                     match getQubitChannel qubitIndex state.Tree with
                     | Some channel ->
-                        let isZero = (channel = AnyonSpecies.Particle.Vacuum)
+                        let chZero, chOne = qubitChannels state.AnyonType
+                        let isZero = (channel = chZero)
                         // Select the U column for the input channel
                         let amp0 = amp * (if isZero then u00 else u01)
                         let amp1 = amp * (if isZero then u10 else u11)
 
-                        let tree0 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Vacuum state.Tree
-                        let tree1 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Psi state.Tree
+                        let tree0 = replaceQubitChannel state.AnyonType qubitIndex chZero state.Tree
+                        let tree1 = replaceQubitChannel state.AnyonType qubitIndex chOne state.Tree
 
                         match tree0, tree1 with
                         | Some t0, Some t1 ->
@@ -1109,9 +1182,9 @@ module TopologicalOperations =
                     match getQubitChannel qubitIndex1 state.Tree, getQubitChannel qubitIndex2 state.Tree with
                     | Some ch1, Some ch2 ->
                         // Swap: put ch2 at position 1, ch1 at position 2
-                        match replaceQubitChannel qubitIndex1 ch2 state.Tree with
+                        match replaceQubitChannel state.AnyonType qubitIndex1 ch2 state.Tree with
                         | Some tree' ->
-                            match replaceQubitChannel qubitIndex2 ch1 tree' with
+                            match replaceQubitChannel state.AnyonType qubitIndex2 ch1 tree' with
                             | Some tree'' -> Some (amp, FusionTree.create tree'' state.AnyonType)
                             | None -> Some (amp, state)
                         | None -> Some (amp, state)
@@ -1182,31 +1255,42 @@ module TopologicalOperations =
     let measureAll (superposition: Superposition) (shots: int) : int[][] =
         // Normalize superposition to ensure valid probability distribution
         let normalized = normalize superposition
-        
+
+        // An empty superposition has no outcomes to sample — fail loudly instead
+        // of throwing KeyNotFoundException from an index lookup.
+        if List.isEmpty normalized.Terms then
+            invalidOp "measureAll: cannot measure an empty superposition (no terms)"
+
         // Calculate cumulative probability distribution for sampling
-        let probabilities = 
+        let probabilities =
             normalized.Terms
             |> List.map (fun (amp, _) -> probability amp)
-        
-        let cumulativeProbs = 
+
+        let cumulativeProbs =
             probabilities
             |> List.scan (+) 0.0
             |> List.tail  // Remove initial 0.0
-        
+
+        let lastIndex = cumulativeProbs.Length - 1
+
         // Use shared random number generator (thread-safe, no per-call allocation)
         let rng = System.Random.Shared
-        
-        // Sample function: Given a random value [0,1), return the corresponding term index
+
+        // Sample function: Given a random value [0,1), return the corresponding
+        // term index. Floating-point rounding can leave the final cumulative sum
+        // slightly below 1.0 (or below r); clamp to the last index on fall-through
+        // instead of throwing KeyNotFoundException.
         let sample (r: float) : int =
-            cumulativeProbs
-            |> List.findIndex (fun cumProb -> r <= cumProb)
-        
+            match cumulativeProbs |> List.tryFindIndex (fun cumProb -> r <= cumProb) with
+            | Some idx -> idx
+            | None -> lastIndex
+
         // Perform measurements
         [| for _ in 1 .. shots do
             let r = rng.NextDouble()
             let termIndex = sample r
             let (_, state) = normalized.Terms.[termIndex]
-            
+
             // Convert fusion tree to computational basis bitstring
             let bits = FusionTree.toComputationalBasis state.Tree
             yield List.toArray bits

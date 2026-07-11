@@ -6,12 +6,33 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.5</Version>
+    <Version>0.4.6</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.3: Rebuilt against FSharp.Azure.Quantum v1.4.3
+    <PackageReleaseNotes>v0.4.6: Correctness release — full-library audit (critical + high-severity fixes)
+
+Additional high-severity fixes in this release:
+- SU(2)_k R-symbols compute the exchange eigenvalue (were the monodromy — hexagon identities now hold to machine precision; Fibonacci subcategory of SU(2)_3 reproduces the hardcoded Fibonacci values exactly)
+- BraidingOperators routes all F-symbols through the pentagon-verified FMatrix module (vacuum-leg F-moves complete and unitary; two Ising sign errors and a non-unitary Fibonacci symbol fixed)
+- Entanglement entropy diagonalizes the true complex Hermitian density matrix (was Re(ρ) only, and the Jacobi rotation itself was wrong even for real matrices)
+- Channel-flip gates (X/Y/H/CNOT/SWAP/RX/RY) rebuild fusion-tree intermediate charges and the parity pair — post-gate states pass validateState; error correction no longer rewrites legitimate states; Fibonacci trees get τ channels (not Ising ψ)
+- Kauffman bracket Planar evaluator fixed (two pre-existing bugs: dead arc endpoints inflated loop counts; state weights ignored crossing signs) — trefoil/Hopf/figure-eight now yield the true bracket polynomials and |V(-1)| = knot determinant; figureEight constructor replaced (previous diagram was not the figure-eight knot); the simplified crossing-list evaluator is documented as a curl approximation, not an invariant
+- measureAll clamps cumulative-probability sampling and rejects empty superpositions
+
+v0.4.6 critical fixes (earlier batch):
+- FIXED: Fusion-space dimension and basis enumeration (left-associated recursion; dim([s;s;s] -&gt; s) was 0, now correctly 2; O(n·k²) dynamic programming instead of exponential recursion)
+- FIXED: Toric-code decoder applied the wrong Pauli type per syndrome (never corrected anything); correction paths carry per-segment edge types with correct wrap-around offsets
+- FIXED: Gate-to-braid compilation uses leaf indexing (qubit q = leaves 2q, 2q+1) — S/Z/Rz on qubits above 0 previously acted as identity; BraidToGate reverse compiler aligned (including the parity-pair exchange)
+- FIXED: Fusion measurement uses the state's actual amplitudes (Born rule) with the correct canonical d_c/(d_a·d_b) fallback; builder measurement samples outcomes and keeps the full collapsed superposition
+- FIXED: Backend executes CircuitBuilder circuits in program order (was reversed)
+- FIXED: Exact amplitude-level intercepts for RZ/P (QFT/QPE phases exact — previously snapped to π/2 multiples) plus new RX/RY; intercepts now also apply to Fibonacci
+- FIXED: Magic-state preparation uses valid fusion-tree intermediate charges
+- CHANGED: Braid compilations that cannot be realized (H/X/Y/CZ via Ising within-pair braiding, cross-pair braids on multi-pair encodings, non-π/2 rotations) return explicit errors instead of silently wrong braid sequences; Solovay-Kitaev docs state the diagonal-only reachable set
+- Requires FSharp.Azure.Quantum v1.4.6+
+
+v0.4.3: Rebuilt against FSharp.Azure.Quantum v1.4.3
 - No functional changes; keeps version in step with the core package
 
 v0.4.2: Braid-to-gate execution

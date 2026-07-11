@@ -401,6 +401,7 @@ module IntegrationTests =
             Assert.Fail($"Expected successful allocation, got error: {msg}")
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``Integration - TSP and Portfolio workflows end-to-end`` () =
         // NOTE: 8-city TSP test removed - requires 64 qubits which exceeds LocalBackend limit (16 qubits)
         // TSP.solve uses quantum-first architecture not suitable for large problems

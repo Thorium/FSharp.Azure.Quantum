@@ -184,7 +184,18 @@ module VQC =
             -log p
         else
             -log (1.0 - p)
-    
+
+    /// Analytic derivative of binary cross-entropy w.r.t. the predicted probability p.
+    ///
+    /// L(p, y) = -y ln p - (1 - y) ln (1 - p)
+    /// dL/dp   = -y/p + (1 - y)/(1 - p) = (p - y) / (p (1 - p))
+    ///
+    /// Uses the same epsilon clamping as binaryCrossEntropy to avoid division by zero.
+    let private binaryCrossEntropyDerivative (predicted: float) (actual: int) : float =
+        let epsilon = 1e-7
+        let p = max epsilon (min (1.0 - epsilon) predicted)
+        (p - float actual) / (p * (1.0 - p))
+
     /// Compute average loss over dataset (parallelized for performance)
     [<Obsolete("Use computeLossAsync for genuine task-based parallelism with cloud backends.")>]
     let private computeLoss
@@ -257,12 +268,69 @@ module VQC =
     // ========================================================================
     // GRADIENT COMPUTATION (Parameter Shift Rule)
     // ========================================================================
-    
-    /// Compute gradient using parameter shift rule (parallelized for massive speedup)
-    /// 
-    /// For a parameter θ_i, the gradient is:
-    /// ∂L/∂θ_i = (L(θ + π/2 e_i) - L(θ - π/2 e_i)) / 2
-    /// 
+
+    /// Compute per-sample circuit expectations p_j(θ) for all samples (parallelized)
+    [<Obsolete("Use computePredictionsAsync for genuine task-based parallelism with cloud backends.")>]
+    let private computePredictions
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (shots: int)
+        : QuantumResult<float array> =
+
+        let results =
+            features
+            |> Array.map (fun sample ->
+                async {
+                    return
+                        buildVQCCircuit featureMap variationalForm sample parameters
+                        |> Result.bind (fun circuit -> forwardPass backend circuit shots)
+                })
+            |> Async.Parallel
+            |> Async.RunSynchronously
+
+        match results |> Array.tryFind Result.isError with
+        | Some (Error e) -> Error e
+        | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+
+    /// Compute per-sample circuit expectations p_j(θ) concurrently via Task.WhenAll.
+    let private computePredictionsAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float array>> =
+        task {
+            let! results =
+                features
+                |> Array.map (fun sample ->
+                    task {
+                        match buildVQCCircuit featureMap variationalForm sample parameters with
+                        | Error e -> return Error e
+                        | Ok circuit -> return! forwardPassAsync backend circuit shots cancellationToken
+                    })
+                |> Task.WhenAll
+            return
+                match results |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error e
+                | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+        }
+
+    /// Compute gradient using the parameter shift rule + chain rule (parallelized).
+    ///
+    /// The parameter shift rule is exact only for the circuit EXPECTATION p(θ):
+    ///   ∂p/∂θ_i = (p(θ + π/2 e_i) - p(θ - π/2 e_i)) / 2
+    /// The cross-entropy loss L(p, y) is a nonlinear function of p, so the loss
+    /// gradient requires the chain rule (per sample j):
+    ///   ∂L_j/∂θ_i = dL/dp|_{p_j(θ)} · (p_j(θ + π/2 e_i) - p_j(θ - π/2 e_i)) / 2
+    /// with dL/dp = (p - y) / (p (1 - p)) for binary cross-entropy.
+    /// The dataset gradient is the average of the per-sample gradients.
+    ///
     /// 🚀 PERFORMANCE: Gradients for different parameters are computed in parallel
     /// This can provide 10-100× speedup depending on parameter count!
     [<Obsolete("Use computeGradientAsync for genuine task-based parallelism with cloud backends.")>]
@@ -275,53 +343,62 @@ module VQC =
         (labels: int array)
         (shots: int)
         : QuantumResult<float array> =
-        
+
         let shift = Math.PI / 2.0
-        
-        let computeParamGradient i =
-            async {
-                // Shift parameter forward
-                let paramsPlus = Array.copy parameters
-                paramsPlus.[i] <- paramsPlus.[i] + shift
-                
-                // Shift parameter backward
-                let paramsMinus = Array.copy parameters
-                paramsMinus.[i] <- paramsMinus.[i] - shift
-                
-                // 🚀 PARALLELIZED: Compute forward and backward shifts in parallel too!
-                let! results = 
-                    Async.Parallel [|
-                        async { return computeLoss backend featureMap variationalForm paramsPlus features labels shots }
-                        async { return computeLoss backend featureMap variationalForm paramsMinus features labels shots }
-                    |]
-                
-                let lossPlus = results.[0]
-                let lossMinus = results.[1]
-                
-                // Combine results
-                return 
-                    match lossPlus, lossMinus with
-                    | Ok lp, Ok lm -> Ok ((lp - lm) / 2.0)
-                    | Error e, _ -> Error e
-                    | _, Error e -> Error e
-            }
-        
-        // 🚀 PARALLELIZED: Compute gradient for all parameters in parallel
-        // This is a HUGE win - can be 10-100× faster depending on parameter count!
-        let results = 
-            parameters 
-            |> Array.mapi (fun i _ -> computeParamGradient i)
-            |> Async.Parallel
-            |> Async.RunSynchronously
-        
-        // Check if any failed
-        match results |> Array.tryFind Result.isError with
-        | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
-        | _ ->
-            let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
-            Ok gradients
-    
-    /// Compute gradient using parameter shift rule with genuine task-based parallelism.
+
+        // Unshifted per-sample predictions p_j(θ): loss-derivative factor of the chain rule
+        match computePredictions backend featureMap variationalForm parameters features shots with
+        | Error e -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+        | Ok basePredictions ->
+            let lossDerivatives =
+                Array.map2 binaryCrossEntropyDerivative basePredictions labels
+
+            let computeParamGradient i =
+                async {
+                    // Shift parameter forward
+                    let paramsPlus = Array.copy parameters
+                    paramsPlus.[i] <- paramsPlus.[i] + shift
+
+                    // Shift parameter backward
+                    let paramsMinus = Array.copy parameters
+                    paramsMinus.[i] <- paramsMinus.[i] - shift
+
+                    // 🚀 PARALLELIZED: Compute forward and backward shifted predictions in parallel too!
+                    let! results =
+                        Async.Parallel [|
+                            async { return computePredictions backend featureMap variationalForm paramsPlus features shots }
+                            async { return computePredictions backend featureMap variationalForm paramsMinus features shots }
+                        |]
+
+                    // Combine results via the chain rule, averaged over samples
+                    return
+                        match results.[0], results.[1] with
+                        | Ok predsPlus, Ok predsMinus ->
+                            Array.init features.Length (fun j ->
+                                lossDerivatives.[j] * (predsPlus.[j] - predsMinus.[j]) / 2.0)
+                            |> Array.average
+                            |> Ok
+                        | Error e, _ -> Error e
+                        | _, Error e -> Error e
+                }
+
+            // 🚀 PARALLELIZED: Compute gradient for all parameters in parallel
+            // This is a HUGE win - can be 10-100× faster depending on parameter count!
+            let results =
+                parameters
+                |> Array.mapi (fun i _ -> computeParamGradient i)
+                |> Async.Parallel
+                |> Async.RunSynchronously
+
+            // Check if any failed
+            match results |> Array.tryFind Result.isError with
+            | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+            | _ ->
+                let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                Ok gradients
+
+    /// Compute gradient using the parameter shift rule + chain rule with genuine
+    /// task-based parallelism (see computeGradient for the chain-rule derivation).
     /// Both the per-parameter gradient and the +/- shift pair within each parameter
     /// are computed concurrently via Task.WhenAll + backend.ExecuteToStateAsync.
     let private computeGradientAsync
@@ -337,46 +414,58 @@ module VQC =
         task {
             let shift = Math.PI / 2.0
 
-            let computeParamGradientAsync i =
-                task {
-                    // Shift parameter forward
-                    let paramsPlus = Array.copy parameters
-                    paramsPlus.[i] <- paramsPlus.[i] + shift
+            // Unshifted per-sample predictions p_j(θ): loss-derivative factor of the chain rule
+            let! basePredictionsResult =
+                computePredictionsAsync backend featureMap variationalForm parameters features shots cancellationToken
 
-                    // Shift parameter backward
-                    let paramsMinus = Array.copy parameters
-                    paramsMinus.[i] <- paramsMinus.[i] - shift
+            match basePredictionsResult with
+            | Error e -> return Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+            | Ok basePredictions ->
+                let lossDerivatives =
+                    Array.map2 binaryCrossEntropyDerivative basePredictions labels
 
-                    // Compute forward and backward shifts in parallel
-                    let! results =
-                        Task.WhenAll [|
-                            computeLossAsync backend featureMap variationalForm paramsPlus features labels shots cancellationToken
-                            computeLossAsync backend featureMap variationalForm paramsMinus features labels shots cancellationToken
-                        |]
+                let computeParamGradientAsync i =
+                    task {
+                        // Shift parameter forward
+                        let paramsPlus = Array.copy parameters
+                        paramsPlus.[i] <- paramsPlus.[i] + shift
 
-                    let lossPlus = results.[0]
-                    let lossMinus = results.[1]
+                        // Shift parameter backward
+                        let paramsMinus = Array.copy parameters
+                        paramsMinus.[i] <- paramsMinus.[i] - shift
 
-                    return
-                        match lossPlus, lossMinus with
-                        | Ok lp, Ok lm -> Ok ((lp - lm) / 2.0)
-                        | Error e, _ -> Error e
-                        | _, Error e -> Error e
-                }
+                        // Compute forward and backward shifted predictions in parallel
+                        let! results =
+                            Task.WhenAll [|
+                                computePredictionsAsync backend featureMap variationalForm paramsPlus features shots cancellationToken
+                                computePredictionsAsync backend featureMap variationalForm paramsMinus features shots cancellationToken
+                            |]
 
-            // Compute gradient for all parameters in parallel
-            let! results =
-                parameters
-                |> Array.mapi (fun i _ -> computeParamGradientAsync i)
-                |> Task.WhenAll
+                        // Combine results via the chain rule, averaged over samples
+                        return
+                            match results.[0], results.[1] with
+                            | Ok predsPlus, Ok predsMinus ->
+                                Array.init features.Length (fun j ->
+                                    lossDerivatives.[j] * (predsPlus.[j] - predsMinus.[j]) / 2.0)
+                                |> Array.average
+                                |> Ok
+                            | Error e, _ -> Error e
+                            | _, Error e -> Error e
+                    }
 
-            // Check if any failed
-            return
-                match results |> Array.tryFind Result.isError with
-                | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
-                | _ ->
-                    let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
-                    Ok gradients
+                // Compute gradient for all parameters in parallel
+                let! results =
+                    parameters
+                    |> Array.mapi (fun i _ -> computeParamGradientAsync i)
+                    |> Task.WhenAll
+
+                // Check if any failed
+                return
+                    match results |> Array.tryFind Result.isError with
+                    | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+                    | _ ->
+                        let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                        Ok gradients
         }
 
     // ========================================================================
@@ -860,7 +949,64 @@ module VQC =
                     Ok (Array.average squaredErrors)
         }
 
-    /// Compute gradient for regression using parameter shift rule
+    /// Compute per-sample regression predictions v_j(θ) (scaled values) for all samples
+    [<Obsolete("Use computeRegressionPredictionsAsync for genuine task-based parallelism.")>]
+    let private computeRegressionPredictions
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (trainFeatures: float array array)
+        (shots: int)
+        (valueRange: float * float)
+        : QuantumResult<float array> =
+
+        let results =
+            trainFeatures
+            |> Array.map (fun features ->
+                predictRegression backend featureMap variationalForm parameters features shots valueRange
+                |> Result.map (fun prediction -> prediction.Value))
+
+        match results |> Array.tryFind Result.isError with
+        | Some (Error e) -> Error e
+        | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+
+    /// Compute per-sample regression predictions v_j(θ) concurrently via Task.WhenAll.
+    let private computeRegressionPredictionsAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (trainFeatures: float array array)
+        (shots: int)
+        (valueRange: float * float)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float array>> =
+        task {
+            let! results =
+                trainFeatures
+                |> Array.map (fun features ->
+                    task {
+                        let! predResult = predictRegressionAsync backend featureMap variationalForm parameters features shots valueRange cancellationToken
+                        return predResult |> Result.map (fun prediction -> prediction.Value)
+                    })
+                |> Task.WhenAll
+            return
+                match results |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error e
+                | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+        }
+
+    /// Compute gradient for regression using the parameter shift rule + chain rule.
+    ///
+    /// The parameter shift rule is exact only for the circuit EXPECTATION p(θ).
+    /// The predicted value v = min + p·(max - min) is affine in p, so the shift rule
+    /// applied to v is still exact:
+    ///   ∂v/∂θ_i = (v(θ + π/2 e_i) - v(θ - π/2 e_i)) / 2
+    /// The MSE loss is nonlinear in v, so the chain rule is required (per sample j):
+    ///   L_j = (v_j - t_j)²  =>  dL_j/dv = 2 (v_j - t_j)
+    ///   ∂L_j/∂θ_i = 2 (v_j(θ) - t_j) · (v_j(θ + π/2 e_i) - v_j(θ - π/2 e_i)) / 2
+    /// The dataset gradient is the average of the per-sample gradients.
     [<Obsolete("Use computeRegressionGradientAsync for genuine task-based parallelism.")>]
     let private computeRegressionGradient
         (backend: IQuantumBackend)
@@ -872,43 +1018,54 @@ module VQC =
         (shots: int)
         (valueRange: float * float)
         : QuantumResult<float array> =
-        
+
         let shift = Math.PI / 2.0
-        
-        // Compute gradient for each parameter using parameter shift rule
-        let computeParamGradient i =
-            // Shift parameter forward
-            let paramsPlus = Array.copy parameters
-            paramsPlus.[i] <- paramsPlus.[i] + shift
-            
-            // Shift parameter backward
-            let paramsMinus = Array.copy parameters
-            paramsMinus.[i] <- paramsMinus.[i] - shift
-            
-            // Compute losses with shifted parameters
-            match computeRegressionLoss backend featureMap variationalForm paramsPlus trainFeatures trainTargets shots valueRange,
-                  computeRegressionLoss backend featureMap variationalForm paramsMinus trainFeatures trainTargets shots valueRange with
-            | Ok lossPlus, Ok lossMinus ->
-                Ok ((lossPlus - lossMinus) / 2.0)
-            | Error e, _ | _, Error e ->
-                Error (QuantumError.ValidationError ("Input", $"Gradient computation failed for parameter {i}: {e}"))
-        
-        // Compute gradient for all parameters
-        let results = 
-            parameters 
-            |> Array.mapi (fun i _ -> computeParamGradient i)
-        
-        // Check if any failed
-        match results |> Array.tryFind Result.isError with
-        | Some (Error e) -> Error e
-        | _ ->
-            let gradients = 
-                results 
-                |> Array.choose (function Ok v -> Some v | _ -> None)
-            Ok gradients
-    
-    /// Compute gradient for regression using parameter shift rule with Task.WhenAll.
-    /// Fixes missed parallelism: the sync version was sequential Array.mapi.
+
+        // Unshifted per-sample predictions v_j(θ): loss-derivative factor of the chain rule
+        match computeRegressionPredictions backend featureMap variationalForm parameters trainFeatures shots valueRange with
+        | Error e -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+        | Ok basePredictions ->
+            let lossDerivatives =
+                Array.map2 (fun v t -> 2.0 * (v - t)) basePredictions trainTargets
+
+            // Compute gradient for each parameter using parameter shift rule + chain rule
+            let computeParamGradient i =
+                // Shift parameter forward
+                let paramsPlus = Array.copy parameters
+                paramsPlus.[i] <- paramsPlus.[i] + shift
+
+                // Shift parameter backward
+                let paramsMinus = Array.copy parameters
+                paramsMinus.[i] <- paramsMinus.[i] - shift
+
+                // Compute predictions with shifted parameters
+                match computeRegressionPredictions backend featureMap variationalForm paramsPlus trainFeatures shots valueRange,
+                      computeRegressionPredictions backend featureMap variationalForm paramsMinus trainFeatures shots valueRange with
+                | Ok predsPlus, Ok predsMinus ->
+                    // Chain rule, averaged over samples
+                    Array.init trainFeatures.Length (fun j ->
+                        lossDerivatives.[j] * (predsPlus.[j] - predsMinus.[j]) / 2.0)
+                    |> Array.average
+                    |> Ok
+                | Error e, _ | _, Error e ->
+                    Error (QuantumError.ValidationError ("Input", $"Gradient computation failed for parameter {i}: {e}"))
+
+            // Compute gradient for all parameters
+            let results =
+                parameters
+                |> Array.mapi (fun i _ -> computeParamGradient i)
+
+            // Check if any failed
+            match results |> Array.tryFind Result.isError with
+            | Some (Error e) -> Error e
+            | _ ->
+                let gradients =
+                    results
+                    |> Array.choose (function Ok v -> Some v | _ -> None)
+                Ok gradients
+
+    /// Compute gradient for regression using the parameter shift rule + chain rule
+    /// with Task.WhenAll (see computeRegressionGradient for the derivation).
     /// Both per-parameter parallelism and +/- shift pairs run concurrently.
     let private computeRegressionGradientAsync
         (backend: IQuantumBackend)
@@ -924,41 +1081,55 @@ module VQC =
         task {
             let shift = Math.PI / 2.0
 
-            let computeParamGradientAsync i =
-                task {
-                    let paramsPlus = Array.copy parameters
-                    paramsPlus.[i] <- paramsPlus.[i] + shift
+            // Unshifted per-sample predictions v_j(θ): loss-derivative factor of the chain rule
+            let! basePredictionsResult =
+                computeRegressionPredictionsAsync backend featureMap variationalForm parameters trainFeatures shots valueRange cancellationToken
 
-                    let paramsMinus = Array.copy parameters
-                    paramsMinus.[i] <- paramsMinus.[i] - shift
+            match basePredictionsResult with
+            | Error e -> return Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+            | Ok basePredictions ->
+                let lossDerivatives =
+                    Array.map2 (fun v t -> 2.0 * (v - t)) basePredictions trainTargets
 
-                    // Compute +/- shift losses in parallel
-                    let! results =
-                        Task.WhenAll [|
-                            computeRegressionLossAsync backend featureMap variationalForm paramsPlus trainFeatures trainTargets shots valueRange cancellationToken
-                            computeRegressionLossAsync backend featureMap variationalForm paramsMinus trainFeatures trainTargets shots valueRange cancellationToken
-                        |]
+                let computeParamGradientAsync i =
+                    task {
+                        let paramsPlus = Array.copy parameters
+                        paramsPlus.[i] <- paramsPlus.[i] + shift
 
-                    return
-                        match results.[0], results.[1] with
-                        | Ok lossPlus, Ok lossMinus ->
-                            Ok ((lossPlus - lossMinus) / 2.0)
-                        | Error e, _ | _, Error e ->
-                            Error (QuantumError.ValidationError ("Input", $"Gradient computation failed for parameter {i}: {e}"))
-                }
+                        let paramsMinus = Array.copy parameters
+                        paramsMinus.[i] <- paramsMinus.[i] - shift
 
-            // Compute gradient for all parameters in parallel
-            let! results =
-                parameters
-                |> Array.mapi (fun i _ -> computeParamGradientAsync i)
-                |> Task.WhenAll
+                        // Compute +/- shift predictions in parallel
+                        let! results =
+                            Task.WhenAll [|
+                                computeRegressionPredictionsAsync backend featureMap variationalForm paramsPlus trainFeatures shots valueRange cancellationToken
+                                computeRegressionPredictionsAsync backend featureMap variationalForm paramsMinus trainFeatures shots valueRange cancellationToken
+                            |]
 
-            return
-                match results |> Array.tryFind Result.isError with
-                | Some (Error e) -> Error e
-                | _ ->
-                    let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
-                    Ok gradients
+                        return
+                            match results.[0], results.[1] with
+                            | Ok predsPlus, Ok predsMinus ->
+                                // Chain rule, averaged over samples
+                                Array.init trainFeatures.Length (fun j ->
+                                    lossDerivatives.[j] * (predsPlus.[j] - predsMinus.[j]) / 2.0)
+                                |> Array.average
+                                |> Ok
+                            | Error e, _ | _, Error e ->
+                                Error (QuantumError.ValidationError ("Input", $"Gradient computation failed for parameter {i}: {e}"))
+                    }
+
+                // Compute gradient for all parameters in parallel
+                let! results =
+                    parameters
+                    |> Array.mapi (fun i _ -> computeParamGradientAsync i)
+                    |> Task.WhenAll
+
+                return
+                    match results |> Array.tryFind Result.isError with
+                    | Some (Error e) -> Error e
+                    | _ ->
+                        let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                        Ok gradients
         }
 
     /// Calculate R² score for regression

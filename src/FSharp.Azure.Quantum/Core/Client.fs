@@ -305,7 +305,7 @@ module Client =
                               BeginExecutionTime = beginExecutionTime
                               EndExecutionTime = endExecutionTime
                               CancellationTime = cancellationTime
-                              OutputDataUri = None }
+                              OutputDataUri = tryGetJsonString "outputDataUri" root }
 
                         return Ok quantumJob
                     else

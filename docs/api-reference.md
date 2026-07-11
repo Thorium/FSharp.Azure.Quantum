@@ -723,6 +723,8 @@ task {
 
 > **Note:** Cloud backends' `ApplyOperationAsync` always returns `Error` because cloud providers do not support incremental state operations. Use `ExecuteToStateAsync` for full circuit execution.
 
+> **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to 20 qubits, a `SparseState` (observed outcomes only) for 21–31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
+
 ### Backend Selection Guide
 
 | Problem Size | Recommended Backend | Rationale |
