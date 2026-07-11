@@ -198,37 +198,30 @@ module KnotConstructors =
     /// </summary>
     let hopfLink (positive: bool) : PlanarDiagram =
         let sign = if positive then Positive else Negative
-        
-        // Two crossings where two circles link
-        // Component 1 (red circle): Arc 0 → C0-NE, Arc 1 ← C0-SW (going through C0)
-        //                          Arc 1 → C1-NE, Arc 0 ← C1-SW (going through C1)
-        // Component 2 (blue circle): Arc 2 → C0-SE, Arc 3 ← C0-NW (going through C0)
-        //                            Arc 3 → C1-SE, Arc 2 ← C1-NW (going through C1)
-        
-        // Correct topology: Each component passes through both crossings
-        // Red: C0(NE→SW) → C1(NE→SW) → back to C0
-        // Blue: C0(SE→NW) → C1(SE→NW) → back to C0
-        
-        // Arc layout for TWO separate circles:
-        // Arc 0: C0-SW → C1-NE (red circle, between crossings)
-        // Arc 1: C1-SW → C0-NE (red circle, back to first crossing)
-        // Arc 2: C0-NW → C1-SE (blue circle, between crossings)  
-        // Arc 3: C1-NW → C0-SE (blue circle, back to first crossing)
-        
-        let crossings = 
+
+        // Closure of the 2-strand braid σ₁² (σ₁⁻² for the negative mirror),
+        // with the same braid wiring convention as figureEight/borromeanRings:
+        //   NW = top input, SW = bottom input, NE = top output, SE = bottom output.
+        // Writhe = ±2, bracket = −A⁴ − A⁻⁴, |V(−1)| = 2 (= determinant).
+        //
+        // (The previous hand-built wiring evaluated to the same invariants, but
+        // as embedding data it was genus-1 — a torus diagram, not a planar one.
+        // The bracket state-sum only reads connectivity, which is why the values
+        // still came out right; this layout is a genuine planar embedding.)
+        let crossings =
             Map.ofList [
-                (0, createCrossing 0 sign 2 1 0 3)  // C0: NW=2, NE=1, SW=0, SE=3
-                (1, createCrossing 1 sign 3 0 1 2)  // C1: NW=3, NE=0, SW=1, SE=2
+                (0, createCrossing 0 sign 2 0 3 1)  // C0: NW=2, NE=0, SW=3, SE=1
+                (1, createCrossing 1 sign 0 2 1 3)  // C1: NW=0, NE=2, SW=1, SE=3
             ]
-        
+
         let arcs =
             Map.ofList [
-                (0, createArc 0 0 SW 1 NE)  // Red: C0-SW → C1-NE
-                (1, createArc 1 1 SW 0 NE)  // Red: C1-SW → C0-NE
-                (2, createArc 2 0 NW 1 SE)  // Blue: C0-NW → C1-SE
-                (3, createArc 3 1 NW 0 SE)  // Blue: C1-NW → C0-SE
+                (0, createArc 0 0 NE 1 NW)  // C0-NE → C1-NW
+                (1, createArc 1 0 SE 1 SW)  // C0-SE → C1-SW
+                (2, createArc 2 1 NE 0 NW)  // C1-NE → C0-NW (closure, strand 0)
+                (3, createArc 3 1 SE 0 SW)  // C1-SE → C0-SW (closure, strand 1)
             ]
-        
+
         { Crossings = crossings; Arcs = arcs }
     
     /// <summary>

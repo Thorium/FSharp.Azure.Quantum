@@ -20,6 +20,7 @@ Additional high-severity fixes in this release:
 - Channel-flip gates (X/Y/H/CNOT/SWAP/RX/RY) rebuild fusion-tree intermediate charges and the parity pair — post-gate states pass validateState; error correction no longer rewrites legitimate states; Fibonacci trees get τ channels (not Ising ψ)
 - Kauffman bracket Planar evaluator fixed (two pre-existing bugs: dead arc endpoints inflated loop counts; state weights ignored crossing signs) — trefoil/Hopf/figure-eight now yield the true bracket polynomials and |V(-1)| = knot determinant; figureEight constructor replaced (previous diagram was not the figure-eight knot); the simplified crossing-list evaluator is documented as a curl approximation, not an invariant
 - borromeanRings constructor replaced: the previous diagram was actually the (2,2,2)-pretzel link L6a5 ("chainmail" — every pair of rings linked, det 12), the opposite of the Brunnian property. Now built as the closure of the braid (σ₁σ₂⁻¹)³ and verified against the L6a4 invariants: V(t) = −t⁻³+3t⁻²−2t⁻¹+4−2t+3t²−t³, |V(−1)| = 16, writhe 0
+- hopfLink rewired as the closure of the braid σ₁² (σ₁⁻² mirror): the previous wiring produced correct invariants but was a genus-1 (toroidal) embedding as diagram data; all standard constructors are now verified genus-0 planar embeddings by a new Euler-formula regression test
 - measureAll clamps cumulative-probability sampling and rejects empty superpositions
 
 v0.4.6 critical fixes (earlier batch):

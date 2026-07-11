@@ -583,6 +583,50 @@ let ``Borromean rings determinant is 16 and writhe is 0`` () =
         $"|V(-1)| should be 16, got {v.Magnitude}")
 
 [<Fact>]
+let ``Standard constructors are genuine planar embeddings (genus 0)`` () =
+    // Euler-formula check on the rotation system: faces are orbits of
+    // (ccw-rotation ∘ arc-twin) over the darts (crossing, position);
+    // genus = (2 - V + E - F) / 2 must be 0 for a classical knot/link
+    // projection. This catches "connectivity looks right but the embedding
+    // is toroidal" wiring bugs (the original hopfLink was genus 1, and the
+    // original borromeanRings encoded a different link entirely).
+    let ccwNext = function NE -> NW | NW -> SW | SW -> SE | SE -> NE
+    let genus (d: PlanarDiagram) =
+        let darts =
+            [ for KeyValue(cid, c) in d.Crossings do
+                for KeyValue(pos, _) in c.Connections -> (cid, pos) ]
+        let twinMap =
+            darts
+            |> List.groupBy (fun (cid, pos) -> d.Crossings.[cid].Connections.[pos])
+            |> List.collect (fun (_, ds) ->
+                match ds with
+                | [a; b] -> [ (a, b); (b, a) ]
+                | _ -> failwith "arc not shared by exactly two crossing positions")
+            |> Map.ofList
+        let faceNext (cid, pos) = let (tc, tp) = twinMap.[(cid, pos)] in (tc, ccwNext tp)
+        let mutable seen = Set.empty
+        let mutable faces = 0
+        for start in darts do
+            if not (seen.Contains start) then
+                faces <- faces + 1
+                let mutable cur = start
+                while not (seen.Contains cur) do
+                    seen <- Set.add cur seen
+                    cur <- faceNext cur
+        (2 - d.Crossings.Count + d.Arcs.Count - faces) / 2
+    let cases =
+        [ "trefoil true", trefoil true
+          "trefoil false", trefoil false
+          "figureEight", figureEight
+          "hopfLink true", hopfLink true
+          "hopfLink false", hopfLink false
+          "borromeanRings", borromeanRings
+          "torusKnot 2 3", torusKnot 2 3
+          "torusKnot 3 3", torusKnot 3 3 ]
+    for (name, diagram) in cases do
+        Assert.True(genus diagram = 0, $"{name} should be a planar (genus-0) diagram")
+
+[<Fact>]
 let ``Jones magnitude at t = -1 equals the knot determinant`` () =
     // At A = e^{i*pi/4}, t = A^-4 = -1 and |V(-1)| = det(K):
     // unknot 1, trefoil 3, figure-eight 5, Hopf link 2.
