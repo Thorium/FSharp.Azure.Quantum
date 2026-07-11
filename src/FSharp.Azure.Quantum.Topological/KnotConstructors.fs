@@ -232,50 +232,54 @@ module KnotConstructors =
         { Crossings = crossings; Arcs = arcs }
     
     /// <summary>
-    /// Create the Borromean rings.
-    /// A 3-component link where no two components are linked,
-    /// but removing any one component allows the other two to separate.
-    /// 
-    /// Structure: 6 crossings, 3 components
-    /// Constructed as an alternating link (L6a4) with 6 positive crossings.
+    /// Create the Borromean rings (L6a4, Rolfsen 6³₂).
+    /// A 3-component Brunnian link: no two components are linked
+    /// (all pairwise linking numbers are 0), yet the three rings cannot
+    /// be separated — removing any one ring frees the other two.
+    ///
+    /// Structure: 6 crossings (3 positive, 3 negative, writhe 0), 3 components.
+    /// Constructed as the closure of the 3-strand braid (σ₁σ₂⁻¹)³ — the
+    /// standard braid presentation of the Borromean rings, extending the
+    /// verified figureEight construction ((σ₁σ₂⁻¹)²) by one more period.
     /// </summary>
     let borromeanRings : PlanarDiagram =
-        // Borromean rings (L6a4): Standard alternating construction
-        // 6 crossings, 12 arcs
-        // Components: T (Top), R (Right), L (Left)
-        // Arcs 0-3: T, Arcs 4-7: R, Arcs 8-11: L
-        
-        let crossings = 
+        // Crossing convention matches torusKnot's braid builder:
+        //   crossing at braid positions (k, k+1): NW = top input, SW = bottom
+        //   input, NE = top output, SE = bottom output.
+        //
+        // Verified against the textbook invariants of L6a4:
+        //   V(t) = −t⁻³ + 3t⁻² − 2t⁻¹ + 4 − 2t + 3t² − t³
+        //   |V(−1)| = 16 (= determinant of the Borromean rings)
+        // (A previous hand-built all-positive diagram here was NOT the
+        // Borromean rings — it evaluated to the Jones polynomial of the
+        // (2,2,2)-pretzel link L6a5, the triangular "chainmail" link in
+        // which every pair of rings IS linked, det 12 instead of 16.)
+        let crossings =
             Map.ofList [
-                (0, createCrossing 0 Positive 4 0 3 5)   // NW=4, NE=0, SW=3, SE=5
-                (1, createCrossing 1 Positive 0 4 7 1)   // NW=0, NE=4, SW=7, SE=1
-                (2, createCrossing 2 Positive 8 2 1 9)   // NW=8, NE=2, SW=1, SE=9
-                (3, createCrossing 3 Positive 2 8 11 3)  // NW=2, NE=8, SW=11, SE=3
-                (4, createCrossing 4 Positive 10 6 5 11) // NW=10, NE=6, SW=5, SE=11
-                (5, createCrossing 5 Positive 6 10 9 7)  // NW=6, NE=10, SW=9, SE=7
+                (0, createCrossing 0 Positive 11 3 13 4)  // σ₁ : NW=11, NE=3, SW=13, SE=4
+                (1, createCrossing 1 Negative 4 5 14 6)   // σ₂⁻¹: NW=4, NE=5, SW=14, SE=6
+                (2, createCrossing 2 Positive 3 7 5 8)    // σ₁ : NW=3, NE=7, SW=5, SE=8
+                (3, createCrossing 3 Negative 8 9 6 10)   // σ₂⁻¹: NW=8, NE=9, SW=6, SE=10
+                (4, createCrossing 4 Positive 7 11 9 12)  // σ₁ : NW=7, NE=11, SW=9, SE=12
+                (5, createCrossing 5 Negative 12 13 10 14)// σ₂⁻¹: NW=12, NE=13, SW=10, SE=14
             ]
-        
+
         let arcs =
             Map.ofList [
-                // Component T (Top)
-                (0, createArc 0 0 NE 1 NW)   // C0-NE → C1-NW
-                (1, createArc 1 1 SE 2 SW)   // C1-SE → C2-SW
-                (2, createArc 2 2 NE 3 NW)   // C2-NE → C3-NW
-                (3, createArc 3 3 SE 0 SW)   // C3-SE → C0-SW
-                
-                // Component R (Right)
-                (4, createArc 4 1 NE 0 NW)   // C1-NE → C0-NW
-                (5, createArc 5 0 SE 4 SW)   // C0-SE → C4-SW
-                (6, createArc 6 4 NE 5 NW)   // C4-NE → C5-NW
-                (7, createArc 7 5 SE 1 SW)   // C5-SE → C1-SW
-                
-                // Component L (Left)
-                (8, createArc 8 3 NE 2 NW)   // C3-NE → C2-NW
-                (9, createArc 9 2 SE 5 SW)   // C2-SE → C5-SW
-                (10, createArc 10 5 NE 4 NW) // C5-NE → C4-NW
-                (11, createArc 11 4 SE 3 SW) // C4-SE → C3-SW
+                (3,  createArc 3  0 NE 2 NW)   // C0-NE → C2-NW
+                (4,  createArc 4  0 SE 1 NW)   // C0-SE → C1-NW
+                (5,  createArc 5  1 NE 2 SW)   // C1-NE → C2-SW
+                (6,  createArc 6  1 SE 3 SW)   // C1-SE → C3-SW
+                (7,  createArc 7  2 NE 4 NW)   // C2-NE → C4-NW
+                (8,  createArc 8  2 SE 3 NW)   // C2-SE → C3-NW
+                (9,  createArc 9  3 NE 4 SW)   // C3-NE → C4-SW
+                (10, createArc 10 3 SE 5 SW)   // C3-SE → C5-SW
+                (11, createArc 11 4 NE 0 NW)   // C4-NE → C0-NW (closure, strand 0)
+                (12, createArc 12 4 SE 5 NW)   // C4-SE → C5-NW
+                (13, createArc 13 5 NE 0 SW)   // C5-NE → C0-SW (closure, strand 1)
+                (14, createArc 14 5 SE 1 SW)   // C5-SE → C1-SW (closure, strand 2)
             ]
-        
+
         { Crossings = crossings; Arcs = arcs }
     
     /// <summary>
@@ -470,7 +474,9 @@ module KnotConstructors =
             "Figure-eight knot (4₁)"
         elif numCrossings = 2 && numComponents = 2 then
             if w > 0 then "Positive Hopf link (2²₁)" else "Negative Hopf link"
-        elif numCrossings = 6 && numComponents = 3 then
-            "Borromean rings (6³₃)"
+        elif numCrossings = 6 && numComponents = 3 && w = 0 then
+            // Writhe 0 distinguishes the balanced Borromean diagram from
+            // e.g. the all-positive (2,2,2)-pretzel/chainmail diagrams (w = ±6).
+            "Borromean rings (6³₂)"
         else
             $"Knot/Link ({numCrossings} crossings, {numComponents} components, writhe {w})"

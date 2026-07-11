@@ -560,6 +560,29 @@ let ``Hopf link bracket matches closed form`` () =
     assertComplexEqual expected actual 1e-9
 
 [<Fact>]
+let ``Borromean rings bracket matches closed form`` () =
+    // Writhe 0, so <D> = V(t) at t = A^-4 with
+    // V(L6a4) = -t^-3 + 3t^-2 - 2t^-1 + 4 - 2t + 3t^2 - t^3:
+    // <D> = -A^12 + 3A^8 - 2A^4 + 4 - 2A^-4 + 3A^-8 - A^-12.
+    // (A previous diagram evaluated to the (2,2,2)-pretzel link L6a5 instead.)
+    let a = genericA
+    let expected =
+        -Complex.Pow(a, 12.0) + 3.0 * Complex.Pow(a, 8.0) - 2.0 * Complex.Pow(a, 4.0)
+        + Complex(4.0, 0.0)
+        - 2.0 * Complex.Pow(a, -4.0) + 3.0 * Complex.Pow(a, -8.0) - Complex.Pow(a, -12.0)
+    let actual = evaluateBracket borromeanRings a
+    assertComplexEqual expected actual 1e-9
+
+[<Fact>]
+let ``Borromean rings determinant is 16 and writhe is 0`` () =
+    // det(L6a4) = |V(-1)| = 16; the balanced braid closure (s1 s2^-1)^3
+    // has 3 positive and 3 negative crossings.
+    Assert.Equal(0, writhe borromeanRings)
+    let v = jonesPolynomial borromeanRings testA
+    Assert.True(abs (v.Magnitude - 16.0) < 1e-9,
+        $"|V(-1)| should be 16, got {v.Magnitude}")
+
+[<Fact>]
 let ``Jones magnitude at t = -1 equals the knot determinant`` () =
     // At A = e^{i*pi/4}, t = A^-4 = -1 and |V(-1)| = det(K):
     // unknot 1, trefoil 3, figure-eight 5, Hopf link 2.
