@@ -365,6 +365,7 @@ match solveQuantum backend problem with
 ### 🚀 Getting Started
 - [Getting Started Guide](getting-started) - Installation, first steps, and basic examples
 - [Quantum Computing Introduction](quantum-computing-introduction) - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
+- [Glossary](glossary) - Short plain-language definitions of every quantum term used in these docs
 - [API Reference](api-reference) - Includes C# interop examples with fluent API
 
 ### 📖 Core Concepts

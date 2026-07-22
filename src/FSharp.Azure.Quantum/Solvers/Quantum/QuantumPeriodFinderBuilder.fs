@@ -49,13 +49,14 @@ open FSharp.Azure.Quantum.Algorithms.Shor
 ///   }
 ///   
 ///   // Solve the problem
-///   match solve problem with
-///   | Ok result -> 
+///   // (the builder validates and returns Result, so chain with Result.bind)
+///   match problem |> Result.bind solve with
+///   | Ok result ->
 ///       printfn "Period: %d" result.Period
 ///       match result.Factors with
 ///       | Some (p, q) -> printfn "Factors: %d × %d" p q
 ///       | None -> printfn "No factors found (try again)"
-///   | Error msg -> printfn "Error: %s" msg
+///   | Error err -> printfn "Error: %s" err.Message
 module QuantumPeriodFinder =
     
     // ============================================================================

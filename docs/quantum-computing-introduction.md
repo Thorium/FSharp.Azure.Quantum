@@ -100,7 +100,7 @@ Quantum computation proceeds through **quantum gates**—unitary operators actin
 Multi-qubit gates create entanglement. The **CNOT** (Controlled-NOT) gate flips a target qubit conditioned on a control qubit's state.
 
 > With 2 Schrödinger's cats: If the control cat is dead, flip the target cat's state. Otherwise, do nothing.
-> The fate of the target cat depends on the control cat, the cats are entangled.
+> When the control cat is in a superposition of alive and dead, the fate of the target cat becomes linked to it — the cats are entangled.
 
 **CNOT Truth Table (like classical XOR):**
 - CNOT|00⟩ = |00⟩ (control=0, target unchanged)
@@ -224,7 +224,7 @@ Given a unitary U and eigenstate |ψ⟩, phase estimation determines the eigenva
 - <span style="color:#CC0066; font-weight:bold">e^(2πiφ)</span> = Eigenvalue (complex number on unit circle)
 - <span style="color:#CC6600; font-weight:bold">φ</span> = Phase to estimate (real number between 0 and 1)
 
-Phase estimation uses O(n) qubits and O(n²) gates. This is the core subroutine for quantum chemistry simulations (estimating molecular energies) and cryptanalysis (Shor's algorithm). Phase estimation combines controlled-U operations with inverse QFT—a paradigmatic quantum algorithm demonstrating interference-based computation.
+Phase estimation uses O(n) qubits and O(n²) gates, plus n applications of controlled-U whose cost depends on U. This is the core subroutine for quantum chemistry simulations (estimating molecular energies) and cryptanalysis (Shor's algorithm). Phase estimation combines controlled-U operations with inverse QFT—a paradigmatic quantum algorithm demonstrating interference-based computation.
 
 ### Grover's Algorithm
 Searches an unstructured database of N items in O(√N) queries versus O(N) classically—a quadratic speedup. 
@@ -242,7 +242,7 @@ Searches an unstructured database of N items in O(√N) queries versus O(N) clas
 - <span style="color:#CC6600; font-weight:bold">|target⟩</span> = Target state we're searching for
 - <span style="color:#9933CC; font-weight:bold">2|target⟩⟨target| - I</span> = Oracle that marks the target
 
-Each iteration rotates the state vector toward the target state. After ~π√N/4 iterations, the target amplitude approaches 1, allowing measurement to return the correct answer with high probability. Grover's algorithm is **provably optimal**—no quantum algorithm can search unstructured data faster than O(√N).
+Each iteration rotates the state vector toward the target state. After ~π√N/4 iterations, the target amplitude approaches 1, allowing measurement to return the correct answer with high probability. Grover's algorithm is **provably optimal**—the BBBV lower bound (Bennett, Bernstein, Brassard, Vazirani 1997) shows any quantum algorithm needs Ω(√N) oracle queries for unstructured search.
 
 **F# analogy**: Classical linear search is `List.find`, requiring O(n) comparisons. Grover's algorithm is like searching with amplitude amplification—but you can't do better than O(√n) because measurement collapses superposition probabilistically.
 
@@ -281,7 +281,7 @@ Grover Operator G = -(2|ψ⟩⟨ψ| - I)(2|target⟩⟨target| - I)
 ### Shor's Algorithm
 Factors integers in polynomial time: O((log N)³) versus best classical algorithms requiring sub-exponential time exp(O((log N)^(1/3))). Shor's algorithm reduces factoring to period-finding in modular exponentiation, solved efficiently via QFT. This threatens RSA cryptography and motivated much quantum computing investment.
 
-**Why factoring is hard classically**: Given N = pq (product of primes), finding p and q requires testing exponentially many candidates. Shor's algorithm exploits the periodic structure of modular exponentiation: pick random a, compute a^r mod N, find the period r. With period r, factor N using gcd(a^(r/2) ± 1, N). QFT finds periods exponentially faster than classical algorithms.
+**Why factoring is hard classically**: Given N = pq (product of primes), finding p and q requires testing exponentially many candidates. Shor's algorithm exploits the periodic structure of modular exponentiation: pick random a, consider the function f(x) = a^x mod N, and find its period r (the smallest r with a^r ≡ 1 mod N). With period r, factor N using gcd(a^(r/2) ± 1, N). QFT finds periods exponentially faster than classical algorithms.
 
 **Post-quantum cryptography**: Shor's algorithm breaks RSA and elliptic curve cryptography. NIST is standardizing quantum-resistant algorithms based on lattice problems, hash functions, and multivariate polynomials—problems believed hard even for quantum computers.
 
@@ -394,9 +394,11 @@ This geometric view builds intuition but breaks down for multi-qubit systems—a
 | North Pole | \|0⟩ | I (identity) |
 | South Pole | \|1⟩ | X (bit flip) |
 | +X axis | \|+⟩=(\|0⟩+\|1⟩)/√2 | H |
-| -X axis | \|-⟩=(\|0⟩-\|1⟩)/√2 | H·Z |
-| +Y axis | \|+i⟩=(\|0⟩+i\|1⟩)/√2 | H·S |
-| -Y axis | \|-i⟩=(\|0⟩-i\|1⟩)/√2 | H·S† |
+| -X axis | \|-⟩=(\|0⟩-\|1⟩)/√2 | Z·H |
+| +Y axis | \|+i⟩=(\|0⟩+i\|1⟩)/√2 | S·H |
+| -Y axis | \|-i⟩=(\|0⟩-i\|1⟩)/√2 | S†·H |
+
+*(Operator products act right-to-left: Z·H means "apply H first, then Z".)*
 
 **Gates as Rotations:**
 - **X**: Rotation by π around X-axis
@@ -432,9 +434,11 @@ From a software perspective, error correction is akin to memory management in sy
 
 | Component | Logical Qubits | Physical Qubits |
 |-----------|----------------|-----------------|
-| Main computation | ~20,000 | ~20,000,000 |
-| Current hardware (2025) | 0 (NISQ era) | ~1,000 |
+| Main computation | ~6,000 | ~20,000,000 |
+| Current hardware (2026) | 0 (NISQ era) | ~1,000 |
 | **Gap** | | **20,000× more needed** |
+
+*(Estimates from Gidney & Ekerå 2019, "How to factor 2048 bit RSA integers in 8 hours using 20 million noisy qubits".)*
 
 ## Azure Quantum: Practical Quantum Development
 
@@ -457,9 +461,11 @@ The F# Azure Quantum library exposes quantum operations through computation expr
 
 | Provider | Qubits | Technology | Connectivity | Best For |
 |----------|--------|------------|--------------|----------|
-| **IonQ** | 11-29 | Trapped ions | All-to-all | High-fidelity gates, small circuits |
-| **Quantinuum** | 20-32 | Trapped ions | All-to-all | Complex algorithms, high accuracy |
-| **Rigetti** | 80+ | Superconducting | Limited (lattice) | Large qubit count, near-term apps |
+| **IonQ** | 36 (Forte) | Trapped ions | All-to-all | High-fidelity gates, small circuits |
+| **Quantinuum** | 56 (H2) | Trapped ions | All-to-all | Complex algorithms, high accuracy |
+| **Rigetti** | 84 (Ankaa-3) | Superconducting | Limited (lattice) | Large qubit count, near-term apps |
+
+*(Qubit counts as of mid-2026 — check the [Azure Quantum provider list](https://learn.microsoft.com/azure/quantum/qc-target-list) for current systems.)*
 
 ## Quantum Computing's Promise and Limitations
 
@@ -491,7 +497,7 @@ Quantum computers are not universal accelerators—they excel at specific proble
 | **Quantum Simulation** | Exponential | Polynomial | Exponential |
 | **NP-Complete** (SAT) | Exponential | O(√N) via Grover | Quadratic only |
 
-The **Church-Turing thesis** remains unchallenged—quantum computers solve the same problems as classical computers (both are Turing-complete). The difference is **computational complexity**: quantum algorithms can solve certain problems exponentially faster.
+The **Church-Turing thesis** remains unchallenged—quantum computers solve the same problems as classical computers (both are Turing-complete). What quantum computing *does* challenge is the **extended Church-Turing thesis** (that classical computers can *efficiently* simulate any physical computation): quantum algorithms can solve certain problems exponentially faster.
 
 **Quantum supremacy** (now often called "quantum advantage") refers to demonstrating a quantum computer solving a problem infeasible for classical computers. Google's 2019 experiment computed random circuit sampling in 200 seconds versus an estimated 10,000 years classically. However, the problem had no practical application—demonstrating the challenge of achieving quantum advantage on *useful* problems with NISQ hardware.
 
@@ -586,39 +592,46 @@ The low-level circuit API exists for **educational purposes** and **algorithm re
 // Phase estimation for quantum chemistry
 open QuantumPhaseEstimator
 
-let problem = phaseEstimator {
-    unitary TGate
-    precision 8
-}
+// The builder validates the problem and returns a Result,
+// so chain the estimation with Result.bind
+let phase =
+    phaseEstimator {
+        unitary TGate
+        precision 8
+    }
+    |> Result.bind estimate
 
-match estimate problem with
+match phase with
 | Ok result -> printfn "Phase: %.6f" result.Phase
 | Error err -> printfn "Error: %s" err.Message
 
 // Quantum arithmetic operations
-open QuantumArithmeticBuilder
+open QuantumArithmeticOps
 
-let problem = quantumArithmetic {
-    operation Add
-    registerA [|1; 0; 1|]  // Binary 5
-    registerB [|0; 1; 1|]  // Binary 3
-}
+let sum =
+    quantumArithmetic {
+        operation Add
+        operands 5 3
+    }
+    |> Result.bind execute
 
-match solve problem with
-| Ok result -> printfn "Sum: %A" result.Result
+match sum with
+| Ok result -> printfn "Sum: %d" result.Value
 | Error err -> printfn "Error: %s" err.Message
 
-// Tree search with quantum speedup
+// Tree search with quantum speedup (e.g. game AI move selection)
 open QuantumTreeSearch
 
 let problem = quantumTreeSearch {
-    treeDepth 4
-    branchingFactor 3
-    targetNode 15
+    initialState myGameBoard
+    maxDepth 3
+    branchingFactor 16
+    evaluateWith evaluatePosition
+    generateMovesWith getLegalMoves
 }
 
-match search problem with
-| Ok result -> printfn "Found at depth: %d" result.Depth
+match QuantumTreeSearch.solve problem with
+| Ok solution -> printfn "Best move: %d (score %.2f)" solution.BestMove solution.Score
 | Error err -> printfn "Error: %s" err.Message
 ```
 
@@ -633,19 +646,20 @@ These builders (`phaseEstimator`, `quantumArithmetic`, `quantumTreeSearch`, `con
 **Circuit composition example**:
 
 ```fsharp
-// Define reusable circuit components
-let createSuperposition qubits =
+// Define reusable circuit components (circuit as last parameter for piping)
+let addSuperposition qubits circuit =
     qubits 
-    |> List.fold (fun circuit q -> addGate (H q) circuit) (empty (List.length qubits))
+    |> List.fold (fun c q -> addGate (H q) c) circuit
 
-let entanglePairs circuit pairs =
+let entanglePairs pairs circuit =
     pairs 
     |> List.fold (fun c (control, target) -> addGate (CNOT (control, target)) c) circuit
 
-// Compose circuits
+// Compose circuits: GHZ state (|00...0⟩ + |11...1⟩)/√2
 let ghzState n =
-    createSuperposition [0]                    // H on first qubit
-    |> entanglePairs (List.init (n-1) (fun i -> (0, i+1)))  // CNOT chain
+    empty n
+    |> addSuperposition [0]                                   // H on first qubit
+    |> entanglePairs (List.init (n-1) (fun i -> (0, i+1)))    // CNOT chain
 ```
 
 **Practical workflow**:

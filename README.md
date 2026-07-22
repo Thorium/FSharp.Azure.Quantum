@@ -142,8 +142,8 @@ match GraphColoring.solve problem 4 None with
     printfn "Colors used: %d" solution.ColorsUsed
     solution.Assignments 
     |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 ### C# Fluent API
@@ -206,7 +206,7 @@ match GraphColoring.solve problem 3 None with
     printfn "Valid coloring: %b" solution.IsValid
     printfn "Colors used: %d/%d" solution.ColorsUsed 3
     printfn "Conflicts: %d" solution.ConflictCount
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### MaxCut
@@ -229,7 +229,7 @@ match MaxCut.solve problem None with
     printfn "Partition S: %A" solution.PartitionS
     printfn "Partition T: %A" solution.PartitionT
     printfn "Cut value: %.2f" solution.CutValue
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Knapsack (0/1)
@@ -251,7 +251,7 @@ match Knapsack.solve problem None with
     printfn "Total value: $%.2f" solution.TotalValue
     printfn "Total weight: %.2f/%.2f" solution.TotalWeight problem.Capacity
     printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Traveling Salesperson Problem (TSP)
@@ -272,7 +272,7 @@ match TSP.solve problem None with
 | Ok tour ->
     printfn "Optimal route: %s" (String.concat " → " tour.Cities)
     printfn "Total distance: %.2f" tour.TotalDistance
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Portfolio Optimization
@@ -297,7 +297,7 @@ match Portfolio.solve problem None with
     allocation.Allocations 
     |> List.iter (fun (symbol, shares, value) ->
         printfn "  %s: %.2f shares ($%.2f)" symbol shares value)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Network Flow
@@ -387,7 +387,7 @@ match solveQuantum backend problem with
     |> List.iter (fun assignment ->
         printfn "%s: starts %.2f, ends %.2f" 
             assignment.TaskId assignment.StartTime assignment.EndTime)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Features:**
@@ -797,8 +797,8 @@ match VQC.train backend featureMap variationalForm initialParams trainFeatures t
     | Ok prediction ->
         printfn "Prediction: %d (probability: %.2f%%)" 
             prediction.Label (prediction.Probability * 100.0)
-    | Error msg -> printfn "Error: %s" msg
-| Error msg -> printfn "Training failed: %s" msg
+    | Error err -> printfn "Error: %s" err.Message
+| Error err -> printfn "Training failed: %s" err.Message
 ```
 
 ### Quantum Kernel SVM
@@ -834,8 +834,8 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
     
     match QuantumKernelSVM.evaluate backend model testData testLabels 1000 with
     | Ok accuracy -> printfn "Test accuracy: %.2f%%" (accuracy * 100.0)
-    | Error msg -> printfn "Evaluation error: %s" msg
-| Error msg -> printfn "Training error: %s" msg
+    | Error err -> printfn "Evaluation error: %s" err.Message
+| Error err -> printfn "Training error: %s" err.Message
 ```
 
 **QML Features:**
@@ -1215,7 +1215,7 @@ match solveTsp distances None None None with
     printfn "Time: %.2f ms" solution.ElapsedMs
     printfn "Route: %A" solution.Result.Route
     printfn "Distance: %.2f" solution.Result.TotalDistance
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // MaxCut with quantum backend config
 let vertices = ["A"; "B"; "C"; "D"]
@@ -1239,28 +1239,28 @@ match solveMaxCut problem (Some quantumConfig) None None with
     match solution.Recommendation with
     | Some recommendation -> printfn "Advisor: %s" recommendation.Reasoning
     | None -> ()
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Knapsack
 match solveKnapsack knapsackProblem None None None with
 | Ok solution ->
     printfn "Total Value: %.2f" solution.Result.TotalValue
     printfn "Items: %A" solution.Result.SelectedItems
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Graph Coloring
 match solveGraphColoring graphProblem 3 None None None with
 | Ok solution ->
     printfn "Colors Used: %d/3" solution.Result.ColorsUsed
     printfn "Valid: %b" solution.Result.IsValid
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Portfolio Optimization
 match solvePortfolio portfolioProblem None None None with
 | Ok solution ->
     printfn "Portfolio Value: $%.2f" solution.Result.TotalValue
     printfn "Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Features
@@ -1556,7 +1556,7 @@ let dwaveBackend = RealDWaveBackend.create dwaveConfig
 // Option 3: From environment variables (DWAVE_API_TOKEN, DWAVE_SOLVER)
 match RealDWaveBackend.createFromEnv() with
 | Ok backend -> printfn "D-Wave backend ready: %s" backend.Name
-| Error msg -> printfn "No D-Wave credentials: %s" msg
+| Error err -> printfn "No D-Wave credentials: %s" err.Message
 
 // Build QAOA circuit for MaxCut (automatically converted to QUBO/Ising)
 let vertices = ["A"; "B"; "C"; "D"; "E"]
@@ -1574,7 +1574,7 @@ match MaxCut.solve problem (Some dwaveBackend) with
     printfn "Cut value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
     printfn "Partition T: %A" solution.PartitionT
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **D-Wave Features:**
@@ -1824,8 +1824,8 @@ async {
 match createFromEnvironment() with
 | Ok workspace -> 
     printfn "✅ Workspace loaded: %s" workspace.Config.WorkspaceName
-| Error msg -> 
-    printfn "⚠️  Environment not configured: %s" msg
+| Error err -> 
+    printfn "⚠️  Environment not configured: %s" err.Message
 ```
 
 **Circuit Format Conversion:**
@@ -2508,18 +2508,18 @@ Error mitigation includes comprehensive testing:
 
 ```fsharp
 // Custom QAOA parameters
-let quantumConfig : QuantumGraphColoringSolver.QuantumGraphColoringConfig = {
-    OptimizationShots = 100        // Shots per optimization step
-    FinalShots = 1000              // Shots for final measurement
-    EnableOptimization = true      // Enable parameter optimization
+let quantumConfig : QuantumGraphColoringSolver.QaoaConfig = {
+    NumShots = 1000                // Measurement shots
+    NumColors = 3                  // Colors available
     InitialParameters = (0.5, 0.5) // Starting (gamma, beta)
+    PenaltyWeight = 10.0           // Constraint-violation penalty
 }
 
 // Use custom config
 let backend = LocalBackend() :> IQuantumBackend
 match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 | Ok result -> printfn "Colors used: %d" result.ColorsUsed
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ---
@@ -2929,19 +2929,22 @@ The library provides three advanced builders that wrap QFT-based quantum algorit
 open FSharp.Azure.Quantum.QuantumArithmeticOps
 
 // RSA encryption: m^e mod n
-let encryptOp = quantumArithmetic {
-    operands 5 3           // message=5, exponent=3
-    operation ModularExponentiate
-    modulus 33             // RSA modulus
-    qubits 8
-}
+// The builder validates and returns a Result; bind it into execute
+let encrypted =
+    quantumArithmetic {
+        operands 5 3           // message=5, exponent=3
+        operation ModularExponentiate
+        modulus 33             // RSA modulus
+        qubits 8
+    }
+    |> Result.bind execute
 
-match execute encryptOp with
+match encrypted with
 | Ok result -> 
     printfn "Encrypted: %d" result.Value
     printfn "Gates: %d, Depth: %d" result.GateCount result.CircuitDepth
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 **C# API:**
@@ -2969,13 +2972,16 @@ var result = ExecuteArithmetic(encrypt);
 open FSharp.Azure.Quantum.QuantumPeriodFinder
 
 // Factor RSA modulus (security analysis)
-let problem = periodFinder {
-    number 15              // Composite to factor
-    precision 8            // QPE precision
-    maxAttempts 10         // Retries (probabilistic)
-}
+// The builder validates and returns a Result; bind it into solve
+let factorResult =
+    periodFinder {
+        number 15              // Composite to factor
+        precision 8            // QPE precision
+        maxAttempts 10         // Retries (probabilistic)
+    }
+    |> Result.bind solve
 
-match solve problem with
+match factorResult with
 | Ok result ->
     match result.Factors with
     | Some (p, q) -> 
@@ -2983,8 +2989,8 @@ match solve problem with
         printfn "⚠️  RSA Security Broken!"
     | None -> 
         printfn "Try again (probabilistic)"
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 **C# API:**
@@ -3010,18 +3016,21 @@ var result = ExecutePeriodFinder(problem);
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
 
 // Estimate molecular ground state energy
-let problem = phaseEstimator {
-    unitary (RotationZ (Math.PI / 3.0))  // Molecular Hamiltonian
-    precision 12                          // 12-bit energy precision
-}
+// The builder validates and returns a Result; bind it into estimate
+let energyResult =
+    phaseEstimator {
+        unitary (RotationZ (Math.PI / 3.0))  // Molecular Hamiltonian
+        precision 12                          // 12-bit energy precision
+    }
+    |> Result.bind estimate
 
-match estimate problem with
+match energyResult with
 | Ok result ->
     printfn "Phase: %.6f" result.Phase
     printfn "Energy: %.4f a.u." (result.Phase * 2.0 * Math.PI)
     printfn "Application: Drug binding affinity prediction"
-| Error msg ->
-    printfn "Error: %s" msg
+| Error err ->
+    printfn "Error: %s" err.Message
 ```
 
 **C# API:**

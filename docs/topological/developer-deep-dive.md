@@ -1,8 +1,8 @@
 # Topological Quantum Computing: Deep Dive for F# Developers
 
-**Target Audience**: Senior F# software engineers with strong functional programming background, basic understanding of quantum computing concepts, seeking to work with the FSharp.Azure.Quantum topological quantum computing library.
+**Target Audience**: F# software engineers with a strong functional programming background who are new to topological quantum computing. No prior exposure to anyons or topology is assumed.
 
-**Prerequisites**: Familiarity with F# discriminated unions, Result types, computation expressions, and basic quantum computing (qubits, gates, measurement). See `quantum-computing-introduction.md` for quantum basics.
+**Prerequisites**: Familiarity with F# discriminated unions, Result types, computation expressions, and basic quantum computing (qubits, gates, measurement). See [quantum-computing-introduction.md](../quantum-computing-introduction.md) for quantum basics — this document is its topological counterpart. Unfamiliar terms are defined in the [glossary](../glossary.md).
 
 **Reading Time**: ~30-45 minutes for initial read, reference thereafter
 
@@ -11,10 +11,11 @@
 ## Table of Contents
 
 1. [The Paradigm Shift: From Matrices to Topology](#the-paradigm-shift---from-matrices-to-topology)
-2. [Library Architecture and Practical Patterns](#library-architecture-and-practical-patterns)
-3. [Anyons: The Particles with Memory](#anyons---the-particles-with-memory)
-4. [Braiding Operations: Quantum Gates as Geometry](#braiding-operations---quantum-gates-as-geometry)
-5. [Advanced Topics and Production Readiness](#advanced-topics-and-production-readiness)
+2. [Topological Quantum Computing in Four Ideas](#topological-quantum-computing-in-four-ideas)
+3. [Library Architecture and Practical Patterns](#library-architecture-and-practical-patterns)
+4. [Anyons: The Particles with Memory](#anyons---the-particles-with-memory)
+5. [Braiding Operations: Quantum Gates as Geometry](#braiding-operations---quantum-gates-as-geometry)
+6. [Advanced Topics and Production Readiness](#advanced-topics-and-production-readiness)
 
 ---
 
@@ -65,7 +66,7 @@ let runTopologicalComputation () =
 
 **Critical Difference**:
 - **Gate-based**: Quantum information stored in **amplitudes** (continuous, fragile)
-- **Topological**: Quantum information stored in **which fusion channel** anyons occupy (discrete, topologically protected)
+- **Topological**: Quantum information stored in **which fusion channel** anyons occupy (discrete, topologically protected — fusion channels are explained in the next section)
 
 The F# analogy: gate-based QC is like maintaining precise `float` values against noise, while topological QC is like using discriminated unions where the compiler (physics) enforces invariants structurally.
 
@@ -78,6 +79,102 @@ The F# analogy: gate-based QC is like maintaining precise `float` values against
 
 ---
 
+## Topological Quantum Computing in Four Ideas
+
+The entire computational model fits in four ideas. Everything after this section is detail.
+
+### Idea 1: Anyons — Particles That Remember Being Swapped
+
+**F# analogy first**: an anyon system is an immutable event log. The state of the system is the history of swaps. Noise can jiggle particle positions all it wants — it cannot rewrite the history.
+
+Now the physics. Topology is the study of properties that survive smooth deformation. To a topologist, a coffee mug and a donut are the same: one hole each. A sphere is different: no hole. Gentle wiggling never changes a topological property. Only something drastic does, like tearing.
+
+The particles involved are **quasiparticles**. A quasiparticle is not a new fundamental particle. It is a collective pattern of many electrons that moves and behaves like a single particle — the way a bubble in water behaves like an object, although it is really a hole in the liquid.
+
+In two-dimensional systems, some quasiparticles are **anyons**. When two anyons swap places, the state of the whole system changes — the system *remembers* the swap. Only the topology of the swap is recorded: did the anyons wind around each other, and in which direction? Path shape, speed, and exact positions do not matter. Swapping clockwise, swapping counterclockwise, and not swapping are three different entries in the log.
+
+### Idea 2: Fusion — The Qubit Is a Pending Pattern Match
+
+The introduction modeled a classical bit as `type Bit = Zero | One`. Topological quantum computing has a direct equivalent.
+
+First, some vocabulary. An **anyon theory** has a small, fixed set of particle types — like the cases of a DU. The Ising theory has three: the vacuum **1** (nothing), the anyon **σ** ("sigma"), and the fermion **ψ** ("psi"). σ is the anyon from Idea 1; it is the particle we compute with.
+
+Bring two anyons together and they **fuse** into one combined charge. For a σ-pair, exactly two results are possible:
+
+```fsharp
+// The possible end results of fusing a σ-pair.
+// Two cases on purpose: this is the topological `type Bit = Zero | One`.
+type FusionOutcome =
+    | ToVacuum   // the pair annihilates, nothing left behind → logical |0⟩
+    | ToPsi      // the pair leaves a fermion ψ behind        → logical |1⟩
+```
+
+An unfused σ-pair is not in one case or the other. It is in a superposition of both cases. **That superposition is the qubit** — the same way the introduction's qubit is a superposition of `Zero` and `One`.
+
+Physicists write the same fact as a **fusion rule**:
+
+<div style="display:block">
+  <span style="color:#0066CC; font-weight:bold">σ</span> × <span style="color:#0066CC; font-weight:bold">σ</span> = <span style="color:#009966; font-weight:bold">1</span> + <span style="color:#CC0066; font-weight:bold">ψ</span>
+</div>
+
+**Where:**
+- <span style="color:#0066CC; font-weight:bold">σ (sigma)</span> = Ising anyon (the non-abelian one)
+- <span style="color:#009966; font-weight:bold">1</span> = vacuum (the pair annihilates, nothing left behind)
+- <span style="color:#CC0066; font-weight:bold">ψ (psi)</span> = an ordinary fermion left behind
+- **+** = "either outcome is possible" — a set of alternatives, not addition
+
+The fusion channel belongs to the *pair*, not to either anyon alone. Inspect one anyon by itself and you learn nothing. This is the whole trick: noise is local, so noise cannot read the qubit. What it cannot read, it cannot destroy. A gate-based qubit stores its information in local amplitudes, where every passing disturbance can nudge it.
+
+**Is there still a Bloch sphere?** Yes. The encoded qubit is mathematically an ordinary qubit, so its state space is the same Bloch sphere from the introduction. The north pole is the vacuum channel (logical |0⟩). The south pole is the ψ channel (logical |1⟩). The difference is physical, not mathematical: nothing in the hardware points along the sphere, and braids rotate the sphere in fixed, discrete steps — there is no continuous knob for noise to nudge.
+
+### Idea 3: Braiding — Gates by Moving, Not Touching
+
+Anyons move; time passes. Each anyon draws a **worldline** through 2D space + time. Swapping two neighbors crosses their worldlines. A sequence of swaps forms a **braid**:
+
+```
+Braiding: Computation as Worldline Topology
+============================================
+
+ time
+  ▲    a₁   a₂    a₃   a₄
+  │     │    │     ╲   ╱
+  │     │    │      ╲ ╱
+  │     │    │       ╳         σ₃: exchange anyons 3,4
+  │     │    │      ╱ ╲
+  │     ╲   ╱      │   │
+  │      ╲ ╱       │   │
+  │       ╳        │   │       σ₁: exchange anyons 1,2
+  │      ╱ ╲       │   │
+  │     │   │      │   │
+       a₁   a₂    a₃   a₄
+
+  The braid IS the circuit. Wiggly paths, varying speed,
+  imprecise positions — all deform smoothly to the same braid.
+```
+
+Each crossing applies one fixed unitary to the fusion-space qubits. Which unitary? That depends only on which strands crossed, and in which direction. The braid is the circuit.
+
+This is the fault tolerance. A gate-based machine must actively fight every small disturbance of its amplitudes. A topological machine only fails when an event changes the braid's topology — for example, a stray thermal quasiparticle threading through it. At low temperature, such events are exponentially rare.
+
+"Low" still means millikelvin: Majorana devices are superconducting hardware and sit in the same dilution refrigerators as gate-based superconducting chips. The win is not a warmer machine. It is exponentially fewer errors at the same temperature — and far less error-correction overhead.
+
+### Idea 4: Measurement — Fuse and See
+
+To read the qubit, bring the σ-pair together and look at what is left. Nothing → read 0. A ψ fermion → read 1. Fusion is the pattern match that finally forces the pending `FusionOutcome`. Like all quantum measurement it is probabilistic: the channel amplitudes set the probabilities.
+
+### The Whole Model in One Table
+
+| Gate-based concept | Topological equivalent | In this library |
+|--------------------|------------------------|-----------------|
+| Allocate qubits | Pull anyon pairs from the vacuum | `TopologicalBuilder.initialize` |
+| Apply a gate | Braid neighboring anyons | `TopologicalBuilder.braid` |
+| Measure | Fuse a pair, observe the outcome | `TopologicalBuilder.measure` |
+| Circuit (gate list) | Braid (worldline topology) | sequence of `QuantumOperation.Braid` |
+
+A complete topological computation is: **create pairs from vacuum → braid → fuse**. That is the whole model.
+
+---
+
 ## Library Architecture and Practical Patterns
 
 ### Type System: Railway-Oriented Programming for Physics
@@ -87,27 +184,31 @@ The F# analogy: gate-based QC is like maintaining precise `float` values against
 ```fsharp
 namespace FSharp.Azure.Quantum.Topological
 
-/// Anyon theory type
-type AnyonType = 
-    | Ising                          // Majorana fermions
-    | Fibonacci                      // Universal golden anyons
-    | SU2Level of k: int             // SU(2)_k Chern-Simons theory
+module AnyonSpecies =
 
-/// Particle species
-type Particle = 
-    | Vacuum                         // Identity (topological charge 0)
-    | Sigma                          // Ising non-abelian anyon
-    | Psi                            // Ising abelian fermion
-    | Tau                            // Fibonacci anyon
-    | SpinJ of j_doubled: int * level: int  // General SU(2)_k
+    /// Anyon theory type
+    type AnyonType = 
+        | Ising                          // Ising anyons (Majorana zero modes)
+        | Fibonacci                      // Universal golden anyons
+        | SU2Level of level: int         // SU(2)_k Chern-Simons theory
+
+    /// Particle species
+    type Particle = 
+        | Vacuum                         // Identity (topological charge 0)
+        | Sigma                          // Ising non-abelian anyon
+        | Psi                            // Ising abelian fermion
+        | Tau                            // Fibonacci anyon
+        | SpinJ of j_doubled: int * level: int  // General SU(2)_k
 
 /// Topological error (discriminated union - no exceptions!)
+/// Each case carries a structured payload identifying what failed and why.
 type TopologicalError =
-    | ValidationError of message: string
-    | LogicError of message: string
-    | ComputationError of message: string
-    | BackendError of message: string
-    | NotImplemented of message: string
+    | ValidationError of field: string * reason: string
+    | NotImplemented of feature: string * hint: string option
+    | LogicError of operation: string * reason: string
+    | BackendError of backend: string * reason: string
+    | ComputationError of operation: string * context: string
+    | Other of message: string
 
 /// Result type alias
 type TopologicalResult<'T> = Result<'T, TopologicalError>
@@ -140,13 +241,19 @@ The unified backend uses a 3-layer internal architecture:
 **Layer 2 (Backend Interface)**: Public API contract with `Result` types for safety.
 
 ```fsharp
-// IQuantumBackend interface (shared with gate-based library)
+// IQuantumBackend interface (shared with gate-based library, abridged)
 type IQuantumBackend =
     abstract member InitializeState : numQubits:int -> Result<QuantumState, QuantumError>
-    abstract member ApplyOperation : operation:QuantumOperation -> state:QuantumState -> Result<QuantumState, QuantumError>
-    abstract member Measure : state:QuantumState -> shots:int -> Result<int[][], QuantumError>
+    abstract member ApplyOperation : QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
+    abstract member ExecuteToState : ICircuit -> Result<QuantumState, QuantumError>
+    abstract member SupportsOperation : QuantumOperation -> bool
+    abstract member NativeStateType : QuantumStateType
+    abstract member MaxQubits : int option
     abstract member Name : string
+    // + async variants: ExecuteToStateAsync, ApplyOperationAsync
 ```
+
+Note that the interface has no `Measure` member — measurement outcomes are extracted client-side (e.g. by `TopologicalBuilder.measure`, which inspects the returned state).
 
 **Layer 3 (Backend Implementation)**: Converts exceptions from Layer 1 into typed `Result` values. The `TopologicalUnifiedBackend` handles gate-to-braid compilation transparently.
 
@@ -159,14 +266,22 @@ open FSharp.Azure.Quantum.Topological
 
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
+// TopologicalBuilder is [<RequireQualifiedAccess>], so qualify the operations.
+// initialize/braid return no value (do!); measure returns the outcome (let!).
 let program = topological backend {
-    let! state = initialize AnyonSpecies.AnyonType.Ising 4
-    do! braid 0
-    do! braid 2
-    let! outcome = measure 0
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    do! TopologicalBuilder.braid 0
+    do! TopologicalBuilder.braid 2
+    let! outcome = TopologicalBuilder.measure 0
     return outcome
 }
-// If ANY operation fails, entire computation short-circuits with Error
+
+// Programs are Task-based; execute runs one against the backend.
+// If ANY operation fails, the entire computation short-circuits with Error.
+let result =
+    TopologicalBuilder.execute backend program
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
 ```
 
 **Pattern 2: Algorithm Extensions** (run standard algorithms on topological backends)
@@ -187,22 +302,22 @@ let shorResult = AlgorithmExtensions.factor15WithTopology backend
 ### Fusion Trees: The Core Data Structure
 
 ```fsharp
-// Immutable recursive data structure
-type FusionTree =
+// Immutable recursive data structure (module FusionTree)
+type Tree =
     | Leaf of particle: Particle
-    | Branch of left: FusionTree * right: FusionTree * fusionChannel: Particle
+    | Fusion of left: Tree * right: Tree * channel: Particle
 
 // Example: 4 sigma anyons create a 4-dimensional Hilbert space (2 qubits)
 // Each pair can fuse to Vacuum (1) or Psi (psi), giving 2 x 2 = 4 basis states
 let example2QubitState =
-    Branch(
-        Branch(Leaf Sigma, Leaf Sigma, Psi),      // Left pair: sigma x sigma -> psi
-        Branch(Leaf Sigma, Leaf Sigma, Vacuum),   // Right pair: sigma x sigma -> 1
-        Psi                                        // Total topological charge: psi
+    Fusion(
+        Fusion(Leaf Sigma, Leaf Sigma, Psi),      // Left pair: sigma x sigma -> psi
+        Fusion(Leaf Sigma, Leaf Sigma, Vacuum),   // Right pair: sigma x sigma -> 1
+        Psi                                       // Total topological charge: psi
     )
 ```
 
-Fusion trees are like F# binary trees -- immutable, recursive, and self-balancing. Fusion channels act as type tags that enforce structural invariants, and braiding operations are analogous to tree rotations that preserve information while changing structure.
+Fusion trees are like F# binary trees -- immutable and recursive. Fusion channels act as type tags that enforce structural invariants. Basis changes (F-moves) are like tree rotations: the structure changes, the information is preserved.
 
 ### Performance Considerations
 
@@ -239,7 +354,7 @@ let braidingMatrix = Array2D.init n n (fun i j ->
 
 ## Anyons - The Particles with Memory
 
-> This section covers the physics theory behind the library's types. If you want to start coding immediately, you can skip ahead to the [Advanced Topics](#advanced-topics-and-production-readiness) section and return here as reference.
+> This section deepens the [Four Ideas](#topological-quantum-computing-in-four-ideas) with the physics behind the library's types. If you want to start coding immediately, the Four Ideas plus the patterns above are enough — skip ahead to [Advanced Topics](#advanced-topics-and-production-readiness) and return here as reference.
 
 ### Beyond Bosons and Fermions: 2D Statistics
 
@@ -247,9 +362,12 @@ In 3D space, the spin-statistics theorem restricts particles to two types:
 - **Bosons** (integer spin): No phase on exchange
 - **Fermions** (half-integer spin): pi phase (sign flip) on exchange
 
-In **2D space**, exchange paths are topologically distinct (clockwise vs counterclockwise cannot be smoothly deformed into each other), allowing:
-- **Anyons**: Arbitrary exchange phase theta in [0, 2pi)
-- The phase depends **only** on the topology of the exchange path (winding number, direction) -- not on exact positions, speed, or path shape
+**Why only two?** In 3D, take one particle on a loop around another. The loop can be lifted out of the plane and shrunk to a point. So a full loop must do nothing to the state. Two exchanges make one full loop, so a single exchange must square to 1. Only +1 (boson) and -1 (fermion) are possible.
+
+In **2D space** that escape route is gone. A loop around another particle cannot shrink away without crossing it. Winding becomes real and countable, and clockwise differs from counterclockwise. This allows:
+- **Abelian anyons**: Arbitrary exchange phase theta in [0, 2pi)
+- **Non-abelian anyons**: Exchange acts as a **unitary matrix** on a degenerate fusion space, not just a phase -- this is what makes them computationally useful
+- The transformation depends **only** on the topology of the exchange path (winding number, direction) -- not on exact positions, speed, or path shape
 
 This topological protection of the phase is the foundation of fault tolerance.
 
@@ -262,7 +380,7 @@ This topological protection of the phase is the foundation of fault tolerance.
 ```fsharp
 type Particle =
     | Vacuum    // 1 (identity, topological charge = 0)
-    | Sigma     // sigma (non-abelian Majorana fermion)
+    | Sigma     // sigma (non-abelian Ising anyon; hosts a Majorana zero mode)
     | Psi       // psi (abelian fermion)
     | Tau       // tau (Fibonacci anyon, different theory)
     | SpinJ of j_doubled: int * level: int  // General SU(2)_k
@@ -282,6 +400,8 @@ match anyonType, a, b with
 | Fibonacci, Tau, Tau -> Ok [Vacuum; Tau]   // tau x tau = 1 + tau (Fibonacci!)
 ```
 
+Note the return type: a **list** of possible outcomes. Fusion is a binary operation on charges with vacuum as its identity element — like a monoid operation, but multi-valued. It is not function composition: σ × σ can produce either 1 or ψ, and physically fusing forces one outcome and discards the rest. The composition-like structure in topological QC is **braiding**: braids stack sequentially and compose exactly like functions in a pipeline.
+
 The key insight: `Sigma x Sigma` has **multiple possible outcomes** (non-abelian). This encodes a qubit:
 - **Logical |0>**: sigma x sigma fuses to Vacuum
 - **Logical |1>**: sigma x sigma fuses to Psi
@@ -297,6 +417,8 @@ let quantumDimension (p: Particle) (anyonType: AnyonType) : float =
     | Fibonacci, Tau -> (1.0 + sqrt 5.0) / 2.0  // d_tau = phi (golden ratio!)
     | _ -> failwith "Not implemented"
 ```
+
+**What quantum dimension means**: put n anyons together and their fusion space holds roughly d^n states. The quantum dimension d is the growth rate per anyon. For Ising, d_σ = √2: each σ carries "half a qubit", so each σ *pair* carries one qubit, because (√2)² = 2. A non-integer d such as φ ≈ 1.618 makes the point vividly: the information lives in no individual anyon. It lives only in the collective fusion structure.
 
 **Hilbert space dimensions**:
 - 4 Sigma anyons -> 2^(4/2) = 4 dimensional space (2 qubits)
@@ -316,7 +438,20 @@ The quantum dimension d_tau = phi (golden ratio) emerges naturally from solving 
 
 ### The R-Matrix: Braiding Algebra
 
-When anyons `a` and `b` exchange positions while fusing to channel `c`, the state transforms via the R-matrix element:
+When anyons `a` and `b` exchange positions while fusing to channel `c`, the state picks up the R-matrix element:
+
+**R-Matrix Action:**
+
+<div style="display:block">
+  |<span style="color:#0066CC; font-weight:bold">a</span>, <span style="color:#0066CC; font-weight:bold">b</span>; <span style="color:#CC0066; font-weight:bold">c</span>⟩ → <span style="color:#009966; font-weight:bold">R<sup>ab</sup><sub>c</sub></span> |<span style="color:#0066CC; font-weight:bold">b</span>, <span style="color:#0066CC; font-weight:bold">a</span>; <span style="color:#CC0066; font-weight:bold">c</span>⟩
+</div>
+
+**Where:**
+- <span style="color:#0066CC; font-weight:bold">a, b</span> = the two anyons being exchanged
+- <span style="color:#CC0066; font-weight:bold">c</span> = their fusion channel (the "qubit value" they share)
+- <span style="color:#009966; font-weight:bold">R^ab_c</span> = a complex phase fixed entirely by the anyon theory
+
+The computational point: **different fusion channels pick up different phases**. Exchange two σ's. The vacuum channel gains e^(-iπ/8); the ψ channel gains e^(3iπ/8). Between logical |0⟩ and |1⟩ that is a relative phase of i — an S gate on the encoded qubit. The same physical motion acts differently on each channel. That is how moving particles computes.
 
 ```fsharp
 let element (a: Particle) (b: Particle) (c: Particle) (anyonType: AnyonType)
@@ -326,16 +461,16 @@ let element (a: Particle) (b: Particle) (c: Particle) (anyonType: AnyonType)
     | Ising ->
         match a, b, c with
         | Sigma, Sigma, Vacuum -> 
-            Ok (Complex.Exp(Complex(0.0, Math.PI / 8.0)))         // e^(i*pi/8)
+            Ok (Complex.Exp(Complex(0.0, -Math.PI / 8.0)))       // e^(-i*pi/8)
         | Sigma, Sigma, Psi    -> 
-            Ok (Complex.Exp(Complex(0.0, -3.0 * Math.PI / 8.0))) // e^(-3i*pi/8)
+            Ok (Complex.Exp(Complex(0.0, 3.0 * Math.PI / 8.0)))  // e^(3i*pi/8)
         | Psi, Psi, Vacuum     -> 
-            Ok (Complex(-1.0, 0.0))                               // -1 (fermion exchange)
+            Ok (Complex(-1.0, 0.0))                              // -1 (fermion exchange)
         | Sigma, Psi, Sigma | Psi, Sigma, Sigma -> 
-            Ok (Complex(0.0, 1.0))                                // i
+            Ok (Complex(0.0, -1.0))                              // -i
         | Vacuum, _, _ | _, Vacuum, _ -> 
             Ok Complex.One
-        | _ -> Error (LogicError $"Invalid Ising fusion channel: {a} x {b} -> {c}")
+        | _ -> Error (LogicError ("RMatrix.element", $"Invalid Ising fusion channel: {a} x {b} -> {c}"))
     
     | Fibonacci ->
         match a, b, c with
@@ -346,11 +481,15 @@ let element (a: Particle) (b: Particle) (c: Particle) (anyonType: AnyonType)
         | _ -> Ok Complex.One
 ```
 
+(R-matrix phase conventions vary across the literature; the library follows the Kitaev 2006 convention, so these values match the implementation in `RMatrix.fs`.)
+
 **Topological protection**: The R-matrix depends **only** on anyon types, fusion channel, and braid topology. It does not depend on exact positions, exchange speed, path shape, or environmental temperature (as long as T is much less than the energy gap).
 
 ### The F-Matrix: Change of Fusion Basis
 
 When fusing 3+ anyons, there are multiple association orders: `(a x b) x c` vs `a x (b x c)`. The F-matrix transforms between these bases:
+
+**F# analogy**: re-associate `(a + b) + c` into `a + (b + c)`. The leaves stay the same; the intermediate value changes. A fusion tree's internal channels are exactly those intermediates. Here the intermediates are physical, so re-association is a genuine change of basis — a unitary, not a no-op. The F-matrix says how a state written in one association's channels looks in the other's.
 
 ```fsharp
 // Ising: F^{sigma,sigma,sigma}_sigma is a 2x2 matrix
@@ -367,6 +506,27 @@ let phi = (1.0 + sqrt 5.0) / 2.0
 F-matrices must satisfy the **Pentagon equation** (self-consistency for 4 anyons) and the **Hexagon equation** (compatibility between F and R matrices). These are highly non-trivial constraints that make anyon theories self-consistent.
 
 ### Implementing Gates via Braiding
+
+**Worked example: one qubit, four σ anyons** (the topological analog of the introduction's Bell-state walkthrough):
+
+```
+Step 0  Pull two σ-pairs from the vacuum        state: both pairs fuse to 1
+        (σ σ)(σ σ)                              = logical |0⟩
+
+Step 1  Braid within the left pair (σ₁)         relative phase between the
+        exchange anyons 1 and 2                 1 and ψ channels
+                                                = Z-type rotation (S gate)
+
+Step 2  Braid across the pairs (σ₂)             mixes the 1 and ψ channels
+        exchange anyons 2 and 3                 = X-type rotation
+                                                → superposition!
+
+Step 3  Fuse the left pair                      outcome: vacuum (read 0)
+                                                or ψ (read 1), probabilities
+                                                from the channel amplitudes
+```
+
+The two braid types are complementary. **Within-pair** exchanges add channel phases: diagonal gates, straight from the R-matrix. **Cross-pair** exchanges mix channels: off-diagonal gates, via F·R·F⁻¹. Together they generate every gate Ising braiding can reach — the Clifford group. The library's gate-to-braid compiler uses the same structure in reverse: in `BraidToGate.fs`, within-pair braids become phase gates and cross-pair braids go through the F-matrix.
 
 | Anyon Type | Native Gate Set | Universality | Physical Status |
 |------------|-----------------|--------------|-----------------|
@@ -409,17 +569,19 @@ The toric code stores logical qubits in the ground state degeneracy of a many-bo
 
 ```fsharp
 // L x L toric code: 2L^2 physical qubits, 2 logical qubits, code distance L
-let toricCodeExample (latticeSize: int) (errorRate: float) = result {
+let toricCodeExample (latticeSize: int) (errorEdge: Edge) = result {
     let! lattice = createLattice latticeSize latticeSize
-    let! groundState = initializeGroundState lattice
+    let groundState = initializeGroundState lattice
     
-    // Simulate random Pauli errors
-    // X error: creates two e-particles (vertex syndromes)
-    // Z error: creates two m-particles (plaquette syndromes)
+    // Inject a Pauli error:
+    // Z error creates two e-particles (vertex syndromes),
+    // X error creates two m-particles (plaquette syndromes)
+    let noisyState = applyZError groundState errorEdge
     
-    let! syndromes = measureSyndromes lattice noisyState
-    let! correctedState = correctErrors lattice noisyState syndromes
-    let! isCorrect = verifyLogicalState groundState correctedState
+    // Detect and decode (greedy minimum-weight matching), then correct
+    let syndrome = measureSyndrome noisyState
+    let! decoded = decodeVertexSyndrome lattice syndrome
+    let correctedState = applyCorrections noisyState decoded.Corrections VertexSyndrome
     
     return correctedState
 }
@@ -450,10 +612,11 @@ match backend.InitializeState 4 with
 | Error err -> (* log error, return gracefully *)
 
 // DO: Understand complexity limits
-let reasonableResult = backend.InitializeState 6  // Fibonacci: F(7)=13 dimensional
+let fibBackend = TopologicalUnifiedBackendFactory.createFibonacci 24
+let reasonableResult = fibBackend.InitializeState 6  // Fibonacci: F(7)=13 dimensional
 
 // DON'T: Try to simulate too many anyons
-let tooLargeResult = backend.InitializeState 20  // Fibonacci: F(21)=10946 dimensional - will hang!
+let tooLargeResult = fibBackend.InitializeState 20  // Fibonacci: F(21)=10946 dimensional - will hang!
 ```
 
 ### Future Roadmap
@@ -473,7 +636,7 @@ let tooLargeResult = backend.InitializeState 20  // Fibonacci: F(21)=10946 dimen
 
 **Essential reading** (in order):
 1. This guide (you are here)
-2. Simon (2023) *Topological Quantum* Chapters 8-11
+2. Simon (2023) *Topological Quantum* — Ch. 3 (particle statistics, Idea 1), Ch. 8 (fusion, Idea 2), Ch. 9-10 (F- and R-matrices), Ch. 11 (computing with anyons, Ideas 3-4), Ch. 26-27 (toric code)
 3. Nayak et al. (2008) "Non-Abelian anyons and topological quantum computation"
 4. Kitaev (2003) "Fault-tolerant quantum computation by anyons"
 

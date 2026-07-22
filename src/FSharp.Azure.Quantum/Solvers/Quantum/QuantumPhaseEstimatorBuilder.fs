@@ -37,25 +37,30 @@ open FSharp.Azure.Quantum.Backends
 /// 
 /// EXAMPLE USAGE:
 ///   // Simple: Estimate phase of T gate
-///   let problem = phaseEstimator {
-///       unitary TGate
-///       precision 8
-///   }
-///   
+///   // (the builder validates and returns Result, so chain with Result.bind)
+///   let result =
+///       phaseEstimator {
+///           unitary TGate
+///           precision 8
+///       }
+///       |> Result.bind estimate
+///
 ///   // Advanced: Custom unitary with eigenvector
-///   let problem = phaseEstimator {
-///       unitary (PhaseGate (Math.PI / 4.0))
-///       precision 12
-///       targetQubits 2
-///       eigenstate customEigenVector
-///   }
-///   
-///   // Solve the problem
-///   match estimate problem with
-///   | Ok result -> 
-///       printfn "Phase: %.6f" result.Phase
-///       printfn "Eigenvalue: e^(2πi × %.6f)" result.Phase
-///   | Error msg -> printfn "Error: %s" msg
+///   let result =
+///       phaseEstimator {
+///           unitary (PhaseGate (Math.PI / 4.0))
+///           precision 12
+///           targetQubits 2
+///           eigenstate customEigenVector
+///       }
+///       |> Result.bind estimate
+///
+///   // Inspect the result
+///   match result with
+///   | Ok r ->
+///       printfn "Phase: %.6f" r.Phase
+///       printfn "Eigenvalue: e^(2πi × %.6f)" r.Phase
+///   | Error err -> printfn "Error: %s" err.Message
 
 module QuantumPhaseEstimator =
     
@@ -278,13 +283,15 @@ module QuantumPhaseEstimator =
     ///   4. Map result to PhaseEstimatorResult with eigenvalue
     /// 
     /// Example:
-    ///   let problem = phaseEstimator {
-    ///       unitary TGate
-    ///       precision 8
-    ///       backend myBackend
-    ///   }
-    ///   match estimate problem with
-    ///   | Ok result -> printfn "Phase: %.6f, Eigenvalue: %A" result.Phase result.Eigenvalue
+    ///   let result =
+    ///       phaseEstimator {
+    ///           unitary TGate
+    ///           precision 8
+    ///           backend myBackend
+    ///       }
+    ///       |> Result.bind estimate  // builder returns Result<PhaseEstimatorProblem, _>
+    ///   match result with
+    ///   | Ok r -> printfn "Phase: %.6f, Eigenvalue: %A" r.Phase r.Eigenvalue
     ///   | Error err -> printfn "Error: %s" err.Message
     let estimate (problem: PhaseEstimatorProblem) : Result<PhaseEstimatorResult, QuantumError> =
         try

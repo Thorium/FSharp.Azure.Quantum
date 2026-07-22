@@ -15,12 +15,13 @@ namespace FSharp.Azure.Quantum.Topological
 /// Example:
 /// ```fsharp
 /// let program = topological backend {
-///     let! qubit = initialize Ising 4
-///     do! braid 0 qubit
-///     do! braid 2 qubit
-///     let! outcome = measure 0 qubit
+///     do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+///     do! TopologicalBuilder.braid 0
+///     do! TopologicalBuilder.braid 2
+///     let! outcome = TopologicalBuilder.measure 0
 ///     return outcome
 /// }
+/// let result = TopologicalBuilder.execute backend program  // Task<Result<_,_>>
 /// ```
 [<RequireQualifiedAccess>]
 module TopologicalBuilder =
@@ -478,15 +479,16 @@ module TopologicalBuilderExtensions =
     open FSharp.Azure.Quantum.Core.BackendAbstraction
 
     /// Create a topological program for a given backend
-    /// 
+    ///
     /// Example:
     /// ```fsharp
     /// let program = topological backend {
-    ///     let! ctx = TopologicalBuilder.initialize Ising 4
-    ///     let! ctx = TopologicalBuilder.braid 0 ctx
-    ///     let! (outcome, ctx) = TopologicalBuilder.measure 0 ctx
+    ///     do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    ///     do! TopologicalBuilder.braid 0
+    ///     let! outcome = TopologicalBuilder.measure 0
     ///     return outcome
     /// }
+    /// let result = TopologicalBuilder.execute backend program  // Task<Result<_,_>>
     /// ```
     let topological (backend: IQuantumBackend) =
         TopologicalBuilder.TopologicalProgramBuilder(backend)

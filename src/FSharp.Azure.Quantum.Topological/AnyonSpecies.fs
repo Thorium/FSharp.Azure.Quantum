@@ -53,7 +53,7 @@ module AnyonSpecies =
         | Vacuum
         
         /// Sigma anyon (Ising theory)
-        /// - Non-abelian Majorana fermion
+        /// - Non-abelian Ising anyon
         /// - Fusion: σ × σ = 1 + ψ (TWO outcomes!)
         /// - Quantum dimension: d_σ = √2
         /// - Physically: Majorana zero mode
