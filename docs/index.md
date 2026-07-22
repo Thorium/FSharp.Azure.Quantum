@@ -141,14 +141,14 @@ Some algorithms in this library are implemented as **intent → plan → execute
 - gate-native backends (state-vector simulation, common providers), and
 - non-gate-native backends (e.g., topological / Majorana-style models).
 
-This is mostly transparent to users: you call the same API, but the backend may choose a different execution strategy. See `docs/adr-intent-first-algorithms.md`.
+This is mostly transparent to users: you call the same API, but the backend may choose a different execution strategy. See the [Intent-First Algorithms ADR](adr-intent-first-algorithms).
 
 
 - **LocalBackend** - Fast simulation (≤20 qubits, free)
-- **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
-- **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)
+- **IonQBackend** - Azure Quantum (29+ qubits simulator, 36 qubits QPU - Forte)
+- **RigettiBackend** - Azure Quantum (40+ qubits simulator, 84 qubits QPU - Ankaa-3)
 - **AtomComputingBackend** - Azure Quantum (100+ qubits, neutral atoms, all-to-all connectivity)
-- **QuantinuumBackend** - Azure Quantum (20-32 qubits, 99.9%+ fidelity, trapped-ion)
+- **QuantinuumBackend** - Azure Quantum (56 qubits - H2, 99.9%+ fidelity, trapped-ion)
 - **DWaveBackend** - D-Wave quantum annealer (2000+ qubits, production hardware)
 
 ### 💻 Cross-Language Support
@@ -366,6 +366,7 @@ match solveQuantum backend problem with
 - [Getting Started Guide](getting-started) - Installation, first steps, and basic examples
 - [Quantum Computing Introduction](quantum-computing-introduction) - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
 - [Glossary](glossary) - Short plain-language definitions of every quantum term used in these docs
+- [Mathematical Foundations](Mathematical-Foundations) - Quick reference for the math (complex numbers, vectors, matrices)
 - [API Reference](api-reference) - Includes C# interop examples with fluent API
 
 ### 📖 Core Concepts
@@ -373,18 +374,22 @@ match solveQuantum backend problem with
 - [Computation Expressions Reference](computation-expressions-reference) - Complete CE reference table with all custom operations (when IntelliSense fails)
 - [Architecture Overview](architecture-overview) - Deep dive into 3-layer quantum-only design
 - [Backend Switching](backend-switching) - Local vs Cloud vs D-Wave quantum execution
+- [Hardware Selection Guide](Hardware-Selection-Guide) - Choosing the right quantum backend for your application
 - [Local Simulation](local-simulation) - LocalBackend internals and performance characteristics
+- [QuantumResult Builder Guide](quantumresult-builder-guide) - The `quantumResult` computation expression for clean error handling
 
 ### 🔬 Advanced Topics
 - [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem-to-QUBO transformations for QAOA
 - [Computation Expression Composition](computation-expression-composition) - Advanced CE patterns for loops and composition
 - [Topological Quantum Computing](topological/) - Fault-tolerant quantum computing with anyons and braiding
+- [Topological Program Format Specification](topological-format-spec) - Draft serialization format for topological quantum programs
+- [Intent-First Algorithms (ADR)](adr-intent-first-algorithms) - Why some algorithms plan per backend instead of fixing a gate circuit
 - [Quantum Machine Learning](quantum-machine-learning) - VQC, Quantum Kernels, Feature Maps
 - [Business Problem Builders](business-problem-builders) - AutoML, Fraud Detection, Anomaly Detection, Predictive Modeling
 - [Error Mitigation](error-mitigation) - ZNE, PEC, REM strategies for NISQ hardware
 - [Bring Your Own Hamiltonian](bring-your-own-hamiltonian) - Plug in external chemistry packages (PySCF, Psi4, FCIDUMP, OpenFermion-style operators)
 - [Advanced Quantum Builders](advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Shor's Algorithm, Phase Estimation
-- [D-Wave Integration Guide](dwave-integration) - Using D-Wave quantum annealers (not yet available)
+- D-Wave Integration Guide - not yet written; see [Backend Switching](backend-switching) for current D-Wave usage
 - [FAQ](faq) - Frequently asked questions and troubleshooting
 
 ### 🎯 Problem-Specific API Guides

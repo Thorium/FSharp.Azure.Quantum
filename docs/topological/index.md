@@ -112,7 +112,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 **Beginner** (First time learning topological QC):
 1. [Getting Started Guide](./getting-started.md) - Install, build, run your first computation
 2. [Architecture Guide](./architecture.md) - Get the big picture
-3. [Developer Deep Dive - Paradigm Shift](./developer-deep-dive.md#the-paradigm-shift---from-matrices-to-topology) - Core concepts
+3. [Developer Deep Dive - Four Ideas](./developer-deep-dive.md#topological-quantum-computing-in-four-ideas) - Core concepts
 
 **Intermediate** (Know basic topological QC concepts):
 1. [Developer Deep Dive - Library Patterns](./developer-deep-dive.md#library-architecture-and-practical-patterns) - F# patterns and usage
