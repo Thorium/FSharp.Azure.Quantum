@@ -100,23 +100,27 @@ module GateTranspiler =
             H target
         ]
     
-    /// Decompose CRX (Controlled-RX) gate into RX + CNOT gates
-    /// 
-    /// CRX(θ) = RX(θ/2) · CNOT · RX(-θ/2) · CNOT
-    /// 
+    /// Decompose CRX (Controlled-RX) gate into H + RZ + CNOT gates
+    ///
+    /// RX(θ) = H · RZ(θ) · H, so CRX(θ) = H_t · CRZ(θ) · H_t.
+    /// The ABA† pattern cannot use RX directly: X commutes with RX, so
+    /// RX(θ/2) · CNOT · RX(-θ/2) · CNOT cancels to the identity.
+    ///
     /// Reference: Nielsen & Chuang, Section 4.3
-    /// 
+    ///
     /// Circuit:
-    ///   c: ──────●──────────●─────
-    ///            │          │
-    ///   t: ─RX(θ/2)─┤ X ├─RX(-θ/2)─┤ X ├─
+    ///   c: ────────────●──────────●───────
+    ///                  │          │
+    ///   t: ─H─RZ(θ/2)─┤ X ├─RZ(-θ/2)─┤ X ├─H─
     let private decomposeCRX (control: int) (target: int) (angle: float) : Gate list =
         let halfAngle = angle / 2.0
         [
-            RX (target, halfAngle)
+            H target
+            RZ (target, halfAngle)
             CNOT (control, target)
-            RX (target, -halfAngle)
+            RZ (target, -halfAngle)
             CNOT (control, target)
+            H target
         ]
     
     /// Decompose CRY (Controlled-RY) gate into RY + CNOT gates

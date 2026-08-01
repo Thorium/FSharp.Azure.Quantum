@@ -92,6 +92,17 @@ module Authentication =
         interface IDisposable with
             member _.Dispose() = refreshSemaphore.Dispose()
 
+    /// Request option that suppresses the Authorization header for a single request.
+    /// Set it on requests to pre-signed (SAS) URLs — e.g. job result blobs on Azure
+    /// Storage: the SAS query string is the credential there, Storage rejects requests
+    /// carrying a bearer token for a different audience (401), and the workspace token
+    /// must not be sent to the storage host at all.
+    let noAuthOptionKey = HttpRequestOptionsKey<bool>("FSharp.Azure.Quantum.NoAuth")
+
+    /// Mark a request so AuthenticationHandler does not attach the bearer token.
+    let markNoAuth (request: HttpRequestMessage) : unit =
+        request.Options.Set(noAuthOptionKey, true)
+
     /// DelegatingHandler that adds Authorization Bearer token to HTTP requests
     ///
     /// Disposing the handler also disposes the TokenManager it wraps.
@@ -102,12 +113,20 @@ module Authentication =
             request.Headers.Authorization <- AuthenticationHeaderValue("Bearer", token)
             base.SendAsync(request, cancellationToken)
 
+        member private this.SendAsyncNoAuth(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
+            base.SendAsync(request, cancellationToken)
+
         override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
-            // Get bearer token asynchronously without blocking
-            async {
-                let! token = tokenManager.GetAccessTokenAsync(cancellationToken)
-                return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
-            } |> Async.StartAsTask
+            match request.Options.TryGetValue(noAuthOptionKey) with
+            | true, true ->
+                // Pre-signed request (e.g. SAS blob download) — pass through untouched
+                this.SendAsyncNoAuth(request, cancellationToken)
+            | _ ->
+                // Get bearer token asynchronously without blocking
+                async {
+                    let! token = tokenManager.GetAccessTokenAsync(cancellationToken)
+                    return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
+                } |> Async.StartAsTask
 
         override this.Dispose(disposing: bool) =
             if disposing then

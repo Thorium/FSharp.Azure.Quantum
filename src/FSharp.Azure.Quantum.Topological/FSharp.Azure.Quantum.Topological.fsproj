@@ -6,12 +6,20 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.6</Version>
+    <Version>0.4.7</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.6: Correctness release — full-library audit (critical + high-severity fixes)
+    <PackageReleaseNotes>v0.4.7: BraidToGate correctness — braid→gate compilation now reproduces the exact anyonic unitaries
+
+- FIXED: Fibonacci braid→gate compilation emits P(±3π/5), the exact RELATIVE channel phase arg(Rτ/R¹); the previous RZ(±4π/5) used the vacuum-channel (global) angle as the relative angle, so every compiled braid was off by e^{iπ/5} on the |1⟩ component. TotalPhase carries the vacuum-channel R-symbol, so TotalPhase · gates equals diag(R¹, Rτ) exactly
+- FIXED: SU(2)_k braid→gate compilation computes the channel phase from the R-matrix (R[1/2,1/2;j=0], R[1/2,1/2;j=1]) instead of a flat Ising-like ±π/8 placeholder; the vacuum-channel factor is tracked in TotalPhase
+- FIXED: Ising parity-pair exchange (σ at leaves 2n, 2n+1) compiles to its parity-dependent phase — a CNOT ladder computing the joint parity, S (or S† for the inverse braid), and uncompute. It was previously dropped as a "global phase", but the pair's fusion channel (Vacuum vs ψ) depends on the parity of the encoded qubits, so odd-parity terms must acquire relative phase i
+- CHANGED: braidingPhase/accumulateBraidingPhase throw a descriptive error for SU2Level k &lt; 3 (no j=1 fusion channel) instead of returning an Ising-like phase that was wrong for every k
+- Requires FSharp.Azure.Quantum v1.4.7+
+
+v0.4.6: Correctness release — full-library audit (critical + high-severity fixes)
 
 Additional high-severity fixes in this release:
 - SU(2)_k R-symbols compute the exchange eigenvalue (were the monodromy — hexagon identities now hold to machine precision; Fibonacci subcategory of SU(2)_3 reproduces the hardcoded Fibonacci values exactly)
@@ -127,9 +135,9 @@ v0.3.10: Async backend integration
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.301" />
-    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913" />
+    <PackageReference Update="FSharp.Core" Version="10.1.302" />
+    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.302" />
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.31.0.145097" />
   </ItemGroup>
 
 </Project>

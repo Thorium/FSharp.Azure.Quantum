@@ -243,14 +243,18 @@ module MultiClassSVM =
             model.ClassLabels
             |> Array.mapi (fun i label -> (label, i))
             |> Map.ofArray
-        
-        // Populate confusion matrix
+
+        // Populate confusion matrix. Pairs with a label the model never saw at
+        // training time (possible when a singleton class ends up only in the test
+        // split) have no row/column in the K×K matrix — skip them instead of
+        // throwing KeyNotFoundException.
         Array.zip predictions trueLabels
         |> Array.iter (fun (pred, actual) ->
-            let predIdx = labelToIndex.[pred]
-            let actualIdx = labelToIndex.[actual]
-            matrix.[actualIdx, predIdx] <- matrix.[actualIdx, predIdx] + 1)
-        
+            match labelToIndex.TryFind pred, labelToIndex.TryFind actual with
+            | Some predIdx, Some actualIdx ->
+                matrix.[actualIdx, predIdx] <- matrix.[actualIdx, predIdx] + 1
+            | _ -> ())
+
         matrix
     
     /// Compute per-class precision, recall, and F1-score

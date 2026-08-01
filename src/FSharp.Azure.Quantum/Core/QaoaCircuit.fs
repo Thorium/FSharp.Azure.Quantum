@@ -303,14 +303,20 @@ module QaoaCircuit =
                 MixerHamiltonian = mixerHam
             }
         
+        /// Format an angle for OpenQASM with InvariantCulture: on a locale with a comma
+        /// decimal separator (e.g. fi-FI) interpolation would emit "rx(1,57...)", which is
+        /// invalid OpenQASM (or misparses as two arguments) on the receiving backend.
+        let private formatAngle (angle: float) : string =
+            angle.ToString("F10", System.Globalization.CultureInfo.InvariantCulture)
+
         /// Convert quantum gate to OpenQASM 2.0 instruction
         let private gateToQasm (gate: QuantumGate) : string =
             match gate with
             | H qubit -> $"h q[{qubit}];"
-            | RX (qubit, angle) -> $"rx({angle}) q[{qubit}];"
-            | RY (qubit, angle) -> $"ry({angle}) q[{qubit}];"
-            | RZ (qubit, angle) -> $"rz({angle}) q[{qubit}];"
-            | RZZ (qubit1, qubit2, angle) -> $"rzz({angle}) q[{qubit1}],q[{qubit2}];"
+            | RX (qubit, angle) -> $"rx({formatAngle angle}) q[{qubit}];"
+            | RY (qubit, angle) -> $"ry({formatAngle angle}) q[{qubit}];"
+            | RZ (qubit, angle) -> $"rz({formatAngle angle}) q[{qubit}];"
+            | RZZ (qubit1, qubit2, angle) -> $"rzz({formatAngle angle}) q[{qubit1}],q[{qubit2}];"
             | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
         
         /// Serialize QAOA circuit to OpenQASM 2.0 format

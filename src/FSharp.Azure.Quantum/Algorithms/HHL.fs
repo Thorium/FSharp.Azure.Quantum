@@ -572,9 +572,14 @@ module HHL =
                  // Constraint: use gate-only Hamiltonian simulation (Trotter-Suzuki), not local-only
                  // unitary synthesis of exp(-iAt).
 
-                 // Choose a phase scaling constant C so that phi = lambda / C lies in [0, 1).
-                 // Using 2*maxEig keeps phases away from the wrap-around at 1.0.
-                 let phaseScale = 2.0 * maxEig
+                 // Choose a phase scaling constant C so that phi = lambda / C lies in
+                 // (-1/4, 1/4]. Eigenvalue signs are unknown on this path (the classical
+                 // spectrum is only computed for diagonal matrices), so the scale must
+                 // leave room on BOTH sides of the phase circle: negative eigenvalues
+                 // wrap to phases in [3/4, 1). 4*maxEig keeps positive and negative
+                 // eigenvalues in disjoint halves with a guard band between them,
+                 // at the cost of one bit of QPE precision.
+                 let phaseScale = 4.0 * maxEig
 
                  // We want U = exp(2π i * (A / phaseScale)) so that positive eigenvalues encode positive phases.
                  // Our evolution primitive synthesizes exp(-i A t), so choose negative time: t0 = -2π / phaseScale.
@@ -672,13 +677,21 @@ module HHL =
                              Ok 0.0
                          else
                              let canonicalK = bitReverse k
-                             let lambdaEst = (float canonicalK / float eigenRegisterSize) * phaseScale
+                             // QPE phases live on a circle: a negative eigenvalue -|λ| shows up
+                             // as phase 1 - |λ|/phaseScale, i.e. register values in the upper
+                             // half encode negative eigenvalues. Unwrap before inverting, or a
+                             // λ < 0 component is treated as phaseScale - |λ| (wrong sign and
+                             // magnitude). The diagonal fast path already receives signed λ.
+                             let signedK =
+                                 if canonicalK >= eigenRegisterSize / 2 then canonicalK - eigenRegisterSize
+                                 else canonicalK
+                             let lambdaEst = (float signedK / float eigenRegisterSize) * phaseScale
 
-                             // Avoid saturation: ensure the normalization constant is <= estimated eigenvalue.
+                             // Avoid saturation: ensure the normalization constant is <= |estimated eigenvalue|.
                              let safeMethod =
                                  match intent.InversionMethod with
-                                 | EigenvalueInversionMethod.ExactRotation c -> EigenvalueInversionMethod.ExactRotation (min c lambdaEst)
-                                 | EigenvalueInversionMethod.LinearApproximation c -> EigenvalueInversionMethod.LinearApproximation (min c lambdaEst)
+                                 | EigenvalueInversionMethod.ExactRotation c -> EigenvalueInversionMethod.ExactRotation (min c (abs lambdaEst))
+                                 | EigenvalueInversionMethod.LinearApproximation c -> EigenvalueInversionMethod.LinearApproximation (min c (abs lambdaEst))
                                  | EigenvalueInversionMethod.PiecewiseLinear _ -> intent.InversionMethod
 
                              inversionRotationAngle safeMethod lambdaEst intent.MinEigenvalue)

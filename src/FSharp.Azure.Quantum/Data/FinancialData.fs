@@ -844,25 +844,31 @@ module FinancialData =
         
         (commonDates, alignedReturns)
     
+    /// Average that tolerates an empty array: series sharing no common dates
+    /// (disjoint histories, single-bar series) produce empty aligned returns,
+    /// and Array.average would throw ArgumentException.
+    let private safeAverage (values: float array) : float =
+        if values.Length = 0 then 0.0 else Array.average values
+
     /// Calculate correlation matrix from multiple return series
     let calculateCorrelationMatrix (returnSeries: ReturnSeries array) : CorrelationMatrix =
         let n = returnSeries.Length
         let symbols = returnSeries |> Array.map (fun rs -> rs.Symbol)
-        
+
         let (dates, alignedReturns) = alignReturns returnSeries
         let nObs = dates.Length
-        
+
         // Calculate means
-        let means = alignedReturns |> Array.map Array.average
-        
+        let means = alignedReturns |> Array.map safeAverage
+
         // Calculate standard deviations
-        let stds = 
+        let stds =
             alignedReturns
             |> Array.mapi (fun i returns ->
                 let mean = means.[i]
-                let variance = returns |> Array.map (fun r -> (r - mean) ** 2.0) |> Array.average
+                let variance = returns |> Array.map (fun r -> (r - mean) ** 2.0) |> safeAverage
                 sqrt variance)
-        
+
         // Calculate correlation matrix
         let correlations =
             Array.init n (fun i ->
@@ -870,10 +876,10 @@ module FinancialData =
                     if i = j then 1.0
                     elif stds.[i] = 0.0 || stds.[j] = 0.0 then 0.0
                     else
-                        let cov = 
+                        let cov =
                             Array.zip alignedReturns.[i] alignedReturns.[j]
                             |> Array.map (fun (ri, rj) -> (ri - means.[i]) * (rj - means.[j]))
-                            |> Array.average
+                            |> safeAverage
                         cov / (stds.[i] * stds.[j])))
         
         {
@@ -894,21 +900,21 @@ module FinancialData =
         let symbols = returnSeries |> Array.map (fun rs -> rs.Symbol)
         
         let (_, alignedReturns) = alignReturns returnSeries
-        
+
         // Calculate means
-        let means = alignedReturns |> Array.map Array.average
-        
+        let means = alignedReturns |> Array.map safeAverage
+
         // Annualization factor (252 trading days)
         let annFactor = if annualize then 252.0 else 1.0
-        
+
         // Calculate covariance matrix
         let covariances =
             Array.init n (fun i ->
                 Array.init n (fun j ->
-                    let cov = 
+                    let cov =
                         Array.zip alignedReturns.[i] alignedReturns.[j]
                         |> Array.map (fun (ri, rj) -> (ri - means.[i]) * (rj - means.[j]))
-                        |> Array.average
+                        |> safeAverage
                     cov * annFactor))
         
         {

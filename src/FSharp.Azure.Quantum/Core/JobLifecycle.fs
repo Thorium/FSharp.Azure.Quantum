@@ -279,9 +279,14 @@ module JobLifecycle =
                                 finalResult <- Ok job
                                 finished <- true
                             else
-                                // Job still running - wait and poll again
-                                do! Task.Delay(int currentInterval.TotalMilliseconds)
-                                
+                                // Job still running - wait and poll again.
+                                // Pass the token so cancellation interrupts the sleep
+                                // (up to 60 s) instead of waiting out the full interval;
+                                // the loop head then reports the graceful cancel error.
+                                try
+                                    do! Task.Delay(int currentInterval.TotalMilliseconds, cancellationToken)
+                                with :? OperationCanceledException -> ()
+
                                 // Calculate next interval with exponential backoff
                                 let doubled = TimeSpan.FromMilliseconds(currentInterval.TotalMilliseconds * 2.0)
                                 currentInterval <- if doubled > maxInterval then maxInterval else doubled
@@ -311,8 +316,12 @@ module JobLifecycle =
         : Task<Result<JobResult, QuantumError>> =
         task {
             try
-                // Make GET request to blob storage URI
-                use! response = httpClient.GetAsync(blobUri)
+                // Make GET request to blob storage URI. The SAS query string is the
+                // credential: suppress the workspace bearer token, which Azure Storage
+                // would reject (401) and must not receive.
+                use request = new HttpRequestMessage(HttpMethod.Get, blobUri)
+                Authentication.markNoAuth request
+                use! response = httpClient.SendAsync(request)
                 
                 // Handle response
                 match response.StatusCode with

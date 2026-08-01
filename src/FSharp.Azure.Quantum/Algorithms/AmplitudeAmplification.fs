@@ -312,11 +312,14 @@ module AmplitudeAmplification =
             let prepOps = intent.StatePreparation.Gates |> List.rev |> List.map QuantumOperation.Gate
 
             let reflectionOps =
-                // Reflection about prepared state: A · S0 · A†
+                // Reflection about the prepared state |ψ⟩ = A|0⟩ is the operator
+                // A · S0 · A† — executed as A† first, then S0, then A. Running A
+                // first instead (operator A† · S0 · A) is only correct when A is
+                // self-inverse, e.g. the uniform H⊗n preparation of plain Grover.
                 let inversePrep = CircuitBuilder.reverse intent.StatePreparation
-                prepOps
+                (inversePrep.Gates |> List.rev |> List.map QuantumOperation.Gate)
                 @ lowerPreparedStateReflection intent.NumQubits
-                @ (inversePrep.Gates |> List.rev |> List.map QuantumOperation.Gate)
+                @ prepOps
 
             result {
                 let! oracleOps = lowerOracleOps intent.Oracle

@@ -174,6 +174,30 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
     | None ->
         Assert.Fail("No request was captured")
 
+[<Fact>]
+let ``AuthenticationHandler skips Authorization for requests marked no-auth`` () =
+    // Regression: SAS blob downloads (job results) must NOT carry the workspace
+    // bearer token — Azure Storage rejects a wrong-audience token (401) in
+    // preference to the SAS query string, and the token must not leak to the
+    // storage host.
+    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+    let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
+    let tokenManager = TokenManager(mockCredential)
+
+    let testHandler = new TestMessageHandler()
+    let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+    let client = new HttpClient(authHandler)
+
+    let request = new HttpRequestMessage(HttpMethod.Get, "https://storage.example.com/results.json?sig=abc")
+    markNoAuth request
+    client.SendAsync(request) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+
+    match testHandler.CapturedRequest with
+    | Some capturedReq ->
+        Assert.Null(capturedReq.Headers.Authorization)
+    | None ->
+        Assert.Fail("No request was captured")
+
 // ============================================================================
 // Error Handling Tests
 // ============================================================================

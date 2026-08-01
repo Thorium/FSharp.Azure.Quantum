@@ -190,9 +190,9 @@ let ``QAOA circuit should serialize to OpenQASM format`` () =
     // Check cost layer gates (RZZ for ZZ interaction)
     // ZZ interaction coefficient: 0.25 (from QUBO conversion)
     // Angle: 2 * 0.25 * 0.5 = 0.25
-    Assert.Contains("rzz(0.25)", qasm)
-    
+    Assert.Contains("rzz(0.2500000000)", qasm)
+
     // Check mixer layer gates (RX rotations)
     // Angle: 2 * 1.0 * 0.3 = 0.6
-    Assert.Contains("rx(0.6) q[0]", qasm)
-    Assert.Contains("rx(0.6) q[1]", qasm)
+    Assert.Contains("rx(0.6000000000) q[0]", qasm)
+    Assert.Contains("rx(0.6000000000) q[1]", qasm)

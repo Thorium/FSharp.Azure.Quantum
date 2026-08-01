@@ -123,3 +123,41 @@ module AmplitudeAmplificationUnifiedTests =
                 match finalState with
                 | QuantumState.StateVector sv -> Assert.Equal(3, StateVector.numQubits sv)
                 | _ -> Assert.True(false, "Expected StateVector quantum state")
+
+    [<Fact>]
+    let ``Amplitude amplification is correct for non-self-inverse state preparation`` () =
+        // Regression: the prepared-state reflection ran A;S0;A† (operator A†·S0·A)
+        // instead of A†;S0;A (operator A·S0·A†) — masked whenever A is self-inverse,
+        // e.g. the uniform H⊗n prep of plain Grover.
+        //
+        // Prep RY(2π/3): |ψ⟩ = ½|0⟩ + (√3/2)|1⟩, so sin²θ = 3/4 → θ = π/3.
+        // One exact amplification iteration gives sin²(3θ) = sin²(π) = 0:
+        // the target amplitude is driven to zero. The buggy reflection left P(1) = 3/4.
+        let backend = createLocalBackend ()
+
+        let prep =
+            CircuitBuilder.empty 1
+            |> CircuitBuilder.addGate (CircuitBuilder.RY (0, 2.0 * System.Math.PI / 3.0))
+
+        match Oracle.forValue 1 1 with
+        | Error err ->
+            Assert.True(false, $"Oracle compilation failed: {err}")
+        | Ok oracle ->
+            let intent: AmplitudeAmplification.Unified.AmplitudeAmplificationIntent =
+                {
+                    NumQubits = 1
+                    StatePreparation = prep
+                    Oracle = oracle
+                    Iterations = 1
+                    Exactness = AmplitudeAmplification.Unified.Exact
+                }
+
+            match AmplitudeAmplification.Unified.execute backend intent with
+            | Error err ->
+                Assert.True(false, $"Execution failed: {err}")
+            | Ok (QuantumState.StateVector sv) ->
+                let amp1 = StateVector.getAmplitude 1 sv
+                let p1 = amp1.Real * amp1.Real + amp1.Imaginary * amp1.Imaginary
+                Assert.True(p1 < 1e-9, $"Expected P(1) ≈ 0 after one exact iteration, got {p1}")
+            | Ok _ ->
+                Assert.True(false, "Expected StateVector quantum state")

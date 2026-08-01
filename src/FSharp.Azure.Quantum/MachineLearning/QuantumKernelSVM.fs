@@ -94,15 +94,23 @@ module QuantumKernelSVM =
         |> Array.sum
         |> (+) bias
     
-    /// Find index j that maximizes |E_i - E_j|
-    let private findBestPair (alphas: float array) (y: float array) (kernelMatrix: float[,]) (bias: float) (i: int) (E_i: float) : int =
-        [| 0 .. alphas.Length - 1 |]
-        |> Array.filter ((<>) i)
-        |> Array.map (fun k ->
-            let E_k = computeDecision alphas y kernelMatrix bias k - y.[k]
-            (k, abs (E_i - E_k)))
-        |> Array.maxBy snd
-        |> fst
+    /// Find index j that maximizes |E_i - E_j|.
+    /// Returns None when no partner index exists (single-sample training set) —
+    /// SMO needs a pair, so the caller skips the update instead of crashing.
+    let private findBestPair (alphas: float array) (y: float array) (kernelMatrix: float[,]) (bias: float) (i: int) (E_i: float) : int option =
+        let candidates =
+            [| 0 .. alphas.Length - 1 |]
+            |> Array.filter ((<>) i)
+        if candidates.Length = 0 then
+            None
+        else
+            candidates
+            |> Array.map (fun k ->
+                let E_k = computeDecision alphas y kernelMatrix bias k - y.[k]
+                (k, abs (E_i - E_k)))
+            |> Array.maxBy snd
+            |> fst
+            |> Some
     
     /// Clamp value between L and H
     let private clamp L H value =
@@ -139,10 +147,13 @@ module QuantumKernelSVM =
         if (r_i < -config.Tolerance && state.Alphas.[i] < config.C) ||
            (r_i > config.Tolerance && state.Alphas.[i] > 0.0) then
             
-            // Find best j
-            let j = findBestPair state.Alphas y kernelMatrix state.Bias i E_i
+            // Find best j (None when there is no partner sample to pair with)
+            match findBestPair state.Alphas y kernelMatrix state.Bias i E_i with
+            | None -> state
+            | Some j ->
+
             let E_j = computeDecision state.Alphas y kernelMatrix state.Bias j - y.[j]
-            
+
             let alpha_i_old = state.Alphas.[i]
             let alpha_j_old = state.Alphas.[j]
             

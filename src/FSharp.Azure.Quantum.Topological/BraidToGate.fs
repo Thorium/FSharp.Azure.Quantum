@@ -134,31 +134,46 @@ module BraidToGate =
     // BRAIDING GLOBAL PHASE COMPUTATION
     // ========================================================================
 
+    /// R-symbols R[1/2,1/2; j=0] and R[1/2,1/2; j=1] for the SU(2)_k qubit
+    /// encoding (the two fusion channels of a pair of j=1/2 anyons).
+    /// Same construction as SolovayKitaev.computeSU2kSigmaMatrices.
+    let private su2HalfSpinRSymbols (k: int) : Complex * Complex =
+        let halfSpin = AnyonSpecies.Particle.SpinJ(1, k)
+        let j0 = AnyonSpecies.Particle.SpinJ(0, k)
+        let j1 = AnyonSpecies.Particle.SpinJ(2, k)
+        match RMatrix.computeRMatrix (AnyonSpecies.AnyonType.SU2Level k) with
+        | Error e -> failwith $"R-matrix computation failed for SU(2)_{k}: %A{e}"
+        | Ok rData ->
+            let getR c =
+                match RMatrix.getRSymbol rData { RMatrix.A = halfSpin; RMatrix.B = halfSpin; RMatrix.C = c } with
+                | Ok r -> r
+                | Error e -> failwith $"R-symbol lookup failed for SU(2)_{k}: %A{e}"
+            (getR j0, getR j1)
+
     /// Compute the global braiding phase for a single braid generator.
     ///
     /// Each elementary braid σ_i (or σ_i⁻¹) contributes a global phase determined
-    /// by the anyon type's R-matrix. This is the phase acquired by the anyon state
-    /// under exchange, distinct from the relative phase applied by gate decomposition.
+    /// by the anyon type's R-matrix: the phase acquired by the VACUUM fusion
+    /// channel (the |0⟩ component of the encoded qubit). The gate decomposition
+    /// applies the remaining relative channel phase (a P gate), so
+    /// TotalPhase · gates reproduces the exact anyonic unitary.
     ///
     /// - **Ising**: σ_i → exp(-iπ/8), σ_i⁻¹ → exp(iπ/8)
     ///   (from R[σ,σ;1] = exp(-iπ/8), Kitaev 2006 convention)
     /// - **Fibonacci**: σ_i → exp(4πi/5), σ_i⁻¹ → exp(-4πi/5)
     ///   (from R[τ,τ;1] = exp(4πi/5))
-    /// - **Other**: σ_i → exp(-iπ/8), σ_i⁻¹ → exp(iπ/8)  (default, same as Ising)
+    /// - **SU(2)_k**: σ_i → R[1/2,1/2;j=0], σ_i⁻¹ → conjugate
     let braidingPhase (anyonType: AnyonSpecies.AnyonType) (isClockwise: bool) : Complex =
-        let angle =
-            match anyonType with
-            | AnyonSpecies.AnyonType.Ising ->
-                if isClockwise then -Math.PI / 8.0
-                else Math.PI / 8.0
-            | AnyonSpecies.AnyonType.Fibonacci ->
-                if isClockwise then 4.0 * Math.PI / 5.0
-                else -4.0 * Math.PI / 5.0
-            | _ ->
-                // Default: use Ising-like phase
-                if isClockwise then -Math.PI / 8.0
-                else Math.PI / 8.0
-        Complex(cos angle, sin angle)
+        match anyonType with
+        | AnyonSpecies.AnyonType.Ising ->
+            let angle = if isClockwise then -Math.PI / 8.0 else Math.PI / 8.0
+            Complex(cos angle, sin angle)
+        | AnyonSpecies.AnyonType.Fibonacci ->
+            let angle = if isClockwise then 4.0 * Math.PI / 5.0 else -4.0 * Math.PI / 5.0
+            Complex(cos angle, sin angle)
+        | AnyonSpecies.AnyonType.SU2Level k ->
+            let r0, _ = su2HalfSpinRSymbols k
+            if isClockwise then r0 else Complex.Conjugate r0
 
     /// Compute the total accumulated braiding phase for a sequence of generators.
     /// The total phase is the product of individual generator phases.
@@ -191,10 +206,24 @@ module BraidToGate =
         if generatorIndex % 2 <> 0 then
             failwith $"Braid generator σ_{generatorIndex} is a cross-pair exchange (odd leaf index) and cannot be mapped to a single-qubit gate in the Ising σ-pair encoding"
         elif generatorIndex = strandCount - 2 then
-            // Within-pair exchange of the PARITY pair (leaves 2n, 2n+1): acts as
-            // a phase determined by the fixed parity channel — a global phase on
-            // the encoded qubit space, already tracked by accumulateBraidingPhase.
-            []
+            // Within-pair exchange of the PARITY pair (leaves 2n, 2n+1): the pair's
+            // fusion channel is Vacuum or ψ according to the parity of the encoded
+            // data qubits, so the braid applies R[σ,σ;1] = e^{-iπ/8} to even-parity
+            // terms and R[σ,σ;ψ] = e^{3iπ/8} to odd-parity terms — a relative phase
+            // of i on the odd-parity subspace, NOT a global phase (the vacuum-channel
+            // factor e^{-iπ/8} is what accumulateBraidingPhase tracks). Realize it by
+            // computing the parity onto the last qubit with a CNOT ladder, applying
+            // S (or S† for the inverse braid), and uncomputing.
+            let numQubits = max 0 (strandCount / 2 - 1)
+            if numQubits = 0 then
+                []
+            else
+                let last = numQubits - 1
+                let ladder = [ for j in 0 .. numQubits - 2 -> CircuitBuilder.Gate.CNOT (j, last) ]
+                let phaseGate =
+                    if isClockwise then CircuitBuilder.Gate.S last
+                    else CircuitBuilder.Gate.SDG last
+                ladder @ [ phaseGate ] @ List.rev ladder
         elif generatorIndex >= strandCount - 1 then
             failwith $"Braid generator σ_{generatorIndex} is out of range for {strandCount} strands"
         else
@@ -206,25 +235,29 @@ module BraidToGate =
         else
             [CircuitBuilder.Gate.SDG qubitIndex]
     
-    /// Map Fibonacci anyon braiding phase to gate approximation.
-    /// 
-    /// Fibonacci braiding produces phases like exp(±4πi/5), which don't
-    /// correspond to simple gates. We need Solovay-Kitaev approximation.
+    /// Map Fibonacci anyon braiding to its exact diagonal gate.
+    ///
+    /// σ₁ acts on the qubit fusion basis as diag(R¹_ττ, Rτ_ττ)
+    /// = diag(e^{4πi/5}, e^{-3πi/5}) = e^{4πi/5} · diag(1, e^{3πi/5}):
+    /// the vacuum-channel factor e^{4πi/5} is tracked by accumulateBraidingPhase
+    /// and the RELATIVE channel phase is P(3π/5). (The previous code emitted the
+    /// global 4π/5 as the relative angle — every braid was off by e^{iπ/5} on |1⟩.)
     let fibonacciBraidingToGates (generatorIndex: int) (isClockwise: bool) (tolerance: float) : CircuitBuilder.Gate list =
         // Fibonacci uses the same 2-leaves-per-qubit indexing as Ising (σ₁ of
         // qubit q = leaf index 2q, σ₂ = leaf index 2q+1 crossing to the auxiliary/
-        // next pair). Only the within-pair σ₁ has a single-qubit diagonal action
-        // (R-phase e^{±4πi/5} on the τ channel); σ₂ mixes fusion channels via the
-        // F-matrix and cannot be represented as a single-qubit phase gate.
+        // next pair). Only the within-pair σ₁ has a single-qubit diagonal action;
+        // σ₂ mixes fusion channels via the F-matrix and cannot be represented as
+        // a single-qubit phase gate.
         if generatorIndex % 2 <> 0 then
             failwith $"Fibonacci braid generator σ_{generatorIndex} (cross-pair σ₂ exchange) mixes fusion channels via the F-matrix and cannot be mapped to a phase gate"
         let qubitIndex = generatorIndex / 2
+        // arg(Rτ/R¹) = -3π/5 - 4π/5 = -7π/5 ≡ +3π/5 (mod 2π)
         let angle =
             if isClockwise then
-                4.0 * Math.PI / 5.0
+                3.0 * Math.PI / 5.0
             else
-                -4.0 * Math.PI / 5.0
-        [CircuitBuilder.Gate.RZ (qubitIndex, angle)]
+                -3.0 * Math.PI / 5.0
+        [CircuitBuilder.Gate.P (qubitIndex, angle)]
 
     // ========================================================================
     // GATE SEQUENCE OPTIMIZATION
@@ -433,7 +466,7 @@ module BraidToGate =
     
     /// Compile a single braid generator to gates.
     /// `strandCount` is the braid word's strand count, needed to distinguish the
-    /// Ising parity-pair exchange (global phase, no gate) from qubit exchanges.
+    /// Ising parity-pair exchange (parity-controlled phase) from qubit exchanges.
     let compileGenerator
         (gen: BraidGroup.BraidGenerator)
         (anyonType: AnyonSpecies.AnyonType)
@@ -447,18 +480,20 @@ module BraidToGate =
         | AnyonSpecies.AnyonType.Fibonacci ->
             fibonacciBraidingToGates gen.Index gen.IsClockwise options.ApproximationTolerance
 
-        | _ ->
-            // SU(2)_k and other models share the 2-leaves-per-qubit indexing;
-            // within-pair (even) exchanges act as a channel phase on the qubit,
-            // cross-pair (odd) exchanges mix channels and have no gate equivalent.
+        | AnyonSpecies.AnyonType.SU2Level k ->
+            // SU(2)_k shares the 2-leaves-per-qubit indexing; within-pair (even)
+            // exchanges act as σ₁ = diag(R[1/2,1/2;0], R[1/2,1/2;1]) on the qubit
+            // (see SolovayKitaev.computeSU2kSigmaMatrices), cross-pair (odd)
+            // exchanges mix channels via the F-matrix and have no gate equivalent.
+            // The vacuum-channel factor R[1/2,1/2;0] is tracked by
+            // accumulateBraidingPhase; the gate applies the relative channel phase.
+            // (The previous code emitted a flat Ising-like ±π/8 placeholder.)
             if gen.Index % 2 <> 0 then
                 failwith $"Braid generator σ_{gen.Index} (cross-pair exchange) cannot be mapped to a single-qubit gate for {anyonType}"
-            let phase =
-                if gen.IsClockwise then
-                    -Math.PI / 8.0  // Default: Ising-like phase
-                else
-                    Math.PI / 8.0
-            [CircuitBuilder.Gate.RZ (gen.Index / 2, phase)]
+            let r0, r1 = su2HalfSpinRSymbols k
+            let relative = (r1 / r0).Phase
+            let angle = if gen.IsClockwise then relative else -relative
+            [CircuitBuilder.Gate.P (gen.Index / 2, angle)]
     
     /// Compile full braid to gate sequence
     let compileToGates 

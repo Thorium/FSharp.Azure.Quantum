@@ -199,7 +199,9 @@ module Measurement =
     let computeStandardDeviation (classicalFunction: int -> float) (state: StateVector.StateVector) : float =
         let expectedValue = computeExpectedValue classicalFunction state
         let expectedSquared = computeExpectedValue (fun i -> (classicalFunction i) ** 2.0) state
-        let variance = expectedSquared - expectedValue ** 2.0
+        // Clamp: catastrophic cancellation for a near-constant f (probabilities
+        // summing to 1 + 1ulp) can make the variance tiny-negative → NaN from sqrt
+        let variance = max 0.0 (expectedSquared - expectedValue ** 2.0)
         sqrt variance
     
     // ============================================================================

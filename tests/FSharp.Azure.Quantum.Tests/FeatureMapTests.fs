@@ -204,6 +204,51 @@ module FeatureMapTests =
         // The circuit should have 2 qubits; may or may not have gates depending on normalization
         Assert.Equal(2, circuit.QubitCount)
 
+    let private simulateCircuit (circuit: Circuit) =
+        let initial = FSharp.Azure.Quantum.LocalSimulator.StateVector.init circuit.QubitCount
+        getGates circuit
+        |> List.fold (fun s g ->
+            match g with
+            | RY (q, a) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy q a s
+            | CNOT (c, t) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT c t s
+            | g -> failwith $"Unexpected gate in amplitude encoding: {g}") initial
+
+    /// Regression: the Gray-code multiplexer used to skip structural CNOTs for
+    /// near-zero rotations, close the parity chain on the wrong control, and read
+    /// Walsh-Hadamard angles without the Gray-code reindexing — every encoding
+    /// with 5+ features (and many 4-feature ones) produced the wrong state.
+    [<Theory>]
+    [<InlineData(3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0)>]
+    [<InlineData(1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0)>]
+    [<InlineData(1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0)>]
+    [<InlineData(0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)>]
+    let ``amplitudeEncoding prepares exactly the normalized feature vector`` (f0: float, f1: float, f2: float, f3: float, f4: float, f5: float, f6: float, f7: float) =
+        let features = [| f0; f1; f2; f3; f4; f5; f6; f7 |]
+        let norm = features |> Array.sumBy (fun x -> x * x) |> sqrt
+        let expected = features |> Array.map (fun x -> x / norm)
+
+        let circuit = amplitudeEncoding features
+        let state = simulateCircuit circuit
+
+        for i in 0 .. expected.Length - 1 do
+            let amp = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude i state
+            Assert.Equal(expected.[i], amp.Real, 8)
+            Assert.Equal(0.0, amp.Imaginary, 8)
+
+    [<Fact>]
+    let ``amplitudeEncoding prepares 4-feature vector with zero components`` () =
+        // The old code emitted a bare closing CNOT for the all-zero-angle level,
+        // entangling the qubits: fidelity was 0.25 for this input.
+        let features = [| 1.0; 0.0; 1.0; 0.0 |]
+        let expected = [| 1.0 / sqrt 2.0; 0.0; 1.0 / sqrt 2.0; 0.0 |]
+
+        let circuit = amplitudeEncoding features
+        let state = simulateCircuit circuit
+
+        for i in 0 .. expected.Length - 1 do
+            let amp = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude i state
+            Assert.Equal(expected.[i], amp.Real, 8)
+
     // ========================================================================
     // BUILD FEATURE MAP
     // ========================================================================

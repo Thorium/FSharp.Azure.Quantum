@@ -60,6 +60,14 @@ module ModelSerialization =
         /// with the historical default "CX".
         VariationalFormEntanglement: string option
 
+        /// Regression output range (min, max) that predictRegression uses to map
+        /// the circuit output back to the target scale. Both None for
+        /// classification models and legacy regression files — a reloaded legacy
+        /// regression model cannot reproduce its training-time predictions.
+        /// (Stored as two floats: System.Text.Json cannot round-trip F# tuples.)
+        ValueRangeMin: float option
+        ValueRangeMax: float option
+
         /// Optional metadata
         SavedAt: string
         Note: string option
@@ -181,6 +189,8 @@ module ModelSerialization =
                 FeatureMapPaulis = None
                 VariationalFormRotation = None
                 VariationalFormEntanglement = None
+                ValueRangeMin = None
+                ValueRangeMax = None
                 SavedAt = DateTime.UtcNow.ToString("o")
                 Note = note
             }
@@ -230,6 +240,8 @@ module ModelSerialization =
                 FeatureMapPaulis = fmPaulis
                 VariationalFormRotation = vfRotation
                 VariationalFormEntanglement = vfEntanglement
+                ValueRangeMin = None
+                ValueRangeMax = None
                 SavedAt = DateTime.UtcNow.ToString("o")
                 Note = note
             }
@@ -331,20 +343,33 @@ module ModelSerialization =
         (note: string option)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<unit>> =
-        
+
         // For regression, use TrainMSE as the "loss"
         let finalLoss = result.TrainMSE
-        
-        saveVQCModelAsync
+
+        // Persist ValueRange: predictRegression needs exactly this (min, max) to
+        // map circuit output to the target scale — without it a reloaded model
+        // produces silently affinely-rescaled predictions.
+        let (rangeMin, rangeMax) = result.ValueRange
+
+        writeVQCModelAsync
             filePath
-            result.Parameters
-            finalLoss
-            numQubits
-            featureMapType
-            featureMapDepth
-            variationalFormType
-            variationalFormDepth
-            note
+            {
+                Parameters = result.Parameters
+                FinalLoss = finalLoss
+                NumQubits = numQubits
+                FeatureMapType = featureMapType
+                FeatureMapDepth = featureMapDepth
+                VariationalFormType = variationalFormType
+                VariationalFormDepth = variationalFormDepth
+                FeatureMapPaulis = None
+                VariationalFormRotation = None
+                VariationalFormEntanglement = None
+                ValueRangeMin = Some rangeMin
+                ValueRangeMax = Some rangeMax
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
             cancellationToken
     
     /// Save VQC regression training result with metadata
@@ -361,14 +386,10 @@ module ModelSerialization =
         (variationalFormDepth: int)
         (note: string option)
         : QuantumResult<unit> =
-        
-        // For regression, use TrainMSE as the "loss"
-        let finalLoss = result.TrainMSE
-        
-        saveVQCModelAsync
+
+        saveVQCRegressionTrainingResultAsync
             filePath
-            result.Parameters
-            finalLoss
+            result
             numQubits
             featureMapType
             featureMapDepth

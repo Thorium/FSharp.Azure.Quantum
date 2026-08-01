@@ -175,7 +175,9 @@ module FeatureMap =
                 else 2.0 * Math.Atan2(b, a))
         
         /// Recursively compute all RY angles for each qubit level.
-        /// Returns a list of (qubitIndex, angles) from most significant to least significant qubit.
+        /// Qubit q holds bit q of the feature index, so the level that pairs over
+        /// feature bit 0 targets qubit 0, and the final single-angle level targets
+        /// qubit numQubits-1 (the feature MSB, prepared first).
         let rec computeAllAngles (amps: float array) (qubitIdx: int) : (int * float array) list =
             if amps.Length <= 1 then []
             else
@@ -186,9 +188,9 @@ module FeatureMap =
                         let a = amps.[2 * i]
                         let b = amps.[2 * i + 1]
                         Math.Sqrt(a * a + b * b))
-                (qubitIdx, angles) :: computeAllAngles residuals (qubitIdx - 1)
-        
-        let allAngles = computeAllAngles amplitudes (numQubits - 1)
+                (qubitIdx, angles) :: computeAllAngles residuals (qubitIdx + 1)
+
+        let allAngles = computeAllAngles amplitudes 0
         
         // Helper: find bit position of lowest set bit (trailing zero count)
         let trailingZeros n =
@@ -227,49 +229,37 @@ module FeatureMap =
                     else
                         circ
                 else
-                    // Uniformly-controlled rotation: for each control basis state |k⟩,
-                    // apply RY(angle_k) to the target qubit.
-                    // Decompose using Gray code traversal with CNOT + RY pairs.
-                    // Simplified decomposition: use multiplexed rotations via Walsh-Hadamard transform.
-                    let numControls = int (Math.Log(float angles.Length, 2.0))
-                    let controlQubits = [0 .. numControls - 1] |> List.filter (fun q -> q <> targetQubit)
-                    
+                    // Uniformly-controlled RY (multiplexer) over the already-prepared
+                    // higher qubits: for control basis state |r⟩, apply RY(angle_r).
+                    // Möttönen decomposition: Walsh-Hadamard-transformed angles read in
+                    // Gray-code order, with a CNOT between consecutive rotations on the
+                    // control bit where the Gray code changes. The CNOT parity chain is
+                    // structural — a CNOT must be emitted even when its rotation is zero,
+                    // and the final CNOT (wrapping to Gray code 0) closes the chain on
+                    // the most significant control.
+                    let controlQubits = [| targetQubit + 1 .. numQubits - 1 |]
+
                     let transformed = walshHadamardTransform angles
-                    
-                    // Apply the decomposed rotations
-                    // First rotation (unconditional)
-                    let circ' =
-                        if abs transformed.[0] > 1e-15 then
-                            addGate (RY(targetQubit, transformed.[0])) circ
-                        else
-                            circ
-                    
-                    // Controlled rotations via CNOT + RY pairs (Gray code ordering)
-                    let circ'' =
-                        (circ', [1 .. transformed.Length - 1])
-                        ||> List.fold (fun c k ->
-                            if abs transformed.[k] > 1e-15 then
-                                // Find which control bit flipped (lowest set bit of Gray code)
-                                let grayK = k ^^^ (k >>> 1)
-                                let grayKm1 = (k - 1) ^^^ ((k - 1) >>> 1)
-                                let diff = grayK ^^^ grayKm1
-                                let bitPos = trailingZeros diff
-                                
-                                if bitPos < controlQubits.Length then
-                                    let controlQubit = controlQubits.[bitPos]
-                                    c |> addGate (CNOT(controlQubit, targetQubit)) |> addGate (RY(targetQubit, transformed.[k]))
-                                else
-                                    // Fallback: apply as unconditional rotation
-                                    addGate (RY(targetQubit, transformed.[k])) c
-                            else
-                                c)
-                    
-                    // Final CNOT to undo last Gray code step
-                    if controlQubits.Length > 0 then
-                        addGate (CNOT(controlQubits.[0], targetQubit)) circ''
+
+                    if transformed |> Array.forall (fun a -> abs a <= 1e-15) then
+                        // Identity multiplexer — the CNOTs would cancel pairwise
+                        circ
                     else
-                        circ'')
-        
+                        let n = transformed.Length
+                        (circ, [0 .. n - 1])
+                        ||> List.fold (fun c k ->
+                            let grayK = k ^^^ (k >>> 1)
+                            let next = (k + 1) % n
+                            let grayNext = next ^^^ (next >>> 1)
+                            let bitPos = trailingZeros (grayK ^^^ grayNext)
+                            let angle = transformed.[grayK]
+                            let c' =
+                                if abs angle > 1e-15 then
+                                    addGate (RY(targetQubit, angle)) c
+                                else
+                                    c
+                            addGate (CNOT(controlQubits.[bitPos], targetQubit)) c'))
+
         circ
     
     // ========================================================================

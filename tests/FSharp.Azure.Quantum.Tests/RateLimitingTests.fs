@@ -128,6 +128,15 @@ let ``calculateExponentialBackoff should return increasing delays`` () =
     Assert.InRange(delay6, 24000, 40000)  // 32s ± 25%
     Assert.InRange(delay7, 45000, 75000)  // 60s ± 25%
 
+[<Fact>]
+let ``calculateExponentialBackoff stays capped for high attempt numbers`` () =
+    // Regression: 1000 * 2^(attempt-1) overflowed Int32 at attempt 23 (sustained
+    // throttling never resets the counter), and the negative delay made
+    // Random.Shared.Next throw ArgumentOutOfRangeException from the HTTP pipeline.
+    for attempt in [8; 22; 23; 31; 32; 64; 1000] do
+        let delay = calculateExponentialBackoff attempt
+        Assert.InRange(delay, 100, 75000)
+
 // ============================================================================
 // TDD Cycle #6: ThrottlingHandler Integration
 // ============================================================================

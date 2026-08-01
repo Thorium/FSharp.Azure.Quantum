@@ -64,9 +64,12 @@ module CloudBackends =
             member _.NativeStateType = QuantumStateType.GateBased
 
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
+                // Run on the thread pool so the task's continuations never post back to
+                // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
+                // here would otherwise deadlock permanently on the first HTTP continuation.
+                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
+                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter().GetResult()
 
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
@@ -201,9 +204,12 @@ module CloudBackends =
             member _.NativeStateType = QuantumStateType.GateBased
 
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
+                // Run on the thread pool so the task's continuations never post back to
+                // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
+                // here would otherwise deadlock permanently on the first HTTP continuation.
+                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
+                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter().GetResult()
 
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
@@ -334,9 +340,12 @@ module CloudBackends =
             member _.NativeStateType = QuantumStateType.GateBased
 
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
+                // Run on the thread pool so the task's continuations never post back to
+                // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
+                // here would otherwise deadlock permanently on the first HTTP continuation.
+                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
+                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter().GetResult()
 
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
@@ -465,9 +474,12 @@ module CloudBackends =
             member _.NativeStateType = QuantumStateType.GateBased
 
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
+                // Run on the thread pool so the task's continuations never post back to
+                // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
+                // here would otherwise deadlock permanently on the first HTTP continuation.
+                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
+                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter().GetResult()
 
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
@@ -589,9 +601,12 @@ module CloudBackends =
             member _.NativeStateType = QuantumStateType.GateBased
 
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
-                |> Async.AwaitTask
-                |> Async.RunSynchronously
+                // Run on the thread pool so the task's continuations never post back to
+                // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
+                // here would otherwise deadlock permanently on the first HTTP continuation.
+                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
+                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter().GetResult()
 
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {

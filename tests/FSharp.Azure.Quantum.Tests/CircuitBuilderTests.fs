@@ -282,7 +282,7 @@ module CircuitBuilderTests =
             |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (0, 1.5707963))
         
         let qasm = CircuitBuilder.toOpenQASM circuit
-        Assert.Contains("rx(1.5707963) q[0];", qasm)
+        Assert.Contains("rx(1.5707963000) q[0];", qasm)
 
     [<Fact>]
     let ``toOpenQASM should output RY gate correctly`` () =
@@ -291,7 +291,7 @@ module CircuitBuilderTests =
             |> CircuitBuilder.addGate (CircuitBuilder.Gate.RY (0, 3.1415926))
         
         let qasm = CircuitBuilder.toOpenQASM circuit
-        Assert.Contains("ry(3.1415926) q[0];", qasm)
+        Assert.Contains("ry(3.1415926000) q[0];", qasm)
 
     [<Fact>]
     let ``toOpenQASM should output RZ gate correctly`` () =
@@ -300,7 +300,23 @@ module CircuitBuilderTests =
             |> CircuitBuilder.addGate (CircuitBuilder.Gate.RZ (0, 0.7853982))
         
         let qasm = CircuitBuilder.toOpenQASM circuit
-        Assert.Contains("rz(0.7853982) q[0];", qasm)
+        Assert.Contains("rz(0.7853982000) q[0];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM formats angles invariantly on comma-decimal locales`` () =
+        // Regression: interpolated angles used the current culture, emitting
+        // "rx(1,5707963)" on fi-FI — invalid OpenQASM submitted to paid hardware.
+        let original = System.Globalization.CultureInfo.CurrentCulture
+        try
+            System.Globalization.CultureInfo.CurrentCulture <- System.Globalization.CultureInfo("fi-FI")
+            let circuit =
+                CircuitBuilder.empty 1
+                |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (0, 1.5))
+            let qasm = CircuitBuilder.toOpenQASM circuit
+            Assert.Contains("rx(1.5000000000) q[0];", qasm)
+            Assert.DoesNotContain("1,5", qasm)
+        finally
+            System.Globalization.CultureInfo.CurrentCulture <- original
 
     [<Fact>]
     let ``toOpenQASM should output complete circuit correctly`` () =
@@ -322,7 +338,7 @@ module CircuitBuilderTests =
         Assert.Contains("h q[0];", qasm)
         Assert.Contains("h q[1];", qasm)
         Assert.Contains("cx q[0],q[1];", qasm)
-        Assert.Contains("rx(1.5) q[2];", qasm)
+        Assert.Contains("rx(1.5000000000) q[2];", qasm)
         Assert.Contains("x q[2];", qasm)
 
     // Circuit validation tests

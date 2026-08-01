@@ -104,9 +104,14 @@ module RateLimiting =
         let baseDelayMs = 1000  // 1 second
         let maxDelayMs = 60000  // 60 seconds
         
-        // Calculate: 1000 * 2^(attemptNumber - 1)
-        let delay = baseDelayMs * (pown 2 (attemptNumber - 1))
-        
+        // Calculate: 1000 * 2^(attemptNumber - 1).
+        // Clamp the exponent before multiplying: attemptNumber grows without bound
+        // under sustained throttling (it only resets on a non-429 response), and
+        // 1000 * 2^22 already overflows Int32 — the negative result made
+        // Random.Shared.Next throw min > max. 2^6 s exceeds the 60 s cap anyway.
+        let exponent = min (max 0 (attemptNumber - 1)) 6
+        let delay = baseDelayMs * (pown 2 exponent)
+
         // Cap at maximum
         let capped = min delay maxDelayMs
         
@@ -163,4 +168,5 @@ module RateLimiting =
                         return response
                 }
             
-            sendWithRetry 0 |> Async.StartAsTask
+            // Pass the caller's token so throttle/backoff sleeps are cancellable
+            Async.StartAsTask(sendWithRetry 0, cancellationToken = cancellationToken)

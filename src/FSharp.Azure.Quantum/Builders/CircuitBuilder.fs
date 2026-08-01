@@ -150,6 +150,12 @@ module CircuitBuilder =
         let optimized = optimizeGates forwardGates
         { circuit with Gates = List.rev optimized }
 
+    /// Format an angle for OpenQASM with InvariantCulture: on a locale with a comma
+    /// decimal separator (e.g. fi-FI) interpolation would emit "rx(1,57...)", which is
+    /// invalid OpenQASM (or misparses as two arguments) on the receiving backend.
+    let private formatAngle (angle: float) : string =
+        angle.ToString("F10", System.Globalization.CultureInfo.InvariantCulture)
+
     /// Converts a gate to OpenQASM 2.0 format
     let rec private gateToQASM (gate: Gate) : string =
         match gate with
@@ -161,7 +167,7 @@ module CircuitBuilder =
         | SDG q -> $"sdg q[{q}];"
         | T q -> $"t q[{q}];"
         | TDG q -> $"tdg q[{q}];"
-        | P (q, theta) -> $"p({theta}) q[{q}];"
+        | P (q, theta) -> $"p({formatAngle theta}) q[{q}];"
         | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
         | CZ (control, target) -> $"cz q[{control}],q[{target}];"
         | MCZ (controls, target) ->
@@ -169,19 +175,19 @@ module CircuitBuilder =
             // For now, emit as comment - use GateTranspiler.transpile() to decompose
             let controlsStr = controls |> List.map string |> String.concat ","
             $"// MCZ([{controlsStr}], {target}) - transpile to OpenQASM 2.0 compatible gates"
-        | CP (c, t, theta) -> $"cp({theta}) q[{c}],q[{t}];"
-        | CRX (c, t, theta) -> $"crx({theta}) q[{c}],q[{t}];"
-        | CRY (c, t, theta) -> $"cry({theta}) q[{c}],q[{t}];"
-        | CRZ (c, t, theta) -> $"crz({theta}) q[{c}],q[{t}];"
+        | CP (c, t, theta) -> $"cp({formatAngle theta}) q[{c}],q[{t}];"
+        | CRX (c, t, theta) -> $"crx({formatAngle theta}) q[{c}],q[{t}];"
+        | CRY (c, t, theta) -> $"cry({formatAngle theta}) q[{c}],q[{t}];"
+        | CRZ (c, t, theta) -> $"crz({formatAngle theta}) q[{c}],q[{t}];"
         | SWAP (q1, q2) -> $"swap q[{q1}],q[{q2}];"
-        | RXX (q1, q2, theta) -> $"rxx({theta}) q[{q1}],q[{q2}];"
-        | RYY (q1, q2, theta) -> $"ryy({theta}) q[{q1}],q[{q2}];"
-        | RZZ (q1, q2, theta) -> $"rzz({theta}) q[{q1}],q[{q2}];"
+        | RXX (q1, q2, theta) -> $"rxx({formatAngle theta}) q[{q1}],q[{q2}];"
+        | RYY (q1, q2, theta) -> $"ryy({formatAngle theta}) q[{q1}],q[{q2}];"
+        | RZZ (q1, q2, theta) -> $"rzz({formatAngle theta}) q[{q1}],q[{q2}];"
         | CCX (c1, c2, t) -> $"ccx q[{c1}],q[{c2}],q[{t}];"
-        | RX (q, angle) -> $"rx({angle}) q[{q}];"
-        | RY (q, angle) -> $"ry({angle}) q[{q}];"
-        | RZ (q, angle) -> $"rz({angle}) q[{q}];"
-        | U3 (q, theta, phi, lambda) -> $"u3({theta},{phi},{lambda}) q[{q}];"
+        | RX (q, angle) -> $"rx({formatAngle angle}) q[{q}];"
+        | RY (q, angle) -> $"ry({formatAngle angle}) q[{q}];"
+        | RZ (q, angle) -> $"rz({formatAngle angle}) q[{q}];"
+        | U3 (q, theta, phi, lambda) -> $"u3({formatAngle theta},{formatAngle phi},{formatAngle lambda}) q[{q}];"
         | Measure q -> $"measure q[{q}];"
         | Reset q -> $"reset q[{q}];"
         | Barrier qubits ->

@@ -305,7 +305,7 @@ module RealDWaveBackend =
                 | Some topology -> return Ok topology
                 | None ->
                     try
-                        let! response =
+                        use! response =
                             httpClient.GetAsync($"{config.Endpoint}solvers/remote/{config.Solver}/")
                             |> Async.AwaitTask
 
@@ -382,7 +382,7 @@ module RealDWaveBackend =
                             let json = JsonSerializer.Serialize([| problem |], jsonOptions)
                             let content = new StringContent(json, Encoding.UTF8, "application/json")
 
-                            let! response =
+                            use! response =
                                 httpClient.PostAsync($"{config.Endpoint}problems/", content)
                                 |> Async.AwaitTask
 
@@ -431,7 +431,7 @@ module RealDWaveBackend =
                     if attempts >= 60 then
                         return Error $"D-Wave job {jobId} timed out after 300 seconds"
                     else
-                        let! response =
+                        use! response =
                             httpClient.GetAsync($"{config.Endpoint}problems/{jobId}/")
                             |> Async.AwaitTask
 

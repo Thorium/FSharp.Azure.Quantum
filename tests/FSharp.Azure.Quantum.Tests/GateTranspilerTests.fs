@@ -367,3 +367,38 @@ module GateTranspilerTests =
             let ampDec = LocalSimulator.StateVector.getAmplitude i resultDecomposed
             Assert.Equal(ampCZ.Real, ampDec.Real, 5)
             Assert.Equal(ampCZ.Imaginary, ampDec.Imaginary, 5)
+
+    [<Fact>]
+    let ``CRX decomposition is equivalent to CRX gate`` () =
+        // Regression: the old RX(θ/2)·CNOT·RX(-θ/2)·CNOT decomposition cancelled
+        // to the identity (X commutes with RX), silently deleting the gate.
+        let angle = 1.234
+        let circuit = { QubitCount = 2; Gates = [CRX (0, 1, angle)] }
+
+        let transpiled = GateTranspiler.transpileForBackend "ionq.simulator" circuit
+
+        let hasCRX = transpiled.Gates |> List.exists (function | CRX _ -> true | _ -> false)
+        Assert.False(hasCRX, "CRX should be fully decomposed")
+
+        // Superposed control exercises both control branches at once
+        let initialState =
+            LocalSimulator.StateVector.init 2
+            |> LocalSimulator.Gates.applyH 0
+
+        let resultCRX = LocalSimulator.Gates.applyCRX 0 1 angle initialState
+
+        let resultDecomposed =
+            transpiled.Gates
+            |> List.fold (fun s g ->
+                match g with
+                | H q -> LocalSimulator.Gates.applyH q s
+                | RX (q, a) -> LocalSimulator.Gates.applyRx q a s
+                | RZ (q, a) -> LocalSimulator.Gates.applyRz q a s
+                | CNOT (c, t) -> LocalSimulator.Gates.applyCNOT c t s
+                | g -> failwith $"Unexpected gate in CRX decomposition: {g}") initialState
+
+        for i in 0 .. (LocalSimulator.StateVector.dimension resultCRX - 1) do
+            let ampCRX = LocalSimulator.StateVector.getAmplitude i resultCRX
+            let ampDec = LocalSimulator.StateVector.getAmplitude i resultDecomposed
+            Assert.Equal(ampCRX.Real, ampDec.Real, 5)
+            Assert.Equal(ampCRX.Imaginary, ampDec.Imaginary, 5)

@@ -16,7 +16,12 @@ module Client =
 
     /// Azure Quantum REST API endpoints
     module Endpoints =
-        let private azureResourceManager = "https://management.azure.com"
+        // Job CRUD is a DATA-PLANE API served from the workspace's regional host
+        // (https://{location}.quantum.azure.com). management.azure.com (ARM) has
+        // no jobs route, and the bearer token acquired by Authentication.fs is
+        // scoped to https://quantum.microsoft.com/.default, which ARM rejects —
+        // the previous ARM base URL made every live call fail with 401/404.
+        let private dataPlaneHost location = sprintf "https://%s.quantum.azure.com" location
 
         let private workspacePath subscriptionId resourceGroup workspaceName =
             sprintf
@@ -40,13 +45,16 @@ module Client =
                 (workspacePath subscriptionId resourceGroup workspaceName)
                 jobId
 
-        let fullUrl path = azureResourceManager + path
+        let fullUrl location path = dataPlaneHost location + path
 
     /// Quantum client configuration
     type QuantumClientConfig =
         { SubscriptionId: string
           ResourceGroup: string
           WorkspaceName: string
+          /// Azure region of the workspace (e.g. "eastus") — determines the
+          /// data-plane host {location}.quantum.azure.com that serves job CRUD
+          Location: string
           HttpClient: HttpClient
           RetryConfig: RetryConfig option
           Logger: ILogger option
@@ -57,10 +65,11 @@ module Client =
           DailyCostLimit: decimal<USD> option }
 
     /// Create default config
-    let createConfig subscriptionId resourceGroup workspaceName httpClient =
+    let createConfig subscriptionId resourceGroup workspaceName location httpClient =
         { SubscriptionId = subscriptionId
           ResourceGroup = resourceGroup
           WorkspaceName = workspaceName
+          Location = location
           HttpClient = httpClient
           RetryConfig = Some Retry.defaultConfig
           Logger = None
@@ -185,7 +194,7 @@ module Client =
                                 config.WorkspaceName
                                 submission.JobId
 
-                        let url = Endpoints.fullUrl endpoint
+                        let url = Endpoints.fullUrl config.Location endpoint
 
                         // Create request
                         use request = new HttpRequestMessage(HttpMethod.Put, url)
@@ -204,12 +213,12 @@ module Client =
                         request.Content <- new StringContent(jsonContent, Encoding.UTF8, "application/json")
 
                         // Send request
-                        let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                        use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
 
                         // Handle response
                         if response.IsSuccessStatusCode then
                             let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                            let jsonDoc = JsonDocument.Parse(responseBody)
+                            use jsonDoc = JsonDocument.Parse(responseBody)
                             let root = jsonDoc.RootElement
 
                             let jobId = root.GetProperty("id").GetString()
@@ -272,18 +281,18 @@ module Client =
                     let endpoint =
                         Endpoints.jobPath config.SubscriptionId config.ResourceGroup config.WorkspaceName jobId
 
-                    let url = Endpoints.fullUrl endpoint
+                    let url = Endpoints.fullUrl config.Location endpoint
 
                     // Create request
                     use request = new HttpRequestMessage(HttpMethod.Get, url)
 
                     // Send request
-                    let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                    use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
 
                     // Handle response
                     if response.IsSuccessStatusCode then
                         let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                        let jsonDoc = JsonDocument.Parse(responseBody)
+                        use jsonDoc = JsonDocument.Parse(responseBody)
                         let root = jsonDoc.RootElement
 
                         let jobId = root.GetProperty("id").GetString()
@@ -328,7 +337,7 @@ module Client =
                 try
                     let firstUrl =
                         Endpoints.jobsPath config.SubscriptionId config.ResourceGroup config.WorkspaceName
-                        |> Endpoints.fullUrl
+                        |> Endpoints.fullUrl config.Location
 
                     let parseJob (element: JsonElement) : QuantumJob =
                         { JobId = element.GetProperty("id").GetString()
@@ -344,7 +353,7 @@ module Client =
                     let rec fetchPage (url: string) (acc: QuantumJob list) =
                         async {
                             use request = new HttpRequestMessage(HttpMethod.Get, url)
-                            let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                            use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
 
                             if response.IsSuccessStatusCode then
                                 let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
@@ -392,14 +401,14 @@ module Client =
                     let endpoint =
                         Endpoints.cancelJobPath config.SubscriptionId config.ResourceGroup config.WorkspaceName jobId
 
-                    let url = Endpoints.fullUrl endpoint
+                    let url = Endpoints.fullUrl config.Location endpoint
 
                     // Create request
                     use request = new HttpRequestMessage(HttpMethod.Post, url)
                     request.Content <- new StringContent("{}", Encoding.UTF8, "application/json")
 
                     // Send request
-                    let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                    use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
 
                     // Handle response
                     if response.IsSuccessStatusCode then
@@ -433,18 +442,18 @@ module Client =
                     let endpoint =
                         Endpoints.jobPath config.SubscriptionId config.ResourceGroup config.WorkspaceName jobId
 
-                    let url = Endpoints.fullUrl endpoint
+                    let url = Endpoints.fullUrl config.Location endpoint
 
                     // Create request
                     use request = new HttpRequestMessage(HttpMethod.Get, url)
 
                     // Send request
-                    let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                    use! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
 
                     // Handle response
                     if response.IsSuccessStatusCode then
                         let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                        let jsonDoc = JsonDocument.Parse(responseBody)
+                        use jsonDoc = JsonDocument.Parse(responseBody)
                         let root = jsonDoc.RootElement
 
                         let jobIdResult = root.GetProperty("id").GetString()
@@ -455,11 +464,14 @@ module Client =
                         if not (QuantumClient.isTerminalState status) then
                             return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job has not completed yet")))
                         else
-                            // Check if job has results
-                            match tryGetJsonProperty "outputData" root with
+                            // The job model never inlines results: they live in blob
+                            // storage at outputDataUri (a SAS URL), like
+                            // JobLifecycle.getJobResultAsync. The previous code read a
+                            // nonexistent inline "outputData" property.
+                            match tryGetJsonString "outputDataUri" root with
                             | None ->
                                 return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job does not have output data")))
-                            | Some outputData ->
+                            | Some outputDataUri ->
                                 let outputDataFormat = getJsonStringOrDefault "outputDataFormat" "unknown" root
 
                                 let executionTime =
@@ -469,21 +481,34 @@ module Client =
                                         try Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
                                         with _ -> None)
 
-                                let jobResult =
-                                    { JobId = jobIdResult
-                                      Status = status
-                                      OutputData = box outputData
-                                      OutputDataFormat = outputDataFormat
-                                      ExecutionTime = executionTime }
+                                // Download the result payload from blob storage. The SAS query
+                                // string is the credential: suppress the workspace bearer token,
+                                // which Azure Storage would reject (401) and must not receive.
+                                use resultRequest = new HttpRequestMessage(HttpMethod.Get, outputDataUri)
+                                Authentication.markNoAuth resultRequest
+                                use! resultResponse = config.HttpClient.SendAsync(resultRequest, ct) |> Async.AwaitTask
 
-                                this.Log(
-                                    LogLevel.Information,
-                                    "Retrieved results for job {JobId} (format: {Format})",
-                                    jobIdResult,
-                                    outputDataFormat
-                                )
+                                if not resultResponse.IsSuccessStatusCode then
+                                    let! errorBody = resultResponse.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(int resultResponse.StatusCode, errorBody)))
+                                else
+                                    let! outputData = resultResponse.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
 
-                                return Ok jobResult
+                                    let jobResult =
+                                        { JobId = jobIdResult
+                                          Status = status
+                                          OutputData = box outputData
+                                          OutputDataFormat = outputDataFormat
+                                          ExecutionTime = executionTime }
+
+                                    this.Log(
+                                        LogLevel.Information,
+                                        "Retrieved results for job {JobId} (format: {Format})",
+                                        jobIdResult,
+                                        outputDataFormat
+                                    )
+
+                                    return Ok jobResult
                     else
                         let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
 

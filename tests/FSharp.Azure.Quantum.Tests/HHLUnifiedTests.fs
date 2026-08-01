@@ -64,6 +64,38 @@ module HHLUnifiedTests =
             Assert.True(abs (m.[0] / m.[1] - 2.0) < 0.2, $"Expected |x0|/|x1| ≈ 2, got {m.[0] / m.[1]}")
             Assert.True(abs (m.[0] / m.[3] - 8.0) < 0.8, $"Expected |x0|/|x3| ≈ 8, got {m.[0] / m.[3]}")
 
+    [<Fact>]
+    let ``general path inverts an indefinite matrix with negative eigenvalues`` () =
+        // A = [[0,1],[1,0]] (Pauli X), eigenvalues +1 and -1; b = [1,0].
+        // x = A⁻¹b = [0,1]: all solution weight on |1⟩.
+        // Regression: the QPE inversion path mapped every register value to a
+        // positive eigenvalue, treating λ = -1 as phaseScale - 1 — the solution
+        // came out ∝ [2/3, 1/3] instead of [0,1].
+        let backend = createBackend()
+        let config : HHLConfig = {
+            Matrix = {
+                Dimension = 2
+                Elements = [| Complex.Zero; Complex.One; Complex.One; Complex.Zero |]
+                IsDiagonal = false
+                ConditionNumber = Some 1.0
+            }
+            InputVector = { Dimension = 2; Components = [| Complex.One; Complex.Zero |] }
+            EigenvalueQubits = 3
+            SolutionQubits = 1
+            InversionMethod = EigenvalueInversionMethod.ExactRotation 0.5
+            MinEigenvalue = 0.1
+            UsePostSelection = true
+            QPEPrecision = 3
+        }
+
+        match HHL.execute config backend with
+        | Error e -> failwith $"HHL execute failed: {e}"
+        | Ok result ->
+            let m0 = result.Solution.[0].Magnitude
+            let m1 = result.Solution.[1].Magnitude
+            Assert.True(m1 > 1e-6, $"Expected non-zero |x1|, got {m1}")
+            Assert.True(m0 < 0.2 * m1, $"Expected |x0| << |x1| (x = A⁻¹b = [0,1]), got [{m0}, {m1}]")
+
     // ========================================================================
     // HHL PLANNER TESTS
     // ========================================================================

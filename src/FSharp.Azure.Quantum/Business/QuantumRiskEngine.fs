@@ -326,6 +326,12 @@ module RiskEngine =
             // 0. Validate configuration
             if config.ConfidenceLevel <= 0.0 || config.ConfidenceLevel >= 1.0 then
                 return Error (QuantumError.ValidationError ("ConfidenceLevel", $"Confidence level must be strictly between 0 and 1, got {config.ConfidenceLevel}"))
+            elif config.MarketDataPath.IsNone && config.SimulationPaths < MinValidMarketDataRows then
+                // Mock returns are generated from SimulationPaths; fewer than 2 paths
+                // crashes the VaR percentile index arithmetic (and the quantum path's
+                // distribution discretization) with an index-out-of-range instead of
+                // a proper validation error.
+                return Error (QuantumError.ValidationError ("SimulationPaths", $"At least {MinValidMarketDataRows} simulation paths are required for the VaR percentile math, got {config.SimulationPaths}"))
             else
                 // 1. Ingest data. Real market data is required when a path is configured;
                 //    mock returns are used only when no MarketDataPath is given.

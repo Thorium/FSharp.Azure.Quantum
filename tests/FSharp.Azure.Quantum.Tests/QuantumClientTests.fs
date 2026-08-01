@@ -16,6 +16,7 @@ let makeConfig httpClient =
     { SubscriptionId = "sub-123"
       ResourceGroup = "rg-test"
       WorkspaceName = "ws-test"
+      Location = "eastus"
       HttpClient = httpClient
       RetryConfig = None
       Logger = None
@@ -329,6 +330,7 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () =
             { SubscriptionId = "sub-123"
               ResourceGroup = "rg-test"
               WorkspaceName = "ws-test"
+              Location = "eastus"
               HttpClient = httpClient
               RetryConfig = Some retryConfig
               Logger = None
@@ -387,6 +389,7 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
             { SubscriptionId = "sub-123"
               ResourceGroup = "rg-test"
               WorkspaceName = "ws-test"
+              Location = "eastus"
               HttpClient = httpClient
               RetryConfig = Some retryConfig
               Logger = None
@@ -443,6 +446,7 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
             { SubscriptionId = "sub-123"
               ResourceGroup = "rg-test"
               WorkspaceName = "ws-test"
+              Location = "eastus"
               HttpClient = httpClient
               RetryConfig = Some retryConfig
               Logger = None
@@ -515,23 +519,29 @@ let ``GetJobStatusAsync returns full job details including execution times`` () 
 [<Fact>]
 let ``GetResultsAsync should retrieve job results after completion`` () =
     async {
+        // The job model carries outputDataUri (blob SAS URL); the payload itself
+        // is downloaded from that URI in a second request.
+        let blobUri = "https://storage.example.com/results/job-with-results?sig=abc"
+
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 let response = new HttpResponseMessage(HttpStatusCode.OK)
 
-                response.Content <-
-                    new StringContent(
-                        """{
-            "id": "job-with-results",
-            "status": "Succeeded",
-            "outputData": {
-                "histogram": {"00": 512, "11": 512}
-            },
-            "outputDataFormat": "microsoft.quantum.measurement-results.v1",
-            "executionTime": "PT1.5S"
-        }"""
-                    )
+                let body =
+                    if request.RequestUri.ToString() = blobUri then
+                        """{"histogram": {"00": 512, "11": 512}}"""
+                    else
+                        sprintf
+                            """{
+                "id": "job-with-results",
+                "status": "Succeeded",
+                "outputDataUri": "%s",
+                "outputDataFormat": "microsoft.quantum.measurement-results.v1",
+                "executionTime": "PT1.5S"
+            }"""
+                            blobUri
 
+                response.Content <- new StringContent(body)
                 Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
@@ -546,6 +556,7 @@ let ``GetResultsAsync should retrieve job results after completion`` () =
             Assert.Equal("job-with-results", jobResult.JobId)
             Assert.Equal(JobStatus.Succeeded, jobResult.Status)
             Assert.NotNull(jobResult.OutputData)
+            Assert.Contains("histogram", string jobResult.OutputData)
             Assert.Equal("microsoft.quantum.measurement-results.v1", jobResult.OutputDataFormat)
             Assert.True(jobResult.ExecutionTime.IsSome)
         | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)

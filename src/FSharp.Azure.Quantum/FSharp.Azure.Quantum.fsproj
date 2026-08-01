@@ -6,12 +6,36 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.4.6</Version>
+    <Version>1.4.7</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.6: Correctness release — full-library audit (25 critical + ~35 high-severity fixes)
+    <PackageReleaseNotes>v1.4.7: Correctness release — second-pass audit (silently-wrong-results fixes + dependency updates)
+
+BREAKING CHANGES (vs 1.4.6):
+- QuantumClientConfig gained a required Location field (Azure region, e.g. "eastus") and Client.createConfig takes it as a new parameter. QuantumClient now targets the {location}.quantum.azure.com DATA-PLANE endpoint — the previous management.azure.com (ARM) base URL made every live job call fail 401/404 against the quantum-scoped bearer token
+- Amplitude encoding (FeatureMap.amplitudeEncoding) prepares the state with amplitude[i] = normalizedFeature[i] (state index = feature index). The previous construction was wrong for most inputs (skipped Gray-code CNOTs, wrong closing control, missing Gray reindexing of the multiplexed-RY angles) — kernels/VQC models trained on amplitude-encoded data should be retrained
+
+FIXED (silently wrong results):
+- CRX transpilation was the identity (X commutes with RX, so the RX-CNOT ladder cancelled) — now decomposed as H·CRZ(θ)·H; any transpiled circuit containing CRX was silently missing the gate
+- Amplitude amplification's reflection about the prepared state executed A;S0;A† (operator A†·S0·A) instead of A†;S0;A — correct only for self-inverse preparations such as plain Grover's H⊗n
+- HHL general (non-diagonal) path maps upper-half QPE register values to NEGATIVE eigenvalues (phase unwrap); a λ &lt; 0 component was previously inverted as phaseScale − |λ|. Phase scale is now 4·maxEig (positive and negative eigenvalues in disjoint phase halves; costs one bit of QPE precision)
+- OpenQASM angle formatting in CircuitBuilder.toOpenQASM and QaoaCircuit.toOpenQasm uses InvariantCulture F10 (comma-decimal locales emitted "rx(1,57)" — invalid QASM submitted to paid hardware)
+- QuantumClient.GetResultsAsync downloads results from outputDataUri (blob SAS URL) — the job model never inlines outputData, so the previous code could not return results
+- SAS blob downloads (job results, Client + JobLifecycle) no longer carry the workspace bearer token: Azure Storage rejected it (401) and the token leaked to the storage host (AuthenticationHandler honors a per-request no-auth marker)
+- VQC regression models persist ValueRange (ValueRangeMin/Max in SerializableVQCModel) — reloaded models previously produced affinely-rescaled predictions
+
+FIXED (crashes / robustness):
+- Rate-limit exponential backoff overflowed Int32 after ~23 consecutive 429s (Random.Next(min &gt; max) crashed the HTTP pipeline); backoff and job-poll delays now honor cancellation tokens
+- Sync ExecuteToState wrappers on the five cloud backends run via Task.Run — no more permanent deadlock when called from a UI thread (WPF/WinForms)
+- QAOA multi-start optimization no longer runs two extra objective evaluations (paid quantum jobs) per start for a log line, and only evaluates when a logger is attached
+- HttpResponseMessage/JsonDocument disposal in QuantumClient and the D-Wave SAPI backend (socket exhaustion under load)
+- Guards: correlation/covariance matrices over return series with no common dates; SMO training with a single sample; confusion matrix with test labels unseen at training; measurement standard deviation NaN from one-ulp negative variance; risk engine rejects SimulationPaths &lt; 2 with a validation error
+
+UPDATED: FSharp.Core 10.1.302, Microsoft.Extensions.Logging 10.0.10, OpenTelemetry 1.17.0, Serilog 4.4.0
+
+v1.4.6: Correctness release — full-library audit (25 critical + ~35 high-severity fixes)
 
 BREAKING CHANGES (vs 1.4.5):
 - submitAndWaitForResultsAsync takes a trailing CancellationToken on IonQ/Rigetti/Quantinuum/AtomComputing/Pasqal backends (polling is now cancellable)
@@ -417,20 +441,20 @@ v1.3.10: Async backend refactoring
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="MathNet.Numerics.FSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.Azure.Quantum.Client" Version="0.28.302812" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
-    <PackageReference Include="Serilog" Version="4.3.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="OpenTelemetry" Version="1.16.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.16.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+    <PackageReference Include="OpenTelemetry" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
   </ItemGroup>
 
 
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.301" />
-    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
-    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913" />
+    <PackageReference Update="FSharp.Core" Version="10.1.302" />
+    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.302" />
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.31.0.145097" />
   </ItemGroup>
 
 </Project>

@@ -311,7 +311,14 @@ module QaoaParameterOptimizer =
             |> List.map (fun i ->
                 let seedForRun = seed |> Option.map (fun s -> s + i)
                 let initialParams = initializeParameters p strategy seedForRun
-                logInfo logger $"  Start {i}/{numStarts}: Initial energy = {objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |])):F4}|{objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |])):F4}"
+                // Evaluate the objective only when a logger is attached: each call is a
+                // full quantum execution (the old duplicated interpolation hole ran it
+                // twice per start, unconditionally — 10 wasted paid jobs at MultiStart 5).
+                match logger with
+                | Some _ ->
+                    let initialEnergy = objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |]))
+                    logInfo logger $"  Start {i}/{numStarts}: Initial energy = {initialEnergy:F4}"
+                | None -> ()
                 
                 progressReporter
                 |> Option.iter (fun r -> 

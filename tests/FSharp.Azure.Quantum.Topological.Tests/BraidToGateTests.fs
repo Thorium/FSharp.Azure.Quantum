@@ -143,32 +143,55 @@ module BraidToGateTests =
     // ========================================================================
     
     [<Fact>]
-    let ``Fibonacci braiding compiles to rotation gate`` () =
-        // Business meaning: Fibonacci phases don't match simple gates, need Rz
+    let ``Fibonacci braiding compiles to the exact relative channel phase`` () =
+        // Business meaning: σ₁ = diag(R¹, Rτ) = e^{4πi/5}·diag(1, e^{3πi/5}) —
+        // TotalPhase carries the vacuum-channel factor, the gate the relative phase.
+        // Regression: the old code emitted RZ(4π/5), using the vacuum-channel
+        // (global) angle as the relative angle: off by e^{iπ/5} on |1⟩ per braid.
         let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single τ braiding"
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Fibonacci 
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Fibonacci
                 BraidToGate.defaultOptions "Fibonacci compilation"
-        
+
         Assert.Equal(1, sequence.Gates.Length)
         match sequence.Gates.[0] with
-        | CircuitBuilder.Gate.RZ (q, angle) ->
+        | CircuitBuilder.Gate.P (q, angle) ->
             Assert.Equal(0, q)
-            Assert.Equal(4.0 * System.Math.PI / 5.0, angle, 10)  // exp(4πi/5)
-        | _ -> failwith "Expected Rz gate"
-    
+            Assert.Equal(3.0 * System.Math.PI / 5.0, angle, 10)  // arg(Rτ/R¹) mod 2π
+        | _ -> failwith "Expected P gate"
+
     [<Fact>]
     let ``Fibonacci inverse braiding uses negative rotation`` () =
         // Business meaning: Inverse braiding = conjugate phase = negative angle
         let braid = braidFromGensOrFail 2 [BraidGroup.sigmaInv 0] "τ inverse"
-        let sequence = 
-            compileOrFail braid AnyonSpecies.AnyonType.Fibonacci 
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Fibonacci
                 BraidToGate.defaultOptions "Fibonacci inverse"
-        
+
         match sequence.Gates.[0] with
-        | CircuitBuilder.Gate.RZ (_, angle) ->
+        | CircuitBuilder.Gate.P (_, angle) ->
             Assert.True(angle < 0.0)
-        | _ -> failwith "Expected Rz gate"
+        | _ -> failwith "Expected P gate"
+
+    [<Fact>]
+    let ``Fibonacci TotalPhase times gate reproduces the exact braid unitary`` () =
+        // TotalPhase · P(3π/5) must equal diag(R¹, Rτ) = diag(e^{4πi/5}, e^{-3πi/5}).
+        let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single τ braiding"
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Fibonacci
+                BraidToGate.defaultOptions "Fibonacci exactness"
+
+        match sequence.Gates.[0] with
+        | CircuitBuilder.Gate.P (_, angle) ->
+            let diag0 = sequence.TotalPhase
+            let diag1 = sequence.TotalPhase * System.Numerics.Complex.Exp(System.Numerics.Complex.ImaginaryOne * System.Numerics.Complex(angle, 0.0))
+            let r1 = System.Numerics.Complex.Exp(System.Numerics.Complex.ImaginaryOne * System.Numerics.Complex(4.0 * System.Math.PI / 5.0, 0.0))
+            let rTau = System.Numerics.Complex.Exp(System.Numerics.Complex.ImaginaryOne * System.Numerics.Complex(-3.0 * System.Math.PI / 5.0, 0.0))
+            Assert.Equal(r1.Real, diag0.Real, 10)
+            Assert.Equal(r1.Imaginary, diag0.Imaginary, 10)
+            Assert.Equal(rTau.Real, diag1.Real, 10)
+            Assert.Equal(rTau.Imaginary, diag1.Imaginary, 10)
+        | _ -> failwith "Expected P gate"
 
     // ========================================================================
     // GATE OPTIMIZATION TESTS
@@ -291,11 +314,13 @@ module BraidToGateTests =
         Assert.Equal(1, sequence.Depth)
 
     [<Fact>]
-    let ``Parity-pair exchange produces no gate (global phase only)`` () =
-        // Business meaning: exchanging the parity pair (leaves 2n, 2n+1) does not
-        // act on any encoded qubit — it contributes only to the total phase.
+    let ``Parity-pair exchange applies the parity-dependent phase`` () =
+        // Business meaning: the parity pair's fusion channel is Vacuum or ψ
+        // according to the parity of the encoded data qubits, so exchanging it
+        // applies a RELATIVE phase i to the odd-parity subspace — it is not a
+        // global phase (the old compilation dropped it entirely).
         // 4 strands = 1 qubit (leaves 0,1) + parity pair (leaves 2,3): σ_2 is the
-        // parity-pair exchange.
+        // parity-pair exchange; with one qubit the parity IS the qubit, so σ_2 → S(0).
         let braid =
             braidFromGensOrFail 4
                 [BraidGroup.sigma 0; BraidGroup.sigma 2]
@@ -305,8 +330,26 @@ module BraidToGateTests =
             compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Parity pair"
 
-        Assert.Equal(1, sequence.Gates.Length)  // Only σ_0 → S(q0)
-        Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[0])
+        Assert.Equal<CircuitBuilder.Gate list>(
+            [CircuitBuilder.Gate.S 0; CircuitBuilder.Gate.S 0], sequence.Gates)
+
+    [<Fact>]
+    let ``Parity-pair exchange on two qubits computes the joint parity`` () =
+        // 6 strands = 2 qubits + parity pair; σ_4 is the parity-pair exchange.
+        // The joint parity x0 ⊕ x1 is computed onto qubit 1 with a CNOT ladder,
+        // phased with S, and uncomputed.
+        let braid =
+            braidFromGensOrFail 6 [BraidGroup.sigma 4] "Parity-pair exchange"
+
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
+                { BraidToGate.defaultOptions with OptimizationLevel = 0 }
+                "Two-qubit parity pair"
+
+        Assert.Equal<CircuitBuilder.Gate list>(
+            [ CircuitBuilder.Gate.CNOT (0, 1)
+              CircuitBuilder.Gate.S 1
+              CircuitBuilder.Gate.CNOT (0, 1) ], sequence.Gates)
 
     // ========================================================================
     // METADATA TESTS
