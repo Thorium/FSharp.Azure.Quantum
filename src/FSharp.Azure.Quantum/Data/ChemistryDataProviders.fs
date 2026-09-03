@@ -108,6 +108,7 @@ module ChemistryDataProviders =
     // ========================================================================
 
     /// 3D coordinates for a single atom.
+    [<Struct>]
     type AtomGeometry =
         { X: float
           Y: float
@@ -697,6 +698,7 @@ module ChemistryDataProviders =
         }
 
         /// Parsed bond from MOL file
+        [<Struct>]
         type MolBond = {
             Atom1: int  // 1-indexed
             Atom2: int  // 1-indexed

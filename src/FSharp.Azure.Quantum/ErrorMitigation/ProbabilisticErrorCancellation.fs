@@ -14,6 +14,7 @@ module ProbabilisticErrorCancellation =
     /// 
     /// Characterizes error rates for different gate types.
     /// Typical values: single-qubit ~0.001, two-qubit ~0.01, readout ~0.02
+    [<Struct>]
     type NoiseModel = {
         /// Error rate per single-qubit gate (depolarizing probability p)
         SingleQubitDepolarizing: float

@@ -208,6 +208,7 @@ if not quiet then
 
 let mutable anyVqeFailure = false
 
+[<Literal>]
 let feFeBondLength = 2.02
 
 let createFe2Dimer (multiplicity: int) : Molecule =

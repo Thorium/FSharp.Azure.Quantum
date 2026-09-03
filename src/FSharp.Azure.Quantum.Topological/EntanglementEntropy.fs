@@ -122,6 +122,7 @@ module EntanglementEntropy =
     /// By comparing regions of different sizes, can extract γ.
     /// 
     /// Simpler than Kitaev-Preskill but requires smooth boundary.
+    [<Struct>]
     type LevinWenRegions = {
         /// Entropy of smaller region
         S_small: float

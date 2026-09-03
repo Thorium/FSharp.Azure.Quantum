@@ -10,17 +10,27 @@ module Braket =
     /// device is retired or added. Gate devices consume OpenQASM 3.0; QuEra consumes AHS.
     module Devices =
         // Gate QPUs
+        [<Literal>]
         let ionqAria1        = "arn:aws:braket:us-east-1::device/qpu/ionq/Aria-1"
+        [<Literal>]
         let ionqForte1       = "arn:aws:braket:us-east-1::device/qpu/ionq/Forte-1"
+        [<Literal>]
         let rigettiAnkaa3    = "arn:aws:braket:us-west-1::device/qpu/rigetti/Ankaa-3"
+        [<Literal>]
         let iqmGarnet        = "arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet"
+        [<Literal>]
         let oqcLucy          = "arn:aws:braket:eu-west-2::device/qpu/oqc/Lucy"
+        [<Literal>]
         let infleqtionSqale  = "arn:aws:braket:us-east-1::device/qpu/infleqtion/Sqale"
         // Managed simulators
+        [<Literal>]
         let sv1              = "arn:aws:braket:::device/quantum-simulator/amazon/sv1"
+        [<Literal>]
         let dm1              = "arn:aws:braket:::device/quantum-simulator/amazon/dm1"
+        [<Literal>]
         let tn1              = "arn:aws:braket:::device/quantum-simulator/amazon/tn1"
         // Neutral-atom analog QPU (uses AHS, not OpenQASM)
+        [<Literal>]
         let queraAquila      = "arn:aws:braket:us-east-1::device/qpu/quera/Aquila"
 
     /// Wrap an OpenQASM 3.0 source string in a Braket OpenQASM program action.

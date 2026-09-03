@@ -36,6 +36,7 @@ module QuantumMatchingSolver =
     // ========================================================================
 
     /// A weighted edge in the graph
+    [<Struct>]
     type Edge = {
         /// Source vertex index
         Source: int

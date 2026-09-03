@@ -35,6 +35,7 @@ module NoiseModels =
     }
     
     /// Gate (braiding) error parameters
+    [<Struct>]
     type GateErrorParameters = {
         /// Single-qubit gate error rate (depolarizing)
         /// Typical: 0.001 (0.1%) for superconducting qubits
@@ -51,6 +52,7 @@ module NoiseModels =
     }
     
     /// Measurement error parameters
+    [<Struct>]
     type MeasurementErrorParameters = {
         /// Probability of measuring wrong outcome
         /// Typical: 0.01-0.05 (1-5%)
@@ -64,6 +66,7 @@ module NoiseModels =
     ///
     /// In topological systems, unwanted quasiparticles can be created
     /// by thermal excitations or external perturbations, causing errors.
+    [<Struct>]
     type QuasiparticlePoisoningParameters = {
         /// Poisoning rate (events per second)
         /// Typical: 10-1000 Hz depending on temperature

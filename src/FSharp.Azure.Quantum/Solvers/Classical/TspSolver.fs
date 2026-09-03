@@ -26,6 +26,7 @@ module TspSolver =
     type DistanceMatrix = float[,]
 
     /// TSP solver configuration
+    [<Struct>]
     type TspConfig = {
         /// Maximum number of 2-opt iterations (default: 1000)
         MaxIterations: int
@@ -41,6 +42,7 @@ module TspSolver =
     }
     
     /// Maximum number of cities allowed (prevents memory exhaustion)
+    [<Literal>]
     let maxCities = 10000
     
     /// Validate distance matrix dimensions and values

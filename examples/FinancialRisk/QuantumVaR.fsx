@@ -110,8 +110,10 @@ type AssetResult = {
 
 let confidenceLevel = Cli.getFloatOr "confidence" 0.99 args
 let timeHorizon = Cli.getIntOr "horizon" 10 args
+[<Literal>]
 let lookbackPeriod = 252
 let quantumQubits = Cli.getIntOr "qubits" 4 args
+[<Literal>]
 let groverIterations = 3
 let portfolioValue = Cli.getFloatOr "portfolio-value" 10_000_000.0 args
 

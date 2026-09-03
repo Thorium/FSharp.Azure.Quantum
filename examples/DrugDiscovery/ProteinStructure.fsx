@@ -138,6 +138,7 @@ let maxIterations = Cli.getIntOr "max-iterations" 50 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
 
 /// Minimum atoms for quantum fragment
+[<Literal>]
 let minFragmentAtoms = 4
 
 // ==============================================================================

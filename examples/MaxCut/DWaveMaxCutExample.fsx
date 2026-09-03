@@ -77,6 +77,7 @@ let edges = [
     (0, 2, 4.0)
 ]
 
+[<Literal>]
 let numVertices = 3
 
 if not quiet then

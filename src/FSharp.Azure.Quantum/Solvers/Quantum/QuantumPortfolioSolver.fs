@@ -241,6 +241,7 @@ module QuantumPortfolioSolver =
     /// 
     /// When rebalancing from a current portfolio to a new portfolio,
     /// transaction costs are incurred for buying or selling assets.
+    [<Struct>]
     type TransactionCosts = {
         /// Cost rate for buying assets (e.g., 0.001 = 0.1% of transaction value)
         BuyCostRate: float

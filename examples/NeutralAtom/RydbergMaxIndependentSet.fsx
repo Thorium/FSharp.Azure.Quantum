@@ -34,6 +34,7 @@ let register =
       { X = 3.0; Y = 0.0 }
       { X = 4.0; Y = 0.0 } ]
 
+[<Literal>]
 let omega = 1.0
 let program = maximumIndependentSetProgram register 30.0 omega 4.0 16.0
 

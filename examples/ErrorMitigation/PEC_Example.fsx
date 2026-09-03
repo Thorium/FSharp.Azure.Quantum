@@ -142,6 +142,7 @@ let theta = parseTheta (Cli.getOr "theta" "pi/4" args)
 // ============================================================================
 
 /// True H2 ground state energy (Hartree)
+[<Literal>]
 let trueEnergy = -1.137
 
 /// Noise model based on CLI parameters.

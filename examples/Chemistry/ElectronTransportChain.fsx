@@ -112,14 +112,19 @@ type RedoxResult =
 // ==============================================================================
 
 /// Boltzmann constant (J/K)
+[<Literal>]
 let kB = 1.380649e-23
 /// Reduced Planck constant (J*s)
+[<Literal>]
 let hbar = 1.054571817e-34
 /// eV to Joules
+[<Literal>]
 let eV_to_J = 1.60218e-19
 /// 1 Hartree = 27.2114 eV
+[<Literal>]
 let hartreeToEV = 27.2114
 /// 1 Hartree in kcal/mol
+[<Literal>]
 let hartreeToKcalMol = 627.509
 
 // ==============================================================================

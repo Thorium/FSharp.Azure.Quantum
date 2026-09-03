@@ -120,6 +120,7 @@ module QPE =
     // ========================================================================
 
     /// Execution exactness contract for QPE.
+    [<Struct>]
     type Exactness =
         | Exact
         | Approximate of epsilon: float

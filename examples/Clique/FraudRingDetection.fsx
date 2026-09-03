@@ -55,6 +55,7 @@ let problem : QuantumCliqueSolver.Problem =
 // ---------------------------------------------------------------------------
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+[<Literal>]
 let shots = 1000
 let config = { QuantumCliqueSolver.defaultConfig with FinalShots = shots }
 

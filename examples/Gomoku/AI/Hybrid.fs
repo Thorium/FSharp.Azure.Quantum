@@ -10,10 +10,13 @@ module LocalHybrid =
     /// Strategy selection thresholds
     module Thresholds =
         /// Too few candidates, use classical
+        [<Literal>]
         let quantumMinCandidates = 5
         /// Too many candidates, quantum overhead dominates
+        [<Literal>]
         let quantumMaxCandidates = 30
         /// Use classical for opening moves
+        [<Literal>]
         let earlyGameMoves = 10
     
     /// AI strategy mode

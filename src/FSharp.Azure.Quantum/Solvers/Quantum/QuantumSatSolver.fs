@@ -60,6 +60,7 @@ module QuantumSatSolver =
     // ========================================================================
 
     /// A literal is a Boolean variable (by index) that may be negated.
+    [<Struct>]
     type Literal = {
         /// Index of the Boolean variable (0-based)
         Variable: int

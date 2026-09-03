@@ -30,6 +30,7 @@ module MoleculeFormats =
     // ========================================================================
 
     /// 3D coordinates for a single atom.
+    [<Struct>]
     type AtomCoord = { X: float; Y: float; Z: float }
 
     /// Molecular topology (atoms + bonds graph).

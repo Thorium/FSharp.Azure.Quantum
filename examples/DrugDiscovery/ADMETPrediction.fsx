@@ -215,12 +215,15 @@ let quiet = args |> Cli.hasFlag "quiet"
 // ==============================================================================
 
 /// Number of quantum circuit shots
+[<Literal>]
 let quantumShots = 1000
 
 /// Feature map depth (quantum circuit layers)
+[<Literal>]
 let featureMapDepth = 2
 
 /// Cross-validation folds
+[<Literal>]
 let cvFolds = 5
 
 // ==============================================================================

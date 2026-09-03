@@ -37,6 +37,7 @@ module QFT =
     // ========================================================================
     
     /// Configuration for Quantum Fourier Transform
+    [<Struct>]
     type QFTConfig = {
         /// Whether to apply bit-reversal SWAPs at the end
         /// (Standard QFT includes SWAPs, but some algorithms omit them)
@@ -108,6 +109,7 @@ module QFT =
     // ========================================================================
 
     /// Execution exactness contract for QFT.
+    [<Struct>]
     type Exactness =
         | Exact
         | Approximate of epsilon: float

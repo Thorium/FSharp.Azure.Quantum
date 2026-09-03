@@ -280,6 +280,7 @@ if not quiet then
     printfn ""
     printfn "--- Example 4: Conditional Basis Selection ---"
 
+[<Literal>]
 let smallMolecule = true
 let selectedBasis = if smallMolecule then "sto-3g" else "6-31g"
 

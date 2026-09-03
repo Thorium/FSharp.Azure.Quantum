@@ -567,7 +567,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.Overhead > 0.0, "Should have overhead")
             | Error err ->
                 Assert.Fail($"PEC failed: %s{err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``mitigate should demonstrate error reduction`` () =
@@ -618,7 +618,7 @@ module ProbabilisticErrorCancellationTests =
                     baselineError pecError (pecResult.ErrorReduction * 100.0)
             | Error err ->
                 Assert.Fail($"PEC failed: %s{err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``mitigate should track overhead correctly`` () =
@@ -659,7 +659,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(float samples, pecResult.Overhead, 1)
             | Error err ->
                 Assert.Fail($"PEC failed: %s{err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``mitigate should handle executor failures gracefully`` () =
@@ -691,7 +691,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Contains("execution failed", err.ToLower())
             | Ok _ -> 
                 Assert.Fail("Expected error for failing executor")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``mitigate should work with multi-gate circuit`` () =
@@ -725,7 +725,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.CorrectedExpectation <> 0.0)
             | Error err ->
                 Assert.Fail($"Multi-gate PEC failed: %s{err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``mitigate should be deterministic with same seed`` () =
@@ -759,7 +759,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(pec1.ErrorReduction, pec2.ErrorReduction, 10)
             | _ ->
                 Assert.Fail("Both runs should succeed")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     // ============================================================================
     // Integration Tests with QaoaSimulator - Realistic Error Mitigation
@@ -906,7 +906,7 @@ module ProbabilisticErrorCancellationTests =
                     "At least one expectation should be significantly non-zero")
             | Error err ->
                 Assert.Fail($"PEC should succeed: {err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should handle Pauli rotation gates`` () =
@@ -945,7 +945,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(40, pecResult.SamplesUsed)
             | Error err ->
                 Assert.Fail($"Integration test failed: {err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should mitigate two-qubit gate errors`` () =
@@ -987,7 +987,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(60.0, pecResult.Overhead)
             | Error err ->
                 Assert.Fail($"Two-qubit PEC failed: {err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should work with multi-gate QAOA-like circuit`` () =
@@ -1041,7 +1041,7 @@ module ProbabilisticErrorCancellationTests =
                            "At least one expectation should be non-zero")
             | Error err ->
                 Assert.Fail($"QAOA-like circuit PEC failed: {err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC overhead should scale with sample count`` () =
@@ -1083,7 +1083,7 @@ module ProbabilisticErrorCancellationTests =
             Assert.Equal(20.0, overheads.[0])
             Assert.Equal(50.0, overheads.[1])
             Assert.Equal(100.0, overheads.[2])
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should be deterministic with same seed`` () =
@@ -1126,7 +1126,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(r1.SamplesUsed, r2.SamplesUsed)
             | _ ->
                 Assert.Fail("Both PEC runs should succeed")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should handle circuits with only identity-like gates`` () =
@@ -1167,7 +1167,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.Overhead = 25.0)
             | Error err ->
                 Assert.Fail($"Simple circuit PEC failed: {err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should reduce variance with more samples`` () =
@@ -1206,7 +1206,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(high.Overhead > low.Overhead, "More samples = higher overhead")
             | _ ->
                 Assert.Fail("Both configurations should succeed")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Integration: PEC should track error reduction metric`` () =
@@ -1247,4 +1247,4 @@ module ProbabilisticErrorCancellationTests =
                     "PEC should produce measurable difference")
             | Error err ->
                 Assert.Fail($"Error reduction tracking failed: {err}")
-        } |> Async.RunSynchronously
+        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task

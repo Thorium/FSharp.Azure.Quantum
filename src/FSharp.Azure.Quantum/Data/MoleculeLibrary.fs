@@ -65,6 +65,7 @@ module MoleculeLibrary =
     }
     
     /// Bond between two atoms
+    [<Struct>]
     type Bond = {
         /// Index of first atom (0-based)
         Atom1: int

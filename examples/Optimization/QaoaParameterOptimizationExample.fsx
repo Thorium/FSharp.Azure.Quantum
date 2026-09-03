@@ -71,6 +71,7 @@ pr ""
 
 // Triangle graph with equal weights
 let edges = [ (0, 1, 1.0); (1, 2, 1.0); (0, 2, 1.0) ]
+[<Literal>]
 let numVertices = 3
 
 let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : ProblemHamiltonian =

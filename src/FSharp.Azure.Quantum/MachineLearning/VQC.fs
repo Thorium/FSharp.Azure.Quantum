@@ -75,6 +75,7 @@ module VQC =
     }
     
     /// Prediction result
+    [<Struct>]
     type Prediction = {
         /// Predicted label (0 or 1)
         Label: int
@@ -732,6 +733,7 @@ module VQC =
         | Error e -> Error e
     
     /// Confusion matrix for binary classification
+    [<Struct>]
     type ConfusionMatrix = {
         TruePositives: int
         TrueNegatives: int
@@ -830,6 +832,7 @@ module VQC =
     }
     
     /// Regression prediction result
+    [<Struct>]
     type RegressionPrediction = {
         /// Predicted continuous value
         Value: float

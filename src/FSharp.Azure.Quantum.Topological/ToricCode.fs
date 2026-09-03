@@ -28,12 +28,14 @@ module ToricCode =
     open System
     
     /// Coordinates on the lattice
+    [<Struct>]
     type Coords = { X: int; Y: int }
     
     /// Lattice topology for toric code
     /// 
     /// The lattice is a 2D square grid with periodic boundary conditions
     /// (identifying opposite edges to form a torus).
+    [<Struct>]
     type Lattice = {
         /// Width of the lattice (number of unit cells in x-direction)
         Width: int

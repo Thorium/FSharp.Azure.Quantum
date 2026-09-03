@@ -315,6 +315,7 @@ module DrugDiscoverySolvers =
         }
         
         /// Edge representing interaction
+        [<Struct>]
         type Edge = {
             Source: int
             Target: int

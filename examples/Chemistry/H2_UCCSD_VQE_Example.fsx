@@ -124,6 +124,7 @@ if not quiet then
     printfn "============================================================"
     printfn ""
 
+[<Literal>]
 let numElectrons = 2
 
 let h2Molecule : Molecule = {

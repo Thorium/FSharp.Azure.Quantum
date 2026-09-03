@@ -28,6 +28,7 @@ module BackendAbstraction =
     ///
     /// This is a DU-first way to express *meaning* without forcing a gate circuit
     /// as the canonical representation.
+    [<Struct>]
     type QftIntent = {
         /// Number of logical qubits the QFT applies to.
         NumQubits: int

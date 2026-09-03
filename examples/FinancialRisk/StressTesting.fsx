@@ -113,6 +113,7 @@ type ScenarioResult = {
 
 let confidenceLevel = Cli.getFloatOr "confidence" 0.99 args
 let timeHorizon = Cli.getIntOr "horizon" 10 args
+[<Literal>]
 let lookbackPeriod = 252
 let quantumQubits = Cli.getIntOr "qubits" 4 args
 let groverIterations = Cli.getIntOr "grover-iterations" 3 args

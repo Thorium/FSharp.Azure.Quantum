@@ -23,6 +23,7 @@ module ProblemDecomposition =
     // ========================================================================
 
     /// Strategy for decomposing a problem when it exceeds backend capacity.
+    [<Struct>]
     type DecompositionStrategy =
         /// Run problem as-is (no decomposition).
         | NoDecomposition

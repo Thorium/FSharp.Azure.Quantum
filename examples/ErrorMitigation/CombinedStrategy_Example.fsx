@@ -108,6 +108,7 @@ let zneNoiseLevels = parseNoiseLevels (Cli.getOr "zne-noise-levels" "1.0,1.5,2.0
 // ============================================================================
 
 /// True H2 ground state energy (Hartree)
+[<Literal>]
 let trueEnergy = -1.137
 
 /// Noise model based on CLI parameters.

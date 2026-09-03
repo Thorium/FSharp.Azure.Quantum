@@ -224,237 +224,251 @@ module GroundStateEnergyTests =
     [<Fact>]
     let ``Estimate H2 ground state energy should be approximately -1.174 Hartree`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74  // Equilibrium bond length
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 100
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok vqeResult ->
-            // H2 ground state: -1.174 Hartree (allow 5% error for numerical methods)
-            let expected = -1.174
-            let tolerance = 0.1  // 0.1 Hartree tolerance
-            Assert.True(abs(vqeResult.Energy - expected) < tolerance, 
-                $"Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
-        | Error err ->
-            Assert.True(false, $"Energy calculation failed: %s{err.Message}")
+        task {
+            let h2 = Molecule.createH2 0.74  // Equilibrium bond length
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 100
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+
+            // Assert
+            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            | Ok vqeResult ->
+                // H2 ground state: -1.174 Hartree (allow 5% error for numerical methods)
+                let expected = -1.174
+                let tolerance = 0.1  // 0.1 Hartree tolerance
+                Assert.True(abs(vqeResult.Energy - expected) < tolerance, 
+                    $"Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
+            | Error err ->
+                Assert.True(false, $"Energy calculation failed: %s{err.Message}")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Estimate H2O ground state energy should be approximately -76.0 Hartree`` () =
         // Arrange
-        let h2o = Molecule.createH2O()
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 200
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2o config |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok vqeResult ->
-            // H2O ground state: -76.0 Hartree (allow larger tolerance for complex molecule)
-            let expected = -76.0
-            let tolerance = 1.0  // 1.0 Hartree tolerance
-            Assert.True(abs(vqeResult.Energy - expected) < tolerance,
-                $"Expected ~%.1f{expected}, got %.3f{vqeResult.Energy}")
-        | Error err ->
-            Assert.True(false, $"Energy calculation failed: %s{err.Message}")
+        task {
+            let h2o = Molecule.createH2O()
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 200
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+
+            // Assert
+            match! GroundStateEnergy.estimateEnergy h2o config |> Async.StartImmediateAsTask with
+            | Ok vqeResult ->
+                // H2O ground state: -76.0 Hartree (allow larger tolerance for complex molecule)
+                let expected = -76.0
+                let tolerance = 1.0  // 1.0 Hartree tolerance
+                Assert.True(abs(vqeResult.Energy - expected) < tolerance,
+                    $"Expected ~%.1f{expected}, got %.3f{vqeResult.Energy}")
+            | Error err ->
+                Assert.True(false, $"Energy calculation failed: %s{err.Message}")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``VQE method should be selectable`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 50
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergyWith GroundStateMethod.VQE h2 config
-                     |> Async.RunSynchronously
-        
-        // Assert
-        Assert.True(result |> Result.isOk, "VQE should complete successfully")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 50
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+            let! result = GroundStateEnergy.estimateEnergyWith GroundStateMethod.VQE h2 config
+                         |> Async.StartImmediateAsTask
+
+            // Assert
+            Assert.True(result |> Result.isOk, "VQE should complete successfully")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Classical DFT fallback should work for small molecules`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        let config = {
-            Method = GroundStateMethod.ClassicalDFT
-            MaxIterations = 50
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergyWith GroundStateMethod.ClassicalDFT h2 config
-                     |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok vqeResult ->
-            // DFT should give reasonable approximation
-            let expected = -1.174
-            let tolerance = 0.2  // DFT may be less accurate
-            Assert.True(abs(vqeResult.Energy - expected) < tolerance,
-                $"DFT: Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
-        | Error _ ->
-            // DFT fallback might not be implemented yet, that's ok
-            Assert.True(true, "DFT not implemented - acceptable for now")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let config = {
+                Method = GroundStateMethod.ClassicalDFT
+                MaxIterations = 50
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+            let! result = GroundStateEnergy.estimateEnergyWith GroundStateMethod.ClassicalDFT h2 config
+                         |> Async.StartImmediateAsTask
+
+            // Assert
+            match result with
+            | Ok vqeResult ->
+                // DFT should give reasonable approximation
+                let expected = -1.174
+                let tolerance = 0.2  // DFT may be less accurate
+                Assert.True(abs(vqeResult.Energy - expected) < tolerance,
+                    $"DFT: Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
+            | Error _ ->
+                // DFT fallback might not be implemented yet, that's ok
+                Assert.True(true, "DFT not implemented - acceptable for now")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Auto-detect method should choose appropriate algorithm`` () =
         // Arrange - small molecule should use classical
-        let h2 = Molecule.createH2 0.74
-        let config = {
-            Method = GroundStateMethod.Automatic
-            MaxIterations = 50
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        Assert.True(result |> Result.isOk, "Auto-detect should work")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let config = {
+                Method = GroundStateMethod.Automatic
+                MaxIterations = 50
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+            let! result = GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask
+
+            // Assert
+            Assert.True(result |> Result.isOk, "Auto-detect should work")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Invalid molecule should return error`` () =
         // Arrange - molecule with no atoms
-        let invalidMolecule = {
-            Name = "Empty"
-            Atoms = []
-            Bonds = []
-            Charge = 0
-            Multiplicity = 1
-        }
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 50
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy invalidMolecule config
-                     |> Async.RunSynchronously
-        
-        // Assert
-        result |> Result.map (fun _ -> Assert.True(false, "Should have failed for invalid molecule")) |> Result.defaultWith (fun err -> Assert.Contains("Invalid", err.Message))
+        task {
+            let invalidMolecule = {
+                Name = "Empty"
+                Atoms = []
+                Bonds = []
+                Charge = 0
+                Multiplicity = 1
+            }
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 50
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+            let! result = GroundStateEnergy.estimateEnergy invalidMolecule config
+                         |> Async.StartImmediateAsTask
+
+            // Assert
+            result |> Result.map (fun _ -> Assert.True(false, "Should have failed for invalid molecule")) |> Result.defaultWith (fun err -> Assert.Contains("Invalid", err.Message))
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Energy units should be in Hartree`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 50
-            Tolerance = 1e-6
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok vqeResult ->
-            // Energy should be negative and in reasonable range for H2
-            Assert.True(vqeResult.Energy < 0.0, "Ground state energy should be negative")
-            Assert.True(vqeResult.Energy > -10.0, "H2 energy should be > -10 Hartree")
-        | Error _ ->
-            Assert.True(false, "Should calculate energy")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 50
+                Tolerance = 1e-6
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+
+            // Assert
+            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            | Ok vqeResult ->
+                // Energy should be negative and in reasonable range for H2
+                Assert.True(vqeResult.Energy < 0.0, "Ground state energy should be negative")
+                Assert.True(vqeResult.Energy > -10.0, "H2 energy should be > -10 Hartree")
+            | Error _ ->
+                Assert.True(false, "Should calculate energy")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``VQE should handle convergence limits`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 10  // Very few iterations
-            Tolerance = 1e-8   // Very tight tolerance
-            InitialParameters = None
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        // Should either converge or return error about max iterations
-        match result with
-        | Ok _ -> Assert.True(true, "Converged successfully")
-        | Error err -> 
-            // Acceptable to hit max iterations with tight constraints
-            Assert.True(true, "Hit max iterations - acceptable")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 10  // Very few iterations
+                Tolerance = 1e-8   // Very tight tolerance
+                InitialParameters = None
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+
+            // Assert
+            // Should either converge or return error about max iterations
+            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            | Ok _ -> Assert.True(true, "Converged successfully")
+            | Error err -> 
+                // Acceptable to hit max iterations with tight constraints
+                Assert.True(true, "Hit max iterations - acceptable")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Initial parameters can be provided for VQE`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        let initialParams = [| 0.1; 0.2; 0.3 |]  // Some starting parameters
-        let config = {
-            Method = GroundStateMethod.VQE
-            MaxIterations = 50
-            Tolerance = 1e-6
-            InitialParameters = Some initialParams
-            Backend = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        Assert.True(result |> Result.isOk, "Should accept initial parameters")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let initialParams = [| 0.1; 0.2; 0.3 |]  // Some starting parameters
+            let config = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = 50
+                Tolerance = 1e-6
+                InitialParameters = Some initialParams
+                Backend = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+            let! result = GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask
+
+            // Assert
+            Assert.True(result |> Result.isOk, "Should accept initial parameters")
+        } :> System.Threading.Tasks.Task
 
 /// Tests for Hamiltonian Simulation (Task 3)
 module HamiltonianSimulationTests =
@@ -1250,53 +1264,55 @@ module QuantumChemistryBuilderTests =
     [<Fact>]
     let ``Solve should execute VQE for H2`` () =
         // Arrange
-        let problem = quantumChemistry {
-            molecule (h2 0.74)
-            basis "sto-3g"
-            ansatz UCCSD
-            maxIterations 50
-        }
-        
-        // Act
-        let result = solve problem |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok chemResult ->
-            // H2 ground state should be negative
-            Assert.True(chemResult.GroundStateEnergy < 0.0, "Ground state energy should be negative")
-            
-            // Should have bond length information
-            Assert.True(chemResult.BondLengths.Count > 0, "Should compute bond lengths")
-            
-            // H-H bond should be present
-            let hasHHBond = chemResult.BondLengths |> Map.exists (fun k _ -> k.Contains 'H')
-            Assert.True(hasHHBond, "Should have H-H bond length")
-            
-        | Error err ->
-            Assert.True(false, $"Solve failed: %s{err.Message}")
+        task {
+            let problem = quantumChemistry {
+                molecule (h2 0.74)
+                basis "sto-3g"
+                ansatz UCCSD
+                maxIterations 50
+            }
+
+            // Act
+
+            // Assert
+            match! solve problem |> Async.StartImmediateAsTask with
+            | Ok chemResult ->
+                // H2 ground state should be negative
+                Assert.True(chemResult.GroundStateEnergy < 0.0, "Ground state energy should be negative")
+
+                // Should have bond length information
+                Assert.True(chemResult.BondLengths.Count > 0, "Should compute bond lengths")
+
+                // H-H bond should be present
+                let hasHHBond = chemResult.BondLengths |> Map.exists (fun k _ -> k.Contains 'H')
+                Assert.True(hasHHBond, "Should have H-H bond length")
+
+            | Error err ->
+                Assert.True(false, $"Solve failed: %s{err.Message}")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``Solve should compute bond lengths for H2O`` () =
         // Arrange
-        let problem = quantumChemistry {
-            molecule (h2o 0.96 104.5)
-            basis "sto-3g"
-            ansatz HEA
-            maxIterations 50
-        }
-        
-        // Act
-        let result = solve problem |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok chemResult ->
-            // H2O should have multiple bond lengths (O-H bonds)
-            Assert.True(chemResult.BondLengths.Count >= 2, "H2O should have at least 2 bond lengths")
-            
-        | Error err ->
-            Assert.True(false, $"Solve failed: %s{err.Message}")
+        task {
+            let problem = quantumChemistry {
+                molecule (h2o 0.96 104.5)
+                basis "sto-3g"
+                ansatz HEA
+                maxIterations 50
+            }
+
+            // Act
+
+            // Assert
+            match! solve problem |> Async.StartImmediateAsTask with
+            | Ok chemResult ->
+                // H2O should have multiple bond lengths (O-H bonds)
+                Assert.True(chemResult.BondLengths.Count >= 2, "H2O should have at least 2 bond lengths")
+
+            | Error err ->
+                Assert.True(false, $"Solve failed: %s{err.Message}")
+        } :> System.Threading.Tasks.Task
     
     // ========================================================================
     // TEST 7: Multiple Molecules
@@ -1551,71 +1567,73 @@ module VQEErrorMitigationTests =
     [<Fact>]
     let ``VQE run should succeed with no error mitigation`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        let config = {
-            Method = GroundStateMethod.VQE
-            Backend = Some (LocalBackend() :> IQuantumBackend)
-            MaxIterations = 5  // Low for fast test
-            Tolerance = 1e-3
-            InitialParameters = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok vqeResult ->
-            Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
-        | Error err ->
-            Assert.Fail($"VQE should succeed: {err.Message}")
+        task {
+            let h2 = Molecule.createH2 0.74
+            let config = {
+                Method = GroundStateMethod.VQE
+                Backend = Some (LocalBackend() :> IQuantumBackend)
+                MaxIterations = 5  // Low for fast test
+                Tolerance = 1e-3
+                InitialParameters = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+            // Act
+
+            // Assert
+            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            | Ok vqeResult ->
+                Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
+            | Error err ->
+                Assert.Fail($"VQE should succeed: {err.Message}")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``VQE run should succeed with error mitigation strategy`` () =
         // Arrange
-        let h2 = Molecule.createH2 0.74
-        
-        let testBackend : Types.Backend = {
-            Id = "test-backend"
-            Provider = "Test"
-            Name = "Test Backend"
-            Status = "Available"
-        }
-        
-        // Select a strategy (readout mitigation only - cheapest)
-        let criteria : ErrorMitigationStrategy.SelectionCriteria = {
-            CircuitDepth = 5  // Shallow circuit for H2
-            QubitCount = 4
-            Backend = testBackend
-            MaxCostUSD = Some 1.0  // Low budget forces readout-only
-            RequiredAccuracy = None
-            Calibration = None
-        }
-        let strategy = ErrorMitigationStrategy.selectStrategy criteria
-        
-        let config = {
-            Method = GroundStateMethod.VQE
-            Backend = Some (LocalBackend() :> IQuantumBackend)
-            MaxIterations = 5  // Low for fast test
-            Tolerance = 1e-3
-            InitialParameters = None
-            ProgressReporter = None
-            ErrorMitigation = Some strategy
-            IntegralProvider = None
-        }
-        
-        // Act
-        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok vqeResult ->
-            Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
-        | Error err ->
-            Assert.Fail($"VQE with error mitigation should succeed: {err.Message}")
+        task {
+            let h2 = Molecule.createH2 0.74
+
+            let testBackend : Types.Backend = {
+                Id = "test-backend"
+                Provider = "Test"
+                Name = "Test Backend"
+                Status = "Available"
+            }
+
+            // Select a strategy (readout mitigation only - cheapest)
+            let criteria : ErrorMitigationStrategy.SelectionCriteria = {
+                CircuitDepth = 5  // Shallow circuit for H2
+                QubitCount = 4
+                Backend = testBackend
+                MaxCostUSD = Some 1.0  // Low budget forces readout-only
+                RequiredAccuracy = None
+                Calibration = None
+            }
+            let strategy = ErrorMitigationStrategy.selectStrategy criteria
+
+            let config = {
+                Method = GroundStateMethod.VQE
+                Backend = Some (LocalBackend() :> IQuantumBackend)
+                MaxIterations = 5  // Low for fast test
+                Tolerance = 1e-3
+                InitialParameters = None
+                ProgressReporter = None
+                ErrorMitigation = Some strategy
+                IntegralProvider = None
+            }
+
+            // Act
+
+            // Assert
+            match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
+            | Ok vqeResult ->
+                Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
+            | Error err ->
+                Assert.Fail($"VQE with error mitigation should succeed: {err.Message}")
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``ErrorMitigationStrategy selectStrategy should return valid strategy`` () =

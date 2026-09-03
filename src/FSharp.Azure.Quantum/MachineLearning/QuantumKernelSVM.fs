@@ -62,6 +62,7 @@ module QuantumKernelSVM =
     }
     
     /// Prediction result
+    [<Struct>]
     type Prediction = {
         /// Predicted label (0 or 1)
         Label: int

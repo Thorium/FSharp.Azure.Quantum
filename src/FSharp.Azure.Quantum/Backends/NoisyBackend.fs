@@ -23,6 +23,7 @@ open FSharp.Azure.Quantum.LocalSimulator
 module DensityMatrixSimulator =
 
     /// Depolarizing-noise configuration. Probabilities in [0, 1]; 0 = noiseless.
+    [<Struct>]
     type NoiseConfig = {
         /// Depolarizing probability applied to the qubit of each single-qubit gate.
         SingleQubitDepolarizing: float

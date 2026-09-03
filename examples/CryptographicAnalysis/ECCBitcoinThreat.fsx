@@ -111,10 +111,12 @@ let modInverse (a: int) (m: int) : int option =
 // ELLIPTIC CURVE ARITHMETIC (Pure Functional, Small Field)
 // ==============================================================================
 
+[<Struct>]
 type ECPoint =
     | Finite of x: int * y: int
     | Infinity
 
+[<Struct>]
 type EllipticCurve = { A: int; B: int; P: int }
 
 let isOnCurve (curve: EllipticCurve) (point: ECPoint) : bool =

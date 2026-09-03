@@ -46,10 +46,10 @@ module Oracle =
         | SingleTarget of int
         
         /// Combine oracles with AND logic
-        | And of OracleSpec * OracleSpec
+        | And of spec1: OracleSpec * spec2: OracleSpec
         
         /// Combine oracles with OR logic
-        | Or of OracleSpec * OracleSpec
+        | Or of spec1: OracleSpec * spec2: OracleSpec
         
         /// Negate oracle (mark non-solutions)
         | Not of OracleSpec
@@ -345,6 +345,7 @@ module Oracle =
     
     /// Literal in a SAT clause
     /// Represents either a variable or its negation
+    [<Struct>]
     type SatLiteral = {
         /// Variable index (0-based)
         VariableIndex: int

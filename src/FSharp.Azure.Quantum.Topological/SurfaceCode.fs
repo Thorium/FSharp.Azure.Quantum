@@ -33,6 +33,7 @@ module SurfaceCode =
     // ========================================================================
 
     /// Coordinates on a 2D lattice
+    [<Struct>]
     type Coords = { X: int; Y: int }
 
     /// Qubit state (same semantics as ToricCode)
@@ -74,6 +75,7 @@ module SurfaceCode =
     }
 
     /// Planar code lattice (open boundaries, no periodicity)
+    [<Struct>]
     type PlanarLattice = {
         /// Number of data qubit columns (code distance)
         Distance: int

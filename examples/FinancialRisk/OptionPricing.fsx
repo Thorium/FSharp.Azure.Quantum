@@ -473,6 +473,7 @@ if not quiet then
     printfn ""
 
 /// Monthly averaging
+[<Literal>]
 let timeSteps = 12
 
 if not quiet then

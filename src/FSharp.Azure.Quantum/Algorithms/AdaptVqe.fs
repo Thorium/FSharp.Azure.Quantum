@@ -32,6 +32,7 @@ module AdaptVqe =
     type OperatorPool = TrotterSuzuki.PauliString list
 
     /// ADAPT-VQE configuration.
+    [<Struct>]
     type AdaptConfig = {
         /// Maximum number of operators to add to the ansatz.
         MaxIterations: int

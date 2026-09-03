@@ -223,16 +223,18 @@ module QuantumRiskEngineTests =
 
     [<Fact>]
     let ``executeAsync should return same result as execute`` () =
-        let config = { defaultConfig with Metrics = [ValueAtRisk; Volatility]; SimulationPaths = 1000 }
-        let syncReport = RiskEngine.execute config
-        // executeAsync now returns a Result; the classical Monte Carlo path always yields Ok.
-        match RiskEngine.executeAsync config |> Async.RunSynchronously with
-        | Ok asyncReport ->
-            // Both use same deterministic RNG seed=42, should produce identical results
-            Assert.Equal(syncReport.VaR, asyncReport.VaR)
-            Assert.Equal(syncReport.Volatility, asyncReport.Volatility)
-            Assert.Equal(syncReport.Method, asyncReport.Method)
-        | Error err -> failwith $"Expected Ok from classical path, got Error: {err.Message}"
+        task {
+            let config = { defaultConfig with Metrics = [ValueAtRisk; Volatility]; SimulationPaths = 1000 }
+            let syncReport = RiskEngine.execute config
+            // executeAsync now returns a Result; the classical Monte Carlo path always yields Ok.
+            match! RiskEngine.executeAsync config |> Async.StartImmediateAsTask with
+            | Ok asyncReport ->
+                // Both use same deterministic RNG seed=42, should produce identical results
+                Assert.Equal(syncReport.VaR, asyncReport.VaR)
+                Assert.Equal(syncReport.Volatility, asyncReport.Volatility)
+                Assert.Equal(syncReport.Method, asyncReport.Method)
+            | Error err -> failwith $"Expected Ok from classical path, got Error: {err.Message}"
+        } :> System.Threading.Tasks.Task
 
     [<Fact; Trait("Category", "Slow")>]
     let ``executeAsync with cancellation token should respect cancellation`` () =

@@ -8,6 +8,7 @@ open FSharp.Azure.Quantum.Core.Types
 module Retry =
 
     /// Retry configuration
+    [<Struct>]
     type RetryConfig =
         { MaxAttempts: int
           InitialDelayMs: int

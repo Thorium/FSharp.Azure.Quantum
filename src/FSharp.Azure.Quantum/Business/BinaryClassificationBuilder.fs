@@ -127,7 +127,7 @@ module BinaryClassifier =
     }
     
     and ClassifierModel =
-        | VQCModel of VQC.TrainingResult * FeatureMapType * VariationalForm * int
+        | VQCModel of result: VQC.TrainingResult * featureMap: FeatureMapType * varForm: VariationalForm * numQubits: int
         /// Model * NumQubits
         | SVMModel of QuantumKernelSVM.SVMModel * int
         /// Simple weights
@@ -144,6 +144,7 @@ module BinaryClassifier =
     }
     
     /// Prediction result
+    [<Struct>]
     type Prediction = {
         /// Predicted class (0 or 1)
         Label: int

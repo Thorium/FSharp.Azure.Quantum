@@ -27,6 +27,7 @@ open FSharp.Azure.Quantum.Algorithms.NeutralAtom
 module QuEra =
 
     /// AWS Braket device ARN for the QuEra Aquila neutral-atom analog QPU.
+    [<Literal>]
     let aquilaDeviceArn = "arn:aws:braket:us-east-1::device/qpu/quera/Aquila"
 
     [<Literal>]

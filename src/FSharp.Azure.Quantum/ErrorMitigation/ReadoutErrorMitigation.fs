@@ -56,6 +56,7 @@ module ReadoutErrorMitigation =
     }
     
     /// Configuration for readout error mitigation
+    [<Struct>]
     type REMConfig = {
         /// Number of calibration shots per basis state
         CalibrationShots: int

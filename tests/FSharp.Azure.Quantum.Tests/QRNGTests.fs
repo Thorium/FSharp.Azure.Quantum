@@ -300,7 +300,7 @@ module QRNGTests =
             | Error msg ->
                 Assert.True(false, $"Should succeed with LocalBackend: {msg}")
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``generateWithBackend fails with excessive bits`` () =
@@ -314,7 +314,7 @@ module QRNGTests =
             | Error msg ->
                 Assert.Contains("too large", msg.Message)
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``generateWithBackend fails with zero bits`` () =
@@ -328,7 +328,7 @@ module QRNGTests =
             | Error msg ->
                 Assert.Contains("must be positive", msg.Message)
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     // ========================================================================
     // BIT-BYTE CONVERSION TESTS
@@ -590,7 +590,7 @@ module QuantumDistributionsTests =
             | Error msg ->
                 Assert.True(false, $"Should succeed with LocalBackend: {msg}")
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``sampleWithBackend validates distribution parameters`` () =
@@ -603,7 +603,7 @@ module QuantumDistributionsTests =
             | Ok _ -> Assert.True(false, "Should fail with invalid distribution")
             | Error err -> Assert.Contains("stddev must be positive", err.Message)
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``sampleManyWithBackend generates correct number of samples`` () =
@@ -622,7 +622,7 @@ module QuantumDistributionsTests =
             | Error msg ->
                 Assert.True(false, $"Should succeed: {msg}")
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``sampleManyWithBackend fails with excessive count`` () =
@@ -635,7 +635,7 @@ module QuantumDistributionsTests =
             | Ok _ -> Assert.True(false, "Should fail with excessive count")
             | Error err -> Assert.Contains("too large", err.Message)
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``sampleManyWithBackend fails with zero count`` () =
@@ -648,7 +648,7 @@ module QuantumDistributionsTests =
             | Ok _ -> Assert.True(false, "Should fail with zero count")
             | Error err -> Assert.Contains("must be positive", err.Message)
         }
-        |> Async.RunSynchronously
+        |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
     
     // ========================================================================
     // STATISTICAL UTILITIES TESTS

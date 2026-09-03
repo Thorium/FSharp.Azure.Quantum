@@ -76,9 +76,11 @@ let quiet = args |> Cli.hasFlag "quiet"
 // ==============================================================================
 
 /// Number of fingerprint bits
+[<Literal>]
 let fingerprintBits = 1024
 
 /// Number of quantum circuit shots
+[<Literal>]
 let quantumShots = 1000
 
 // ==============================================================================

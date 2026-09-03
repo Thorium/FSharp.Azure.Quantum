@@ -20,6 +20,7 @@ module AnyonSpecies =
     /// - Fusion rules (how particles combine)
     /// - Braiding statistics (how particles exchange)
     /// - Computational power (universal vs Clifford-only)
+    [<Struct>]
     type AnyonType =
         /// Ising anyons (SU(2)₂ TQFT)
         /// - Particles: {1, σ, ψ}

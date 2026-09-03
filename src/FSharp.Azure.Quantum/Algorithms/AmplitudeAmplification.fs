@@ -169,6 +169,7 @@ module AmplitudeAmplification =
     module Unified =
 
         /// Execution exactness contract for amplitude amplification.
+        [<Struct>]
         type Exactness =
             | Exact
             | Approximate of epsilon: float

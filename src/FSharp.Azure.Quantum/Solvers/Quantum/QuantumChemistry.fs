@@ -37,128 +37,185 @@ open FSharp.Azure.Quantum.Data  // For PeriodicTable and ChemistryDataProviders
 module AtomicNumbers =
     // Period 1
     /// Hydrogen
+    [<Literal>]
     let H = 1
     /// Helium
+    [<Literal>]
     let He = 2
     
     // Period 2
     /// Lithium
+    [<Literal>]
     let Li = 3
     /// Beryllium
+    [<Literal>]
     let Be = 4
     /// Boron
+    [<Literal>]
     let B = 5
     /// Carbon
+    [<Literal>]
     let C = 6
     /// Nitrogen
+    [<Literal>]
     let N = 7
     /// Oxygen
+    [<Literal>]
     let O = 8
     /// Fluorine
+    [<Literal>]
     let F = 9
     /// Neon
+    [<Literal>]
     let Ne = 10
     
     // Period 3
     /// Sodium
+    [<Literal>]
     let Na = 11
     /// Magnesium
+    [<Literal>]
     let Mg = 12
     /// Aluminum
+    [<Literal>]
     let Al = 13
     /// Silicon
+    [<Literal>]
     let Si = 14
     /// Phosphorus
+    [<Literal>]
     let P = 15
     /// Sulfur
+    [<Literal>]
     let S = 16
     /// Chlorine
+    [<Literal>]
     let Cl = 17
     /// Argon
+    [<Literal>]
     let Ar = 18
     
     // Period 4 (includes first-row transition metals)
     /// Potassium
+    [<Literal>]
     let K = 19
     /// Calcium
+    [<Literal>]
     let Ca = 20
     /// Scandium
+    [<Literal>]
     let Sc = 21
     /// Titanium
+    [<Literal>]
     let Ti = 22
     /// Vanadium
+    [<Literal>]
     let V = 23
     /// Chromium
+    [<Literal>]
     let Cr = 24
     /// Manganese
+    [<Literal>]
     let Mn = 25
     /// Iron
+    [<Literal>]
     let Fe = 26
     /// Cobalt
+    [<Literal>]
     let Co = 27
     /// Nickel
+    [<Literal>]
     let Ni = 28
     /// Copper
+    [<Literal>]
     let Cu = 29
     /// Zinc
+    [<Literal>]
     let Zn = 30
     /// Gallium
+    [<Literal>]
     let Ga = 31
     /// Germanium
+    [<Literal>]
     let Ge = 32
     /// Arsenic
+    [<Literal>]
     let As = 33
     /// Selenium
+    [<Literal>]
     let Se = 34
     /// Bromine
+    [<Literal>]
     let Br = 35
     /// Krypton
+    [<Literal>]
     let Kr = 36
     
     // Period 5 (includes second-row transition metals)
     /// Rubidium
+    [<Literal>]
     let Rb = 37
     /// Strontium
+    [<Literal>]
     let Sr = 38
     /// Yttrium
+    [<Literal>]
     let Y = 39
     /// Zirconium
+    [<Literal>]
     let Zr = 40
     /// Niobium
+    [<Literal>]
     let Nb = 41
     /// Molybdenum
+    [<Literal>]
     let Mo = 42
     /// Technetium
+    [<Literal>]
     let Tc = 43
     /// Ruthenium
+    [<Literal>]
     let Ru = 44
     /// Rhodium
+    [<Literal>]
     let Rh = 45
     /// Palladium
+    [<Literal>]
     let Pd = 46
     /// Silver
+    [<Literal>]
     let Ag = 47
     /// Cadmium
+    [<Literal>]
     let Cd = 48
     /// Indium
+    [<Literal>]
     let In = 49
     /// Tin
+    [<Literal>]
     let Sn = 50
     /// Antimony
+    [<Literal>]
     let Sb = 51
     /// Tellurium
+    [<Literal>]
     let Te = 52
     /// Iodine
+    [<Literal>]
     let I = 53
     /// Xenon
+    [<Literal>]
     let Xe = 54
     
     // Selected heavier elements (commonly used)
     /// Platinum (catalysis)
+    [<Literal>]
     let Pt = 78
     /// Gold (nanoparticles)
+    [<Literal>]
     let Au = 79
     /// Lead (quantum dots, perovskites)
+    [<Literal>]
     let Pb = 82
     
     /// Get atomic number from element symbol
@@ -189,6 +246,7 @@ type Atom = {
 }
 
 /// Bond between two atoms
+[<Struct>]
 type Bond = {
     /// Index of first atom (0-based)
     Atom1: int
@@ -1182,6 +1240,7 @@ module FermionMapping =
         // ====================================================================
         
         /// Single excitation: promote one electron (occupied → virtual)
+        [<Struct>]
         type SingleExcitation = {
             /// Virtual orbital index (unoccupied)
             VirtualOrbital: int
@@ -3431,7 +3490,7 @@ module QuantumChemistryBuilder =
         /// Load from FCIDump file path
         | FciDumpFile of string
         /// Load from dataset provider by name
-        | FromProvider of FSharp.Azure.Quantum.Data.ChemistryDataProviders.IMoleculeDatasetProvider * string
+        | FromProvider of provider: FSharp.Azure.Quantum.Data.ChemistryDataProviders.IMoleculeDatasetProvider * name: string
         /// Load from default provider by name
         | FromDefaultProvider of string
     

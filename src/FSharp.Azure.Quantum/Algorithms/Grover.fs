@@ -393,6 +393,7 @@ module Grover =
     // ========================================================================
 
     /// Execution exactness contract for a planned Grover run.
+    [<Struct>]
     type Exactness =
         | Exact
         | Approximate of epsilon: float

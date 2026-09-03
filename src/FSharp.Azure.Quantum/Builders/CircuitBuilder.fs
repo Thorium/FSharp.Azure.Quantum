@@ -70,7 +70,7 @@ module CircuitBuilder =
         
         // Multi-qubit gates
         /// Multi-controlled Z (controls, target)
-        | MCZ of int list * int
+        | MCZ of controls: int list * target: int
         
         // Measurement
         /// Measurement of qubit in computational basis

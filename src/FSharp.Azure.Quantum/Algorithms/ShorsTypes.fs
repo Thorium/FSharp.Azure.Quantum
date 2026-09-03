@@ -28,6 +28,7 @@ module ShorsTypes =
     }
     
     /// Result of period-finding (quantum subroutine)
+    [<Struct>]
     type PeriodFindingResult = {
         /// Found period r such that a^r ≡ 1 (mod N)
         Period: int

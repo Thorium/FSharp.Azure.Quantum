@@ -51,6 +51,7 @@ module MolecularData =
     }
     
     /// Represents a bond between atoms
+    [<Struct>]
     type Bond = {
         /// Index of first atom
         Atom1: int

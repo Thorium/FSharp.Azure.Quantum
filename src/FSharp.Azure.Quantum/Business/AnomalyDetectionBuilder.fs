@@ -161,6 +161,7 @@ module AnomalyDetector =
     }
     
     /// Anomaly detection result
+    [<Struct>]
     type AnomalyResult = {
         /// Is this sample anomalous?
         IsAnomaly: bool

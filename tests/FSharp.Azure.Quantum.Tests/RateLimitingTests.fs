@@ -172,7 +172,7 @@ let ``ThrottlingHandler should parse rate limit headers from responses`` () =
             Assert.Equal(45, info.Remaining)
             Assert.Equal(60, info.Limit)
         | None -> ()
-    } |> Async.RunSynchronously
+    } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
 
 // ============================================================================
 // TDD Cycle #7: 429 Response Handling
@@ -209,4 +209,4 @@ let ``ThrottlingHandler should return 429 response when rate limit is exceeded``
         let limiter = throttlingHandler.GetRateLimiter()
         // Note: We can't directly access attemptNumber, but the backoff delay was applied
         Assert.True(true)  // Test passes if no exceptions thrown
-    } |> Async.RunSynchronously
+    } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task

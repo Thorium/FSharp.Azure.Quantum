@@ -25,10 +25,13 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Backends
 
+[<Literal>]
 let numQubits = 3
 /// |101⟩
+[<Literal>]
 let markedValue = 5
 let searchSpace = 1 <<< numQubits
+[<Literal>]
 let shots = 4000
 
 // State preparation A = H^⊗n (uniform superposition) as a gate circuit.

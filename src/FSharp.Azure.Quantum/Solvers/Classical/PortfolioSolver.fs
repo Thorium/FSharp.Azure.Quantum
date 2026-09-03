@@ -23,6 +23,7 @@ module PortfolioSolver =
     type Asset = PortfolioTypes.Asset
     
     /// Portfolio constraints
+    [<Struct>]
     type Constraints = {
         /// Total budget available for investment
         Budget: float
@@ -35,6 +36,7 @@ module PortfolioSolver =
     }
     
     /// Portfolio solver configuration
+    [<Struct>]
     type PortfolioConfig = {
         /// Maximum iterations for optimization algorithms
         MaxIterations: int

@@ -109,14 +109,19 @@ type PathwayResult =
 // ==============================================================================
 
 /// Boltzmann constant (J/K)
+[<Literal>]
 let kB = 1.380649e-23
 /// Planck constant (J*s)
+[<Literal>]
 let hPlanck = 6.62607015e-34
 /// Gas constant (J/(mol*K))
+[<Literal>]
 let gasR = 8.314
 /// 1 Hartree in kcal/mol
+[<Literal>]
 let hartreeToKcalMol = 627.509
 /// 1 Hartree in kJ/mol
+[<Literal>]
 let hartreeToKJMol = 2625.5
 
 // ==============================================================================

@@ -169,6 +169,7 @@ let noisyExecutor (circuit: Circuit) : Async<Result<float, string>> =
         return Ok (trueValue + noise)
     }
 
+[<Literal>]
 let trueEnergy = -1.137
 
 let vqeCircuit = createVQECircuit theta

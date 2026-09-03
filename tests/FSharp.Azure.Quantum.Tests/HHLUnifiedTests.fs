@@ -325,6 +325,7 @@ module HHLUnifiedTests =
             | Error err -> Assert.Fail($"Planning failed: {err}")
 
     // Tolerance for floating point comparison
+    [<Literal>]
     let epsilon = 1e-6
     
     let assertComplexEqual (expected: Complex) (actual: Complex) (message: string) =

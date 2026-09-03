@@ -169,6 +169,7 @@ module CostEstimation =
     /// Supported quantum backends for cost estimation
     /// Note: This is a simplified backend model used only for pricing.
     /// For full backend representation, see Types.Backend
+    [<Struct>]
     type CostBackend =
         | IonQ of useErrorMitigation: bool
         | Quantinuum

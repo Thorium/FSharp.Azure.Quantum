@@ -59,6 +59,7 @@ module QuantumTeleportation =
     /// 
     /// Alice measures her two qubits (unknown state + her Bell qubit)
     /// The outcome determines what corrections Bob must apply
+    [<Struct>]
     type AliceMeasurement = {
         /// First measurement bit (from Alice's unknown qubit after CNOT)
         Bit0: int

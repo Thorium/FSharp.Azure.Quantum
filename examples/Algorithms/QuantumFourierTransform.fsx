@@ -23,7 +23,9 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+[<Literal>]
 let numQubits = 3
+[<Literal>]
 let shots = 4000
 
 let histogram state =

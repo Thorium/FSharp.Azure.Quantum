@@ -564,6 +564,7 @@ module OptionPricing =
     }
 
     /// Configuration for Finite Difference Method (FDM)
+    [<Struct>]
     type GreeksConfig = {
         /// Relative bump for Spot Price (e.g., 0.01 = 1%)
         SpotBump: float

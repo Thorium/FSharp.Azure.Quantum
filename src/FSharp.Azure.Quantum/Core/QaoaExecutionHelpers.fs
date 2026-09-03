@@ -696,6 +696,7 @@ module QaoaExecutionHelpers =
     ///
     /// Mirrors ProblemDecomposition.DecompositionStrategy but lives here to avoid
     /// a compile-order dependency (QaoaExecutionHelpers compiles before ProblemDecomposition).
+    [<Struct>]
     type BudgetDecompositionStrategy =
         /// Run as-is (no capacity check).
         | NoBudgetDecomposition

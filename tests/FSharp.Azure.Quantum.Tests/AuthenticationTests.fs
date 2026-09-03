@@ -34,87 +34,93 @@ let ``TokenManager should acquire token on first request`` () =
 
 [<Fact; Trait("Category", "Slow")>]
 let ``TokenManager should cache token on subsequent requests`` () =
-    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
-    let mutable callCount = 0
+    task {
+        let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+        let mutable callCount = 0
 
-    let trackingCredential =
-        { new TokenCredential() with
-            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
-                callCount <- callCount + 1
-                AccessToken("token", expiresOn)
+        let trackingCredential =
+            { new TokenCredential() with
+                member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
+                    callCount <- callCount + 1
+                    AccessToken("token", expiresOn)
 
-            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
-                callCount <- callCount + 1
-                System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
+                member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
+                    callCount <- callCount + 1
+                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
 
-    use tokenManager = TokenManager(trackingCredential)
+        use tokenManager = TokenManager(trackingCredential)
 
-    // First call
-    let token1 = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
-    Assert.Equal(1, callCount)
+        // First call
+        let! token1 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal(1, callCount)
 
-    // Second call should use cache
-    let token2 = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
-    Assert.Equal(1, callCount) // Should not increment
-    Assert.Equal(token1, token2)
+        // Second call should use cache
+        let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal(1, callCount) // Should not increment
+        Assert.Equal(token1, token2)
+    } :> System.Threading.Tasks.Task
 
 [<Fact>]
 let ``TokenManager should refresh expired token`` () =
-    let mutable callCount = 0
-    let mutable currentExpiry = DateTimeOffset.UtcNow.AddMinutes(1.0) // Expires very soon
+    task {
+        let mutable callCount = 0
+        let mutable currentExpiry = DateTimeOffset.UtcNow.AddMinutes(1.0) // Expires very soon
 
-    let trackingCredential =
-        { new TokenCredential() with
-            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
-                callCount <- callCount + 1
-                AccessToken($"token-%d{callCount}", currentExpiry)
+        let trackingCredential =
+            { new TokenCredential() with
+                member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
+                    callCount <- callCount + 1
+                    AccessToken($"token-%d{callCount}", currentExpiry)
 
-            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
-                callCount <- callCount + 1
-                System.Threading.Tasks.ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry)) }
+                member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
+                    callCount <- callCount + 1
+                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry)) }
 
-    use tokenManager = TokenManager(trackingCredential)
+        use tokenManager = TokenManager(trackingCredential)
 
-    // First call
-    let token1 = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
-    Assert.Equal(1, callCount)
-    Assert.Equal("token-1", token1)
+        // First call
+        let! token1 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal(1, callCount)
+        Assert.Equal("token-1", token1)
 
-    // Update expiry to force refresh
-    currentExpiry <- DateTimeOffset.UtcNow.AddHours(1.0)
+        // Update expiry to force refresh
+        currentExpiry <- DateTimeOffset.UtcNow.AddHours(1.0)
 
-    // Manually clear cache to simulate expiry
-    tokenManager.ClearCache()
+        // Manually clear cache to simulate expiry
+        tokenManager.ClearCache()
 
-    // Second call should get new token
-    let token2 = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
-    Assert.Equal(2, callCount)
-    Assert.Equal("token-2", token2)
+        // Second call should get new token
+        let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal(2, callCount)
+        Assert.Equal("token-2", token2)
+    } :> System.Threading.Tasks.Task
 
 [<Fact>]
 let ``TokenManager ClearCache should force token refresh`` () =
-    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
-    let mutable callCount = 0
+    task {
+        let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+        let mutable callCount = 0
 
-    let trackingCredential =
-        { new TokenCredential() with
-            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
-                callCount <- callCount + 1
-                AccessToken("token", expiresOn)
+        let trackingCredential =
+            { new TokenCredential() with
+                member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
+                    callCount <- callCount + 1
+                    AccessToken("token", expiresOn)
 
-            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
-                callCount <- callCount + 1
-                System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
+                member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
+                    callCount <- callCount + 1
+                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
 
-    use tokenManager = TokenManager(trackingCredential)
+        use tokenManager = TokenManager(trackingCredential)
 
-    tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
-    Assert.Equal(1, callCount)
+        let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal(1, callCount)
 
-    tokenManager.ClearCache()
+        tokenManager.ClearCache()
 
-    tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
-    Assert.Equal(2, callCount)
+        let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal(2, callCount)
+    } :> System.Threading.Tasks.Task
 
 // ============================================================================
 // Credential Provider Tests
@@ -152,26 +158,28 @@ type TestMessageHandler() =
 
 [<Fact>]
 let ``AuthenticationHandler should add Authorization Bearer header`` () =
-    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
-    let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
-    let tokenManager = TokenManager(mockCredential)
-    
-    let testHandler = new TestMessageHandler()
-    let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
-    use client = new HttpClient(authHandler)
-    
-    // Make a request
-    let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
-    client.SendAsync(request) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-    
-    // Verify Authorization header was added
-    match testHandler.CapturedRequest with
-    | Some capturedReq ->
-        Assert.NotNull(capturedReq.Headers.Authorization)
-        Assert.Equal("Bearer", capturedReq.Headers.Authorization.Scheme)
-        Assert.Equal("test-bearer-token", capturedReq.Headers.Authorization.Parameter)
-    | None ->
-        Assert.Fail("No request was captured")
+    task {
+        let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+        let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
+        let tokenManager = TokenManager(mockCredential)
+
+        let testHandler = new TestMessageHandler()
+        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+        use client = new HttpClient(authHandler)
+
+        // Make a request
+        let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+        let! _ = client.SendAsync request
+
+        // Verify Authorization header was added
+        match testHandler.CapturedRequest with
+        | Some capturedReq ->
+            Assert.NotNull(capturedReq.Headers.Authorization)
+            Assert.Equal("Bearer", capturedReq.Headers.Authorization.Scheme)
+            Assert.Equal("test-bearer-token", capturedReq.Headers.Authorization.Parameter)
+        | None ->
+            Assert.Fail("No request was captured")
+    } :> System.Threading.Tasks.Task
 
 [<Fact>]
 let ``AuthenticationHandler skips Authorization for requests marked no-auth`` () =
@@ -179,23 +187,25 @@ let ``AuthenticationHandler skips Authorization for requests marked no-auth`` ()
     // bearer token — Azure Storage rejects a wrong-audience token (401) in
     // preference to the SAS query string, and the token must not leak to the
     // storage host.
-    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
-    let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
-    let tokenManager = TokenManager(mockCredential)
+    task {
+        let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+        let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
+        let tokenManager = TokenManager(mockCredential)
 
-    let testHandler = new TestMessageHandler()
-    let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
-    use client = new HttpClient(authHandler)
+        let testHandler = new TestMessageHandler()
+        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+        use client = new HttpClient(authHandler)
 
-    let request = new HttpRequestMessage(HttpMethod.Get, "https://storage.example.com/results.json?sig=abc")
-    markNoAuth request
-    client.SendAsync(request) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+        let request = new HttpRequestMessage(HttpMethod.Get, "https://storage.example.com/results.json?sig=abc")
+        markNoAuth request
+        let! _ = client.SendAsync request
 
-    match testHandler.CapturedRequest with
-    | Some capturedReq ->
-        Assert.Null(capturedReq.Headers.Authorization)
-    | None ->
-        Assert.Fail("No request was captured")
+        match testHandler.CapturedRequest with
+        | Some capturedReq ->
+            Assert.Null(capturedReq.Headers.Authorization)
+        | None ->
+            Assert.Fail("No request was captured")
+    } :> System.Threading.Tasks.Task
 
 // ============================================================================
 // Error Handling Tests
@@ -240,58 +250,60 @@ let ``TokenManager should handle network timeout gracefully`` () =
 
 [<Fact>]
 let ``AuthenticationHandler should fail gracefully when token acquisition fails`` () =
-    let failingCredential = FailingTokenCredential("Token acquisition failed")
-    let tokenManager = TokenManager(failingCredential)
-    
-    let testHandler = new TestMessageHandler()
-    let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
-    let client = new HttpClient(authHandler)
-    
-    let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
-    
-    // Async task failures should throw AuthenticationFailedException
-    let ex = 
-        Assert.ThrowsAsync<Azure.Identity.AuthenticationFailedException>(fun () ->
-            client.SendAsync request :> Task
-        ) 
-        |> Async.AwaitTask 
-        |> Async.RunSynchronously
-    
-    // Verify exception message
-    Assert.Contains("Token acquisition failed", ex.Message)
+    task {
+        let failingCredential = FailingTokenCredential("Token acquisition failed")
+        let tokenManager = TokenManager(failingCredential)
+
+        let testHandler = new TestMessageHandler()
+        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+        let client = new HttpClient(authHandler)
+
+        let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+
+        // Async task failures should throw AuthenticationFailedException
+        let! ex = 
+            Assert.ThrowsAsync<Azure.Identity.AuthenticationFailedException>(fun () ->
+                client.SendAsync request :> Task
+            )
+
+        // Verify exception message
+        Assert.Contains("Token acquisition failed", ex.Message)
+    } :> System.Threading.Tasks.Task
 
 [<Fact>]
 let ``TokenManager should recover after clearing cache from failed state`` () =
-    let mutable shouldFail = true
-    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
-    
-    let recoveringCredential =
-        { new TokenCredential() with
-            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
-                if shouldFail then
-                    raise (AuthenticationFailedException("First attempt fails"))
-                else
-                    AccessToken("recovered-token", expiresOn)
-            
-            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
-                if shouldFail then
-                    raise (AuthenticationFailedException("First attempt fails"))
-                else
-                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("recovered-token", expiresOn))
-        }
-    
-    let tokenManager = TokenManager(recoveringCredential)
-    
-    // First attempt should fail
-    Assert.Throws<AuthenticationFailedException>(fun () ->
-        tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
-    ) |> ignore
-    
-    // Recover and clear cache
-    shouldFail <- false
-    tokenManager.ClearCache()
-    
-    // Second attempt should succeed
-    let token = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
-    Assert.Equal("recovered-token", token)
+    task {
+        let mutable shouldFail = true
+        let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+
+        let recoveringCredential =
+            { new TokenCredential() with
+                member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
+                    if shouldFail then
+                        raise (AuthenticationFailedException("First attempt fails"))
+                    else
+                        AccessToken("recovered-token", expiresOn)
+
+                member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
+                    if shouldFail then
+                        raise (AuthenticationFailedException("First attempt fails"))
+                    else
+                        System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("recovered-token", expiresOn))
+            }
+
+        let tokenManager = TokenManager(recoveringCredential)
+
+        // First attempt should fail
+        Assert.Throws<AuthenticationFailedException>(fun () ->
+            tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
+        ) |> ignore
+
+        // Recover and clear cache
+        shouldFail <- false
+        tokenManager.ClearCache()
+
+        // Second attempt should succeed
+        let! token = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
+        Assert.Equal("recovered-token", token)
+    } :> System.Threading.Tasks.Task
 

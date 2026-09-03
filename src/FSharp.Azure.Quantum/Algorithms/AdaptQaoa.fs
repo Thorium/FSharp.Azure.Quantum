@@ -28,6 +28,7 @@ module AdaptQaoa =
     type MixerPool = TrotterSuzuki.PauliString list
 
     /// ADAPT-QAOA configuration.
+    [<Struct>]
     type AdaptQaoaConfig = {
         /// Maximum number of layers (cost + mixer) to add.
         MaxLayers: int

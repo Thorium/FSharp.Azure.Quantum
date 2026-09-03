@@ -185,62 +185,71 @@ module RetryTests =
 
     [<Fact>]
     let ``executeWithRetry returns Ok on first success`` () =
-        let config = { defaultConfig with MaxAttempts = 3 }
-        let operation (_ct: CancellationToken) = async { return Ok 42 }
-        let r = executeWithRetry config operation CancellationToken.None |> Async.RunSynchronously
-        Assert.Equal(Ok 42, r)
+        task {
+            let config = { defaultConfig with MaxAttempts = 3 }
+            let operation (_ct: CancellationToken) = async { return Ok 42 }
+            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+            Assert.Equal(Ok 42, r)
+        } :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``executeWithRetry returns Error for non-transient error`` () =
-        let config = { defaultConfig with MaxAttempts = 3 }
-        let mutable attempts = 0
-        let operation (_ct: CancellationToken) = async {
-            attempts <- attempts + 1
-            return Error (QuantumError.ValidationError("x", "bad"))
-        }
-        let r = executeWithRetry config operation CancellationToken.None |> Async.RunSynchronously
-        Assert.Equal(1, attempts)
-        match r with
-        | Error (QuantumError.ValidationError _) -> ()
-        | _ -> failwith "Expected ValidationError"
+        task {
+            let config = { defaultConfig with MaxAttempts = 3 }
+            let mutable attempts = 0
+            let operation (_ct: CancellationToken) = async {
+                attempts <- attempts + 1
+                return Error (QuantumError.ValidationError("x", "bad"))
+            }
+            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+            Assert.Equal(1, attempts)
+            match r with
+            | Error (QuantumError.ValidationError _) -> ()
+            | _ -> failwith "Expected ValidationError"
+        } :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``executeWithRetry retries on transient error then succeeds`` () =
-        let config = { defaultConfig with MaxAttempts = 3; InitialDelayMs = 1; MaxDelayMs = 10 }
-        let mutable attempts = 0
-        let operation (_ct: CancellationToken) = async {
-            attempts <- attempts + 1
-            if attempts < 3 then
-                return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None))
-            else
-                return Ok "success"
-        }
-        let r = executeWithRetry config operation CancellationToken.None |> Async.RunSynchronously
-        Assert.Equal(3, attempts)
-        Assert.Equal(Ok "success", r)
+        task {
+            let config = { defaultConfig with MaxAttempts = 3; InitialDelayMs = 1; MaxDelayMs = 10 }
+            let mutable attempts = 0
+            let operation (_ct: CancellationToken) = async {
+                attempts <- attempts + 1
+                if attempts < 3 then
+                    return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None))
+                else
+                    return Ok "success"
+            }
+            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+            Assert.Equal(3, attempts)
+            Assert.Equal(Ok "success", r)
+        } :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``executeWithRetry stops after MaxAttempts`` () =
-        let config = { defaultConfig with MaxAttempts = 2; InitialDelayMs = 1; MaxDelayMs = 10 }
-        let mutable attempts = 0
-        let operation (_ct: CancellationToken) = async {
-            attempts <- attempts + 1
-            return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None))
-        }
-        let r = executeWithRetry config operation CancellationToken.None |> Async.RunSynchronously
-        Assert.Equal(2, attempts)
-        match r with
-        | Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _)) -> ()
-        | _ -> failwith "Expected ServiceUnavailable error"
+        task {
+            let config = { defaultConfig with MaxAttempts = 2; InitialDelayMs = 1; MaxDelayMs = 10 }
+            let mutable attempts = 0
+            let operation (_ct: CancellationToken) = async {
+                attempts <- attempts + 1
+                return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None))
+            }
+            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+            Assert.Equal(2, attempts)
+            match r with
+            | Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _)) -> ()
+            | _ -> failwith "Expected ServiceUnavailable error"
+        } :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``executeWithRetry respects cancellation`` () =
-        let config = { defaultConfig with MaxAttempts = 10 }
-        use cts = new CancellationTokenSource()
-        cts.Cancel()
-        let operation (_ct: CancellationToken) = async { return Ok 1 }
-        let r = executeWithRetry config operation cts.Token |> Async.RunSynchronously
-        match r with
-        | Error (QuantumError.OperationError (_, msg)) ->
-            Assert.Contains("cancelled", msg.ToLower())
-        | _ -> failwith "Expected cancellation error"
+        task {
+            let config = { defaultConfig with MaxAttempts = 10 }
+            use cts = new CancellationTokenSource()
+            do! cts.CancelAsync()
+            let operation (_ct: CancellationToken) = async { return Ok 1 }
+            match! executeWithRetry config operation cts.Token |> Async.StartImmediateAsTask with
+            | Error (QuantumError.OperationError (_, msg)) ->
+                Assert.Contains("cancelled", msg.ToLower())
+            | _ -> failwith "Expected cancellation error"
+        } :> System.Threading.Tasks.Task

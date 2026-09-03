@@ -24,6 +24,7 @@ let bell =
     |> CircuitBuilder.addGate (CircuitBuilder.H 0)
     |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
 
+[<Literal>]
 let shots = 4000
 
 let show (label: string) (config: NoiseConfig) =

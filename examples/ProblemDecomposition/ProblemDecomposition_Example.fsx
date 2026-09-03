@@ -122,6 +122,7 @@ if runAll || exampleName = "partition" then
 
 // Types for Example 3 (must be at top level in .fsx)
 type SumProblem = { Numbers: int list }
+[<Struct>]
 type SumSolution = { Total: int }
 
 if runAll || exampleName = "plan" then
@@ -176,6 +177,7 @@ if runAll || exampleName = "plan" then
 
 // Types for Example 4 (must be at top level in .fsx)
 type ArrayProblem = { Values: float list }
+[<Struct>]
 type ArraySolution = { Sum: float; Count: int }
 
 if runAll || exampleName = "solve" then

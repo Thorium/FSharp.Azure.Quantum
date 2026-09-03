@@ -18,6 +18,7 @@ module Batching =
     /// Configuration for batch accumulation behavior.
     /// 
     /// Controls when batches are submitted based on size and timeout constraints.
+    [<Struct>]
     type BatchConfig = {
         /// Maximum number of items per batch (default: 50)
         MaxBatchSize: int

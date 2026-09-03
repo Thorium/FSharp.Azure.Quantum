@@ -51,6 +51,7 @@ let problem : QuantumVertexCoverSolver.Problem =
 // ---------------------------------------------------------------------------
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+[<Literal>]
 let shots = 1000
 let config = { QuantumVertexCoverSolver.defaultConfig with FinalShots = shots }
 

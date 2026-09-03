@@ -88,6 +88,7 @@ module AutoML =
         | Classical
     
     /// Hyperparameter configuration
+    [<Struct>]
     type HyperparameterConfig = {
         LearningRate: float
         MaxEpochs: int

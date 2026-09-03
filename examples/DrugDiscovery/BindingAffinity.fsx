@@ -105,9 +105,12 @@ type BindingResult =
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
+[<Literal>]
 let hartreeToKcalMol = 627.509
+[<Literal>]
 let hartreeToKJMol = 2625.5
 /// Gas constant in kcal/(mol*K)
+[<Literal>]
 let gasR_kcal = 1.987e-3
 
 // ==============================================================================

@@ -186,6 +186,7 @@ if not quiet then
 let mutable anyVqeFailure = false
 
 /// Cd-Se bond length (Angstroms)
+[<Literal>]
 let cdSeBondLength = 2.63
 
 let createCdSeDimer () : Molecule =

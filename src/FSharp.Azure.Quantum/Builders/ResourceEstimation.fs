@@ -38,6 +38,7 @@ module ResourceEstimation =
           LogicalErrorRateAchieved: float }
 
     /// Hardware / fault-tolerance assumptions used for the physical estimate.
+    [<Struct>]
     type FaultToleranceParams =
         { /// Physical error rate per physical operation (e.g. 1e-3).
           PhysicalErrorRate: float

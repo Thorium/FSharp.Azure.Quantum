@@ -19,6 +19,7 @@ type Cell =
         | Empty -> Empty
 
 /// Represents a position on the board
+[<Struct>]
 type Position = { Row: int; Col: int }
 
 /// Represents a direction for checking win conditions
@@ -31,6 +32,7 @@ type Direction =
     | DiagonalDown
 
 /// Configuration for the Gomoku game
+[<Struct>]
 type BoardConfig = {
     Size: int          // Board size (15 for standard Gomoku, 19 for Go board)
     WinLength: int     // Number of consecutive pieces needed to win (default 5)

@@ -30,6 +30,7 @@ module BraidGroup =
     // ========================================================================
     
     /// Elementary braid generator σ_i or its inverse σ_i^{-1}
+    [<Struct>]
     type BraidGenerator = {
         /// Index i (braids strands i and i+1, where 0 ≤ i < n-1)
         Index: int

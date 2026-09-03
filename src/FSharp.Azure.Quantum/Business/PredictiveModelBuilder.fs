@@ -69,6 +69,7 @@ module PredictiveModel =
     // ========================================================================
     
     /// Problem type for prediction
+    [<Struct>]
     type ProblemType =
         /// Predict continuous values (revenue, demand, LTV)
         | Regression
@@ -88,7 +89,7 @@ module PredictiveModel =
     type InternalModel =
         | RegressionVQC of VQC.RegressionTrainingResult * FeatureMapType * VariationalForm * int
         /// stores all OVR classifiers
-        | MultiClassVQC of VQC.MultiClassTrainingResult * FeatureMapType * VariationalForm * int
+        | MultiClassVQC of multiClassResult: VQC.MultiClassTrainingResult * featureMap: FeatureMapType * varForm: VariationalForm * numQubits: int
         | SVMRegressor of QuantumKernelSVM.SVMModel
         | SVMMultiClass of MultiClassSVM.MultiClassModel
         /// Quantum HHL linear regression
@@ -197,6 +198,7 @@ module PredictiveModel =
     }
     
     /// Evaluation metrics for regression
+    [<Struct>]
     type RegressionMetrics = {
         /// R² score (coefficient of determination)
         RSquared: float

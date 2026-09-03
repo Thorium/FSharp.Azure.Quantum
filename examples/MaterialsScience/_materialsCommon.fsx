@@ -25,18 +25,22 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 // ==========================================================================
 
 /// Planck's constant (J*s)
+[<Literal>]
 let h = 6.62607015e-34
 
 /// Reduced Planck's constant (J*s)
 let hbar = h / (2.0 * Math.PI)
 
 /// Electron mass (kg)
+[<Literal>]
 let m_e = 9.10938e-31
 
 /// Electron charge (C)
+[<Literal>]
 let e_charge = 1.60218e-19
 
 /// Boltzmann constant (J/K)
+[<Literal>]
 let k_B = 1.38065e-23
 
 // ==========================================================================
@@ -44,18 +48,22 @@ let k_B = 1.38065e-23
 // ==========================================================================
 
 /// Electron volt to Joules
+[<Literal>]
 let eV_to_J = 1.60218e-19
 
 /// Joules to electron volt
 let J_to_eV = 1.0 / eV_to_J
 
 /// Hartree to electron volt
+[<Literal>]
 let hartreeToEV = 27.2114
 
 /// Angstrom to meters
+[<Literal>]
 let A_to_m = 1.0e-10
 
 /// Nanometer to meters
+[<Literal>]
 let nm_to_m = 1.0e-9
 
 // ==========================================================================

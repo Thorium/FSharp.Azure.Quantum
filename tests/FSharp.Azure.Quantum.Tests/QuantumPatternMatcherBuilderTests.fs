@@ -17,6 +17,7 @@ module QuantumPatternMatcherBuilderTests =
     // ========================================================================
     
     /// Test configuration type
+    [<Struct>]
     type Config = {
         Id: int
         Throughput: float

@@ -24,6 +24,7 @@ open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki  // brings PauliString/PauliH
 module NeutralAtom =
 
     /// An atom position in the 2-D plane (arbitrary length units, matched by C₆).
+    [<Struct>]
     type Atom = { X: float; Y: float }
 
     /// One segment of a global pulse, with Ω and Δ ramped linearly over `Duration`.

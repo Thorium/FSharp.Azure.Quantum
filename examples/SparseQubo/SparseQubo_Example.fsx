@@ -68,6 +68,7 @@ let quantumBackend = LocalBackend() :> IQuantumBackend
 // QUBO: minimize Q(x) = sum_{(i,j) in edges} -(x_i + x_j - 2*x_i*x_j)
 // Equivalent: Q_{ii} = -degree(i), Q_{ij} = +2 for each edge
 
+[<Literal>]
 let numQubits = 4
 
 let sparseQubo : Map<int * int, float> =

@@ -111,8 +111,10 @@ type CatalystResult =
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
+[<Literal>]
 let hartreeToKcalMol = 627.509
 /// kcal/mol (literature estimate for Staudinger [2+2])
+[<Literal>]
 let uncatalyzedBarrier = 30.0
 
 // ==============================================================================

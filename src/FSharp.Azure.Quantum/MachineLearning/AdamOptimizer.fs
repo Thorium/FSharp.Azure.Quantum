@@ -12,6 +12,7 @@ open FSharp.Azure.Quantum.Core
 module AdamOptimizer =
 
     /// Configuration for Adam optimizer
+    [<Struct>]
     type AdamConfig = {
         /// Learning rate (α) - step size for parameter updates
         LearningRate: float

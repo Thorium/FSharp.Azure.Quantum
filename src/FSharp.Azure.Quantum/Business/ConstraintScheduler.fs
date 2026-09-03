@@ -79,10 +79,10 @@ module ConstraintScheduler =
     /// Hard constraint that MUST be satisfied
     type HardConstraint =
         /// Two tasks cannot run on the same resource
-        | Conflict of TaskId * TaskId
+        | Conflict of task1: TaskId * task2: TaskId
         
         /// Task requires specific resource type
-        | RequiresResource of TaskId * ResourceId
+        | RequiresResource of task: TaskId * resource: ResourceId
         
         /// Task must complete before another
         | Precedence of before: TaskId * after: TaskId

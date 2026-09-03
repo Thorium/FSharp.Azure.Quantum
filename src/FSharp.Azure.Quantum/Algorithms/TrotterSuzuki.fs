@@ -43,6 +43,7 @@ module TrotterSuzuki =
     }
     
     /// Trotter decomposition configuration
+    [<Struct>]
     type TrotterConfig = {
         /// Number of Trotter steps (higher = more accurate, deeper circuit)
         /// Recommendation: n ≥ ceil(‖H‖²t²/ε) for error ε

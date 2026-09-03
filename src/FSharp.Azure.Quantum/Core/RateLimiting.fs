@@ -19,6 +19,7 @@ module RateLimiting =
     // ============================================================================
     
     /// Rate limit information from Azure Quantum API headers
+    [<Struct>]
     type RateLimitInfo = {
         /// Number of requests remaining in current window
         Remaining: int
