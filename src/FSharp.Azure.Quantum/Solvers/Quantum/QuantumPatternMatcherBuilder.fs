@@ -496,7 +496,7 @@ module QuantumPatternMatcher =
                     else
                         ""
                 
-                sprintf "%s%s" matches remainder
+                $"%s{matches}%s{remainder}"
         
         sprintf """=== Quantum Pattern Matcher Solution ===
 Success Probability: %.4f

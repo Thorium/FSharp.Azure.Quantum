@@ -323,9 +323,7 @@ module QaoaSimulatorTests =
         
         let result = QaoaSimulator.simulate circuit 100
         
-        match result with
-        | Ok _ -> Assert.True(false, "Expected Error, got Ok")
-        | Error msg -> Assert.Contains("qubits", msg.ToLower())
+        result |> Result.map (fun _ -> Assert.True(false, "Expected Error, got Ok")) |> Result.defaultWith (fun msg -> Assert.Contains("qubits", msg.ToLower()))
     
     [<Fact>]
     let ``simulate - should return Error for invalid number of shots`` () =
@@ -338,9 +336,7 @@ module QaoaSimulatorTests =
         
         let result = QaoaSimulator.simulate circuit 0  // Invalid
         
-        match result with
-        | Ok _ -> Assert.True(false, "Expected Error, got Ok")
-        | Error msg -> Assert.Contains("shots", msg.ToLower())
+        result |> Result.map (fun _ -> Assert.True(false, "Expected Error, got Ok")) |> Result.defaultWith (fun msg -> Assert.Contains("shots", msg.ToLower()))
     
     [<Fact>]
     let ``simulate - should return Error for mismatched Parameters length`` () =
@@ -353,9 +349,7 @@ module QaoaSimulatorTests =
         
         let result = QaoaSimulator.simulate circuit 100
         
-        match result with
-        | Ok _ -> Assert.True(false, "Expected Error, got Ok")
-        | Error msg -> Assert.Contains("parameters", msg.ToLower())
+        result |> Result.map (fun _ -> Assert.True(false, "Expected Error, got Ok")) |> Result.defaultWith (fun msg -> Assert.Contains("parameters", msg.ToLower()))
     
     [<Fact>]
     let ``simulate - MaxCut example from documentation`` () =

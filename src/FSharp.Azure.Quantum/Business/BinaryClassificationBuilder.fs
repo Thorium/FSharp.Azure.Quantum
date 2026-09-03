@@ -62,9 +62,12 @@ module BinaryClassifier =
     
     /// Architecture choice for classification
     type Architecture =
-        | Quantum        // Pure quantum classifier (VQC)
-        | Hybrid         // Quantum feature extraction + classical SVM
-        | Classical      // Classical baseline for comparison
+        /// Pure quantum classifier (VQC)
+        | Quantum
+        /// Quantum feature extraction + classical SVM
+        | Hybrid
+        /// Classical baseline for comparison
+        | Classical
     
     /// Binary classification problem specification
     type ClassificationProblem = {
@@ -125,8 +128,10 @@ module BinaryClassifier =
     
     and ClassifierModel =
         | VQCModel of VQC.TrainingResult * FeatureMapType * VariationalForm * int
-        | SVMModel of QuantumKernelSVM.SVMModel * int  // Model * NumQubits
-        | ClassicalModel of float array  // Simple weights
+        /// Model * NumQubits
+        | SVMModel of QuantumKernelSVM.SVMModel * int
+        /// Simple weights
+        | ClassicalModel of float array
     
     and ClassifierMetadata = {
         Architecture: Architecture
@@ -281,7 +286,7 @@ module BinaryClassifier =
                 let note = 
                     match config.Note with
                     | Some n -> Some n
-                    | None -> Some (sprintf "Binary classifier trained %s" (startTime.ToString("yyyy-MM-dd HH:mm:ss")))
+                    | None -> Some (sprintf "Binary classifier trained %s" (startTime.ToString "yyyy-MM-dd HH:mm:ss"))
                 
                 match ModelSerialization.saveVQCTrainingResult 
                         path result numQubits "ZZFeatureMap" 2 "RealAmplitudes" 2 note with
@@ -390,7 +395,7 @@ module BinaryClassifier =
             QuantumKernelSVM.predict backend model sample 1000
             |> Result.map (fun prediction ->
                 // Convert decision value to confidence (sigmoid-like transformation)
-                let confidence = 1.0 / (1.0 + exp(-abs(prediction.DecisionValue)))
+                let confidence = 1.0 / (1.0 + exp(-abs prediction.DecisionValue))
                 {
                     Label = prediction.Label
                     Confidence = confidence
@@ -458,8 +463,8 @@ module BinaryClassifier =
         | VQCModel (result, featureMap, varForm, numQubits) ->
             let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
             let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | TwoLocal _ | EfficientSU2 _ -> "Unknown"
+            let vfDepth = match varForm with RealAmplitudes d -> d | TwoLocal _ | EfficientSU2 _ -> 0
             
             ModelSerialization.saveVQCTrainingResult path result numQubits fmType fmDepth vfType vfDepth classifier.Metadata.Note
         
@@ -480,7 +485,7 @@ module BinaryClassifier =
             let json = System.IO.File.ReadAllText(path)
             
             // Check if it's an SVM model (has SupportVectorIndices field)
-            if json.Contains("\"SupportVectorIndices\"") then
+            if json.Contains "\"SupportVectorIndices\"" then
                 // Load as SVM (canonical SVMModelSerialization schema). The qubit/feature count
                 // is derived from the training-data dimension rather than a stored field.
                 let serialized = System.Text.Json.JsonSerializer.Deserialize<SVMModelSerialization.SerializableSVMModel>(json)

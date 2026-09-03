@@ -71,11 +71,7 @@ module VQCTests =
         let emptyLabels = [| |]
         let config = createTestConfig()
         
-        match train backend featureMap variationalForm parameters emptyFeatures emptyLabels config with
-        | Error msg ->
-            Assert.Contains("cannot be empty", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected empty training set")
+        (train backend featureMap variationalForm parameters emptyFeatures emptyLabels config) |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty training set")) |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
     
     [<Fact>]
     let ``train - rejects mismatched features and labels length`` () =
@@ -87,11 +83,7 @@ module VQCTests =
         let labels = [| 0 |]  // Wrong length
         let config = createTestConfig()
         
-        match train backend featureMap variationalForm parameters features labels config with
-        | Error msg ->
-            Assert.Contains("same length", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected mismatched lengths")
+        (train backend featureMap variationalForm parameters features labels config) |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths")) |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
     
     [<Fact>]
     let ``evaluate - rejects empty dataset`` () =
@@ -102,11 +94,7 @@ module VQCTests =
         let emptyFeatures = [| |]
         let emptyLabels = [| |]
         
-        match evaluate backend featureMap variationalForm parameters emptyFeatures emptyLabels 100 with
-        | Error msg ->
-            Assert.Contains("cannot be empty", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected empty dataset")
+        (evaluate backend featureMap variationalForm parameters emptyFeatures emptyLabels 100) |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty dataset")) |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
     
     [<Fact>]
     let ``evaluate - rejects mismatched features and labels length`` () =
@@ -117,11 +105,7 @@ module VQCTests =
         let features = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
         let labels = [| 0 |]  // Wrong length
         
-        match evaluate backend featureMap variationalForm parameters features labels 100 with
-        | Error msg ->
-            Assert.Contains("same length", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected mismatched lengths")
+        (evaluate backend featureMap variationalForm parameters features labels 100) |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths")) |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
     
     // ========================================================================
     // PREDICTION TESTS
@@ -223,8 +207,7 @@ module VQCTests =
             Assert.Equal(parameters.Length, result.Parameters.Length)
             Assert.True(result.LossHistory.Length > 0, "Should have loss history")
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``train - returns trained parameters with correct length`` () =
         let backend = createTestBackend()
         let featureMap = AngleEncoding
@@ -233,11 +216,7 @@ module VQCTests =
         let (features, labels) = createSimpleDataset()
         let config = createTestConfig()
         
-        match train backend featureMap variationalForm initialParams features labels config with
-        | Error msg ->
-            Assert.True(false, $"Training failed: {msg}")
-        | Ok result ->
-            Assert.Equal(initialParams.Length, result.Parameters.Length)
+        (train backend featureMap variationalForm initialParams features labels config) |> Result.map (fun result -> Assert.Equal(initialParams.Length, result.Parameters.Length)) |> Result.defaultWith (fun msg -> Assert.True(false, $"Training failed: {msg}"))
     
     [<Fact>]
     let ``train - loss history has correct length`` () =
@@ -265,11 +244,7 @@ module VQCTests =
         let (features, labels) = createSimpleDataset()
         let config = { createTestConfig() with MaxEpochs = 2; ConvergenceThreshold = 0.0 }  // Won't converge
         
-        match train backend featureMap variationalForm parameters features labels config with
-        | Error msg ->
-            Assert.True(false, $"Training failed: {msg}")
-        | Ok result ->
-            Assert.True(result.Epochs <= config.MaxEpochs, $"Epochs {result.Epochs} should not exceed {config.MaxEpochs}")
+        (train backend featureMap variationalForm parameters features labels config) |> Result.map (fun result -> Assert.True(result.Epochs <= config.MaxEpochs, $"Epochs {result.Epochs} should not exceed {config.MaxEpochs}")) |> Result.defaultWith (fun msg -> Assert.True(false, $"Training failed: {msg}"))
     
     [<Fact>]
     let ``train - returns training accuracy`` () =
@@ -616,11 +591,7 @@ module VQCTests =
         let labels = [| 0; 0 |]  // All same class
         let config = createTestConfig()
         
-        match trainMultiClass backend featureMap variationalForm parameters features labels config with
-        | Error msg ->
-            Assert.Contains("at least 2 classes", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected single class")
+        (trainMultiClass backend featureMap variationalForm parameters features labels config) |> Result.map (fun _ -> Assert.True(false, "Should have rejected single class")) |> Result.defaultWith (fun msg -> Assert.Contains("at least 2 classes", msg.Message))
     
     [<Fact>]
     let ``trainMultiClass - rejects empty training set`` () =
@@ -632,11 +603,7 @@ module VQCTests =
         let emptyLabels = [| |]
         let config = createTestConfig()
         
-        match trainMultiClass backend featureMap variationalForm parameters emptyFeatures emptyLabels config with
-        | Error msg ->
-            Assert.Contains("cannot be empty", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected empty training set")
+        (trainMultiClass backend featureMap variationalForm parameters emptyFeatures emptyLabels config) |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty training set")) |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
     
     [<Fact>]
     let ``trainMultiClass - rejects mismatched features and labels`` () =
@@ -648,14 +615,9 @@ module VQCTests =
         let labels = [| 0 |]  // Wrong length
         let config = createTestConfig()
         
-        match trainMultiClass backend featureMap variationalForm parameters features labels config with
-        | Error msg ->
-            Assert.Contains("same length", msg.Message)
-        | Ok _ ->
-            Assert.True(false, "Should have rejected mismatched lengths")
+        (trainMultiClass backend featureMap variationalForm parameters features labels config) |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths")) |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``predictMultiClass - returns valid prediction`` () =
         let backend = createTestBackend()
         let featureMap = AngleEncoding
@@ -780,8 +742,7 @@ module VQCTests =
             let features = [| 0.5; 0.5 |]
             let valueRange = (0.0, 1.0)
 
-            let! result = predictRegressionAsync backend featureMap variationalForm parameters features 100 valueRange CancellationToken.None
-            match result with
+            match! predictRegressionAsync backend featureMap variationalForm parameters features 100 valueRange CancellationToken.None with
             | Error msg ->
                 Assert.True(false, $"predictRegressionAsync failed: {msg}")
             | Ok prediction ->
@@ -824,8 +785,7 @@ module VQCTests =
             let features = [| 0.5; 0.5 |]
             let valueRange = (0.0, 10.0)
 
-            let! result = predictRegressionAsync backend featureMap variationalForm parameters features 100 valueRange CancellationToken.None
-            match result with
+            match! predictRegressionAsync backend featureMap variationalForm parameters features 100 valueRange CancellationToken.None with
             | Error msg ->
                 Assert.True(false, $"predictRegressionAsync failed: {msg}")
             | Ok prediction ->
@@ -869,9 +829,8 @@ module VQCTests =
             let valueRange = (0.0, 1.0)
 
             use cts = new CancellationTokenSource()
-            let! result = predictRegressionAsync backend featureMap variationalForm parameters features 10 valueRange cts.Token
             // Local backend doesn't observe cancellation, so it should succeed
-            match result with
+            match! predictRegressionAsync backend featureMap variationalForm parameters features 10 valueRange cts.Token with
             | Ok pred -> Assert.True(pred.Value >= 0.0 && pred.Value <= 1.0)
             | Error _ -> () // Also acceptable if backend respects cancellation
         }

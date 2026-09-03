@@ -7,17 +7,18 @@ open FSharp.Azure.Quantum.MachineLearning.AdamOptimizer
 // Helper Functions
 // ============================================================================
 
+[<Literal>]
 let private epsilon = 1e-6
 
 let private assertArraysEqual (expected: float array) (actual: float array) =
     Assert.Equal(expected.Length, actual.Length)
     Array.zip expected actual
-    |> Array.iter (fun (e, a) -> Assert.True(abs (a - e) < epsilon, sprintf "Expected %f, got %f" e a))
+    |> Array.iter (fun (e, a) -> Assert.True(abs (a - e) < epsilon, $"Expected %f{e}, got %f{a}"))
 
 let private assertArraysClose (tolerance: float) (expected: float array) (actual: float array) =
     Assert.Equal(expected.Length, actual.Length)
     Array.zip expected actual
-    |> Array.iter (fun (e, a) -> Assert.True(abs (a - e) < tolerance, sprintf "Expected %f ± %f, got %f" e tolerance a))
+    |> Array.iter (fun (e, a) -> Assert.True(abs (a - e) < tolerance, $"Expected %f{e} ± %f{tolerance}, got %f{a}"))
 
 // ============================================================================
 // Configuration Tests
@@ -44,40 +45,28 @@ let ``createConfig should accept valid parameters`` () =
 [<Fact>]
 let ``createConfig should reject negative learning rate`` () =
     let result = createConfig -0.001 0.9 0.999 1e-8
-    match result with
-    | Error msg -> Assert.Contains("Learning rate", msg.Message)
-    | Ok _ -> failwith "Should have failed"
+    result |> Result.map (fun _ -> failwith "Should have failed") |> Result.defaultWith (fun msg -> Assert.Contains("Learning rate", msg.Message))
 
 [<Fact>]
 let ``createConfig should reject Beta1 outside range`` () =
     let result1 = createConfig 0.001 -0.1 0.999 1e-8
-    match result1 with
-    | Error msg -> Assert.Contains("Beta1", msg.Message)
-    | Ok _ -> failwith "Should have failed for negative Beta1"
+    result1 |> Result.map (fun _ -> failwith "Should have failed for negative Beta1") |> Result.defaultWith (fun msg -> Assert.Contains("Beta1", msg.Message))
 
     let result2 = createConfig 0.001 1.0 0.999 1e-8
-    match result2 with
-    | Error msg -> Assert.Contains("Beta1", msg.Message)
-    | Ok _ -> failwith "Should have failed for Beta1 = 1.0"
+    result2 |> Result.map (fun _ -> failwith "Should have failed for Beta1 = 1.0") |> Result.defaultWith (fun msg -> Assert.Contains("Beta1", msg.Message))
 
 [<Fact>]
 let ``createConfig should reject Beta2 outside range`` () =
     let result1 = createConfig 0.001 0.9 -0.1 1e-8
-    match result1 with
-    | Error msg -> Assert.Contains("Beta2", msg.Message)
-    | Ok _ -> failwith "Should have failed for negative Beta2"
+    result1 |> Result.map (fun _ -> failwith "Should have failed for negative Beta2") |> Result.defaultWith (fun msg -> Assert.Contains("Beta2", msg.Message))
 
     let result2 = createConfig 0.001 0.9 1.0 1e-8
-    match result2 with
-    | Error msg -> Assert.Contains("Beta2", msg.Message)
-    | Ok _ -> failwith "Should have failed for Beta2 = 1.0"
+    result2 |> Result.map (fun _ -> failwith "Should have failed for Beta2 = 1.0") |> Result.defaultWith (fun msg -> Assert.Contains("Beta2", msg.Message))
 
 [<Fact>]
 let ``createConfig should reject non-positive epsilon`` () =
     let result = createConfig 0.001 0.9 0.999 0.0
-    match result with
-    | Error msg -> Assert.Contains("Epsilon", msg.Message)
-    | Ok _ -> failwith "Should have failed"
+    result |> Result.map (fun _ -> failwith "Should have failed") |> Result.defaultWith (fun msg -> Assert.Contains("Epsilon", msg.Message))
 
 // ============================================================================
 // State Management Tests
@@ -127,9 +116,7 @@ let ``update should reject mismatched parameter dimensions`` () =
     let gradients = [|0.1; 0.2; 0.3|]
     
     let result = update config state parameters gradients
-    match result with
-    | Error msg -> Assert.Contains("Parameters length", msg.Message)
-    | Ok _ -> failwith "Should have failed"
+    result |> Result.map (fun _ -> failwith "Should have failed") |> Result.defaultWith (fun msg -> Assert.Contains("Parameters length", msg.Message))
 
 [<Fact>]
 let ``update should reject mismatched gradient dimensions`` () =
@@ -139,9 +126,7 @@ let ``update should reject mismatched gradient dimensions`` () =
     let gradients = [|0.1; 0.2|]  // Wrong size
     
     let result = update config state parameters gradients
-    match result with
-    | Error msg -> Assert.Contains("Gradients length", msg.Message)
-    | Ok _ -> failwith "Should have failed"
+    result |> Result.map (fun _ -> failwith "Should have failed") |> Result.defaultWith (fun msg -> Assert.Contains("Gradients length", msg.Message))
 
 [<Fact>]
 let ``update should move parameters in direction opposite to gradient`` () =
@@ -364,7 +349,7 @@ let ``getEffectiveLearningRate should be computed correctly at t=1`` () =
     
     // α_effective = α * √(1 - β₂^t) / (1 - β₁^t)
     // At t=1: α_effective = 0.001 * √(1 - 0.999) / (1 - 0.9) = 0.001 * √0.001 / 0.1 ≈ 0.000316
-    Assert.True(abs (effectiveLR - 0.000316) < 0.00001, sprintf "Expected ~0.000316, got %f" effectiveLR)
+    Assert.True(abs (effectiveLR - 0.000316) < 0.00001, $"Expected ~0.000316, got %f{effectiveLR}")
 
 [<Fact>]
 let ``getEffectiveLearningRate should approach stable value after many iterations`` () =
@@ -375,7 +360,7 @@ let ``getEffectiveLearningRate should approach stable value after many iteration
     // After many iterations, bias correction factors approach 1.0
     // α_effective = α * √(1 - β₂^1000) / (1 - β₁^1000) ≈ α * √1.0 / 1.0 ≈ α * 0.795 (due to sqrt term)
     // The effective LR stabilizes but is not exactly equal to base LR
-    Assert.True(effectiveLR > 0.0005 && effectiveLR < 0.001, sprintf "Expected between 0.0005 and 0.001, got %f" effectiveLR)
+    Assert.True(effectiveLR > 0.0005 && effectiveLR < 0.001, $"Expected between 0.0005 and 0.001, got %f{effectiveLR}")
 
 // ============================================================================
 // Edge Cases

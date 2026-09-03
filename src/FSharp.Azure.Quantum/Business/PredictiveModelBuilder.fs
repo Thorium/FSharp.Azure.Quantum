@@ -70,24 +70,33 @@ module PredictiveModel =
     
     /// Problem type for prediction
     type ProblemType =
-        | Regression                // Predict continuous values (revenue, demand, LTV)
-        | MultiClass of int         // Predict categories (churn timing, risk levels)
+        /// Predict continuous values (revenue, demand, LTV)
+        | Regression
+        /// Predict categories (churn timing, risk levels)
+        | MultiClass of int
     
     /// Architecture choice for predictive modeling
     [<Struct>]
     type Architecture =
-        | Quantum        // Pure quantum model (VQC for classification, QSVR for regression)
-        | Hybrid         // Quantum features + classical ML
-        | Classical      // Classical baseline for comparison
+        /// Pure quantum model (VQC for classification, QSVR for regression)
+        | Quantum
+        /// Quantum features + classical ML
+        | Hybrid
+        /// Classical baseline for comparison
+        | Classical
     
     type InternalModel =
         | RegressionVQC of VQC.RegressionTrainingResult * FeatureMapType * VariationalForm * int
-        | MultiClassVQC of VQC.MultiClassTrainingResult * FeatureMapType * VariationalForm * int  // stores all OVR classifiers
+        /// stores all OVR classifiers
+        | MultiClassVQC of VQC.MultiClassTrainingResult * FeatureMapType * VariationalForm * int
         | SVMRegressor of QuantumKernelSVM.SVMModel
         | SVMMultiClass of MultiClassSVM.MultiClassModel
-        | HHLRegressor of RegressionResult  // Quantum HHL linear regression
-        | ClassicalRegressor of float array  // Simple linear weights
-        | ClassicalMultiClass of float array array  // Weights per class
+        /// Quantum HHL linear regression
+        | HHLRegressor of RegressionResult
+        /// Simple linear weights
+        | ClassicalRegressor of float array
+        /// Weights per class
+        | ClassicalMultiClass of float array array
     
     type ModelMetadata = {
         ProblemType: ProblemType
@@ -290,16 +299,16 @@ module PredictiveModel =
             | RegressionVQC (result, featureMap, varForm, numQubits) ->
                 let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
                 let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-                let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-                let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+                let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | TwoLocal _ | EfficientSU2 _ -> "Unknown"
+                let vfDepth = match varForm with RealAmplitudes d -> d | TwoLocal _ | EfficientSU2 _ -> 0
                 
                 return! ModelSerialization.saveVQCRegressionTrainingResultAsync path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note cancellationToken
             
             | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
                 let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
                 let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-                let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-                let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+                let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | TwoLocal _ | EfficientSU2 _ -> "Unknown"
+                let vfDepth = match varForm with RealAmplitudes d -> d | TwoLocal _ | EfficientSU2 _ -> 0
                 
                 return! ModelSerialization.saveVQCMultiClassTrainingResultAsync path multiClassResult numQubits fmType fmDepth vfType vfDepth model.Metadata.Note cancellationToken
             
@@ -351,8 +360,7 @@ module PredictiveModel =
                     | _ -> VariationalForm.RealAmplitudes 2
                 
                 // Load full model to get finalLoss (stored as TrainMSE for regression)
-                let! fullModelResult = ModelSerialization.loadVQCModelAsync path cancellationToken |> Async.AwaitTask
-                match fullModelResult with
+                match! ModelSerialization.loadVQCModelAsync path cancellationToken |> Async.AwaitTask with
                 | Error e -> return Error e
                 | Ok serializedModel ->
                     let result : VQC.RegressionTrainingResult = {
@@ -482,8 +490,7 @@ module PredictiveModel =
                             }
                         | Error _ ->
                             // Try to load as multi-class SVM model
-                            let! multiClassSvmResult = SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken |> Async.AwaitTask
-                            match multiClassSvmResult with
+                            match! SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken |> Async.AwaitTask with
                             | Ok multiClassModel ->
                                 let numFeatures = 
                                     if multiClassModel.BinaryModels.Length > 0 && 
@@ -943,9 +950,7 @@ module PredictiveModel =
                 let predictions = 
                     testX 
                     |> Array.choose (fun x ->
-                        match predict x model None None with
-                        | Ok pred -> Some pred.Value
-                        | Error _ -> None
+                        (predict x model None None) |> Result.map (fun pred -> Some pred.Value) |> Result.defaultValue None
                     )
                 
                 if predictions.Length <> testY.Length then
@@ -979,9 +984,7 @@ module PredictiveModel =
                 let predictions = 
                     testX 
                     |> Array.choose (fun x ->
-                        match predictCategory x model None None with
-                        | Ok pred -> Some pred.Category
-                        | Error _ -> None
+                        (predictCategory x model None None) |> Result.map (fun pred -> Some pred.Category) |> Result.defaultValue None
                     )
                 
                 if predictions.Length <> testY.Length then

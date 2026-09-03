@@ -174,9 +174,7 @@ module IndependentSetTests =
         let result = IndependentSet.solve backend problem 100
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("no nodes", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty nodes")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with empty nodes")) |> Result.defaultWith (fun err -> Assert.Contains("no nodes", err.ToString().ToLower()))
     
     [<Fact>]
     let ``solveWithConfig uses custom configuration`` () =
@@ -330,9 +328,7 @@ module InfluenceMaximizationTests =
         let result = InfluenceMaximization.solve backend problem 100
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("k", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with invalid k")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with invalid k")) |> Result.defaultWith (fun err -> Assert.Contains("k", err.ToString().ToLower()))
     
     [<Fact>]
     let ``solve validates empty nodes list`` () =
@@ -349,9 +345,7 @@ module InfluenceMaximizationTests =
         let result = InfluenceMaximization.solve backend problem 100
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("no nodes", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty nodes")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with empty nodes")) |> Result.defaultWith (fun err -> Assert.Contains("no nodes", err.ToString().ToLower()))
     
     [<Fact>]
     let ``solveWithConfig with constraint repair fixes cardinality violations`` () =
@@ -584,9 +578,7 @@ module DiverseSelectionTests =
         let result = DiverseSelection.solve backend problem 100
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("no items", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty items")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with empty items")) |> Result.defaultWith (fun err -> Assert.Contains("no items", err.ToString().ToLower()))
     
     [<Fact>]
     let ``solve validates negative budget`` () =
@@ -603,9 +595,7 @@ module DiverseSelectionTests =
         let result = DiverseSelection.solve backend problem 100
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("budget", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with negative budget")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with negative budget")) |> Result.defaultWith (fun err -> Assert.Contains("budget", err.ToString().ToLower()))
     
     [<Fact>]
     let ``solveWithConfig with constraint repair fixes budget violations`` () =

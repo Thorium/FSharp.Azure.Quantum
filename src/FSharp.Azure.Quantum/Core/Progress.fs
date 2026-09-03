@@ -141,7 +141,7 @@ module Progress =
     ///   let reporter = EventProgressReporter()
     ///   reporter.ProgressChanged.Add(fun event -> ...)
     type EventProgressReporter() =
-        let progressEvent = new Event<ProgressEvent>()
+        let progressEvent = Event<ProgressEvent>()
         let mutable cancellationToken: CancellationToken option = None
         
         /// Subscribe to progress events
@@ -165,7 +165,7 @@ module Progress =
         
         interface IProgressReporter with
             member _.Report(event: ProgressEvent) =
-                progressEvent.Trigger(event)
+                progressEvent.Trigger event
             
             member _.IsCancellationRequested =
                 cancellationToken 
@@ -184,7 +184,7 @@ module Progress =
         
         interface IProgressReporter with
             member _.Report(event: ProgressEvent) =
-                reporters |> List.iter (fun r -> r.Report(event))
+                reporters |> List.iter (fun r -> r.Report event)
             
             member _.IsCancellationRequested =
                 reporters |> List.exists (fun r -> r.IsCancellationRequested)

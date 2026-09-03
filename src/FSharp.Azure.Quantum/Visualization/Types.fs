@@ -10,8 +10,10 @@ type DiagramFormat =
 
 /// Extended gate type for visualization (adds Barrier to CircuitBuilder.Gate)
 type VisualizationGate =
-    | CircuitGate of CircuitBuilder.Gate    // All standard quantum gates
-    | Barrier of qubits:int list            // Barrier for circuit sections
+    /// All standard quantum gates
+    | CircuitGate of CircuitBuilder.Gate
+    /// Barrier for circuit sections
+    | Barrier of qubits:int list
 
 /// Visualization configuration
 type VisualizationConfig = {

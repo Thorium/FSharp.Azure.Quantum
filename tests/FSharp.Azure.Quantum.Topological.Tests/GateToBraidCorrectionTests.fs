@@ -77,17 +77,11 @@ module GateToBraidCorrectionTests =
         // Physics: T gate requires relative phase π/4, but one Ising braid gives π/2.
         // T gate is NOT in the Clifford group reachable by Ising braiding.
         // Reference: Simon "Topological Quantum" §11.2.4
-        match GateToBraid.tGateToBraid 0 2 with
-        | Ok _ -> failwith "T gate should NOT compile to exact braid for Ising anyons"
-        | Error err ->
-            Assert.Contains("not exact", err.Message)
+        (GateToBraid.tGateToBraid 0 2) |> Result.map (fun _ -> failwith "T gate should NOT compile to exact braid for Ising anyons") |> Result.defaultWith (fun err -> Assert.Contains("not exact", err.Message))
 
     [<Fact>]
     let ``T† gate errors when compiled to braid (not exact for Ising anyons)`` () =
-        match GateToBraid.tDaggerGateToBraid 0 2 with
-        | Ok _ -> failwith "T† gate should NOT compile to exact braid for Ising anyons"
-        | Error err ->
-            Assert.Contains("not exact", err.Message)
+        (GateToBraid.tDaggerGateToBraid 0 2) |> Result.map (fun _ -> failwith "T† gate should NOT compile to exact braid for Ising anyons") |> Result.defaultWith (fun err -> Assert.Contains("not exact", err.Message))
 
     // ========================================================================
     // ANGLE NORMALIZATION (updated for braidPhase = π/2)
@@ -112,10 +106,7 @@ module GateToBraidCorrectionTests =
     
     [<Fact>]
     let ``Rz zero angle produces empty braid`` () =
-        match GateToBraid.rzGateToBraid 0 0.0 2 1e-10 with
-        | Error err -> failwith $"Unexpected error: {err.Message}"
-        | Ok braid ->
-            Assert.Empty(braid.Generators)
+        (GateToBraid.rzGateToBraid 0 0.0 2 1e-10) |> Result.map (fun braid -> Assert.Empty(braid.Generators)) |> Result.defaultWith (fun err -> failwith $"Unexpected error: {err.Message}")
     
     [<Fact>]
     let ``Rz 2π equals identity (normalized to 0)`` () =
@@ -239,10 +230,7 @@ module GateToBraidCorrectionTests =
         // Ising via an exact amplitude-level intercept.)
         let hGate = CircuitBuilder.Gate.H 0
 
-        match GateToBraid.compileGateToBraid hGate 2 1e-10 with
-        | Ok _ -> failwith "H braid compilation should fail explicitly for Ising anyons"
-        | Error err ->
-            Assert.Contains("diagonal", err.Message)
+        (GateToBraid.compileGateToBraid hGate 2 1e-10) |> Result.map (fun _ -> failwith "H braid compilation should fail explicitly for Ising anyons") |> Result.defaultWith (fun err -> Assert.Contains("diagonal", err.Message))
 
     [<Fact>]
     let ``CNOT braid compilation returns explicit error (requires off-diagonal H)`` () =
@@ -252,10 +240,7 @@ module GateToBraidCorrectionTests =
         // CNOT on Ising via an exact amplitude-level intercept.)
         let cnotGate = CircuitBuilder.Gate.CNOT (0, 1)
 
-        match GateToBraid.compileGateToBraid cnotGate 2 1e-3 with
-        | Ok _ -> failwith "CNOT braid compilation should fail explicitly for Ising anyons"
-        | Error err ->
-            Assert.False(System.String.IsNullOrWhiteSpace err.Message)
+        (GateToBraid.compileGateToBraid cnotGate 2 1e-3) |> Result.map (fun _ -> failwith "CNOT braid compilation should fail explicitly for Ising anyons") |> Result.defaultWith (fun err -> Assert.False(System.String.IsNullOrWhiteSpace err.Message))
 
     // ========================================================================
     // COMPILATION SUMMARY TESTS

@@ -30,9 +30,7 @@ module TopologicalFormatTests =
     let ``Parser should reject invalid anyon types`` () =
         let invalid = Parser.parseAnyonType "InvalidType"
         
-        match invalid with
-        | Error _ -> ()
-        | Ok _ -> failwith "Should have rejected invalid anyon type"
+        invalid |> Result.iter (fun _ -> failwith "Should have rejected invalid anyon type")
     
     [<Fact>]
     let ``Parser should parse F-move directions`` () =
@@ -93,10 +91,7 @@ INIT 2
 BRAID 0
 """
         
-        match Parser.parseProgram program with
-        | Error msg -> 
-            Assert.Contains("ANYON", msg)
-        | Ok _ -> failwith "Should have required ANYON declaration"
+        (Parser.parseProgram program) |> Result.map (fun _ -> failwith "Should have required ANYON declaration") |> Result.defaultWith (fun msg -> Assert.Contains("ANYON", msg))
     
     [<Fact>]
     let ``Parser should reject invalid operation indices`` () =
@@ -106,10 +101,7 @@ INIT 2
 BRAID -1
 """
         
-        match Parser.parseProgram program with
-        | Error msg -> 
-            Assert.Contains("index", msg.ToLowerInvariant())
-        | Ok _ -> failwith "Should have rejected negative index"
+        (Parser.parseProgram program) |> Result.map (fun _ -> failwith "Should have rejected negative index") |> Result.defaultWith (fun msg -> Assert.Contains("index", msg.ToLowerInvariant()))
     
     // ========================================================================
     // SERIALIZER TESTS
@@ -344,7 +336,7 @@ BRAID -1
             }
 
             use cts = new System.Threading.CancellationTokenSource()
-            cts.Cancel()
+            do! cts.CancelAsync()
 
             let mutable threw = false
             try

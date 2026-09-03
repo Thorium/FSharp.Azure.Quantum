@@ -130,9 +130,7 @@ module QuboEncodingTests =
     [<Fact>]
     let ``toQubo returns error for empty subsets`` () =
         let problem : Problem = { UniverseSize = 2; Subsets = [] }
-        match toQubo problem with
-        | Error err -> Assert.Contains("no subsets", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty subsets")
+        (toQubo problem) |> Result.map (fun _ -> Assert.Fail("Should fail with empty subsets")) |> Result.defaultWith (fun err -> Assert.Contains("no subsets", err.ToString().ToLower()))
 
     [<Fact>]
     let ``toQubo returns error for zero universe`` () =
@@ -140,9 +138,7 @@ module QuboEncodingTests =
             UniverseSize = 0
             Subsets = [ { Id = "S1"; Elements = []; Cost = 1.0 } ]
         }
-        match toQubo problem with
-        | Error err -> Assert.Contains("universe", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with zero universe size")
+        (toQubo problem) |> Result.map (fun _ -> Assert.Fail("Should fail with zero universe size")) |> Result.defaultWith (fun err -> Assert.Contains("universe", err.ToString().ToLower()))
 
 // ============================================================================
 // ROUND-TRIP TESTS
@@ -242,10 +238,7 @@ module ConstraintRepairTests =
 
         let result = solveWithConfig backend problem config
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid)
+        result |> Result.map (fun solution -> Assert.True(solution.IsValid)) |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
 
 // ============================================================================
 // VALIDITY TESTS
@@ -340,17 +333,14 @@ module BackendIntegrationTests =
             | Some parameters -> Assert.Equal(2, parameters.Length)
             | None -> Assert.Fail("OptimizedParameters should not be None")
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``solve validates empty subsets`` () =
         let problem : Problem = { UniverseSize = 2; Subsets = [] }
         let backend = createLocalBackend ()
 
         let result = solve backend problem 100
 
-        match result with
-        | Error err -> Assert.Contains("no subsets", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty subsets")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with empty subsets")) |> Result.defaultWith (fun err -> Assert.Contains("no subsets", err.ToString().ToLower()))
 
     [<Fact>]
     let ``solve validates zero universe size`` () =
@@ -362,9 +352,7 @@ module BackendIntegrationTests =
 
         let result = solve backend problem 100
 
-        match result with
-        | Error err -> Assert.Contains("universe", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with zero universe")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with zero universe")) |> Result.defaultWith (fun err -> Assert.Contains("universe", err.ToString().ToLower()))
 
     [<Fact>]
     let ``solve validates element index out of range`` () =
@@ -376,9 +364,7 @@ module BackendIntegrationTests =
 
         let result = solve backend problem 100
 
-        match result with
-        | Error err -> Assert.Contains("element", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with invalid element index")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with invalid element index")) |> Result.defaultWith (fun err -> Assert.Contains("element", err.ToString().ToLower()))
 
     [<Fact>]
     let ``solve produces valid cover on small instance`` () =

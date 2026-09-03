@@ -107,8 +107,7 @@ if shouldRun 2 then
                     let! o2 = TopologicalBuilder.measure 0
                     return (o1, o2)
                 }
-                let! r = TopologicalBuilder.execute quantumBackend trialProgram
-                match r with
+                match! TopologicalBuilder.execute quantumBackend trialProgram with
                 | Ok (o1, o2) ->
                     let same =
                         (o1 = AnyonSpecies.Particle.Vacuum && o2 = AnyonSpecies.Particle.Vacuum) ||

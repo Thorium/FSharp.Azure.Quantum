@@ -127,8 +127,8 @@ module ErrorPropagation =
         | I -> (0.0, "Exact (identity)")
         
         // Approximate gates (these should never appear in optimized topological circuits!)
-        | H -> (1e-5, "Approximated via Solovay-Kitaev")
-        | X -> (1e-5, "Approximated via Solovay-Kitaev")
+        | H
+        | X
         | Y -> (1e-5, "Approximated via Solovay-Kitaev")
     
     /// Track error propagation through gate sequence
@@ -245,7 +245,7 @@ module ErrorPropagation =
             | DiamondNorm ->
                 [ "Info: Using conservative diamond norm model"
                   "- Consider quadratic model for tighter error bounds" ]
-            | _ -> []
+            | Additive | Quadratic -> []
         
         let suggestions = overBudget @ singleGate @ circuitOpt @ modelSuggestion
         

@@ -44,8 +44,10 @@ module DeutschJozsa =
     
     /// Oracle function type: Constant or Balanced
     type OracleType =
-        | Constant  // f(x) = 0 for all x OR f(x) = 1 for all x
-        | Balanced  // f(x) = 0 for half inputs, f(x) = 1 for other half
+        /// f(x) = 0 for all x OR f(x) = 1 for all x
+        | Constant
+        /// f(x) = 0 for half inputs, f(x) = 1 for other half
+        | Balanced
     
     /// Deutsch-Jozsa algorithm result
     type DeutschJozsaResult = {
@@ -84,7 +86,7 @@ module DeutschJozsa =
 
     let private gatesOnAllQubits (gate: int -> Gate) (numQubits: int) : QuantumOperation list =
         [ 0 .. numQubits - 1 ]
-        |> List.map (fun i -> QuantumOperation.Gate (gate i))
+        |> List.map (gate >> QuantumOperation.Gate)
 
     let private oracleFromOps (backend: IQuantumBackend) (ops: QuantumOperation list) : Oracle =
         fun state -> UnifiedBackend.applySequence backend ops state

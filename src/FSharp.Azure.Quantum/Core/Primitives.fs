@@ -57,19 +57,19 @@ module Primitives =
     // sample  (histogram of measured bitstrings)
     // ========================================================================
 
-    let private histogramOf (state: QuantumState) (shots: int) : Map<string, int> =
+    let private histogramOf (shots: int) (state: QuantumState) : Map<string, int> =
         UnifiedBackend.measureState state shots
         |> Array.countBy bitsToString
         |> Map.ofArray
 
     let private shotsError (shots: int) : QuantumError =
-        QuantumError.ValidationError ("shots", sprintf "Shot count must be non-negative; got %d." shots)
+        QuantumError.ValidationError ("shots", $"Shot count must be non-negative; got %d{shots}.")
 
     /// Execute a circuit and return a histogram of measured bitstrings
     /// (`bitstring -> count`). Counterpart of `cudaq.sample`.
     let sample (backend: IQuantumBackend) (circuit: CircuitBuilder.Circuit) (shots: int) : QuantumResult<Map<string, int>> =
         if shots < 0 then Error (shotsError shots)
-        else getState backend circuit |> Result.map (fun state -> histogramOf state shots)
+        else getState backend circuit |> Result.map (histogramOf shots)
 
     /// Async `sample` — counterpart of `cudaq.sample_async`.
     let sampleAsync
@@ -82,7 +82,7 @@ module Primitives =
             if shots < 0 then return Error (shotsError shots)
             else
                 let! stateResult = getStateAsync backend circuit cancellationToken
-                return stateResult |> Result.map (fun state -> histogramOf state shots)
+                return stateResult |> Result.map (histogramOf shots)
         }
 
     // ========================================================================
@@ -142,6 +142,7 @@ module Primitives =
     /// Largest qubit count for which we densify a state/density matrix here. `StateVector.create`
     /// itself hard-fails above 20 qubits, so reject at that bound and return `Error` rather than
     /// throwing out of the API (or wastefully allocating a multi-GB dense vector first).
+    [<Literal>]
     let private maxDenseQubits = 20
 
     /// ⟨H⟩ = Tr(ρH) = Σ_terms cᵢ Σⱼ [Pᵢ · (column j of ρ)]ⱼ on a density matrix.
@@ -149,7 +150,7 @@ module Primitives =
         match widthMismatch hamiltonian n with
         | Some err -> Error err
         | None when n > maxDenseQubits ->
-            Error (QuantumError.ValidationError ("numQubits", sprintf "Density-matrix expectation is limited to %d qubits; got %d." maxDenseQubits n))
+            Error (QuantumError.ValidationError ("numQubits", $"Density-matrix expectation is limited to %d{maxDenseQubits} qubits; got %d{n}."))
         | None when Array2D.length1 rho <> (1 <<< n) || Array2D.length2 rho <> (1 <<< n) ->
             Error (QuantumError.OperationError ("observe",
                 sprintf "Density matrix is %d×%d but %d qubits implies %d×%d." (Array2D.length1 rho) (Array2D.length2 rho) n (1 <<< n) (1 <<< n)))
@@ -178,11 +179,11 @@ module Primitives =
         | QuantumState.FusionSuperposition superposition ->
             let amplitudes = superposition.GetAmplitudeVector()
             if amplitudes.Length > (1 <<< maxDenseQubits) then
-                Error (QuantumError.ValidationError ("numQubits", sprintf "Topological-state expectation is limited to %d qubits." maxDenseQubits))
+                Error (QuantumError.ValidationError ("numQubits", $"Topological-state expectation is limited to %d{maxDenseQubits} qubits."))
             else
                 expectationOnStateVector hamiltonian (StateVector.create amplitudes)
         | QuantumState.SparseState (amplitudes, n) when n > maxDenseQubits ->
-            Error (QuantumError.ValidationError ("numQubits", sprintf "Sparse-state expectation is limited to %d qubits; got %d." maxDenseQubits n))
+            Error (QuantumError.ValidationError ("numQubits", $"Sparse-state expectation is limited to %d{maxDenseQubits} qubits; got %d{n}."))
         | QuantumState.SparseState (amplitudes, n) ->
             expectationOnStateVector hamiltonian (denseOfSparse amplitudes n)
         | QuantumState.DensityMatrix (rho, n) -> expectationOnDensityMatrix hamiltonian rho n

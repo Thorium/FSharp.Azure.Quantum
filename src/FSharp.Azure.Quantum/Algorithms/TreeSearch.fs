@@ -182,7 +182,7 @@ module TreeSearch =
             let scores =
                 [1 .. samplesToTake]
                 |> List.choose (fun _ ->
-                    let encoded = random.Next(searchSpaceSize)
+                    let encoded = random.Next searchSpaceSize
                     let path = decodeTreePosition encoded config.BranchingFactor config.MaxDepth
                     
                     match followPath rootState path config.MoveGenerator with
@@ -332,19 +332,19 @@ module TreeSearch =
             
             let actualShots = 
                 numShots |> Option.defaultWith (fun () ->
-                    if backendTypeName.Contains("Local") then 50
+                    if backendTypeName.Contains "Local" then 50
                     else 250  // IonQ, Rigetti, or other cloud backends
                 )
             
             let actualSolutionThreshold =
                 solutionThreshold |> Option.defaultWith (fun () ->
-                    if backendTypeName.Contains("Local") then 0.05  // 5%
+                    if backendTypeName.Contains "Local" then 0.05  // 5%
                     else 0.05  // 5%
                 )
             
             let actualSuccessThreshold =
                 successThreshold |> Option.defaultWith (fun () ->
-                    if backendTypeName.Contains("Local") then 0.50  // 50%
+                    if backendTypeName.Contains "Local" then 0.50  // 50%
                     else 0.60  // 60%
                 )
             

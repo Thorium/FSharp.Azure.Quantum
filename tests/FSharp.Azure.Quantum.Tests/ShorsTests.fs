@@ -53,7 +53,7 @@ module ShorsTests =
                 Ok result
             else
                 Error result.Message
-        | Error err -> Error (sprintf "%A" err)
+        | Error err -> Error ($"%A{err}")
     
     // ========================================================================
     // LOCAL SIMULATION TESTS (using ShorsAlgorithm module)
@@ -169,14 +169,10 @@ module ShorsTests =
         // Test input validation
         
         // Too small
-        match factorWithBackend 2 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000 with
-        | Ok _ -> Assert.Fail("Should reject N < 4")
-        | Error msg -> Assert.Contains("4", msg)
+        (factorWithBackend 2 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000) |> Result.map (fun _ -> Assert.Fail("Should reject N < 4")) |> Result.defaultWith (fun msg -> Assert.Contains("4", msg))
         
         // Too large
-        match factorWithBackend 100000 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000 with
-        | Ok _ -> Assert.Fail("Should reject N > 1000")
-        | Error msg -> Assert.Contains("1000", msg)
+        (factorWithBackend 100000 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000) |> Result.map (fun _ -> Assert.Fail("Should reject N > 1000")) |> Result.defaultWith (fun msg -> Assert.Contains("1000", msg))
     
     [<Fact>]
     let ``Shor with specific base`` () =
@@ -215,9 +211,7 @@ module ShorsTests =
             MaxAttempts = 5
         }
         
-        match executeShorsWithBackend invalidConfig (LocalBackend.LocalBackend() :> IQuantumBackend) 1000 with
-        | Ok _ -> Assert.Fail("Should reject 0 precision qubits")
-        | Error msg -> Assert.Contains("positive", msg.Message.ToLower())
+        (executeShorsWithBackend invalidConfig (LocalBackend.LocalBackend() :> IQuantumBackend) 1000) |> Result.map (fun _ -> Assert.Fail("Should reject 0 precision qubits")) |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.Message.ToLower()))
         
         let invalidConfig2 = {
             NumberToFactor = 15
@@ -226,9 +220,7 @@ module ShorsTests =
             MaxAttempts = 5
         }
         
-        match executeShorsWithBackend invalidConfig2 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000 with
-        | Ok _ -> Assert.Fail("Should reject > 20 precision qubits")
-        | Error msg -> Assert.Contains("20", msg.Message)
+        (executeShorsWithBackend invalidConfig2 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000) |> Result.map (fun _ -> Assert.Fail("Should reject > 20 precision qubits")) |> Result.defaultWith (fun msg -> Assert.Contains("20", msg.Message))
     
     [<Fact>]
     let ``Shor factors small composites`` () =
@@ -290,14 +282,10 @@ module ShorsTests =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         // Too small
-        match factorWithBackend 2 backend 100 with
-        | Ok _ -> Assert.Fail("Should reject N < 4")
-        | Error msg -> Assert.Contains("4", msg)
+        (factorWithBackend 2 backend 100) |> Result.map (fun _ -> Assert.Fail("Should reject N < 4")) |> Result.defaultWith (fun msg -> Assert.Contains("4", msg))
         
         // Too large for backend
-        match factorWithBackend 10000 backend 100 with
-        | Ok _ -> Assert.Fail("Should reject N > 1000 for backend")
-        | Error msg -> Assert.Contains("1000", msg)
+        (factorWithBackend 10000 backend 100) |> Result.map (fun _ -> Assert.Fail("Should reject N > 1000 for backend")) |> Result.defaultWith (fun msg -> Assert.Contains("1000", msg))
     
     [<Fact>]
     let ``Shor backend handles even numbers`` () =

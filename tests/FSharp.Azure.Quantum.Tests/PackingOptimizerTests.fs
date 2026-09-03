@@ -16,8 +16,7 @@ module PackingOptimizerTests =
     // CE BUILDER TESTS
     // ========================================================================
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``PackingOptimizer CE - simple bin packing`` () =
         let result = packingOptimizer {
             containerCapacity 100.0
@@ -34,10 +33,9 @@ module PackingOptimizerTests =
             Assert.True(r.ItemsAssigned > 0, "Should assign at least some items")
             Assert.True(r.BinsUsed > 0, "Should use at least one bin")
             Assert.Equal(3, r.TotalItems)
-        | Error e -> Assert.Fail(sprintf "Packing optimizer failed: %A" e)
+        | Error e -> Assert.Fail($"Packing optimizer failed: %A{e}")
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``PackingOptimizer CE - items fit in one bin`` () =
         let result = packingOptimizer {
             containerCapacity 100.0
@@ -53,7 +51,7 @@ module PackingOptimizerTests =
         | Ok r ->
             Assert.Equal(3, r.TotalItems)
             Assert.True(r.BinsUsed >= 1, "Should use at least one bin")
-        | Error e -> Assert.Fail(sprintf "Packing optimizer failed: %A" e)
+        | Error e -> Assert.Fail($"Packing optimizer failed: %A{e}")
 
     [<Fact>]
     let ``PackingOptimizer CE - custom shots`` () =
@@ -67,10 +65,7 @@ module PackingOptimizerTests =
             backend (localBackend ())
         }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(2, r.TotalItems)
-        | Error e -> Assert.Fail(sprintf "Packing optimizer failed: %A" e)
+        result |> Result.map (fun r -> Assert.Equal(2, r.TotalItems)) |> Result.defaultWith (fun e -> Assert.Fail($"Packing optimizer failed: %A{e}"))
 
     [<Fact>]
     let ``PackingOptimizer CE - multiple bins needed`` () =
@@ -89,14 +84,13 @@ module PackingOptimizerTests =
             // Each item is 25, capacity is 30, so minimum 2 bins
             Assert.True(r.BinsUsed >= 2 || r.ItemsAssigned < 2,
                 "Should need at least 2 bins or not assign all")
-        | Error e -> Assert.Fail(sprintf "Packing optimizer failed: %A" e)
+        | Error e -> Assert.Fail($"Packing optimizer failed: %A{e}")
 
     // ========================================================================
     // PROGRAMMATIC API TESTS
     // ========================================================================
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``PackingOptimizer API - programmatic solve`` () =
         let backend = localBackend ()
         let problem = {
@@ -116,7 +110,7 @@ module PackingOptimizerTests =
         | Ok r ->
             Assert.Equal(3, r.TotalItems)
             Assert.True(r.BinsUsed > 0)
-        | Error e -> Assert.Fail(sprintf "Programmatic solve failed: %A" e)
+        | Error e -> Assert.Fail($"Programmatic solve failed: %A{e}")
 
     // ========================================================================
     // VALIDATION ERROR TESTS
@@ -135,7 +129,7 @@ module PackingOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Items", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Items validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Items validation error, got: %A{other}")
 
     [<Fact>]
     let ``PackingOptimizer - zero bin capacity returns error`` () =
@@ -150,7 +144,7 @@ module PackingOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("BinCapacity", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected BinCapacity validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected BinCapacity validation error, got: %A{other}")
 
     [<Fact>]
     let ``PackingOptimizer - negative bin capacity returns error`` () =
@@ -165,7 +159,7 @@ module PackingOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("BinCapacity", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected BinCapacity validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected BinCapacity validation error, got: %A{other}")
 
     [<Fact>]
     let ``PackingOptimizer - zero item size returns error`` () =
@@ -180,7 +174,7 @@ module PackingOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("ItemSize", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected ItemSize validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected ItemSize validation error, got: %A{other}")
 
     [<Fact>]
     let ``PackingOptimizer - negative item size returns error`` () =
@@ -195,7 +189,7 @@ module PackingOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("ItemSize", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected ItemSize validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected ItemSize validation error, got: %A{other}")
 
     [<Fact>]
     let ``PackingOptimizer - item exceeds bin capacity returns error`` () =
@@ -210,7 +204,7 @@ module PackingOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("ItemSize", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected ItemSize validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected ItemSize validation error, got: %A{other}")
 
     [<Fact>]
     let ``PackingOptimizer - no backend defaults to local simulator`` () =
@@ -225,7 +219,7 @@ module PackingOptimizerTests =
         // backend) and still solves — it must not short-circuit with NotImplemented.
         match PackingOptimizer.solve problem with
         | Ok _ -> ()
-        | other -> Assert.Fail(sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> Assert.Fail($"Expected Ok via default local simulator, got: %A{other}")
 
     // ========================================================================
     // EDGE CASES
@@ -245,7 +239,7 @@ module PackingOptimizerTests =
         | Ok r ->
             Assert.Equal(1, r.TotalItems)
             Assert.True(r.BinsUsed >= 1)
-        | Error e -> Assert.Fail(sprintf "Single item case failed: %A" e)
+        | Error e -> Assert.Fail($"Single item case failed: %A{e}")
 
     [<Fact>]
     let ``PackingOptimizer - item exactly fills bin`` () =
@@ -262,4 +256,4 @@ module PackingOptimizerTests =
         | Ok r ->
             Assert.Equal(1, r.TotalItems)
             Assert.True(r.BinsUsed >= 1)
-        | Error e -> Assert.Fail(sprintf "Exact fit case failed: %A" e)
+        | Error e -> Assert.Fail($"Exact fit case failed: %A{e}")

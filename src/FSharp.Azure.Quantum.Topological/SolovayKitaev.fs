@@ -41,15 +41,24 @@ module SolovayKitaev =
     
     /// Basic gate in the generating set
     type BasicGate =
-        | T          // exp(iπ/4) phase on |1⟩
-        | TDagger    // exp(-iπ/4) phase on |1⟩
-        | H          // Hadamard
-        | S          // exp(iπ/2) phase on |1⟩ = T²
-        | SDagger    // exp(-iπ/2) phase on |1⟩
-        | X          // Pauli X (bit flip)
-        | Y          // Pauli Y
-        | Z          // Pauli Z (phase flip)
-        | I          // Identity
+        /// exp(iπ/4) phase on |1⟩
+        | T
+        /// exp(-iπ/4) phase on |1⟩
+        | TDagger
+        /// Hadamard
+        | H
+        /// exp(iπ/2) phase on |1⟩ = T²
+        | S
+        /// exp(-iπ/2) phase on |1⟩
+        | SDagger
+        /// Pauli X (bit flip)
+        | X
+        /// Pauli Y
+        | Y
+        /// Pauli Z (phase flip)
+        | Z
+        /// Identity
+        | I
     
     /// Gate sequence for approximation
     type GateSequence = BasicGate list
@@ -586,10 +595,14 @@ module SolovayKitaev =
     /// Elementary Fibonacci braid operations for base set construction.
     /// These are the building blocks: {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}
     type FibonacciBraidOp =
-        | Sigma1         // σ₁: exchange within first τ-pair (clockwise)
-        | Sigma1Inv      // σ₁⁻¹: counter-clockwise
-        | Sigma2         // σ₂: exchange across τ-pair boundary (clockwise)
-        | Sigma2Inv      // σ₂⁻¹: counter-clockwise
+        /// σ₁: exchange within first τ-pair (clockwise)
+        | Sigma1
+        /// σ₁⁻¹: counter-clockwise
+        | Sigma1Inv
+        /// σ₂: exchange across τ-pair boundary (clockwise)
+        | Sigma2
+        /// σ₂⁻¹: counter-clockwise
+        | Sigma2Inv
     
     /// Get SU(2) matrix for a Fibonacci braid operation
     let fibonacciBraidMatrix (op: FibonacciBraidOp) : SU2Matrix =

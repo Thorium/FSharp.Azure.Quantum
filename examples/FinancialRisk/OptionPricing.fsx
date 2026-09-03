@@ -472,7 +472,8 @@ if not quiet then
     printfn "â•â•â• Example 6: Asian Options â•â•â•"
     printfn ""
 
-let timeSteps = 12 // Monthly averaging
+/// Monthly averaging
+let timeSteps = 12
 
 if not quiet then
     printfn "Asian Call Option (12 monthly observations):"

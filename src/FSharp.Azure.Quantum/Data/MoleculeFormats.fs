@@ -264,7 +264,7 @@ module MoleculeFormats =
 
         /// Parse FCIDump header from content string.
         let parseHeader (content: string) : QuantumResult<Header> =
-            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let lines = content.Replace("\r\n", "\n").Split '\n'
 
             let headerStartIdx =
                 lines
@@ -385,6 +385,7 @@ module MoleculeFormats =
               Charge: int }
 
         /// Parsed bond from MOL block
+        [<Struct>]
         type private MolBond =
             { Atom1: int // 1-indexed
               Atom2: int // 1-indexed
@@ -452,10 +453,10 @@ module MoleculeFormats =
                     (List.rev chargesAcc, lineNum)
                 else
                     let line = lines.[lineNum]
-                    if line.StartsWith("M  END") then
+                    if line.StartsWith "M  END" then
                         (List.rev chargesAcc, lineNum + 1)
-                    elif line.StartsWith("M  CHG") then
-                        let parts = splitLine (line.Substring(6))
+                    elif line.StartsWith "M  CHG" then
+                        let parts = splitLine (line.Substring 6)
                         let newCharges =
                             if parts.Length >= 3 then parseChargeEntries parts
                             else []
@@ -578,7 +579,7 @@ module MoleculeFormats =
 
         /// Parse SDF content (may contain multiple molecules) using tail recursion.
         let parseAll (content: string) : QuantumResult<MoleculeData array> =
-            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let lines = content.Replace("\r\n", "\n").Split '\n'
             
             /// Skip empty lines and return next non-empty line index
             let rec skipEmpty lineNum =
@@ -589,7 +590,7 @@ module MoleculeFormats =
             /// Skip to next $$$$ delimiter and return line after it
             let rec skipToDelimiter lineNum =
                 if lineNum >= lines.Length then lineNum
-                elif lines.[lineNum].StartsWith("$$$$") then lineNum + 1
+                elif lines.[lineNum].StartsWith "$$$$" then lineNum + 1
                 else skipToDelimiter (lineNum + 1)
             
             /// Main parsing loop
@@ -717,14 +718,14 @@ module MoleculeFormats =
 
         /// Parse PDB content and extract ligands (HETATM records, excluding water/ions).
         let parseLigands (content: string) : QuantumResult<MoleculeData array> =
-            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let lines = content.Replace("\r\n", "\n").Split '\n'
 
             // Collect HETATM records
             let hetatoms =
                 lines
-                |> Array.filter (fun line -> line.StartsWith("HETATM"))
+                |> Array.filter (fun line -> line.StartsWith "HETATM")
                 |> Array.choose parseAtomLine
-                |> Array.filter (fun a -> not (waterResidues.Contains a.ResName) && not (ionResidues.Contains a.ResName))
+                |> Array.filter (fun a -> not ((waterResidues.Contains a.ResName) || (ionResidues.Contains a.ResName)))
 
             // Group by residue (resName + chainId + resSeq)
             let ligandGroups =

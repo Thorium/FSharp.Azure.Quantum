@@ -65,9 +65,7 @@ module NeutralAtomTests =
     let ``single-atom quench reproduces Rabi dynamics <n>(t) = sin^2(t/2)`` () =
         let backend = backend ()
         let densityAt (t: float) =
-            match evolve backend (quench [ { X = 0.0; Y = 0.0 } ] 1.0 1.0 0.0 t) 200 |> Result.bind (rydbergDensities 1) with
-            | Ok d -> d.[0]
-            | Error e -> failwith e.Message
+            (evolve backend (quench [ { X = 0.0; Y = 0.0 } ] 1.0 1.0 0.0 t) 200 |> Result.bind (rydbergDensities 1)) |> Result.map (fun d -> d.[0]) |> Result.defaultWith (fun e -> failwith e.Message)
         Assert.Equal(0.0, densityAt 0.0, 3)
         Assert.Equal(0.5, densityAt (Math.PI / 2.0), 3)
         Assert.Equal(1.0, densityAt Math.PI, 3)          // a π pulse fully excites the atom
@@ -75,9 +73,7 @@ module NeutralAtomTests =
     [<Fact>]
     let ``solveMaximumIndependentSet returns the MIS atom indices of a 3-atom path`` () =
         let register = [ { X = 0.0; Y = 0.0 }; { X = 1.0; Y = 0.0 }; { X = 2.0; Y = 0.0 } ]
-        match solveMaximumIndependentSet (backend ()) register 30.0 1.0 3.0 12.0 120 4000 with
-        | Error e -> failwith e.Message
-        | Ok mis -> Assert.Equal<int list>([ 0; 2 ], mis)   // {A, C}
+        (solveMaximumIndependentSet (backend ()) register 30.0 1.0 3.0 12.0 120 4000) |> Result.map (fun mis -> Assert.Equal<int list>([ 0; 2 ], mis)) |> Result.defaultWith (fun e -> failwith e.Message)   // {A, C}
 
     [<Fact>]
     let ``optimizeAnalog tunes a pulse to minimise a cost Hamiltonian`` () =

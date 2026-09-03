@@ -212,7 +212,7 @@ let private presetNames =
 
 let private loadCurvesFromCsv (path: string) : CurvePreset list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do eprintfn "  Warning (CSV): %s" err
 
     rows

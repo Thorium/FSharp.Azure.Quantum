@@ -23,7 +23,7 @@ let ``estimateCost should return zero cost for simulator targets`` () =
         Assert.Equal("USD", estimate.Currency)
         Assert.Equal(target, estimate.Target)
         Assert.Empty(estimate.Warnings)
-    | Error err -> Assert.True(false, sprintf "Expected success but got error: %s" err.Message)
+    | Error err -> Assert.True(false, $"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``estimateCost should return non-zero cost for QPU targets`` () =
@@ -42,7 +42,7 @@ let ``estimateCost should return non-zero cost for QPU targets`` () =
         Assert.True(estimate.MaximumCost >= estimate.MinimumCost, "Max cost should be >= min cost")
         Assert.Equal("USD", estimate.Currency)
         Assert.Equal(target, estimate.Target)
-    | Error err -> Assert.True(false, sprintf "Expected success but got error: %s" err.Message)
+    | Error err -> Assert.True(false, $"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``estimateCost should increase with shot count`` () =
@@ -60,7 +60,7 @@ let ``estimateCost should increase with shot count`` () =
     | Ok lowEstimate, Ok highEstimate ->
         Assert.True(
             highEstimate.ExpectedCost > lowEstimate.ExpectedCost,
-            sprintf "Higher shot count should cost more: %M vs %M" highEstimate.ExpectedCost lowEstimate.ExpectedCost
+            $"Higher shot count should cost more: %M{highEstimate.ExpectedCost} vs %M{lowEstimate.ExpectedCost}"
         )
     | _ -> Assert.True(false, "Both estimates should succeed")
 
@@ -74,9 +74,7 @@ let ``estimateCost should return error for invalid shot count`` () =
     let result = estimateCostSimple target shots
 
     // Assert
-    match result with
-    | Ok _ -> Assert.True(false, "Expected error for zero shots")
-    | Error err -> Assert.Contains("Shot count must be at least 1", err.Message)
+    result |> Result.map (fun _ -> Assert.True(false, "Expected error for zero shots")) |> Result.defaultWith (fun err -> Assert.Contains("Shot count must be at least 1", err.Message))
 
 [<Fact>]
 let ``estimateCost should return error for empty target`` () =
@@ -88,9 +86,7 @@ let ``estimateCost should return error for empty target`` () =
     let result = estimateCostSimple target shots
 
     // Assert
-    match result with
-    | Ok _ -> Assert.True(false, "Expected error for empty target")
-    | Error err -> Assert.Contains("Target backend cannot be empty", err.Message)
+    result |> Result.map (fun _ -> Assert.True(false, "Expected error for empty target")) |> Result.defaultWith (fun err -> Assert.Contains("Target backend cannot be empty", err.Message))
 
 [<Fact>]
 let ``estimateCost should add warning for high-cost jobs`` () =
@@ -106,7 +102,7 @@ let ``estimateCost should add warning for high-cost jobs`` () =
     | Ok estimate ->
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("$200", estimate.Warnings.[0])
-    | Error err -> Assert.True(false, sprintf "Expected success but got error: %s" err.Message)
+    | Error err -> Assert.True(false, $"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``parseCostFromMetadata should return None for null input`` () =

@@ -42,7 +42,7 @@ module CircuitAbstraction =
     type CircuitWrapper(circuit: CircuitBuilder.Circuit) =
         interface ICircuit with
             member _.NumQubits = circuit.QubitCount
-            member _.Description = sprintf "Circuit with %d qubits and %d gates" circuit.QubitCount circuit.Gates.Length
+            member _.Description = $"Circuit with %d{circuit.QubitCount} qubits and %d{circuit.Gates.Length} gates"
         
         member _.Circuit = circuit
     
@@ -50,7 +50,7 @@ module CircuitAbstraction =
     type QaoaCircuitWrapper(circuit: QaoaCircuit) =
         interface ICircuit with
             member _.NumQubits = circuit.NumQubits
-            member _.Description = sprintf "QAOA circuit with %d qubits, %d layers" circuit.NumQubits circuit.Layers.Length
+            member _.Description = $"QAOA circuit with %d{circuit.NumQubits} qubits, %d{circuit.Layers.Length} layers"
         
         member _.QaoaCircuit = circuit
 
@@ -236,7 +236,7 @@ module CircuitAbstraction =
                 let details = conversionErrors |> List.distinct |> String.concat "; "
                 Error (QuantumError.OperationError(
                     "Circuit conversion",
-                    sprintf "Failed to convert %d gate(s) from CircuitBuilder to QAOA format: %s" conversionErrors.Length details))
+                    $"Failed to convert %d{conversionErrors.Length} gate(s) from CircuitBuilder to QAOA format: %s{details}"))
             else
                 let convertedGates =
                     gateResults
@@ -442,9 +442,7 @@ module CircuitAbstraction =
             match circuit with
             | :? QaoaCircuitWrapper as wrapper -> Some wrapper.QaoaCircuit
             | :? CircuitWrapper as wrapper -> 
-                match circuitToQaoaCircuit wrapper.Circuit with
-                | Ok qaoa -> Some qaoa
-                | Error _ -> None
+                (circuitToQaoaCircuit wrapper.Circuit) |> Result.map (fun qaoa -> Some qaoa) |> Result.defaultValue None
             | _ -> None
 
     // ============================================================================

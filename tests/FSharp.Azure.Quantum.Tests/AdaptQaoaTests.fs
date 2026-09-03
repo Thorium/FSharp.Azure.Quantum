@@ -96,7 +96,4 @@ module AdaptQaoaTests =
             FSharp.Azure.Quantum.MaxCut.createProblem
                 [ "A"; "B"; "C"; "D" ]
                 [ ("A", "B", 1.0); ("B", "C", 1.0); ("C", "D", 1.0); ("D", "A", 1.0) ]
-        match FSharp.Azure.Quantum.MaxCut.solveWithAdaptQaoa square None with
-        | Error e -> failwith $"solveWithAdaptQaoa failed: {e.Message}"
-        | Ok solution ->
-            Assert.Equal(4.0, solution.CutValue, 3)
+        (FSharp.Azure.Quantum.MaxCut.solveWithAdaptQaoa square None) |> Result.map (fun solution -> Assert.Equal(4.0, solution.CutValue, 3)) |> Result.defaultWith (fun e -> failwith $"solveWithAdaptQaoa failed: {e.Message}")

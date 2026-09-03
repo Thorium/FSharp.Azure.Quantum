@@ -102,9 +102,7 @@ module QuantumTreeSearch =
         // Generate resulting boards
         movesToConsider
         |> List.choose (fun pos ->
-            match Board.makeMove board pos with
-            | Ok newBoard -> Some newBoard
-            | Error _ -> None
+            (Board.makeMove board pos) |> Result.map (fun newBoard -> Some newBoard) |> Result.defaultValue None
         )
     
     // ========================================================================

@@ -346,5 +346,5 @@ module ErrorMitigationStrategy =
                 | Error fallbackErr ->
                     Error (QuantumError.OperationError (
                         "Error mitigation",
-                        sprintf "Primary failed (%s) and fallback failed (%s)" primaryErr.Message fallbackErr.Message))
+                        $"Primary failed (%s{primaryErr.Message}) and fallback failed (%s{fallbackErr.Message})"))
             | None -> Error primaryErr

@@ -33,7 +33,7 @@ module CoverageOptimizerTests =
             Assert.True(r.ElementsCovered > 0, "Should cover at least some elements")
             Assert.True(r.TotalCost > 0.0, "Cost should be positive")
             Assert.True(r.SelectedOptions.Length > 0, "Should select at least one option")
-        | Error e -> Assert.Fail(sprintf "Coverage optimizer failed: %A" e)
+        | Error e -> Assert.Fail($"Coverage optimizer failed: %A{e}")
 
     [<Fact>]
     let ``CoverageOptimizer CE - element auto-expands universe`` () =
@@ -48,10 +48,7 @@ module CoverageOptimizerTests =
             backend (localBackend ())
         }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(3, r.TotalElements)
-        | Error e -> Assert.Fail(sprintf "Coverage optimizer failed: %A" e)
+        result |> Result.map (fun r -> Assert.Equal(3, r.TotalElements)) |> Result.defaultWith (fun e -> Assert.Fail($"Coverage optimizer failed: %A{e}"))
 
     [<Fact>]
     let ``CoverageOptimizer CE - single option covers everything`` () =
@@ -67,7 +64,7 @@ module CoverageOptimizerTests =
         | Ok r ->
             Assert.True(r.SelectedOptions.Length >= 1, "Should select the only option")
             Assert.True(r.TotalCost >= 15.0, "Cost should include AllInOne")
-        | Error e -> Assert.Fail(sprintf "Coverage optimizer failed: %A" e)
+        | Error e -> Assert.Fail($"Coverage optimizer failed: %A{e}")
 
     [<Fact>]
     let ``CoverageOptimizer CE - custom shots`` () =
@@ -81,10 +78,7 @@ module CoverageOptimizerTests =
             backend (localBackend ())
         }
 
-        match result with
-        | Ok r ->
-            Assert.True(r.SelectedOptions.Length > 0)
-        | Error e -> Assert.Fail(sprintf "Coverage optimizer failed: %A" e)
+        result |> Result.map (fun r -> Assert.True(r.SelectedOptions.Length > 0)) |> Result.defaultWith (fun e -> Assert.Fail($"Coverage optimizer failed: %A{e}"))
 
     // ========================================================================
     // PROGRAMMATIC API TESTS
@@ -110,7 +104,7 @@ module CoverageOptimizerTests =
         | Ok r ->
             Assert.True(r.SelectedOptions.Length > 0)
             Assert.True(r.TotalCost > 0.0)
-        | Error e -> Assert.Fail(sprintf "Programmatic solve failed: %A" e)
+        | Error e -> Assert.Fail($"Programmatic solve failed: %A{e}")
 
     // ========================================================================
     // VALIDATION ERROR TESTS
@@ -129,7 +123,7 @@ module CoverageOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("UniverseSize", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected UniverseSize validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected UniverseSize validation error, got: %A{other}")
 
     [<Fact>]
     let ``CoverageOptimizer - negative universe size returns error`` () =
@@ -144,7 +138,7 @@ module CoverageOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("UniverseSize", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected UniverseSize validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected UniverseSize validation error, got: %A{other}")
 
     [<Fact>]
     let ``CoverageOptimizer - empty options returns error`` () =
@@ -159,7 +153,7 @@ module CoverageOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Options", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Options validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Options validation error, got: %A{other}")
 
     [<Fact>]
     let ``CoverageOptimizer - negative cost returns error`` () =
@@ -174,7 +168,7 @@ module CoverageOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Cost", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Cost validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Cost validation error, got: %A{other}")
 
     [<Fact>]
     let ``CoverageOptimizer - out of range element index returns error`` () =
@@ -189,7 +183,7 @@ module CoverageOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("CoveredElements", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected CoveredElements validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected CoveredElements validation error, got: %A{other}")
 
     [<Fact>]
     let ``CoverageOptimizer - negative element index returns error`` () =
@@ -204,7 +198,7 @@ module CoverageOptimizerTests =
 
         match result with
         | Error (QuantumError.ValidationError ("CoveredElements", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected CoveredElements validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected CoveredElements validation error, got: %A{other}")
 
     [<Fact>]
     let ``CoverageOptimizer - no backend defaults to local simulator`` () =
@@ -219,7 +213,7 @@ module CoverageOptimizerTests =
         // backend) and still solves — it must not short-circuit with NotImplemented.
         match CoverageOptimizer.solve problem with
         | Ok _ -> ()
-        | other -> Assert.Fail(sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> Assert.Fail($"Expected Ok via default local simulator, got: %A{other}")
 
     // ========================================================================
     // EDGE CASES
@@ -239,7 +233,7 @@ module CoverageOptimizerTests =
         | Ok r ->
             Assert.Equal(1, r.TotalElements)
             Assert.True(r.SelectedOptions.Length >= 1)
-        | Error e -> Assert.Fail(sprintf "Single element case failed: %A" e)
+        | Error e -> Assert.Fail($"Single element case failed: %A{e}")
 
     [<Fact>]
     let ``CoverageOptimizer - zero cost option`` () =
@@ -256,4 +250,4 @@ module CoverageOptimizerTests =
         | Ok r ->
             Assert.True(r.SelectedOptions.Length >= 1)
             Assert.True(r.TotalCost >= 0.0)
-        | Error e -> Assert.Fail(sprintf "Zero cost case failed: %A" e)
+        | Error e -> Assert.Fail($"Zero cost case failed: %A{e}")

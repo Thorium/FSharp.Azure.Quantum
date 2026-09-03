@@ -33,9 +33,7 @@ module QuantumRegressionHHLTests =
             Logger = None
         }
         
-        match train config with
-        | Error msg -> Assert.Contains("empty", msg.Message.ToLower())
-        | Ok _ -> Assert.Fail("Should reject empty features")
+        (train config) |> Result.map (fun _ -> Assert.Fail("Should reject empty features")) |> Result.defaultWith (fun msg -> Assert.Contains("empty", msg.Message.ToLower()))
     
     [<Fact>]
     let ``Train rejects mismatched sample counts`` () =
@@ -52,9 +50,7 @@ module QuantumRegressionHHLTests =
             Logger = None
         }
         
-        match train config with
-        | Error msg -> Assert.Contains("mismatch", msg.Message.ToLower())
-        | Ok _ -> Assert.Fail("Should reject mismatched sample counts")
+        (train config) |> Result.map (fun _ -> Assert.Fail("Should reject mismatched sample counts")) |> Result.defaultWith (fun msg -> Assert.Contains("mismatch", msg.Message.ToLower()))
     
     [<Fact>]
     let ``Train rejects too few eigenvalue qubits`` () =
@@ -71,9 +67,7 @@ module QuantumRegressionHHLTests =
             Logger = None
         }
         
-        match train config with
-        | Error msg -> Assert.Contains("qubit", msg.Message.ToLower())
-        | Ok _ -> Assert.Fail("Should reject < 2 eigenvalue qubits")
+        (train config) |> Result.map (fun _ -> Assert.Fail("Should reject < 2 eigenvalue qubits")) |> Result.defaultWith (fun msg -> Assert.Contains("qubit", msg.Message.ToLower()))
     
     // ========================================================================
     // PREDICTION TESTS
@@ -335,9 +329,7 @@ module QuantumRegressionHHLTests =
             [3; 4; 5; 6]
             |> List.choose (fun qubits ->
                 let config = { baseConfig with EigenvalueQubits = qubits }
-                match train config with
-                | Error _ -> None
-                | Ok result -> Some (qubits, result.SuccessProbability)
+                (train config) |> Result.map (fun result -> Some (qubits, result.SuccessProbability)) |> Result.defaultValue None
             )
         
         if results.Length >= 2 then
@@ -362,11 +354,7 @@ module QuantumRegressionHHLTests =
             Logger = None
         }
         
-        match train config with
-        | Error msg -> 
-            Assert.Contains("NaN", msg.Message)
-        | Ok _ -> 
-            Assert.Fail("Should reject NaN inputs")
+        (train config) |> Result.map (fun _ -> Assert.Fail("Should reject NaN inputs")) |> Result.defaultWith (fun msg -> Assert.Contains("NaN", msg.Message))
     
     [<Fact>]
     let ``HHL validates insufficient shots`` () =
@@ -383,9 +371,5 @@ module QuantumRegressionHHLTests =
             Logger = None
         }
         
-        match train config with
-        | Error msg -> 
-            Assert.Contains("Shots", msg.Message)
-        | Ok _ -> 
-            Assert.Fail("Should reject insufficient shots")
+        (train config) |> Result.map (fun _ -> Assert.Fail("Should reject insufficient shots")) |> Result.defaultWith (fun msg -> Assert.Contains("Shots", msg.Message))
 

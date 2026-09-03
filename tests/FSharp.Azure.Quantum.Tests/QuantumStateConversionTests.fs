@@ -110,9 +110,7 @@ module QuantumStateConversionTests =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convert QuantumStateType.GateBased state
-        match r with
-        | Ok s -> Assert.Equal(state, s)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        r |> Result.map (fun s -> Assert.Equal(state, s)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``convert StateVector to SparseState succeeds`` () =
@@ -170,18 +168,14 @@ module QuantumStateConversionTests =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convertSmart QuantumStateType.GateBased state
-        match r with
-        | Ok s -> Assert.Equal(state, s)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        r |> Result.map (fun s -> Assert.Equal(state, s)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``convertSmart with Mixed preferred type returns unchanged`` () =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convertSmart QuantumStateType.Mixed state
-        match r with
-        | Ok s -> Assert.Equal(state, s)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        r |> Result.map (fun s -> Assert.Equal(state, s)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``convertSmart converts when types differ`` () =

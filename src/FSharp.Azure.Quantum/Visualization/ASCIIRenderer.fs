@@ -8,13 +8,21 @@ module ASCIIRenderer =
     
     /// Box drawing characters (Unicode)
     module private BoxChars =
+        [<Literal>]
         let horizontal = "─"
+        [<Literal>]
         let vertical = "│"
+        [<Literal>]
         let topLeft = "┌"
+        [<Literal>]
         let topRight = "┐"
+        [<Literal>]
         let bottomLeft = "└"
+        [<Literal>]
         let bottomRight = "┘"
+        [<Literal>]
         let control = "■"
+        [<Literal>]
         let barrier = "░"
     
     /// Gate box representation
@@ -31,7 +39,7 @@ module ASCIIRenderer =
     let private gateBox (label: string) : GateBox =
         let width = max 3 (label.Length + 2)
         let padding = (width - label.Length) / 2
-        let paddedLabel = label.PadLeft(label.Length + padding).PadRight(width)
+        let paddedLabel = label.PadLeft(label.Length + padding).PadRight width
         
         { Top = BoxChars.topLeft + String.replicate width BoxChars.horizontal + BoxChars.topRight
           Middle = BoxChars.vertical + paddedLabel + BoxChars.vertical
@@ -85,10 +93,10 @@ module ASCIIRenderer =
             | CircuitBuilder.RZ (qubit, angle) | CircuitBuilder.P (qubit, angle) ->
                 let label = 
                     match g with
-                    | CircuitBuilder.RX _ -> sprintf "RX(%.2f)" angle
-                    | CircuitBuilder.RY _ -> sprintf "RY(%.2f)" angle
-                    | CircuitBuilder.RZ _ -> sprintf "RZ(%.2f)" angle
-                    | CircuitBuilder.P _ -> sprintf "P(%.2f)" angle
+                    | CircuitBuilder.RX _ -> $"RX(%.2f{angle})"
+                    | CircuitBuilder.RY _ -> $"RY(%.2f{angle})"
+                    | CircuitBuilder.RZ _ -> $"RZ(%.2f{angle})"
+                    | CircuitBuilder.P _ -> $"P(%.2f{angle})"
                     | _ -> "?"
                 
                 let box = gateBox label
@@ -100,7 +108,7 @@ module ASCIIRenderer =
             
             // U3 gate (3 parameters)
             | CircuitBuilder.U3 (qubit, theta, phi, lambda) ->
-                let label = sprintf "U3(%.1f,%.1f,%.1f)" theta phi lambda
+                let label = $"U3(%.1f{theta},%.1f{phi},%.1f{lambda})"
                 let box = gateBox label
                 wires'
                 |> List.mapi (fun i wire ->
@@ -136,10 +144,10 @@ module ASCIIRenderer =
             | CircuitBuilder.CRY (ctrl, targ, angle) | CircuitBuilder.CRZ (ctrl, targ, angle) ->
                 let label = 
                     match g with
-                    | CircuitBuilder.CP _ -> sprintf "P(%.2f)" angle
-                    | CircuitBuilder.CRX _ -> sprintf "RX(%.2f)" angle
-                    | CircuitBuilder.CRY _ -> sprintf "RY(%.2f)" angle
-                    | CircuitBuilder.CRZ _ -> sprintf "RZ(%.2f)" angle
+                    | CircuitBuilder.CP _ -> $"P(%.2f{angle})"
+                    | CircuitBuilder.CRX _ -> $"RX(%.2f{angle})"
+                    | CircuitBuilder.CRY _ -> $"RY(%.2f{angle})"
+                    | CircuitBuilder.CRZ _ -> $"RZ(%.2f{angle})"
                     | _ -> "?"
                 
                 let box = gateBox label
@@ -221,8 +229,8 @@ module ASCIIRenderer =
                 // Safe: qubits list has exactly 3 elements
                 let (minQ, maxQ) = 
                     match qubits with
-                    | minQ :: _ :: maxQ :: [] -> (minQ, maxQ)
-                    | _ -> failwith "Internal error: CCX should have exactly 3 qubits"
+                    | minQ :: _ :: [ maxQ ] -> (minQ, maxQ)
+                    | _ -> failwith $"Internal error: CCX should have exactly 3 qubits, calling addGate with numQubits: {numQubits}, wires: {wires}, gate: {gate}"
                 
                 wires'
                 |> List.mapi (fun i wire ->
@@ -247,7 +255,7 @@ module ASCIIRenderer =
                 // Safe: Extract min and max with pattern matching
                 let (minQ, maxQ) = 
                     match allQubits with
-                    | [] -> failwith "Internal error: MCZ should have at least 1 qubit"
+                    | [] -> failwith $"Internal error: MCZ should have at least 1 qubit, calling addGate with numQubits: {numQubits}, wires: {wires}, gate: {gate}"
                     | [single] -> (single, single)
                     | minQ :: rest -> (minQ, List.last rest)  // rest is non-empty
                 

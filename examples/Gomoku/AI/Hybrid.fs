@@ -9,9 +9,12 @@ module LocalHybrid =
     
     /// Strategy selection thresholds
     module Thresholds =
-        let quantumMinCandidates = 5     // Too few candidates, use classical
-        let quantumMaxCandidates = 30    // Too many candidates, quantum overhead dominates
-        let earlyGameMoves = 10          // Use classical for opening moves
+        /// Too few candidates, use classical
+        let quantumMinCandidates = 5
+        /// Too many candidates, quantum overhead dominates
+        let quantumMaxCandidates = 30
+        /// Use classical for opening moves
+        let earlyGameMoves = 10
     
     /// AI strategy mode
     type Strategy =
@@ -28,15 +31,15 @@ module LocalHybrid =
         
         // Rule 2: Too few candidates - classical is faster
         elif candidateCount < Thresholds.quantumMinCandidates then
-            Classical (sprintf "Only %d candidates - classical overhead too low" candidateCount)
+            Classical ($"Only %d{candidateCount} candidates - classical overhead too low")
         
         // Rule 3: Too many candidates - quantum overhead too high
         elif candidateCount > Thresholds.quantumMaxCandidates then
-            Classical (sprintf "%d candidates - quantum overhead exceeds benefit" candidateCount)
+            Classical ($"%d{candidateCount} candidates - quantum overhead exceeds benefit")
         
         // Rule 4: Sweet spot - use quantum
         else
-            Quantum (sprintf "%d candidates - ideal for quantum speedup" candidateCount)
+            Quantum ($"%d{candidateCount} candidates - ideal for quantum speedup")
     
     /// Performance metrics for a move
     type MoveMetrics = {

@@ -98,7 +98,7 @@ module Batching =
         /// Returns Some(batch) if size trigger activates, None otherwise
         member _.Add(item: 'T) : 'T list option =
             // Enqueue is lock-free and thread-safe
-            queue.Enqueue(item)
+            queue.Enqueue item
             
             // Lock for timer initialization and batch extraction
             lock lockObj (fun () ->
@@ -138,7 +138,7 @@ module Batching =
                     // Check timeout trigger
                     if elapsed >= config.Timeout && not queue.IsEmpty then
                         // Drain all items on timeout (no size limit)
-                        let batch = drainQueue(None)
+                        let batch = drainQueue None
                         batchStartTime <- None
                         
                         // Only return batch if we got items
@@ -157,7 +157,7 @@ module Batching =
                 if queue.IsEmpty then
                     None
                 else
-                    let batch = drainQueue(None)
+                    let batch = drainQueue None
                     batchStartTime <- None
                     if batch.IsEmpty then None
                     else Some batch

@@ -514,8 +514,8 @@ module QuantumSatSolver =
         // Rebuild full bitstring (original vars + aux set to 0)
         let totalQubits = computeTotalQubits problem
         Array.init totalQubits (fun i ->
-            if i < problem.NumVariables then
-                if repaired.[i] then 1 else 0
+            if i < problem.NumVariables && repaired.[i] then
+                1
             else
                 0)  // Auxiliary variables reset to 0 after repair
 

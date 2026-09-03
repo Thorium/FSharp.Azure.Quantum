@@ -308,9 +308,7 @@ module ProblemAnalysisTests =
         let result = ProblemAnalysis.estimateQuantumAdvantage nullMatrix
 
         // Assert
-        match result with
-        | Ok _ -> Assert.Fail("Should reject null matrix")
-        | Error errorMsg -> Assert.Contains("null", errorMsg.Message.ToLower())
+        result |> Result.map (fun _ -> Assert.Fail("Should reject null matrix")) |> Result.defaultWith (fun errorMsg -> Assert.Contains("null", errorMsg.Message.ToLower()))
 
     [<Fact>]
     let ``Quantum advantage should reject invalid matrix`` () =
@@ -321,6 +319,4 @@ module ProblemAnalysisTests =
         let result = ProblemAnalysis.estimateQuantumAdvantage invalidMatrix
 
         // Assert
-        match result with
-        | Ok _ -> Assert.Fail("Should reject invalid matrix")
-        | Error errorMsg -> Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message))
+        result |> Result.map (fun _ -> Assert.Fail("Should reject invalid matrix")) |> Result.defaultWith (fun errorMsg -> Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message)))

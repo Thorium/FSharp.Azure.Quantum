@@ -74,9 +74,7 @@ let ``SuperdenseCoding.AllFourMessages produce distinct results`` () =
     let results =
         messages
         |> List.map (fun msg ->
-            match SuperdenseCoding.send backend msg with
-            | Error err -> failwith $"Unexpected error: {err}"
-            | Ok result -> (result.ReceivedMessage.Bit1, result.ReceivedMessage.Bit2)
+            (SuperdenseCoding.send backend msg) |> Result.map (fun result -> result.ReceivedMessage.Bit1, result.ReceivedMessage.Bit2) |> Result.defaultWith (fun err -> failwith $"Unexpected error: {err}")
         )
 
     // All 4 received messages should be distinct
@@ -108,15 +106,11 @@ let ``SuperdenseCoding.send rejects invalid bit values`` () =
     let backend = createLocalBackend ()
 
     let badMsg : SuperdenseCoding.ClassicalMessage = { Bit1 = 2; Bit2 = 0 }
-    match SuperdenseCoding.send backend badMsg with
-    | Ok _ -> Assert.Fail("Expected Error for invalid bit value")
-    | Error _ -> () // Expected
+    (SuperdenseCoding.send backend badMsg) |> Result.iter (fun _ -> Assert.Fail("Expected Error for invalid bit value")) // Expected
 
 [<Fact>]
 let ``SuperdenseCoding.runStatistics rejects zero trials`` () =
     let backend = createLocalBackend ()
     let message : SuperdenseCoding.ClassicalMessage = { Bit1 = 0; Bit2 = 0 }
 
-    match SuperdenseCoding.runStatistics backend message 0 with
-    | Ok _ -> Assert.Fail("Expected Error for zero trials")
-    | Error _ -> () // Expected
+    (SuperdenseCoding.runStatistics backend message 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for zero trials")) // Expected

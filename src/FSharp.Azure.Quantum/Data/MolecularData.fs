@@ -196,7 +196,7 @@ module MolecularData =
             let organicSubset = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
             let bracketAtom = Regex(@"^\[(\d*)([A-Z][a-z]?)([H]?)(\d*)([+-]?\d*)\]")
             
-            let matchOrganic = organicSubset.Match(smilesFragment)
+            let matchOrganic = organicSubset.Match smilesFragment
             if matchOrganic.Success then
                 let element = matchOrganic.Value.ToUpper()
                 let isAromatic = Char.IsLower(smilesFragment.[0])
@@ -209,7 +209,7 @@ module MolecularData =
                     Mass = None
                 }
             else
-                let matchBracket = bracketAtom.Match(smilesFragment)
+                let matchBracket = bracketAtom.Match smilesFragment
                 if matchBracket.Success then
                     let mass = 
                         if String.IsNullOrEmpty(matchBracket.Groups.[1].Value) then None
@@ -252,29 +252,29 @@ module MolecularData =
             else
                 // Try patterns in order
                 let tryMatch (pattern: Regex) =
-                    let m = pattern.Match(remaining)
+                    let m = pattern.Match remaining
                     if m.Success then Some m.Value else None
                 
                 match tryMatch bracket with
-                | Some token -> tokenize (remaining.Substring(token.Length)) (token :: acc)
+                | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                 | None ->
                     match tryMatch organic with
-                    | Some token -> tokenize (remaining.Substring(token.Length)) (token :: acc)
+                    | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                     | None ->
                         match tryMatch bond with
-                        | Some token -> tokenize (remaining.Substring(token.Length)) (token :: acc)
+                        | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                         | None ->
                             match tryMatch ring with
-                            | Some token -> tokenize (remaining.Substring(token.Length)) (token :: acc)
+                            | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                             | None ->
                                 match tryMatch branch with
-                                | Some token -> tokenize (remaining.Substring(token.Length)) (token :: acc)
+                                | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                                 | None ->
                                     match tryMatch dot with
-                                    | Some token -> tokenize (remaining.Substring(token.Length)) (token :: acc)
+                                    | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                                     | None ->
                                         // Unknown character, skip with warning
-                                        tokenize (remaining.Substring(1)) acc
+                                        tokenize (remaining.Substring 1) acc
         
         tokenize smiles []
     
@@ -303,7 +303,7 @@ module MolecularData =
                     // Branch start
                     | "(" ->
                         if state.LastAtomIndex >= 0 then
-                            branchStack.Push(state.LastAtomIndex)
+                            branchStack.Push state.LastAtomIndex
                         state
 
                     // Branch end
@@ -323,14 +323,14 @@ module MolecularData =
                             // right after a '.' fragment separator) has no atom to bond to.
                             // Recording it would create a bond with index -1 that crashes
                             // fingerprint/descriptor calculation later — fail the parse.
-                            let msg = sprintf "Ring closure '%s' must follow an atom" token
+                            let msg = $"Ring closure '%s{token}' must follow an atom"
                             { state with FatalError = state.FatalError |> Option.orElse (Some msg) }
                         else
                             let ringNum =
-                                if token.StartsWith("%") then Int32.Parse(token.Substring(1))
+                                if token.StartsWith "%" then Int32.Parse(token.AsSpan 1)
                                 else Int32.Parse(token)
 
-                            if ringClosures.ContainsKey(ringNum) then
+                            if ringClosures.ContainsKey ringNum then
                                 let startAtom = ringClosures.[ringNum]
                                 bonds.Add({ Atom1 = startAtom; Atom2 = state.LastAtomIndex; Order = state.CurrentBondOrder })
                                 ringClosures.Remove(ringNum) |> ignore
@@ -342,7 +342,7 @@ module MolecularData =
                     | _ ->
                         match parseAtom token atoms.Count with
                         | Some atom ->
-                            atoms.Add(atom)
+                            atoms.Add atom
 
                             if state.LastAtomIndex >= 0 then
                                 bonds.Add({ Atom1 = state.LastAtomIndex; Atom2 = atom.Index; Order = state.CurrentBondOrder })
@@ -351,14 +351,14 @@ module MolecularData =
                                 LastAtomIndex = atom.Index
                                 CurrentBondOrder = 1 }
                         | None ->
-                            { state with ErrorsRev = sprintf "Unknown token: %s" token :: state.ErrorsRev }
+                            { state with ErrorsRev = $"Unknown token: %s{token}" :: state.ErrorsRev }
 
                 let finalState =
                     tokens |> List.fold step initialState
 
                 match finalState.FatalError with
                 | Some msg ->
-                    Error (QuantumError.ValidationError ("smiles", sprintf "Invalid SMILES '%s': %s" smiles msg))
+                    Error (QuantumError.ValidationError ("smiles", $"Invalid SMILES '%s{smiles}': %s{msg}"))
                 | None ->
                     // Calculate molecular formula
                     let formula =
@@ -373,7 +373,7 @@ module MolecularData =
                         |> Seq.map (fun (elem, group) ->
                             let count = Seq.length group
                             if count = 1 then elem
-                            else sprintf "%s%d" elem count)
+                            else $"%s{elem}%d{count}")
                         |> String.concat ""
 
                     Ok {
@@ -384,7 +384,7 @@ module MolecularData =
                         ParseErrors = List.rev finalState.ErrorsRev
                     }
             with ex ->
-                Error (QuantumError.Other (sprintf "SMILES parse error: %s" ex.Message))
+                Error (QuantumError.Other ($"SMILES parse error: %s{ex.Message}"))
     
     // ========================================================================
     // MOLECULAR DESCRIPTORS
@@ -406,7 +406,7 @@ module MolecularData =
         let logP =
             atoms
             |> Array.sumBy (fun a ->
-                match logPContributions.TryFind(a.Element) with
+                match logPContributions.TryFind a.Element with
                 | Some contrib -> contrib
                 | None -> 0.0)
         
@@ -504,14 +504,14 @@ module MolecularData =
                 // Hash atom types
                 for atom in molecule.Atoms do
                     let hash = stableHash atom.Element ^^^ (if atom.IsAromatic then 0x1234 else 0)
-                    yield abs (hash) % nBits
+                    yield abs hash % nBits
 
                 // Hash bond patterns (atom1-bond-atom2)
                 for bond in molecule.Bonds do
                     let atom1 = molecule.Atoms.[bond.Atom1]
                     let atom2 = molecule.Atoms.[bond.Atom2]
                     let hash = stableHash atom1.Element ^^^ (bond.Order * 0x5678) ^^^ stableHash atom2.Element
-                    yield abs (hash) % nBits
+                    yield abs hash % nBits
 
                 // Hash 2-bond paths
                 for bond1 in molecule.Bonds do
@@ -526,7 +526,7 @@ module MolecularData =
                                 stableHash a2.Element ^^^
                                 (bond2.Order * 0x2222) ^^^
                                 stableHash a3.Element
-                            yield abs (hash) % nBits
+                            yield abs hash % nBits
             }
             |> Seq.fold (fun s i -> Set.add i s) Set.empty
 
@@ -544,7 +544,7 @@ module MolecularData =
     /// Calculate Tanimoto similarity between two fingerprints
     let tanimotoSimilarity (fp1: MolecularFingerprint) (fp2: MolecularFingerprint) : float =
         if fp1.Bits.Length <> fp2.Bits.Length then
-            failwith "Fingerprints must have same length"
+            failwith $"Fingerprints must have same length, calling tanimotoSimilarity with fp1: {fp1}, fp2: {fp2}"
         
         let intersection = 
             Array.zip fp1.Bits fp2.Bits
@@ -562,7 +562,7 @@ module MolecularData =
     /// Calculate Dice similarity between two fingerprints
     let diceSimilarity (fp1: MolecularFingerprint) (fp2: MolecularFingerprint) : float =
         if fp1.Bits.Length <> fp2.Bits.Length then
-            failwith "Fingerprints must have same length"
+            failwith $"Fingerprints must have same length, calling diceSimilarity with fp1: {fp1}, fp2: {fp2}"
         
         let intersection = 
             Array.zip fp1.Bits fp2.Bits
@@ -590,7 +590,7 @@ module MolecularData =
             |> List.choose (function Error e -> Some e | Ok _ -> None)
         
         if errors.Length > 0 && molecules.Length = 0 then
-            Error (QuantumError.ValidationError ("smiles", sprintf "All SMILES failed to parse: %A" errors))
+            Error (QuantumError.ValidationError ("smiles", $"All SMILES failed to parse: %A{errors}"))
         else
             Ok {
                 Molecules = molecules
@@ -612,20 +612,20 @@ module MolecularData =
             if lines.Length < 2 then
                 Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
             else
-                let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
                 
                 let smilesIdx = headers |> Array.tryFindIndex (fun h -> h = smilesColumn)
                 let labelIdx = labelColumn |> Option.bind (fun col -> headers |> Array.tryFindIndex (fun h -> h = col))
                 
                 match smilesIdx with
-                | None -> Error (QuantumError.ValidationError ("smilesColumn", sprintf "Column '%s' not found" smilesColumn))
+                | None -> Error (QuantumError.ValidationError ("smilesColumn", $"Column '%s{smilesColumn}' not found"))
                 | Some sIdx ->
                     let dataLines = lines.[1..]
                     
                     let parsed =
                         dataLines
                         |> Array.choose (fun line ->
-                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
                             if fields.Length > sIdx then
                                 match parseSmiles fields.[sIdx] with
                                 | Ok mol ->
@@ -649,7 +649,7 @@ module MolecularData =
                     if parsed.Length = 0 then
                         Error (QuantumError.ValidationError (
                             "csv",
-                            sprintf "All %d data rows failed to parse (no valid SMILES found in column '%s')" dataLines.Length smilesColumn))
+                            $"All %d{dataLines.Length} data rows failed to parse (no valid SMILES found in column '%s{smilesColumn}')"))
                     else
                         let molecules = parsed |> Array.map fst
                         let labels = parsed |> Array.choose snd
@@ -661,7 +661,7 @@ module MolecularData =
                             LabelColumn = labelColumn
                         }
         with ex ->
-            Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
+            Error (QuantumError.Other ($"Failed to read CSV: %s{ex.Message}"))
     
     // ========================================================================
     // FEATURE EXTRACTION (for ML)
@@ -700,7 +700,7 @@ module MolecularData =
     let toFeatureMatrix (useDescriptors: bool) (useFingerprints: bool) (dataset: MolecularDataset) 
         : QuantumResult<float array array * int array option> =
         
-        if not useDescriptors && not useFingerprints then
+        if not (useDescriptors || useFingerprints) then
             Error (QuantumError.ValidationError ("features", "Must enable descriptors and/or fingerprints"))
         else
             let nMolecules = dataset.Molecules.Length

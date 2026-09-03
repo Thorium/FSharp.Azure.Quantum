@@ -266,7 +266,7 @@ module TrotterSuzuki =
         (circuit: Circuit) : Circuit =
         
         if qubits.Length <> pauliString.Operators.Length then
-            failwith "Qubit count mismatch"
+            failwith $"Qubit count mismatch, calling synthesizePauliEvolution with pauliString: {pauliString}, time: {time}, qubits: {qubits}, circuit: {circuit}"
         
         // Extract qubits where Pauli is non-identity
         let nonIdentityIndices =

@@ -566,7 +566,7 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | _ ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
                     solveClassical ()
                     |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
@@ -697,7 +697,7 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | _ ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical Portfolio solver."
                     solveClassical ()
                     |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
@@ -811,7 +811,7 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | _ ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical MaxCut solver."
                     solveClassical ()
                     |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
@@ -923,7 +923,7 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | _ ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical Knapsack solver."
                     solveClassical ()
                     |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
@@ -1037,7 +1037,7 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | _ ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical Graph Coloring solver."
                     solveClassical ()
                     |> Result.map (fun classicalResult ->

@@ -177,9 +177,7 @@ module PredictiveModelBuilderTests =
     [<Fact>]
     let ``train with MultiClass less than 2 classes should return error`` () =
         let problem = { defaultMultiClassProblem with ProblemType = MultiClass 1 }
-        match train problem with
-        | Error _ -> ()
-        | Ok _ -> failwith "Should return error for MultiClass with 1 class"
+        (train problem) |> Result.iter (fun _ -> failwith "Should return error for MultiClass with 1 class")
 
     [<Fact>]
     let ``train with MultiClass labels out of range should return ValidationError`` () =
@@ -384,8 +382,7 @@ module PredictiveModelBuilderTests =
     // EVALUATION TESTS - MULTI-CLASS
     // ========================================================================
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``evaluateMultiClass should return valid metrics`` () =
         let features, targets = makeMultiClassData ()
         let intLabels = targets |> Array.map int
@@ -436,10 +433,7 @@ module PredictiveModelBuilderTests =
         let problem = { defaultRegressionProblem with
                             Architecture = Hybrid
                             Note = Some "Revenue prediction model v1" }
-        match train problem with
-        | Ok model ->
-            Assert.Equal(Some "Revenue prediction model v1", model.Metadata.Note)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+        (train problem) |> Result.map (fun model -> Assert.Equal(Some "Revenue prediction model v1", model.Metadata.Note)) |> Result.defaultWith (fun e -> failwith $"Should succeed, got error: {e}")
 
     // ========================================================================
     // COMPUTATION EXPRESSION TESTS
@@ -470,10 +464,7 @@ module PredictiveModelBuilderTests =
             maxEpochs 5
             shots 100
         }
-        match result with
-        | Ok model ->
-            Assert.Equal(MultiClass 3, model.Metadata.ProblemType)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun model -> Assert.Equal(MultiClass 3, model.Metadata.ProblemType)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
 
     [<Fact>]
     let ``CE predictiveModel with explicit backend should succeed`` () =
@@ -487,10 +478,7 @@ module PredictiveModelBuilderTests =
             maxEpochs 5
             shots 100
         }
-        match result with
-        | Ok model ->
-            Assert.Equal(Regression, model.Metadata.ProblemType)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun model -> Assert.Equal(Regression, model.Metadata.ProblemType)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
 
     [<Fact>]
     let ``CE predictiveModel with empty data should return ValidationError`` () =
@@ -515,10 +503,7 @@ module PredictiveModelBuilderTests =
             shots 200
             note "Full options test"
         }
-        match result with
-        | Ok model ->
-            Assert.Equal(Some "Full options test", model.Metadata.Note)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun model -> Assert.Equal(Some "Full options test", model.Metadata.Note)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
 
     [<Fact>]
     let ``CE predictiveModel defaults to Regression and Quantum`` () =

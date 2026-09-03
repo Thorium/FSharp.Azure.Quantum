@@ -205,7 +205,7 @@ let stocks =
 
 if not quiet then
     printfn "Optimizing portfolio: %d stocks, budget $%s"
-        stocks.Length (budget.ToString("N0"))
+        stocks.Length (budget.ToString "N0")
     printfn ""
 
 let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
@@ -272,7 +272,7 @@ let sortedResults = results |> List.sortByDescending (fun r -> r.Value)
 let printTable () =
     let divider = String('-', 106)
     printfn ""
-    printfn "  Portfolio Allocation (sorted by value, budget $%s)" (budget.ToString("N0"))
+    printfn "  Portfolio Allocation (sorted by value, budget $%s)" (budget.ToString "N0")
     printfn "  %s" divider
     printfn "  %-6s %-22s %6s %6s %8s %10s %7s %7s %8s"
         "Symbol" "Name" "Return" "Vol" "Sharpe" "Value" "Shares" "Pct" "Status"
@@ -285,7 +285,7 @@ let printTable () =
             (r.Stock.ExpectedReturn * 100.0)
             (r.Stock.Volatility * 100.0)
             r.SharpeRatio
-            (r.Value.ToString("N0"))
+            (r.Value.ToString "N0")
             r.Shares
             r.PctOfPortfolio
             status

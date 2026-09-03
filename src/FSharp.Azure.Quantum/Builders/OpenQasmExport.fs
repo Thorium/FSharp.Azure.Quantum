@@ -48,6 +48,7 @@ module OpenQasmExport =
     let version = "2.0"
     
     /// Number of decimal places for angle formatting
+    [<Literal>]
     let private angleDecimalPlaces = 10
     
     // ========================================================================
@@ -138,7 +139,7 @@ module OpenQasmExport =
             // 2.0 `if` compares an entire creg and cannot express this.
             match config.Version with
             | V3_0 -> $"if (c[{q}] == 1) {{ {gateToQasm config inner} }}"
-            | _ ->
+            | V1_0 | V2_0 ->
                 failwith "Conditional gates require OpenQASM 3.0 export (per-bit if). Use QasmVersion.V3_0."
 
 
@@ -161,8 +162,11 @@ module OpenQasmExport =
     ///   rxx(θ) = (H⊗H)·rzz(θ)·(H⊗H)                       (H Z H = X)
     ///   ryy(θ) = (RX(-π/2)⊗RX(-π/2))·rzz(θ)·(RX(π/2)⊗RX(π/2))   (RX(∓π/2) conjugation maps Z to ∓Y)
     /// Each is exp(-iθ/2·P⊗P) exactly (not merely up to global phase).
+    [<Literal>]
     let private rxxGateDef = "gate rxx(theta) a,b { h a; h b; cx a,b; rz(theta) b; cx a,b; h a; h b; }"
+    [<Literal>]
     let private ryyGateDef = "gate ryy(theta) a,b { rx(pi/2) a; rx(pi/2) b; cx a,b; rz(theta) b; cx a,b; rx(-pi/2) a; rx(-pi/2) b; }"
+    [<Literal>]
     let private rzzGateDef = "gate rzz(theta) a,b { cx a,b; rz(theta) b; cx a,b; }"
 
     /// Gate definitions that must be emitted in the header for this circuit.
@@ -338,7 +342,7 @@ module OpenQasmExport =
     /// </summary>
     let exportToFileWithConfig (config: QasmConfig) (circuit: Circuit) (filePath: string) : unit =
         let directory = Path.GetDirectoryName(filePath)
-        if not (String.IsNullOrEmpty(directory)) && not (Directory.Exists(directory)) then
+        if not ((String.IsNullOrEmpty directory) || (Directory.Exists directory)) then
             Directory.CreateDirectory(directory) |> ignore
         
         let qasmCode = exportWithConfig config circuit
@@ -355,7 +359,7 @@ module OpenQasmExport =
     /// </summary>
     let exportToFileWithConfigAsync (config: QasmConfig) (circuit: Circuit) (filePath: string) (ct: CancellationToken) : Task<unit> = task {
         let directory = Path.GetDirectoryName(filePath)
-        if not (String.IsNullOrEmpty(directory)) && not (Directory.Exists(directory)) then
+        if not ((String.IsNullOrEmpty directory) || (Directory.Exists directory)) then
             Directory.CreateDirectory(directory) |> ignore
 
         let qasmCode = exportWithConfig config circuit

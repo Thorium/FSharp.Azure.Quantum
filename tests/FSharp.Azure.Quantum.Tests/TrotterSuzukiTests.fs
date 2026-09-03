@@ -50,25 +50,18 @@ module TrotterSuzukiTests =
     [<Fact>]
     let ``decomposeMatrixToPauli rejects non-square matrix`` () =
         let matrix = Array2D.init 2 3 (fun _ _ -> Complex.Zero)
-        match TrotterSuzuki.decomposeMatrixToPauli matrix with
-        | Error _ -> ()
-        | Ok _ -> failwith "Expected Error for non-square matrix"
+        (TrotterSuzuki.decomposeMatrixToPauli matrix) |> Result.iter (fun _ -> failwith "Expected Error for non-square matrix")
 
     [<Fact>]
     let ``decomposeMatrixToPauli rejects non-power-of-2 dimension`` () =
         let matrix = Array2D.init 3 3 (fun i j -> if i = j then Complex.One else Complex.Zero)
-        match TrotterSuzuki.decomposeMatrixToPauli matrix with
-        | Error _ -> ()
-        | Ok _ -> failwith "Expected Error for non-power-of-2 dimension"
+        (TrotterSuzuki.decomposeMatrixToPauli matrix) |> Result.iter (fun _ -> failwith "Expected Error for non-power-of-2 dimension")
 
     [<Fact>]
     let ``decomposeMatrixToPauli handles 4x4 matrix`` () =
         // 2-qubit identity
         let identity = Array2D.init 4 4 (fun i j -> if i = j then Complex.One else Complex.Zero)
-        match TrotterSuzuki.decomposeMatrixToPauli identity with
-        | Ok hamiltonian ->
-            Assert.Equal(2, hamiltonian.NumQubits)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (TrotterSuzuki.decomposeMatrixToPauli identity) |> Result.map (fun hamiltonian -> Assert.Equal(2, hamiltonian.NumQubits)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // DECOMPOSE DIAGONAL MATRIX TO PAULI

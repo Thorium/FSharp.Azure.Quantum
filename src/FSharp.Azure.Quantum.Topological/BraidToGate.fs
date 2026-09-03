@@ -142,12 +142,10 @@ module BraidToGate =
         let j0 = AnyonSpecies.Particle.SpinJ(0, k)
         let j1 = AnyonSpecies.Particle.SpinJ(2, k)
         match RMatrix.computeRMatrix (AnyonSpecies.AnyonType.SU2Level k) with
-        | Error e -> failwith $"R-matrix computation failed for SU(2)_{k}: %A{e}"
+        | Error e -> failwith $"R-matrix computation failed for SU(2)_%d{k}: %A{e}"
         | Ok rData ->
             let getR c =
-                match RMatrix.getRSymbol rData { RMatrix.A = halfSpin; RMatrix.B = halfSpin; RMatrix.C = c } with
-                | Ok r -> r
-                | Error e -> failwith $"R-symbol lookup failed for SU(2)_{k}: %A{e}"
+                (RMatrix.getRSymbol rData { RMatrix.A = halfSpin; RMatrix.B = halfSpin; RMatrix.C = c }) |> Result.defaultWith (fun e -> failwith $"R-symbol lookup failed for SU(2)_%d{k}: %A{e}")
             (getR j0, getR j1)
 
     /// Compute the global braiding phase for a single braid generator.
@@ -519,7 +517,7 @@ module BraidToGate =
                 | AnyonSpecies.AnyonType.Ising -> max 1 (braid.StrandCount / 2 - 1)
                 // Fibonacci/SU(2)_k convention (fibonacciOpsToBraidWord /
                 // su2kOpsToBraidWord): 2n+1 strands for n qubits
-                | _ -> max 1 ((braid.StrandCount - 1) / 2)
+                | AnyonSpecies.AnyonType.Fibonacci | AnyonSpecies.AnyonType.SU2Level _ -> max 1 ((braid.StrandCount - 1) / 2)
             let depth = calculateDepth optimizedGates numQubits
             let tCount = countTGates optimizedGates
             
@@ -637,6 +635,4 @@ Non-Clifford gates: {nonCliffordCount}"""
         (options: CompilationOptions) =
         compileToCircuit braid anyonType options
         |> Result.bind (fun circuit ->
-            match backend.ExecuteToState (Core.CircuitAbstraction.wrapCircuit circuit) with
-            | Ok state -> Ok state
-            | Error qerr -> Error (TopologicalError.BackendError ("gate-backend", qerr.Message)))
+            (backend.ExecuteToState (Core.CircuitAbstraction.wrapCircuit circuit)) |> Result.mapError (fun qerr -> TopologicalError.BackendError ("gate-backend", qerr.Message)))

@@ -17,7 +17,7 @@ module ConditionalGateTests =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         match backend.ExecuteToState (CircuitWrapper(circuit) :> ICircuit) with
         | Ok (QuantumState.StateVector sv) -> sv
-        | Ok _ -> failwith "Expected StateVector"
+        | Ok _ -> failwith $"Expected StateVector, calling execute with circuit: {circuit}"
         | Error err -> failwith $"Execution failed: %A{err}"
 
     [<Fact>]
@@ -71,9 +71,7 @@ module ConditionalGateTests =
             |> addGate (Conditional (0, X 1))
 
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        match backend.ExecuteToState (CircuitWrapper(circuit) :> ICircuit) with
-        | Error _ -> ()
-        | Ok _ -> Assert.Fail("Expected error for conditional referencing unmeasured qubit")
+        (backend.ExecuteToState (CircuitWrapper(circuit) :> ICircuit)) |> Result.iter (fun _ -> Assert.Fail("Expected error for conditional referencing unmeasured qubit"))
 
     [<Fact>]
     let ``Conditional exports to OpenQASM 3 if-statement and reimports`` () =

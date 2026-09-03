@@ -9,10 +9,14 @@ module ProblemAnalysis =
     /// Supported problem types for quantum optimization
     [<Struct>]
     type ProblemType =
-        | TSP // Traveling Salesman Problem
-        | Portfolio // Portfolio Optimization
-        | QUBO // Quadratic Unconstrained Binary Optimization (generic)
-        | Unknown // Cannot classify
+        /// Traveling Salesman Problem
+        | TSP
+        /// Portfolio Optimization
+        | Portfolio
+        /// Quadratic Unconstrained Binary Optimization (generic)
+        | QUBO
+        /// Cannot classify
+        | Unknown
 
     /// Problem characteristics and metadata
     type ProblemInfo =

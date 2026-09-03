@@ -198,9 +198,9 @@ let private parseCategory (s: string) =
 let private parseShocks (s: string) : Map<string, float> =
     if String.IsNullOrWhiteSpace s then Map.empty
     else
-        s.Split(';')
+        s.Split ';'
         |> Array.choose (fun pair ->
-            match pair.Trim().Split('=') with
+            match pair.Trim().Split '=' with
             | [| key; value |] ->
                 match Double.TryParse(value.Trim()) with
                 | true, v -> Some (key.Trim(), v)
@@ -314,14 +314,14 @@ let private generateReturns (symbol: string) (mean: float) (vol: float) (days: i
             let u1 = rng.NextDouble()
             let u2 = rng.NextDouble()
             let z = sqrt(-2.0 * log u1) * cos(2.0 * Math.PI * u2)
-            mean / 252.0 + (vol / sqrt(252.0)) * z)
+            mean / 252.0 + (vol / sqrt 252.0) * z)
     let dates = Array.init days (fun i -> DateTime.Today.AddDays(float (-days + i)))
     {
         Symbol = symbol
         StartDate = dates.[0]
         EndDate = dates.[days - 1]
         LogReturns = returns
-        SimpleReturns = returns |> Array.map (fun r -> exp(r) - 1.0)
+        SimpleReturns = returns |> Array.map (fun r -> exp r - 1.0)
         Dates = dates
     }
 
@@ -345,7 +345,7 @@ let returnSeries =
 if not quiet then
     printfn "Quantum Multi-Scenario Stress Testing"
     printfn "Scenarios: %d  Confidence: %.1f%%  Horizon: %d days  Portfolio: $%s"
-        selectedScenarios.Length (confidenceLevel * 100.0) timeHorizon (portfolioValue.ToString("N0"))
+        selectedScenarios.Length (confidenceLevel * 100.0) timeHorizon (portfolioValue.ToString "N0")
     if liveDataEnabled then printfn "Data source: Yahoo Finance (live)"
     printfn ""
 
@@ -509,7 +509,7 @@ let scenarioResults =
             let speedup = float groverIterations
             if not quiet then
                 printfn "  [OK] %-35s  Loss: $%12s  Tail: %.4f%%  Speedup: ~%.1fx (theoretical)"
-                    scenario.Name (classicalLoss.ToString("N0")) (tailProb * 100.0) speedup
+                    scenario.Name (classicalLoss.ToString "N0") (tailProb * 100.0) speedup
             { Scenario = scenario
               ClassicalLoss = classicalLoss
               ClassicalLossPct = classicalLossPct
@@ -523,7 +523,7 @@ let scenarioResults =
             anyQuantumFailure <- true
             if not quiet then
                 printfn "  [FAIL] %-33s  Loss: $%12s  Error: %A"
-                    scenario.Name (classicalLoss.ToString("N0")) err
+                    scenario.Name (classicalLoss.ToString "N0") err
             { Scenario = scenario
               ClassicalLoss = classicalLoss
               ClassicalLossPct = classicalLossPct
@@ -559,13 +559,13 @@ let printTable () =
             | GeopoliticalEvent   -> "Geo"
             | MarketDislocation   -> "Mkt"
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
-        let qvarStr = if Double.IsNaN r.QuantumVaR then "â€”" else sprintf "$%s" (r.QuantumVaR.ToString("N0"))
+        let qvarStr = if Double.IsNaN r.QuantumVaR then "â€”" else sprintf "$%s" (r.QuantumVaR.ToString "N0")
         let tailStr = if Double.IsNaN r.TailProbability then "â€”" else sprintf "%.4f%%" (r.TailProbability * 100.0)
         let speedStr = if Double.IsNaN r.Speedup then "â€”" else sprintf "%.1fx" r.Speedup
         printfn "  %-32s %10s $%14s %7.2f%% %12s %10s %8s %8s"
             (if r.Scenario.Name.Length > 32 then r.Scenario.Name.[..31] else r.Scenario.Name)
             catStr
-            (r.ClassicalLoss.ToString("N0"))
+            (r.ClassicalLoss.ToString "N0")
             r.ClassicalLossPct
             qvarStr
             tailStr
@@ -582,9 +582,9 @@ let printTable () =
         printfn ""
         printfn "  Summary"
         printfn "  %s" (String('-', 60))
-        printfn "  %-40s $%s" "Worst classical loss:" (worstClassical.ClassicalLoss.ToString("N0"))
+        printfn "  %-40s $%s" "Worst classical loss:" (worstClassical.ClassicalLoss.ToString "N0")
         printfn "  %-40s %s" "Worst scenario:" worstClassical.Scenario.Name
-        printfn "  %-40s $%s" "Worst quantum VaR:" (worstQuantum.QuantumVaR.ToString("N0"))
+        printfn "  %-40s $%s" "Worst quantum VaR:" (worstQuantum.QuantumVaR.ToString "N0")
         printfn "  %-40s %.4f%%" "Average tail probability:" (avgTailProb * 100.0)
         printfn "  %-40s %d/%d" "Scenarios succeeded:" successResults.Length sortedResults.Length
         printfn "  %s" (String('-', 60))

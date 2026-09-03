@@ -53,9 +53,7 @@ module HybridSolverTests =
         let result = HybridSolver.solvePortfolioWithBackend assets constraints None None (Some HybridSolver.SolverMethod.Classical) None
 
         // Assert
-        match result with
-        | Error err -> Assert.True(false, err.Message)
-        | Ok solution -> Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
+        result |> Result.map (fun solution -> Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)) |> Result.defaultWith (fun err -> Assert.True(false, err.Message))
 
     // ========================================================================
     // COST ESTIMATION (budget guard inputs)

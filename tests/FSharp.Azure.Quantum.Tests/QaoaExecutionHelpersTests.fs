@@ -593,11 +593,7 @@ module ExecuteFromQuboTests =
         let parameters = [| (0.5, 0.3); (0.7, 0.4) |]  // 2 layers
 
         let result = executeFromQubo backend qubo parameters 30
-        match result with
-        | Ok measurements ->
-            Assert.Equal(30, measurements.Length)
-        | Error err ->
-            Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun measurements -> Assert.Equal(30, measurements.Length)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
 // ============================================================================
 // executeQaoaCircuitSparse TESTS
@@ -851,9 +847,7 @@ module BudgetExecutionTests =
         }
 
         let result = executeWithBudget backend qubo config budget
-        match result with
-        | Ok _ -> ()
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun _ -> ()) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``executeWithBudget with AdaptiveToBudgetBackend checks LocalBackend limit`` () =
@@ -887,9 +881,7 @@ module BudgetExecutionTests =
         }
 
         let result = executeWithBudget backend qubo config budget
-        match result with
-        | Ok _ -> ()
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun _ -> ()) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
 // ============================================================================
 // IQubitLimitedBackend TESTS
@@ -938,8 +930,7 @@ module ExecuteQaoaCircuitAsyncTests =
             let parameters = [| (0.5, 0.3) |]
             let backend = createLocalBackend ()
 
-            let! result = executeQaoaCircuitAsync backend problemHam mixerHam parameters 100 CancellationToken.None
-            match result with
+            match! executeQaoaCircuitAsync backend problemHam mixerHam parameters 100 CancellationToken.None with
             | Ok measurements ->
                 Assert.Equal(100, measurements.Length)
                 for m in measurements do
@@ -985,9 +976,8 @@ module ExecuteQaoaCircuitAsyncTests =
             // Already cancelled token — local backend completes synchronously so it may not
             // observe cancellation, but the function should accept the token without error
             use cts = new CancellationTokenSource()
-            let! result = executeQaoaCircuitAsync backend problemHam mixerHam parameters 10 cts.Token
             // Local backend doesn't observe cancellation, so it succeeds
-            match result with
+            match! executeQaoaCircuitAsync backend problemHam mixerHam parameters 10 cts.Token with
             | Ok measurements -> Assert.True(measurements.Length > 0)
             | Error _ -> () // Also acceptable if backend respects cancellation
         }
@@ -1004,8 +994,7 @@ module ExecuteFromQuboAsyncTests =
             let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
             let backend = createLocalBackend ()
 
-            let! result = executeFromQuboAsync backend qubo [| (0.5, 0.3) |] 100 CancellationToken.None
-            match result with
+            match! executeFromQuboAsync backend qubo [| (0.5, 0.3) |] 100 CancellationToken.None with
             | Ok measurements ->
                 Assert.Equal(100, measurements.Length)
                 for m in measurements do
@@ -1026,8 +1015,7 @@ module ExecuteQaoaCircuitSparseAsyncTests =
             let quboMap = Map.ofList [ ((0, 0), -1.0); ((1, 1), -1.0); ((0, 1), 2.0) ]
             let backend = createLocalBackend ()
 
-            let! result = executeQaoaCircuitSparseAsync backend 2 quboMap [| (0.5, 0.3) |] 50 CancellationToken.None
-            match result with
+            match! executeQaoaCircuitSparseAsync backend 2 quboMap [| (0.5, 0.3) |] 50 CancellationToken.None with
             | Ok measurements ->
                 Assert.Equal(50, measurements.Length)
                 for m in measurements do
@@ -1049,8 +1037,7 @@ module GridSearchAsyncTests =
             let backend = createLocalBackend ()
             let config = { fastConfig with NumLayers = 1; FinalShots = 200 }
 
-            let! result = executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None with
             | Ok (solution, parameters) ->
                 Assert.Equal(1, solution.Length)
                 Assert.True(solution.[0] = 0 || solution.[0] = 1)
@@ -1066,8 +1053,7 @@ module GridSearchAsyncTests =
             let backend = createLocalBackend ()
             let config = { fastConfig with NumLayers = 1; FinalShots = 200 }
 
-            let! result = executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None with
             | Ok (solution, parameters) ->
                 Assert.Equal(2, solution.Length)
                 Assert.True(parameters.Length > 0)
@@ -1083,8 +1069,7 @@ module GridSearchAsyncTests =
             let config = { fastConfig with NumLayers = 1; FinalShots = 100 }
 
             // maxConcurrency=1 should still produce valid results (sequential)
-            let! result = executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None with
             | Ok (solution, _) -> Assert.Equal(1, solution.Length)
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
@@ -1097,8 +1082,7 @@ module GridSearchAsyncTests =
             let config = { fastConfig with NumLayers = 1; FinalShots = 100 }
 
             // maxConcurrency=5 should produce valid results with concurrency
-            let! result = executeQaoaWithGridSearchAsync backend qubo config 5 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchAsync backend qubo config 5 CancellationToken.None with
             | Ok (solution, _) -> Assert.Equal(1, solution.Length)
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
@@ -1110,8 +1094,7 @@ module GridSearchAsyncTests =
             let backend = createLocalBackend ()
             let config = { fastConfig with NumLayers = 0 }  // Invalid
 
-            let! result = executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None with
             | Error (QuantumError.ValidationError _) -> () // Expected
             | _ -> Assert.Fail("Expected ValidationError for NumLayers = 0")
         }
@@ -1124,8 +1107,7 @@ module GridSearchAsyncTests =
             let config = { fastConfig with NumLayers = 1; FinalShots = 100 }
 
             // maxConcurrency=0 should be clamped to 1, not crash
-            let! result = executeQaoaWithGridSearchAsync backend qubo config 0 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchAsync backend qubo config 0 CancellationToken.None with
             | Ok (solution, _) -> Assert.Equal(1, solution.Length)
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
@@ -1143,8 +1125,7 @@ module GridSearchSparseAsyncTests =
             let backend = createLocalBackend ()
             let config = { fastConfig with NumLayers = 1; FinalShots = 200 }
 
-            let! result = executeQaoaWithGridSearchSparseAsync backend 1 quboMap config 1 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchSparseAsync backend 1 quboMap config 1 CancellationToken.None with
             | Ok (solution, parameters) ->
                 Assert.Equal(1, solution.Length)
                 Assert.True(parameters.Length > 0)
@@ -1159,8 +1140,7 @@ module GridSearchSparseAsyncTests =
             let backend = createLocalBackend ()
             let config = { fastConfig with NumLayers = 1; FinalShots = 100 }
 
-            let! result = executeQaoaWithGridSearchSparseAsync backend 2 quboMap config 5 CancellationToken.None
-            match result with
+            match! executeQaoaWithGridSearchSparseAsync backend 2 quboMap config 5 CancellationToken.None with
             | Ok (solution, _) -> Assert.Equal(2, solution.Length)
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
         }
@@ -1179,8 +1159,7 @@ module BudgetExecutionAsyncTests =
             let config = { fastConfig with NumLayers = 1; FinalShots = 200 }
             let budget = { defaultBudget with MaxTotalShots = 500 }
 
-            let! result = executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None
-            match result with
+            match! executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None with
             | Ok (solution, parameters, converged) ->
                 Assert.Equal(1, solution.Length)
                 Assert.True(parameters.Length > 0)
@@ -1197,8 +1176,7 @@ module BudgetExecutionAsyncTests =
             let config = fastConfig
             let budget = { defaultBudget with MaxTotalShots = 0 }
 
-            let! result = executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None
-            match result with
+            match! executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None with
             | Error (QuantumError.ValidationError _) -> () // Expected
             | _ -> Assert.Fail("Expected ValidationError for MaxTotalShots = 0")
         }
@@ -1212,8 +1190,7 @@ module BudgetExecutionAsyncTests =
             let config = { fastConfig with NumLayers = 1; FinalShots = 500 }
             let budget = { defaultBudget with MaxTotalShots = 100 }
 
-            let! result = executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None
-            match result with
+            match! executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None with
             | Ok (solution, _, _) ->
                 Assert.Equal(1, solution.Length)
             | Error err ->
@@ -1228,8 +1205,7 @@ module BudgetExecutionAsyncTests =
             let config = fastConfig
             let budget = { defaultBudget with Decomposition = FixedQubitLimit 3 }
 
-            let! result = executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None
-            match result with
+            match! executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None with
             | Error (QuantumError.OperationError _) -> () // Expected
             | _ -> Assert.Fail("Expected OperationError for exceeding qubit limit")
         }
@@ -1242,8 +1218,7 @@ module BudgetExecutionAsyncTests =
             let config = { defaultConfig with NumLayers = 1; OptimizationShots = 50; FinalShots = 100; EnableOptimization = true }
             let budget = { defaultBudget with MaxTotalShots = 200 }
 
-            let! result = executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None
-            match result with
+            match! executeWithBudgetAsync backend qubo config budget 1 CancellationToken.None with
             | Ok (solution, parameters, _) ->
                 Assert.Equal(2, solution.Length)
                 Assert.True(parameters.Length > 0)

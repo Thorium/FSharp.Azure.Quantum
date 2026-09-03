@@ -35,9 +35,7 @@ module ShorArithmeticIntegrationTests =
                 |> List.indexed
                 |> List.fold (fun st (i, q) ->
                     if (value >>> i) &&& 1 = 1 then
-                        match bknd.ApplyOperation (QuantumOperation.Gate (X q)) st with
-                        | Error err -> failwith $"State prep failed on qubit {q}: {err}"
-                        | Ok s -> s
+                        (bknd.ApplyOperation (QuantumOperation.Gate (X q)) st) |> Result.defaultWith (fun err -> failwith $"State prep failed on qubit {q}: {err}")
                     else
                         st) state0
             (bknd, finalState)
@@ -70,9 +68,7 @@ module ShorArithmeticIntegrationTests =
 
         // Set control qubit to |1>
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state' with
         | Error err -> Assert.Fail($"controlledModularMultiplication failed: {err}")
@@ -88,9 +84,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 2
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state' with
         | Error err -> Assert.Fail($"controlledModularMultiplication failed: {err}")
@@ -106,9 +100,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 4
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state' with
         | Error err -> Assert.Fail($"controlledModularMultiplication failed: {err}")
@@ -148,9 +140,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 3
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularMultiplication controlQubit targetQubits 1 5 bknd state' with
         | Error err -> Assert.Fail($"controlledModularMultiplication failed: {err}")
@@ -171,9 +161,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 1
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state' with
         | Error (QuantumError.ValidationError _) -> ()  // Expected
@@ -193,9 +181,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 1
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularExponentiation controlQubit targetQubits 2 1 7 bknd state' with
         | Error err -> Assert.Fail($"controlledModularExponentiation failed: {err}")
@@ -212,9 +198,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 1
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularExponentiation controlQubit targetQubits 2 2 7 bknd state' with
         | Error err -> Assert.Fail($"controlledModularExponentiation failed: {err}")
@@ -231,9 +215,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 3
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularExponentiation controlQubit targetQubits 2 3 7 bknd state' with
         | Error err -> Assert.Fail($"controlledModularExponentiation failed: {err}")
@@ -269,9 +251,7 @@ module ShorArithmeticIntegrationTests =
         let (bknd, state) = prepareState totalQubits targetQubits 1
 
         let state' =
-            match bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state with
-            | Ok s -> s
-            | Error err -> failwith $"Control prep failed: {err}"
+            (bknd.ApplyOperation (QuantumOperation.Gate (X controlQubit)) state) |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
 
         match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state' with
         | Error (QuantumError.NotImplemented _) ->

@@ -121,7 +121,7 @@ let private presetNames =
 
 let private loadGroupsFromCsv (path: string) : DHGroupPreset list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do eprintfn "  Warning (CSV): %s" err
 
     rows

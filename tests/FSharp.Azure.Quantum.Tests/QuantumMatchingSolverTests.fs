@@ -90,7 +90,7 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            let n = qubo.GetLength(0)
+            let n = qubo.GetLength 0
             for i in 0 .. n - 1 do
                 for j in 0 .. n - 1 do
                     Assert.Equal(qubo.[i, j], qubo.[j, i], 6)
@@ -353,8 +353,7 @@ module QuantumSolverTests =
             Assert.True(solution.IsValid, "Solution should be a valid matching")
             Assert.Equal("Local Simulator", solution.BackendName)
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``solve returns valid matching for path graph`` () =
         let backend = createLocalBackend ()
         // Path: 0-1-2-3 (3 edges)
@@ -368,10 +367,7 @@ module QuantumSolverTests =
             ]
         }
 
-        match solve backend problem 200 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be a valid matching")
+        (solve backend problem 200) |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be a valid matching")) |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
 
     [<Fact>]
     let ``solve returns valid matching for triangle`` () =
@@ -402,10 +398,7 @@ module QuantumSolverTests =
         }
         let config = { defaultConfig with FinalShots = 42 }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solveWithConfig failed: {err}")
-        | Ok solution ->
-            Assert.Equal(42, solution.NumShots)
+        (solveWithConfig backend problem config) |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots)) |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
 
     [<Fact>]
     let ``solve with constraint repair produces valid matching`` () =
@@ -422,10 +415,7 @@ module QuantumSolverTests =
         }
         let config = { defaultConfig with EnableConstraintRepair = true }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve with repair failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Repaired solution should be valid")
+        (solveWithConfig backend problem config) |> Result.map (fun solution -> Assert.True(solution.IsValid, "Repaired solution should be valid")) |> Result.defaultWith (fun err -> Assert.Fail($"solve with repair failed: {err}"))
 
     [<Fact>]
     let ``solve with disjoint edges returns valid matching`` () =
@@ -439,10 +429,7 @@ module QuantumSolverTests =
             ]
         }
 
-        match solve backend problem 200 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be valid")
+        (solve backend problem 200) |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be valid")) |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
 
     [<Fact>]
     let ``solve with weighted edges prefers heavier`` () =

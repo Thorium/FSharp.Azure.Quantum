@@ -173,7 +173,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
     
     /// Parse a single atom from "Element:X:Y:Z" format
     let private parseAtom (atomStr: string) : Atom option =
-        let parts = atomStr.Split(':')
+        let parts = atomStr.Split ':'
         if parts.Length >= 4 then
             try
                 Some {
@@ -189,7 +189,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
     
     /// Parse atoms string "H:0:0:0;H:0.74:0:0" into Atom list
     let private parseAtoms (atomsStr: string) : Atom list =
-        atomsStr.Split(';')
+        atomsStr.Split ';'
         |> Array.choose parseAtom
         |> Array.toList
     
@@ -243,7 +243,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
         if String.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith("#") then
             None
         else
-            let fields = line.Split(',')
+            let fields = line.Split ','
             if fields.Length >= 7 then
                 try
                     let name = fields.[0].Trim()
@@ -315,7 +315,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
     let search (query: string) : Molecule array =
         let q = query.ToLowerInvariant()
         allMolecules.Value
-        |> Array.filter (fun m -> m.Name.ToLowerInvariant().Contains(q))
+        |> Array.filter (fun m -> m.Name.ToLowerInvariant().Contains q)
     
     /// Get molecules by category (exact match, case-insensitive)
     let byCategory (category: string) : Molecule array =

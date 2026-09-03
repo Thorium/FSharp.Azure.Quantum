@@ -333,7 +333,7 @@ module QuantumTreeSearch =
                 let initialState =
                     match problem.InitialState with
                     | Some s -> s
-                    | None -> failwith "InitialState must be set (should have been caught by validation)"
+                    | None -> failwith $"InitialState must be set (should have been caught by validation), calling solve with problem: {problem}"
                 
                 // Use provided backend or create LocalBackend for simulation
                 let actualBackend = 
@@ -449,7 +449,7 @@ module QuantumTreeSearch =
                     else
                         ""
                 
-                sprintf "\n\nAll Solutions Found:\n%s%s" solutions remainder
+                $"\n\nAll Solutions Found:\n%s{solutions}%s{remainder}"
         
         sprintf """=== Quantum Tree Search Solution ===
 Best Move: %d

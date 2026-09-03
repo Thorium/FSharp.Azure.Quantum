@@ -37,17 +37,13 @@ module PrimitivesTests =
     let ``observe of Z0 Z1 on a Bell state is +1`` () =
         let zz : TrotterSuzuki.PauliHamiltonian =
             { Terms = [ { Operators = [| 'Z'; 'Z' |]; Coefficient = Complex(1.0, 0.0) } ]; NumQubits = 2 }
-        match Primitives.observe (backend ()) (bell ()) zz with
-        | Error e -> failwith $"observe failed: {e.Message}"
-        | Ok value -> Assert.Equal(1.0, value, 6)
+        (Primitives.observe (backend ()) (bell ()) zz) |> Result.map (fun value -> Assert.Equal(1.0, value, 6)) |> Result.defaultWith (fun e -> failwith $"observe failed: {e.Message}")
 
     [<Fact>]
     let ``observe of X0 on a Bell state is 0`` () =
         let x0 : TrotterSuzuki.PauliHamiltonian =
             { Terms = [ { Operators = [| 'X'; 'I' |]; Coefficient = Complex(1.0, 0.0) } ]; NumQubits = 2 }
-        match Primitives.observe (backend ()) (bell ()) x0 with
-        | Error e -> failwith $"observe failed: {e.Message}"
-        | Ok value -> Assert.Equal(0.0, value, 6)
+        (Primitives.observe (backend ()) (bell ()) x0) |> Result.map (fun value -> Assert.Equal(0.0, value, 6)) |> Result.defaultWith (fun e -> failwith $"observe failed: {e.Message}")
 
     [<Fact>]
     let ``observe rejects a Pauli term whose width mismatches the state`` () =
@@ -109,7 +105,7 @@ module PrimitivesTests =
         let jobs = [ (backend (), bell ()); (backend (), CircuitBuilder.empty 1) ]
         let results = Primitives.sampleDistributedAsync jobs 500 System.Threading.CancellationToken.None |> runSync
         Assert.Equal(2, results.Length)
-        Assert.All(results, fun r -> match r with Ok _ -> () | Error e -> failwith e.Message)
+        Assert.All(results, fun r -> r |> Result.map (fun _ -> ()) |> Result.defaultWith (fun e -> failwith e.Message))
 
     [<Fact>]
     let ``sample with negative shots returns a ValidationError`` () =

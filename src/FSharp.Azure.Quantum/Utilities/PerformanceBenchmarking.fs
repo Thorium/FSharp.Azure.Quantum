@@ -57,7 +57,7 @@ module PerformanceBenchmarking =
             | Some s -> Random(s)
             | None -> Random()
         Array.init count (fun i ->
-            let name = sprintf "City%d" i
+            let name = $"City%d{i}"
             let x = float (rng.Next(0, 100))
             let y = float (rng.Next(0, 100))
             (name, x, y)
@@ -71,7 +71,7 @@ module PerformanceBenchmarking =
             | Some s -> Random(s)
             | None -> Random()
         List.init count (fun i ->
-            let symbol = sprintf "ASSET%d" i
+            let symbol = $"ASSET%d{i}"
             // Expected return: 0.05 (5%) to 0.25 (25%)
             let expectedReturn = 0.05 + (rng.NextDouble() * 0.20)
             // Risk (std dev): 0.10 (10%) to 0.40 (40%)
@@ -90,7 +90,7 @@ module PerformanceBenchmarking =
                  sprintf "%s,%d,%s,%d,%.4f,%.2f,%s"
                      r.ProblemType r.ProblemSize r.Solver
                      r.ExecutionTimeMs r.SolutionQuality r.Cost
-                     (r.Timestamp.ToString("o")))
+                     (r.Timestamp.ToString "o"))
              |> String.concat "\n")
         
         System.IO.File.WriteAllText(path, csv)
@@ -112,7 +112,7 @@ module PerformanceBenchmarking =
             |> Option.bind (fun baseResult ->
                 let regressionFactor = float curr.ExecutionTimeMs / float baseResult.ExecutionTimeMs
                 if regressionFactor > threshold then
-                    Some (sprintf "%s_%d_%s" curr.ProblemType curr.ProblemSize curr.Solver, regressionFactor)
+                    Some ($"%s{curr.ProblemType}_%d{curr.ProblemSize}_%s{curr.Solver}", regressionFactor)
                 else
                     None))
 
@@ -150,7 +150,7 @@ module PerformanceBenchmarking =
             
             // Ensure we got at least one successful result
             if results.IsEmpty then
-                failwith "All TSP solver runs failed - cannot produce benchmark result"
+                failwith $"All TSP solver runs failed - cannot produce benchmark result, calling benchmarkClassicalTSP with cities: {cities}, repetitions: {repetitions}, logger: {logger}"
             
             let avgTime = 
                 results |> List.averageBy fst |> ceil |> int64
@@ -207,7 +207,7 @@ module PerformanceBenchmarking =
             
             // Ensure we got at least one successful result
             if results.IsEmpty then
-                failwith "All Portfolio solver runs failed - cannot produce benchmark result"
+                failwith $"All Portfolio solver runs failed - cannot produce benchmark result, calling benchmarkClassicalPortfolio with assets: {assets}, budget: {budget}, repetitions: {repetitions}, logger: {logger}"
             
             let avgTime = 
                 results |> List.averageBy fst |> ceil |> int64
@@ -239,7 +239,7 @@ module PerformanceBenchmarking =
                 |> List.map (fun size ->
                     async {
                         let cities = generateRandomCities size (Some (size * 42))  // Deterministic seed
-                        return! benchmarkClassicalTSP (cities) config.Repetitions None
+                        return! benchmarkClassicalTSP cities config.Repetitions None
                     })
                 |> Async.Parallel
             
@@ -330,7 +330,7 @@ module PerformanceBenchmarking =
         let byType = results |> List.groupBy (fun r -> r.ProblemType)
         
         for (problemType, typeResults) in byType do
-            sb.AppendLine(sprintf "## %s Benchmarks" problemType) |> ignore
+            sb.AppendLine($"## %s{problemType} Benchmarks") |> ignore
             sb.AppendLine() |> ignore
             
             // Table header
@@ -354,15 +354,15 @@ module PerformanceBenchmarking =
             sb.AppendLine() |> ignore
             
             for comp in comparisons do
-                sb.AppendLine(sprintf "### %s - %d units" comp.ProblemType comp.ProblemSize) |> ignore
+                sb.AppendLine($"### %s{comp.ProblemType} - %d{comp.ProblemSize} units") |> ignore
                 sb.AppendLine() |> ignore
-                sb.AppendLine(sprintf "- **Classical Time:** %d ms" comp.ClassicalResult.ExecutionTimeMs) |> ignore
-                sb.AppendLine(sprintf "- **Classical Quality:** %.4f" comp.ClassicalResult.SolutionQuality) |> ignore
+                sb.AppendLine($"- **Classical Time:** %d{comp.ClassicalResult.ExecutionTimeMs} ms") |> ignore
+                sb.AppendLine($"- **Classical Quality:** %.4f{comp.ClassicalResult.SolutionQuality}") |> ignore
                 
                 match comp.SpeedupFactor with
                 | Some speedup ->
-                    let speedupText = if speedup > 1.0 then sprintf "%.2fx faster" speedup else sprintf "%.2fx slower" (1.0 / speedup)
-                    sb.AppendLine(sprintf "- **Speedup:** %s" speedupText) |> ignore
+                    let speedupText = if speedup > 1.0 then $"%.2f{speedup}x faster" else sprintf "%.2fx slower" (1.0 / speedup)
+                    sb.AppendLine($"- **Speedup:** %s{speedupText}") |> ignore
                 | None -> ()
                 
                 sb.AppendLine(sprintf "- **Quantum Advantage:** %s" (if comp.QuantumAdvantage then "✅ Yes" else "❌ No")) |> ignore

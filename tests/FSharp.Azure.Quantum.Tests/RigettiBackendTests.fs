@@ -445,7 +445,7 @@ module RigettiBackendTests =
         // Assert
         match result with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "Expected Ok, got Error: %s" msg.Message)
+        | Error msg -> Assert.True(false, $"Expected Ok, got Error: %s{msg.Message}")
     
     [<Fact>]
     let ``validateProgram - returns Error for invalid two-qubit gate`` () =
@@ -559,7 +559,7 @@ module RigettiBackendTests =
             Assert.Equal(12, histogram.["01"])
             Assert.Equal(8, histogram.["10"])
             Assert.Equal(500, histogram.["11"])
-        | Error e -> Assert.True(false, sprintf "Expected Ok, got Error: %A" e)
+        | Error e -> Assert.True(false, $"Expected Ok, got Error: %A{e}")
     
     [<Fact>]
     let ``parseRigettiResults - handles empty histogram`` () =
@@ -571,9 +571,7 @@ module RigettiBackendTests =
         let result = parseRigettiResults json
         
         // Assert
-        match result with
-        | Ok histogram -> Assert.Empty(histogram)
-        | Error e -> Assert.True(false, sprintf "Expected Ok, got Error: %A" e)
+        result |> Result.map (fun histogram -> Assert.Empty(histogram)) |> Result.defaultWith (fun e -> Assert.True(false, $"Expected Ok, got Error: %A{e}"))
     
     [<Fact>]
     let ``mapRigettiError - maps InvalidProgram to InvalidCircuit`` () =

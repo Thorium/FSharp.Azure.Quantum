@@ -11,6 +11,7 @@ open Azure.Identity
 module Authentication =
 
     /// Quantum API scope for Azure AD
+    [<Literal>]
     let private quantumScope = "https://quantum.microsoft.com/.default"
     
     /// Credential provider factory functions
@@ -117,21 +118,21 @@ module Authentication =
             base.SendAsync(request, cancellationToken)
 
         override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
-            match request.Options.TryGetValue(noAuthOptionKey) with
+            match request.Options.TryGetValue noAuthOptionKey with
             | true, true ->
                 // Pre-signed request (e.g. SAS blob download) — pass through untouched
                 this.SendAsyncNoAuth(request, cancellationToken)
             | _ ->
                 // Get bearer token asynchronously without blocking
                 async {
-                    let! token = tokenManager.GetAccessTokenAsync(cancellationToken)
+                    let! token = tokenManager.GetAccessTokenAsync cancellationToken
                     return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
                 } |> Async.StartAsTask
 
         override this.Dispose(disposing: bool) =
             if disposing then
                 (tokenManager :> IDisposable).Dispose()
-            base.Dispose(disposing)
+            base.Dispose disposing
 
     /// Create an authenticated HttpClient for Azure Quantum API calls
     ///

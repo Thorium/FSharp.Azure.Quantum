@@ -138,9 +138,7 @@ module QaoaExecutionHelpers =
         let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
         let circuit = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
         
-        match backend.ExecuteToState circuit with
-        | Error err -> Error err
-        | Ok state -> Ok (QuantumState.measure state shots)
+        (backend.ExecuteToState circuit) |> Result.map (fun state -> QuantumState.measure state shots)
 
     /// Execute a single QAOA circuit asynchronously with given parameters and return measurements.
     /// Uses backend.ExecuteToStateAsync for non-blocking I/O against cloud backends.
@@ -159,9 +157,7 @@ module QaoaExecutionHelpers =
 
             let! result = backend.ExecuteToStateAsync circuit cancellationToken
             return
-                match result with
-                | Error err -> Error err
-                | Ok state -> Ok (QuantumState.measure state shots)
+                result |> Result.map (fun state -> QuantumState.measure state shots)
         }
 
     /// Execute QAOA from a dense QUBO matrix asynchronously.
@@ -386,7 +382,7 @@ module QaoaExecutionHelpers =
 
             let executeOne (parameters: (float * float)[]) =
                 task {
-                    do! semaphore.WaitAsync(cancellationToken)
+                    do! semaphore.WaitAsync cancellationToken
                     try
                         let! result = executeQaoaCircuitAsync backend problemHam mixerHam parameters config.OptimizationShots cancellationToken
                         return
@@ -646,7 +642,7 @@ module QaoaExecutionHelpers =
 
             let executeOne (parameters: (float * float)[]) =
                 task {
-                    do! semaphore.WaitAsync(cancellationToken)
+                    do! semaphore.WaitAsync cancellationToken
                     try
                         let! result = executeQaoaCircuitAsync backend problemHam mixerHam parameters config.OptimizationShots cancellationToken
                         return

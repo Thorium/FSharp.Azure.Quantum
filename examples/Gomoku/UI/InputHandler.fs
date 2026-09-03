@@ -27,7 +27,7 @@ module InputHandler =
             
             AnsiConsole.MarkupLine("[cyan]Controls:[/] ↑↓←→ Move | [green]Enter[/] Place | [green]T[/] Type coords | [red]Esc/Q[/] Quit")
             
-            while not quit && not confirmed && not useTyping do
+            while not ((quit || confirmed) || useTyping) do
                 let key = Console.ReadKey(true)
                 
                 match key.Key with
@@ -90,6 +90,7 @@ module InputHandler =
             None
     
     /// Get player move with retry logic - wrapper for live cursor rendering
+    [<TailCall>]
     let rec getValidPlayerMove (board: Board) (renderBoard: Position option -> unit) : PlayerInput =
         match getPlayerMoveWithCursor board renderBoard with
         | Some input -> input
@@ -117,6 +118,7 @@ module InputHandler =
             None
     
     /// Get valid game mode with retry
+    [<TailCall>]
     let rec getValidGameMode() : int =
         match getGameMode() with
         | Some mode -> mode

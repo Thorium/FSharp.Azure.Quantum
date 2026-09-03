@@ -126,7 +126,7 @@ module MottonenStatePreparation =
             |> sqrt
         
         if norm < 1e-10 then
-            failwith "Cannot normalize zero vector"
+            failwith $"Cannot normalize zero vector, calling normalizeState with amplitudes: {amplitudes}"
         
         let normalized = 
             amplitudes 
@@ -252,7 +252,7 @@ module MottonenStatePreparation =
         let dim = phases.Length
 
         if (1 <<< n) <> dim then
-            failwith "Dimension mismatch"
+            failwith $"Dimension mismatch, calling applyPhaseGates with phases: {phases}, qubits: {qubits}, circuit: {circuit}"
 
         [0 .. n - 1]
         |> List.fold (fun circ k ->

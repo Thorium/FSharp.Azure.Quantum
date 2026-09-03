@@ -45,8 +45,8 @@ module TspSolver =
     
     /// Validate distance matrix dimensions and values
     let private validateDistanceMatrix (distances: DistanceMatrix) : Result<unit, string> =
-        let n = distances.GetLength(0)
-        let m = distances.GetLength(1)
+        let n = distances.GetLength 0
+        let m = distances.GetLength 1
         
         // Check matrix size (allow 1 city as trivial case)
         if n < 1 then
@@ -108,7 +108,7 @@ module TspSolver =
     /// Nearest Neighbor initialization
     /// Returns a tour starting from city 0, always visiting the nearest unvisited city
     let internal nearestNeighborTour (distances: DistanceMatrix) : Tour =
-        let n = distances.GetLength(0)
+        let n = distances.GetLength 0
         
         let rec buildTour (currentCity: int) (visited: Set<int>) (tour: int list) : int list =
             if Set.count visited = n then
@@ -189,7 +189,7 @@ module TspSolver =
 
     /// Create initial tour based on configuration
     let private createInitialTour (distances: DistanceMatrix) (config: TspConfig) : Tour =
-        let n = distances.GetLength(0)
+        let n = distances.GetLength 0
         if config.UseNearestNeighbor then
             nearestNeighborTour distances
         else
@@ -214,7 +214,7 @@ module TspSolver =
     let internal solve (cities: City array) (config: TspConfig) : TspSolution =
         // Validate input (allow 1 city as trivial case)
         if cities.Length < 1 then
-            failwith "Need at least 1 city"
+            failwith $"Need at least 1 city, calling solve with cities: {cities}, config: {config}"
         elif cities.Length > maxCities then
             failwith $"Too many cities: {cities.Length} exceeds maximum {maxCities}"
         

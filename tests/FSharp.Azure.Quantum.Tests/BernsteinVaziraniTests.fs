@@ -45,14 +45,10 @@ let ``Bernstein-Vazirani recovers all-one secret`` () =
 let ``Bernstein-Vazirani rejects non-bit secret`` () =
     let backend = createLocalBackend ()
 
-    match BernsteinVazirani.runWithSecret [| 1; 2; 0 |] backend 10 with
-    | Ok _ -> Assert.True(false, "Expected validation error for non-bit secret")
-    | Error _ -> ()
+    (BernsteinVazirani.runWithSecret [| 1; 2; 0 |] backend 10) |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for non-bit secret"))
 
 [<Fact>]
 let ``Bernstein-Vazirani rejects zero shots`` () =
     let backend = createLocalBackend ()
 
-    match BernsteinVazirani.runWithSecret [| 1; 0 |] backend 0 with
-    | Ok _ -> Assert.True(false, "Expected validation error for zero shots")
-    | Error _ -> ()
+    (BernsteinVazirani.runWithSecret [| 1; 0 |] backend 0) |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for zero shots"))

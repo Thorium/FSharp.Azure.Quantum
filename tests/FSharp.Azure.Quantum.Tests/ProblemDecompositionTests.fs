@@ -316,9 +316,7 @@ module ExecuteTests =
         let recombineFn (xs: int list) = xs |> List.sum
         let plan = RunDirect 5
         let result = execute solveFn recombineFn plan
-        match result with
-        | Ok solution -> Assert.Equal(10, solution)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun solution -> Assert.Equal(10, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``execute RunDecomposed solves sub-problems and recombines`` () =
@@ -336,9 +334,7 @@ module ExecuteTests =
         let recombineFn (xs: string list) = xs |> String.concat ","
         let plan = RunDecomposed ["a"; "b"; "c"]
         let result = execute solveFn recombineFn plan
-        match result with
-        | Ok solution -> Assert.Equal("A,B,C", solution)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun solution -> Assert.Equal("A,B,C", solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``execute RunDecomposed short-circuits on first error`` () =
@@ -373,9 +369,7 @@ module ExecuteTests =
         let recombineFn (xs: int list) = xs |> List.sum
         let plan = RunDecomposed [7]
         let result = execute solveFn recombineFn plan
-        match result with
-        | Ok solution -> Assert.Equal(8, solution)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun solution -> Assert.Equal(8, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``execute RunDecomposed with empty sub-problems calls recombine with empty list`` () =
@@ -383,9 +377,7 @@ module ExecuteTests =
         let recombineFn (xs: int list) = xs.Length  // returns count
         let plan : DecompositionPlan<int> = RunDecomposed []
         let result = execute solveFn recombineFn plan
-        match result with
-        | Ok solution -> Assert.Equal(0, solution)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun solution -> Assert.Equal(0, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
 // ============================================================================
 // solveWithDecomposition TESTS
@@ -402,9 +394,7 @@ module SolveWithDecompositionTests =
         let estimateQubits (n: int) = n
 
         let result = solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
-        match result with
-        | Ok solution -> Assert.Equal(20, solution)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun solution -> Assert.Equal(20, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``solveWithDecomposition decomposes when problem exceeds backend limit`` () =
@@ -416,9 +406,7 @@ module SolveWithDecompositionTests =
 
         // 10 qubits > 5 limit → decompose into [5; 5] → solve each → 10 + 10 = 20
         let result = solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
-        match result with
-        | Ok solution -> Assert.Equal(20, solution)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+        result |> Result.map (fun solution -> Assert.Equal(20, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``solveWithDecomposition runs directly when within backend limit`` () =

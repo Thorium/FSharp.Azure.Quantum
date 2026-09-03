@@ -175,15 +175,7 @@ module NeutralAtom =
         : QuantumResult<int list> =
         let program = maximumIndependentSetProgram register c6 omega finalDetuning totalTime
         simulate backend program stepsPerSegment shots
-        |> Result.map (fun histogram ->
-            histogram
-            |> Map.toList
-            |> List.map fst
-            |> List.filter (isIndependentSet program omega)
-            |> List.sortByDescending (fun b -> b |> Seq.filter ((=) '1') |> Seq.length)
-            |> List.tryHead
-            |> Option.map (fun b -> [ for i in 0 .. b.Length - 1 do if b.[i] = '1' then yield i ])
-            |> Option.defaultValue [])
+        |> Result.map (Map.toList >> List.map fst >> List.filter (isIndependentSet program omega) >> List.sortByDescending (Seq.filter ((=) '1') >> Seq.length) >> List.tryHead >> Option.map (fun b -> [ for i in 0 .. b.Length - 1 do if b.[i] = '1' then yield i ]) >> Option.defaultValue [])
 
     // ========================================================================
     // Analog variational optimization (variational pulse shaping — "analog QAOA")
@@ -211,9 +203,7 @@ module NeutralAtom =
         | Error e -> Error e
         | Ok _ ->
             let objective (p: float[]) =
-                match energyOf p with
-                | Ok e -> e
-                | Error _ -> System.Double.MaxValue
+                (energyOf p) |> Result.defaultWith (fun _ -> System.Double.MaxValue)
             match initialParameters.Length with
             | 0 -> Ok ([||], objective [||])
             | 1 ->

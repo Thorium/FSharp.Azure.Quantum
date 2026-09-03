@@ -657,7 +657,7 @@ module BackendAbstraction =
                 | _ -> Error (QuantumError.OperationError ("submitAsCircuit", "Extension operation cannot be lowered to a gate circuit."))
             | QuantumOperation.Algorithm _ ->
                 Error (QuantumError.OperationError ("submitAsCircuit", "Algorithm-intent operations cannot be lowered to a gate circuit; provide gate-level operations for whole-circuit submission."))
-            | _ ->
+            | QuantumOperation.Braid _ | QuantumOperation.FMove _ ->
                 Error (QuantumError.OperationError ("submitAsCircuit", "Operation cannot be lowered to a gate circuit for whole-circuit submission."))
 
         /// Flatten gate-level operations into a single gate list.
@@ -680,7 +680,7 @@ module BackendAbstraction =
         /// back from an ApplyOperation loop to submitAsCircuit.
         let isIncrementalUnsupported (error: QuantumError) : bool =
             match error with
-            | QuantumError.OperationError ("ApplyOperation", msg) -> msg.Contains("incremental")
+            | QuantumError.OperationError ("ApplyOperation", msg) -> msg.Contains "incremental"
             | _ -> false
 
         /// Whether a state is the computational |0...0> basis state (all amplitude on index 0).
@@ -732,9 +732,7 @@ module BackendAbstraction =
             if stateType = nativeType then
                 backend.ApplyOperationAsync operation state ct
             else
-                match QuantumStateConversion.convert nativeType state with
-                | Error err -> Task.FromResult(Error err)
-                | Ok converted -> backend.ApplyOperationAsync operation converted ct
+                (QuantumStateConversion.convert nativeType state) |> Result.map (fun converted -> backend.ApplyOperationAsync operation converted ct) |> Result.defaultWith (fun err -> Task.FromResult(Error err))
 
         /// Apply sequence of operations efficiently (task-based).
         ///

@@ -157,7 +157,7 @@ module MottonenStatePreparationTests =
                     (aligned - expected).Magnitude < 1e-6,
                     $"Amplitude mismatch at index {i}: expected {expected}, got {aligned}"))
         | Ok _ ->
-            failwith "Expected StateVector result"
+            failwith $"Expected StateVector result, calling assertPreparesState with amplitudes: {amplitudes}"
 
     [<Fact>]
     let ``prepareState reproduces 3-qubit state with non-uniform real amplitudes`` () =

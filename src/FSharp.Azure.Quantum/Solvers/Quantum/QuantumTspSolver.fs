@@ -209,7 +209,7 @@ module QuantumTspSolver =
         let startTime = DateTime.UtcNow
         
         // Validate inputs
-        let numCities = distances.GetLength(0)
+        let numCities = distances.GetLength 0
         let requiredQubits = numCities * numCities  // TSP uses N^2 qubits for N cities
         
         if numCities < 2 then
@@ -364,7 +364,7 @@ module QuantumTspSolver =
                         }
             
             with ex ->
-                Error (QuantumError.OperationError ("QuantumTspSolver", sprintf "Quantum TSP solver failed: %s" ex.Message))
+                Error (QuantumError.OperationError ("QuantumTspSolver", $"Quantum TSP solver failed: %s{ex.Message}"))
 
     /// Solve TSP using quantum backend via QAOA (async).
     /// Wraps the synchronous solve in a task; the Nelder-Mead optimization loop

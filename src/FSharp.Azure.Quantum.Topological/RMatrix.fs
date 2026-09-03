@@ -321,24 +321,18 @@ module RMatrix =
         (b: AnyonSpecies.Particle)
         (anyonType: AnyonSpecies.AnyonType)
         : AnyonSpecies.Particle list =
-        match FusionRules.channels a b anyonType with
-        | Ok channels -> channels
-        | Error _ -> []
+        (FusionRules.channels a b anyonType) |> Result.defaultValue []
 
     /// Try to look up an F-symbol value, returning None if fusion constraints are violated.
     let private tryGetFLocal
         (fData: FMatrix.FMatrixData)
         (a, b, c, d, e, f)
         : Complex option =
-        match FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f } with
-        | Ok value -> Some value
-        | Error _ -> None
+        (FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f }) |> Result.map (fun value -> Some value) |> Result.defaultValue None
 
     /// Get all particles in a theory
     let private getParticlesLocal (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle list =
-        match AnyonSpecies.particles anyonType with
-        | Ok ps -> ps
-        | Error _ -> []
+        (AnyonSpecies.particles anyonType) |> Result.defaultValue []
 
     // ========================================================================
     // HEXAGON EQUATION VERIFICATION
@@ -399,7 +393,7 @@ module RMatrix =
                     | Ok true -> true
                     | _ -> false)
 
-                if not validE.IsEmpty && not validG.IsEmpty then
+                if not (validE.IsEmpty || validG.IsEmpty) then
                     for e in validE do
                     for g in validG do
                         // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
@@ -409,9 +403,7 @@ module RMatrix =
                                 match tryGetFLocal fData (b,c,a,d,f,g),
                                       tryGetFLocal fData (a,b,c,d,e,f) with
                                 | Some fBCA, Some fABC ->
-                                    match getRSymbol rData { A = a; B = f; C = d } with
-                                    | Ok r -> Some (fBCA * r * fABC)
-                                    | Error _ -> None
+                                    (getRSymbol rData { A = a; B = f; C = d }) |> Result.map (fun r -> Some (fBCA * r * fABC)) |> Result.defaultValue None
                                 | _ -> None)
 
                         let lhs = lhsTerms |> List.fold (+) Complex.Zero
@@ -492,9 +484,7 @@ module RMatrix =
         fusionOutcomes
         |> List.iteri (fun i outcome ->
             let index = { A = a; B = b; C = outcome.Result }
-            match getRSymbol rData index with
-            | Ok rValue -> matrix.[i, i] <- rValue
-            | Error _ -> matrix.[i, i] <- Complex.Zero  // Should not happen for valid fusion
+            (getRSymbol rData index) |> Result.map (fun rValue -> matrix.[i, i] <- rValue) |> Result.defaultWith (fun _ -> matrix.[i, i] <- Complex.Zero)  // Should not happen for valid fusion
         )
         
         Ok matrix
@@ -519,7 +509,7 @@ module RMatrix =
                 let b = formatParticle idx.B
                 let c = formatParticle idx.C
                 let v = formatComplex value
-                sprintf "  R[%s,%s;%s] = %s" a b c v
+                $"  R[%s{a},%s{b};%s{c}] = %s{v}"
             )
             |> String.concat "\n"
         

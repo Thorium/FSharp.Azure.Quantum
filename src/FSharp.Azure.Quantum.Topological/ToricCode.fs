@@ -46,13 +46,17 @@ module ToricCode =
     type QubitState = 
         | Zero
         | One
-        | Plus      // |+⟩ = (|0⟩ + |1⟩)/√2
-        | Minus     // |-⟩ = (|0⟩ - |1⟩)/√2
+        /// |+⟩ = (|0⟩ + |1⟩)/√2
+        | Plus
+        /// |-⟩ = (|0⟩ - |1⟩)/√2
+        | Minus
     
     /// Edge orientation
     type EdgeType =
-        | Horizontal  // Edge connecting (x,y) to (x+1,y)
-        | Vertical    // Edge connecting (x,y) to (x,y+1)
+        /// Edge connecting (x,y) to (x+1,y)
+        | Horizontal
+        /// Edge connecting (x,y) to (x,y+1)
+        | Vertical
     
     /// Edge identifier
     type Edge = {
@@ -90,9 +94,12 @@ module ToricCode =
     /// - ε: Fermion (both excitations, ε = e × m)
     type ToricAnyon =
         | Vacuum
-        | Electric      // e-particle
-        | Magnetic      // m-particle
-        | Fermion       // ε-particle (e × m)
+        /// e-particle
+        | Electric
+        /// m-particle
+        | Magnetic
+        /// ε-particle (e × m)
+        | Fermion
     
     /// Create a toric code lattice
     /// 
@@ -416,11 +423,11 @@ module ToricCode =
         // Choose shortest horizontal direction (accounting for wrap-around)
         let dxShortest =
             if abs dx <= lattice.Width - abs dx then dx
-            else if dx > 0 then dx - lattice.Width else dx + lattice.Width
+            elif dx > 0 then dx - lattice.Width else dx + lattice.Width
 
         let dyShortest =
             if abs dy <= lattice.Height - abs dy then dy
-            else if dy > 0 then dy - lattice.Height else dy + lattice.Height
+            elif dy > 0 then dy - lattice.Height else dy + lattice.Height
 
         // Build horizontal segment: moving from vertex (x,y) to (x+1,y) crosses the
         // Horizontal edge at (x,y); moving to (x-1,y) crosses the one at (x-1,y).

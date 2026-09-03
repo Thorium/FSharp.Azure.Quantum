@@ -383,9 +383,8 @@ module RiskEngine =
                     if config.UseAmplitudeEstimation && config.Backend.IsSome then
                         // Quantum path: amplitude estimation for VaR/CVaR
                         let qBackend = config.Backend.Value
-                        let! quantumResult = executeQuantumVaR config qBackend returns
 
-                        match quantumResult with
+                        match! executeQuantumVaR config qBackend returns with
                         | Error err ->
                             // Business outcome: propagate the quantum failure as Error (no classical fallback).
                             return Error err

@@ -28,7 +28,7 @@ module AzureQuantumWorkspace =
                     async {
                         let! moveNext = enumerator.MoveNextAsync().AsTask() |> Async.AwaitTask
                         if moveNext then
-                            results.Add(enumerator.Current)
+                            results.Add enumerator.Current
                             return! loop()
                         else
                             return ()
@@ -94,10 +94,10 @@ module AzureQuantumWorkspace =
     type QuantumWorkspace(config: WorkspaceConfig) =
         
         let credential = 
-            defaultArg config.Credential (new DefaultAzureCredential() :> Azure.Core.TokenCredential)
+            defaultArg config.Credential (DefaultAzureCredential() :> Azure.Core.TokenCredential)
         
         let workspace = 
-            new Workspace(
+            Workspace(
                 config.SubscriptionId,
                 config.ResourceGroupName,
                 config.WorkspaceName,
@@ -219,12 +219,12 @@ module AzureQuantumWorkspace =
         
         interface IDisposable with
             member this.Dispose() =
-                this.Dispose(true)
+                this.Dispose true
                 GC.SuppressFinalize(this)
         
         /// Finalizer for cleanup if Dispose not called
         override this.Finalize() =
-            this.Dispose(false)
+            this.Dispose false
     
     // ========================================================================
     // BUILDER FUNCTIONS

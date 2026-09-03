@@ -394,15 +394,11 @@ module FMatrix =
     let private computeSU2kFSymbols (k: int) : Map<FSymbolIndex, Complex> =
         // Get all particles for this level
         let particles = 
-            match AnyonSpecies.particles (AnyonSpecies.AnyonType.SU2Level k) with
-            | Ok ps -> ps
-            | Error _ -> []
+            (AnyonSpecies.particles (AnyonSpecies.AnyonType.SU2Level k)) |> Result.defaultValue []
         
         // For each particle, get fusion channels
         let fusionChannels (p1: AnyonSpecies.Particle) (p2: AnyonSpecies.Particle) =
-            match FusionRules.channels p1 p2 (AnyonSpecies.AnyonType.SU2Level k) with
-            | Ok channels -> channels
-            | Error _ -> []
+            (FusionRules.channels p1 p2 (AnyonSpecies.AnyonType.SU2Level k)) |> Result.defaultValue []
         
         // Build all valid F-symbol entries
         let mutable symbols = Map.empty
@@ -580,18 +576,14 @@ module FMatrix =
         (b: AnyonSpecies.Particle)
         (anyonType: AnyonSpecies.AnyonType)
         : AnyonSpecies.Particle list =
-        match FusionRules.channels a b anyonType with
-        | Ok channels -> channels
-        | Error _ -> []
+        (FusionRules.channels a b anyonType) |> Result.defaultValue []
 
     /// Try to look up an F-symbol value, returning None if fusion constraints are violated.
     let private tryGetFLocal
         (data: FMatrixData)
         (a, b, c, d, e, f)
         : Complex option =
-        match getFSymbol data { A = a; B = b; C = c; D = d; E = e; F = f } with
-        | Ok value -> Some value
-        | Error _ -> None
+        (getFSymbol data { A = a; B = b; C = c; D = d; E = e; F = f }) |> Result.map (fun value -> Some value) |> Result.defaultValue None
 
     /// Verify pentagon equation for four fusing anyons (a,b,c,d) with total charge e.
     ///
@@ -836,7 +828,7 @@ module FMatrix =
     
     /// Display all non-trivial F-symbols for an anyon theory
     let displayAllFSymbols (data: FMatrixData) : string =
-        let header = sprintf "F-symbols for %A:\n" data.AnyonType
+        let header = $"F-symbols for %A{data.AnyonType}:\n"
         let validated = if data.IsValidated then "(validated)" else "(not validated)"
         
         let symbols = 

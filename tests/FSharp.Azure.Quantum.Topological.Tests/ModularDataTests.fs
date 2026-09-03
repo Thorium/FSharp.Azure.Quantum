@@ -93,11 +93,7 @@ module ModularDataTests =
         let result = ModularData.computeSMatrix AnyonSpecies.Ising
         
         // Assert
-        match result with
-        | Ok s ->
-            Assert.True(ModularData.verifySMatrixUnitary s)
-        | Error e ->
-            Assert.Fail($"Failed: {e}")
+        result |> Result.map (fun s -> Assert.True(ModularData.verifySMatrixUnitary s)) |> Result.defaultWith (fun e -> Assert.Fail($"Failed: {e}"))
     
     [<Fact>]
     let ``Fibonacci S-matrix is unitary`` () =
@@ -105,11 +101,7 @@ module ModularDataTests =
         let result = ModularData.computeSMatrix AnyonSpecies.Fibonacci
         
         // Assert
-        match result with
-        | Ok s ->
-            Assert.True(ModularData.verifySMatrixUnitary s)
-        | Error e ->
-            Assert.Fail($"Failed: {e}")
+        result |> Result.map (fun s -> Assert.True(ModularData.verifySMatrixUnitary s)) |> Result.defaultWith (fun e -> Assert.Fail($"Failed: {e}"))
     
     [<Fact>]
     let ``Ising modular data satisfies (ST)^3 = S^2`` () =

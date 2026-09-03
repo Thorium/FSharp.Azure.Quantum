@@ -133,22 +133,14 @@ module GroverTests =
     let ``Grover finds value 0 (edge case)`` () =
         let backend = createLocalBackend ()
         
-        match Grover.searchSingle 0 2 backend testConfig with
-        | Ok result ->
-            assertSolutionFound 0 result
-        | Error err ->
-            Assert.True(false, $"Search failed: {err}")
+        (Grover.searchSingle 0 2 backend testConfig) |> Result.map (fun result -> assertSolutionFound 0 result) |> Result.defaultWith (fun err -> Assert.True(false, $"Search failed: {err}"))
     
     [<Fact>]
     let ``Grover finds maximum value (edge case)`` () =
         let backend = createLocalBackend ()
         
         // Search for 7 in 3-qubit space (max value)
-        match Grover.searchSingle 7 3 backend testConfig with
-        | Ok result ->
-            assertSolutionFound 7 result
-        | Error err ->
-            Assert.True(false, $"Search failed: {err}")
+        (Grover.searchSingle 7 3 backend testConfig) |> Result.map (fun result -> assertSolutionFound 7 result) |> Result.defaultWith (fun err -> Assert.True(false, $"Search failed: {err}"))
     
     [<Fact>]
     let ``Grover finds multiple targets`` () =
@@ -306,11 +298,7 @@ module GroverTests =
         let backend = createLocalBackend ()
         let configExplicit = { testConfig with Iterations = Some 5 }
         
-        match Grover.searchSingle 5 3 backend configExplicit with
-        | Ok result ->
-            Assert.Equal(5, result.Iterations)
-        | Error err ->
-            Assert.True(false, $"Search failed: {err}")
+        (Grover.searchSingle 5 3 backend configExplicit) |> Result.map (fun result -> Assert.Equal(5, result.Iterations)) |> Result.defaultWith (fun err -> Assert.True(false, $"Search failed: {err}"))
     
     // ========================================================================
     // Result Quality Tests
@@ -346,11 +334,7 @@ module GroverTests =
     let ``Execution time is measured`` () =
         let backend = createLocalBackend ()
         
-        match Grover.searchSingle 5 3 backend testConfig with
-        | Ok result ->
-            Assert.True(result.ExecutionTimeMs > 0.0, "Execution time should be > 0")
-        | Error err ->
-            Assert.True(false, $"Search failed: {err}")
+        (Grover.searchSingle 5 3 backend testConfig) |> Result.map (fun result -> Assert.True(result.ExecutionTimeMs > 0.0, "Execution time should be > 0")) |> Result.defaultWith (fun err -> Assert.True(false, $"Search failed: {err}"))
     
     // ========================================================================
     // Error Handling Tests

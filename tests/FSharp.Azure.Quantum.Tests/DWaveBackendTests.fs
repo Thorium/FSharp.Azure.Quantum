@@ -262,9 +262,7 @@ module DWaveBackendTests =
         for solver in solvers do
             let backend = createMockDWaveBackend solver (Some 42)
             let result = backend.Execute circuit 10
-            match result with
-            | Ok _ -> Assert.True(true)
-            | Error e -> Assert.True(false, $"Solver {solver} failed: {e}")
+            result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun e -> Assert.True(false, $"Solver {solver} failed: {e}"))
 
     [<Fact>]
     let ``QUBO business builder (MaxCut) solves via D-Wave annealing through the unified backend`` () =
@@ -276,6 +274,4 @@ module DWaveBackendTests =
             FSharp.Azure.Quantum.MaxCut.createProblem
                 [ "A"; "B"; "C" ]
                 [ ("A", "B", 1.0); ("B", "C", 1.0); ("A", "C", 1.0) ]
-        match FSharp.Azure.Quantum.MaxCut.solve triangle (Some dwave) with
-        | Ok solution -> Assert.Equal(2.0, solution.CutValue, 3)
-        | Error e -> failwith $"D-Wave MaxCut failed: {e.Message}"
+        (FSharp.Azure.Quantum.MaxCut.solve triangle (Some dwave)) |> Result.map (fun solution -> Assert.Equal(2.0, solution.CutValue, 3)) |> Result.defaultWith (fun e -> failwith $"D-Wave MaxCut failed: {e.Message}")

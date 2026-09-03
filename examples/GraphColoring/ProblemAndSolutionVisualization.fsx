@@ -73,7 +73,7 @@ let registerAllocation = graphColoring {
     node "y" ["x"; "w"]
     node "z" ["x"; "w"]
     node "w" ["y"; "z"]
-    colors ([ for i in 0 .. numColors - 1 -> sprintf "R%d" i ])
+    colors [ for i in 0 .. numColors - 1 -> sprintf "R%d" i ]
     objective MinimizeColors
 }
 

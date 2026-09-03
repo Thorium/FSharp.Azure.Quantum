@@ -242,10 +242,7 @@ module QFTTests =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let config = QFT.defaultConfig
         
-        match QFT.verifyUnitarity 3 backend config with
-        | Error err -> Assert.Fail($"verifyUnitarity failed: {err}")
-        | Ok isUnitary ->
-            Assert.True(isUnitary, "QFT should be unitary transformation")
+        (QFT.verifyUnitarity 3 backend config) |> Result.map (fun isUnitary -> Assert.True(isUnitary, "QFT should be unitary transformation")) |> Result.defaultWith (fun err -> Assert.Fail($"verifyUnitarity failed: {err}"))
     
     [<Fact>]
     let ``QFT transformBasisState creates correct superposition`` () =
@@ -296,30 +293,21 @@ module QFTTests =
         
         // Test all basis states for 2 qubits (0, 1, 2, 3)
         for basisIndex in 0 .. (1 <<< numQubits) - 1 do
-            match QFT.transformBasisState numQubits basisIndex backend config with
-            | Error err -> Assert.Fail($"transformBasisState failed for |{basisIndex}⟩: {err}")
-            | Ok result ->
-                Assert.True(result.GateCount > 0, $"Should have applied gates for |{basisIndex}⟩")
+            (QFT.transformBasisState numQubits basisIndex backend config) |> Result.map (fun result -> Assert.True(result.GateCount > 0, $"Should have applied gates for |{basisIndex}⟩")) |> Result.defaultWith (fun err -> Assert.Fail($"transformBasisState failed for |{basisIndex}⟩: {err}"))
     
     [<Fact>]
     let ``QFT verifyUnitarity works with inverse config`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let config = { QFT.defaultConfig with Inverse = true }
         
-        match QFT.verifyUnitarity 3 backend config with
-        | Error err -> Assert.Fail($"verifyUnitarity with inverse failed: {err}")
-        | Ok isUnitary ->
-            Assert.True(isUnitary, "Inverse QFT should also be unitary")
+        (QFT.verifyUnitarity 3 backend config) |> Result.map (fun isUnitary -> Assert.True(isUnitary, "Inverse QFT should also be unitary")) |> Result.defaultWith (fun err -> Assert.Fail($"verifyUnitarity with inverse failed: {err}"))
     
     [<Fact>]
     let ``QFT verifyUnitarity works without swaps`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let config = { QFT.defaultConfig with ApplySwaps = false }
         
-        match QFT.verifyUnitarity 3 backend config with
-        | Error err -> Assert.Fail($"verifyUnitarity without swaps failed: {err}")
-        | Ok isUnitary ->
-            Assert.True(isUnitary, "QFT without swaps should still be unitary")
+        (QFT.verifyUnitarity 3 backend config) |> Result.map (fun isUnitary -> Assert.True(isUnitary, "QFT without swaps should still be unitary")) |> Result.defaultWith (fun err -> Assert.Fail($"verifyUnitarity without swaps failed: {err}"))
 
     // Cloud-style backend: rejects incremental ApplyOperation (like real hardware) and only runs
     // COMPLETE circuits via ExecuteToState (delegated to a local simulator to stand in for a job).
@@ -340,7 +328,7 @@ module QFTTests =
             member this.ExecuteToStateAsync circuit _ct =
                 task { return (this :> IQuantumBackend).ExecuteToState circuit }
             member _.ApplyOperationAsync _operation _state _ct =
-                task { return incremental }
+                Task.FromResult(incremental)
 
     [<Fact>]
     let ``QFT runs on a cloud-style backend via whole-circuit submission`` () =

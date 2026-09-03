@@ -29,17 +29,25 @@ module QaoaParameterOptimizer =
     
     /// Strategy for parameter initialization
     type InitializationStrategy =
-        | RandomUniform      // Random values in [0, π]
-        | StandardQAOA       // Standard heuristic: γ ∈ [0, π/2], β ∈ [0, π/4]
-        | TwoLocalPattern    // Pattern for 2-local Hamiltonians
-        | PreviousOptimal    // Use previously optimized parameters
+        /// Random values in [0, π]
+        | RandomUniform
+        /// Standard heuristic: γ ∈ [0, π/2], β ∈ [0, π/4]
+        | StandardQAOA
+        /// Pattern for 2-local Hamiltonians
+        | TwoLocalPattern
+        /// Use previously optimized parameters
+        | PreviousOptimal
     
     /// Optimization strategy
     type OptimizationStrategy =
-        | SingleRun          // Single optimization run
-        | MultiStart of int  // Multiple random starts, keep best
-        | LayerByLayer       // Optimize layer by layer (for p > 1)
-        | Adaptive           // Adaptive strategy based on convergence
+        /// Single optimization run
+        | SingleRun
+        /// Multiple random starts, keep best
+        | MultiStart of int
+        /// Optimize layer by layer (for p > 1)
+        | LayerByLayer
+        /// Adaptive strategy based on convergence
+        | Adaptive
     
     /// Configuration for QAOA parameter optimization
     type QaoaOptimizationConfig = {
@@ -257,11 +265,11 @@ module QaoaParameterOptimizer =
         // Create bounds arrays
         let (gamma_min, gamma_max, beta_min, beta_max) = bounds
         let lowerBounds = 
-            Array.init (flatParams.Length) (fun i ->
+            Array.init flatParams.Length (fun i ->
                 if i % 2 = 0 then gamma_min else beta_min
             )
         let upperBounds =
-            Array.init (flatParams.Length) (fun i ->
+            Array.init flatParams.Length (fun i ->
                 if i % 2 = 0 then gamma_max else beta_max
             )
         
@@ -370,7 +378,7 @@ module QaoaParameterOptimizer =
                         paramsWithLayer.[layerIdx] <- (gamma, beta)
                         let flatParams = paramsWithLayer |> Array.collect (fun (g, b) -> [| g; b |])
                         objectiveFunc flatParams
-                    | _ -> failwith "Layer objective expects exactly 2 parameters (gamma, beta)"
+                    | _ -> failwith $"Layer objective expects exactly 2 parameters (gamma, beta), calling layerObjective with paramArray: {paramArray}"
                 
                 // Report progress
                 progressReporter

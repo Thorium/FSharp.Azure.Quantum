@@ -188,10 +188,7 @@ module AutoMLBuilderTests =
                             TryBinaryClassification = false
                             TryAnomalyDetection = true
                             MaxTrials = 1 }
-        match search problem with
-        | Ok result ->
-            Assert.True(result.AllTrials.Length >= 1)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (search problem) |> Result.map (fun result -> Assert.True(result.AllTrials.Length >= 1)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // PREDICTION TESTS
@@ -217,8 +214,7 @@ module AutoMLBuilderTests =
     // RESULT STRUCTURE TESTS
     // ========================================================================
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``search result should have correct metadata`` () =
         match search defaultProblem with
         | Ok result ->
@@ -288,10 +284,7 @@ module AutoMLBuilderTests =
             backend quantumBackend
             randomSeed 42
         }
-        match result with
-        | Ok r ->
-            Assert.True(r.BestModelType.Length > 0)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        result |> Result.map (fun r -> Assert.True(r.BestModelType.Length > 0)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``CE autoML with maxTrials should limit trial count`` () =
@@ -305,7 +298,4 @@ module AutoMLBuilderTests =
             tryArchitectures [Quantum]
             randomSeed 42
         }
-        match result with
-        | Ok r ->
-            Assert.True(r.AllTrials.Length <= 2, $"Expected <= 2 trials, got {r.AllTrials.Length}")
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        result |> Result.map (fun r -> Assert.True(r.AllTrials.Length <= 2, $"Expected <= 2 trials, got {r.AllTrials.Length}")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")

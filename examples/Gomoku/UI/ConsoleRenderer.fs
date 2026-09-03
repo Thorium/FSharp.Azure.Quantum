@@ -70,8 +70,9 @@ module ConsoleRenderer =
     
     /// Display game title and header
     let displayTitle() : unit =
-        let rule = Rule("[bold yellow]Gomoku (Five-in-a-Row) - Local Quantum AI Example[/]")
-        rule.Style <- Style.Parse("yellow")
+        let rule = Rule("[bold yellow]Gomoku (Five-in-a-Row) - Local Quantum AI Example[/]",
+                       Style = (Style.Parse "yellow")
+                   )
         AnsiConsole.Write(rule)
         AnsiConsole.WriteLine()
     
@@ -87,24 +88,27 @@ module ConsoleRenderer =
         let panel = 
             match status with
             | Board.InProgress ->
-                let p = Panel("Game in progress...")
-                p.Header <- PanelHeader("Status")
-                p.Border <- BoxBorder.Rounded
-                p.BorderStyle <- Style(foreground = Color.Green)
+                let p = Panel("Game in progress...",
+                            Header = (PanelHeader "Status"),
+                            Border = BoxBorder.Rounded,
+                            BorderStyle = (Style(foreground = Color.Green))
+                        )
                 p
             | Board.Won winner ->
                 let color = if winner = Black then "blue" else "red"
                 let symbol = if winner = Black then "●" else "○"
-                let p = Panel($"[{color}]{symbol} {winner} wins![/]")
-                p.Header <- PanelHeader("Game Over!")
-                p.Border <- BoxBorder.Double
-                p.BorderStyle <- Style(foreground = Color.Yellow)
+                let p = Panel($"[{color}]{symbol} {winner} wins![/]",
+                            Header = (PanelHeader "Game Over!"),
+                            Border = BoxBorder.Double,
+                            BorderStyle = (Style(foreground = Color.Yellow))
+                        )
                 p
             | Board.Draw ->
-                let p = Panel("It's a draw!")
-                p.Header <- PanelHeader("Game Over!")
-                p.Border <- BoxBorder.Double
-                p.BorderStyle <- Style(foreground = Color.Grey)
+                let p = Panel("It's a draw!",
+                            Header = (PanelHeader "Game Over!"),
+                            Border = BoxBorder.Double,
+                            BorderStyle = (Style(foreground = Color.Grey))
+                        )
                 p
         
         AnsiConsole.Write(panel)
@@ -117,10 +121,11 @@ module ConsoleRenderer =
             | Some d -> $"Depth: {d}"
             | None -> ""
         
-        let panel = Panel($"[cyan]Mode:[/] {mode}\n[cyan]Candidates:[/] {candidateCount} positions\n[cyan]{depthStr}[/]")
-        panel.Header <- PanelHeader("AI Thinking...")
-        panel.Border <- BoxBorder.Rounded
-        panel.BorderStyle <- Style(foreground = Color.Cyan1)
+        let panel = Panel($"[cyan]Mode:[/] {mode}\n[cyan]Candidates:[/] {candidateCount} positions\n[cyan]{depthStr}[/]",
+                        Header = (PanelHeader "AI Thinking..."),
+                        Border = BoxBorder.Rounded,
+                        BorderStyle = (Style(foreground = Color.Cyan1))
+                    )
         AnsiConsole.Write(panel)
     
     /// Show progress bar for long computations
@@ -149,9 +154,7 @@ module ConsoleRenderer =
                 |> List.rev
                 |> List.take (min maxMoves board.MoveHistory.Length)
             
-            let table = Table()
-            table.Border <- TableBorder.Rounded
-            table.BorderStyle <- Style(foreground = Color.Grey)
+            let table = Table(Border = TableBorder.Rounded, BorderStyle = (Style(foreground = Color.Grey)))
             table.AddColumn("[bold]Move[/]") |> ignore
             table.AddColumn("[bold]Player[/]") |> ignore
             table.AddColumn("[bold]Position[/]") |> ignore
@@ -169,9 +172,7 @@ module ConsoleRenderer =
     
     /// Display performance metrics
     let displayMetrics (classicalTime: float option) (quantumTime: float option) (evaluatedPositions: int) : unit =
-        let table = Table()
-        table.Border <- TableBorder.Rounded
-        table.BorderStyle <- Style(foreground = Color.Green)
+        let table = Table(Border = TableBorder.Rounded, BorderStyle = (Style(foreground = Color.Green)))
         table.AddColumn("[bold]Metric[/]") |> ignore
         table.AddColumn("[bold]Value[/]") |> ignore
         
@@ -192,9 +193,7 @@ module ConsoleRenderer =
             table.AddRow("Speedup", $"[{color}]{speedup:F2}x[/]") |> ignore
         | _ -> ()
         
-        let panel = Panel(table)
-        panel.Header <- PanelHeader("Performance Metrics")
-        panel.Border <- BoxBorder.Rounded
+        let panel = Panel(table, Header = (PanelHeader "Performance Metrics"), Border = BoxBorder.Rounded)
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()
     
@@ -225,18 +224,20 @@ module ConsoleRenderer =
     
     /// Display the main menu
     let displayMenu() : unit =
-        let panel = Panel("[cyan]1.[/] Player vs Classical AI\n[cyan]2.[/] Player vs Local Quantum Grover AI\n[cyan]3.[/] Player vs Local Hybrid Grover AI (Recommended)\n[cyan]4.[/] AI vs AI (Benchmark)\n[cyan]5.[/] Exit")
-        panel.Header <- PanelHeader("Game Modes")
-        panel.Border <- BoxBorder.Rounded
-        panel.BorderStyle <- Style(foreground = Color.Cyan1)
+        let panel = Panel("[cyan]1.[/] Player vs Classical AI\n[cyan]2.[/] Player vs Local Quantum Grover AI\n[cyan]3.[/] Player vs Local Hybrid Grover AI (Recommended)\n[cyan]4.[/] AI vs AI (Benchmark)\n[cyan]5.[/] Exit",
+                        Header = (PanelHeader "Game Modes"),
+                        Border = BoxBorder.Rounded,
+                        BorderStyle = (Style(foreground = Color.Cyan1))
+                    )
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()
     
     /// Display game rules
     let displayRules() : unit =
-        let panel = Panel("[bold yellow]Gomoku Rules:[/]\n\n• Two players: Black (●) and White (○)\n• Black moves first\n• Players alternate placing stones on the board\n• First to get [bold]5 in a row[/] (horizontal, vertical, or diagonal) wins\n• If the board fills up, the game is a draw\n\n[bold cyan]Board Coordinates:[/]\n• Rows and columns are numbered 0-14\n• Enter your move as: row, column (e.g., \"7, 7\" for center)\n\n[bold green]Local Quantum AI Features:[/]\n• Uses real Grover's algorithm with local quantum simulator\n• Demonstrates √N speedup over classical search\n• Switches between classical and quantum based on complexity")
-        panel.Header <- PanelHeader("How to Play")
-        panel.Border <- BoxBorder.Double
-        panel.BorderStyle <- Style(foreground = Color.Yellow)
+        let panel = Panel("[bold yellow]Gomoku Rules:[/]\n\n• Two players: Black (●) and White (○)\n• Black moves first\n• Players alternate placing stones on the board\n• First to get [bold]5 in a row[/] (horizontal, vertical, or diagonal) wins\n• If the board fills up, the game is a draw\n\n[bold cyan]Board Coordinates:[/]\n• Rows and columns are numbered 0-14\n• Enter your move as: row, column (e.g., \"7, 7\" for center)\n\n[bold green]Local Quantum AI Features:[/]\n• Uses real Grover's algorithm with local quantum simulator\n• Demonstrates √N speedup over classical search\n• Switches between classical and quantum based on complexity",
+                        Header = (PanelHeader "How to Play"),
+                        Border = BoxBorder.Double,
+                        BorderStyle = (Style(foreground = Color.Yellow))
+                    )
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()

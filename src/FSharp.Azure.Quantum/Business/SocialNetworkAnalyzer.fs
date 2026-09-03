@@ -351,10 +351,7 @@ module SocialNetworkAnalyzer =
                 Edges = edges
             }
             
-            match QuantumVertexCoverSolver.solve backend vcProblem problem.Shots with
-            | Error err -> Error err
-            | Ok solution ->
-                Ok (solution.CoverVertices |> List.map (fun v -> v.Id))
+            (QuantumVertexCoverSolver.solve backend vcProblem problem.Shots) |> Result.map (fun solution -> solution.CoverVertices |> List.map (fun v -> v.Id))
     
     /// Find optimal 1:1 pairings using QAOA max weight matching
     let private findPairingsQaoa (backend: IQuantumBackend) (problem: SocialNetworkProblem) : QuantumResult<Pairing list> =
@@ -402,8 +399,8 @@ module SocialNetworkAnalyzer =
         | None ->
             match mode with
             | FindCommunities _ -> GroverSearch
-            | FindLargestCommunity -> QaoaOptimize
-            | FindMonitorSet -> QaoaOptimize
+            | FindLargestCommunity
+            | FindMonitorSet
             | FindPairings -> QaoaOptimize
     
     /// Find the largest community using Grover's search by trying decreasing clique sizes.
@@ -446,6 +443,7 @@ module SocialNetworkAnalyzer =
     // ========================================================================
     
     /// Execute social network analysis
+    [<TailCall>]
     let rec solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
         if problem.People.IsEmpty then
             Error (QuantumError.ValidationError ("People", "network must have at least one person"))
@@ -479,7 +477,7 @@ module SocialNetworkAnalyzer =
                             "QaoaOptimize is not supported for FindCommunities mode. \
                              Use FindLargestCommunity mode for QAOA optimization, \
                              or use Auto/GroverSearch strategy."))
-                    | _ ->
+                    | Auto | GroverSearch ->
                         let legacyProblem = { problem with MinCommunitySize = Some minSize }
                         match findCommunitiesQuantum backend legacyProblem with
                         | Ok communities ->
@@ -527,7 +525,7 @@ module SocialNetworkAnalyzer =
                             "GroverSearch is not supported for FindMonitorSet mode. \
                              Only QAOA optimization is available for vertex cover problems. \
                              Use Auto or QaoaOptimize strategy."))
-                    | _ ->
+                    | Auto | QaoaOptimize ->
                     match findMonitorSetQaoa backend problem with
                     | Ok monitors ->
                         Ok {
@@ -552,7 +550,7 @@ module SocialNetworkAnalyzer =
                             "GroverSearch is not supported for FindPairings mode. \
                              Only QAOA optimization is available for matching problems. \
                              Use Auto or QaoaOptimize strategy."))
-                    | _ ->
+                    | Auto | QaoaOptimize ->
                     match findPairingsQaoa backend problem with
                     | Ok pairings ->
                         Ok {

@@ -235,7 +235,7 @@ module QuantumGraphColoringSolver =
                     NumVariables = numVars
                 }, reverseMap)
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Graph coloring QUBO encoding failed: %s" ex.Message))
+            Error (QuantumError.OperationError ("QuboEncoding", $"Graph coloring QUBO encoding failed: %s{ex.Message}"))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -388,8 +388,7 @@ module QuantumGraphColoringSolver =
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
                     
-                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                    match executeResult with
+                    match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
                     | Error err -> return Error err
                     | Ok measurements ->
                         
@@ -419,7 +418,7 @@ module QuantumGraphColoringSolver =
                         }
         
         with ex ->
-            return Error (QuantumError.OperationError ("QuantumGraphColoringSolver", sprintf "Quantum graph coloring solve failed: %s" ex.Message))
+            return Error (QuantumError.OperationError ("QuantumGraphColoringSolver", $"Quantum graph coloring solve failed: %s{ex.Message}"))
     }
 
     /// Solve graph coloring problem using quantum QAOA (synchronous wrapper)

@@ -176,7 +176,7 @@ let backend = LocalBackend() :> IQuantumBackend
 if not quiet then
     printfn "Quantum VaR Stress Test â€” RiskEngine DSL"
     printfn "Levels: %d  Qubits: %d  Shots: %d  Paths: %s"
-        levels.Length numQubits shots (simulationPaths.ToString("N0"))
+        levels.Length numQubits shots (simulationPaths.ToString "N0")
     printfn ""
 
 let mutable anyFailure = false
@@ -247,8 +247,8 @@ let printTable () =
     printfn "  %s" divider
     for r in results do
         let methodShort =
-            if r.Method.Contains("Quantum") then "QAE"
-            elif r.Method.Contains("Classical") then "CMC"
+            if r.Method.Contains "Quantum" then "QAE"
+            elif r.Method.Contains "Classical" then "CMC"
             else r.Method
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
         printfn "  %-20s %s %s %s %s %s %8s %8s"

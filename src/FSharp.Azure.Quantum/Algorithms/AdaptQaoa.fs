@@ -209,9 +209,7 @@ module AdaptQaoa =
                                 // New layer seeds: γ = GammaInit, β = 0.
                                 let init = Array.append parameters [| config.GammaInit; 0.0 |]
                                 let objective (p: float[]) =
-                                    match stateEnergy backend costHamiltonian numQubits newMixers p with
-                                    | Ok e -> e
-                                    | Error _ -> System.Double.MaxValue
+                                    (stateEnergy backend costHamiltonian numQubits newMixers p) |> Result.defaultWith (fun _ -> System.Double.MaxValue)
                                 let (optParams, optEnergy) = optimize objective init
                                 // Guarantee monotonic progress: if this layer can't improve the
                                 // energy (e.g. the optimizer failed to converge), stop with the best.
@@ -288,7 +286,7 @@ module AdaptQaoa =
             || (quboMap |> Map.exists (fun (i, j) _ -> i < 0 || j < 0 || i >= numQubits || j >= numQubits))
         if indexOutOfRange then
             Error (QuantumError.ValidationError ("quboMap",
-                sprintf "QUBO variable indices must be in [0, %d); check the keys against numQubits=%d." numQubits numQubits))
+                $"QUBO variable indices must be in [0, %d{numQubits}); check the keys against numQubits=%d{numQubits}."))
         else
         let hamiltonian = ofProblemHamiltonian (QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap)
         run backend hamiltonian (defaultMixerPool numQubits) numQubits config

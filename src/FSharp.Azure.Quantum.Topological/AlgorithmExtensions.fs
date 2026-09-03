@@ -72,9 +72,7 @@ module AlgorithmExtensions =
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
         
-        match Oracle.forValue target numQubits with
-        | Ok oracle -> searchWithTopology oracle topoBackend config
-        | Error err -> Error err
+        (Oracle.forValue target numQubits) |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
     
     /// Search for multiple values with Ising anyon topological backend
     /// 
@@ -94,9 +92,7 @@ module AlgorithmExtensions =
         if List.isEmpty targets then
             Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
         else
-            match Oracle.forValues targets numQubits with
-            | Ok oracle -> searchWithTopology oracle topoBackend config
-            | Error err -> Error err
+            (Oracle.forValues targets numQubits) |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
     
     /// Search with predicate function and Ising anyon topological backend
     /// 
@@ -114,9 +110,7 @@ module AlgorithmExtensions =
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
         
-        match Oracle.fromPredicate predicate numQubits with
-        | Ok oracle -> searchWithTopology oracle topoBackend config
-        | Error err -> Error err
+        (Oracle.fromPredicate predicate numQubits) |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
 
     // ============================================================================
     // GROVER SEARCH with Fibonacci Anyon Topological Backend
@@ -166,9 +160,7 @@ module AlgorithmExtensions =
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
         
-        match Oracle.forValue target numQubits with
-        | Ok oracle -> searchWithTopologyFibonacci oracle topoBackend config
-        | Error err -> Error err
+        (Oracle.forValue target numQubits) |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
     
     /// Search for multiple values with Fibonacci anyon topological backend.
     /// 
@@ -183,9 +175,7 @@ module AlgorithmExtensions =
         if List.isEmpty targets then
             Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
         else
-            match Oracle.forValues targets numQubits with
-            | Ok oracle -> searchWithTopologyFibonacci oracle topoBackend config
-            | Error err -> Error err
+            (Oracle.forValues targets numQubits) |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
     
     /// Search with predicate function and Fibonacci anyon topological backend.
     /// 
@@ -197,9 +187,7 @@ module AlgorithmExtensions =
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
         
-        match Oracle.fromPredicate predicate numQubits with
-        | Ok oracle -> searchWithTopologyFibonacci oracle topoBackend config
-        | Error err -> Error err
+        (Oracle.fromPredicate predicate numQubits) |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
 
     // ============================================================================
     // QFT with Topological Backend
@@ -289,9 +277,7 @@ module AlgorithmExtensions =
             | None -> HHLTypes.defaultConfig matrix vector
             
         // Use HHL.execute
-        match hhlConfigResult with
-        | Error err -> Error err
-        | Ok hhlConfig -> HHL.execute hhlConfig topoBackend
+        hhlConfigResult |> Result.bind (fun hhlConfig -> HHL.execute hhlConfig topoBackend)
 
     // ============================================================================
     // PERFORMANCE NOTES

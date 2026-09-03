@@ -9,9 +9,12 @@ module QuantumAdvisor =
     /// Recommendation types with increasing strength toward quantum
     [<Struct>]
     type RecommendationType =
-        | StronglyRecommendClassical // Classical clearly better
-        | ConsiderQuantum // Borderline - depends on factors
-        | StronglyRecommendQuantum // Quantum clearly better
+        /// Classical clearly better
+        | StronglyRecommendClassical
+        /// Borderline - depends on factors
+        | ConsiderQuantum
+        /// Quantum clearly better
+        | StronglyRecommendQuantum
 
     /// Configurable decision thresholds for quantum recommendation
     type DecisionThresholds =
@@ -128,9 +131,7 @@ module QuantumAdvisor =
 
             // Get quantum advantage estimation for more informed decision
             let quantumAdvantage =
-                match ProblemAnalysis.estimateQuantumAdvantage input with
-                | Ok qa -> Some qa
-                | Error _ -> None
+                (ProblemAnalysis.estimateQuantumAdvantage input) |> Result.map (fun qa -> Some qa) |> Result.defaultValue None
 
             // Determine recommendation type based on thresholds
             let recommendationType, confidence =

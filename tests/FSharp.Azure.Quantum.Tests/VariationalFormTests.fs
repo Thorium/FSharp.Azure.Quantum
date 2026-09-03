@@ -273,45 +273,25 @@ module VariationalFormTests =
     let ``buildVariationalForm - rejects zero qubits`` () =
         let parameters = [| |]
         
-        match buildVariationalForm (RealAmplitudes 1) parameters 0 with
-        | Ok _ ->
-            Assert.True(false, "Should reject zero qubits")
-        
-        | Error msg ->
-            Assert.Contains("at least 1", msg.Message)
+        (buildVariationalForm (RealAmplitudes 1) parameters 0) |> Result.map (fun _ -> Assert.True(false, "Should reject zero qubits")) |> Result.defaultWith (fun msg -> Assert.Contains("at least 1", msg.Message))
     
     [<Fact>]
     let ``buildVariationalForm - rejects negative qubits`` () =
         let parameters = [| |]
         
-        match buildVariationalForm (RealAmplitudes 1) parameters -1 with
-        | Ok _ ->
-            Assert.True(false, "Should reject negative qubits")
-        
-        | Error msg ->
-            Assert.Contains("at least 1", msg.Message)
+        (buildVariationalForm (RealAmplitudes 1) parameters -1) |> Result.map (fun _ -> Assert.True(false, "Should reject negative qubits")) |> Result.defaultWith (fun msg -> Assert.Contains("at least 1", msg.Message))
     
     [<Fact>]
     let ``buildVariationalForm - rejects zero depth`` () =
         let parameters = [| |]
         
-        match buildVariationalForm (RealAmplitudes 0) parameters 3 with
-        | Ok _ ->
-            Assert.True(false, "Should reject zero depth")
-        
-        | Error msg ->
-            Assert.Contains("Depth must be at least 1", msg.Message)
+        (buildVariationalForm (RealAmplitudes 0) parameters 3) |> Result.map (fun _ -> Assert.True(false, "Should reject zero depth")) |> Result.defaultWith (fun msg -> Assert.Contains("Depth must be at least 1", msg.Message))
     
     [<Fact>]
     let ``buildVariationalForm - rejects negative depth`` () =
         let parameters = [| |]
         
-        match buildVariationalForm (EfficientSU2 -1) parameters 3 with
-        | Ok _ ->
-            Assert.True(false, "Should reject negative depth")
-        
-        | Error msg ->
-            Assert.Contains("Depth must be at least 1", msg.Message)
+        (buildVariationalForm (EfficientSU2 -1) parameters 3) |> Result.map (fun _ -> Assert.True(false, "Should reject negative depth")) |> Result.defaultWith (fun msg -> Assert.Contains("Depth must be at least 1", msg.Message))
     
     // ========================================================================
     // PARAMETER INITIALIZATION TESTS

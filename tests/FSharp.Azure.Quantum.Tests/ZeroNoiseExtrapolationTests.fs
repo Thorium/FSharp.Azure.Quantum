@@ -20,7 +20,7 @@ module ZeroNoiseExtrapolationTests =
         let rate = 
             match noiseScaling with
             | ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion r -> r
-            | _ -> failwith "Expected IdentityInsertion"
+            | ZeroNoiseExtrapolation.NoiseScaling.PulseStretching _ -> failwith "Expected IdentityInsertion"
         
         // Assert: Rate should be 0.5
         Assert.Equal(0.5, rate)
@@ -34,7 +34,7 @@ module ZeroNoiseExtrapolationTests =
         let factor = 
             match noiseScaling with
             | ZeroNoiseExtrapolation.NoiseScaling.PulseStretching f -> f
-            | _ -> failwith "Expected PulseStretching"
+            | ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion _ -> failwith "Expected PulseStretching"
         
         // Assert: Factor should be 1.5
         Assert.Equal(1.5, factor)
@@ -209,14 +209,13 @@ module ZeroNoiseExtrapolationTests =
                 }
             
             // Act: Run full ZNE pipeline
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config mockExecutor
             
             // Assert: Should return successful ZNE result
-            match result with
+            match! ZeroNoiseExtrapolation.mitigate circuit config mockExecutor with
             | Ok zneResult ->
                 // Zero-noise value should be >= baseline
                 Assert.True(zneResult.ZeroNoiseValue >= 0.8,
-                    sprintf "Expected zero-noise value >= 0.8, got %f" zneResult.ZeroNoiseValue)
+                    $"Expected zero-noise value >= 0.8, got %f{zneResult.ZeroNoiseValue}")
                 
                 // Should have 3 measurements (one per noise level)
                 Assert.Equal(3, zneResult.MeasuredValues.Length)
@@ -227,7 +226,7 @@ module ZeroNoiseExtrapolationTests =
                 // Goodness of fit should be reasonable
                 Assert.True(zneResult.GoodnessOfFit >= 0.0 && zneResult.GoodnessOfFit <= 1.0)
             | Error err ->
-                Assert.Fail(sprintf "ZNE pipeline failed: %s" err)
+                Assert.Fail($"ZNE pipeline failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]
@@ -256,10 +255,9 @@ module ZeroNoiseExtrapolationTests =
                 }
             
             // Act: Apply ZNE
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config mockExecutor
             
             // Assert: Error reduction (zero-noise > baseline)
-            match result with
+            match! ZeroNoiseExtrapolation.mitigate circuit config mockExecutor with
             | Ok zneResult ->
                 // First measurement is baseline (1.0x noise)
                 let baseline = zneResult.MeasuredValues |> List.head |> snd
@@ -269,7 +267,7 @@ module ZeroNoiseExtrapolationTests =
                     sprintf "Expected error reduction: zero-noise (%f) > baseline (%f)" 
                         zneResult.ZeroNoiseValue baseline)
             | Error err ->
-                Assert.Fail(sprintf "ZNE failed: %s" err)
+                Assert.Fail($"ZNE failed: %s{err}")
         } |> Async.RunSynchronously
     
     // Cycle #5: Configuration builders and defaults - Idiomatic F# usability
@@ -284,7 +282,7 @@ module ZeroNoiseExtrapolationTests =
         Assert.All(config.NoiseScalings, fun scaling ->
             match scaling with
             | ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion _ -> ()
-            | _ -> Assert.Fail("Expected IdentityInsertion for IonQ"))
+            | ZeroNoiseExtrapolation.NoiseScaling.PulseStretching _ -> Assert.Fail("Expected IdentityInsertion for IonQ"))
         
         // Should have reasonable polynomial degree
         Assert.Equal(2, config.PolynomialDegree)
@@ -302,7 +300,7 @@ module ZeroNoiseExtrapolationTests =
         Assert.All(config.NoiseScalings, fun scaling ->
             match scaling with
             | ZeroNoiseExtrapolation.NoiseScaling.PulseStretching _ -> ()
-            | _ -> Assert.Fail("Expected PulseStretching for Rigetti"))
+            | ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion _ -> Assert.Fail("Expected PulseStretching for Rigetti"))
         
         // Same quality standards
         Assert.Equal(2, config.PolynomialDegree)
@@ -365,10 +363,9 @@ module ZeroNoiseExtrapolationTests =
                 async { return Error "Quantum hardware unavailable" }
             
             // Act: Attempt ZNE
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config failingExecutor
             
             // Assert: Should propagate error gracefully
-            match result with
+            match! ZeroNoiseExtrapolation.mitigate circuit config failingExecutor with
             | Error err -> Assert.Contains("execution failed", err)
             | Ok _ -> Assert.Fail("Expected error for failing executor")
         } |> Async.RunSynchronously
@@ -413,14 +410,13 @@ module ZeroNoiseExtrapolationTests =
                 async { return Ok 0.85 }
             
             // Act: Run ZNE
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config executor
             
             // Assert: Should return baseline value
-            match result with
+            match! ZeroNoiseExtrapolation.mitigate circuit config executor with
             | Ok zneResult -> 
                 Assert.Equal(0.85, zneResult.ZeroNoiseValue, 2)
             | Error err -> 
-                Assert.Fail(sprintf "Should handle single noise level: %s" err)
+                Assert.Fail($"Should handle single noise level: %s{err}")
         } |> Async.RunSynchronously
     
     // Cycle #7: Benchmark - Demonstrate 30-50% error reduction and 3x overhead
@@ -453,10 +449,9 @@ module ZeroNoiseExtrapolationTests =
                 }
             
             // Act: Run ZNE
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config noisyExecutor
             
             // Assert: Demonstrate error reduction
-            match result with
+            match! ZeroNoiseExtrapolation.mitigate circuit config noisyExecutor with
             | Ok zneResult ->
                 // Baseline measurement (1.0x noise)
                 let baseline = zneResult.MeasuredValues |> List.head |> snd
@@ -477,7 +472,7 @@ module ZeroNoiseExtrapolationTests =
                 printfn "✓ Benchmark: %.1f%% error reduction (baseline: %.3f → ZNE: %.3f)" 
                     errorReduction baselineError zneError
             | Error err ->
-                Assert.Fail(sprintf "Benchmark failed: %s" err)
+                Assert.Fail($"Benchmark failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]
@@ -497,15 +492,14 @@ module ZeroNoiseExtrapolationTests =
                 }
             
             // Act: Run ZNE
-            let! result = ZeroNoiseExtrapolation.mitigate circuit config countingExecutor
             
             // Assert: Exactly 3x overhead (3 noise levels)
-            match result with
+            match! ZeroNoiseExtrapolation.mitigate circuit config countingExecutor with
             | Ok _ ->
                 Assert.Equal(3, !executionCount)
                 printfn "✓ Benchmark: 3x overhead (3 circuit executions for 3 noise levels)"
             | Error err ->
-                Assert.Fail(sprintf "Benchmark failed: %s" err)
+                Assert.Fail($"Benchmark failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]
@@ -538,5 +532,5 @@ module ZeroNoiseExtrapolationTests =
                 printfn "✓ Benchmark: Parallel execution %.1fx faster (%dms vs theoretical %dms sequential)" 
                     speedup parallelTime theoreticalSequential
             | Error err ->
-                Assert.Fail(sprintf "Benchmark failed: %s" err)
+                Assert.Fail($"Benchmark failed: %s{err}")
         } |> Async.RunSynchronously

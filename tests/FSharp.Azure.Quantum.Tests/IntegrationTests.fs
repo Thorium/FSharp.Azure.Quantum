@@ -82,12 +82,12 @@ module IntegrationTests =
     let ``Portfolio Classical - 10-asset portfolio should optimize allocation`` () =
         // Arrange: Medium-sized portfolio
         let assets = 
+            let price = 100.0
             [1..10]
             |> List.map (fun i -> 
                 let symbol = $"STOCK{i}"
                 let expectedReturn = 0.08 + float i * 0.01
                 let risk = 0.12 + float i * 0.01
-                let price = 100.0
                 (symbol, expectedReturn, risk, price))
         
         let budget = 5000.0
@@ -340,11 +340,7 @@ module IntegrationTests =
         let result = Portfolio.solve problem None
         
         // Assert: Should return valid result (implementation-specific behavior)
-        match result with
-        | Ok allocation ->
-            Assert.Empty(allocation.Allocations)
-        | Error msg ->
-            Assert.False(String.IsNullOrWhiteSpace(msg.Message))
+        result |> Result.map (fun allocation -> Assert.Empty(allocation.Allocations)) |> Result.defaultWith (fun msg -> Assert.False(String.IsNullOrWhiteSpace(msg.Message)))
 
     (* TODO: Depends on HybridSolver (commented out)
     [<Fact>]
@@ -400,8 +396,7 @@ module IntegrationTests =
         | Error msg ->
             Assert.Fail($"Expected successful allocation, got error: {msg}")
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``Integration - TSP and Portfolio workflows end-to-end`` () =
         // NOTE: 8-city TSP test removed - requires 64 qubits which exceeds LocalBackend limit (16 qubits)
         // TSP.solve uses quantum-first architecture not suitable for large problems

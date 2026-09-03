@@ -162,7 +162,7 @@ let private loadAssetsFromCsv (filePath: string) : AssetInfo list =
               Name           = let n = get "name" in if n = "" then get "symbol" else n
               ExpectedReturn = get "expected_return" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.08
               Volatility     = get "volatility"      |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.20
-              Weight         = get "weight"          |> fun s -> match Double.TryParse s with true, v -> v | _ -> 1.0 / float (rows.Length)
+              Weight         = get "weight"          |> fun s -> match Double.TryParse s with true, v -> v | _ -> 1.0 / float rows.Length
               Seed           = get "seed"            |> fun s -> match Int32.TryParse s with true, v -> v | _ -> 42 + i
               Class          = get "asset_class"     |> parseAssetClass })
 
@@ -243,14 +243,14 @@ let private generateReturns (symbol: string) (mean: float) (vol: float) (days: i
             let u1 = rng.NextDouble()
             let u2 = rng.NextDouble()
             let z = sqrt(-2.0 * log u1) * cos(2.0 * Math.PI * u2)
-            mean / 252.0 + (vol / sqrt(252.0)) * z)
+            mean / 252.0 + (vol / sqrt 252.0) * z)
     let dates = Array.init days (fun i -> DateTime.Today.AddDays(float (-days + i)))
     {
         Symbol = symbol
         StartDate = dates.[0]
         EndDate = dates.[days - 1]
         LogReturns = returns
-        SimpleReturns = returns |> Array.map (fun r -> exp(r) - 1.0)
+        SimpleReturns = returns |> Array.map (fun r -> exp r - 1.0)
         Dates = dates
     }
 
@@ -274,7 +274,7 @@ let returnSeries =
 if not quiet then
     printfn "Quantum Value-at-Risk (VaR) Calculator"
     printfn "Assets: %d  Confidence: %.1f%%  Horizon: %d days  Portfolio: $%s"
-        assets.Length (confidenceLevel * 100.0) timeHorizon (portfolioValue.ToString("N0"))
+        assets.Length (confidenceLevel * 100.0) timeHorizon (portfolioValue.ToString "N0")
     if liveDataEnabled then printfn "Data source: Yahoo Finance (live)"
     printfn ""
 
@@ -460,7 +460,7 @@ let assetResults =
         // Volatility = standard deviation of returns (dispersion ABOUT THE MEAN),
         // not the root-mean-square about zero. For near-zero daily means the
         // difference is small, but std dev is the correct, mean-centered statistic.
-        let vol = rs.LogReturns |> Array.map (fun x -> (x - meanRet) ** 2.0) |> Array.average |> sqrt
+        let vol = (Array.averageBy (fun x -> (x - meanRet) ** 2.0) rs.LogReturns) |> sqrt
         let minRet = rs.LogReturns |> Array.min
         let maxRet = rs.LogReturns |> Array.max
         // Approximate VaR contribution: weight * individual asset VaR
@@ -505,7 +505,7 @@ let printTable () =
             (r.MeanDailyReturn * 100.0)
             (r.DailyVolatility * 100.0)
             classStr
-            (r.Contribution.ToString("N0"))
+            (r.Contribution.ToString "N0")
     printfn "  %s" divider
     printfn ""
 
@@ -518,18 +518,18 @@ let printTable () =
 
     match parametricVaRResult with
     | Ok r ->
-        printfn "  %-32s $%14s %9.2f%% %8s" "Classical Parametric (Normal)" (r.VaR.ToString("N0")) (r.VaRPercent * 100.0) "OK"
+        printfn "  %-32s $%14s %9.2f%% %8s" "Classical Parametric (Normal)" (r.VaR.ToString "N0") (r.VaRPercent * 100.0) "OK"
     | Error _ ->
         printfn "  %-32s %15s %10s %8s" "Classical Parametric (Normal)" "â€”" "â€”" "FAIL"
 
     match historicalVaRResult with
     | Ok r ->
-        printfn "  %-32s $%14s %9.2f%% %8s" "Classical Historical Sim" (r.VaR.ToString("N0")) (r.VaRPercent * 100.0) "OK"
+        printfn "  %-32s $%14s %9.2f%% %8s" "Classical Historical Sim" (r.VaR.ToString "N0") (r.VaRPercent * 100.0) "OK"
     | Error _ ->
         printfn "  %-32s %15s %10s %8s" "Classical Historical Sim" "â€”" "â€”" "FAIL"
 
     if not (Double.IsNaN quantumVaRValue) then
-        printfn "  %-32s $%14s %9.2f%% %8s" "QUANTUM Amplitude Estimation" (quantumVaRValue.ToString("N0")) (quantumVaRValue / portfolioValue * 100.0) "OK"
+        printfn "  %-32s $%14s %9.2f%% %8s" "QUANTUM Amplitude Estimation" (quantumVaRValue.ToString "N0") (quantumVaRValue / portfolioValue * 100.0) "OK"
     else
         printfn "  %-32s %15s %10s %8s" "QUANTUM Amplitude Estimation" "â€”" "â€”" "FAIL"
 
@@ -541,8 +541,8 @@ let printTable () =
     printfn "  %s" (String('-', 52))
     printfn "  %-30s %12s %8s" "Scenario" "Loss ($)" "Loss (%)"
     printfn "  %s" (String('-', 52))
-    printfn "  %-30s $%11s %7.1f%%" "2008 Financial Crisis" (crisis2008Loss.ToString("N0")) (crisis2008Loss / portfolioValue * 100.0)
-    printfn "  %-30s $%11s %7.1f%%" "COVID-19 March 2020" (covidLoss.ToString("N0")) (covidLoss / portfolioValue * 100.0)
+    printfn "  %-30s $%11s %7.1f%%" "2008 Financial Crisis" (crisis2008Loss.ToString "N0") (crisis2008Loss / portfolioValue * 100.0)
+    printfn "  %-30s $%11s %7.1f%%" "COVID-19 March 2020" (covidLoss.ToString "N0") (covidLoss / portfolioValue * 100.0)
     printfn "  %s" (String('-', 52))
     printfn ""
 

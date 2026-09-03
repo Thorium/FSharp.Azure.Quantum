@@ -292,9 +292,8 @@ module QRNGTests =
         async {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
-            let! result = generateWithBackend 10 backend
             
-            match result with
+            match! generateWithBackend 10 backend with
             | Ok qrng ->
                 Assert.Equal(10, qrng.Bits.Length)
                 Assert.True(qrng.Entropy >= 0.0 && qrng.Entropy <= 1.0)
@@ -308,9 +307,8 @@ module QRNGTests =
         async {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
-            let! result = generateWithBackend 2000 backend
             
-            match result with
+            match! generateWithBackend 2000 backend with
             | Ok _ ->
                 Assert.True(false, "Should fail with excessive bits")
             | Error msg ->
@@ -323,9 +321,8 @@ module QRNGTests =
         async {
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
-            let! result = generateWithBackend 0 backend
             
-            match result with
+            match! generateWithBackend 0 backend with
             | Ok _ ->
                 Assert.True(false, "Should fail with zero bits")
             | Error msg ->
@@ -386,61 +383,47 @@ module QuantumDistributionsTests =
         let dist = Normal (0.0, -1.0)
         let result = sample dist
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with negative stddev")
-        | Error msg -> Assert.Contains("stddev must be positive", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with negative stddev")) |> Result.defaultWith (fun msg -> Assert.Contains("stddev must be positive", msg))
     
     [<Fact>]
     let ``Normal distribution requires finite parameters`` () =
         let dist1 = Normal (Double.NaN, 1.0)
         let result1 = sample dist1
         
-        match result1 with
-        | Ok _ -> Assert.True(false, "Should fail with NaN mean")
-        | Error msg -> Assert.Contains("mean must be finite", msg)
+        result1 |> Result.map (fun _ -> Assert.True(false, "Should fail with NaN mean")) |> Result.defaultWith (fun msg -> Assert.Contains("mean must be finite", msg))
         
         let dist2 = Normal (0.0, Double.PositiveInfinity)
         let result2 = sample dist2
         
-        match result2 with
-        | Ok _ -> Assert.True(false, "Should fail with infinite stddev")
-        | Error msg -> Assert.Contains("stddev must be finite", msg)
+        result2 |> Result.map (fun _ -> Assert.True(false, "Should fail with infinite stddev")) |> Result.defaultWith (fun msg -> Assert.Contains("stddev must be finite", msg))
     
     [<Fact>]
     let ``LogNormal distribution requires positive sigma`` () =
         let dist = LogNormal (0.0, -0.5)
         let result = sample dist
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with negative sigma")
-        | Error msg -> Assert.Contains("sigma must be positive", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with negative sigma")) |> Result.defaultWith (fun msg -> Assert.Contains("sigma must be positive", msg))
     
     [<Fact>]
     let ``Exponential distribution requires positive lambda`` () =
         let dist = Exponential (-1.0)
         let result = sample dist
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with negative lambda")
-        | Error msg -> Assert.Contains("lambda must be positive", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with negative lambda")) |> Result.defaultWith (fun msg -> Assert.Contains("lambda must be positive", msg))
     
     [<Fact>]
     let ``Uniform distribution requires min less than max`` () =
         let dist = Uniform (10.0, 5.0)
         let result = sample dist
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with min >= max")
-        | Error msg -> Assert.Contains("min must be < max", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with min >= max")) |> Result.defaultWith (fun msg -> Assert.Contains("min must be < max", msg))
     
     [<Fact>]
     let ``Custom distribution requires non-empty name`` () =
-        let dist = Custom ("", fun x -> x)
+        let dist = Custom ("", id)
         let result = sample dist
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with empty name")
-        | Error msg -> Assert.Contains("name cannot be empty", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with empty name")) |> Result.defaultWith (fun msg -> Assert.Contains("name cannot be empty", msg))
     
     // ========================================================================
     // SAMPLING TESTS (Pure Simulation)
@@ -450,9 +433,7 @@ module QuantumDistributionsTests =
     let ``sample StandardNormal produces reasonable values`` () =
         // Generate 1000 samples
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample StandardNormal with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample StandardNormal) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         Assert.Equal(1000, results.Length)
         
@@ -461,7 +442,7 @@ module QuantumDistributionsTests =
         Assert.True(abs mean < 0.3, $"Mean {mean} outside ±0.3")
         
         // StdDev should be ~1.0 (allow 0.8-1.2 for statistical variation)
-        let variance = results |> List.map (fun x -> (x - mean) ** 2.0) |> List.average
+        let variance = List.averageBy (fun x -> (x - mean) ** 2.0) results
         let stddev = sqrt variance
         Assert.True(stddev > 0.8 && stddev < 1.2, $"StdDev {stddev} outside [0.8, 1.2]")
     
@@ -470,9 +451,7 @@ module QuantumDistributionsTests =
         let dist = Normal (10.0, 2.0)
         
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         Assert.Equal(1000, results.Length)
         
@@ -481,7 +460,7 @@ module QuantumDistributionsTests =
         Assert.True(abs (mean - 10.0) < 0.5, $"Mean {mean} not near 10.0")
         
         // StdDev should be ~2.0 (allow 1.6-2.4)
-        let variance = results |> List.map (fun x -> (x - mean) ** 2.0) |> List.average
+        let variance = List.averageBy (fun x -> (x - mean) ** 2.0) results
         let stddev = sqrt variance
         Assert.True(stddev > 1.6 && stddev < 2.4, $"StdDev {stddev} outside [1.6, 2.4]")
     
@@ -490,9 +469,7 @@ module QuantumDistributionsTests =
         let dist = LogNormal (0.0, 1.0)
         
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         Assert.Equal(1000, results.Length)
         
@@ -509,9 +486,7 @@ module QuantumDistributionsTests =
         let dist = Exponential lambda
         
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         Assert.Equal(1000, results.Length)
         
@@ -529,9 +504,7 @@ module QuantumDistributionsTests =
         let dist = Uniform (minVal, maxVal)
         
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         Assert.Equal(1000, results.Length)
         
@@ -582,27 +555,21 @@ module QuantumDistributionsTests =
         let dist = StandardNormal
         let result = sampleMany dist 0
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with zero count")
-        | Error msg -> Assert.Contains("must be positive", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with zero count")) |> Result.defaultWith (fun msg -> Assert.Contains("must be positive", msg))
     
     [<Fact>]
     let ``sampleMany fails with excessive count`` () =
         let dist = StandardNormal
         let result = sampleMany dist 2000000
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with excessive count")
-        | Error msg -> Assert.Contains("too large", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with excessive count")) |> Result.defaultWith (fun msg -> Assert.Contains("too large", msg))
     
     [<Fact>]
     let ``sampleMany propagates validation errors`` () =
         let dist = Normal (0.0, -1.0)  // Invalid stddev
         let result = sampleMany dist 10
         
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with invalid distribution")
-        | Error msg -> Assert.Contains("stddev must be positive", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with invalid distribution")) |> Result.defaultWith (fun msg -> Assert.Contains("stddev must be positive", msg))
     
     // ========================================================================
     // BACKEND INTEGRATION TESTS (RULE1 Compliant)
@@ -614,9 +581,8 @@ module QuantumDistributionsTests =
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
             
-            let! result = sampleWithBackend dist backend
             
-            match result with
+            match! sampleWithBackend dist backend with
             | Ok sample ->
                 Assert.Equal(10, sample.QuantumBitsUsed)
                 // Value should be reasonable for N(0,1) - allow wide range
@@ -632,9 +598,8 @@ module QuantumDistributionsTests =
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = Normal (0.0, -1.0)  // Invalid stddev
             
-            let! result = sampleWithBackend dist backend
             
-            match result with
+            match! sampleWithBackend dist backend with
             | Ok _ -> Assert.True(false, "Should fail with invalid distribution")
             | Error err -> Assert.Contains("stddev must be positive", err.Message)
         }
@@ -647,9 +612,8 @@ module QuantumDistributionsTests =
             let dist = Uniform (0.0, 1.0)
             let count = 10
             
-            let! result = sampleManyWithBackend dist count backend None
             
-            match result with
+            match! sampleManyWithBackend dist count backend None with
             | Ok samples ->
                 Assert.Equal(count, samples.Length)
                 samples |> Array.iter (fun s ->
@@ -666,9 +630,8 @@ module QuantumDistributionsTests =
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
             
-            let! result = sampleManyWithBackend dist 20000 backend None
             
-            match result with
+            match! sampleManyWithBackend dist 20000 backend None with
             | Ok _ -> Assert.True(false, "Should fail with excessive count")
             | Error err -> Assert.Contains("too large", err.Message)
         }
@@ -680,9 +643,8 @@ module QuantumDistributionsTests =
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
             
-            let! result = sampleManyWithBackend dist 0 backend None
             
-            match result with
+            match! sampleManyWithBackend dist 0 backend None with
             | Ok _ -> Assert.True(false, "Should fail with zero count")
             | Error err -> Assert.Contains("must be positive", err.Message)
         }
@@ -744,7 +706,7 @@ module QuantumDistributionsTests =
         Assert.Contains("LogNormal(μ=0.00, σ=1.00)", distributionName (LogNormal (0.0, 1.0)))
         Assert.Contains("Exponential(λ=2.00)", distributionName (Exponential 2.0))
         Assert.Contains("Uniform(0.00, 10.00)", distributionName (Uniform (0.0, 10.0)))
-        Assert.Contains("Custom(MyTransform)", distributionName (Custom ("MyTransform", fun x -> x)))
+        Assert.Contains("Custom(MyTransform)", distributionName (Custom ("MyTransform", id)))
     
     [<Fact>]
     let ``expectedMean returns correct values`` () =
@@ -764,7 +726,7 @@ module QuantumDistributionsTests =
         | Some mean -> Assert.Equal(5.0, mean)
         | None -> Assert.True(false, "Should return Some for Uniform")
         
-        match expectedMean (Custom ("test", fun x -> x)) with
+        match expectedMean (Custom ("test", id)) with
         | Some _ -> Assert.True(false, "Should return None for Custom")
         | None -> Assert.True(true)
     
@@ -782,7 +744,7 @@ module QuantumDistributionsTests =
         | Some stddev -> Assert.Equal(0.5, stddev)
         | None -> Assert.True(false, "Should return Some for Exponential")
         
-        match expectedStdDev (Custom ("test", fun x -> x)) with
+        match expectedStdDev (Custom ("test", id)) with
         | Some _ -> Assert.True(false, "Should return None for Custom")
         | None -> Assert.True(true)
     
@@ -804,9 +766,7 @@ module QuantumDistributionsTests =
         
         // Generate many samples to statistically hit edge cases
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         // All values should be finite (no ±∞ or NaN)
         results |> List.iter (fun x ->
@@ -819,9 +779,7 @@ module QuantumDistributionsTests =
         
         // Generate many samples
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         // All values should be finite and positive
         results |> List.iter (fun x ->
@@ -837,9 +795,7 @@ module QuantumDistributionsTests =
         
         // Generate many samples
         let results = [1..1000] |> List.choose (fun _ ->
-            match sample dist with
-            | Ok r -> Some r.Value
-            | Error _ -> None)
+            (sample dist) |> Result.map (fun r -> Some r.Value) |> Result.defaultValue None)
         
         // All values should be strictly within [min, max]
         results |> List.iter (fun x ->
@@ -852,17 +808,13 @@ module QuantumDistributionsTests =
         let distNaN = Custom ("NaN", fun _ -> Double.NaN)
         
         let resultNaN = sample distNaN
-        match resultNaN with
-        | Ok _ -> Assert.True(false, "Should fail with NaN transform")
-        | Error msg -> Assert.Contains("NaN", msg)
+        resultNaN |> Result.map (fun _ -> Assert.True(false, "Should fail with NaN transform")) |> Result.defaultWith (fun msg -> Assert.Contains("NaN", msg))
         
         // Custom transform that returns Infinity
         let distInf = Custom ("Inf", fun _ -> Double.PositiveInfinity)
         
         let resultInf = sample distInf
-        match resultInf with
-        | Ok _ -> Assert.True(false, "Should fail with Infinity transform")
-        | Error msg -> Assert.Contains("Infinity", msg)
+        resultInf |> Result.map (fun _ -> Assert.True(false, "Should fail with Infinity transform")) |> Result.defaultWith (fun msg -> Assert.Contains("Infinity", msg))
     
     [<Fact>]
     let ``sample Custom handles exceptions`` () =
@@ -870,6 +822,4 @@ module QuantumDistributionsTests =
         let distThrow = Custom ("Throw", fun _ -> failwith "Intentional error")
         
         let result = sample distThrow
-        match result with
-        | Ok _ -> Assert.True(false, "Should fail with throwing transform")
-        | Error msg -> Assert.Contains("Custom transform failed", msg)
+        result |> Result.map (fun _ -> Assert.True(false, "Should fail with throwing transform")) |> Result.defaultWith (fun msg -> Assert.Contains("Custom transform failed", msg))

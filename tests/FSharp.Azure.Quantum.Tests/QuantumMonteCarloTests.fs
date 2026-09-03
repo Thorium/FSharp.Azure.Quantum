@@ -138,10 +138,7 @@ module QuantumMonteCarloTests =
         let config = createSimpleConfig 2 0 100
         let qb = createBackend()
         let result = estimateExpectation config qb |> Async.RunSynchronously
-        match result with
-        | Ok qmc ->
-            Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        result |> Result.map (fun qmc -> Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -159,10 +156,7 @@ module QuantumMonteCarloTests =
             |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
         let qb = createBackend()
         let result = estimateProbability statePrep oracle 1 qb |> Async.RunSynchronously
-        match result with
-        | Ok p ->
-            Assert.True(p >= 0.0 && p <= 1.0, $"Probability {p} should be in [0,1]")
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        result |> Result.map (fun p -> Assert.True(p >= 0.0 && p <= 1.0, $"Probability {p} should be in [0,1]")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``integrate returns a finite value`` () =
@@ -172,10 +166,7 @@ module QuantumMonteCarloTests =
             |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
         let qb = createBackend()
         let result = integrate functionOracle (0.0, 1.0) 1 qb |> Async.RunSynchronously
-        match result with
-        | Ok value ->
-            Assert.True(System.Double.IsFinite(value), $"Integration result {value} should be finite")
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        result |> Result.map (fun value -> Assert.True(System.Double.IsFinite(value), $"Integration result {value} should be finite")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // QMC RESULT FIELDS

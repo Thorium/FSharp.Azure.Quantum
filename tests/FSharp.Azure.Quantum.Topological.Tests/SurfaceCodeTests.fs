@@ -11,15 +11,11 @@ module SurfaceCodeTests =
 
     [<Fact>]
     let ``Planar: createPlanarLattice with d=3 succeeds`` () =
-        match SurfaceCode.createPlanarLattice 3 with
-        | Ok lattice -> Assert.Equal(3, lattice.Distance)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (SurfaceCode.createPlanarLattice 3) |> Result.map (fun lattice -> Assert.Equal(3, lattice.Distance)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``Planar: createPlanarLattice with d=5 succeeds`` () =
-        match SurfaceCode.createPlanarLattice 5 with
-        | Ok lattice -> Assert.Equal(5, lattice.Distance)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (SurfaceCode.createPlanarLattice 5) |> Result.map (fun lattice -> Assert.Equal(5, lattice.Distance)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``Planar: createPlanarLattice with d=2 fails (too small)`` () =
@@ -316,22 +312,15 @@ module SurfaceCodeTests =
 
     [<Fact>]
     let ``Color: logicalQubits is always 1`` () =
-        match SurfaceCode.createColorCodeLattice 3 with
-        | Ok lattice -> Assert.Equal(1, SurfaceCode.colorCodeLogicalQubits lattice)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (SurfaceCode.createColorCodeLattice 3) |> Result.map (fun lattice -> Assert.Equal(1, SurfaceCode.colorCodeLogicalQubits lattice)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``Color: physicalQubits > 0`` () =
-        match SurfaceCode.createColorCodeLattice 3 with
-        | Ok lattice ->
-            Assert.True(SurfaceCode.colorCodePhysicalQubits lattice > 0)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (SurfaceCode.createColorCodeLattice 3) |> Result.map (fun lattice -> Assert.True(SurfaceCode.colorCodePhysicalQubits lattice > 0)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``Color: codeDistance matches input`` () =
-        match SurfaceCode.createColorCodeLattice 5 with
-        | Ok lattice -> Assert.Equal(5, SurfaceCode.colorCodeDistance lattice)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (SurfaceCode.createColorCodeLattice 5) |> Result.map (fun lattice -> Assert.Equal(5, SurfaceCode.colorCodeDistance lattice)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``Color: getFacesByColor returns only requested color`` () =
@@ -492,10 +481,7 @@ module SurfaceCodeTests =
 
     [<Fact>]
     let ``Color code encodes 1 logical qubit`` () =
-        match SurfaceCode.createColorCodeLattice 3 with
-        | Ok lattice ->
-            Assert.Equal(1, SurfaceCode.colorCodeLogicalQubits lattice)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (SurfaceCode.createColorCodeLattice 3) |> Result.map (fun lattice -> Assert.Equal(1, SurfaceCode.colorCodeLogicalQubits lattice)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``Different surface code variants all detect clean ground state`` () =

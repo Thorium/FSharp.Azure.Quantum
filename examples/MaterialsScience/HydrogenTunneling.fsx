@@ -72,9 +72,12 @@ type MetalHost = {
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
-let m_H = 1.6735575e-27  // proton mass (kg)
-let m_D = 2.0 * m_H      // deuterium
-let m_T = 3.0 * m_H      // tritium
+/// proton mass (kg)
+let m_H = 1.6735575e-27
+/// deuterium
+let m_D = 2.0 * m_H
+/// tritium
+let m_T = 3.0 * m_H
 
 // ==============================================================================
 // BUILT-IN METAL PRESETS

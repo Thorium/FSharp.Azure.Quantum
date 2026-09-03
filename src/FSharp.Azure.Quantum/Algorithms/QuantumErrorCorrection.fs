@@ -664,7 +664,9 @@ module QuantumErrorCorrection =
         let private bfAncilla2 = (13, 14)
 
         // Phase-flip ancilla
+        [<Literal>]
         let private pfAncilla1 = 15
+        [<Literal>]
         let private pfAncilla2 = 16
 
         /// Encode a logical bit into the Shor 9-qubit code
@@ -1339,7 +1341,7 @@ module QuantumErrorCorrection =
             result.SyndromeBits
             |> List.map string
             |> String.concat ""
-        sb.AppendLine (sprintf "Syndrome: [%s]" syndromeStr) |> ignore
+        sb.AppendLine ($"Syndrome: [%s{syndromeStr}]") |> ignore
         match result.DetectedError with
         | Some errorType ->
             let errorStr =
@@ -1364,8 +1366,8 @@ module QuantumErrorCorrection =
             | PhaseFlipCode3 -> "Phase-Flip [[3,1,1]]"
             | ShorCode9 -> "Shor [[9,1,3]]"
             | SteaneCode7 -> "Steane [[7,1,3]]"
-        sb.AppendLine (sprintf "Code: %s" codeName) |> ignore
-        sb.AppendLine (sprintf "Logical bit: |%d>" result.LogicalBit) |> ignore
+        sb.AppendLine ($"Code: %s{codeName}") |> ignore
+        sb.AppendLine ($"Logical bit: |%d{result.LogicalBit}>") |> ignore
         match result.InjectedError with
         | Some (errorType, qubit) ->
             let errorStr =
@@ -1374,12 +1376,12 @@ module QuantumErrorCorrection =
                 | PhaseFlipError -> "Phase-Flip (Z)"
                 | CombinedError -> "Combined (Y)"
                 | UncorrectableError -> "Uncorrectable (multi-qubit)"
-            sb.AppendLine (sprintf "Injected: %s on qubit %d" errorStr qubit) |> ignore
+            sb.AppendLine ($"Injected: %s{errorStr} on qubit %d{qubit}") |> ignore
         | None ->
             sb.AppendLine "Injected: None" |> ignore
         sb.AppendLine (formatSyndrome result.Syndrome) |> ignore
-        sb.AppendLine (sprintf "Correction applied: %b" result.CorrectionApplied) |> ignore
-        sb.AppendLine (sprintf "Decoded: |%d>" result.DecodedBit) |> ignore
-        sb.AppendLine (sprintf "Success: %b" result.Success) |> ignore
-        sb.AppendLine (sprintf "Backend: %s" result.BackendName) |> ignore
+        sb.AppendLine ($"Correction applied: %b{result.CorrectionApplied}") |> ignore
+        sb.AppendLine ($"Decoded: |%d{result.DecodedBit}>") |> ignore
+        sb.AppendLine ($"Success: %b{result.Success}") |> ignore
+        sb.AppendLine ($"Backend: %s{result.BackendName}") |> ignore
         sb.ToString()

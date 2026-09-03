@@ -193,7 +193,7 @@ module QuantumKnapsackSolver =
                     NumVariables = numVars
                 }
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Knapsack QUBO encoding failed: %s" ex.Message))
+            Error (QuantumError.OperationError ("QuboEncoding", $"Knapsack QUBO encoding failed: %s{ex.Message}"))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -355,15 +355,14 @@ module QuantumKnapsackSolver =
                         }
 
                     task {
-                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                        match executeResult with
+                        match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
                         | Error err -> return Error err
                         | Ok measurements ->
                             return handleMeasurements measurements
                     }
         
         with ex ->
-            task { return Error (QuantumError.OperationError ("QuantumKnapsackSolver", sprintf "Quantum Knapsack solve failed: %s" ex.Message)) }
+            task { return Error (QuantumError.OperationError ("QuantumKnapsackSolver", $"Quantum Knapsack solve failed: %s{ex.Message}")) }
 
     /// Solve Knapsack problem using quantum QAOA (synchronous wrapper)
     /// 
@@ -505,7 +504,7 @@ module QuantumKnapsackSolver =
 
                 Ok { Q = allTerms; NumVariables = n }
         with ex ->
-            Error (QuantumError.OperationError ("SubsetSumQubo", sprintf "Subset-sum QUBO encoding failed: %s" ex.Message))
+            Error (QuantumError.OperationError ("SubsetSumQubo", $"Subset-sum QUBO encoding failed: %s{ex.Message}"))
 
     /// Build QUBO exclusion penalty terms for a known solution.
     ///
@@ -733,5 +732,5 @@ module QuantumKnapsackSolver =
         with ex ->
             Error (QuantumError.OperationError (
                 "QuantumSubsetSum",
-                sprintf "Quantum subset-sum solver failed: %s" ex.Message))
+                $"Quantum subset-sum solver failed: %s{ex.Message}"))
 

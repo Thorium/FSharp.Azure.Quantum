@@ -57,7 +57,7 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            let n = qubo.GetLength(0)
+            let n = qubo.GetLength 0
             for i in 0 .. n - 1 do
                 for j in 0 .. n - 1 do
                     Assert.Equal(qubo.[i, j], qubo.[j, i], 6)
@@ -78,7 +78,7 @@ module QuboEncodingTests =
             // We just check the QUBO is non-trivial
             let totalNonZero =
                 let mutable count = 0
-                let sz = qubo.GetLength(0)
+                let sz = qubo.GetLength 0
                 for i in 0 .. sz - 1 do
                     for j in 0 .. sz - 1 do
                         if abs qubo.[i, j] > 1e-15 then count <- count + 1
@@ -311,10 +311,7 @@ module QuantumSolverTests =
             BinCapacity = 5.0
         }
 
-        match solve backend problem 100 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.Equal("Local Simulator", solution.BackendName)
+        (solve backend problem 100) |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName)) |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
 
     [<Fact>]
     let ``solve with constraint repair produces valid packing`` () =
@@ -345,10 +342,7 @@ module QuantumSolverTests =
         }
         let config = { defaultConfig with FinalShots = 42 }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solveWithConfig failed: {err}")
-        | Ok solution ->
-            Assert.Equal(42, solution.NumShots)
+        (solveWithConfig backend problem config) |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots)) |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
 
     [<Fact>]
     let ``solve with items fitting in one bin`` () =

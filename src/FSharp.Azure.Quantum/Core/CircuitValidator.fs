@@ -265,12 +265,12 @@ module CircuitValidator =
             sprintf "Two-qubit gate between qubits %d and %d violates %s connectivity constraints. These qubits are not directly connected." 
                 q1 q2 backend
         
-        | InvalidParameter(message) ->
-            sprintf "Invalid parameter: %s" message
+        | InvalidParameter message ->
+            $"Invalid parameter: %s{message}"
     
     /// Format multiple validation errors into a summary message
     let formatValidationErrors (errors: ValidationError list) : string =
-        let header = sprintf "Circuit validation failed with %d validation error(s):\n" errors.Length
+        let header = $"Circuit validation failed with %d{errors.Length} validation error(s):\n"
         let messages = 
             errors 
             |> List.mapi (fun i err -> 
@@ -298,7 +298,7 @@ module CircuitValidator =
             | "ionq.qpu" | "ionq.qpu.aria-1" | "ionq.qpu.aria-2" -> Some (BackendConstraints.ionqHardware())
             
             // Rigetti Targets
-            | "rigetti.sim.qvm" -> Some (BackendConstraints.rigettiAspenM3())
+            | "rigetti.sim.qvm"
             | "rigetti.qpu.aspen-m-3" -> Some (BackendConstraints.rigettiAspenM3())
             
             // Unknown target - return None so user can provide custom constraints
@@ -329,7 +329,7 @@ module CircuitValidator =
                 sprintf "Gamma parameter array length (%d) must match QAOA depth (%d)" 
                     gammaParams.Length depth))
         // Check beta parameters length
-        else if betaParams.Length <> depth then
+        elif betaParams.Length <> depth then
             Error (InvalidParameter(
                 sprintf "Beta parameter array length (%d) must match QAOA depth (%d)" 
                     betaParams.Length depth))

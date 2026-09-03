@@ -51,6 +51,7 @@ module BraidingConsistency =
     // ========================================================================
     
     /// Get all particles in a theory, returning empty list for unsupported types
+    [<TailCall>]
     let rec private getParticles (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle list =
         match anyonType with
         | AnyonSpecies.AnyonType.Ising ->
@@ -79,18 +80,14 @@ module BraidingConsistency =
         (b: AnyonSpecies.Particle)
         (anyonType: AnyonSpecies.AnyonType)
         : AnyonSpecies.Particle list =
-        match FusionRules.channels a b anyonType with
-        | Ok channels -> channels
-        | Error _ -> []
+        (FusionRules.channels a b anyonType) |> Result.defaultValue []
     
     /// Look up F-symbol value, returning None if fusion constraints are violated
     let private tryGetF
         (fData: FMatrix.FMatrixData)
         (a, b, c, d, e, f)
         : Complex option =
-        match FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f } with
-        | Ok value -> Some value
-        | Error _ -> None
+        (FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f }) |> Result.map (fun value -> Some value) |> Result.defaultValue None
     
     // ========================================================================
     // PENTAGON EQUATION VERIFICATION
@@ -265,9 +262,7 @@ module BraidingConsistency =
                                       tryGetF fData (a,b,c,d,e,f) with
                                 | Some fBCA, Some fABC ->
                                     let rAF_D = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = f; RMatrix.C = d }
-                                    match rAF_D with
-                                    | Ok r -> Some (fBCA * r * fABC)
-                                    | Error _ -> None
+                                    rAF_D |> Result.map (fun r -> Some (fBCA * r * fABC)) |> Result.defaultValue None
                                 | _ -> None)
                         
                         let lhs = lhsTerms |> List.fold (+) Complex.Zero
@@ -378,7 +373,7 @@ module BraidingConsistency =
         
         let hexagons =
             summary.HexagonChecks
-            |> List.filter (fun c -> not (c.Details.Contains("No valid")))  // Filter trivial cases
+            |> List.filter (fun c -> not (c.Details.Contains "No valid"))  // Filter trivial cases
             |> List.map (fun check ->
                 let status = if check.IsSatisfied then "✓" else "✗"
                 $"  {status} {check.Equation} (dev: {check.MaxDeviation:E3})"

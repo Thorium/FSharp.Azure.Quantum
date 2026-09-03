@@ -36,73 +36,130 @@ open FSharp.Azure.Quantum.Data  // For PeriodicTable and ChemistryDataProviders
 /// - Quantum dots (Cd, Se, Zn, S, Pb, Te)
 module AtomicNumbers =
     // Period 1
-    let H = 1    // Hydrogen
-    let He = 2   // Helium
+    /// Hydrogen
+    let H = 1
+    /// Helium
+    let He = 2
     
     // Period 2
-    let Li = 3   // Lithium
-    let Be = 4   // Beryllium
-    let B = 5    // Boron
-    let C = 6    // Carbon
-    let N = 7    // Nitrogen
-    let O = 8    // Oxygen
-    let F = 9    // Fluorine
-    let Ne = 10  // Neon
+    /// Lithium
+    let Li = 3
+    /// Beryllium
+    let Be = 4
+    /// Boron
+    let B = 5
+    /// Carbon
+    let C = 6
+    /// Nitrogen
+    let N = 7
+    /// Oxygen
+    let O = 8
+    /// Fluorine
+    let F = 9
+    /// Neon
+    let Ne = 10
     
     // Period 3
-    let Na = 11  // Sodium
-    let Mg = 12  // Magnesium
-    let Al = 13  // Aluminum
-    let Si = 14  // Silicon
-    let P = 15   // Phosphorus
-    let S = 16   // Sulfur
-    let Cl = 17  // Chlorine
-    let Ar = 18  // Argon
+    /// Sodium
+    let Na = 11
+    /// Magnesium
+    let Mg = 12
+    /// Aluminum
+    let Al = 13
+    /// Silicon
+    let Si = 14
+    /// Phosphorus
+    let P = 15
+    /// Sulfur
+    let S = 16
+    /// Chlorine
+    let Cl = 17
+    /// Argon
+    let Ar = 18
     
     // Period 4 (includes first-row transition metals)
-    let K = 19   // Potassium
-    let Ca = 20  // Calcium
-    let Sc = 21  // Scandium
-    let Ti = 22  // Titanium
-    let V = 23   // Vanadium
-    let Cr = 24  // Chromium
-    let Mn = 25  // Manganese
-    let Fe = 26  // Iron
-    let Co = 27  // Cobalt
-    let Ni = 28  // Nickel
-    let Cu = 29  // Copper
-    let Zn = 30  // Zinc
-    let Ga = 31  // Gallium
-    let Ge = 32  // Germanium
-    let As = 33  // Arsenic
-    let Se = 34  // Selenium
-    let Br = 35  // Bromine
-    let Kr = 36  // Krypton
+    /// Potassium
+    let K = 19
+    /// Calcium
+    let Ca = 20
+    /// Scandium
+    let Sc = 21
+    /// Titanium
+    let Ti = 22
+    /// Vanadium
+    let V = 23
+    /// Chromium
+    let Cr = 24
+    /// Manganese
+    let Mn = 25
+    /// Iron
+    let Fe = 26
+    /// Cobalt
+    let Co = 27
+    /// Nickel
+    let Ni = 28
+    /// Copper
+    let Cu = 29
+    /// Zinc
+    let Zn = 30
+    /// Gallium
+    let Ga = 31
+    /// Germanium
+    let Ge = 32
+    /// Arsenic
+    let As = 33
+    /// Selenium
+    let Se = 34
+    /// Bromine
+    let Br = 35
+    /// Krypton
+    let Kr = 36
     
     // Period 5 (includes second-row transition metals)
-    let Rb = 37  // Rubidium
-    let Sr = 38  // Strontium
-    let Y = 39   // Yttrium
-    let Zr = 40  // Zirconium
-    let Nb = 41  // Niobium
-    let Mo = 42  // Molybdenum
-    let Tc = 43  // Technetium
-    let Ru = 44  // Ruthenium
-    let Rh = 45  // Rhodium
-    let Pd = 46  // Palladium
-    let Ag = 47  // Silver
-    let Cd = 48  // Cadmium
-    let In = 49  // Indium
-    let Sn = 50  // Tin
-    let Sb = 51  // Antimony
-    let Te = 52  // Tellurium
-    let I = 53   // Iodine
-    let Xe = 54  // Xenon
+    /// Rubidium
+    let Rb = 37
+    /// Strontium
+    let Sr = 38
+    /// Yttrium
+    let Y = 39
+    /// Zirconium
+    let Zr = 40
+    /// Niobium
+    let Nb = 41
+    /// Molybdenum
+    let Mo = 42
+    /// Technetium
+    let Tc = 43
+    /// Ruthenium
+    let Ru = 44
+    /// Rhodium
+    let Rh = 45
+    /// Palladium
+    let Pd = 46
+    /// Silver
+    let Ag = 47
+    /// Cadmium
+    let Cd = 48
+    /// Indium
+    let In = 49
+    /// Tin
+    let Sn = 50
+    /// Antimony
+    let Sb = 51
+    /// Tellurium
+    let Te = 52
+    /// Iodine
+    let I = 53
+    /// Xenon
+    let Xe = 54
     
     // Selected heavier elements (commonly used)
-    let Pt = 78  // Platinum (catalysis)
-    let Au = 79  // Gold (nanoparticles)
-    let Pb = 82  // Lead (quantum dots, perovskites)
+    /// Platinum (catalysis)
+    let Pt = 78
+    /// Gold (nanoparticles)
+    let Au = 79
+    /// Lead (quantum dots, perovskites)
+    let Pb = 82
     
     /// Get atomic number from element symbol
     /// Returns None for unsupported elements
@@ -175,7 +232,7 @@ module Molecule =
                 bond.Atom2 < 0 || bond.Atom2 >= molecule.Atoms.Length)
         
         if not invalidBonds.IsEmpty then
-            Error (QuantumError.ValidationError("Bonds", sprintf "Bond references non-existent atom indices: %A" invalidBonds))
+            Error (QuantumError.ValidationError("Bonds", $"Bond references non-existent atom indices: %A{invalidBonds}"))
         else
             Ok ()
     
@@ -601,7 +658,7 @@ module Molecule =
         sb.AppendLine(molecule.Name) |> ignore
         for atom in molecule.Atoms do
             let (x, y, z) = atom.Position
-            sb.AppendLine(sprintf "%-2s  %10.6f  %10.6f  %10.6f" atom.Element x y z) |> ignore
+            sb.AppendLine($"%-2s{atom.Element}  %10.6f{x}  %10.6f{y}  %10.6f{z}") |> ignore
         sb.ToString()
     
     /// Save molecule to XYZ file asynchronously (Task-based, zero bridging).
@@ -1772,7 +1829,7 @@ module FermionMapping =
                                                         // Change to Z basis: S†H gates (RX(-π/2))
                                                         let! afterRX = backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -System.Math.PI / 2.0))) st
                                                         return afterRX
-                                                    | _ -> return st
+                                                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> return st
                                                 })
                                         
                                         // Step 2: CNOT ladder (entangle all qubits)
@@ -1820,7 +1877,7 @@ module FermionMapping =
                                                         return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
                                                     | QaoaCircuit.PauliOperator.PauliY ->
                                                         return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, System.Math.PI / 2.0))) st
-                                                    | _ -> return st
+                                                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> return st
                                                 })
                                         
                                         return afterUndoBasis
@@ -1863,7 +1920,7 @@ module FermionMapping =
                                         | QaoaCircuit.PauliOperator.PauliY ->
                                             // Measure Y: apply S†H (equivalent to RX(-π/2))
                                             return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -System.Math.PI / 2.0))) st
-                                        | _ -> 
+                                        | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> 
                                             // Z and I: no basis change needed
                                             return st
                                     })
@@ -2003,9 +2060,7 @@ module FermionMapping =
                                 FinalState = state.FinalState
                             }
                         else
-                            match optimizationStep state with
-                            | Error err -> Error err
-                            | Ok newState -> optimizeLoop newState
+                            (optimizationStep state) |> Result.bind (fun newState -> optimizeLoop newState)
                     
                     // Start optimization from initial state
                     let initialOptState : OptimizationState = {
@@ -2357,8 +2412,8 @@ module MolecularHamiltonian =
                     Ok ()
             
             // Validate one-electron integral dimensions
-            let h1Rows = integrals.OneElectron.Integrals.GetLength(0)
-            let h1Cols = integrals.OneElectron.Integrals.GetLength(1)
+            let h1Rows = integrals.OneElectron.Integrals.GetLength 0
+            let h1Cols = integrals.OneElectron.Integrals.GetLength 1
             do! if h1Rows <> n || h1Cols <> n then
                     Error (QuantumError.ValidationError("Integrals", 
                         $"One-electron integral dimension mismatch: got [{h1Rows}x{h1Cols}], expected [{n}x{n}]. " +
@@ -2367,10 +2422,10 @@ module MolecularHamiltonian =
                     Ok ()
             
             // Validate two-electron integral dimensions
-            let g2D0 = integrals.TwoElectron.Integrals.GetLength(0)
-            let g2D1 = integrals.TwoElectron.Integrals.GetLength(1)
-            let g2D2 = integrals.TwoElectron.Integrals.GetLength(2)
-            let g2D3 = integrals.TwoElectron.Integrals.GetLength(3)
+            let g2D0 = integrals.TwoElectron.Integrals.GetLength 0
+            let g2D1 = integrals.TwoElectron.Integrals.GetLength 1
+            let g2D2 = integrals.TwoElectron.Integrals.GetLength 2
+            let g2D3 = integrals.TwoElectron.Integrals.GetLength 3
             do! if g2D0 <> n || g2D1 <> n || g2D2 <> n || g2D3 <> n then
                     Error (QuantumError.ValidationError("Integrals", 
                         $"Two-electron integral dimension mismatch: got [{g2D0}x{g2D1}x{g2D2}x{g2D3}], expected [{n}x{n}x{n}x{n}]. " +
@@ -2427,6 +2482,77 @@ module MolecularHamiltonian =
           OneElectron = { NumOrbitals = 2; Integrals = h1 }
           TwoElectron = { NumOrbitals = 2; Integrals = g2 }
           ReferenceEnergy = Some -1.116765 }   // Hartree-Fock energy (2·h00 + (00|00) + Enuc)
+
+    /// Build molecular Hamiltonian from molecule structure
+    /// Returns ProblemHamiltonian with Pauli Z and ZZ terms
+    /// 
+    /// NOTE: Uses empirical parameters tuned to reproduce known ground state energies
+    /// for H2 and H2O. This is a simplification for prototype - production code would
+    /// use full molecular orbital calculations (Hartree-Fock, etc.)
+    ///
+    /// For research-grade calculations, supply real molecular-orbital integrals to
+    /// `buildFromIntegrals` (e.g. the bundled `h2Sto3gIntegrals`, or integrals loaded
+    /// from an FCIDUMP file). `buildWithMapping` with JordanWigner/BravyiKitaev routes
+    /// through an `IntegralProvider` and will not fabricate integrals.
+    let build (molecule: Molecule) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
+        result {
+            // Validate molecule
+            do! Molecule.validate molecule
+            
+            do! if molecule.Atoms.IsEmpty then
+                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
+                elif Molecule.countElectrons molecule <= 0 then
+                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
+                else
+                    Ok ()
+            
+            // Empirical Hamiltonian parameters for known molecules
+            // NOTE: These are POSITIVE - we negate the expectation value in measurement
+            // Use composition-based identification to handle molecules loaded from files
+            let knownMolecule = MoleculeIdentification.identify molecule
+            let (numQubits, oneElectronCoeff, twoElectronCoeff) =
+                match knownMolecule with
+                | Some "H2" -> 
+                    // H2: 2 qubits, empirical parameters tuned to give ~-1.174 Hartree
+                    // Electronic energy target: ~-2.5 (to offset +1.35 nuclear repulsion)
+                    (2, 1.3, 0.05)
+                | Some "H2O" ->
+                    // H2O: 6 qubits (3 atoms × 2 orbitals), empirical parameters
+                    // Need large values to reach -76.0 with nuclear repulsion
+                    (6, 13.0, 0.1)
+                | _ ->
+                    // Generic: 2 qubits per atom (minimal basis approximation)
+                    let nq = molecule.Atoms.Length * 2
+                    (nq, 1.0, 0.5)
+            
+            do! if numQubits > 20 then
+                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 20)"))
+                else
+                    Ok ()
+            
+            // Build Hamiltonian terms
+            // One-electron terms (Z operators)
+            let oneElectronTerms =
+                [| for i in 0 .. numQubits - 1 ->
+                    { Coefficient = oneElectronCoeff
+                      QubitsIndices = [| i |]
+                      PauliOperators = [| QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
+            
+            // Two-electron terms (ZZ operators)
+            let twoElectronTerms =
+                [| for i in 0 .. numQubits - 2 do
+                    for j in i + 1 .. numQubits - 1 ->
+                        { Coefficient = twoElectronCoeff
+                          QubitsIndices = [| i; j |]
+                          PauliOperators = [| QaoaCircuit.PauliZ
+                                              QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
+            
+            // Return the constructed hamiltonian
+            return {
+                QaoaCircuit.NumQubits = numQubits
+                QaoaCircuit.Terms = Array.append oneElectronTerms twoElectronTerms
+            }
+        }
 
     /// Build a Hamiltonian from a Molecule under the given mapping.
     ///
@@ -2492,76 +2618,7 @@ module MolecularHamiltonian =
                             "provider-free prototype Hamiltonian."))
         }
     
-    /// Build molecular Hamiltonian from molecule structure
-    /// Returns ProblemHamiltonian with Pauli Z and ZZ terms
-    /// 
-    /// NOTE: Uses empirical parameters tuned to reproduce known ground state energies
-    /// for H2 and H2O. This is a simplification for prototype - production code would
-    /// use full molecular orbital calculations (Hartree-Fock, etc.)
-    ///
-    /// For research-grade calculations, supply real molecular-orbital integrals to
-    /// `buildFromIntegrals` (e.g. the bundled `h2Sto3gIntegrals`, or integrals loaded
-    /// from an FCIDUMP file). `buildWithMapping` with JordanWigner/BravyiKitaev routes
-    /// through an `IntegralProvider` and will not fabricate integrals.
-    and build (molecule: Molecule) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
-        result {
-            // Validate molecule
-            do! Molecule.validate molecule
-            
-            do! if molecule.Atoms.IsEmpty then
-                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
-                elif Molecule.countElectrons molecule <= 0 then
-                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
-                else
-                    Ok ()
-            
-            // Empirical Hamiltonian parameters for known molecules
-            // NOTE: These are POSITIVE - we negate the expectation value in measurement
-            // Use composition-based identification to handle molecules loaded from files
-            let knownMolecule = MoleculeIdentification.identify molecule
-            let (numQubits, oneElectronCoeff, twoElectronCoeff) =
-                match knownMolecule with
-                | Some "H2" -> 
-                    // H2: 2 qubits, empirical parameters tuned to give ~-1.174 Hartree
-                    // Electronic energy target: ~-2.5 (to offset +1.35 nuclear repulsion)
-                    (2, 1.3, 0.05)
-                | Some "H2O" ->
-                    // H2O: 6 qubits (3 atoms × 2 orbitals), empirical parameters
-                    // Need large values to reach -76.0 with nuclear repulsion
-                    (6, 13.0, 0.1)
-                | _ ->
-                    // Generic: 2 qubits per atom (minimal basis approximation)
-                    let nq = molecule.Atoms.Length * 2
-                    (nq, 1.0, 0.5)
-            
-            do! if numQubits > 20 then
-                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 20)"))
-                else
-                    Ok ()
-            
-            // Build Hamiltonian terms
-            // One-electron terms (Z operators)
-            let oneElectronTerms =
-                [| for i in 0 .. numQubits - 1 ->
-                    { Coefficient = oneElectronCoeff
-                      QubitsIndices = [| i |]
-                      PauliOperators = [| QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
-            
-            // Two-electron terms (ZZ operators)
-            let twoElectronTerms =
-                [| for i in 0 .. numQubits - 2 do
-                    for j in i + 1 .. numQubits - 1 ->
-                        { Coefficient = twoElectronCoeff
-                          QubitsIndices = [| i; j |]
-                          PauliOperators = [| QaoaCircuit.PauliZ
-                                              QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
-            
-            // Return the constructed hamiltonian
-            return {
-                QaoaCircuit.NumQubits = numQubits
-                QaoaCircuit.Terms = Array.append oneElectronTerms twoElectronTerms
-            }
-        }
+
 
 /// Classical DFT fallback - provides empirical energy values
 module ClassicalDFT =
@@ -2818,10 +2875,7 @@ module VQE =
                                 ) (Ok [])
                                 |> Result.map (List.rev >> Array.ofList)
                             
-                            match gradientsResult with
-                            | Error err -> Error err
-                            | Ok updatedParameters ->
-                                loop (iteration + 1) updatedParameters energy energyHistory'
+                            gradientsResult |> Result.bind (fun updatedParameters -> loop (iteration + 1) updatedParameters energy energyHistory')
         
         loop 1 initialParameters Double.MaxValue []
     
@@ -2852,7 +2906,7 @@ module VQE =
                         Converged = true  // Always "converged" for empirical data
                         EnergyHistory = [(0, energy)]  // Single point for empirical
                     })
-            | _ ->
+            | None ->
                 // Generic VQE for unknown molecules (may be less accurate)
                 match MolecularHamiltonian.build molecule with
                 | Error err -> return Error err
@@ -2977,7 +3031,7 @@ module HamiltonianSimulation =
                         [QuantumOperation.Gate (RX (qubit, 2.0 * angle))]
                     | QaoaCircuit.PauliY ->
                         [QuantumOperation.Gate (RY (qubit, 2.0 * angle))]
-                    | _ -> []
+                    | QaoaCircuit.PauliI -> []
                 
                 | _ ->
                     // Multi-qubit term (2, 3, or more qubits): use CNOT ladder decomposition
@@ -2993,7 +3047,7 @@ module HamiltonianSimulation =
                             | QaoaCircuit.PauliY -> 
                                 [| QuantumOperation.Gate (SDG qubit)
                                    QuantumOperation.Gate (H qubit) |]
-                            | _ -> [||]  // Z and I need no change
+                            | QaoaCircuit.PauliI | QaoaCircuit.PauliZ -> [||]  // Z and I need no change
                         )
                         |> Array.toList
                     
@@ -3024,7 +3078,7 @@ module HamiltonianSimulation =
                             | QaoaCircuit.PauliY -> 
                                 [| QuantumOperation.Gate (H qubit)     // H† = H
                                    QuantumOperation.Gate (S qubit) |]  // (S†)† = S
-                            | _ -> [||]
+                            | QaoaCircuit.PauliI | QaoaCircuit.PauliZ -> [||]
                         )
                         |> Array.toList
                     
@@ -3489,7 +3543,7 @@ module QuantumChemistryBuilder =
             }
         
         /// <summary>Empty/no-op value for conditional branches.</summary>
-        member this.Zero() : ChemistryProblem = this.Yield(())
+        member this.Zero() : ChemistryProblem = this.Yield ()
         
         /// <summary>For loop support - iterate over sequences.</summary>
         member this.For(sequence: seq<'T>, body: 'T -> ChemistryProblem) : ChemistryProblem =
@@ -3634,7 +3688,7 @@ module QuantumChemistryBuilder =
             molecule.Atoms
             |> List.skip (i + 1)
             |> List.map (fun atom2 ->
-                let bondName = sprintf "%s-%s" atom1.Element atom2.Element
+                let bondName = $"%s{atom1.Element}-%s{atom2.Element}"
                 let bondLength = Molecule.calculateBondLength atom1 atom2
                 bondName, bondLength
             )

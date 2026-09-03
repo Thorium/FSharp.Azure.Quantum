@@ -250,7 +250,7 @@ module QuantumNetworkFlowSolver =
                 }
         
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Failed to encode network flow as QUBO: %s" ex.Message))
+            Error (QuantumError.OperationError ("QuboEncoding", $"Failed to encode network flow as QUBO: %s{ex.Message}"))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -491,15 +491,14 @@ module QuantumNetworkFlowSolver =
                             }
                     
                     task {
-                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                        match executeResult with
+                        match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
                         | Error err -> return Error err
                         | Ok measurements ->
                             return handleMeasurements measurements
                         
                     }
             with ex ->
-                task { return Error (QuantumError.OperationError ("QuantumNetworkFlowSolver", sprintf "Quantum network flow solver failed: %s" ex.Message)) }
+                task { return Error (QuantumError.OperationError ("QuantumNetworkFlowSolver", $"Quantum network flow solver failed: %s{ex.Message}")) }
 
     /// Solve network flow problem using quantum backend via QAOA (synchronous wrapper)
     /// 

@@ -72,11 +72,7 @@ let completeAtomLine = """HETATM    1  CA AALA A   1      11.104   6.134  -6.504
 [<Fact>]
 let ``parse extracts PDB ID from HEADER`` () =
     let result = parse simplePdb
-    match result with
-    | Ok structure ->
-        Assert.Equal(Some "1ATP", structure.PdbId)
-    | Error e -> 
-        Assert.True(false, $"Parse failed: {e}")
+    result |> Result.map (fun structure -> Assert.Equal(Some "1ATP", structure.PdbId)) |> Result.defaultWith (fun e -> Assert.True(false, $"Parse failed: {e}"))
 
 [<Fact>]
 let ``parse extracts TITLE`` () =
@@ -347,11 +343,7 @@ let ``parse handles complete PDB line with all fields`` () =
 [<Fact>]
 let ``parse returns empty residues for empty content`` () =
     let result = parse ""
-    match result with
-    | Ok structure ->
-        Assert.Equal(0, structure.Residues.Length)
-    | Error e -> 
-        Assert.True(false, $"Parse failed: {e}")
+    result |> Result.map (fun structure -> Assert.Equal(0, structure.Residues.Length)) |> Result.defaultWith (fun e -> Assert.True(false, $"Parse failed: {e}"))
 
 [<Fact>]
 let ``parse handles PDB without HEADER`` () =

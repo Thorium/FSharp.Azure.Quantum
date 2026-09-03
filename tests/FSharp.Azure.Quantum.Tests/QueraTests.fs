@@ -19,7 +19,7 @@ module QueraTests =
         use doc = JsonDocument.Parse(json)   // must be valid JSON
         let root = doc.RootElement
         Assert.Equal("braket.ir.ahs.program", root.GetProperty("braketSchemaHeader").GetProperty("name").GetString())
-        let register = root.GetProperty("setup").GetProperty("ahs_register")
+        let register = root.GetProperty("setup").GetProperty "ahs_register"
         Assert.Equal(3, register.GetProperty("sites").GetArrayLength())
         Assert.Equal(3, register.GetProperty("filling").GetArrayLength())
         // A driving field carries amplitude/phase/detuning; local detuning is empty.
@@ -34,7 +34,7 @@ module QueraTests =
     let ``toAhsProgram writes coordinates in metres`` () =
         let json = QuEra.toAhsProgram (program ())
         use doc = JsonDocument.Parse(json)
-        let sites = doc.RootElement.GetProperty("setup").GetProperty("ahs_register").GetProperty("sites")
+        let sites = doc.RootElement.GetProperty("setup").GetProperty("ahs_register").GetProperty "sites"
         // 4 µm → 4e-6 m, 8 µm → 8e-6 m
         Assert.Equal(4e-6, sites.[1].[0].GetDouble(), 12)
         Assert.Equal(8e-6, sites.[2].[0].GetDouble(), 12)
@@ -46,7 +46,7 @@ module QueraTests =
         use doc = JsonDocument.Parse(json)
         let series =
             doc.RootElement.GetProperty("hamiltonian").GetProperty("drivingFields").[0]
-                .GetProperty("amplitude").GetProperty("time_series")
+                .GetProperty("amplitude").GetProperty "time_series"
         Assert.Equal(4, series.GetProperty("values").GetArrayLength())
         Assert.Equal(4, series.GetProperty("times").GetArrayLength())
 
@@ -66,7 +66,7 @@ module QueraTests =
         use doc = JsonDocument.Parse(json)
         let series =
             doc.RootElement.GetProperty("hamiltonian").GetProperty("drivingFields").[0]
-                .GetProperty("amplitude").GetProperty("time_series")
+                .GetProperty("amplitude").GetProperty "time_series"
         let values = [ for v in series.GetProperty("values").EnumerateArray() -> v.GetDouble() ]
         let times = [ for t in series.GetProperty("times").EnumerateArray() -> t.GetDouble() ]
         // 3 boundary points (0, seg1 end, seg2 end) + 1 inserted jump point.

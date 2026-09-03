@@ -136,10 +136,7 @@ module PackingOptimizer =
                 |> Option.defaultWith (fun () ->
                     FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
             let binProblem = toBinPackingProblem problem
-            match QuantumBinPackingSolver.solve backend binProblem problem.Shots with
-            | Error err -> Error err
-            | Ok solution ->
-                Ok (decodeSolution problem solution)
+            (QuantumBinPackingSolver.solve backend binProblem problem.Shots) |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

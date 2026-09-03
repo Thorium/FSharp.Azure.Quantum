@@ -273,7 +273,7 @@ module QuantumBinaryILPSolver =
         |> List.sumBy (fun (i, ci) -> ci * float vars.[i])
 
     /// Check whether a constraint is satisfied: a^T x <= b.
-    let private isConstraintSatisfied (constr: Constraint) (vars: int[]) : bool =
+    let private isConstraintSatisfied (vars: int[]) (constr: Constraint) : bool =
         let lhs =
             constr.Coefficients
             |> List.indexed
@@ -283,7 +283,7 @@ module QuantumBinaryILPSolver =
     /// Count the number of satisfied constraints.
     let private countSatisfiedConstraints (problem: Problem) (vars: int[]) : int =
         problem.Constraints
-        |> List.filter (fun c -> isConstraintSatisfied c vars)
+        |> List.filter (isConstraintSatisfied vars)
         |> List.length
 
     /// Validate a bitstring for this problem.
@@ -564,7 +564,7 @@ module QuantumBinaryILPSolver =
                     // Check if all constraints are still satisfied
                     let allSatisfied =
                         problem.Constraints
-                        |> List.forall (fun c -> isConstraintSatisfied c vars)
+                        |> List.forall (isConstraintSatisfied vars)
                     if not allSatisfied then
                         vars.[i] <- 0  // Revert if it violates a constraint
             )

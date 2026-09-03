@@ -63,6 +63,6 @@ module Validation =
         if validation.IsValid then
             "Validation passed"
         else
-            let header = sprintf "Validation failed with %d error(s):" validation.Messages.Length
+            let header = $"Validation failed with %d{validation.Messages.Length} error(s):"
             let messages = validation.Messages |> List.mapi (fun i msg -> sprintf "  %d. %s" (i + 1) msg)
             String.concat "\n" (header :: messages)

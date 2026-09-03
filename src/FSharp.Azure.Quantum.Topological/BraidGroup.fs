@@ -124,7 +124,7 @@ module BraidGroup =
     let isYangBaxterTriple (g1: BraidGenerator) (g2: BraidGenerator) (g3: BraidGenerator) : bool =
         // All must be clockwise (or all counter-clockwise) for this simple check
         let allClockwise = g1.IsClockwise && g2.IsClockwise && g3.IsClockwise
-        let allCounter = not g1.IsClockwise && not g2.IsClockwise && not g3.IsClockwise
+        let allCounter = not ((g1.IsClockwise || g2.IsClockwise) || g3.IsClockwise)
         
         if not (allClockwise || allCounter) then
             false
@@ -198,9 +198,7 @@ module BraidGroup =
         (anyonType: AnyonSpecies.AnyonType)
         : TopologicalResult<Complex> =
         
-        match RMatrix.computeRMatrix anyonType with
-        | Error err -> Error err
-        | Ok rData -> applyGeneratorWithRData generator anyons fusionChannel rData
+        (RMatrix.computeRMatrix anyonType) |> Result.bind (fun rData -> applyGeneratorWithRData generator anyons fusionChannel rData)
     
     /// Apply a full braid word to anyon state
     /// 

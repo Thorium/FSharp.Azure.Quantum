@@ -12,21 +12,15 @@ module BraidGroupTests =
     
     /// Helper to create braid from generators or fail
     let private braidFromGensOrFail n gens testContext =
-        match BraidGroup.fromGenerators n gens with
-        | Ok braid -> braid
-        | Error err -> failwith $"{testContext}: {err.Message}"
+        (BraidGroup.fromGenerators n gens) |> Result.defaultWith (fun err -> failwith $"{testContext}: {err.Message}")
     
     /// Helper to compose braids or fail
     let private composeOrFail b1 b2 testContext =
-        match BraidGroup.compose b1 b2 with
-        | Ok composed -> composed
-        | Error err -> failwith $"{testContext}: {err.Message}"
+        (BraidGroup.compose b1 b2) |> Result.defaultWith (fun err -> failwith $"{testContext}: {err.Message}")
     
     /// Helper to apply braid or fail
     let private applyBraidOrFail braid anyons channel anyonType testContext =
-        match BraidGroup.applyBraid braid anyons channel anyonType with
-        | Ok result -> result
-        | Error err -> failwith $"{testContext}: {err.Message}"
+        (BraidGroup.applyBraid braid anyons channel anyonType) |> Result.defaultWith (fun err -> failwith $"{testContext}: {err.Message}")
     
     /// Helper to assert complex values are approximately equal
     let private assertPhaseEquals (expected: Complex) (actual: Complex) =
@@ -36,9 +30,7 @@ module BraidGroupTests =
     
     /// Helper to unwrap identity braid or fail
     let private identityOrFail n testContext =
-        match BraidGroup.identity n with
-        | Ok braid -> braid
-        | Error err -> failwith $"{testContext}: {err.Message}"
+        (BraidGroup.identity n) |> Result.defaultWith (fun err -> failwith $"{testContext}: {err.Message}")
 
     /// Helper to assert phase is on unit circle
     let private assertOnUnitCircle (phase: Complex) =
@@ -103,9 +95,7 @@ module BraidGroupTests =
     let ``Identity braid requires at least 2 strands`` () =
         // Business meaning: Braiding requires at least two objects to exchange.
         // A single anyon cannot be braided.
-        match BraidGroup.identity 1 with
-        | Ok _ -> failwith "Should have rejected 1-strand identity"
-        | Error err -> Assert.Contains("2 strands", err.Message)
+        (BraidGroup.identity 1) |> Result.map (fun _ -> failwith "Should have rejected 1-strand identity") |> Result.defaultWith (fun err -> Assert.Contains("2 strands", err.Message))
     
     // ========================================================================
     // BRAID COMPOSITION TESTS
@@ -134,9 +124,7 @@ module BraidGroupTests =
         let braid3 = identityOrFail 3 "3-strand identity"
         let braid4 = identityOrFail 4 "4-strand identity"
         
-        match BraidGroup.compose braid3 braid4 with
-        | Ok _ -> failwith "Should have rejected different strand counts"
-        | Error err -> Assert.Contains("different strand counts", err.Message)
+        (BraidGroup.compose braid3 braid4) |> Result.map (fun _ -> failwith "Should have rejected different strand counts") |> Result.defaultWith (fun err -> Assert.Contains("different strand counts", err.Message))
     
     [<Fact>]
     let ``Composing with identity braid is a no-op`` () =
@@ -358,9 +346,7 @@ module BraidGroupTests =
         let anyons = [AnyonSpecies.Particle.Sigma; AnyonSpecies.Particle.Sigma]  // Only 2!
         let channel = AnyonSpecies.Particle.Vacuum
         
-        match BraidGroup.applyBraid braid anyons channel AnyonSpecies.AnyonType.Ising with
-        | Ok _ -> failwith "Should have rejected mismatched anyon count"
-        | Error err -> Assert.Contains("strands but", err.Message)
+        (BraidGroup.applyBraid braid anyons channel AnyonSpecies.AnyonType.Ising) |> Result.map (fun _ -> failwith "Should have rejected mismatched anyon count") |> Result.defaultWith (fun err -> Assert.Contains("strands but", err.Message))
     
     [<Fact>]
     let ``Braiding Fibonacci τ×τ→1 accumulates correct phase`` () =
@@ -451,10 +437,7 @@ module BraidGroupTests =
         // σ×σ×σ can fuse to ψ (valid channel) - NOT σ (invalid)
         let channel = AnyonSpecies.Particle.Psi
         
-        match BraidGroup.verifyYangBaxter 0 3 anyons channel AnyonSpecies.AnyonType.Ising with
-        | Error err -> failwith $"Failed: {err.Message}"
-        | Ok satisfied ->
-            Assert.True(satisfied, "Ising anyons must satisfy Yang-Baxter")
+        (BraidGroup.verifyYangBaxter 0 3 anyons channel AnyonSpecies.AnyonType.Ising) |> Result.map (fun satisfied -> Assert.True(satisfied, "Ising anyons must satisfy Yang-Baxter")) |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
     
     [<Fact>]
     let ``Fibonacci anyons satisfy Yang-Baxter equation`` () =
@@ -463,10 +446,7 @@ module BraidGroupTests =
         let anyons = [AnyonSpecies.Particle.Tau; AnyonSpecies.Particle.Tau; AnyonSpecies.Particle.Tau]
         let channel = AnyonSpecies.Particle.Tau
         
-        match BraidGroup.verifyYangBaxter 0 3 anyons channel AnyonSpecies.AnyonType.Fibonacci with
-        | Error err -> failwith $"Failed: {err.Message}"
-        | Ok satisfied ->
-            Assert.True(satisfied, "Fibonacci anyons must satisfy Yang-Baxter")
+        (BraidGroup.verifyYangBaxter 0 3 anyons channel AnyonSpecies.AnyonType.Fibonacci) |> Result.map (fun satisfied -> Assert.True(satisfied, "Fibonacci anyons must satisfy Yang-Baxter")) |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
 
     [<Fact>]
     let ``Ising anyons satisfy Yang-Baxter for ALL fusion channels`` () =
@@ -478,10 +458,7 @@ module BraidGroupTests =
             AnyonSpecies.Particle.Sigma
         ]
         
-        match BraidGroup.verifyYangBaxterAllChannels 0 3 anyons AnyonSpecies.AnyonType.Ising with
-        | Error err -> failwith $"Failed: {err.Message}"
-        | Ok satisfied ->
-            Assert.True(satisfied, "Ising anyons must satisfy Yang-Baxter for all fusion channels")
+        (BraidGroup.verifyYangBaxterAllChannels 0 3 anyons AnyonSpecies.AnyonType.Ising) |> Result.map (fun satisfied -> Assert.True(satisfied, "Ising anyons must satisfy Yang-Baxter for all fusion channels")) |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
 
     [<Fact>]
     let ``Fibonacci anyons satisfy Yang-Baxter for ALL fusion channels`` () =
@@ -489,10 +466,7 @@ module BraidGroupTests =
         // fusion channels. τ×τ×τ can fuse to both 1 and τ — both must satisfy.
         let anyons = [AnyonSpecies.Particle.Tau; AnyonSpecies.Particle.Tau; AnyonSpecies.Particle.Tau]
         
-        match BraidGroup.verifyYangBaxterAllChannels 0 3 anyons AnyonSpecies.AnyonType.Fibonacci with
-        | Error err -> failwith $"Failed: {err.Message}"
-        | Ok satisfied ->
-            Assert.True(satisfied, "Fibonacci anyons must satisfy Yang-Baxter for all fusion channels")
+        (BraidGroup.verifyYangBaxterAllChannels 0 3 anyons AnyonSpecies.AnyonType.Fibonacci) |> Result.map (fun satisfied -> Assert.True(satisfied, "Fibonacci anyons must satisfy Yang-Baxter for all fusion channels")) |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
     
     // ========================================================================
     // DISPLAY TESTS

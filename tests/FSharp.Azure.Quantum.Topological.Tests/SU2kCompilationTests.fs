@@ -18,9 +18,7 @@ module SU2kCompilationTests =
 
     /// Helper to unwrap Result or fail test
     let private unwrapResult (result: Result<'T, TopologicalError>) (context: string) : 'T =
-        match result with
-        | Ok value -> value
-        | Error err -> failwith $"Expected Ok but got Error in {context}: {err.Message}"
+        result |> Result.defaultWith (fun err -> failwith $"Expected Ok but got Error in {context}: {err.Message}")
 
     // ========================================================================
     // BRAID GENERATOR TESTS
@@ -358,11 +356,7 @@ module SU2kCompilationTests =
 
         let result = GateToBraid.compileGateSequence gateSeq 0.5 (AnyonSpecies.AnyonType.SU2Level 3)
 
-        match result with
-        | Ok compilation ->
-            Assert.True(compilation.CompiledBraids.Length > 0, "CZ should produce braids")
-        | Error err ->
-            failwith $"SU(2)_3 CZ compilation should succeed but got: {err.Message}"
+        result |> Result.map (fun compilation -> Assert.True(compilation.CompiledBraids.Length > 0, "CZ should produce braids")) |> Result.defaultWith (fun err -> failwith $"SU(2)_3 CZ compilation should succeed but got: {err.Message}")
 
     [<Fact>]
     let ``compileGateSequence handles SWAP for SU(2)_3`` () =
@@ -376,11 +370,7 @@ module SU2kCompilationTests =
 
         let result = GateToBraid.compileGateSequence gateSeq 0.5 (AnyonSpecies.AnyonType.SU2Level 3)
 
-        match result with
-        | Ok compilation ->
-            Assert.True(compilation.CompiledBraids.Length > 0, "SWAP should produce braids")
-        | Error err ->
-            failwith $"SU(2)_3 SWAP compilation should succeed but got: {err.Message}"
+        result |> Result.map (fun compilation -> Assert.True(compilation.CompiledBraids.Length > 0, "SWAP should produce braids")) |> Result.defaultWith (fun err -> failwith $"SU(2)_3 SWAP compilation should succeed but got: {err.Message}")
 
     // ========================================================================
     // UNIVERSALITY WARNINGS
@@ -404,7 +394,7 @@ module SU2kCompilationTests =
             // Should succeed but with a warning about non-universality
             let hasUniversalityWarning =
                 compilation.CompilationWarnings
-                |> List.exists (fun w -> w.ToLower().Contains("universal"))
+                |> List.exists (fun w -> w.Contains("universal", StringComparison.OrdinalIgnoreCase))
             Assert.True(hasUniversalityWarning,
                 $"SU(2)_4 should warn about non-universality. Warnings: {compilation.CompilationWarnings}")
         | Error _ ->
@@ -430,7 +420,7 @@ module SU2kCompilationTests =
             // k=5 should NOT have non-universality warning
             let hasNonUniversalWarning =
                 compilation.CompilationWarnings
-                |> List.exists (fun w -> w.ToLower().Contains("not universal") || w.ToLower().Contains("non-universal"))
+                |> List.exists (fun w -> w.Contains("not universal", StringComparison.OrdinalIgnoreCase) || w.Contains("non-universal", StringComparison.OrdinalIgnoreCase))
             Assert.False(hasNonUniversalWarning,
                 $"SU(2)_5 should NOT warn about non-universality. Warnings: {compilation.CompilationWarnings}")
         | Error err ->
@@ -496,11 +486,7 @@ module SU2kCompilationTests =
 
         let result = GateToBraid.compileGateSequence gateSeq 0.5 (AnyonSpecies.AnyonType.SU2Level 3)
 
-        match result with
-        | Ok compilation ->
-            Assert.True(compilation.CompiledBraids.Length > 0)
-        | Error err ->
-            failwith $"SU(2)_3 RZ compilation should succeed but got: {err.Message}"
+        result |> Result.map (fun compilation -> Assert.True(compilation.CompiledBraids.Length > 0)) |> Result.defaultWith (fun err -> failwith $"SU(2)_3 RZ compilation should succeed but got: {err.Message}")
 
     [<Fact>]
     let ``compileGateSequence rejects Reset for SU(2)_3`` () =

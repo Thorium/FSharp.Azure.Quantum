@@ -35,7 +35,7 @@ module Braket =
     let parseGateResult (json: string) : Map<string, int> =
         use doc = JsonDocument.Parse(json)
         let root = doc.RootElement
-        match root.TryGetProperty("measurements") with
+        match root.TryGetProperty "measurements" with
         | true, measurements when measurements.ValueKind = JsonValueKind.Array ->
             (Map.empty, measurements.EnumerateArray())
             ||> Seq.fold (fun histogram shot ->
@@ -45,7 +45,7 @@ module Braket =
                     |> String.concat ""
                 histogram |> Map.change bits (fun existing -> Some (Option.defaultValue 0 existing + 1)))
         | _ ->
-            match root.TryGetProperty("measurementProbabilities") with
+            match root.TryGetProperty "measurementProbabilities" with
             | true, probabilities ->
                 // Approximate integer counts (scaled) so downstream sees the distribution shape.
                 probabilities.EnumerateObject()

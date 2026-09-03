@@ -110,9 +110,7 @@ module AlgorithmExtensionsTests =
         match Oracle.forValue 1 3 with
         | Ok oracle ->
             let result = AlgorithmExtensions.searchWithTopologyFibonacci oracle topoBackend config
-            match result with
-            | Ok _ -> Assert.True(true)
-            | Error _ -> Assert.True(true)  // Backend execution error is acceptable
+            result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun _ -> Assert.True(true))  // Backend execution error is acceptable
         | Error err ->
             Assert.True(false, $"Oracle creation failed: {err}")
     
@@ -123,9 +121,7 @@ module AlgorithmExtensionsTests =
         
         // searchSingleWithTopologyFibonacci should create the oracle internally
         let result = AlgorithmExtensions.searchSingleWithTopologyFibonacci 1 3 topoBackend config
-        match result with
-        | Ok _ -> Assert.True(true)
-        | Error _ -> Assert.True(true)  // Backend error is acceptable
+        result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun _ -> Assert.True(true))  // Backend error is acceptable
     
     [<Fact>]
     let ``AlgorithmExtensions - searchWithPredicateTopologyFibonacci accepts predicate`` () =
@@ -134,9 +130,7 @@ module AlgorithmExtensionsTests =
         
         let isEven n = n % 2 = 0
         let result = AlgorithmExtensions.searchWithPredicateTopologyFibonacci isEven 3 topoBackend config
-        match result with
-        | Ok _ -> Assert.True(true)
-        | Error _ -> Assert.True(true)  // Backend error is acceptable
+        result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun _ -> Assert.True(true))  // Backend error is acceptable
     
     [<Fact>]
     let ``AlgorithmExtensions - Adapter respects qubit count limits`` () =

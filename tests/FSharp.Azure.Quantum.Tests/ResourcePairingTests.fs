@@ -32,7 +32,7 @@ module ResourcePairingTests =
             Assert.True(r.Pairings.Length > 0 || r.TotalParticipants = 2,
                 "Should find pairing or return result for 2 participants")
             Assert.Equal(2, r.TotalParticipants)
-        | Error e -> Assert.Fail(sprintf "Resource pairing failed: %A" e)
+        | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
 
     [<Fact>]
     let ``ResourcePairing CE - three participants`` () =
@@ -54,7 +54,7 @@ module ResourcePairingTests =
             // Max matching for 3 people: at most 1 pair
             Assert.True(r.Pairings.Length <= 1 || r.Pairings.Length >= 0,
                 "Should return valid matching")
-        | Error e -> Assert.Fail(sprintf "Resource pairing failed: %A" e)
+        | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
 
     [<Fact>]
     let ``ResourcePairing CE - four participants optimal matching`` () =
@@ -76,7 +76,7 @@ module ResourcePairingTests =
         | Ok r ->
             Assert.Equal(4, r.TotalParticipants)
             Assert.True(r.TotalScore >= 0.0, "Total score should be non-negative")
-        | Error e -> Assert.Fail(sprintf "Resource pairing failed: %A" e)
+        | Error e -> Assert.Fail($"Resource pairing failed: %A{e}")
 
     [<Fact>]
     let ``ResourcePairing CE - participants batch add`` () =
@@ -89,10 +89,7 @@ module ResourcePairingTests =
             backend (localBackend ())
         }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(3, r.TotalParticipants)
-        | Error e -> Assert.Fail(sprintf "Resource pairing failed: %A" e)
+        result |> Result.map (fun r -> Assert.Equal(3, r.TotalParticipants)) |> Result.defaultWith (fun e -> Assert.Fail($"Resource pairing failed: %A{e}"))
 
     [<Fact>]
     let ``ResourcePairing CE - custom shots`` () =
@@ -106,10 +103,7 @@ module ResourcePairingTests =
             backend (localBackend ())
         }
 
-        match result with
-        | Ok r ->
-            Assert.Equal(2, r.TotalParticipants)
-        | Error e -> Assert.Fail(sprintf "Resource pairing failed: %A" e)
+        result |> Result.map (fun r -> Assert.Equal(2, r.TotalParticipants)) |> Result.defaultWith (fun e -> Assert.Fail($"Resource pairing failed: %A{e}"))
 
     // ========================================================================
     // PROGRAMMATIC API TESTS
@@ -135,7 +129,7 @@ module ResourcePairingTests =
         | Ok r ->
             Assert.Equal(3, r.TotalParticipants)
             Assert.True(r.TotalScore >= 0.0)
-        | Error e -> Assert.Fail(sprintf "Programmatic solve failed: %A" e)
+        | Error e -> Assert.Fail($"Programmatic solve failed: %A{e}")
 
     // ========================================================================
     // VALIDATION ERROR TESTS
@@ -154,7 +148,7 @@ module ResourcePairingTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Participants", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Participants validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
 
     [<Fact>]
     let ``ResourcePairing - empty participants returns error`` () =
@@ -169,7 +163,7 @@ module ResourcePairingTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Participants", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Participants validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
 
     [<Fact>]
     let ``ResourcePairing - empty compatibilities returns error`` () =
@@ -184,7 +178,7 @@ module ResourcePairingTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Compatibilities", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Compatibilities validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Compatibilities validation error, got: %A{other}")
 
     [<Fact>]
     let ``ResourcePairing - negative weight returns error`` () =
@@ -201,7 +195,7 @@ module ResourcePairingTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Weight", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Weight validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Weight validation error, got: %A{other}")
 
     [<Fact>]
     let ``ResourcePairing - unknown participant in compatibility returns error`` () =
@@ -218,7 +212,7 @@ module ResourcePairingTests =
 
         match result with
         | Error (QuantumError.ValidationError ("Participants", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected Participants validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected Participants validation error, got: %A{other}")
 
     [<Fact>]
     let ``ResourcePairing - no backend defaults to local simulator`` () =
@@ -235,7 +229,7 @@ module ResourcePairingTests =
         // backend) and still solves — it must not short-circuit with NotImplemented.
         match ResourcePairing.solve problem with
         | Ok _ -> ()
-        | other -> Assert.Fail(sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> Assert.Fail($"Expected Ok via default local simulator, got: %A{other}")
 
     // ========================================================================
     // EDGE CASES
@@ -256,7 +250,7 @@ module ResourcePairingTests =
         | Ok r ->
             Assert.Equal(2, r.TotalParticipants)
             Assert.True(r.ParticipantsPaired <= 2)
-        | Error e -> Assert.Fail(sprintf "Two participant case failed: %A" e)
+        | Error e -> Assert.Fail($"Two participant case failed: %A{e}")
 
     [<Fact>]
     let ``ResourcePairing - zero weight compatibility`` () =
@@ -271,7 +265,4 @@ module ResourcePairingTests =
 
         let result = ResourcePairing.solve problem
 
-        match result with
-        | Ok r ->
-            Assert.Equal(2, r.TotalParticipants)
-        | Error e -> Assert.Fail(sprintf "Zero weight case failed: %A" e)
+        result |> Result.map (fun r -> Assert.Equal(2, r.TotalParticipants)) |> Result.defaultWith (fun e -> Assert.Fail($"Zero weight case failed: %A{e}"))

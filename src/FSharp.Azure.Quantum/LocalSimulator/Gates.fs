@@ -306,7 +306,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if controlIndex = targetIndex then
-            failwith "Control and target qubits must be different"
+            failwith $"Control and target qubits must be different, calling applyCNOT with controlIndex: {controlIndex}, targetIndex: {targetIndex}, state: {state}"
         
         let dimension = StateVector.dimension state
         let controlMask = 1 <<< controlIndex
@@ -346,7 +346,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if controlIndex = targetIndex then
-            failwith "Control and target qubits must be different"
+            failwith $"Control and target qubits must be different, calling applyCZ with controlIndex: {controlIndex}, targetIndex: {targetIndex}, state: {state}"
         
         let dimension = StateVector.dimension state
         let controlMask = 1 <<< controlIndex
@@ -386,7 +386,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if controlIndex = targetIndex then
-            failwith "Control and target qubits must be different"
+            failwith $"Control and target qubits must be different, calling applyCPhase with controlIndex: {controlIndex}, targetIndex: {targetIndex}, angle: {angle}, state: {state}"
         
         let dimension = StateVector.dimension state
         let controlMask = 1 <<< controlIndex
@@ -431,7 +431,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if controlIndex = targetIndex then
-            failwith "Control and target qubits must be different"
+            failwith $"Control and target qubits must be different, calling applyCRX with controlIndex: {controlIndex}, targetIndex: {targetIndex}, angle: {angle}, state: {state}"
         
         let dimension = StateVector.dimension state
         let controlMask = 1 <<< controlIndex
@@ -477,7 +477,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if controlIndex = targetIndex then
-            failwith "Control and target qubits must be different"
+            failwith $"Control and target qubits must be different, calling applyCRY with controlIndex: {controlIndex}, targetIndex: {targetIndex}, angle: {angle}, state: {state}"
         
         let dimension = StateVector.dimension state
         let controlMask = 1 <<< controlIndex
@@ -523,7 +523,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if controlIndex = targetIndex then
-            failwith "Control and target qubits must be different"
+            failwith $"Control and target qubits must be different, calling applyCRZ with controlIndex: {controlIndex}, targetIndex: {targetIndex}, angle: {angle}, state: {state}"
         
         let dimension = StateVector.dimension state
         let controlMask = 1 <<< controlIndex
@@ -570,7 +570,7 @@ module Gates =
         if qubit2Index < 0 || qubit2Index >= numQubits then
             failwith $"Qubit2 index {qubit2Index} out of range for {numQubits}-qubit state"
         if qubit1Index = qubit2Index then
-            failwith "SWAP qubits must be different"
+            failwith $"SWAP qubits must be different, calling applySWAP with qubit1Index: {qubit1Index}, qubit2Index: {qubit2Index}, state: {state}"
         
         let dimension = StateVector.dimension state
         let mask1 = 1 <<< qubit1Index
@@ -697,7 +697,7 @@ module Gates =
         
         match invalidControl with
         | Some idx when idx = targetIndex -> 
-            failwith "Control and target qubits must be distinct"
+            failwith $"Control and target qubits must be distinct, calling applyMultiControlledZ with controlIndices: {controlIndices}, targetIndex: {targetIndex}, state: {state}"
         | Some idx -> 
             failwith $"Control qubit index {idx} out of range for {numQubits}-qubit state"
         | None -> ()
@@ -747,7 +747,7 @@ module Gates =
         if targetIndex < 0 || targetIndex >= numQubits then
             failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
         if control1Index = control2Index || control1Index = targetIndex || control2Index = targetIndex then
-            failwith "CCX (Toffoli) control and target qubits must be distinct"
+            failwith $"CCX (Toffoli) control and target qubits must be distinct, calling applyCCX with control1Index: {control1Index}, control2Index: {control2Index}, targetIndex: {targetIndex}, state: {state}"
         
         let dimension = StateVector.dimension state
         let control1Mask = 1 <<< control1Index

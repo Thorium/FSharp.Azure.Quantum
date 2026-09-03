@@ -101,9 +101,7 @@ module BuildersCSharpExtensions =
     /// <summary>Get error message from Result&lt;T, string&gt; (C# helper).</summary>
     [<Extension>]
     let GetErrorMessage (result: Result<'T, string>) : string =
-        match result with
-        | Ok _ -> ""
-        | Error msg -> msg
+        result |> Result.map (fun _ -> "") |> Result.defaultWith id
     
     /// <summary>Map Result&lt;T, E&gt; to Result&lt;U, E&gt; using C# Func&lt;T, U&gt;.</summary>
     [<Extension>]
@@ -118,39 +116,29 @@ module BuildersCSharpExtensions =
     /// <summary>Check if Result is Ok (C# helper).</summary>
     [<Extension>]
     let IsOk (result: Result<'T, 'E>) : bool =
-        match result with
-        | Ok _ -> true
-        | Error _ -> false
+        result |> Result.isOk
     
     /// <summary>Check if Result is Error (C# helper).</summary>
     [<Extension>]
     let IsError (result: Result<'T, 'E>) : bool =
-        match result with
-        | Ok _ -> false
-        | Error _ -> true
+        result |> Result.isError
     
     /// <summary>Get Ok value from Result (throws if Error) (C# helper).</summary>
     /// <exception cref="InvalidOperationException">Thrown when result is Error</exception>
     [<Extension>]
     let GetOkValue (result: Result<'T, 'E>) : 'T =
-        match result with
-        | Ok v -> v
-        | Error _ -> invalidOp "Cannot get Ok value from Error result"
+        result |> Result.defaultWith (fun _ -> invalidOp "Cannot get Ok value from Error result")
     
     /// <summary>Get Error value from Result (throws if Ok) (C# helper).</summary>
     /// <exception cref="InvalidOperationException">Thrown when result is Ok</exception>
     [<Extension>]
     let GetErrorValue (result: Result<'T, 'E>) : 'E =
-        match result with
-        | Ok _ -> invalidOp "Cannot get Error value from Ok result"
-        | Error e -> e
+        result |> Result.map (fun _ -> invalidOp "Cannot get Error value from Ok result") |> Result.defaultWith id
     
     /// <summary>Get Ok value or default (C# helper).</summary>
     [<Extension>]
     let GetOkValueOrDefault (result: Result<'T, 'E>) (defaultValue: 'T) : 'T =
-        match result with
-        | Ok v -> v
-        | Error _ -> defaultValue
+        result |> Result.defaultValue defaultValue
     
     // ============================================================================
     // TUPLE CONVERSIONS - C# Value Tuples <-> F# Tuples

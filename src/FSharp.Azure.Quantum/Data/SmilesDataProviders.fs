@@ -198,9 +198,7 @@ module SmilesDataProviders =
     let parseSmilesMany (smilesList: string list) : MoleculeInstance list =
         smilesList
         |> List.choose (fun s ->
-            match parseSmiles s with
-            | Ok mol -> Some mol
-            | Error _ -> None)
+            (parseSmiles s) |> Result.map (fun mol -> Some mol) |> Result.defaultValue None)
 
     /// Create a provider from a single SMILES string.
     /// Useful for quick one-off molecule creation.

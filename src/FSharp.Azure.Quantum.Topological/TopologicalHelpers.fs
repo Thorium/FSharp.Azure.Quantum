@@ -35,13 +35,13 @@ module TopologicalHelpers =
         | AnyonSpecies.Particle.Sigma -> "σ"
         | AnyonSpecies.Particle.Psi -> "ψ"
         | AnyonSpecies.Particle.Tau -> "τ"
-        | _ -> p.ToString()
+        | AnyonSpecies.Particle.SpinJ _ -> p.ToString()
 
     /// Format a complex number for display
     let formatComplex (z: Complex) : string =
         let re, im = z.Real, z.Imaginary
         match abs re < 1e-10, abs im < 1e-10 with
         | true, true -> "0"
-        | true, false -> sprintf "%.6fi" im
-        | false, true -> sprintf "%.6f" re
-        | false, false -> sprintf "%.6f + %.6fi" re im
+        | true, false -> $"%.6f{im}i"
+        | false, true -> $"%.6f{re}"
+        | false, false -> $"%.6f{re} + %.6f{im}i"

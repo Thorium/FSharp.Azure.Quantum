@@ -463,7 +463,7 @@ module ProbabilisticErrorCancellationTests =
         let hGateRatio = float hGateCount / 1000.0
         // Allow 5% tolerance for statistical variance
         Assert.True(hGateRatio > 0.85 && hGateRatio < 0.95, 
-            sprintf "Expected H gate ratio ~0.90, got %.3f" hGateRatio)
+            $"Expected H gate ratio ~0.90, got %.3f{hGateRatio}")
     
     [<Fact>]
     let ``sampleQuasiProb should handle all positive probabilities`` () =
@@ -558,16 +558,15 @@ module ProbabilisticErrorCancellationTests =
                 async { return Ok 0.85 }
             
             // Act: Run PEC
-            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
             
             // Assert: Should return successful result
-            match result with
+            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
             | Ok pecResult ->
                 Assert.True(pecResult.SamplesUsed > 0, "Should have used samples")
                 Assert.Equal(10, pecResult.SamplesUsed)
                 Assert.True(pecResult.Overhead > 0.0, "Should have overhead")
             | Error err ->
-                Assert.Fail(sprintf "PEC failed: %s" err)
+                Assert.Fail($"PEC failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]
@@ -602,10 +601,9 @@ module ProbabilisticErrorCancellationTests =
                 }
             
             // Act: Apply PEC
-            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
             
             // Assert: Error should be reduced (corrected closer to true value)
-            match result with
+            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
             | Ok pecResult ->
                 // PEC should improve over baseline
                 let baselineError = abs (trueValue - baselineNoisy)
@@ -619,7 +617,7 @@ module ProbabilisticErrorCancellationTests =
                 printfn "Baseline error: %.3f, PEC error: %.3f, Reduction: %.1f%%" 
                     baselineError pecError (pecResult.ErrorReduction * 100.0)
             | Error err ->
-                Assert.Fail(sprintf "PEC failed: %s" err)
+                Assert.Fail($"PEC failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]
@@ -649,10 +647,9 @@ module ProbabilisticErrorCancellationTests =
                 }
             
             // Act
-            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
             
             // Assert: Should execute samples + 1 (baseline) circuits
-            match result with
+            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
             | Ok pecResult ->
                 // PEC overhead: samples for mitigation + 1 for uncorrected baseline
                 let expectedExecutions = samples + 1
@@ -661,7 +658,7 @@ module ProbabilisticErrorCancellationTests =
                 // Overhead should be samples (since baseline is 1x)
                 Assert.Equal(float samples, pecResult.Overhead, 1)
             | Error err ->
-                Assert.Fail(sprintf "PEC failed: %s" err)
+                Assert.Fail($"PEC failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]
@@ -687,10 +684,9 @@ module ProbabilisticErrorCancellationTests =
                 async { return Error "Quantum hardware unavailable" }
             
             // Act
-            let! result = ProbabilisticErrorCancellation.mitigate circuit config failingExecutor
             
             // Assert: Should propagate error gracefully
-            match result with
+            match! ProbabilisticErrorCancellation.mitigate circuit config failingExecutor with
             | Error err -> 
                 Assert.Contains("execution failed", err.ToLower())
             | Ok _ -> 
@@ -721,15 +717,14 @@ module ProbabilisticErrorCancellationTests =
                 async { return Ok 0.75 }
             
             // Act
-            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
             
             // Assert: Should handle multi-gate circuit
-            match result with
+            match! ProbabilisticErrorCancellation.mitigate circuit config mockExecutor with
             | Ok pecResult ->
                 Assert.Equal(20, pecResult.SamplesUsed)
                 Assert.True(pecResult.CorrectedExpectation <> 0.0)
             | Error err ->
-                Assert.Fail(sprintf "Multi-gate PEC failed: %s" err)
+                Assert.Fail($"Multi-gate PEC failed: %s{err}")
         } |> Async.RunSynchronously
     
     [<Fact>]

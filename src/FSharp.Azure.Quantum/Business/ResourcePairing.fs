@@ -157,10 +157,7 @@ module ResourcePairing =
                 |> Option.defaultWith (fun () ->
                     FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
             let matchingProblem = toMatchingProblem problem
-            match QuantumMatchingSolver.solve backend matchingProblem problem.Shots with
-            | Error err -> Error err
-            | Ok solution ->
-                Ok (decodeSolution problem solution)
+            (QuantumMatchingSolver.solve backend matchingProblem problem.Shots) |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

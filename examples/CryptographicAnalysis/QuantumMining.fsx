@@ -124,7 +124,7 @@ let computeHash (blockData: byte[]) (nonce: int) : byte[] =
     let nonceBytes = BitConverter.GetBytes(nonce)
     let input = Array.append blockData nonceBytes
     use sha = SHA256.Create()
-    sha.ComputeHash(input)
+    sha.ComputeHash input
 
 /// Check if a hash has at least the required number of leading zero bits
 let hasLeadingZeroBits (hash: byte[]) (zeroBits: int) : bool =

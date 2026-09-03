@@ -162,6 +162,7 @@ module EkertQKD =
     let private quantumBound = 2.0 * sqrt 2.0
 
     /// Classical bound for CHSH
+    [<Literal>]
     let private classicalBound = 2.0
 
     // ========================================================================
@@ -221,14 +222,14 @@ module EkertQKD =
 
         let aliceBases =
             Array.init numPairs (fun _ ->
-                match rng.Next(3) with
+                match rng.Next 3 with
                 | 0 -> AliceDeg0
                 | 1 -> AliceDeg45
                 | _ -> AliceDeg90)
 
         let bobBases =
             Array.init numPairs (fun _ ->
-                match rng.Next(3) with
+                match rng.Next 3 with
                 | 0 -> BobDeg0
                 | 1 -> BobDeg45
                 | _ -> BobDeg135)
@@ -365,7 +366,7 @@ module EkertQKD =
             let! bellState = UnifiedBackend.applySequence backend bellOps initialState
 
             // Eve measures both qubits in a random basis (destroying entanglement)
-            let eveAngle = float (rng.Next(4)) * Math.PI / 4.0
+            let eveAngle = float (rng.Next 4) * Math.PI / 4.0
             let! eveResultAlice = measureInRotatedBasis backend bellState intent.AliceQubit eveAngle
             let! eveResultBob = measureInRotatedBasis backend bellState intent.BobQubit eveAngle
 
@@ -493,7 +494,7 @@ module EkertQKD =
     /// that can be used as key bits.
     let private isMatchingBasis (aliceBasis: AliceBasis) (bobBasis: BobBasis) : bool =
         match (aliceBasis, bobBasis) with
-        | (AliceDeg0, BobDeg0) -> true
+        | (AliceDeg0, BobDeg0)
         | (AliceDeg45, BobDeg45) -> true
         | _ -> false
 
@@ -639,17 +640,17 @@ module EkertQKD =
         sb.AppendLine "CHSH Inequality Test" |> ignore
         sb.AppendLine "====================" |> ignore
         sb.AppendLine "" |> ignore
-        sb.AppendLine (sprintf "S parameter: %.4f" chsh.S) |> ignore
+        sb.AppendLine ($"S parameter: %.4f{chsh.S}") |> ignore
         sb.AppendLine (sprintf "|S|:         %.4f" (abs chsh.S)) |> ignore
         sb.AppendLine "" |> ignore
         sb.AppendLine "Bounds:" |> ignore
-        sb.AppendLine (sprintf "  Classical (local hidden variables): |S| <= %.4f" chsh.ClassicalBound) |> ignore
-        sb.AppendLine (sprintf "  Quantum (Bell state):               |S| =  %.4f" chsh.QuantumBound) |> ignore
+        sb.AppendLine ($"  Classical (local hidden variables): |S| <= %.4f{chsh.ClassicalBound}") |> ignore
+        sb.AppendLine ($"  Quantum (Bell state):               |S| =  %.4f{chsh.QuantumBound}") |> ignore
         sb.AppendLine "" |> ignore
         sb.AppendLine "Correlations:" |> ignore
 
         for (name, value) in chsh.Correlations do
-            sb.AppendLine (sprintf "  %s = %.4f" name value) |> ignore
+            sb.AppendLine ($"  %s{name} = %.4f{value}") |> ignore
 
         sb.AppendLine "" |> ignore
 
@@ -690,7 +691,7 @@ module EkertQKD =
                 | BobDeg45 -> "45"
                 | BobDeg135 -> "135"
             let isKey = if isMatchingBasis aBasis bBasis then " [KEY]" else ""
-            sb.AppendLine (sprintf "  (%s deg, %s deg): %d pairs%s" aStr bStr count isKey) |> ignore
+            sb.AppendLine ($"  (%s{aStr} deg, %s{bStr} deg): %d{count} pairs%s{isKey}") |> ignore
 
         sb.AppendLine "" |> ignore
 

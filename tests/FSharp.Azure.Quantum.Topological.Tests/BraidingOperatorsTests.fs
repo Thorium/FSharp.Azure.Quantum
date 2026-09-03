@@ -257,9 +257,7 @@ module BraidingOperatorsTests =
             match FusionRules.channels a b AnyonSpecies.AnyonType.Ising with
             | Ok channels ->
                 channels |> List.iter (fun c ->
-                    match BraidingOperators.element a b c AnyonSpecies.AnyonType.Ising with
-                    | Ok r -> assertUnitMagnitude r
-                    | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+                    (BraidingOperators.element a b c AnyonSpecies.AnyonType.Ising) |> Result.map (fun r -> assertUnitMagnitude r) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
                 )
             | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
         )
@@ -451,9 +449,7 @@ module BraidingOperatorsTests =
         ]
         
         testCases |> List.iter (fun (a, b, c, anyonType) ->
-            match BraidingOperators.element a b c anyonType with
-            | Ok r -> assertUnitMagnitude r
-            | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+            (BraidingOperators.element a b c anyonType) |> Result.map (fun r -> assertUnitMagnitude r) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
         )
     
     [<Fact>]

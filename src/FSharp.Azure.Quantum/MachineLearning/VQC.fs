@@ -24,8 +24,10 @@ module VQC =
     
     /// Optimizer choice for training
     type Optimizer =
-        | SGD  // Stochastic Gradient Descent
-        | Adam of AdamOptimizer.AdamConfig  // Adam optimizer with configuration
+        /// Stochastic Gradient Descent
+        | SGD
+        /// Adam optimizer with configuration
+        | Adam of AdamOptimizer.AdamConfig
     
     /// Training configuration
     type TrainingConfig = {
@@ -225,7 +227,7 @@ module VQC =
         match results |> Array.tryFind Result.isError with
         | Some (Error e) -> Error e
         | _ ->
-            let losses = results |> Array.choose (function Ok v -> Some v | _ -> None)
+            let losses = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
             Ok (Array.average losses)
     
     /// Compute average loss over dataset using Task.WhenAll for genuine concurrent I/O.
@@ -261,7 +263,7 @@ module VQC =
                 match results |> Array.tryFind Result.isError with
                 | Some (Error e) -> Error e
                 | _ ->
-                    let losses = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                    let losses = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
                     Ok (Array.average losses)
         }
 
@@ -293,7 +295,7 @@ module VQC =
 
         match results |> Array.tryFind Result.isError with
         | Some (Error e) -> Error e
-        | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+        | _ -> Ok (results |> Array.choose (function Ok v -> Some v | Error _ -> None))
 
     /// Compute per-sample circuit expectations p_j(θ) concurrently via Task.WhenAll.
     let private computePredictionsAsync
@@ -318,7 +320,7 @@ module VQC =
             return
                 match results |> Array.tryFind Result.isError with
                 | Some (Error e) -> Error e
-                | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+                | _ -> Ok (results |> Array.choose (function Ok v -> Some v | Error _ -> None))
         }
 
     /// Compute gradient using the parameter shift rule + chain rule (parallelized).
@@ -394,7 +396,7 @@ module VQC =
             match results |> Array.tryFind Result.isError with
             | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
             | _ ->
-                let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                let gradients = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
                 Ok gradients
 
     /// Compute gradient using the parameter shift rule + chain rule with genuine
@@ -464,7 +466,7 @@ module VQC =
                     match results |> Array.tryFind Result.isError with
                     | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
                     | _ ->
-                        let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                        let gradients = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
                         Ok gradients
         }
 
@@ -481,6 +483,58 @@ module VQC =
         AdamState: AdamOptimizer.AdamState option
     }
     
+    /// Predict label for a single sample
+    let predict
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array)
+        (shots: int)
+        : QuantumResult<Prediction> =
+        
+        quantumResult {
+            let! circuit = buildVQCCircuit featureMap variationalForm features parameters
+            let! probability = forwardPass backend circuit shots
+            
+            let label = if probability >= 0.5 then 1 else 0
+            
+            return {
+                Label = label
+                Probability = probability
+            }
+        }
+    
+    let evaluate
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (labels: int array)
+        (shots: int)
+        : QuantumResult<float> =
+        
+        if features.Length <> labels.Length then
+            Error (QuantumError.ValidationError ("Input", "Features and labels must have same length"))
+        elif features.Length = 0 then
+            Error (QuantumError.Other "Dataset cannot be empty")
+        else
+            let predictSample i =
+                predict backend featureMap variationalForm parameters features.[i] shots
+                |> Result.map (fun pred -> if pred.Label = labels.[i] then 1 else 0)
+            
+            let results = features |> Array.mapi (fun i _ -> predictSample i)
+            
+            match results |> Array.tryFind Result.isError with
+            | Some (Error e) -> Error e
+            | _ ->
+                let correctCounts = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
+                let accuracy = float (Array.sum correctCounts) / float features.Length
+                Ok accuracy
+
+    /// Evaluate model accuracy on dataset
+
     /// Train VQC model using gradient descent
     let rec train
         (backend: IQuantumBackend)
@@ -638,56 +692,7 @@ module VQC =
     // PREDICTION & EVALUATION
     // ========================================================================
     
-    /// Predict label for a single sample
-    and predict
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array)
-        (shots: int)
-        : QuantumResult<Prediction> =
-        
-        quantumResult {
-            let! circuit = buildVQCCircuit featureMap variationalForm features parameters
-            let! probability = forwardPass backend circuit shots
-            
-            let label = if probability >= 0.5 then 1 else 0
-            
-            return {
-                Label = label
-                Probability = probability
-            }
-        }
     
-    /// Evaluate model accuracy on dataset
-    and evaluate
-        (backend: IQuantumBackend)
-        (featureMap: FeatureMapType)
-        (variationalForm: VariationalForm)
-        (parameters: float array)
-        (features: float array array)
-        (labels: int array)
-        (shots: int)
-        : QuantumResult<float> =
-        
-        if features.Length <> labels.Length then
-            Error (QuantumError.ValidationError ("Input", "Features and labels must have same length"))
-        elif features.Length = 0 then
-            Error (QuantumError.Other "Dataset cannot be empty")
-        else
-            let predictSample i =
-                predict backend featureMap variationalForm parameters features.[i] shots
-                |> Result.map (fun pred -> if pred.Label = labels.[i] then 1 else 0)
-            
-            let results = features |> Array.mapi (fun i _ -> predictSample i)
-            
-            match results |> Array.tryFind Result.isError with
-            | Some (Error e) -> Error e
-            | _ ->
-                let correctCounts = results |> Array.choose (function Ok v -> Some v | _ -> None)
-                let accuracy = float (Array.sum correctCounts) / float features.Length
-                Ok accuracy
     
     // ========================================================================
     // HELPER FUNCTIONS
@@ -763,7 +768,7 @@ module VQC =
             match results |> Array.tryFind Result.isError with
             | Some (Error e) -> Error e
             | _ ->
-                let categories = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                let categories = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
                 let (tp, tn, fp, fn) = 
                     categories
                     |> Array.fold (fun (tp, tn, fp, fn) (dtp, dtn, dfp, dfn) ->
@@ -908,7 +913,7 @@ module VQC =
         | _ ->
             let squaredErrors = 
                 results 
-                |> Array.choose (function Ok v -> Some v | _ -> None)
+                |> Array.choose (function Ok v -> Some v | Error _ -> None)
             
             Ok (Array.average squaredErrors)
     
@@ -945,7 +950,7 @@ module VQC =
                 match results |> Array.tryFind Result.isError with
                 | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Loss computation failed: {e}"))
                 | _ ->
-                    let squaredErrors = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                    let squaredErrors = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
                     Ok (Array.average squaredErrors)
         }
 
@@ -969,7 +974,7 @@ module VQC =
 
         match results |> Array.tryFind Result.isError with
         | Some (Error e) -> Error e
-        | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+        | _ -> Ok (results |> Array.choose (function Ok v -> Some v | Error _ -> None))
 
     /// Compute per-sample regression predictions v_j(θ) concurrently via Task.WhenAll.
     let private computeRegressionPredictionsAsync
@@ -994,7 +999,7 @@ module VQC =
             return
                 match results |> Array.tryFind Result.isError with
                 | Some (Error e) -> Error e
-                | _ -> Ok (results |> Array.choose (function Ok v -> Some v | _ -> None))
+                | _ -> Ok (results |> Array.choose (function Ok v -> Some v | Error _ -> None))
         }
 
     /// Compute gradient for regression using the parameter shift rule + chain rule.
@@ -1061,7 +1066,7 @@ module VQC =
             | _ ->
                 let gradients =
                     results
-                    |> Array.choose (function Ok v -> Some v | _ -> None)
+                    |> Array.choose (function Ok v -> Some v | Error _ -> None)
                 Ok gradients
 
     /// Compute gradient for regression using the parameter shift rule + chain rule
@@ -1128,7 +1133,7 @@ module VQC =
                     match results |> Array.tryFind Result.isError with
                     | Some (Error e) -> Error e
                     | _ ->
-                        let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                        let gradients = results |> Array.choose (function Ok v -> Some v | Error _ -> None)
                         Ok gradients
         }
 
@@ -1267,9 +1272,7 @@ module VQC =
                 let predictions = 
                     trainFeatures 
                     |> Array.map (fun features ->
-                        match predictRegression backend featureMap variationalForm finalState.Parameters features config.Shots valueRange with
-                        | Ok pred -> pred.Value
-                        | Error _ -> nan)  // NaN signals prediction failure in metrics
+                        (predictRegression backend featureMap variationalForm finalState.Parameters features config.Shots valueRange) |> Result.map (fun pred -> pred.Value) |> Result.defaultValue nan)  // NaN signals prediction failure in metrics
                 
                 let finalMSE = 
                     Array.zip trainTargets predictions
@@ -1400,7 +1403,7 @@ module VQC =
                 match classifierResults |> Array.tryFind Result.isError with
                 | Some (Error e) -> Error e
                 | _ ->
-                    let classifiers = classifierResults |> Array.choose (function Ok r -> Some r | _ -> None)
+                    let classifiers = classifierResults |> Array.choose (function Ok r -> Some r | Error _ -> None)
                     
                     // Compute overall training accuracy using one-vs-rest prediction
                     // Collect all scores as Results; fail if any classifier errors
@@ -1457,16 +1460,14 @@ module VQC =
         let scoreResults = 
             result.Classifiers 
             |> Array.map (fun classifier ->
-                match predict backend featureMap variationalForm classifier.Parameters features shots with
-                | Ok pred -> Ok pred.Probability
-                | Error e -> Error e
+                (predict backend featureMap variationalForm classifier.Parameters features shots) |> Result.map (fun pred -> pred.Probability)
             )
         
         // Check if any prediction failed
         match scoreResults |> Array.tryFind Result.isError with
         | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Multi-class prediction failed: {e}"))
         | _ ->
-            let scores = scoreResults |> Array.choose (function Ok s -> Some s | _ -> None)
+            let scores = scoreResults |> Array.choose (function Ok s -> Some s | Error _ -> None)
 
             if result.NumClasses = 2 && scores.Length = 1 then
                 // Two-class models store a single binary classifier whose score is

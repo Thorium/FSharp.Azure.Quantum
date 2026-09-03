@@ -353,10 +353,7 @@ cx q[0],q[1];
 """
         let result = OpenQasmImport.parse qasm
         
-        match result with
-        | Ok circuit ->
-            Assert.Equal(2, circuit.Gates.Length)
-        | Error msg -> Assert.True(false, $"Parse failed: {msg}")
+        result |> Result.map (fun circuit -> Assert.Equal(2, circuit.Gates.Length)) |> Result.defaultWith (fun msg -> Assert.True(false, $"Parse failed: {msg}"))
     
     [<Fact>]
     let ``parse with comments`` () =
@@ -370,10 +367,7 @@ cx q[0],q[1];  // CNOT
 """
         let result = OpenQasmImport.parse qasm
         
-        match result with
-        | Ok circuit ->
-            Assert.Equal(2, circuit.Gates.Length)
-        | Error msg -> Assert.True(false, $"Parse failed: {msg}")
+        result |> Result.map (fun circuit -> Assert.Equal(2, circuit.Gates.Length)) |> Result.defaultWith (fun msg -> Assert.True(false, $"Parse failed: {msg}"))
     
     [<Fact>]
     let ``parse with no spaces around commas`` () =

@@ -229,7 +229,7 @@ module ErrorMitigationStrategyTests =
             Assert.False(mitigated.UsedFallback)
             Assert.Equal(2, Map.count mitigated.Histogram)
         | Error msg ->
-            Assert.Fail(sprintf "Strategy application failed: %s" msg.Message)
+            Assert.Fail($"Strategy application failed: %s{msg.Message}")
     
     [<Fact>]
     let ``Strategy with fallback should provide secondary option`` () =
@@ -252,7 +252,7 @@ module ErrorMitigationStrategyTests =
                 | ErrorMitigationStrategy.Combined primaryTechniques ->
                     Assert.True(List.length techniques < List.length primaryTechniques)
                 | _ -> ()
-            | _ -> ()
+            | ErrorMitigationStrategy.ZeroNoiseExtrapolation _ | ErrorMitigationStrategy.ProbabilisticErrorCancellation _ -> ()
         | None ->
             // Some strategies legitimately have no fallback (e.g., Readout-only)
             match strategy.Primary with

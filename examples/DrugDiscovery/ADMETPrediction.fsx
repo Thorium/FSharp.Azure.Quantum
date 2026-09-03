@@ -415,7 +415,7 @@ let countHBDonors (smiles: string) : int =
     // Simplified: count N and O that could have H
     let patterns = ["NH"; "OH"; "nH"; "[nH]"]
     patterns |> List.sumBy (fun p -> 
-        if smiles.Contains(p) then 1 
+        if smiles.Contains p then 1 
         else 0)
     |> max 1  // At least estimate from N/O count
 
@@ -458,8 +458,8 @@ let private estimatedDescriptors (smiles: string) : ADMETDescriptors =
         MolarRefractivity = estimateMW smiles * 0.1  // Rough estimate
         FormalCharge = 0
         NumChargedGroups =
-            (if smiles.Contains("[N+]") then 1 else 0) +
-            (if smiles.Contains("[O-]") then 1 else 0)
+            (if smiles.Contains "[N+]" then 1 else 0) +
+            (if smiles.Contains "[O-]" then 1 else 0)
     }
 
 /// Calculate all ADMET descriptors.
@@ -484,8 +484,8 @@ let calculateDescriptorsWithSource (smiles: string) : ADMETDescriptors * bool =
           MolarRefractivity = d.MolecularWeight * 0.1
           FormalCharge = 0
           NumChargedGroups =
-            (if smiles.Contains("[N+]") then 1 else 0) +
-            (if smiles.Contains("[O-]") then 1 else 0) }, true
+            (if smiles.Contains "[N+]" then 1 else 0) +
+            (if smiles.Contains "[O-]" then 1 else 0) }, true
     | Error _ ->
         estimatedDescriptors smiles, false
 

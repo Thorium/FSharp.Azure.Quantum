@@ -65,10 +65,14 @@ module AnomalyDetector =
     
     /// Sensitivity level for anomaly detection
     type Sensitivity =
-        | Low        // Fewer false alarms, may miss some anomalies
-        | Medium     // Balanced (default)
-        | High       // More sensitive, more false alarms
-        | VeryHigh   // Maximum sensitivity
+        /// Fewer false alarms, may miss some anomalies
+        | Low
+        /// Balanced (default)
+        | Medium
+        /// More sensitive, more false alarms
+        | High
+        /// Maximum sensitivity
+        | VeryHigh
     
     /// Anomaly detection problem specification
     type DetectionProblem = {
@@ -291,7 +295,7 @@ module AnomalyDetector =
                     | High -> "High"
                     | VeryHigh -> "VeryHigh"
                 TrainingTime = detector.Metadata.TrainingTime.TotalMilliseconds
-                CreatedAt = detector.Metadata.CreatedAt.ToString("o")
+                CreatedAt = detector.Metadata.CreatedAt.ToString "o"
                 Note = detector.Metadata.Note
             }
 
@@ -552,7 +556,7 @@ module AnomalyDetector =
         let results = samples |> Array.map (fun s -> check s detector)
         
         // Check for errors
-        let firstError = results |> Array.tryPick (fun r -> match r with Error e -> Some e | _ -> None)
+        let firstError = results |> Array.tryPick (Result.map (fun _ -> None) >> Result.defaultWith (fun e -> Some e))
         
         match firstError with
         | Some e -> Error e
@@ -560,7 +564,7 @@ module AnomalyDetector =
             
             let anomalyResults = 
                 results 
-                |> Array.map (fun r -> match r with Ok ar -> ar | Error _ -> failwith "Unreachable")
+                |> Array.map (fun r -> r |> Result.defaultWith (fun _ -> failwith $"Unreachable, calling checkBatch with samples: {samples}, detector: {detector}"))
             
             let anomalyCount = anomalyResults |> Array.filter (fun r -> r.IsAnomaly) |> Array.length
             let anomalyRate = float anomalyCount / float samples.Length

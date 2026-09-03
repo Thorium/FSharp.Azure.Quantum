@@ -22,21 +22,15 @@ module MagicStateDistillationTests =
     
     [<Fact>]
     let ``Should reject negative error rate`` () =
-        match MagicStateDistillation.prepareNoisyMagicState -0.1 AnyonSpecies.AnyonType.Ising with
-        | Ok _ -> failwith "Should have rejected negative error rate"
-        | Error err -> Assert.Contains("Error rate must be in [0, 1]", err.Message)
+        (MagicStateDistillation.prepareNoisyMagicState -0.1 AnyonSpecies.AnyonType.Ising) |> Result.map (fun _ -> failwith "Should have rejected negative error rate") |> Result.defaultWith (fun err -> Assert.Contains("Error rate must be in [0, 1]", err.Message))
     
     [<Fact>]
     let ``Should reject error rate greater than 1`` () =
-        match MagicStateDistillation.prepareNoisyMagicState 1.5 AnyonSpecies.AnyonType.Ising with
-        | Ok _ -> failwith "Should have rejected error rate > 1"
-        | Error err -> Assert.Contains("Error rate must be in [0, 1]", err.Message)
+        (MagicStateDistillation.prepareNoisyMagicState 1.5 AnyonSpecies.AnyonType.Ising) |> Result.map (fun _ -> failwith "Should have rejected error rate > 1") |> Result.defaultWith (fun err -> Assert.Contains("Error rate must be in [0, 1]", err.Message))
     
     [<Fact>]
     let ``Should reject non-Ising anyons for magic states`` () =
-        match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Fibonacci with
-        | Ok _ -> failwith "Should have rejected Fibonacci anyons"
-        | Error err -> Assert.Contains("only applicable to Ising anyons", err.Message)
+        (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Fibonacci) |> Result.map (fun _ -> failwith "Should have rejected Fibonacci anyons") |> Result.defaultWith (fun err -> Assert.Contains("only applicable to Ising anyons", err.Message))
     
     [<Fact>]
     let ``Perfect magic state should have zero error`` () =
@@ -99,9 +93,7 @@ module MagicStateDistillationTests =
         let inputStates =
             [1..15]
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
         match MagicStateDistillation.distill15to1 (System.Random()) inputStates with
@@ -117,14 +109,10 @@ module MagicStateDistillationTests =
         let inputStates =
             [1..10]
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
-        match MagicStateDistillation.distill15to1 (System.Random()) inputStates with
-        | Ok _ -> failwith "Should have rejected 10 states"
-        | Error err -> Assert.Contains("requires exactly 15 input states", err.Message)
+        (MagicStateDistillation.distill15to1 (System.Random()) inputStates) |> Result.map (fun _ -> failwith "Should have rejected 10 states") |> Result.defaultWith (fun err -> Assert.Contains("requires exactly 15 input states", err.Message))
     
     [<Fact>]
     let ``Should improve fidelity through distillation`` () =
@@ -133,9 +121,7 @@ module MagicStateDistillationTests =
         let inputStates =
             [1..15]
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState (1.0 - inputFidelity) AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState (1.0 - inputFidelity) AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
         match MagicStateDistillation.distill15to1 (System.Random()) inputStates with
@@ -155,9 +141,7 @@ module MagicStateDistillationTests =
             [1..15]
             |> List.mapi (fun i _ ->
                 let errorRate = 0.01 + (float i * 0.001)  // 1% to 2.4%
-                match MagicStateDistillation.prepareNoisyMagicState errorRate AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState errorRate AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
         match MagicStateDistillation.distill15to1 (System.Random()) inputStates with
@@ -176,15 +160,10 @@ module MagicStateDistillationTests =
         let inputStates =
             [1..15]
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
-        match MagicStateDistillation.distillIterative (System.Random()) 1 inputStates with
-        | Error err -> failwith $"Failed: {err.Message}"
-        | Ok finalState ->
-            Assert.True(finalState.Fidelity > 0.95)
+        (MagicStateDistillation.distillIterative (System.Random()) 1 inputStates) |> Result.map (fun finalState -> Assert.True(finalState.Fidelity > 0.95)) |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
     
     [<Fact>]
     let ``Should reject insufficient states for iterative distillation`` () =
@@ -192,36 +171,26 @@ module MagicStateDistillationTests =
         let inputStates =
             [1..100]  // Only 100
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
-        match MagicStateDistillation.distillIterative (System.Random()) 2 inputStates with
-        | Ok _ -> failwith "Should have rejected insufficient states"
-        | Error err -> Assert.Contains("Need", err.Message)
+        (MagicStateDistillation.distillIterative (System.Random()) 2 inputStates) |> Result.map (fun _ -> failwith "Should have rejected insufficient states") |> Result.defaultWith (fun err -> Assert.Contains("Need", err.Message))
     
     [<Fact>]
     let ``Should reject too many rounds`` () =
         let inputStates = []  // Doesn't matter, will fail before using them
         
-        match MagicStateDistillation.distillIterative (System.Random()) 10 inputStates with
-        | Ok _ -> failwith "Should have rejected 10 rounds"
-        | Error err -> Assert.Contains("More than 5 rounds is impractical", err.Message)
+        (MagicStateDistillation.distillIterative (System.Random()) 10 inputStates) |> Result.map (fun _ -> failwith "Should have rejected 10 rounds") |> Result.defaultWith (fun err -> Assert.Contains("More than 5 rounds is impractical", err.Message))
     
     [<Fact>]
     let ``Should reject zero rounds`` () =
         let inputStates =
             [1..15]
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed to prepare state"
+                (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed to prepare state")
             )
         
-        match MagicStateDistillation.distillIterative (System.Random()) 0 inputStates with
-        | Ok _ -> failwith "Should have rejected 0 rounds"
-        | Error err -> Assert.Contains("at least 1", err.Message)
+        (MagicStateDistillation.distillIterative (System.Random()) 0 inputStates) |> Result.map (fun _ -> failwith "Should have rejected 0 rounds") |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
     
     // ========================================================================
     // T-GATE SYNTHESIS TESTS
@@ -268,9 +237,7 @@ module MagicStateDistillationTests =
                     (FusionTree.fuse (FusionTree.leaf sigma) (FusionTree.leaf sigma) vacuum)
                     AnyonSpecies.AnyonType.Ising
             
-            match MagicStateDistillation.applyTGate (System.Random()) dataQubit lowFidelityState with
-            | Ok _ -> failwith "Should have rejected low-fidelity magic state"
-            | Error err -> Assert.Contains("fidelity too low", err.Message)
+            (MagicStateDistillation.applyTGate (System.Random()) dataQubit lowFidelityState) |> Result.map (fun _ -> failwith "Should have rejected low-fidelity magic state") |> Result.defaultWith (fun err -> Assert.Contains("fidelity too low", err.Message))
     
     [<Fact>]
     let ``Should reject non-Ising qubit for T-gate`` () =
@@ -282,12 +249,7 @@ module MagicStateDistillationTests =
                 (FusionTree.fuse (FusionTree.leaf tau) (FusionTree.leaf tau) vacuum)
                 AnyonSpecies.AnyonType.Fibonacci
         
-        match MagicStateDistillation.prepareNoisyMagicState 0.001 AnyonSpecies.AnyonType.Ising with
-        | Error err -> failwith $"Failed: {err.Message}"
-        | Ok magicState ->
-            match MagicStateDistillation.applyTGate (System.Random()) fibQubit magicState with
-            | Ok _ -> failwith "Should have rejected Fibonacci qubit"
-            | Error err -> Assert.Contains("only applicable to Ising anyons", err.Message)
+        (MagicStateDistillation.prepareNoisyMagicState 0.001 AnyonSpecies.AnyonType.Ising) |> Result.map (fun magicState -> (MagicStateDistillation.applyTGate (System.Random()) fibQubit magicState) |> Result.map (fun _ -> failwith "Should have rejected Fibonacci qubit") |> Result.defaultWith (fun err -> Assert.Contains("only applicable to Ising anyons", err.Message))) |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
     
     // ========================================================================
     // RESOURCE ESTIMATION TESTS
@@ -345,9 +307,7 @@ module MagicStateDistillationTests =
         let inputStates =
             [1..15]
             |> List.map (fun _ ->
-                match MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising with
-                | Ok s -> s
-                | Error _ -> failwith "Failed"
+                (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun _ -> failwith "Failed")
             )
         
         match MagicStateDistillation.distill15to1 (System.Random()) inputStates with

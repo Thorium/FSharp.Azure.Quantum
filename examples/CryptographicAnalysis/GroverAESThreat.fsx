@@ -89,7 +89,8 @@ type CipherResult =
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
-let opsPerSecond = 1e9  // optimistic: 1 billion quantum ops/sec
+/// optimistic: 1 billion quantum ops/sec
+let opsPerSecond = 1e9
 
 // ==============================================================================
 // SECURITY ANALYSIS FUNCTIONS (Pure)
@@ -175,7 +176,7 @@ let private presetNames =
 /// OR: name, preset (to reference a built-in preset)
 let private loadCiphersFromCsv (path: string) : CipherInfo list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

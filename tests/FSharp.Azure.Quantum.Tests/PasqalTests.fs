@@ -28,7 +28,7 @@ module PasqalTests =
     let ``toPulserJson writes each atom's coordinates`` () =
         let json = Pasqal.toPulserJson (program ())
         use doc = JsonDocument.Parse(json)
-        let atoms = doc.RootElement.GetProperty("register")
+        let atoms = doc.RootElement.GetProperty "register"
         Assert.Equal("q0", atoms.[0].GetProperty("name").GetString())
         Assert.Equal(0.0, atoms.[0].GetProperty("x").GetDouble(), 6)
         Assert.Equal(8.0, atoms.[2].GetProperty("x").GetDouble(), 6)

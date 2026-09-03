@@ -11,19 +11,13 @@ module BraidToGateTests =
     // ========================================================================
     
     let private braidFromGensOrFail n gens context =
-        match BraidGroup.fromGenerators n gens with
-        | Error err -> failwith $"{context}: {err.Message}"
-        | Ok braid -> braid
+        (BraidGroup.fromGenerators n gens) |> Result.defaultWith (fun err -> failwith $"{context}: {err.Message}")
     
     let private compileOrFail braid anyonType options context =
-        match BraidToGate.compileToGates braid anyonType options with
-        | Error err -> failwith $"{context}: {err.Message}"
-        | Ok sequence -> sequence
+        (BraidToGate.compileToGates braid anyonType options) |> Result.defaultWith (fun err -> failwith $"{context}: {err.Message}")
 
     let private identityOrFail n context =
-        match BraidGroup.identity n with
-        | Ok braid -> braid
-        | Error err -> failwith $"{context}: {err.Message}"
+        (BraidGroup.identity n) |> Result.defaultWith (fun err -> failwith $"{context}: {err.Message}")
 
     // ========================================================================
     // GATE NAME AND UTILITIES TESTS

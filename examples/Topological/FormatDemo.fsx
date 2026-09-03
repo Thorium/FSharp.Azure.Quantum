@@ -146,7 +146,7 @@ if shouldRun 3 then
         let origOps = original.Operations.Length
         let parsedOps =
             parsed.Operations
-            |> List.filter (fun op -> match op with Comment c when c.Contains("Generated:") -> false | _ -> true)
+            |> List.filter (fun op -> match op with Comment c when c.Contains "Generated:" -> false | _ -> true)
             |> List.length
         pr "Round-trip: %s" (if typeMatch then "SUCCESS" else "TYPE MISMATCH")
         pr "  Original ops:  %d" origOps

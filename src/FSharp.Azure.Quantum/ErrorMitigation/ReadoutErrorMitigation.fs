@@ -139,7 +139,7 @@ module ReadoutErrorMitigation =
         async {
             try
                 if qubits < 1 || qubits > 10 then
-                    return Error (sprintf "Qubit count must be 1-10 (got %d)" qubits)
+                    return Error ($"Qubit count must be 1-10 (got %d{qubits})")
                 else
                     // Prepare |0⟩^⊗n circuit (empty circuit, starts in |0⟩)
                     let dimension = pown 2 qubits
@@ -160,8 +160,7 @@ module ReadoutErrorMitigation =
                             if j >= dimension then
                                 return Ok ()
                             else
-                                let! colResult = executor (prepareBasisState j) config.CalibrationShots
-                                match colResult with
+                                match! executor (prepareBasisState j) config.CalibrationShots with
                                 | Error err ->
                                     return Error (sprintf "Failed to measure basis state |%s>: %s" (intToBitstring j qubits) err)
                                 | Ok histogram ->
@@ -180,8 +179,7 @@ module ReadoutErrorMitigation =
                                     return! measureColumn (j + 1)
                         }
 
-                    let! fillResult = measureColumn 0
-                    match fillResult with
+                    match! measureColumn 0 with
                     | Error err -> return Error err
                     | Ok () ->
                         return Ok {
@@ -192,7 +190,7 @@ module ReadoutErrorMitigation =
                             CalibrationShots = config.CalibrationShots
                         }
             with
-            | ex -> return Error (sprintf "Calibration measurement error: %s" ex.Message)
+            | ex -> return Error ($"Calibration measurement error: %s{ex.Message}")
         }
     
     // ============================================================================
@@ -213,13 +211,13 @@ module ReadoutErrorMitigation =
             // Check if matrix is singular (determinant ≈ 0)
             let det = matrix.Determinant()
             if abs det < 1e-10 then
-                Error (sprintf "Matrix is nearly singular (det = %.2e). Cannot invert reliably." det)
+                Error ($"Matrix is nearly singular (det = %.2e{det}). Cannot invert reliably.")
             else
                 // Check condition number (ratio of largest to smallest singular value)
                 let conditionNumber = matrix.ConditionNumber()
                 if conditionNumber > 1000.0 then
                     // Warning: High condition number means inversion may amplify errors
-                    logWarning logger (sprintf "[WARN] High condition number (%.1f) - inversion may be unstable" conditionNumber)
+                    logWarning logger ($"[WARN] High condition number (%.1f{conditionNumber}) - inversion may be unstable")
                 
                 // Invert using LU decomposition (numerically stable)
                 let inverse = matrix.Inverse()
@@ -228,7 +226,7 @@ module ReadoutErrorMitigation =
                 let result = Array2D.init inverse.RowCount inverse.ColumnCount (fun i j -> inverse.[i, j])
                 Ok result
         with
-        | ex -> Error (sprintf "Matrix inversion failed: %s" ex.Message)
+        | ex -> Error ($"Matrix inversion failed: %s{ex.Message}")
     
     // ============================================================================
     // Histogram Correction - Error Mitigation
@@ -255,7 +253,7 @@ module ReadoutErrorMitigation =
         let dimensionMismatch =
             measured |> Map.exists (fun bitstring _ -> bitstring.Length <> calibration.Qubits)
         if dimensionMismatch then
-            Error (sprintf "Calibration is for %d qubits but the measured histogram contains bitstrings of a different width. Supply a calibration matching the measured qubit count." calibration.Qubits)
+            Error ($"Calibration is for %d{calibration.Qubits} qubits but the measured histogram contains bitstrings of a different width. Supply a calibration matching the measured qubit count.")
         else
 
         // Step 1: Invert calibration matrix
@@ -347,7 +345,7 @@ module ReadoutErrorMitigation =
                     GoodnessOfFit = goodnessOfFit
                 }
             with
-            | ex -> Error (sprintf "Histogram correction error: %s" ex.Message)
+            | ex -> Error ($"Histogram correction error: %s{ex.Message}")
     
     // ============================================================================
     // Public API - Composable Functions
@@ -373,24 +371,22 @@ module ReadoutErrorMitigation =
                 let qubits = CircuitBuilder.qubitCount circuit
                 
                 // Step 1: Measure calibration matrix (can be cached and reused)
-                let! calibrationResult = measureCalibrationMatrix backend qubits config executor
                 
-                match calibrationResult with
-                | Error err -> return Error (sprintf "Calibration failed: %s" err)
+                match! measureCalibrationMatrix backend qubits config executor with
+                | Error err -> return Error ($"Calibration failed: %s{err}")
                 | Ok calibration ->
                     // Step 2: Execute actual circuit
                     let shots = config.CalibrationShots  // Use same number of shots
-                    let! executionResult = executor circuit shots
                     
-                    match executionResult with
-                    | Error err -> return Error (sprintf "Circuit execution failed: %s" err)
+                    match! executor circuit shots with
+                    | Error err -> return Error ($"Circuit execution failed: %s{err}")
                     | Ok measured ->
                         // Step 3: Correct readout errors
                         let correctionResult = correctReadoutErrors measured calibration config
                         
                         return correctionResult
             with
-            | ex -> return Error (sprintf "REM pipeline error: %s" ex.Message)
+            | ex -> return Error ($"REM pipeline error: %s{ex.Message}")
         }
     
     /// Validate calibration matrix properties.
@@ -418,7 +414,7 @@ module ReadoutErrorMitigation =
                         for j in 0 .. colCount - 1 do
                             let value = calibration.Matrix.[i, j]
                             if value < 0.0 || value > 1.0 then
-                                yield sprintf "Element [%d,%d] = %.4f not in [0,1]" i j value
+                                yield $"Element [%d{i},%d{j}] = %.4f{value} not in [0,1]"
                     |]
                 
                 // Check columns sum to 1.0 (prepared states)
@@ -429,7 +425,7 @@ module ReadoutErrorMitigation =
                             |> Array.sum
                         
                         if abs (colSum - 1.0) > 0.01 then
-                            yield sprintf "Column %d sums to %.4f (expected 1.0)" j colSum
+                            yield $"Column %d{j} sums to %.4f{colSum} (expected 1.0)"
                     |]
                 
                 let allErrors = Array.append rangeErrors sumErrors
@@ -439,4 +435,4 @@ module ReadoutErrorMitigation =
                 else
                     Error (String.concat "; " allErrors)
         with
-        | ex -> Error (sprintf "Validation error: %s" ex.Message)
+        | ex -> Error ($"Validation error: %s{ex.Message}")

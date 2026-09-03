@@ -31,7 +31,7 @@ module IqmBackend =
         {
             JobId = Guid.NewGuid().ToString()
             Target = target
-            Name = Some (sprintf "IQM-%s" target)
+            Name = Some ($"IQM-%s{target}")
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2"  // OpenQASM 2.0
             InputParams = Map [ ("shots", shots :> obj) ]
@@ -53,10 +53,10 @@ module IqmBackend =
         let root = jsonDoc.RootElement
 
         let results =
-            match root.TryGetProperty("results") with
+            match root.TryGetProperty "results" with
             | (true, element) -> element
             | (false, _) ->
-                match root.TryGetProperty("measurements") with
+                match root.TryGetProperty "measurements" with
                 | (true, element) -> element
                 | (false, _) -> root  // Fallback: root is the histogram itself
 
@@ -74,10 +74,10 @@ module IqmBackend =
         | "InvalidCircuit" ->
             QuantumError.ValidationError("circuit", errorMessage)
         | "TooManyQubits" ->
-            QuantumError.ValidationError("circuit", sprintf "Circuit too large: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Circuit too large: %s{errorMessage}")
         | "QuotaExceeded" ->
             QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
         | "BackendUnavailable" ->
             QuantumError.AzureError (AzureQuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes(5.0))))
         | _ ->
-            QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "IQM error: %s - %s" errorCode errorMessage))
+            QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"IQM error: %s{errorCode} - %s{errorMessage}"))

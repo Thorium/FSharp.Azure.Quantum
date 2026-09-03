@@ -14,7 +14,7 @@ let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) 
     let diffImag = abs (expected.Imaginary - actual.Imaginary)
     Assert.True(
         diffReal < tolerance && diffImag < tolerance,
-        sprintf "Expected: %A, Actual: %A, Tolerance: %f" expected actual tolerance
+        $"Expected: %A{expected}, Actual: %A{actual}, Tolerance: %f{tolerance}"
     )
 
 /// Get standard A value for testing (exp(i*pi/4))

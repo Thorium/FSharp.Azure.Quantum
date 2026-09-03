@@ -30,15 +30,11 @@ module RMatrixTests =
     
     /// Helper to get R-symbol or fail with meaningful message
     let private getRSymbolOrFail data index testContext =
-        match RMatrix.getRSymbol data index with
-        | Ok value -> value
-        | Error err -> failwith $"{testContext}: {err.Message}"
+        (RMatrix.getRSymbol data index) |> Result.defaultWith (fun err -> failwith $"{testContext}: {err.Message}")
     
     /// Helper to compute R-matrix or fail with meaningful message
     let private computeRMatrixOrFail anyonType =
-        match RMatrix.computeRMatrix anyonType with
-        | Ok data -> data
-        | Error err -> failwith $"Failed to compute {anyonType} R-matrix: {err.Message}"
+        (RMatrix.computeRMatrix anyonType) |> Result.defaultWith (fun err -> failwith $"Failed to compute {anyonType} R-matrix: {err.Message}")
     
     // ========================================================================
     // ISING R-MATRIX TESTS - Testing Majorana zero mode braiding
@@ -256,20 +252,14 @@ module RMatrixTests =
         // to preserve quantum probability (unitary evolution).
         let data = computeRMatrixOrFail AnyonSpecies.AnyonType.Ising
         
-        match RMatrix.validateRMatrix data with
-        | Error err -> failwith $"Validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "R-matrix should pass validation")
+        (RMatrix.validateRMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "R-matrix should pass validation")) |> Result.defaultWith (fun err -> failwith $"Validation failed: {err.Message}")
     
     [<Fact>]
     let ``Fibonacci R-matrix passes unitarity validation`` () =
         // Business meaning: Fibonacci R-matrices must also be unitary.
         let data = computeRMatrixOrFail AnyonSpecies.AnyonType.Fibonacci
         
-        match RMatrix.validateRMatrix data with
-        | Error err -> failwith $"Validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "R-matrix should pass validation")
+        (RMatrix.validateRMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "R-matrix should pass validation")) |> Result.defaultWith (fun err -> failwith $"Validation failed: {err.Message}")
     
     // ========================================================================
     // ERROR HANDLING TESTS
@@ -283,10 +273,7 @@ module RMatrixTests =
         let sigma = AnyonSpecies.Particle.Sigma
         let tau = AnyonSpecies.Particle.Tau  // Doesn't exist in Ising
         
-        match RMatrix.getRSymbol data (rIndex sigma sigma tau) with
-        | Ok _ -> failwith "Should have rejected invalid fusion"
-        | Error err -> 
-            Assert.Contains("Cannot fuse", err.Message)
+        (RMatrix.getRSymbol data (rIndex sigma sigma tau)) |> Result.map (fun _ -> failwith "Should have rejected invalid fusion") |> Result.defaultWith (fun err -> Assert.Contains("Cannot fuse", err.Message))
     
     [<Fact>]
     let ``computeRMatrix accepts general SU(2)_k levels`` () =
@@ -375,10 +362,7 @@ module RMatrixTests =
         | Some idx ->
             // R[vacuum, a; a] = 1 for any particle a
             let vacuumIndex = rIndex vacuum idx.A idx.A
-            match RMatrix.getRSymbol data vacuumIndex with
-            | Ok rValue ->
-                Assert.True(abs(Complex.Abs(rValue) - 1.0) < 1e-10, "Vacuum braiding magnitude should be 1")
-            | Error _ -> () // May not exist, that's okay for this test
+            (RMatrix.getRSymbol data vacuumIndex) |> Result.iter (fun rValue -> Assert.True(abs(Complex.Abs(rValue) - 1.0) < 1e-10, "Vacuum braiding magnitude should be 1")) // May not exist, that's okay for this test
         | None -> () // No non-vacuum particles found
     
     [<Fact>]

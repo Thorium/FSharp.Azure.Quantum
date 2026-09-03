@@ -111,11 +111,16 @@ type RedoxResult =
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
-let kB = 1.380649e-23           // Boltzmann constant (J/K)
-let hbar = 1.054571817e-34      // Reduced Planck constant (J*s)
-let eV_to_J = 1.60218e-19       // eV to Joules
-let hartreeToEV = 27.2114        // 1 Hartree = 27.2114 eV
-let hartreeToKcalMol = 627.509   // 1 Hartree in kcal/mol
+/// Boltzmann constant (J/K)
+let kB = 1.380649e-23
+/// Reduced Planck constant (J*s)
+let hbar = 1.054571817e-34
+/// eV to Joules
+let eV_to_J = 1.60218e-19
+/// 1 Hartree = 27.2114 eV
+let hartreeToEV = 27.2114
+/// 1 Hartree in kcal/mol
+let hartreeToKcalMol = 627.509
 
 // ==============================================================================
 // BUILT-IN REDOX PAIR PRESETS
@@ -241,11 +246,11 @@ let private presetNames =
 /// Parse atom list from compact string format:
 ///   "Li:0,0,0|H:1.6,0,0"
 let private parseAtoms (s: string) : Atom list =
-    s.Split('|')
+    s.Split '|'
     |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split(':')
+        let parts = entry.Trim().Split ':'
         if parts.Length = 2 then
-            let coords = parts.[1].Split(',')
+            let coords = parts.[1].Split ','
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
@@ -274,7 +279,7 @@ let private moleculeFromAtomString (name: string) (atomStr: string) (charge: int
 /// OR: name, preset (to reference a built-in preset by name)
 let private loadPairsFromCsv (path: string) : RedoxPair list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 
@@ -403,7 +408,7 @@ let private marcusRate (dG_eV: float) (lambda_eV: float) (coupling_eV: float) (t
     let prefactor = 2.0 * Math.PI / hbar * hab_J * hab_J
     let density = 1.0 / sqrt(4.0 * Math.PI * lambda_J * kBT)
     let exponent = -((dg_J + lambda_J) ** 2.0) / (4.0 * lambda_J * kBT)
-    prefactor * density * exp(exponent)
+    prefactor * density * exp exponent
 
 /// Format a half-life from a rate constant.
 let private formatHalfLife (k: float) : string =
@@ -470,7 +475,7 @@ let private computeSystem
     let ieEv = ieHartree * hartreeToEV
 
     // Marcus rate using IE as driving force (negative = spontaneous electron loss)
-    let drivingForce_eV = -abs(ieEv)   // Electron transfer is thermodynamically driven
+    let drivingForce_eV = -abs ieEv   // Electron transfer is thermodynamically driven
     let rate = marcusRate drivingForce_eV lambda_eV coupling_eV tempK
 
     if not quiet then

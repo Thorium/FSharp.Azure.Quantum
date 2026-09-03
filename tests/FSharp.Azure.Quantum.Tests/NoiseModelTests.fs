@@ -23,7 +23,7 @@ module NoiseModelTests =
         Assert.True(QubitRouting.respectsCoupling cm routed)
         Assert.NotEmpty(swaps)
         Assert.True(swaps |> List.forall (fun (a, b) -> a <> 1 && b <> 1),
-            sprintf "routing should avoid the noisy qubit 1, got %A" swaps)
+            $"routing should avoid the noisy qubit 1, got %A{swaps}")
 
     [<Fact>]
     let ``fidelity is 1 with no noise and drops below 1 with noise`` () =
@@ -32,7 +32,7 @@ module NoiseModelTests =
         let noisy = NoiseModel.uniform 0.001 0.01 0.02
         Assert.Equal(1.0, NoiseModel.estimateSuccessProbability perfect circuit, 9)
         let f = NoiseModel.estimateSuccessProbability noisy circuit
-        Assert.True(f > 0.0 && f < 1.0, sprintf "expected 0<f<1, got %f" f)
+        Assert.True(f > 0.0 && f < 1.0, $"expected 0<f<1, got %f{f}")
 
     [<Fact>]
     let ``more gates never increase the estimated fidelity`` () =

@@ -75,7 +75,7 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            let n = qubo.GetLength(0)
+            let n = qubo.GetLength 0
             for i in 0 .. n - 1 do
                 for j in 0 .. n - 1 do
                     Assert.Equal(qubo.[i, j], qubo.[j, i], 6)
@@ -112,7 +112,7 @@ module QuboEncodingTests =
             // With constraint, there should be off-diagonal terms from penalty
             let totalNonZero =
                 let mutable count = 0
-                let sz = qubo.GetLength(0)
+                let sz = qubo.GetLength 0
                 for i in 0 .. sz - 1 do
                     for j in 0 .. sz - 1 do
                         if abs qubo.[i, j] > 1e-15 then count <- count + 1
@@ -133,7 +133,7 @@ module QuboEncodingTests =
         match toQubo problem with
         | Error err -> Assert.Fail($"toQubo failed: {err}")
         | Ok qubo ->
-            let n = qubo.GetLength(0)
+            let n = qubo.GetLength 0
             // Evaluate energy for all possible bitstrings
             let evaluateEnergy (bits: int[]) =
                 let mutable energy = 0.0
@@ -207,9 +207,7 @@ module ValidationTests =
                 { Coefficients = [ 1.0 ]; Bound = 0.0 }
             ]
         }
-        match toQubo problem with
-        | Ok _ -> ()
-        | Error err -> Assert.Fail($"Should accept zero bound, got: {err}")
+        (toQubo problem) |> Result.map (fun _ -> ()) |> Result.defaultWith (fun err -> Assert.Fail($"Should accept zero bound, got: {err}"))
 
     [<Fact>]
     let ``solveWithConfig rejects empty objective`` () =
@@ -426,13 +424,9 @@ module QuantumSolverTests =
             Constraints = []
         }
 
-        match solve backend problem 100 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.Equal("Local Simulator", solution.BackendName)
+        (solve backend problem 100) |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName)) |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``solve returns Ok for single-variable single-constraint`` () =
         let backend = createLocalBackend ()
         // min x0 subject to x0 <= 1
@@ -476,10 +470,7 @@ module QuantumSolverTests =
         }
         let config = { defaultConfig with FinalShots = 42 }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solveWithConfig failed: {err}")
-        | Ok solution ->
-            Assert.Equal(42, solution.NumShots)
+        (solveWithConfig backend problem config) |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots)) |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
 
     [<Fact>]
     let ``solve two variables with constraint`` () =
@@ -493,10 +484,7 @@ module QuantumSolverTests =
         }
         let config = { defaultConfig with EnableConstraintRepair = true }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be feasible")
+        (solveWithConfig backend problem config) |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be feasible")) |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
 
     [<Fact>]
     let ``solve with multiple constraints`` () =

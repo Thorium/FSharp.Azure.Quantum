@@ -85,7 +85,7 @@ let printComplex name (c: Complex) =
     pr "  %s = %s" name (fmtComplex c)
 
 let parseCrossings (s: string) =
-    s.Split(',')
+    s.Split ','
     |> Array.map (fun t ->
         match t.Trim().ToUpperInvariant() with
         | "P" | "POSITIVE" | "+" -> Positive

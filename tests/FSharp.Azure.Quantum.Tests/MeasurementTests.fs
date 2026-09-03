@@ -185,8 +185,8 @@ module MeasurementTests =
         let counts = Measurement.sampleAndCount rng numSamples statePlus
         
         // Should get approximately 50/50 distribution
-        let count0 = if counts.ContainsKey 0 then float counts[0] else 0.0
-        let count1 = if counts.ContainsKey 1 then float counts[1] else 0.0
+        let count0 = match counts.TryFind 0 with | Some value -> float value | None -> 0.0
+        let count1 = match counts.TryFind 1 with | Some value -> float value | None -> 0.0
         let ratio0 = count0 / float numSamples
         let ratio1 = count1 / float numSamples
         

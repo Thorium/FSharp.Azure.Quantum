@@ -39,7 +39,7 @@ module ResourceEstimationTests =
         let noisy = ResourceEstimation.estimatePhysical { ResourceEstimation.defaultFaultToleranceParams with PhysicalErrorRate = 5e-3 } l
         let clean = ResourceEstimation.estimatePhysical { ResourceEstimation.defaultFaultToleranceParams with PhysicalErrorRate = 1e-4 } l
         Assert.True(clean.CodeDistance <= noisy.CodeDistance,
-            sprintf "clean d=%d should be <= noisy d=%d" clean.CodeDistance noisy.CodeDistance)
+            $"clean d=%d{clean.CodeDistance} should be <= noisy d=%d{noisy.CodeDistance}")
 
     [<Fact>]
     let ``more logical qubits require more physical qubits`` () =

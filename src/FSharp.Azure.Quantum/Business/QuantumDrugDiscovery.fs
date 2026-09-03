@@ -152,12 +152,12 @@ module internal ProviderDataLoader =
     
     /// Load molecules from a provider and convert to MolecularDataset.
     let loadFromProvider (provider: IMoleculeDatasetProvider) =
-        provider.Load(DatasetQuery.All)
+        provider.Load DatasetQuery.All
         |> Result.map toMolecularDataset
     
     /// Load molecules from an async provider and convert to MolecularDataset.
     let loadFromProviderAsync (provider: IMoleculeDatasetProviderAsync) = async {
-        let! result = provider.LoadAsync(DatasetQuery.All)
+        let! result = provider.LoadAsync DatasetQuery.All
         return result |> Result.map toMolecularDataset
     }
     
@@ -403,7 +403,7 @@ type QuantumDrugDiscoveryBuilder() =
 
     member this.Run(state: DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
         // Load and validate candidates
-        this.LoadCandidates(state)
+        this.LoadCandidates state
         |> Result.mapError (fun e -> QuantumError.OperationError ("DataLoading", $"Error loading molecular data: {e.Message}"))
         |> Result.bind (fun dataset ->
             // Extract features, retaining a stable identifier (SMILES) per molecule so the

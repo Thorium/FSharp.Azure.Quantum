@@ -40,33 +40,33 @@ module Pasqal =
             writer.WriteString("device", "AnalogDevice")
 
             // Atom register (coordinates in µm).
-            writer.WriteStartArray("register")
+            writer.WriteStartArray "register"
             program.Register
             |> List.iteri (fun i atom ->
                 writer.WriteStartObject()
-                writer.WriteString("name", sprintf "q%d" i)
+                writer.WriteString("name", $"q%d{i}")
                 writer.WriteNumber("x", atom.X)
                 writer.WriteNumber("y", atom.Y)
                 writer.WriteEndObject())
             writer.WriteEndArray()
 
             // A single global Rydberg channel drives every atom.
-            writer.WriteStartObject("channels")
+            writer.WriteStartObject "channels"
             writer.WriteString("rydberg_global", "rydberg_global")
             writer.WriteEndObject()
 
-            writer.WriteStartObject("variables")
+            writer.WriteStartObject "variables"
             writer.WriteEndObject()
 
             // Each pulse segment becomes a ramped pulse on the global channel.
-            writer.WriteStartArray("operations")
+            writer.WriteStartArray "operations"
             program.Schedule
             |> List.iter (fun segment ->
                 // RydbergProgram durations are in microseconds (Ω is rad/µs); Pulser wants integer
                 // nanoseconds, so convert µs→ns (×1000). Floor at the 4 ns device clock period.
                 let durationNs = max 4 (int (Math.Round (segment.Duration * 1000.0)))
                 let ramp (name: string) (start: float) (stop: float) =
-                    writer.WriteStartObject(name)
+                    writer.WriteStartObject name
                     writer.WriteString("kind", "ramp")
                     writer.WriteNumber("duration", durationNs)
                     writer.WriteNumber("start", start)
@@ -98,7 +98,7 @@ module Pasqal =
         {
             JobId = Guid.NewGuid().ToString()
             Target = target
-            Name = Some (sprintf "Pasqal-%s" target)
+            Name = Some ($"Pasqal-%s{target}")
             InputData = pulserJson :> obj
             InputDataFormat = CircuitFormat.Custom "pasqal.pulser.abstract-repr.v1"
             InputParams = Map [ ("count", shots :> obj) ]
@@ -111,10 +111,10 @@ module Pasqal =
         use doc = JsonDocument.Parse(jsonResult)
         let root = doc.RootElement
         let histogram =
-            match root.TryGetProperty("results") with
+            match root.TryGetProperty "results" with
             | true, element -> element
             | false, _ ->
-                match root.TryGetProperty("counts") with
+                match root.TryGetProperty "counts" with
                 | true, element -> element
                 | false, _ -> root
         histogram.EnumerateObject()
@@ -125,10 +125,10 @@ module Pasqal =
     let mapPasqalError (errorCode: string) (errorMessage: string) : QuantumError =
         match errorCode with
         | "InvalidSequence" -> QuantumError.ValidationError ("pulser", errorMessage)
-        | "TooManyAtoms" -> QuantumError.ValidationError ("register", sprintf "Register too large: %s" errorMessage)
+        | "TooManyAtoms" -> QuantumError.ValidationError ("register", $"Register too large: %s{errorMessage}")
         | "QuotaExceeded" -> QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
         | "BackendUnavailable" -> QuantumError.AzureError (AzureQuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes 5.0)))
-        | _ -> QuantumError.AzureError (AzureQuantumError.UnknownError (0, sprintf "Pasqal error: %s - %s" errorCode errorMessage))
+        | _ -> QuantumError.AzureError (AzureQuantumError.UnknownError (0, $"Pasqal error: %s{errorCode} - %s{errorMessage}"))
 
     // ========================================================================
     // SUBMIT + WAIT
@@ -154,13 +154,11 @@ module Pasqal =
         : Task<Result<Map<string, int>, QuantumError>> =
         task {
             let submission = createJobSubmission (toPulserJson program) shots target
-            let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
-            match submitResult with
+            match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 let timeout = TimeSpan.FromMinutes 10.0   // neutral-atom jobs can queue a while
-                let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
-                match pollResult with
+                match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
                 | Error err -> return Error err
                 | Ok (job: QuantumJob) ->
                     match job.Status with
@@ -169,19 +167,18 @@ module Pasqal =
                         | None ->
                             return Error (QuantumError.AzureError (AzureQuantumError.UnknownError (500, "Job completed but no output URI available")))
                         | Some uri ->
-                            let! resultData = JobLifecycle.getJobResultAsync httpClient uri
-                            match resultData with
+                            match! JobLifecycle.getJobResultAsync httpClient uri with
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 try
                                     let resultJson = jobResult.OutputData :?> string
                                     return Ok (parsePasqalResult resultJson)
                                 with ex ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError (0, sprintf "Failed to parse Pasqal results: %s" ex.Message)))
+                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError (0, $"Failed to parse Pasqal results: %s{ex.Message}")))
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         return Error (mapPasqalError errorCode errorMessage)
                     | JobStatus.Cancelled ->
                         return Error (QuantumError.OperationError ("Job execution", "Operation cancelled"))
-                    | _ ->
-                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError (0, sprintf "Unexpected job status: %A" job.Status)))
+                    | JobStatus.Waiting | JobStatus.Executing ->
+                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError (0, $"Unexpected job status: %A{job.Status}")))
         }

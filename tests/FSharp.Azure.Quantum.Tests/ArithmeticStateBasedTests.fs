@@ -245,9 +245,7 @@ module ArithmeticStateBasedTests =
                 |> List.indexed
                 |> List.fold (fun st (i, q) ->
                     if (value >>> i) &&& 1 = 1 then
-                        match bknd.ApplyOperation (QuantumOperation.Gate (X q)) st with
-                        | Error err -> failwith $"State prep failed on qubit {q}: {err}"
-                        | Ok s -> s
+                        (bknd.ApplyOperation (QuantumOperation.Gate (X q)) st) |> Result.defaultWith (fun err -> failwith $"State prep failed on qubit {q}: {err}")
                     else
                         st) state0
             (bknd, finalState)
@@ -399,9 +397,7 @@ module ArithmeticStateBasedTests =
             let preparedState =
                 ops
                 |> List.fold (fun st op ->
-                    match bknd.ApplyOperation op st with
-                    | Error err -> failwith $"Prep failed: {err}"
-                    | Ok s -> s) state0
+                    (bknd.ApplyOperation op st) |> Result.defaultWith (fun err -> failwith $"Prep failed: {err}")) state0
             match Arithmetic.controlledAddConstantModN controlQubit registerQubits 4 5 preparedState bknd with
             | Error err -> Assert.Fail($"controlledAddConstantModN failed: {err}")
             | Ok result ->
@@ -425,9 +421,7 @@ module ArithmeticStateBasedTests =
             let preparedState =
                 ops
                 |> List.fold (fun st op ->
-                    match bknd.ApplyOperation op st with
-                    | Error err -> failwith $"Prep failed: {err}"
-                    | Ok s -> s) state0
+                    (bknd.ApplyOperation op st) |> Result.defaultWith (fun err -> failwith $"Prep failed: {err}")) state0
             match Arithmetic.controlledAddConstantModN controlQubit registerQubits 4 5 preparedState bknd with
             | Error err -> Assert.Fail($"controlledAddConstantModN failed: {err}")
             | Ok result ->
@@ -484,8 +478,7 @@ module ArithmeticStateBasedTests =
     // MODULAR MULTIPLY TESTS (original 4-bit register — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-bit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``multiplyConstantModN: 3 * 7 mod 15 = 6`` () =
         let inputQubits = [0; 1; 2; 3]
         let outputQubits = [4; 5; 6; 7]
@@ -499,8 +492,7 @@ module ArithmeticStateBasedTests =
             let inValue = readRegisterValue' inputQubits result.State
             Assert.Equal(3, inValue)
 
-    [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-bit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``multiplyConstantModN: 2 * 7 mod 15 = 14`` () =
         let inputQubits = [0; 1; 2; 3]
         let outputQubits = [4; 5; 6; 7]
@@ -512,8 +504,7 @@ module ArithmeticStateBasedTests =
             let outValue = readRegisterValue' outputQubits result.State
             Assert.Equal(14, outValue)
 
-    [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-bit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``multiplyConstantModN: 1 * 7 mod 15 = 7`` () =
         let inputQubits = [0; 1; 2; 3]
         let outputQubits = [4; 5; 6; 7]
@@ -551,9 +542,7 @@ module ArithmeticStateBasedTests =
             let preparedState =
                 ops
                 |> List.fold (fun st op ->
-                    match bknd.ApplyOperation op st with
-                    | Error err -> failwith $"Prep failed: {err}"
-                    | Ok s -> s) state0
+                    (bknd.ApplyOperation op st) |> Result.defaultWith (fun err -> failwith $"Prep failed: {err}")) state0
             match Arithmetic.controlledMultiplyConstantModNInPlace controlQubit registerQubits tempQubits 3 5 preparedState bknd with
             | Error err -> Assert.Fail($"controlledMultiplyConstantModNInPlace failed: {err}")
             | Ok result ->
@@ -592,9 +581,7 @@ module ArithmeticStateBasedTests =
             let preparedState =
                 ops
                 |> List.fold (fun st op ->
-                    match bknd.ApplyOperation op st with
-                    | Error err -> failwith $"Prep failed: {err}"
-                    | Ok s -> s) state0
+                    (bknd.ApplyOperation op st) |> Result.defaultWith (fun err -> failwith $"Prep failed: {err}")) state0
             match Arithmetic.controlledMultiplyConstantModNInPlace controlQubit registerQubits tempQubits 3 5 preparedState bknd with
             | Error err -> Assert.Fail($"controlledMultiplyConstantModNInPlace failed: {err}")
             | Ok result ->
@@ -605,8 +592,7 @@ module ArithmeticStateBasedTests =
     // CONTROLLED MULTIPLY IN-PLACE TESTS (original 4-bit register — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-bit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``controlledMultiplyConstantModNInPlace: 2 * 7 mod 15 = 14 with clean temp`` () =
         // This tests the fix for Bug 3: temp qubits should now be cleanly restored to |0⟩
         // controlQubit=0, register=[1..4], temp=[5..8]
@@ -630,9 +616,7 @@ module ArithmeticStateBasedTests =
             let preparedState =
                 ops
                 |> List.fold (fun st op ->
-                    match bknd.ApplyOperation op st with
-                    | Error err -> failwith $"Prep failed: {err}"
-                    | Ok s -> s) state0
+                    (bknd.ApplyOperation op st) |> Result.defaultWith (fun err -> failwith $"Prep failed: {err}")) state0
             match Arithmetic.controlledMultiplyConstantModNInPlace controlQubit registerQubits tempQubits 7 15 preparedState bknd with
             | Error err -> Assert.Fail($"controlledMultiplyConstantModNInPlace failed: {err}")
             | Ok result ->
@@ -654,8 +638,7 @@ module ArithmeticStateBasedTests =
                             $"Temp qubit {i} (qubit #{tq}) should be |0>, but P(0) = {prob0:F6}")
                 | _ -> Assert.Fail("Expected StateVector")
 
-    [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-bit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``controlledMultiplyConstantModNInPlace: control=|0⟩ leaves state unchanged`` () =
         let controlQubit = 0
         let registerQubits = [1; 2; 3; 4]
@@ -672,9 +655,7 @@ module ArithmeticStateBasedTests =
             let preparedState =
                 ops
                 |> List.fold (fun st op ->
-                    match bknd.ApplyOperation op st with
-                    | Error err -> failwith $"Prep failed: {err}"
-                    | Ok s -> s) state0
+                    (bknd.ApplyOperation op st) |> Result.defaultWith (fun err -> failwith $"Prep failed: {err}")) state0
             match Arithmetic.controlledMultiplyConstantModNInPlace controlQubit registerQubits tempQubits 7 15 preparedState bknd with
             | Error err -> Assert.Fail($"controlledMultiplyConstantModNInPlace failed: {err}")
             | Ok result ->

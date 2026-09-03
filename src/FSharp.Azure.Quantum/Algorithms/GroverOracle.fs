@@ -403,7 +403,7 @@ module Oracle =
     
     /// Evaluate a SAT formula given an assignment
     /// Formula is satisfied if ALL clauses are true
-    let private evaluateFormula (assignment: int) (formula: SatFormula) : bool =
+    let private evaluateFormula (formula: SatFormula) (assignment: int) : bool =
         formula.Clauses
         |> List.forall (evaluateClause assignment)
     
@@ -450,7 +450,7 @@ module Oracle =
         | Error err -> Error err
         | Ok () ->
             // Create predicate that evaluates the formula
-            let predicate = fun assignment -> evaluateFormula assignment formula
+            let predicate = evaluateFormula formula
             
             // Compile oracle with the predicate
             fromPredicate predicate formula.NumVariables

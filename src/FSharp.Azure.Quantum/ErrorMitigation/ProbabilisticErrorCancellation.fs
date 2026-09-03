@@ -340,16 +340,14 @@ module ProbabilisticErrorCancellation =
                             let! executionResult = executor sampledCircuit
                             
                             return 
-                                match executionResult with
-                                | Ok expectation -> Ok (expectation, totalWeight)
-                                | Error err -> Error err
+                                executionResult |> Result.map (fun expectation -> expectation, totalWeight)
                         })
                     |> Async.Parallel
                 
                 // Check for execution failures
                 let failures = 
                     sampleResults 
-                    |> Array.choose (function | Error e -> Some e | _ -> None)
+                    |> Array.choose (function | Error e -> Some e | Ok _ -> None)
                 
                 if not (Array.isEmpty failures) then
                     return Error (sprintf "Circuit execution failed: %s" (String.concat "; " failures))
@@ -357,7 +355,7 @@ module ProbabilisticErrorCancellation =
                     // Step 3: Aggregate weighted results
                     let sumCorrected =
                         sampleResults
-                        |> Array.choose (function | Ok (exp, weight) -> Some (exp * weight) | _ -> None)
+                        |> Array.choose (function | Ok (exp, weight) -> Some (exp * weight) | Error _ -> None)
                         |> Array.sum
                 
                     let correctedExpectation = sumCorrected / float config.Samples
@@ -387,5 +385,5 @@ module ProbabilisticErrorCancellation =
                             })
                         |> Result.mapError (sprintf "Baseline execution failed: %s")
             with
-            | ex -> return Error (sprintf "PEC pipeline error: %s" ex.Message)
+            | ex -> return Error ($"PEC pipeline error: %s{ex.Message}")
         }

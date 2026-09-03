@@ -26,9 +26,9 @@ let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 let numQubits = 3
 let shots = 4000
 
-let histogram (state) =
+let histogram state =
     UnifiedBackend.measureState state shots
-    |> Array.map (fun bits -> bits |> Array.map string |> String.concat "")
+    |> Array.map (Array.map string >> String.concat "")
     |> Array.countBy id
     |> Array.sortByDescending snd
 

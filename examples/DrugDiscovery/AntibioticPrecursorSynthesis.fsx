@@ -107,11 +107,16 @@ type RouteResult =
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
-let kB = 1.380649e-23           // Boltzmann constant (J/K)
-let hPlanck = 6.62607015e-34    // Planck constant (J*s)
-let gasR = 8.314                // Gas constant (J/(mol*K))
-let hartreeToKcalMol = 627.509  // 1 Hartree in kcal/mol
-let hartreeToKJMol = 2625.5     // 1 Hartree in kJ/mol
+/// Boltzmann constant (J/K)
+let kB = 1.380649e-23
+/// Planck constant (J*s)
+let hPlanck = 6.62607015e-34
+/// Gas constant (J/(mol*K))
+let gasR = 8.314
+/// 1 Hartree in kcal/mol
+let hartreeToKcalMol = 627.509
+/// 1 Hartree in kJ/mol
+let hartreeToKJMol = 2625.5
 
 // ==============================================================================
 // BUILT-IN ROUTE PRESETS
@@ -338,11 +343,11 @@ let private presetNames =
 /// Parse atom list from compact string format:
 ///   "C:0,0,0|O:0,0,1.21|H:0.94,0,-0.54"
 let private parseAtoms (s: string) : Atom list =
-    s.Split('|')
+    s.Split '|'
     |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split(':')
+        let parts = entry.Trim().Split ':'
         if parts.Length = 2 then
-            let coords = parts.[1].Split(',')
+            let coords = parts.[1].Split ','
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
@@ -371,7 +376,7 @@ let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
 /// OR: name, preset (to reference a built-in preset by name)
 let private loadRoutesFromCsv (path: string) : SynthesisRoute list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

@@ -234,10 +234,9 @@ module QuantumRiskEngineTests =
             Assert.Equal(syncReport.Method, asyncReport.Method)
         | Error err -> failwith $"Expected Ok from classical path, got Error: {err.Message}"
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``executeAsync with cancellation token should respect cancellation`` () =
-        let cts = new Threading.CancellationTokenSource()
+        use cts = new Threading.CancellationTokenSource()
         cts.Cancel()
         let config = { defaultConfig with 
                         CancellationToken = Some cts.Token
@@ -340,9 +339,7 @@ module QuantumRiskEngineTests =
             set_simulation_paths 500
             calculate_metric ValueAtRisk
         }
-        match result with
-        | Ok report -> Assert.Equal(0.99, report.ConfidenceLevel)
-        | Error e -> failwith $"Should succeed, got error: {e}"
+        result |> Result.map (fun report -> Assert.Equal(0.99, report.ConfidenceLevel)) |> Result.defaultWith (fun e -> failwith $"Should succeed, got error: {e}")
 
     [<Fact>]
     let ``quantumRiskEngine CE with no metrics should succeed with empty results`` () =

@@ -277,7 +277,7 @@ module LocalBackend =
                             // Uniform superposition is Hadamard on all qubits.
                             let ops =
                                 [0 .. numQubits - 1]
-                                |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                                |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
                             (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
 
                         | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip intent) ->
@@ -334,7 +334,7 @@ module LocalBackend =
 
                                  let hadamardOps =
                                      [0 .. intent.CountingQubits - 1]
-                                     |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                                     |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
                                  let eigenPrepOps =
                                      if intent.PrepareTargetOne then
@@ -420,10 +420,7 @@ module LocalBackend =
                             let result =
                                 ops
                                 |> List.fold (fun stateResult op ->
-                                    match stateResult with
-                                    | Error err -> Error err
-                                    | Ok currentState ->
-                                        (self :> IQuantumBackend).ApplyOperation op currentState
+                                    stateResult |> Result.bind (fun currentState -> (self :> IQuantumBackend).ApplyOperation op currentState)
                                 ) (Ok state)
                             result
                         

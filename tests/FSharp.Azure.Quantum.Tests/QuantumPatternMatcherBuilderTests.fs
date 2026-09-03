@@ -461,11 +461,7 @@ module QuantumPatternMatcherBuilderTests =
         let result = QuantumPatternMatcher.solve problem
         
         // Assert
-        match result with
-        | Error err ->
-            Assert.Contains("exceeds maximum", err.Message)
-        | Ok _ ->
-            Assert.Fail("Expected solve to return error")
+        result |> Result.map (fun _ -> Assert.Fail("Expected solve to return error")) |> Result.defaultWith (fun err -> Assert.Contains("exceeds maximum", err.Message))
     
     [<Fact>]
     let ``QuantumPatternMatcher.solve should handle pattern that never matches`` () =
@@ -487,8 +483,8 @@ module QuantumPatternMatcherBuilderTests =
             // Should get error about predicate, search failure, or no matches
             Assert.True(
                 err.Message.Contains("Grover search failed") || 
-                err.Message.Contains("No matching patterns found") ||
-                err.Message.Contains("matches no solutions"),
+                err.Message.Contains "No matching patterns found" ||
+                err.Message.Contains "matches no solutions",
                 $"Expected error about search failure or no matches, got: {err.Message}"
             )
         | Ok solution ->

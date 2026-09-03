@@ -34,9 +34,7 @@ module TopologicalUnifiedBackend =
         
         // Helper to convert TopologicalResult to Result with error message extraction
         let toResult (topResult: TopologicalResult<'T>) : Result<'T, string> =
-            match topResult with
-            | Ok value -> Ok value
-            | Error err -> Error err.Message
+            topResult |> Result.mapError (fun err -> err.Message)
         
         // ====================================================================
         // GATE COMPILATION VIA GateToBraid MODULE
@@ -384,9 +382,7 @@ module TopologicalUnifiedBackend =
                                 )
                             ) (Ok fusionState)
 
-                        match finalResult with
-                        | Ok finalState -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface finalState))
-                        | Error err -> Error err
+                        finalResult |> Result.map (TopologicalOperations.toInterface >> QuantumState.FusionSuperposition)
 
                     | Error topErr ->
                         Error (QuantumError.OperationError ("TopologicalBackend", $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
@@ -505,7 +501,7 @@ module TopologicalUnifiedBackend =
                                     match stateResults |> List.tryFind Result.isError with
                                     | Some (Error err) -> Error (QuantumError.OperationError ("TopologicalBackend", err.Message))
                                     | _ ->
-                                        let states = stateResults |> List.map (fun r -> match r with Ok s -> s | Error _ -> failwith "unreachable")
+                                        let states = stateResults |> List.map (fun r -> r |> Result.defaultWith (fun _ -> failwith "unreachable"))
 
                                         let superposition =
                                             TopologicalOperations.uniform states anyonType
@@ -551,7 +547,7 @@ module TopologicalUnifiedBackend =
  
                                      let hadamardOps =
                                          [0 .. intent.CountingQubits - 1]
-                                         |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                                         |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
  
                                      let eigenPrepOps =
                                          if intent.PrepareTargetOne then
@@ -639,10 +635,7 @@ module TopologicalUnifiedBackend =
                             | QuantumOperation.Sequence ops ->
                                 ops
                                 |> List.fold (fun stateResult op ->
-                                    match stateResult with
-                                    | Error err -> Error err
-                                    | Ok currentState ->
-                                        (this :> IQuantumBackend).ApplyOperation op currentState
+                                    stateResult |> Result.bind (fun currentState -> (this :> IQuantumBackend).ApplyOperation op currentState)
                                 ) (Ok state)
                         with
                         | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
@@ -752,17 +745,13 @@ module TopologicalUnifiedBackend =
                     if this.IsAmplitudeIntercepted gate then
                         // Check only that we have enough anyons for the qubit requirement
                         let hasEnoughAnyons =
-                            match FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType with
-                            | Ok tree -> FusionTree.size tree <= maxAnyons
-                            | Error _ -> false
+                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType) |> Result.map (fun tree -> FusionTree.size tree <= maxAnyons) |> Result.defaultValue false
                         hasEnoughAnyons
                     else
 
                     try
                         let requiredAnyons =
-                            match FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType with
-                            | Ok tree -> FusionTree.size tree
-                            | Error _ -> System.Int32.MaxValue
+                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType) |> Result.map (fun tree -> FusionTree.size tree) |> Result.defaultWith (fun _ -> System.Int32.MaxValue)
 
                         if requiredAnyons > maxAnyons then
                             false
@@ -803,9 +792,7 @@ module TopologicalUnifiedBackend =
                                     // Tight tolerance (must match ApplyGate): only exact
                                     // π/2-multiple rotations are braid-compilable on Ising;
                                     // anything else is honestly reported as unsupported.
-                                    match GateToBraid.compileGateSequence singleGateSeq 1e-9 anyonType with
-                                    | Ok _ -> true
-                                    | Error _ -> false
+                                    (GateToBraid.compileGateSequence singleGateSeq 1e-9 anyonType) |> Result.isOk
                             )
                     with
                     | _ -> false
@@ -834,10 +821,7 @@ module TopologicalUnifiedBackend =
                     // Apply each operation in sequence
                     operations
                     |> List.fold (fun stateResult operation ->
-                        match stateResult with
-                        | Error err -> Error err
-                        | Ok currentState ->
-                            (this :> IQuantumBackend).ApplyOperation operation currentState
+                        stateResult |> Result.bind (fun currentState -> (this :> IQuantumBackend).ApplyOperation operation currentState)
                     ) (Ok initialState)
             
             member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =

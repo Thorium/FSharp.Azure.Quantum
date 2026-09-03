@@ -104,8 +104,7 @@ module ModelSerializationTests =
                 let finalLoss = 0.42
                 
                 // Save model
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters finalLoss 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -128,10 +127,7 @@ module ModelSerializationTests =
     let ``Load nonexistent file returns error`` () =
         let result = ModelSerialization.loadVQCModel "nonexistent_file_12345.json"
         
-        match result with
-        | Ok _ -> Assert.Fail("Should return error for nonexistent file")
-        | Error msg ->
-            Assert.Contains("not found", msg.Message.ToLower())
+        result |> Result.map (fun _ -> Assert.Fail("Should return error for nonexistent file")) |> Result.defaultWith (fun msg -> Assert.Contains("not found", msg.Message.ToLower()))
     
     // ========================================================================
     // SAVE TRAINING RESULT TESTS
@@ -173,10 +169,7 @@ module ModelSerializationTests =
             | Error e -> Assert.Fail($"Save failed: {e}")
             | Ok () ->
                 
-                match ModelSerialization.loadVQCModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.Equal(0.0, model.FinalLoss)
+                (ModelSerialization.loadVQCModel testFile) |> Result.map (fun model -> Assert.Equal(0.0, model.FinalLoss)) |> Result.defaultWith (fun e -> Assert.Fail($"Load failed: {e}"))
         finally
             cleanupTestFile testFile
     
@@ -193,8 +186,7 @@ module ModelSerializationTests =
             try
                 let parameters = [| 1.0; 2.0; 3.0; 4.0; 5.0 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.1 3 "ZZFeatureMap" 1 "RealAmplitudes" 1 None CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters 0.1 3 "ZZFeatureMap" 1 "RealAmplitudes" 1 None CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -221,8 +213,7 @@ module ModelSerializationTests =
                 let numQubits = 2
                 let finalLoss = 0.25
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss numQubits "ZZFeatureMap" 2 "RealAmplitudes" 1 None CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters finalLoss numQubits "ZZFeatureMap" 2 "RealAmplitudes" 1 None CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -246,8 +237,7 @@ module ModelSerializationTests =
             try
                 let parameters = [| 0.1; 0.2 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 2 (Some "Test note") CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 2 (Some "Test note") CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -300,14 +290,7 @@ module ModelSerializationTests =
                 ([| 0.2 |], 0.8, None)
             |]
             
-            match ModelSerialization.saveVQCModelBatch testBase models 1 "ZZFeatureMap" 1 "RealAmplitudes" 1 with
-            | Error e -> Assert.Fail($"Batch save failed: {e}")
-            | Ok _ ->
-                
-                match ModelSerialization.loadVQCModelBatch testDir "model_*.json" with
-                | Error e -> Assert.Fail($"Batch load failed: {e}")
-                | Ok loadedModels ->
-                    Assert.Equal(2, loadedModels.Length)
+            (ModelSerialization.saveVQCModelBatch testBase models 1 "ZZFeatureMap" 1 "RealAmplitudes" 1) |> Result.map (fun _ -> (ModelSerialization.loadVQCModelBatch testDir "model_*.json") |> Result.map (fun loadedModels -> Assert.Equal(2, loadedModels.Length)) |> Result.defaultWith (fun e -> Assert.Fail($"Batch load failed: {e}"))) |> Result.defaultWith (fun e -> Assert.Fail($"Batch save failed: {e}"))
         finally
             if Directory.Exists testDir then
                 Directory.Delete(testDir, true)
@@ -316,10 +299,7 @@ module ModelSerializationTests =
     let ``Load VQC model batch from nonexistent directory returns error`` () =
         let result = ModelSerialization.loadVQCModelBatch "nonexistent_dir_12345" "*.json"
         
-        match result with
-        | Ok _ -> Assert.Fail("Should return error for nonexistent directory")
-        | Error msg ->
-            Assert.Contains("not found", msg.Message.ToLower())
+        result |> Result.map (fun _ -> Assert.Fail("Should return error for nonexistent directory")) |> Result.defaultWith (fun msg -> Assert.Contains("not found", msg.Message.ToLower()))
     
     [<Fact>]
     let ``Load VQC model batch with no matching files returns error`` () =
@@ -332,10 +312,7 @@ module ModelSerializationTests =
             
             let result = ModelSerialization.loadVQCModelBatch testDir "model_*.json"
             
-            match result with
-            | Ok _ -> Assert.Fail("Should return error when no files match")
-            | Error msg ->
-                Assert.Contains("no files", msg.Message.ToLower())
+            result |> Result.map (fun _ -> Assert.Fail("Should return error when no files match")) |> Result.defaultWith (fun msg -> Assert.Contains("no files", msg.Message.ToLower()))
         finally
             if Directory.Exists testDir then
                 Directory.Delete(testDir, true)
@@ -353,8 +330,7 @@ module ModelSerializationTests =
             try
                 let parameters = [| 0.1 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -378,8 +354,7 @@ module ModelSerializationTests =
                 let parameters = [| 0.1; 0.2 |]
                 let note = "This is a test model for XOR classification"
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 (Some note) CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 (Some note) CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -401,8 +376,7 @@ module ModelSerializationTests =
             try
                 let parameters = [| 0.1 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None CancellationToken.None
-                match saveResult with
+                match! ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
@@ -622,10 +596,7 @@ module ModelSerializationTests =
     let ``Load multi-class from nonexistent file returns error`` () =
         let result = ModelSerialization.loadVQCMultiClassModel "nonexistent_multiclass_12345.json"
         
-        match result with
-        | Ok _ -> Assert.Fail("Should return error for nonexistent file")
-        | Error msg ->
-            Assert.Contains("not found", msg.Message.ToLower())
+        result |> Result.map (fun _ -> Assert.Fail("Should return error for nonexistent file")) |> Result.defaultWith (fun msg -> Assert.Contains("not found", msg.Message.ToLower()))
     
     [<Fact>]
     let ``Multi-class model preserves metadata timestamp`` () =
@@ -641,10 +612,7 @@ module ModelSerializationTests =
             | Ok () ->
                 
                 // Load and check timestamp exists
-                match ModelSerialization.loadVQCMultiClassModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.False(System.String.IsNullOrWhiteSpace(model.SavedAt), "SavedAt timestamp should be set")
+                (ModelSerialization.loadVQCMultiClassModel testFile) |> Result.map (fun model -> Assert.False(System.String.IsNullOrWhiteSpace(model.SavedAt), "SavedAt timestamp should be set")) |> Result.defaultWith (fun e -> Assert.Fail($"Load failed: {e}"))
         finally
             cleanupTestFile testFile
     
@@ -890,10 +858,7 @@ module ModelSerializationTests =
     let ``Load nonexistent portfolio file returns error`` () =
         let result = ModelSerialization.loadPortfolioSolution "nonexistent_portfolio_12345.json"
         
-        match result with
-        | Ok _ -> Assert.Fail("Should return error for nonexistent file")
-        | Error msg ->
-            Assert.Contains("not found", msg.Message.ToLower())
+        result |> Result.map (fun _ -> Assert.Fail("Should return error for nonexistent file")) |> Result.defaultWith (fun msg -> Assert.Contains("not found", msg.Message.ToLower()))
     
     [<Fact>]
     let ``Portfolio solution preserves timestamp`` () =

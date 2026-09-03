@@ -120,12 +120,7 @@ module ProblemDecomposition =
             let results =
                 subProblems
                 |> List.fold (fun acc subProblem ->
-                    match acc with
-                    | Error _ -> acc
-                    | Ok solutions ->
-                        match solveFn subProblem with
-                        | Error err -> Error err
-                        | Ok solution -> Ok (solution :: solutions)
+                    acc |> Result.map (fun solutions -> (solveFn subProblem) |> Result.map (fun solution -> solution :: solutions)) |> Result.defaultValue acc
                 ) (Ok [])
 
             results

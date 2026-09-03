@@ -104,7 +104,7 @@ let ``Validate circuit exceeding qubit limit should return error`` () =
         Assert.Equal(15, requested)
         Assert.Equal(11, limit)
         Assert.Equal("IonQ Hardware", backend)
-    | Error other -> Assert.True(false, sprintf "Expected QubitCountExceeded but got %A" other)
+    | Error other -> Assert.True(false, $"Expected QubitCountExceeded but got %A{other}")
 
 [<Fact>]
 let ``Validate circuit with supported gates should pass`` () =
@@ -118,7 +118,7 @@ let ``Validate circuit with supported gates should pass`` () =
     // Assert - All gates are supported
     match result with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+    | Error err -> Assert.True(false, $"Expected validation to pass but got error: %A{err}")
 
 [<Fact>]
 let ``Validate circuit with unsupported gates should return errors`` () =
@@ -138,9 +138,9 @@ let ``Validate circuit with unsupported gates should return errors`` () =
         errors |> List.iter (fun err ->
             match err with
             | UnsupportedGate(gate, backend, _) ->
-                Assert.True(gate = "CZ" || gate = "Toffoli", sprintf "Unexpected unsupported gate: %s" gate)
+                Assert.True(gate = "CZ" || gate = "Toffoli", $"Unexpected unsupported gate: %s{gate}")
                 Assert.Equal("IonQ Simulator", backend)
-            | _ -> Assert.True(false, sprintf "Expected UnsupportedGate but got %A" err)
+            | _ -> Assert.True(false, $"Expected UnsupportedGate but got %A{err}")
         )
 
 [<Fact>]
@@ -155,7 +155,7 @@ let ``Validate circuit within depth limit should pass`` () =
     // Assert - 80 gates is within limit of 100
     match result with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+    | Error err -> Assert.True(false, $"Expected validation to pass but got error: %A{err}")
 
 [<Fact>]
 let ``Validate circuit exceeding depth limit should return error`` () =
@@ -173,7 +173,7 @@ let ``Validate circuit exceeding depth limit should return error`` () =
         Assert.Equal(75, depth)
         Assert.Equal(50, limit)
         Assert.Equal("Rigetti Aspen-M-3", backend)
-    | Error other -> Assert.True(false, sprintf "Expected CircuitDepthExceeded but got %A" other)
+    | Error other -> Assert.True(false, $"Expected CircuitDepthExceeded but got %A{other}")
 
 [<Fact>]
 let ``Validate IonQ all-to-all connectivity should always pass`` () =
@@ -193,7 +193,7 @@ let ``Validate IonQ all-to-all connectivity should always pass`` () =
     // Assert - Should pass regardless of qubit pairs
     match result with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+    | Error err -> Assert.True(false, $"Expected validation to pass but got error: %A{err}")
 
 [<Fact>]
 let ``Validate Rigetti limited connectivity should reject invalid qubit pairs`` () =
@@ -222,9 +222,9 @@ let ``Validate Rigetti limited connectivity should reject invalid qubit pairs`` 
             match err with
             | ConnectivityViolation(q1, q2, backend) ->
                 Assert.True((q1 = 0 && q2 = 3) || (q1 = 2 && q2 = 4), 
-                           sprintf "Expected invalid pairs (0,3) or (2,4) but got (%d,%d)" q1 q2)
+                           $"Expected invalid pairs (0,3) or (2,4) but got (%d{q1},%d{q2})")
                 Assert.Equal("Rigetti Aspen-M-3", backend)
-            | _ -> Assert.True(false, sprintf "Expected ConnectivityViolation but got %A" err)
+            | _ -> Assert.True(false, $"Expected ConnectivityViolation but got %A{err}")
         )
 
 [<Fact>]
@@ -248,19 +248,19 @@ let ``Validate empty circuit should pass all validations`` () =
     // Assert - All validations should pass for empty circuit
     match qubitResult with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Qubit validation failed: %A" err)
+    | Error err -> Assert.True(false, $"Qubit validation failed: %A{err}")
     
     match gateSetResult with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Gate set validation failed: %A" err)
+    | Error err -> Assert.True(false, $"Gate set validation failed: %A{err}")
     
     match depthResult with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Depth validation failed: %A" err)
+    | Error err -> Assert.True(false, $"Depth validation failed: %A{err}")
     
     match connectivityResult with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Connectivity validation failed: %A" err)
+    | Error err -> Assert.True(false, $"Connectivity validation failed: %A{err}")
 
 [<Fact>]
 let ``Validate circuit with multiple violations should catch all issues`` () =
@@ -294,10 +294,10 @@ let ``Validate circuit with multiple violations should catch all issues`` () =
         errors |> List.iter (fun err ->
             match err with
             | UnsupportedGate(gate, "IonQ Hardware", _) ->
-                Assert.True(gate = "CZ" || gate = "Toffoli", sprintf "Unexpected gate: %s" gate)
+                Assert.True(gate = "CZ" || gate = "Toffoli", $"Unexpected gate: %s{gate}")
             | _ -> Assert.True(false, "Expected UnsupportedGate error")
         )
-    | _ -> Assert.True(false, "Expected gate set errors")
+    | Ok _ -> Assert.True(false, "Expected gate set errors")
     
     match depthResult with
     | Error (CircuitDepthExceeded(150, 100, "IonQ Hardware")) -> Assert.True(true)
@@ -326,7 +326,7 @@ let ``Full validation should pass for valid circuit`` () =
     match result with
     | Ok () -> Assert.True(true)
     | Error errors -> 
-        Assert.True(false, sprintf "Expected validation to pass but got errors: %A" errors)
+        Assert.True(false, $"Expected validation to pass but got errors: %A{errors}")
 
 [<Fact>]
 let ``Full validation should collect all errors for invalid circuit`` () =
@@ -347,7 +347,7 @@ let ``Full validation should collect all errors for invalid circuit`` () =
     match result with
     | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
     | Error errors ->
-        Assert.True(errors.Length >= 3, sprintf "Expected at least 3 errors but got %d" errors.Length)
+        Assert.True(errors.Length >= 3, $"Expected at least 3 errors but got %d{errors.Length}")
         
         // Check that we have qubit count error
         let hasQubitError = 
@@ -439,7 +439,7 @@ let ``Validate QAOA parameters should pass for matching array lengths`` () =
     // Assert - Should pass when arrays match depth
     match result with
     | Ok () -> Assert.True(true)
-    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+    | Error err -> Assert.True(false, $"Expected validation to pass but got error: %A{err}")
 
 [<Fact>]
 let ``Validate QAOA parameters should fail for mismatched gamma length`` () =
@@ -458,7 +458,7 @@ let ``Validate QAOA parameters should fail for mismatched gamma length`` () =
         Assert.Contains("gamma", msg.ToLower())
         Assert.Contains("3", msg)
         Assert.Contains("2", msg)
-    | Error other -> Assert.True(false, sprintf "Expected InvalidParameter but got %A" other)
+    | Error other -> Assert.True(false, $"Expected InvalidParameter but got %A{other}")
 
 [<Fact>]
 let ``Validate QAOA parameters should fail for mismatched beta length`` () =
@@ -477,4 +477,4 @@ let ``Validate QAOA parameters should fail for mismatched beta length`` () =
         Assert.Contains("beta", msg.ToLower())
         Assert.Contains("3", msg)
         Assert.Contains("4", msg)
-    | Error other -> Assert.True(false, sprintf "Expected InvalidParameter but got %A" other)
+    | Error other -> Assert.True(false, $"Expected InvalidParameter but got %A{other}")

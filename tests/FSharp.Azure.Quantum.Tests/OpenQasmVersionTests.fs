@@ -80,9 +80,7 @@ module OpenQasmVersionTests =
         let qasm = "OPENQASM 4.0;\nqreg q[1];\n"
         let result = detectVersion qasm
         Assert.True(Result.isError result)
-        match result with
-        | Error msg -> Assert.Contains("4.0", msg)
-        | Ok _ -> failwith "Expected error"
+        result |> Result.map (fun _ -> failwith "Expected error") |> Result.defaultWith (fun msg -> Assert.Contains("4.0", msg))
 
     [<Fact>]
     let ``detectVersion handles whitespace around header`` () =
@@ -442,10 +440,7 @@ x q[0];
 """
         let result = OpenQasmImport.parseWithVersion V2_0 qasm
         Assert.True(Result.isError result)
-        match result with
-        | Error msg ->
-            Assert.Contains("mismatch", msg.ToLowerInvariant())
-        | Ok _ -> failwith "Expected error"
+        result |> Result.map (fun _ -> failwith "Expected error") |> Result.defaultWith (fun msg -> Assert.Contains("mismatch", msg.ToLowerInvariant()))
 
     [<Fact>]
     let ``parseWithVersion rejects missing header`` () =
@@ -828,9 +823,7 @@ h q[0];
 """
         let result = OpenQasmImport.parse qasm
         Assert.True(Result.isError result)
-        match result with
-        | Error msg -> Assert.Contains("Duplicate", msg)
-        | Ok _ -> failwith "Expected error"
+        result |> Result.map (fun _ -> failwith "Expected error") |> Result.defaultWith (fun msg -> Assert.Contains("Duplicate", msg))
 
     [<Fact>]
     let ``parse rejects OPENQASM 99.0`` () =

@@ -99,10 +99,10 @@ let ``Torus knot T(4,3) is constructed correctly`` () =
         let arc = kvp.Value
         match arc.Start with
         | ArcEnd.FreeEnd _ -> Assert.Fail($"Arc {arc.Id} has free start end")
-        | _ -> ()
+        | ArcEnd.AtCrossing _ -> ()
         match arc.End with
         | ArcEnd.FreeEnd _ -> Assert.Fail($"Arc {arc.Id} has free end end")
-        | _ -> ()
+        | ArcEnd.AtCrossing _ -> ()
 
 [<Fact>]
 let ``Torus knot fails for invalid p`` () =

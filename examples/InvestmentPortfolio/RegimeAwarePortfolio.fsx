@@ -328,7 +328,7 @@ module RegimeAwareOptimizer =
 
 if not quiet then
     printfn "Regime-aware portfolio: %d assets, budget $%s, %d days, seed %d"
-        selectedStocks.Length (budget.ToString("N0")) days seed
+        selectedStocks.Length (budget.ToString "N0") days seed
     printfn ""
 
 let backend = LocalBackend() :> IQuantumBackend
@@ -407,7 +407,7 @@ let printTable () =
     let divider = String('-', 102)
     printfn ""
     printfn "  Regime-Aware Portfolio (budget $%s, regime=%A, strategy=%s)"
-        (budget.ToString("N0")) detectedRegime strategy
+        (budget.ToString "N0") detectedRegime strategy
     printfn "  %s" divider
     printfn "  %-6s %-18s %8s %8s %8s %10s %7s %7s %8s"
         "Symbol" "Name" "Return" "Risk" "Sharpe" "Value" "Shares" "Pct" "Status"
@@ -420,7 +420,7 @@ let printTable () =
             (r.ExpectedReturn * 100.0)
             (r.Risk * 100.0)
             r.SharpeRatio
-            (r.Value.ToString("N0"))
+            (r.Value.ToString "N0")
             r.Shares
             r.PctOfPortfolio
             status

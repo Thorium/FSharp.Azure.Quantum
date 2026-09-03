@@ -50,11 +50,7 @@ let ``SmilesListDatasetProvider loads all molecules`` () =
     let smiles = ["CCO"; "CC(=O)O"; "c1ccccc1"]  // Ethanol, acetic acid, benzene
     let provider = SmilesListDatasetProvider(smiles)
     
-    match (provider :> IMoleculeDatasetProvider).Load All with
-    | Ok dataset ->
-        Assert.True(dataset.Molecules.Length >= 2, "Should load at least 2 molecules")
-    | Error e ->
-        Assert.Fail($"Expected Ok but got Error: {e}")
+    ((provider :> IMoleculeDatasetProvider).Load All) |> Result.map (fun dataset -> Assert.True(dataset.Molecules.Length >= 2, "Should load at least 2 molecules")) |> Result.defaultWith (fun e -> Assert.Fail($"Expected Ok but got Error: {e}"))
 
 [<Fact>]
 let ``SmilesListDatasetProvider queries by name`` () =
@@ -73,9 +69,7 @@ let ``SmilesListDatasetProvider returns error for unknown SMILES`` () =
     let smiles = ["CCO"]
     let provider = SmilesListDatasetProvider(smiles) :> IMoleculeDatasetProvider
     
-    match provider.Load (ByName "NOT_IN_LIST") with
-    | Ok _ -> Assert.Fail("Expected Error for unknown SMILES")
-    | Error _ -> ()  // Expected
+    (provider.Load (ByName "NOT_IN_LIST")) |> Result.iter (fun _ -> Assert.Fail("Expected Error for unknown SMILES"))  // Expected
 
 [<Fact>]
 let ``SmilesListDatasetProvider lists names`` () =
@@ -108,11 +102,7 @@ let ``CompositeDatasetProvider tries providers in order`` () =
     
     let composite = CompositeDatasetProvider([empty; withData]) :> IMoleculeDatasetProvider
     
-    match composite.Load All with
-    | Ok dataset ->
-        Assert.True(dataset.Molecules.Length >= 1)
-    | Error e ->
-        Assert.Fail($"Expected Ok but got Error: {e}")
+    (composite.Load All) |> Result.map (fun dataset -> Assert.True(dataset.Molecules.Length >= 1)) |> Result.defaultWith (fun e -> Assert.Fail($"Expected Ok but got Error: {e}"))
 
 [<Fact>]
 let ``CompositeDatasetProvider combines with built-in provider`` () =
@@ -122,11 +112,7 @@ let ``CompositeDatasetProvider combines with built-in provider`` () =
     let composite = CompositeDatasetProvider([builtIn; custom]) :> IMoleculeDatasetProvider
     
     // Should find H2 from built-in
-    match composite.Load (ByName "H2") with
-    | Ok dataset ->
-        Assert.Equal(1, dataset.Molecules.Length)
-    | Error e ->
-        Assert.Fail($"Expected Ok but got Error: {e}")
+    (composite.Load (ByName "H2")) |> Result.map (fun dataset -> Assert.Equal(1, dataset.Molecules.Length)) |> Result.defaultWith (fun e -> Assert.Fail($"Expected Ok but got Error: {e}"))
 
 [<Fact>]
 let ``CompositeDatasetProvider ListNames combines all providers`` () =
@@ -159,11 +145,7 @@ let ``fromSmilesMolecule creates correct topology`` () =
 let ``fromSingleSmiles creates working provider`` () =
     let provider = fromSingleSmiles "CCO"
     
-    match provider.Load All with
-    | Ok dataset ->
-        Assert.Equal(1, dataset.Molecules.Length)
-    | Error e ->
-        Assert.Fail($"Expected Ok but got Error: {e}")
+    (provider.Load All) |> Result.map (fun dataset -> Assert.Equal(1, dataset.Molecules.Length)) |> Result.defaultWith (fun e -> Assert.Fail($"Expected Ok but got Error: {e}"))
 
 // =============================================================================
 // INTEGRATION WITH CHEMISTRY PROVIDERS

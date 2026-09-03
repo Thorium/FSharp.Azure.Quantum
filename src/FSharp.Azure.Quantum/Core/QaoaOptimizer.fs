@@ -38,7 +38,7 @@ module QaoaOptimizer =
             let solver = NelderMeadSimplex(1e-8, 200)  // tolerance, max iterations
             
             // Run optimization
-            let initialVector = Vector<float>.Build.DenseOfArray(initialParameters)
+            let initialVector = Vector<float>.Build.DenseOfArray initialParameters
             let result = solver.FindMinimum(objModel, initialVector)
             
             {
@@ -109,7 +109,7 @@ module QaoaOptimizer =
             let solver = NelderMeadSimplex(tolerance, maxIterations)
 
             // Run optimization
-            let initialVector = Vector<float>.Build.DenseOfArray(initialParameters)
+            let initialVector = Vector<float>.Build.DenseOfArray initialParameters
 
             let (minimizingPoint, iterations, converged) =
                 try

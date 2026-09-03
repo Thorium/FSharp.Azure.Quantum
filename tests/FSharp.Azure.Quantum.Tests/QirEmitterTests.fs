@@ -8,9 +8,7 @@ open FSharp.Azure.Quantum.CircuitBuilder
 module QirEmitterTests =
 
     let private emitOrFail c =
-        match QirEmitter.emit c with
-        | Ok ir -> ir
-        | Error e -> failwithf "emit failed: %s" e
+        (QirEmitter.emit c) |> Result.defaultWith (fun e -> failwithf "emit failed: %s" e)
 
     [<Fact>]
     let ``Bell circuit emits well-formed base-profile QIR`` () =
@@ -45,6 +43,4 @@ module QirEmitterTests =
 
     [<Fact>]
     let ``gate without a base-profile intrinsic returns Error`` () =
-        match QirEmitter.emit (empty 1 |> addGate (U3(0, 0.1, 0.2, 0.3))) with
-        | Ok _ -> Assert.True(false, "expected Error for U3")
-        | Error e -> Assert.Contains("U3", e)
+        (QirEmitter.emit (empty 1 |> addGate (U3(0, 0.1, 0.2, 0.3)))) |> Result.map (fun _ -> Assert.True(false, "expected Error for U3")) |> Result.defaultWith (fun e -> Assert.Contains("U3", e))

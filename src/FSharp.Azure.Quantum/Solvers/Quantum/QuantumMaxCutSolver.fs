@@ -154,7 +154,7 @@ module QuantumMaxCutSolver =
                     NumVariables = numVars
                 }
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", sprintf "MaxCut QUBO encoding failed: %s" ex.Message))
+            Error (QuantumError.OperationError ("QuboEncoding", $"MaxCut QUBO encoding failed: %s{ex.Message}"))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -206,8 +206,8 @@ module QuantumMaxCutSolver =
         
         problem.Edges
         |> List.filter (fun edge ->
-            let sourceInS = partitionSSet.Contains(edge.Source)
-            let targetInS = partitionSSet.Contains(edge.Target)
+            let sourceInS = partitionSSet.Contains edge.Source
+            let targetInS = partitionSSet.Contains edge.Target
             sourceInS <> targetInS  // Edge crosses partition
         )
         |> List.sumBy (fun edge -> edge.Weight)
@@ -309,14 +309,13 @@ module QuantumMaxCutSolver =
                         }
 
                     task {
-                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                        match executeResult with
+                        match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
                         | Error err -> return Error err
                         | Ok measurements ->
                             return handleMeasurements measurements
                     }
         with ex ->
-            task { return Error (QuantumError.OperationError ("QuantumMaxCutSolver", sprintf "Quantum MaxCut solve failed: %s" ex.Message)) }
+            task { return Error (QuantumError.OperationError ("QuantumMaxCutSolver", $"Quantum MaxCut solve failed: %s{ex.Message}")) }
 
     /// Solve MaxCut problem using quantum QAOA (synchronous wrapper)
     /// 

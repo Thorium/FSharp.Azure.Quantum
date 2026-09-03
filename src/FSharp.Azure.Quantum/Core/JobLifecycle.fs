@@ -54,7 +54,7 @@ module JobLifecycle =
                 use content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
                 
                 // Make PUT request to /jobs/{id}
-                let url = sprintf "%s/jobs/%s" workspaceUrl submission.JobId
+                let url = $"%s{workspaceUrl}/jobs/%s{submission.JobId}"
                 use! response = httpClient.PutAsync(url, content)
                 
                 // Handle response
@@ -129,8 +129,8 @@ module JobLifecycle =
         task {
             try
                 // Make GET request to /jobs/{id}
-                let url = sprintf "%s/jobs/%s" workspaceUrl jobId
-                use! response = httpClient.GetAsync(url)
+                let url = $"%s{workspaceUrl}/jobs/%s{jobId}"
+                use! response = httpClient.GetAsync url
                 
                 // Handle response
                 match response.StatusCode with
@@ -142,9 +142,9 @@ module JobLifecycle =
                     
                     // Helper to safely get required string property (throws if null or missing)
                     let getRequiredString (name: string) =
-                        let prop = root.GetProperty(name)
+                        let prop = root.GetProperty name
                         if prop.ValueKind = JsonValueKind.Null then
-                            failwith (sprintf "Required property '%s' is null" name)
+                            failwith ($"Required property '%s{name}' is null")
                         else
                             prop.GetString()
                     
@@ -195,7 +195,7 @@ module JobLifecycle =
                     return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
                     
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, sprintf "Job %s not found" jobId)))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, $"Job %s{jobId} not found")))
                     
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
@@ -245,7 +245,7 @@ module JobLifecycle =
                 | JobStatus.Succeeded -> true
                 | JobStatus.Failed _ -> true
                 | JobStatus.Cancelled -> true
-                | _ -> false
+                | JobStatus.Waiting | JobStatus.Executing -> false
             
             // Exponential backoff parameters
             let initialInterval = TimeSpan.FromSeconds(2.0)
@@ -270,9 +270,8 @@ module JobLifecycle =
                         finished <- true
                     else
                         // Get current job status
-                        let! result = getJobStatusAsync httpClient workspaceUrl jobId
                         
-                        match result with
+                        match! getJobStatusAsync httpClient workspaceUrl jobId with
                         | Ok job ->
                             if isTerminal job.Status then
                                 // Job complete - return result
@@ -321,7 +320,7 @@ module JobLifecycle =
                 // would reject (401) and must not receive.
                 use request = new HttpRequestMessage(HttpMethod.Get, blobUri)
                 Authentication.markNoAuth request
-                use! response = httpClient.SendAsync(request)
+                use! response = httpClient.SendAsync request
                 
                 // Handle response
                 match response.StatusCode with
@@ -356,7 +355,7 @@ module JobLifecycle =
                     return Ok jobResult
                     
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, sprintf "Result blob not found at %s" blobUri)))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, $"Result blob not found at %s{blobUri}")))
                     
                 | HttpStatusCode.Unauthorized ->
                     return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
@@ -392,21 +391,19 @@ module JobLifecycle =
         task {
             try
                 // Make DELETE request to /jobs/{id}
-                let url = sprintf "%s/jobs/%s" workspaceUrl jobId
-                use! response = httpClient.DeleteAsync(url)
+                let url = $"%s{workspaceUrl}/jobs/%s{jobId}"
+                use! response = httpClient.DeleteAsync url
                 
                 // Handle response
                 match response.StatusCode with
-                | HttpStatusCode.NoContent ->
-                    // Successfully cancelled
-                    return Ok ()
-                    
+                | HttpStatusCode.NoContent
+                // Successfully cancelled
                 | HttpStatusCode.OK ->
                     // Some APIs return 200 OK for successful cancellation
                     return Ok ()
                     
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, sprintf "Job %s not found" jobId)))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, $"Job %s{jobId} not found")))
                     
                 | HttpStatusCode.Unauthorized ->
                     return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
@@ -456,15 +453,13 @@ module JobLifecycle =
         : Task<Result<JobResult, QuantumError>> =
         task {
             // Step 1: Submit job
-            let! submitResult = submitJobAsync httpClient workspaceUrl submission
             
-            match submitResult with
+            match! submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 // Step 2: Poll until complete
-                let! pollResult = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 
-                match pollResult with
+                match! pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
                 | Error err -> return Error err
                 | Ok job ->
                     // Step 3: Get results if available
@@ -497,9 +492,8 @@ module JobLifecycle =
         : Task<Result<QuantumJob, QuantumError>> =
         task {
             // Step 1: Submit job
-            let! submitResult = submitJobAsync httpClient workspaceUrl submission
             
-            match submitResult with
+            match! submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 // Step 2: Poll until complete
@@ -523,7 +517,7 @@ module JobLifecycle =
         task {
             match job.OutputDataUri with
             | None ->
-                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, sprintf "Job %s has no output URI" job.JobId)))
+                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, $"Job %s{job.JobId} has no output URI")))
             | Some uri ->
                 return! getJobResultAsync httpClient uri
         }

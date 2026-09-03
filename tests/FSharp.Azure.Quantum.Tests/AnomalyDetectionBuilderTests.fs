@@ -20,7 +20,7 @@ module AnomalyDetectionBuilderTests =
     let private generateNormalData (n: int) (seed: int) =
         let rng = Random(seed)
         [| for _ in 1..n ->
-            let cluster = rng.Next(2)
+            let cluster = rng.Next 2
             let cx, cy = if cluster = 0 then (1.0, 1.0) else (2.0, 2.0)
             [| cx + (rng.NextDouble() - 0.5) * 0.3
                cy + (rng.NextDouble() - 0.5) * 0.3 |]
@@ -228,9 +228,7 @@ module AnomalyDetectionBuilderTests =
             CancellationToken = None
         }
         for s in [Low; Medium; High; VeryHigh] do
-            match train (makeProblem s) with
-            | Ok detector -> Assert.Equal(s, detector.Metadata.Sensitivity)
-            | Error e -> failwith $"Should succeed for sensitivity {s}, got error: {e}"
+            (train (makeProblem s)) |> Result.map (fun detector -> Assert.Equal(s, detector.Metadata.Sensitivity)) |> Result.defaultWith (fun e -> failwith $"Should succeed for sensitivity {s}, got error: {e}")
 
     // ========================================================================
     // DETECTION TESTS
@@ -317,7 +315,7 @@ module AnomalyDetectionBuilderTests =
             | Ok contributions ->
                 Assert.Equal(2, contributions.Length)
                 // Features should be named Feature_1, Feature_2
-                Assert.True(contributions |> Array.exists (fun (name, _) -> name.StartsWith("Feature_")))
+                Assert.True(contributions |> Array.exists (fun (name, _) -> name.StartsWith "Feature_"))
                 // All deviations should be non-negative
                 for (_, dev) in contributions do
                     Assert.True(dev >= 0.0, $"Deviation should be non-negative, got {dev}")
@@ -351,10 +349,7 @@ module AnomalyDetectionBuilderTests =
             backend quantumBackend
             shots 100
         }
-        match result with
-        | Ok detector ->
-            Assert.Equal(High, detector.Metadata.Sensitivity)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun detector -> Assert.Equal(High, detector.Metadata.Sensitivity)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
 
     [<Fact>]
     let ``anomalyDetection CE with empty data should return error`` () =
@@ -375,7 +370,4 @@ module AnomalyDetectionBuilderTests =
             note "fraud detection model"
             shots 100
         }
-        match result with
-        | Ok detector ->
-            Assert.Equal(Some "fraud detection model", detector.Metadata.Note)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun detector -> Assert.Equal(Some "fraud detection model", detector.Metadata.Note)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")

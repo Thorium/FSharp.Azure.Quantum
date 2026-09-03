@@ -240,11 +240,11 @@ let private presetNames =
 /// Parse atom list from compact string format:
 ///   "O:0,0,0|H:0.96,0,0|H:-0.24,0.93,0"
 let private parseAtoms (s: string) : Atom list =
-    s.Split('|')
+    s.Split '|'
     |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split(':')
+        let parts = entry.Trim().Split ':'
         if parts.Length = 2 then
-            let coords = parts.[1].Split(',')
+            let coords = parts.[1].Split ','
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
@@ -276,7 +276,7 @@ let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
 /// position by the stretch factor (simple diatomic-like stretching).
 let private loadSystemsFromCsv (path: string) : BondSystem list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

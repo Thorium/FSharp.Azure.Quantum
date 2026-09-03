@@ -25,7 +25,7 @@ module CudaQBridge =
     /// Translate one gate to its CUDA-Q Python call (`Some line`), skip it (`None`, e.g. a
     /// mid-circuit measurement — all qubits are measured at the end), or fail with a reason.
     let private gateLine (g: CircuitBuilder.Gate) : Result<string option, string> =
-        let q i = sprintf "q[%d]" i
+        let q i = $"q[%d{i}]"
         let line s = Ok (Some ("    " + s))
         match g with
         | CircuitBuilder.X i -> line (sprintf "x(%s)" (q i))
@@ -51,7 +51,7 @@ module CudaQBridge =
         | CircuitBuilder.CCX (a, b, t) -> line (sprintf "x.ctrl(%s, %s, %s)" (q a) (q b) (q t))
         | CircuitBuilder.MCZ (controls, t) ->
             let args = (controls @ [ t ]) |> List.map q |> String.concat ", "
-            line (sprintf "z.ctrl(%s)" args)
+            line ($"z.ctrl(%s{args})")
         | CircuitBuilder.Measure _ -> Ok None   // all qubits are measured with mz(q) at the end
         | CircuitBuilder.Reset i -> line (sprintf "reset(%s)" (q i))
         | CircuitBuilder.Barrier _ -> Ok None   // scheduling hint only — no effect on simulation, safe to skip
@@ -82,12 +82,12 @@ module CudaQBridge =
                 ""
                 "@cudaq.kernel"
                 "def program():"
-                sprintf "    q = cudaq.qvector(%d)" circuit.QubitCount
+                $"    q = cudaq.qvector(%d{circuit.QubitCount})"
                 gateBlock
                 "    mz(q)"
                 ""
-                sprintf "cudaq.set_target(\"%s\")" target
-                sprintf "result = cudaq.sample(program, shots_count=%d)" shots
+                $"cudaq.set_target(\"%s{target}\")"
+                $"result = cudaq.sample(program, shots_count=%d{shots})"
                 "print(json.dumps({ b: result.count(b) for b in result }))"
             ])
 
@@ -106,16 +106,16 @@ module CudaQBridge =
                 else
                     // Drain both pipes concurrently: reading stdout-then-stderr sequentially can
                     // deadlock if the child fills the stderr buffer while we block on stdout.
-                    let stdoutTask = proc.StandardOutput.ReadToEndAsync(cancellationToken)
-                    let stderrTask = proc.StandardError.ReadToEndAsync(cancellationToken)
-                    do! proc.WaitForExitAsync(cancellationToken)
+                    let stdoutTask = proc.StandardOutput.ReadToEndAsync cancellationToken
+                    let stderrTask = proc.StandardError.ReadToEndAsync cancellationToken
+                    do! proc.WaitForExitAsync cancellationToken
                     let! stdout = stdoutTask
                     let! stderr = stderrTask
                     if proc.ExitCode = 0 then return Ok stdout
                     else return Error (if System.String.IsNullOrWhiteSpace stderr then $"python exited with code {proc.ExitCode}" else stderr)
             with ex ->
                 // Don't leak the child process on cancellation or a failed read.
-                let _ = try (if not proc.HasExited then proc.Kill(true)) with _ -> ()
+                let _ = try (if not proc.HasExited then proc.Kill true) with _ -> ()
                 match ex with
                 | :? System.OperationCanceledException -> return Error "python run was cancelled"
                 | _ -> return Error $"could not launch python (is it on PATH?): {ex.Message}"
@@ -125,7 +125,7 @@ module CudaQBridge =
     let isAvailableAsync (cancellationToken: CancellationToken) : Task<bool> =
         task {
             let! result = runPython [ "-c"; "import cudaq" ] cancellationToken
-            return (match result with Ok _ -> true | Error _ -> false)
+            return (result |> Result.isOk)
         }
 
     /// Generate the CUDA-Q program, run it via a local `python`+`cudaq`, and parse the counts.
@@ -136,18 +136,17 @@ module CudaQBridge =
             | Error e -> return Error e
             | Ok source ->
                 let scriptPath =
-                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), sprintf "faq_cudaq_%s.py" (System.Guid.NewGuid().ToString("N")))
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), sprintf "faq_cudaq_%s.py" (System.Guid.NewGuid().ToString "N"))
                 try
                     do! System.IO.File.WriteAllTextAsync(scriptPath, source, cancellationToken)
-                    let! result = runPython [ scriptPath ] cancellationToken
-                    match result with
+                    match! runPython [ scriptPath ] cancellationToken with
                     | Error msg -> return Error (QuantumError.OperationError ("CudaQBridge", $"CUDA-Q run failed (is cudaq installed?): {msg}"))
                     | Ok stdout ->
                         try
                             let jsonLine =
-                                stdout.Split('\n')
+                                stdout.Split '\n'
                                 |> Array.map (fun s -> s.Trim())
-                                |> Array.filter (fun s -> s.StartsWith("{"))
+                                |> Array.filter (fun s -> s.StartsWith "{")
                                 |> Array.tryLast
                             match jsonLine with
                             | None -> return Error (QuantumError.OperationError ("CudaQBridge", $"no counts JSON in CUDA-Q output: {stdout}"))

@@ -37,7 +37,7 @@ module RateLimiting =
     /// Parse rate limit headers from HTTP response
     let parseRateLimitHeaders (response: HttpResponseMessage) : RateLimitInfo option =
         let tryGetHeader name =
-            match response.Headers.TryGetValues(name) with
+            match response.Headers.TryGetValues name with
             | true, values -> 
                 values 
                 |> Seq.tryHead 

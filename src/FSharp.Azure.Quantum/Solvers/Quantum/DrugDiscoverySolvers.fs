@@ -458,7 +458,7 @@ module DrugDiscoverySolvers =
             if problem.Nodes.IsEmpty then
                 Error (QuantumError.ValidationError ("nodes", "Problem has no nodes"))
             elif problem.K <= 0 || problem.K > problem.Nodes.Length then
-                Error (QuantumError.ValidationError ("k", sprintf "k must be between 1 and %d" problem.Nodes.Length))
+                Error (QuantumError.ValidationError ("k", $"k must be between 1 and %d{problem.Nodes.Length}"))
             else
                 let qubo = toQubo problem
                 

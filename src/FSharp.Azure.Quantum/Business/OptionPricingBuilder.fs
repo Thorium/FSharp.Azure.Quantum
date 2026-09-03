@@ -322,7 +322,7 @@ module OptionPricing =
                 return Error (QuantumError.ValidationError ("TimeToExpiry", "Must be > 0"))
             elif marketParams.TimeToExpiry > 10.0 then
                 return Error (QuantumError.ValidationError ("TimeToExpiry", "Time > 10 years is beyond typical option maturities"))
-            elif (match optionType with AsianCall n | AsianPut n -> n < 1 | _ -> false) then
+            elif (match optionType with AsianCall n | AsianPut n -> n < 1 | EuropeanCall | EuropeanPut -> false) then
                 return Error (QuantumError.ValidationError ("timeSteps", "Asian options require at least 1 averaging time step"))
             else
 
@@ -448,23 +448,23 @@ module OptionPricing =
         
         [<CustomOperation("spotPrice")>]
         member _.SpotPrice(config: OptionPricingConfig, price) =
-            { config with Market = { config.Market with SpotPrice = price } }
+            { config with Market.SpotPrice = price }
             
         [<CustomOperation("strikePrice")>]
         member _.StrikePrice(config: OptionPricingConfig, price) =
-            { config with Market = { config.Market with StrikePrice = price } }
+            { config with Market.StrikePrice = price }
 
         [<CustomOperation("riskFreeRate")>]
         member _.RiskFreeRate(config: OptionPricingConfig, rate) =
-            { config with Market = { config.Market with RiskFreeRate = rate } }
+            { config with Market.RiskFreeRate = rate }
 
         [<CustomOperation("volatility")>]
         member _.Volatility(config: OptionPricingConfig, vol) =
-            { config with Market = { config.Market with Volatility = vol } }
+            { config with Market.Volatility = vol }
 
         [<CustomOperation("expiry")>]
         member _.Expiry(config: OptionPricingConfig, t) =
-            { config with Market = { config.Market with TimeToExpiry = t } }
+            { config with Market.TimeToExpiry = t }
 
         [<CustomOperation("optionType")>]
         member _.OptionType(config: OptionPricingConfig, t) =
@@ -633,9 +633,8 @@ module OptionPricing =
                 // Define scenarios for Finite Differences
                 
                 // 1. Base Case (Center)
-                let! baseResult = priceAt market
                 
-                match baseResult with
+                match! priceAt market with
                 | Error e -> return Error e
                 | Ok basePrice ->
                     
@@ -672,16 +671,14 @@ module OptionPricing =
                     
                     // Aggregate results or fail if any failed
                     let results = [res_Sup; res_Sdown; res_Vup; res_Vdown; res_Tless; res_Rup; res_Rdown]
-                    let errors = results |> List.choose (function Error e -> Some e | _ -> None)
+                    let errors = results |> List.choose (function Error e -> Some e | Ok _ -> None)
                     
                     if not (List.isEmpty errors) then
                         return Error (List.head errors) // Return first error
                     else
                         // Extract prices - all validated above, so Error is unreachable
                         let getPrice (res: QuantumResult<OptionPrice>) = 
-                            match res with 
-                            | Ok p -> p.Price 
-                            | Error _ -> failwith "Unreachable: pricing failed after validation"
+                            res |> Result.map (fun p -> p.Price) |> Result.defaultWith (fun _ -> failwith $"Unreachable: pricing failed after validation, calling getPrice with res: {res}")
                         
                         let P = basePrice.Price
                         let P_Sup = getPrice res_Sup

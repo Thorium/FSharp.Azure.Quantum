@@ -105,19 +105,19 @@ module RigettiBackend =
     let serializeGate (gate: QuilGate) : string =
         match gate with
         | SingleQubit(gateName, qubit) ->
-            sprintf "%s %d" gateName qubit
+            $"%s{gateName} %d{qubit}"
         
         | SingleQubitRotation(gateName, angle, qubit) ->
-            sprintf "%s(%s) %d" gateName (angle.ToString("R")) qubit
+            sprintf "%s(%s) %d" gateName (angle.ToString "R") qubit
         
         | TwoQubit(gateName, control, target) ->
-            sprintf "%s %d %d" gateName control target
+            $"%s{gateName} %d{control} %d{target}"
         
         | Measure(qubit, memoryRef) ->
-            sprintf "MEASURE %d %s" qubit memoryRef
+            $"MEASURE %d{qubit} %s{memoryRef}"
         
         | DeclareMemory(name, typ, size) ->
-            sprintf "DECLARE %s %s[%d]" name typ size
+            $"DECLARE %s{name} %s{typ}[%d{size}]"
     
     // ============================================================================
     // PROGRAM SERIALIZATION
@@ -196,13 +196,13 @@ module RigettiBackend =
         // Find first invalid gate
         let invalidGate = 
             allGates 
-            |> List.tryFind (fun gate -> not (isValidGate graph gate))
+            |> List.tryFind (isValidGate graph >> not)
         
         match invalidGate with
         | None -> Ok ()
         | Some gate ->
             let gateText = serializeGate gate
-            Error (QuantumError.ValidationError ("Connectivity", sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText))
+            Error (QuantumError.ValidationError ("Connectivity", $"Gate '%s{gateText}' violates connectivity constraints. Qubits are not directly connected in the hardware topology."))
     
     // ============================================================================
     // CIRCUIT VALIDATION (Pre-Flight Checks)
@@ -365,9 +365,9 @@ module RigettiBackend =
                 Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, "Missing 'histogram' field in Rigetti response")))
         with
         | :? JsonException as ex ->
-            Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "JSON parsing error: %s" ex.Message)))
+            Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"JSON parsing error: %s{ex.Message}")))
         | ex ->
-            Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Unexpected error: %s" ex.Message)))
+            Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected error: %s{ex.Message}")))
     
     /// Map Rigetti-specific error codes to QuantumError
     /// 
@@ -381,15 +381,15 @@ module RigettiBackend =
     let mapRigettiError (errorCode: string) (errorMessage: string) : QuantumError =
         match errorCode with
         | "InvalidProgram" -> 
-            QuantumError.ValidationError("circuit", sprintf "Malformed Quil program: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Malformed Quil program: %s{errorMessage}")
         | "TopologyError" -> 
-            QuantumError.ValidationError("circuit", sprintf "Connectivity violation: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Connectivity violation: %s{errorMessage}")
         | "TooManyQubits" -> 
-            QuantumError.ValidationError("circuit", sprintf "Qubit limit exceeded: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Qubit limit exceeded: %s{errorMessage}")
         | "QuotaExceeded" -> 
             QuantumError.AzureError (AzureQuantumError.QuotaExceeded "quantum-credits")
         | _ -> 
-            QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Rigetti error %s: %s" errorCode errorMessage))
+            QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Rigetti error %s{errorCode}: %s{errorMessage}"))
     
     // ============================================================================
     // AZURE QUANTUM INTEGRATION
@@ -427,14 +427,12 @@ module RigettiBackend =
             let submission = createJobSubmission program shots target None
             
             // Step 2: Submit job
-            let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
-            match submitResult with
+            match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
-                match pollResult with
+                match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
                 | Error err -> return Error err
                 | Ok (job: QuantumJob) ->
                     // Check job status
@@ -445,8 +443,7 @@ module RigettiBackend =
                         | None ->
                             return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
                         | Some uri ->
-                            let! resultData = JobLifecycle.getJobResultAsync httpClient uri
-                            match resultData with
+                            match! JobLifecycle.getJobResultAsync httpClient uri with
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 // Step 5: Parse histogram from OutputData
@@ -456,7 +453,7 @@ module RigettiBackend =
                                     | Ok histogram -> return Ok histogram
                                     | Error err -> return Error err
                                 with
-                                | ex -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse Rigetti results: %s" ex.Message)))
+                                | ex -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Rigetti results: %s{ex.Message}")))
                     
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         // Map Rigetti error to QuantumError
@@ -465,8 +462,8 @@ module RigettiBackend =
                     | JobStatus.Cancelled ->
                         return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
                     
-                    | _ ->
-                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status)))
+                    | JobStatus.Waiting | JobStatus.Executing ->
+                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
         }
     
     /// Submit Rigetti circuit with pre-flight validation

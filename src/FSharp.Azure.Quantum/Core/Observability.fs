@@ -78,7 +78,7 @@ module Observability =
         context
         |> Map.map (fun key value ->
             let keyLower = key.ToLowerInvariant().Replace("-", "").Replace("_", "")
-            if sensitiveKeys |> Set.exists (fun sens -> keyLower.Contains(sens)) then
+            if sensitiveKeys |> Set.exists (fun sens -> keyLower.Contains sens) then
                 box "***REDACTED***"
             else
                 value

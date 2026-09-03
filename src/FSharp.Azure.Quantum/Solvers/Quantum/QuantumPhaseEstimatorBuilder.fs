@@ -338,9 +338,9 @@ module QuantumPhaseEstimator =
                         match problem.Unitary with
                         | TGate -> "T Gate (π/8 gate)"
                         | SGate -> "S Gate (phase gate)"
-                        | PhaseGate theta -> sprintf "Phase Gate (θ=%.4f)" theta
-                        | RotationZ theta -> sprintf "Rz Gate (θ=%.4f)" theta
-                        | ModularExponentiation (baseNum, modulus) -> sprintf "Modular Exponentiation (a=%d, N=%d)" baseNum modulus
+                        | PhaseGate theta -> $"Phase Gate (θ=%.4f{theta})"
+                        | RotationZ theta -> $"Rz Gate (θ=%.4f{theta})"
+                        | ModularExponentiation (baseNum, modulus) -> $"Modular Exponentiation (a=%d{baseNum}, N=%d{modulus})"
                     
                     // Build result from QPE result
                     let builderResult = {
@@ -353,7 +353,7 @@ module QuantumPhaseEstimator =
                         GateCount = result.GateCount
                         Unitary = unitaryName
                         Success = true
-                        Message = sprintf "Phase estimation successful: φ ≈ %.6f (eigenvalue λ = e^(2πi×%.6f))" phase phase
+                        Message = $"Phase estimation successful: φ ≈ %.6f{phase} (eigenvalue λ = e^(2πi×%.6f{phase}))"
                     }
                     
                     Ok builderResult

@@ -104,7 +104,7 @@ let private builtinRoutes =
 
 let private loadNodesFromCsv (path: string) : SupplyChainNode list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do eprintfn "  Warning (CSV): %s" err
     rows
     |> List.choose (fun row ->
@@ -124,7 +124,7 @@ let private loadNodesFromCsv (path: string) : SupplyChainNode list =
 
 let private loadEdgesFromCsv (path: string) : (string * string * float) list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do eprintfn "  Warning (CSV): %s" err
     rows
     |> List.choose (fun row ->

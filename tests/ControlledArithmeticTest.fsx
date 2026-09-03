@@ -16,7 +16,8 @@ let backend = LocalBackend() :> IQuantumBackend
 // Test 1: Controlled addition with control = |0⟩ (should not add)
 printfn "\nTest 1: Controlled addition with control = |0⟩"
 let numQubits = 3
-let state1Result = backend.InitializeState (numQubits + 1)  // 3 register qubits + 1 control
+/// 3 register qubits + 1 control
+let state1Result = backend.InitializeState (numQubits + 1)
 
 match state1Result with
 | Ok state1 ->

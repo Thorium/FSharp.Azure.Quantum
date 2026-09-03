@@ -302,10 +302,7 @@ module ConstraintRepairTests =
 
         let backend = createLocalBackend ()
         let config = { fastConfig with EnableConstraintRepair = false }
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.False(solution.WasRepaired)
+        (solveWithConfig backend problem config) |> Result.map (fun solution -> Assert.False(solution.WasRepaired)) |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
 
 // ============================================================================
 // BACKEND INTEGRATION TESTS

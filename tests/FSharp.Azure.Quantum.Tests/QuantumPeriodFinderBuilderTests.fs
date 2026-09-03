@@ -21,9 +21,7 @@ module QuantumPeriodFinderBuilderTests =
             precision 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("at least 4", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected number < 4")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected number < 4")) |> Result.defaultWith (fun err -> Assert.Contains("at least 4", err.Message))
     
     [<Fact>]
     let ``periodFinder builder rejects numbers too large`` () =
@@ -32,9 +30,7 @@ module QuantumPeriodFinderBuilderTests =
             precision 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("10000", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected number > 10000")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected number > 10000")) |> Result.defaultWith (fun err -> Assert.Contains("10000", err.Message))
     
     [<Fact>]
     let ``periodFinder builder rejects insufficient precision`` () =
@@ -43,9 +39,7 @@ module QuantumPeriodFinderBuilderTests =
             precision 0  // Must be at least 1
         }
         
-        match result with
-        | Error err -> Assert.Contains("at least 1", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected precision < 1")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision < 1")) |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
     
     [<Fact>]
     let ``periodFinder builder rejects excessive precision`` () =
@@ -54,9 +48,7 @@ module QuantumPeriodFinderBuilderTests =
             precision 25  // Exceeds NISQ limit
         }
         
-        match result with
-        | Error err -> Assert.Contains("20 qubits", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected precision > 20")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision > 20")) |> Result.defaultWith (fun err -> Assert.Contains("20 qubits", err.Message))
     
     [<Fact>]
     let ``periodFinder builder rejects base less than 2`` () =
@@ -66,9 +58,7 @@ module QuantumPeriodFinderBuilderTests =
             precision 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("at least 2", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected base < 2")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected base < 2")) |> Result.defaultWith (fun err -> Assert.Contains("at least 2", err.Message))
     
     [<Fact>]
     let ``periodFinder builder rejects base >= number`` () =
@@ -78,9 +68,7 @@ module QuantumPeriodFinderBuilderTests =
             precision 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("less than Number", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected base >= number")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected base >= number")) |> Result.defaultWith (fun err -> Assert.Contains("less than Number", err.Message))
     
     [<Fact>]
     let ``periodFinder builder rejects too many attempts`` () =
@@ -90,9 +78,7 @@ module QuantumPeriodFinderBuilderTests =
             maxAttempts 150  // Exceeds reasonable limit
         }
         
-        match result with
-        | Error err -> Assert.Contains("100", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected maxAttempts > 100")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected maxAttempts > 100")) |> Result.defaultWith (fun err -> Assert.Contains("100", err.Message))
     
     [<Fact>]
     let ``periodFinder builder accepts valid minimal configuration`` () =
@@ -140,7 +126,7 @@ module QuantumPeriodFinderBuilderTests =
         | Ok problem ->
             match problem.Exactness with
             | FSharp.Azure.Quantum.Algorithms.QPE.Exactness.Approximate epsilon -> Assert.Equal(0.001, epsilon, 3)
-            | _ -> Assert.True(false, "Should have preserved Approximate exactness")
+            | FSharp.Azure.Quantum.Algorithms.QPE.Exactness.Exact -> Assert.True(false, "Should have preserved Approximate exactness")
         | Error err -> Assert.True(false, $"Should have succeeded: {err.Message}")
 
     // ========================================================================
@@ -170,8 +156,7 @@ module QuantumPeriodFinderBuilderTests =
     // φ-ADD implementation is complete.
     // ========================================================================
     
-    [<Fact>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``solve should factor N=15 (classic example)`` () =
         let problem = periodFinder {
             number 15  // 15 = 3 × 5
@@ -209,8 +194,7 @@ module QuantumPeriodFinderBuilderTests =
                 // Accept some probabilistic failures - just ensure we got an error message
                 Assert.NotEmpty(err.Message)
     
-    [<Fact>]
-    [<Trait("Category", "ExtraSlow")>]   // ~78 min genuine factoring of 21
+    [<Fact; Trait("Category", "ExtraSlow")>]   // ~78 min genuine factoring of 21
     let ``solve should factor N=21 (3 × 7)`` () =
         let problem = periodFinder {
             number 21
@@ -334,15 +318,14 @@ module QuantumPeriodFinderBuilderTests =
                 match result.Factors with
                 | Some (p, q) ->
                     Assert.Equal(4, p * q)
-                    Assert.True((p = 2), sprintf "Factor %d should be 2" p)
-                    Assert.True((q = 2), sprintf "Factor %d should be 2" q)
+                    Assert.True((p = 2), $"Factor %d{p} should be 2")
+                    Assert.True((q = 2), $"Factor %d{q} should be 2")
                 | None ->
                     // May fail probabilistically
                     Assert.True(true)
             | Error err -> Assert.True(false, $"Solve failed: {err.Message}")
     
-    [<Fact>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``solve should use higher precision for better success`` () =
         let lowPrecision = periodFinder {
             number 15
@@ -403,8 +386,7 @@ module QuantumPeriodFinderBuilderTests =
         Assert.Contains("15", estimate)
         Assert.Contains("Qubits", estimate)
     
-    [<Fact>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``describeResult should format human-readable output`` () =
         let problem = periodFinder {
             number 15
@@ -439,8 +421,7 @@ module QuantumPeriodFinderBuilderTests =
     // RESULT METADATA TESTS
     // ========================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``solve should populate result metadata`` () =
         let problem = periodFinder {
             number 15
@@ -469,7 +450,7 @@ module QuantumPeriodFinderBuilderTests =
                 // Period may be incorrect with dirty ancillas. With an auto-selected
                 // random base, a lucky gcd(a, N) > 1 factors N classically without
                 // any period finding, in which case Period is 0.
-                let luckyGcdHit = result.Message.StartsWith("Lucky!")
+                let luckyGcdHit = result.Message.StartsWith "Lucky!"
                 Assert.True(luckyGcdHit || result.Period > 0,
                     $"Period should be positive unless a lucky gcd hit factored N directly: {result.Message}")
                 
@@ -482,8 +463,7 @@ module QuantumPeriodFinderBuilderTests =
                 // Accept probabilistic failures
                 Assert.True(true, "Probabilistic behavior may result in errors")
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``solve should track attempt count`` () =
         let problem = periodFinder {
             number 15

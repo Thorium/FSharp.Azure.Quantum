@@ -156,14 +156,10 @@ module AnyonicErrorCorrection =
 
             // Navigate deeper
             | FusionTree.Fusion (left, right, channel), Left :: rest ->
-                match inject left rest with
-                | Error e -> Error e
-                | Ok newLeft -> Ok (FusionTree.Fusion (newLeft, right, channel))
+                (inject left rest) |> Result.map (fun newLeft -> FusionTree.Fusion (newLeft, right, channel))
 
             | FusionTree.Fusion (left, right, channel), Right :: rest ->
-                match inject right rest with
-                | Error e -> Error e
-                | Ok newRight -> Ok (FusionTree.Fusion (left, newRight, channel))
+                (inject right rest) |> Result.map (fun newRight -> FusionTree.Fusion (left, newRight, channel))
 
             // Path goes deeper but we hit a leaf
             | FusionTree.Leaf _, _ :: _ ->

@@ -25,8 +25,10 @@ type Position = { Row: int; Col: int }
 type Direction =
     | Horizontal
     | Vertical
-    | DiagonalUp      // Bottom-left to top-right
-    | DiagonalDown    // Top-left to bottom-right
+    /// Bottom-left to top-right
+    | DiagonalUp
+    /// Top-left to bottom-right
+    | DiagonalDown
 
 /// Configuration for the Gomoku game
 type BoardConfig = {
@@ -202,12 +204,12 @@ module Board =
         // Header row
         sb.Append("   ") |> ignore
         for col in 0 .. board.Config.Size - 1 do
-            sb.Append(sprintf "%2d " col) |> ignore
+            sb.Append($"%2d{col} ") |> ignore
         sb.AppendLine() |> ignore
         
         // Board rows
         for row in 0 .. board.Config.Size - 1 do
-            sb.Append(sprintf "%2d " row) |> ignore
+            sb.Append($"%2d{row} ") |> ignore
             for col in 0 .. board.Config.Size - 1 do
                 let cell = board.Cells.[row, col]
                 sb.Append(sprintf " %c " (cell.ToChar())) |> ignore

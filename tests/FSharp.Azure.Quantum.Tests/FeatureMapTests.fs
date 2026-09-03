@@ -256,31 +256,19 @@ module FeatureMapTests =
     [<Fact>]
     let ``buildFeatureMap AngleEncoding returns Ok`` () =
         let features = [| 0.5; 0.3 |]
-        match buildFeatureMap AngleEncoding features with
-        | Ok circuit ->
-            Assert.Equal(2, circuit.QubitCount)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (buildFeatureMap AngleEncoding features) |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``buildFeatureMap ZZFeatureMap returns Ok`` () =
         let features = [| 0.5; 0.3; 0.7 |]
-        match buildFeatureMap (ZZFeatureMap 2) features with
-        | Ok circuit ->
-            Assert.Equal(3, circuit.QubitCount)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (buildFeatureMap (ZZFeatureMap 2) features) |> Result.map (fun circuit -> Assert.Equal(3, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``buildFeatureMap PauliFeatureMap returns Ok`` () =
         let features = [| 0.5; 0.3 |]
-        match buildFeatureMap (PauliFeatureMap(["ZZ"; "Z"], 1)) features with
-        | Ok circuit ->
-            Assert.Equal(2, circuit.QubitCount)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (buildFeatureMap (PauliFeatureMap(["ZZ"; "Z"], 1)) features) |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``buildFeatureMap AmplitudeEncoding returns Ok`` () =
         let features = [| 0.5; 0.3; 0.7; 0.1 |]
-        match buildFeatureMap AmplitudeEncoding features with
-        | Ok circuit ->
-            Assert.Equal(2, circuit.QubitCount)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (buildFeatureMap AmplitudeEncoding features) |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")

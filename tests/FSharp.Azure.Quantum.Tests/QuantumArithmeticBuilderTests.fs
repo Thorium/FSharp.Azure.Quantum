@@ -26,9 +26,7 @@ module QuantumArithmeticBuilderTests =
             qubits 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("non-negative", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected negative operands")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected negative operands")) |> Result.defaultWith (fun err -> Assert.Contains("non-negative", err.Message))
     
     [<Fact>]
     let ``quantumArithmetic builder rejects insufficient qubits`` () =
@@ -38,9 +36,7 @@ module QuantumArithmeticBuilderTests =
             qubits 1
         }
         
-        match result with
-        | Error err -> Assert.Contains("at least 2", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected insufficient qubits")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected insufficient qubits")) |> Result.defaultWith (fun err -> Assert.Contains("at least 2", err.Message))
     
     [<Fact>]
     let ``quantumArithmetic builder rejects excessive qubits`` () =
@@ -50,9 +46,7 @@ module QuantumArithmeticBuilderTests =
             qubits 21
         }
         
-        match result with
-        | Error err -> Assert.Contains("total qubits", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected excessive qubits")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected excessive qubits")) |> Result.defaultWith (fun err -> Assert.Contains("total qubits", err.Message))
     
     [<Fact>]
     let ``quantumArithmetic builder requires modulus for modular operations`` () =
@@ -62,9 +56,7 @@ module QuantumArithmeticBuilderTests =
             qubits 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("modulus is required", err.Message)
-        | Ok _ -> Assert.True(false, "Should have required modulus")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have required modulus")) |> Result.defaultWith (fun err -> Assert.Contains("modulus is required", err.Message))
     
     [<Fact>]
     let ``quantumArithmetic builder validates operands fit in qubits`` () =
@@ -74,9 +66,7 @@ module QuantumArithmeticBuilderTests =
             qubits 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("requires more than", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected operand too large for qubits")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected operand too large for qubits")) |> Result.defaultWith (fun err -> Assert.Contains("requires more than", err.Message))
     
     [<Fact>]
     let ``quantumArithmetic builder validates operands smaller than modulus`` () =
@@ -87,9 +77,7 @@ module QuantumArithmeticBuilderTests =
             qubits 8
         }
         
-        match result with
-        | Error err -> Assert.Contains("smaller than modulus", err.Message)
-        | Ok _ -> Assert.True(false, "Should have rejected operands >= modulus")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected operands >= modulus")) |> Result.defaultWith (fun err -> Assert.Contains("smaller than modulus", err.Message))
     
     [<Fact>]
     let ``quantumArithmetic builder accepts valid operation with explicit values`` () =
@@ -201,8 +189,7 @@ module QuantumArithmeticBuilderTests =
     // ARITHMETIC CORRECTNESS TESTS (original 8-qubit — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``add operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -219,8 +206,7 @@ module QuantumArithmeticBuilderTests =
             Assert.False(res.IsModular)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``multiply operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -236,8 +222,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(OperationType.Multiply, res.OperationType)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular add operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -254,8 +239,7 @@ module QuantumArithmeticBuilderTests =
             Assert.True(res.IsModular)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular multiply operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -272,8 +256,7 @@ module QuantumArithmeticBuilderTests =
             Assert.True(res.IsModular)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 3-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular exponentiate operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -346,8 +329,7 @@ module QuantumArithmeticBuilderTests =
     // CONVENIENCE HELPER TESTS (original 8-qubit — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``add convenience helper works correctly`` () =
         let result =
             add 25 30 8
@@ -359,8 +341,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(OperationType.Add, res.OperationType)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modularAdd convenience helper works correctly`` () =
         let result =
             modularAdd 15 20 25 8
@@ -372,8 +353,7 @@ module QuantumArithmeticBuilderTests =
             Assert.True(res.IsModular)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modularMultiply convenience helper works correctly`` () =
         let result =
             modularMultiply 6 8 13 8
@@ -385,8 +365,7 @@ module QuantumArithmeticBuilderTests =
             Assert.True(res.IsModular)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 3-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modularExponentiate convenience helper works correctly`` () =
         let result =
             modularExponentiate 2 5 11 7  // n=7 → totalQubits=19 (within 20-qubit limit)
@@ -461,8 +440,7 @@ module QuantumArithmeticBuilderTests =
     // CRYPTOGRAPHY-RELEVANT TESTS (original 7-8 qubit — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 3-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 3-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular exponentiation for RSA encryption`` () =
         // RSA Toy Example: Encrypt message m=7 with public key (e=5, n=33)
         // where n = p*q = 11*3, and e=5 is coprime to φ(n)=(11-1)*(3-1)=20
@@ -483,8 +461,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(OperationType.ModularExponentiate, res.OperationType)
         | Error err -> Assert.True(false, $"RSA encryption failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular exponentiation for Shors algorithm period finding`` () =
         // Shor's Algorithm: Find period of a^x mod N
         // Example: a=2, N=15 (composite number to factor)
@@ -504,8 +481,7 @@ module QuantumArithmeticBuilderTests =
             Assert.True(res.IsModular)
         | Error err -> Assert.True(false, $"Shor's algorithm test failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular multiplication for discrete logarithm problem`` () =
         // Discrete Log Example: Compute g^a * g^b mod p
         // Using additive property: g^a * g^b = g^(a+b) mod p
@@ -539,9 +515,7 @@ module QuantumArithmeticBuilderTests =
             }
             |> Result.bind execute
 
-        match result with
-        | Ok res -> Assert.Equal(5, res.Value)
-        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
+        result |> Result.map (fun res -> Assert.Equal(5, res.Value)) |> Result.defaultWith (fun err -> Assert.True(false, $"Operation failed: {err.Message}"))
 
     [<Fact>]
     let ``handles identity operations (fast)`` () =
@@ -586,8 +560,7 @@ module QuantumArithmeticBuilderTests =
     // EDGE CASES AND BOUNDARY TESTS (original 8-qubit — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``handles zero operands correctly`` () =
         let result =
             quantumArithmetic {
@@ -597,12 +570,9 @@ module QuantumArithmeticBuilderTests =
             }
             |> Result.bind execute
 
-        match result with
-        | Ok res -> Assert.Equal(5, res.Value)
-        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
+        result |> Result.map (fun res -> Assert.Equal(5, res.Value)) |> Result.defaultWith (fun err -> Assert.True(false, $"Operation failed: {err.Message}"))
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``handles identity operations`` () =
         let addZeroResult =
             quantumArithmetic {
@@ -626,8 +596,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(42, mul.Value)
         | _ -> Assert.True(false, "Operations failed")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular operation with result equal to modulus`` () =
         let result =
             quantumArithmetic {
@@ -687,8 +656,7 @@ module QuantumArithmeticBuilderTests =
     // RESULT METADATA TESTS (original 8-qubit — skipped for speed)
     // ========================================================================
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``result includes correct metadata`` () =
         let result =
             quantumArithmetic {
@@ -708,8 +676,7 @@ module QuantumArithmeticBuilderTests =
             Assert.False(res.IsModular)
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
-    [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
-    [<Trait("Category", "ExtraSlow")>]
+    [<Fact(Skip = "Long-running: use 4-qubit equivalent above"); Trait("Category", "ExtraSlow")>]
     let ``modular operation metadata includes modular flag`` () =
         let result =
             quantumArithmetic {

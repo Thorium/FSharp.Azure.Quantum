@@ -88,11 +88,11 @@ module IonQBackend =
             writer.WriteNumber("control", control)
             writer.WriteNumber("target", target)
         
-        | Measure(targets) ->
+        | Measure targets ->
             writer.WriteString("gate", "measure")
-            writer.WriteStartArray("target")
+            writer.WriteStartArray "target"
             for t in targets do
-                writer.WriteNumberValue(t)
+                writer.WriteNumberValue t
             writer.WriteEndArray()
         
         writer.WriteEndObject()
@@ -123,12 +123,12 @@ module IonQBackend =
         writer.WriteNumber("qubits", circuit.Qubits)
         
         // Serialize circuit array
-        writer.WriteStartArray("circuit")
+        writer.WriteStartArray "circuit"
         for gate in circuit.Circuit do
             // Parse each gate's JSON and write to array
             let gateJson = serializeGate gate
             use gateDoc = JsonDocument.Parse(gateJson)
-            gateDoc.RootElement.WriteTo(writer)
+            gateDoc.RootElement.WriteTo writer
         writer.WriteEndArray()
         
         writer.WriteEndObject()
@@ -187,7 +187,7 @@ module IonQBackend =
         {
             JobId = jobId
             Target = target
-            Name = Some (sprintf "IonQ-%s" target)
+            Name = Some ($"IonQ-%s{target}")
             InputData = circuitJson :> obj
             InputDataFormat = CircuitFormat.IonQ_V1
             InputParams = Map [ ("shots", shots :> obj) ]
@@ -243,7 +243,7 @@ module IonQBackend =
                     Error $"Histogram key '{key}' is neither a bitstring nor a decimal state index"
         try
             use jsonDoc = JsonDocument.Parse(jsonResult)
-            match jsonDoc.RootElement.TryGetProperty("histogram") with
+            match jsonDoc.RootElement.TryGetProperty "histogram" with
             | false, _ ->
                 Error "IonQ result JSON is missing the 'histogram' property"
             | true, histogram when histogram.ValueKind <> JsonValueKind.Object ->
@@ -315,7 +315,7 @@ module IonQBackend =
         
         | "TooManyQubits" ->
             // TooManyQubits is a circuit validation error
-            QuantumError.ValidationError("circuit", sprintf "Circuit too large: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Circuit too large: %s{errorMessage}")
         
         | "QuotaExceeded" ->
             QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
@@ -326,7 +326,7 @@ module IonQBackend =
         
         | _ ->
             // Unknown IonQ error
-            QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "IonQ error: %s - %s" errorCode errorMessage))
+            QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"IonQ error: %s{errorCode} - %s{errorMessage}"))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS
@@ -365,14 +365,12 @@ module IonQBackend =
             let submission = createJobSubmission circuit shots target
             
             // Step 2: Submit job
-            let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
-            match submitResult with
+            match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
-                match pollResult with
+                match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
                 | Error err -> return Error err
                 | Ok (job: QuantumJob) ->
                     // Check job status
@@ -383,8 +381,7 @@ module IonQBackend =
                         | None ->
                             return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
                         | Some uri ->
-                            let! resultData = JobLifecycle.getJobResultAsync httpClient uri
-                            match resultData with
+                            match! JobLifecycle.getJobResultAsync httpClient uri with
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 // Step 5: Parse histogram from OutputData
@@ -392,7 +389,7 @@ module IonQBackend =
                                 | :? string as resultJson ->
                                     match parseIonQResult circuit.Qubits shots resultJson with
                                     | Ok histogram -> return Ok histogram
-                                    | Error msg -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" msg)))
+                                    | Error msg -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
                                 | other ->
                                     return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                     
@@ -403,8 +400,8 @@ module IonQBackend =
                     | JobStatus.Cancelled ->
                         return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
                     
-                    | _ ->
-                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status)))
+                    | JobStatus.Waiting | JobStatus.Executing ->
+                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
         }
     
     /// Submit IonQ circuit with pre-flight validation

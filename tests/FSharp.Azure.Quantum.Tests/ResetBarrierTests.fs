@@ -362,10 +362,7 @@ module ResetBarrierTests =
     let ``import parses multiple reset instructions`` () =
         let qasm = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[3];\nreset q[0];\nreset q[1];\nreset q[2];"
         let result = OpenQasmImport.parse qasm
-        match result with
-        | Ok circuit ->
-            Assert.Equal<Gate list>([Reset 0; Reset 1; Reset 2], getGates circuit)
-        | Error msg -> Assert.Fail(msg)
+        result |> Result.map (fun circuit -> Assert.Equal<Gate list>([Reset 0; Reset 1; Reset 2], getGates circuit)) |> Result.defaultWith (fun msg -> Assert.Fail(msg))
 
     [<Fact>]
     let ``import rejects reset before qubit declaration`` () =
@@ -395,28 +392,19 @@ module ResetBarrierTests =
     let ``import parses barrier with single qubit`` () =
         let qasm = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[2];\nbarrier q[1];"
         let result = OpenQasmImport.parse qasm
-        match result with
-        | Ok circuit ->
-            Assert.Equal<Gate list>([Barrier [1]], circuit.Gates)
-        | Error msg -> Assert.Fail(msg)
+        result |> Result.map (fun circuit -> Assert.Equal<Gate list>([Barrier [1]], circuit.Gates)) |> Result.defaultWith (fun msg -> Assert.Fail(msg))
 
     [<Fact>]
     let ``import parses barrier V3_0`` () =
         let qasm = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[3] q;\nbarrier q[0],q[2];"
         let result = OpenQasmImport.parse qasm
-        match result with
-        | Ok circuit ->
-            Assert.Equal<Gate list>([Barrier [0; 2]], circuit.Gates)
-        | Error msg -> Assert.Fail(msg)
+        result |> Result.map (fun circuit -> Assert.Equal<Gate list>([Barrier [0; 2]], circuit.Gates)) |> Result.defaultWith (fun msg -> Assert.Fail(msg))
 
     [<Fact>]
     let ``import parses barrier with spaces around brackets`` () =
         let qasm = "OPENQASM 2.0;\ninclude \"qelib1.inc\";\nqreg q[3];\nbarrier q[ 0 ], q[ 1 ];"
         let result = OpenQasmImport.parse qasm
-        match result with
-        | Ok circuit ->
-            Assert.Equal<Gate list>([Barrier [0; 1]], circuit.Gates)
-        | Error msg -> Assert.Fail(msg)
+        result |> Result.map (fun circuit -> Assert.Equal<Gate list>([Barrier [0; 1]], circuit.Gates)) |> Result.defaultWith (fun msg -> Assert.Fail(msg))
 
     [<Fact>]
     let ``import rejects barrier before qubit declaration`` () =

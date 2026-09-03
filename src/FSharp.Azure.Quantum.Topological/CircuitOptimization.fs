@@ -42,10 +42,10 @@ module CircuitOptimization =
     let commutes (g1: BasicGate) (g2: BasicGate) : bool =
         match g1, g2 with
         // Z-axis gates all commute with each other
-        | T, T | T, TDagger | T, S | T, SDagger | T, Z -> true
-        | TDagger, T | TDagger, TDagger | TDagger, S | TDagger, SDagger | TDagger, Z -> true
-        | S, T | S, TDagger | S, S | S, SDagger | S, Z -> true
-        | SDagger, T | SDagger, TDagger | SDagger, S | SDagger, SDagger | SDagger, Z -> true
+        | T, T | T, TDagger | T, S | T, SDagger | T, Z
+        | TDagger, T | TDagger, TDagger | TDagger, S | TDagger, SDagger | TDagger, Z
+        | S, T | S, TDagger | S, S | S, SDagger | S, Z
+        | SDagger, T | SDagger, TDagger | SDagger, S | SDagger, SDagger | SDagger, Z
         | Z, T | Z, TDagger | Z, S | Z, SDagger | Z, Z -> true
         
         // Identity commutes with everything
@@ -128,6 +128,7 @@ module CircuitOptimization =
             (g :: optimized, changed)
     
     /// Repeatedly apply commutation until no more changes
+    [<TailCall>]
     let rec commuteCliffordsUntilStable (gates: GateSequence) : GateSequence =
         let (optimized, changed) = commuteCliffordsLeft gates
         if changed then
@@ -180,6 +181,7 @@ module CircuitOptimization =
             (g :: optimized, changed)
     
     /// Apply template matching repeatedly until stable
+    [<TailCall>]
     let rec templateMatchUntilStable (gates: GateSequence) : GateSequence =
         let (optimized, changed) = templateMatch gates
         if changed then

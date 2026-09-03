@@ -11,9 +11,7 @@ module BraidingConsistencyTests =
     
     /// Helper to verify consistency or fail with meaningful message
     let private verifyConsistencyOrFail anyonType =
-        match BraidingConsistency.verifyConsistency anyonType with
-        | Ok summary -> summary
-        | Error err -> failwith $"Failed to verify consistency for {anyonType}: {err.Message}"
+        (BraidingConsistency.verifyConsistency anyonType) |> Result.defaultWith (fun err -> failwith $"Failed to verify consistency for {anyonType}: {err.Message}")
     
     /// Helper to assert all checks passed
     let private assertAllChecksPassed (summary: BraidingConsistency.ConsistencySummary) =
@@ -57,7 +55,7 @@ module BraidingConsistencyTests =
         // Count how many hexagon checks actually have valid fusion paths
         let nonTrivialChecks = 
             summary.HexagonChecks 
-            |> List.filter (fun c -> not (c.Details.Contains("No valid")))
+            |> List.filter (fun c -> not (c.Details.Contains "No valid"))
         
         Assert.NotEmpty(nonTrivialChecks)
         
@@ -137,7 +135,7 @@ module BraidingConsistencyTests =
         
         let nonTrivialChecks = 
             summary.HexagonChecks 
-            |> List.filter (fun c -> not (c.Details.Contains("No valid")))
+            |> List.filter (fun c -> not (c.Details.Contains "No valid"))
         
         Assert.NotEmpty(nonTrivialChecks)
         
@@ -264,7 +262,7 @@ module BraidingConsistencyTests =
         
         let trivialChecks = 
             summary.HexagonChecks 
-            |> List.filter (fun c -> c.Details.Contains("No valid"))
+            |> List.filter (fun c -> c.Details.Contains "No valid")
         
         // All trivial checks should be marked as satisfied
         trivialChecks
@@ -281,7 +279,7 @@ module BraidingConsistencyTests =
         
         let nonTrivialChecks = 
             summary.HexagonChecks 
-            |> List.filter (fun c -> not (c.Details.Contains("No valid")))
+            |> List.filter (fun c -> not (c.Details.Contains "No valid"))
         
         // All checks should have non-negative deviation
         nonTrivialChecks
@@ -337,8 +335,8 @@ module BraidingConsistencyTests =
         let display = BraidingConsistency.displayConsistencySummary summary
         
         // Display should not include every "No valid fusion paths" case
-        let lines = display.Split('\n')
-        let noValidLines = lines |> Array.filter (fun l -> l.Contains("No valid"))
+        let lines = display.Split '\n'
+        let noValidLines = lines |> Array.filter (fun l -> l.Contains "No valid")
         
         // Should have fewer "No valid" lines in display than in full check list
         Assert.True(noValidLines.Length < summary.HexagonChecks.Length)

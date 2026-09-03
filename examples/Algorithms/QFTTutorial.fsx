@@ -497,8 +497,8 @@ if shouldRun "complexity" then
 
     for n in [4; 8; 16; 20; 30] do
         let N = 1L <<< n
-        let dft = if n <= 16 then (N * N).ToString("N0") else sprintf "~10^%d" (2 * n / 3)
-        let fft = if n <= 30 then (N * int64 n).ToString("N0") else sprintf "~10^%d" (n / 3)
+        let dft = if n <= 16 then (N * N).ToString "N0" else sprintf "~10^%d" (2 * n / 3)
+        let fft = if n <= 30 then (N * int64 n).ToString "N0" else sprintf "~10^%d" (n / 3)
         let qft = estimateGateCount n true
         let nStr = if n <= 20 then N.ToString("N0") else sprintf "~10^%d" (n / 3)
         if not quiet then

@@ -74,11 +74,7 @@ let ``parseHeader extracts NORB and NELEC from H2`` () =
 [<Fact>]
 let ``parseHeader extracts MS2 correctly`` () =
     let result = parseHeader h2FciDump
-    match result with
-    | Ok header ->
-        Assert.Equal(Some 0, header.MS2)
-    | Error e -> 
-        Assert.True(false, $"Parse failed: {e}")
+    result |> Result.map (fun header -> Assert.Equal(Some 0, header.MS2)) |> Result.defaultWith (fun e -> Assert.True(false, $"Parse failed: {e}"))
 
 [<Fact>]
 let ``parseHeader handles water FCIDump`` () =
@@ -126,11 +122,7 @@ let ``parseHeader handles missing MS2`` () =
 [<Fact>]
 let ``parseHeader extracts NIRREP when present`` () =
     let result = parseHeader withNirrepFciDump
-    match result with
-    | Ok header ->
-        Assert.Equal(Some 4, header.NumIrrep)
-    | Error e -> 
-        Assert.True(false, $"Parse failed: {e}")
+    result |> Result.map (fun header -> Assert.Equal(Some 4, header.NumIrrep)) |> Result.defaultWith (fun e -> Assert.True(false, $"Parse failed: {e}"))
 
 [<Fact>]
 let ``parseHeader extracts ORBSYM array`` () =
@@ -152,9 +144,7 @@ This is not a valid FCIDump file
 It has no &FCI header line
 """
     let result = parseHeader badContent
-    match result with
-    | Ok _ -> Assert.True(false, "Should have failed")
-    | Error msg -> Assert.Contains("header", msg.ToLower())
+    result |> Result.map (fun _ -> Assert.True(false, "Should have failed")) |> Result.defaultWith (fun msg -> Assert.Contains("header", msg.ToLower()))
 
 [<Fact>]
 let ``parseHeader fails on missing NORB`` () =
@@ -162,9 +152,7 @@ let ``parseHeader fails on missing NORB`` () =
 /
 """
     let result = parseHeader badContent
-    match result with
-    | Ok _ -> Assert.True(false, "Should have failed")
-    | Error msg -> Assert.Contains("NORB", msg)
+    result |> Result.map (fun _ -> Assert.True(false, "Should have failed")) |> Result.defaultWith (fun msg -> Assert.Contains("NORB", msg))
 
 [<Fact>]
 let ``parseHeader fails on missing NELEC`` () =
@@ -172,9 +160,7 @@ let ``parseHeader fails on missing NELEC`` () =
 /
 """
     let result = parseHeader badContent
-    match result with
-    | Ok _ -> Assert.True(false, "Should have failed")
-    | Error msg -> Assert.Contains("NELEC", msg)
+    result |> Result.map (fun _ -> Assert.True(false, "Should have failed")) |> Result.defaultWith (fun msg -> Assert.Contains("NELEC", msg))
 
 // =============================================================================
 // CONVERSION TESTS

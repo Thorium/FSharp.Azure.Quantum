@@ -25,7 +25,7 @@ module BackendAbstractionTests =
                 Assert.True(true, "State initialized successfully")
             | _ -> Assert.True(false, "Expected StateVector representation")
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
 
     [<Fact>]
     let ``LocalBackend should execute simple circuit`` () =
@@ -40,7 +40,7 @@ module BackendAbstractionTests =
                 Assert.True(true, "Circuit executed successfully")
             | _ -> Assert.True(false, "Expected StateVector")
         | Error err ->
-            Assert.True(false, sprintf "ExecuteToState failed: %A" err)
+            Assert.True(false, $"ExecuteToState failed: %A{err}")
 
     type private XViaStateVectorExtension() =
         interface IApplyToStateVectorExtension with
@@ -106,13 +106,9 @@ module BackendAbstractionTests =
         match backend.InitializeState 2 with
         | Ok initialState ->
             let hGate = QuantumOperation.Gate (CircuitBuilder.H 0)
-            match backend.ApplyOperation hGate initialState with
-            | Ok _finalState ->
-                Assert.True(true, "Gate operation applied successfully")
-            | Error err ->
-                Assert.True(false, sprintf "ApplyOperation failed: %A" err)
+            (backend.ApplyOperation hGate initialState) |> Result.map (fun _finalState -> Assert.True(true, "Gate operation applied successfully")) |> Result.defaultWith (fun err -> Assert.True(false, $"ApplyOperation failed: %A{err}"))
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
 
     [<Fact>]
     let ``LocalBackend should apply StateVector extension using fast-path`` () =
@@ -120,13 +116,13 @@ module BackendAbstractionTests =
         
         match backend.InitializeState 1 with
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
         | Ok initialState ->
             let ext = XViaStateVectorExtension() :> IQuantumOperationExtension
             let op = QuantumOperation.Extension ext
             match backend.ApplyOperation op initialState with
             | Error err ->
-                Assert.True(false, sprintf "ApplyOperation (extension) failed: %A" err)
+                Assert.True(false, $"ApplyOperation (extension) failed: %A{err}")
             | Ok (QuantumState.StateVector sv) ->
                 // Starting from |0⟩, applying X yields |1⟩
                 Assert.Equal(0.0, (StateVector.getAmplitude 0 sv).Real, 10)
@@ -140,13 +136,13 @@ module BackendAbstractionTests =
         
         match backend.InitializeState 1 with
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
         | Ok initialState ->
             let ext = XViaLoweringExtension() :> IQuantumOperationExtension
             let op = QuantumOperation.Extension ext
             match backend.ApplyOperation op initialState with
             | Error err ->
-                Assert.True(false, sprintf "ApplyOperation (extension) failed: %A" err)
+                Assert.True(false, $"ApplyOperation (extension) failed: %A{err}")
             | Ok (QuantumState.StateVector sv) ->
                 // Starting from |0⟩, applying X yields |1⟩
                 Assert.Equal(0.0, (StateVector.getAmplitude 0 sv).Real, 10)
@@ -174,7 +170,7 @@ module BackendAbstractionTests =
                 Assert.True(true, "Bell state circuit executed")
             | _ -> Assert.True(false, "Expected StateVector")
         | Error err ->
-            Assert.True(false, sprintf "Circuit execution failed: %A" err)
+            Assert.True(false, $"Circuit execution failed: %A{err}")
 
     [<Fact>]
     let ``LocalBackend should handle empty circuit`` () =
@@ -189,7 +185,7 @@ module BackendAbstractionTests =
                 Assert.True(true, "Empty circuit returns |000⟩")
             | _ -> Assert.True(false, "Expected StateVector")
         | Error err ->
-            Assert.True(false, sprintf "Empty circuit failed: %A" err)
+            Assert.True(false, $"Empty circuit failed: %A{err}")
 
     [<Fact>]
     let ``LocalBackend should support QPE intent operation`` () =
@@ -233,11 +229,11 @@ module BackendAbstractionTests =
 
         match backend.InitializeState 4 with
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
         | Ok initialState ->
             match backend.ApplyOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)) initialState with
             | Error err ->
-                Assert.True(false, sprintf "ApplyOperation (QPE intent) failed: %A" err)
+                Assert.True(false, $"ApplyOperation (QPE intent) failed: %A{err}")
             | Ok (QuantumState.StateVector _) ->
                 Assert.True(true)
             | Ok _ ->

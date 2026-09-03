@@ -60,7 +60,7 @@ module IonQBackendTests =
         
         // Assert
         match gate with
-        | IonQGate.Measure(targets) ->
+        | IonQGate.Measure targets ->
             Assert.Equal(3, targets.Length)
             Assert.Equal<int seq>([| 0; 1; 2 |], targets)
         | _ -> Assert.True(false, "Expected Measure gate")
@@ -270,7 +270,7 @@ module IonQBackendTests =
         Assert.Equal(2, inputDoc.RootElement.GetProperty("qubits").GetInt32())
         
         // Verify input params contain shots
-        Assert.True(submission.InputParams.ContainsKey("shots"))
+        Assert.True(submission.InputParams.ContainsKey "shots")
         Assert.Equal(shots, submission.InputParams.["shots"] :?> int)
     
     [<Fact>]
@@ -317,9 +317,7 @@ module IonQBackendTests =
         
         // Act
         let result =
-            match parseIonQResult 2 1000 ionqResultJson with
-            | Ok histogram -> histogram
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseIonQResult 2 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(4, result.Count)
@@ -339,9 +337,7 @@ module IonQBackendTests =
         
         // Act
         let result =
-            match parseIonQResult 3 1000 ionqResultJson with
-            | Ok histogram -> histogram
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseIonQResult 3 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(1, result.Count)
@@ -361,9 +357,7 @@ module IonQBackendTests =
         
         // Act
         let result =
-            match parseIonQResult 2 1000 ionqResultJson with
-            | Ok histogram -> histogram
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseIonQResult 2 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(4, result.Count)
@@ -382,9 +376,7 @@ module IonQBackendTests =
 
         // Act
         let result =
-            match parseIonQResult 2 1000 ionqResultJson with
-            | Ok histogram -> histogram
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseIonQResult 2 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert - decimal indices become bitstrings, probabilities become counts (round(p * shots))
         Assert.Equal(2, result.Count)
@@ -402,9 +394,7 @@ module IonQBackendTests =
 
         // Act
         let result =
-            match parseIonQResult 2 500 ionqResultJson with
-            | Ok histogram -> histogram
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseIonQResult 2 500 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(1, result.Count)

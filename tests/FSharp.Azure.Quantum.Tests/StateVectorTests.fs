@@ -131,7 +131,7 @@ module StateVectorTests =
     [<Fact>]
     let ``Create custom state vector - should create with provided amplitudes`` () =
         // Create equal superposition: (|0⟩ + |1⟩)/√2
-        let sqrtHalf = 1.0 / sqrt(2.0)
+        let sqrtHalf = 1.0 / sqrt 2.0
         let superposition = StateVector.create [| Complex(sqrtHalf, 0.0); Complex(sqrtHalf, 0.0) |]
         
         Assert.Equal(2, StateVector.dimension superposition)
@@ -147,7 +147,7 @@ module StateVectorTests =
         Assert.Equal(0.0, StateVector.probability 1 state0, 10)
         
         // Equal superposition: P(|0⟩) = P(|1⟩) = 0.5
-        let sqrtHalf = 1.0 / sqrt(2.0)
+        let sqrtHalf = 1.0 / sqrt 2.0
         let superposition = StateVector.create [| Complex(sqrtHalf, 0.0); Complex(sqrtHalf, 0.0) |]
         Assert.Equal(0.5, StateVector.probability 0 superposition, 10)
         Assert.Equal(0.5, StateVector.probability 1 superposition, 10)

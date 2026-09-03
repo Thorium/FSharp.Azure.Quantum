@@ -73,11 +73,7 @@ module EntanglementEntropyTests =
         
         // Act & Assert
         for anyonType in anyonTypes do
-            match EntanglementEntropy.topologicalEntropy anyonType with
-            | Ok gamma ->
-                Assert.True(gamma >= 0.0, $"{anyonType} entropy should be non-negative")
-            | Error _ ->
-                ()  // Skip unimplemented types
+            (EntanglementEntropy.topologicalEntropy anyonType) |> Result.iter (fun gamma -> Assert.True(gamma >= 0.0, $"{anyonType} entropy should be non-negative"))  // Skip unimplemented types
     
     // ========================================================================
     // LOG BASE 2 (BITS) TESTS
@@ -265,11 +261,7 @@ module EntanglementEntropyTests =
         let result = EntanglementEntropy.verifyKitaevPreskill anyonType regions
         
         // Assert
-        match result with
-        | Ok isConsistent ->
-            Assert.True(isConsistent, "Kitaev-Preskill should match theoretical value")
-        | Error err ->
-            Assert.Fail($"Should succeed, got error: {err.Message}")
+        result |> Result.map (fun isConsistent -> Assert.True(isConsistent, "Kitaev-Preskill should match theoretical value")) |> Result.defaultWith (fun err -> Assert.Fail($"Should succeed, got error: {err.Message}"))
     
     // ========================================================================
     // LEVIN-WEN METHOD
@@ -329,11 +321,7 @@ module EntanglementEntropyTests =
         let result = EntanglementEntropy.groundStateDegeneracy anyonType genus
         
         // Assert
-        match result with
-        | Ok gsd ->
-            Assert.Equal(1, gsd)
-        | Error err ->
-            Assert.Fail($"Should succeed, got error: {err.Message}")
+        result |> Result.map (fun gsd -> Assert.Equal(1, gsd)) |> Result.defaultWith (fun err -> Assert.Fail($"Should succeed, got error: {err.Message}"))
     
     [<Fact>]
     let ``Torus (g=1) GSD equals number of anyon types`` () =
@@ -560,7 +548,7 @@ module EntanglementEntropyTests =
         
         // 4x4 matrix but dimA=3, dimB=2 → 3*2=6 ≠ 4
         match EntanglementEntropy.partialTraceB rho 3 2 with
-        | Error (TopologicalError.ValidationError (_, _)) -> ()
+        | Error (TopologicalError.ValidationError _) -> ()
         | _ -> Assert.Fail("Expected validation error for mismatched dimensions")
     
     [<Fact>]
@@ -624,9 +612,7 @@ module EntanglementEntropyTests =
     [<Fact>]
     let ``eigenvaluesHermitian of empty matrix returns empty`` () =
         let matrix = Array2D.create 0 0 System.Numerics.Complex.Zero
-        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
-        | Ok eigenvals -> Assert.Empty(eigenvals)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12) |> Result.map (fun eigenvals -> Assert.Empty(eigenvals)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
     [<Fact>]
     let ``eigenvaluesHermitian of maximally mixed 2x2 returns equal eigenvalues`` () =
@@ -683,9 +669,7 @@ module EntanglementEntropyTests =
             | 0, 1 -> System.Numerics.Complex(0.0, -0.5)
             | _ -> System.Numerics.Complex(0.0, 0.5))
 
-        match EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho with
-        | Ok result -> Assert.Equal(0.0, result.Entropy, 6)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 6)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     [<Fact>]
     let ``entanglementEntropy of complex-phase product state is zero`` () =
@@ -699,9 +683,7 @@ module EntanglementEntropyTests =
             System.Numerics.Complex(0.0, s)
             System.Numerics.Complex.Zero
         ]
-        match EntanglementEntropy.entanglementEntropy amps 2 2 with
-        | Ok result -> Assert.Equal(0.0, result.Entropy, 6)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (EntanglementEntropy.entanglementEntropy amps 2 2) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 6)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
     // ========================================================================
     // VON NEUMANN ENTROPY FROM DENSITY MATRIX
@@ -713,10 +695,7 @@ module EntanglementEntropyTests =
         let rho = Array2D.init 2 2 (fun i j ->
             if i = 0 && j = 0 then System.Numerics.Complex.One else System.Numerics.Complex.Zero)
         
-        match EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho with
-        | Ok result ->
-            Assert.Equal(0.0, result.Entropy, 8)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 8)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
     [<Fact>]
     let ``vonNeumannEntropyFromDensityMatrix of maximally mixed state returns log(2)`` () =
@@ -743,10 +722,7 @@ module EntanglementEntropyTests =
             System.Numerics.Complex.Zero
             System.Numerics.Complex.Zero
         ]
-        match EntanglementEntropy.entanglementEntropy amps 2 2 with
-        | Ok result ->
-            Assert.Equal(0.0, result.Entropy, 6)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (EntanglementEntropy.entanglementEntropy amps 2 2) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 6)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
     [<Fact>]
     let ``entanglementEntropy of Bell state is log(2)`` () =
@@ -774,7 +750,7 @@ module EntanglementEntropyTests =
             System.Numerics.Complex.Zero
         ]
         match EntanglementEntropy.entanglementEntropy amps 3 2 with
-        | Error (TopologicalError.ValidationError (_, _)) -> ()
+        | Error (TopologicalError.ValidationError _) -> ()
         | _ -> Assert.Fail("Expected validation error for mismatched dimensions")
     
     [<Fact>]

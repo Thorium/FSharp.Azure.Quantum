@@ -116,9 +116,7 @@ module FusionRulesTests =
         let outcomes = FusionRules.fuse AnyonSpecies.Particle.Tau AnyonSpecies.Particle.Tau AnyonSpecies.AnyonType.Fibonacci
         assertFusionEquals [AnyonSpecies.Particle.Vacuum; AnyonSpecies.Particle.Tau] outcomes
         assertMultiplicityOne outcomes
-        match outcomes with
-        | Ok list -> Assert.Equal(2, list.Length)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+        outcomes |> Result.map (fun list -> Assert.Equal(2, list.Length)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
     
     // ============================================================================
     // FUSION MULTIPLICITY TESTS
@@ -126,28 +124,20 @@ module FusionRulesTests =
     
     [<Fact>]
     let ``Fusion multiplicity: Ising Sigma × Sigma → Vacuum is 1`` () =
-        match FusionRules.multiplicity AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Vacuum AnyonSpecies.AnyonType.Ising with
-        | Ok n -> Assert.Equal(1, n)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+        (FusionRules.multiplicity AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Vacuum AnyonSpecies.AnyonType.Ising) |> Result.map (fun n -> Assert.Equal(1, n)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
     
     [<Fact>]
     let ``Fusion multiplicity: Ising Sigma × Sigma → Psi is 1`` () =
-        match FusionRules.multiplicity AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Psi AnyonSpecies.AnyonType.Ising with
-        | Ok n -> Assert.Equal(1, n)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+        (FusionRules.multiplicity AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Psi AnyonSpecies.AnyonType.Ising) |> Result.map (fun n -> Assert.Equal(1, n)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
     
     [<Fact>]
     let ``Fusion multiplicity: Ising Sigma × Sigma → Sigma is 0`` () =
         // σ × σ does NOT contain σ in its fusion
-        match FusionRules.multiplicity AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.AnyonType.Ising with
-        | Ok n -> Assert.Equal(0, n)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+        (FusionRules.multiplicity AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.AnyonType.Ising) |> Result.map (fun n -> Assert.Equal(0, n)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
     
     [<Fact>]
     let ``Fusion multiplicity: Fibonacci Tau × Tau → Tau is 1`` () =
-        match FusionRules.multiplicity AnyonSpecies.Particle.Tau AnyonSpecies.Particle.Tau AnyonSpecies.Particle.Tau AnyonSpecies.AnyonType.Fibonacci with
-        | Ok n -> Assert.Equal(1, n)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+        (FusionRules.multiplicity AnyonSpecies.Particle.Tau AnyonSpecies.Particle.Tau AnyonSpecies.Particle.Tau AnyonSpecies.AnyonType.Fibonacci) |> Result.map (fun n -> Assert.Equal(1, n)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
     
     [<Fact>]
     let ``Fusion multiplicity is symmetric: N^c_ab = N^c_ba`` () =
@@ -237,9 +227,7 @@ module FusionRulesTests =
     let ``Identity axiom: 1 × a = a for all Ising particles`` () =
         let particles = [AnyonSpecies.Particle.Vacuum; AnyonSpecies.Particle.Sigma; AnyonSpecies.Particle.Psi]
         particles |> List.iter (fun a ->
-            match FusionRules.channels AnyonSpecies.Particle.Vacuum a AnyonSpecies.AnyonType.Ising with
-            | Ok channels -> Assert.Equal<AnyonSpecies.Particle list>([a], channels)
-            | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+            (FusionRules.channels AnyonSpecies.Particle.Vacuum a AnyonSpecies.AnyonType.Ising) |> Result.map (fun channels -> Assert.Equal<AnyonSpecies.Particle list>([a], channels)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
         )
     
     [<Fact>]

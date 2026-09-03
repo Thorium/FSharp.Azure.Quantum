@@ -135,8 +135,7 @@ module ModelSerialization =
         : Task<QuantumResult<unit>> =
         task {
             try
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
+                let options = JsonSerializerOptions(WriteIndented = true)
 
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
@@ -439,8 +438,7 @@ module ModelSerialization =
                 Note = note
             }
             
-            let options = JsonSerializerOptions()
-            options.WriteIndented <- true
+            let options = JsonSerializerOptions(WriteIndented = true)
             
             let json = JsonSerializer.Serialize(model, options)
             File.WriteAllText(filePath, json)
@@ -485,8 +483,7 @@ module ModelSerialization =
                     Note = note
                 }
                 
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
+                let options = JsonSerializerOptions(WriteIndented = true)
                 
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
@@ -621,15 +618,15 @@ module ModelSerialization =
         loadVQCModel filePath
         |> Result.map (fun model ->
             logInfo logger "=== VQC Model Information ==="
-            logInfo logger (sprintf "File: %s" filePath)
-            logInfo logger (sprintf "Saved at: %s" model.SavedAt)
-            logInfo logger (sprintf "Qubits: %d" model.NumQubits)
-            logInfo logger (sprintf "Parameters: %d" model.Parameters.Length)
-            logInfo logger (sprintf "Final Loss: %.6f" model.FinalLoss)
-            logInfo logger (sprintf "Feature Map: %s (depth=%d)" model.FeatureMapType model.FeatureMapDepth)
-            logInfo logger (sprintf "Variational Form: %s (depth=%d)" model.VariationalFormType model.VariationalFormDepth)
+            logInfo logger ($"File: %s{filePath}")
+            logInfo logger ($"Saved at: %s{model.SavedAt}")
+            logInfo logger ($"Qubits: %d{model.NumQubits}")
+            logInfo logger ($"Parameters: %d{model.Parameters.Length}")
+            logInfo logger ($"Final Loss: %.6f{model.FinalLoss}")
+            logInfo logger ($"Feature Map: %s{model.FeatureMapType} (depth=%d{model.FeatureMapDepth})")
+            logInfo logger ($"Variational Form: %s{model.VariationalFormType} (depth=%d{model.VariationalFormDepth})")
             match model.Note with
-            | Some note -> logInfo logger (sprintf "Note: %s" note)
+            | Some note -> logInfo logger ($"Note: %s{note}")
             | None -> ()
             logInfo logger "============================")
     
@@ -658,8 +655,7 @@ module ModelSerialization =
                 if firstError.IsNone then
                     let (parameters, finalLoss, note) = models.[i]
                     let fileName = $"{baseFileName}_{i + 1}.json"
-                    let! result = saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note cancellationToken
-                    match result with
+                    match! saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note cancellationToken with
                     | Ok () -> results.[i] <- Some fileName
                     | Error e -> firstError <- Some e
             
@@ -710,10 +706,7 @@ module ModelSerialization =
                     // Check for errors
                     let firstError =
                         results
-                        |> Array.tryPick (fun result ->
-                            match result with
-                            | Error e -> Some e
-                            | Ok _ -> None)
+                        |> Array.tryPick (Result.map (fun _ -> None) >> Result.defaultWith (fun e -> Some e))
                     
                     match firstError with
                     | Some error -> Error error
@@ -721,9 +714,7 @@ module ModelSerialization =
                         let models =
                             results
                             |> Array.map (fun result ->
-                                match result with
-                                | Ok model -> model
-                                | Error _ -> failwith "Unreachable")
+                                result |> Result.defaultWith (fun _ -> failwith $"Unreachable, calling loadVQCModelBatch with directory: {directory}, pattern: {pattern}"))
                         Ok models
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load batch: {ex.Message}"))
@@ -1018,7 +1009,7 @@ module ModelSerialization =
     }
     
     /// Convert QUBO matrix Map to serializable format
-    let private quboToSerializable (quboMap: Map<(int * int), float>) (numVars: int) : SerializableQuboMatrix =
+    let private quboToSerializable (numVars: int) (quboMap: Map<(int * int), float>) : SerializableQuboMatrix =
         let coefficients =
             quboMap
             |> Map.toList
@@ -1089,7 +1080,7 @@ module ModelSerialization =
                 // Convert QUBO matrix if provided
                 let serializableQubo =
                     quboMatrix
-                    |> Option.map (fun q -> quboToSerializable q numVariables)
+                    |> Option.map (quboToSerializable numVariables)
                 
                 let model = {
                     Allocations = allocations
@@ -1111,8 +1102,7 @@ module ModelSerialization =
                     Note = note
                 }
                 
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
+                let options = JsonSerializerOptions(WriteIndented = true)
                 
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
@@ -1230,26 +1220,26 @@ module ModelSerialization =
         loadPortfolioSolution filePath
         |> Result.map (fun solution ->
             logInfo logger "=== Portfolio Solution Information ==="
-            logInfo logger (sprintf "File: %s" filePath)
-            logInfo logger (sprintf "Saved at: %s" solution.SavedAt)
-            logInfo logger (sprintf "Backend: %s" solution.BackendName)
-            logInfo logger (sprintf "Total Value: $%.2f" solution.TotalValue)
+            logInfo logger ($"File: %s{filePath}")
+            logInfo logger ($"Saved at: %s{solution.SavedAt}")
+            logInfo logger ($"Backend: %s{solution.BackendName}")
+            logInfo logger ($"Total Value: $%.2f{solution.TotalValue}")
             logInfo logger (sprintf "Expected Return: %.2f%%" (solution.ExpectedReturn * 100.0))
             logInfo logger (sprintf "Risk: %.2f%%" (solution.Risk * 100.0))
-            logInfo logger (sprintf "Sharpe Ratio: %.4f" solution.SharpeRatio)
-            logInfo logger (sprintf "QAOA Parameters: gamma=%.4f, beta=%.4f" solution.QaoaGamma solution.QaoaBeta)
-            logInfo logger (sprintf "Risk Aversion: %.2f" solution.RiskAversion)
-            logInfo logger (sprintf "Budget: $%.2f" solution.Budget)
-            logInfo logger (sprintf "Best Energy: %.4f" solution.BestEnergy)
-            logInfo logger (sprintf "Num Shots: %d" solution.NumShots)
-            logInfo logger (sprintf "Elapsed: %.2fms" solution.ElapsedMs)
+            logInfo logger ($"Sharpe Ratio: %.4f{solution.SharpeRatio}")
+            logInfo logger ($"QAOA Parameters: gamma=%.4f{solution.QaoaGamma}, beta=%.4f{solution.QaoaBeta}")
+            logInfo logger ($"Risk Aversion: %.2f{solution.RiskAversion}")
+            logInfo logger ($"Budget: $%.2f{solution.Budget}")
+            logInfo logger ($"Best Energy: %.4f{solution.BestEnergy}")
+            logInfo logger ($"Num Shots: %d{solution.NumShots}")
+            logInfo logger ($"Elapsed: %.2f{solution.ElapsedMs}ms")
             logInfo logger ""
-            logInfo logger (sprintf "Allocations (%d assets):" solution.Allocations.Length)
+            logInfo logger ($"Allocations (%d{solution.Allocations.Length} assets):")
             solution.Allocations
             |> List.iter (fun alloc ->
                 logInfo logger (sprintf "  %s: %.2f shares @ $%.2f = $%.2f (%.1f%%)" 
                     alloc.Symbol alloc.Shares alloc.Price alloc.Value (alloc.Percentage * 100.0)))
             match solution.Note with
-            | Some note -> logInfo logger (sprintf "Note: %s" note)
+            | Some note -> logInfo logger ($"Note: %s{note}")
             | None -> ()
             logInfo logger "======================================")

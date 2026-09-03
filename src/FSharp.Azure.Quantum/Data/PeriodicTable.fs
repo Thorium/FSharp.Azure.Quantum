@@ -59,7 +59,7 @@ module PeriodicTable =
     
     /// Parse an element from a CSV line
     let private parseElement (line: string) : Element option =
-        let fields = line.Split(',')
+        let fields = line.Split ','
         if fields.Length >= 8 then
             try
                 Some {

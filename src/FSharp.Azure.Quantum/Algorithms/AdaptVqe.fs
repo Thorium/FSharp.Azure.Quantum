@@ -194,9 +194,7 @@ module AdaptVqe =
                                 let newOps = ops @ [ bestOp ]
                                 let init = Array.append parameters [| 0.0 |]
                                 let objective (p: float[]) =
-                                    match stateEnergy backend hamiltonian numQubits newOps p with
-                                    | Ok e -> e
-                                    | Error _ -> System.Double.MaxValue
+                                    (stateEnergy backend hamiltonian numQubits newOps p) |> Result.defaultWith (fun _ -> System.Double.MaxValue)
                                 let (optParams, optEnergy) = optimize objective init
                                 // Guarantee monotonic progress: if this operator can't improve the
                                 // energy (e.g. the optimizer failed to converge), stop with the best.

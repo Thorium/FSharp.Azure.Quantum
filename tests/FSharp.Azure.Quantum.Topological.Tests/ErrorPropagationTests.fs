@@ -225,35 +225,35 @@ module ErrorPropagationTests =
         let gates = List.replicate 200 H
         let acc = trackErrors gates strictBudget.Model
         let suggestions = suggestOptimizations acc strictBudget
-        Assert.True(suggestions |> List.exists (fun s -> s.Contains("exceeds error budget")))
+        Assert.True(suggestions |> List.exists (fun s -> s.Contains "exceeds error budget"))
 
     [<Fact>]
     let ``suggestOptimizations suggests SK precision when approximate gates present and over budget`` () =
         let gates = List.replicate 200 H
         let acc = trackErrors gates strictBudget.Model
         let suggestions = suggestOptimizations acc strictBudget
-        Assert.True(suggestions |> List.exists (fun s -> s.Contains("Solovay-Kitaev")))
+        Assert.True(suggestions |> List.exists (fun s -> s.Contains "Solovay-Kitaev"))
 
     [<Fact>]
     let ``suggestOptimizations warns about single gate violations`` () =
         // H has error 1e-5, strictBudget maxSingleGate = 1e-8
         let acc = trackErrors [ H ] strictBudget.Model
         let suggestions = suggestOptimizations acc strictBudget
-        Assert.True(suggestions |> List.exists (fun s -> s.Contains("single-gate error budget")))
+        Assert.True(suggestions |> List.exists (fun s -> s.Contains "single-gate error budget"))
 
     [<Fact>]
     let ``suggestOptimizations suggests circuit optimization for many approximate gates`` () =
         let gates = List.replicate 15 H
         let acc = trackErrors gates strictBudget.Model
         let suggestions = suggestOptimizations acc strictBudget
-        Assert.True(suggestions |> List.exists (fun s -> s.Contains("circuit optimization")))
+        Assert.True(suggestions |> List.exists (fun s -> s.Contains "circuit optimization"))
 
     [<Fact>]
     let ``suggestOptimizations provides diamond norm info`` () =
         let diamondBudget = { MaxTotalError = 1.0; MaxSingleGateError = 1.0; Model = DiamondNorm }
         let acc = trackErrors [ T ] diamondBudget.Model
         let suggestions = suggestOptimizations acc diamondBudget
-        Assert.True(suggestions |> List.exists (fun s -> s.Contains("diamond norm")))
+        Assert.True(suggestions |> List.exists (fun s -> s.Contains "diamond norm"))
 
     // ========================================================================
     // DISPLAY UTILITY TESTS

@@ -148,7 +148,7 @@ module GraphColoring =
                     |> List.filter (fun conflictId -> not (nodeIds.Contains conflictId))
                 
                 if not invalidConflicts.IsEmpty then
-                    Error (QuantumError.ValidationError ("Conflicts", sprintf "Invalid conflict references: %A" invalidConflicts))
+                    Error (QuantumError.ValidationError ("Conflicts", $"Invalid conflict references: %A{invalidConflicts}"))
                 else
                     let availableColorSet = Set.ofList problem.AvailableColors
                     let invalidFixedColors =
@@ -157,13 +157,13 @@ module GraphColoring =
                         |> List.filter (fun color -> not (availableColorSet.Contains color))
                     
                     if not invalidFixedColors.IsEmpty then
-                        Error (QuantumError.ValidationError ("FixedColors", sprintf "Fixed colors not in available colors: %A" invalidFixedColors))
+                        Error (QuantumError.ValidationError ("FixedColors", $"Fixed colors not in available colors: %A{invalidFixedColors}"))
                     else
                         match problem.MaxColors with
                         | Some maxColors when maxColors < 1 ->
                             Error (QuantumError.ValidationError ("MaxColors", "MaxColors must be at least 1"))
                         | Some maxColors when maxColors > problem.AvailableColors.Length ->
-                            Error (QuantumError.ValidationError ("MaxColors", sprintf "MaxColors (%d) exceeds available colors (%d)" maxColors problem.AvailableColors.Length))
+                            Error (QuantumError.ValidationError ("MaxColors", $"MaxColors (%d{maxColors}) exceeds available colors (%d{problem.AvailableColors.Length})"))
                         | _ ->
                             Ok ()
     
@@ -234,7 +234,7 @@ module GraphColoring =
         member _.YieldFrom(problem: GraphColoringProblem) : GraphColoringProblem =
             problem
         
-        member this.Zero() : GraphColoringProblem = this.Yield(())
+        member this.Zero() : GraphColoringProblem = this.Yield ()
         
         member _.Combine(first: GraphColoringProblem, second: GraphColoringProblem) : GraphColoringProblem =
             {
@@ -251,9 +251,7 @@ module GraphColoring =
             this.Combine(problem, f())
         
         member this.For(sequence: seq<'T>, body: 'T -> GraphColoringProblem) : GraphColoringProblem =
-            let mutable state = this.Zero()
-            for item in sequence do
-                state <- this.Combine(state, body item)
+            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
             state
         
         member _.Run(problem: GraphColoringProblem) : GraphColoringProblem =
@@ -610,28 +608,26 @@ module GraphColoring =
     /// Calculate chromatic number (minimum colors needed) - approximation
     let approximateChromaticNumber (problem: GraphColoringProblem) : int =
         // Use greedy algorithm as lower bound approximation
-        match solveClassical problem problem.AvailableColors.Length with
-        | Ok solution -> solution.ColorsUsed
-        | Error _ -> problem.AvailableColors.Length
+        (solveClassical problem problem.AvailableColors.Length) |> Result.map (fun solution -> solution.ColorsUsed) |> Result.defaultWith (fun _ -> problem.AvailableColors.Length)
     
     /// Export solution to human-readable string
     let describeSolution (solution: ColoringSolution) : string =
         let sb = System.Text.StringBuilder()
         sb.AppendLine("=== Graph Coloring Solution ===") |> ignore
         sb.AppendLine(sprintf "Status: %s" (if solution.IsValid then "✓ Valid" else "✗ Invalid")) |> ignore
-        sb.AppendLine(sprintf "Colors Used: %d" solution.ColorsUsed) |> ignore
-        sb.AppendLine(sprintf "Conflicts: %d" solution.ConflictCount) |> ignore
-        sb.AppendLine(sprintf "Backend: %s" solution.BackendName) |> ignore
+        sb.AppendLine($"Colors Used: %d{solution.ColorsUsed}") |> ignore
+        sb.AppendLine($"Conflicts: %d{solution.ConflictCount}") |> ignore
+        sb.AppendLine($"Backend: %s{solution.BackendName}") |> ignore
         sb.AppendLine(sprintf "Algorithm: %s" (if solution.IsQuantum then "Quantum QAOA" else "Classical Greedy")) |> ignore
         sb.AppendLine("") |> ignore
         
         sb.AppendLine("Color Distribution:") |> ignore
         for (color, count) in Map.toList solution.ColorDistribution do
-            sb.AppendLine(sprintf "  %s: %d nodes" color count) |> ignore
+            sb.AppendLine($"  %s{color}: %d{count} nodes") |> ignore
         
         sb.AppendLine("") |> ignore
         sb.AppendLine("Assignments:") |> ignore
         for (nodeId, color) in Map.toList solution.Assignments do
-            sb.AppendLine(sprintf "  %s → %s" nodeId color) |> ignore
+            sb.AppendLine($"  %s{nodeId} → %s{color}") |> ignore
         
         sb.ToString()

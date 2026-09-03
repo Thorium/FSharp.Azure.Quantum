@@ -98,39 +98,27 @@ module Result =
     
     /// Apply a function to the value inside Ok, or propagate Error
     let map (f: 'T -> 'U) (result: Result<'T, 'E>) : Result<'U, 'E> =
-        match result with
-        | Ok x -> Ok (f x)
-        | Error e -> Error e
+        result |> Result.map (fun x -> f x)
     
     /// Apply a function to the error inside Error, or propagate Ok
     let mapError (f: 'E -> 'F) (result: Result<'T, 'E>) : Result<'T, 'F> =
-        match result with
-        | Ok x -> Ok x
-        | Error e -> Error (f e)
+        result |> Result.mapError (fun e -> f e)
     
     /// Bind operation (already in F# Core, included for completeness)
     let bind (f: 'T -> Result<'U, 'E>) (result: Result<'T, 'E>) : Result<'U, 'E> =
-        match result with
-        | Ok x -> f x
-        | Error e -> Error e
+        result |> Result.bind (fun x -> f x)
     
     /// Convert Result to Option (discards error information)
     let toOption (result: Result<'T, 'E>) : 'T option =
-        match result with
-        | Ok x -> Some x
-        | Error _ -> None
+        result |> Result.map (fun x -> Some x) |> Result.defaultValue None
     
     /// Get value from Ok or provide default
     let defaultValue (defaultVal: 'T) (result: Result<'T, 'E>) : 'T =
-        match result with
-        | Ok x -> x
-        | Error _ -> defaultVal
+        result |> Result.defaultValue defaultVal
     
     /// Get value from Ok or compute default
     let defaultWith (getDefault: 'E -> 'T) (result: Result<'T, 'E>) : 'T =
-        match result with
-        | Ok x -> x
-        | Error e -> getDefault e
+        result |> Result.defaultWith (fun e -> getDefault e)
     
     /// Unwrap Ok value or throw exception.
     ///
@@ -138,25 +126,17 @@ module Result =
     /// This function exists mainly for tests/quick scripts.
     [<Obsolete("Result.get throws on Error. Prefer matching on Result or using defaultValue/defaultWith.")>]
     let get (result: Result<'T, 'E>) : 'T =
-        match result with
-        | Ok x -> x
-        | Error e ->
-            raise (InvalidOperationException($"Result.get called on Error: {e}"))
+        result |> Result.defaultWith (fun e -> raise (InvalidOperationException($"Result.get called on Error: {e}")))
 
     /// Unwrap Ok value or throw exception.
     ///
     /// Use this only when a thrown exception is acceptable.
     let unsafeGet (result: Result<'T, 'E>) : 'T =
-        match result with
-        | Ok x -> x
-        | Error e ->
-            raise (InvalidOperationException($"Result.unsafeGet called on Error: {e}"))
+        result |> Result.defaultWith (fun e -> raise (InvalidOperationException($"Result.unsafeGet called on Error: {e}")))
     
     /// Check if result is Ok
     let isOk (result: Result<'T, 'E>) : bool =
-        match result with
-        | Ok _ -> true
-        | Error _ -> false
+        result |> Result.isOk
     
     /// Return the result if Ok, otherwise compute an alternative Result
     let orElseWith (getAlternative: 'E -> Result<'T, 'F>) (result: Result<'T, 'E>) : Result<'T, 'F> =
@@ -166,9 +146,7 @@ module Result =
     
     /// Check if result is Error
     let isError (result: Result<'T, 'E>) : bool =
-        match result with
-        | Ok _ -> false
-        | Error _ -> true
+        result |> Result.isError
     
     /// Combine two Results into a tuple if both are Ok
     let zip (r1: Result<'T, 'E>) (r2: Result<'U, 'E>) : Result<'T * 'U, 'E> =
@@ -256,19 +234,19 @@ module QuantumLogger =
 
     /// Log an informational message if a logger is provided.
     let logInfo (logger: ILogger option) (message: string) =
-        logger |> Option.iter (fun l -> l.LogInformation(message))
+        logger |> Option.iter (fun l -> l.LogInformation message)
 
     /// Log a warning message if a logger is provided.
     let logWarning (logger: ILogger option) (message: string) =
-        logger |> Option.iter (fun l -> l.LogWarning(message))
+        logger |> Option.iter (fun l -> l.LogWarning message)
 
     /// Log an error message if a logger is provided.
     let logError (logger: ILogger option) (message: string) =
-        logger |> Option.iter (fun l -> l.LogError(message))
+        logger |> Option.iter (fun l -> l.LogError message)
 
     /// Log a debug message if a logger is provided.
     let logDebug (logger: ILogger option) (message: string) =
-        logger |> Option.iter (fun l -> l.LogDebug(message))
+        logger |> Option.iter (fun l -> l.LogDebug message)
 
 
 /// Idiomatic F# helpers for System.Text.Json.JsonElement property access.

@@ -242,6 +242,7 @@ module QuantumKernelSVM =
             ExamineAll = nextExamineAll }
     
     /// Tail-recursive SMO training loop
+    [<TailCall>]
     let rec private smoLoop
         (kernelMatrix: float[,])
         (y: float array)
@@ -292,8 +293,8 @@ module QuantumKernelSVM =
                 finalState.Alphas 
                 |> Array.filter (fun a -> a > 1e-6) 
                 |> Array.length
-            logInfo config.Logger (sprintf "Training complete after %d iterations" finalState.Iteration)
-            logInfo config.Logger (sprintf "Support vectors: %d / %d" numSupportVectors n)
+            logInfo config.Logger ($"Training complete after %d{finalState.Iteration} iterations")
+            logInfo config.Logger ($"Support vectors: %d{numSupportVectors} / %d{n}")
         
         Ok (finalState.Alphas, finalState.Bias)
     
@@ -383,9 +384,7 @@ module QuantumKernelSVM =
         | _ ->
             results
             |> Array.map (fun r ->
-                match r with
-                | Ok v -> v
-                | Error _ -> failwith "unreachable")
+                r |> Result.defaultWith (fun _ -> failwith $"unreachable, calling traverseResult with results: {results}"))
             |> Ok
     
     /// Predict label for a single sample

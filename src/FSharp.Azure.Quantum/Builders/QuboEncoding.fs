@@ -64,7 +64,7 @@ module VariableEncoding =
             n - 1
         | BoundedInteger(min, max) ->
             if min > max then 
-                invalidArg "min,max" (sprintf "Invalid range: min (%d) cannot be greater than max (%d)" min max)
+                invalidArg "min,max" ($"Invalid range: min (%d{min}) cannot be greater than max (%d{max})")
             let range = max - min + 1
             if range <= 1 then 1
             else int (System.Math.Ceiling(System.Math.Log(float range, 2.0)))
@@ -74,25 +74,25 @@ module VariableEncoding =
         match encoding with
         | Binary ->
             if value <> 0 && value <> 1 then
-                invalidArg "value" (sprintf "Binary encoding requires value 0 or 1, got %d" value)
+                invalidArg "value" ($"Binary encoding requires value 0 or 1, got %d{value}")
             [value]
         
         | OneHot n ->
             if value < 0 || value >= n then
-                invalidArg "value" (sprintf "OneHot encoding requires value in [0, %d), got %d" n value)
+                invalidArg "value" ($"OneHot encoding requires value in [0, %d{n}), got %d{value}")
             // One-hot: Single bit set at position 'value'
             List.init n (fun i -> if i = value then 1 else 0)
         
         | DomainWall levels ->
             if value < 1 || value > levels then
-                invalidArg "value" (sprintf "DomainWall encoding requires value in [1, %d], got %d" levels value)
+                invalidArg "value" ($"DomainWall encoding requires value in [1, %d{levels}], got %d{value}")
             // Domain-wall: Wall of 1s followed by 0s
             let numQubits = levels - 1
             List.init numQubits (fun i -> if i < value - 1 then 1 else 0)
         
         | BoundedInteger(min, max) ->
             if value < min || value > max then
-                invalidArg "value" (sprintf "BoundedInteger encoding requires value in [%d, %d], got %d" min max value)
+                invalidArg "value" ($"BoundedInteger encoding requires value in [%d{min}, %d{max}], got %d{value}")
             // Binary encoding (LSB first)
             let normalizedValue = value - min
             let numQubits = qubitCount encoding
@@ -210,7 +210,7 @@ module QuboEncoding =
             // Use efficient BoundedInteger encoding (logarithmic scaling)
             let encoding = VariableEncoding.BoundedInteger(min, max)
             VariableEncoding.qubitCount encoding
-        | CategoricalVar(categories) -> categories.Length
+        | CategoricalVar categories -> categories.Length
     
     // Helper: Generate qubit names for a variable
     let private qubitNamesFor (varName: string) (varType: VariableType) : string list =
@@ -219,9 +219,9 @@ module QuboEncoding =
         | IntegerVar(min, max) ->
             // Use BoundedInteger encoding - generate qubit names as bit indices
             let numQubits = qubitCountFor varType
-            List.init numQubits (fun i -> sprintf "%s_bit%d" varName i)
-        | CategoricalVar(categories) ->
-            categories |> List.map (fun cat -> sprintf "%s_%s" varName cat)
+            List.init numQubits (fun i -> $"%s{varName}_bit%d{i}")
+        | CategoricalVar categories ->
+            categories |> List.map (fun cat -> $"%s{varName}_%s{cat}")
     
     // Encoding functions
     let encodeVariables (variables: Variable list) : QuboMatrix =
@@ -277,7 +277,7 @@ module QuboEncoding =
                 // (binary representation is naturally bounded)
                 let numBits = qubitCountFor var.VarType
                 offset + numBits
-            | CategoricalVar(categories) ->
+            | CategoricalVar categories ->
                 let numBits = categories.Length
                 applyOneHotPenalty offset numBits
                 offset + numBits
@@ -348,7 +348,7 @@ module QuboEncoding =
                     let assignment = { Name = var.Name; Value = value }
                     (assignment :: accAssignments, offset + numBits)
                 
-                | CategoricalVar(categories) ->
+                | CategoricalVar categories ->
                     let numBits = categories.Length
                     let bits = binarySolution.[offset .. offset + numBits - 1]
                     
@@ -399,7 +399,7 @@ module ConstraintPenalty =
             if onesCount <> 1 then
                 [{
                     EncodingType = "OneHot"
-                    Message = sprintf "OneHot encoding requires exactly 1 active bit, found %d" onesCount
+                    Message = $"OneHot encoding requires exactly 1 active bit, found %d{onesCount}"
                     ExpectedCount = ValueSome 1
                     ActualCount = ValueSome onesCount
                 }]
@@ -418,7 +418,7 @@ module ConstraintPenalty =
             if decodedValue < min || decodedValue > max then
                 [{
                     EncodingType = "BoundedInteger"
-                    Message = sprintf "Value %d is outside bounds [%d, %d]" decodedValue min max
+                    Message = $"Value %d{decodedValue} is outside bounds [%d{min}, %d{max}]"
                     ExpectedCount = ValueNone
                     ActualCount = ValueNone
                 }]
@@ -429,6 +429,7 @@ module ConstraintPenalty =
     /// 
     /// Solver function takes penalty weight and returns a solution.
     /// If solution violates constraints, penalty is increased by 1.5x and solver is retried.
+    [<TailCall>]
     let rec tuneAdaptive 
         (encoding: VariableEncoding) 
         (penalty: float) 
@@ -458,11 +459,9 @@ module ProblemTransformer =
     /// Calculate QUBO matrix size based on encoding strategy and problem size.
     let calculateQuboSize (strategy: EncodingStrategy) (problemSize: int) : int =
         match strategy with
-        | NodeBased ->
-            // Node-based: x[i][t] = "visit city i at time t"
-            // For n cities: n × n variables
-            problemSize * problemSize
-        
+        | NodeBased
+        // Node-based: x[i][t] = "visit city i at time t"
+        // For n cities: n × n variables
         | EdgeBased ->
             // Edge-based: x[i][j] = "travel from city i to city j"
             // For n cities: n × n variables (including self-loops)
@@ -485,7 +484,7 @@ module ProblemTransformer =
     /// - Diagonal Q[k,k] = -distance[i,j] for edge (i,j) at index k
     /// - Off-diagonal contains constraint penalties
     let encodeTspEdgeBased (distances: float[,]) (constraintPenalty: float) : QuboMatrix =
-        let n = distances.GetLength(0)
+        let n = distances.GetLength 0
         let size = n * n
         let q = Array2D.zeroCreate<float> size size
         
@@ -529,7 +528,7 @@ module ProblemTransformer =
         let varNames = 
             [for i in 0 .. n - 1 do
                 for j in 0 .. n - 1 do
-                    yield sprintf "edge_%d_%d" i j]
+                    yield $"edge_%d{i}_%d{j}"]
         
         {
             Size = size
@@ -565,7 +564,7 @@ module ProblemTransformer =
         // Generate variable names
         let varNames = 
             [for i in 0 .. n - 1 do
-                yield sprintf "asset_%d" i]
+                yield $"asset_%d{i}"]
         
         {
             Size = n
@@ -581,8 +580,8 @@ module ProblemTransformer =
     /// - Size consistency: Coefficients dimensions match Size
     let validateTransformation (qubo: QuboMatrix) : Validation.ValidationResult =
         // Check 1: Size consistency
-        let actualRows = qubo.Coefficients.GetLength(0)
-        let actualCols = qubo.Coefficients.GetLength(1)
+        let actualRows = qubo.Coefficients.GetLength 0
+        let actualCols = qubo.Coefficients.GetLength 1
         
         if actualRows <> qubo.Size || actualCols <> qubo.Size then
             Validation.failure
@@ -605,9 +604,9 @@ module ProblemTransformer =
                     for j in 0 .. qubo.Size - 1 do
                         let value = qubo.Coefficients.[i, j]
                         if System.Double.IsNaN(value) then
-                            yield sprintf "NaN detected at Q[%d,%d]" i j
+                            yield $"NaN detected at Q[%d{i},%d{j}]"
                         elif System.Double.IsInfinity(value) then
-                            yield sprintf "Infinity detected at Q[%d,%d]" i j ]
+                            yield $"Infinity detected at Q[%d{i},%d{j}]" ]
             
             let allErrors = symmetryErrors @ valueErrors
             if List.isEmpty allErrors then
@@ -645,10 +644,10 @@ module ProblemTransformer =
     /// let qubo = ProblemTransformer.applyTransformation "MyProblem" problemData
     /// ```
     let applyTransformation (problemName: string) (problemData: obj) : QuboMatrix =
-        match customTransformations.TryGetValue(problemName) with
+        match customTransformations.TryGetValue problemName with
         | true, transform -> transform problemData
         | false, _ -> 
-            failwith (sprintf "Problem '%s' not registered. Call registerProblem first." problemName)
+            failwith ($"Problem '%s{problemName}' not registered. Call registerProblem first.")
     
     /// Recommend encoding strategy based on problem type and size.
     /// 

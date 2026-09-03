@@ -72,7 +72,7 @@ module BernsteinVazirani =
 
     let private gatesOnAllQubits (gate: int -> Gate) (numQubits: int) : QuantumOperation list =
         [ 0 .. numQubits - 1 ]
-        |> List.map (fun i -> QuantumOperation.Gate (gate i))
+        |> List.map (gate >> QuantumOperation.Gate)
 
     // ========================================================================
     // ORACLE CONSTRUCTORS
@@ -85,10 +85,7 @@ module BernsteinVazirani =
     let oracleForSecret (secret: int[]) (backend: IQuantumBackend) : Oracle =
         let ops =
             secret
-            |> Array.toList
-            |> List.mapi (fun i bit -> i, bit)
-            |> List.filter (fun (_, bit) -> bit = 1)
-            |> List.map (fun (i, _) -> QuantumOperation.Gate (Z i))
+            |> Array.mapi (fun i bit -> i, bit) |> Array.filter (fun (_, bit) -> bit = 1) |> Array.map (fun (i, _) -> QuantumOperation.Gate (Z i)) |> Array.toList
         fun state -> UnifiedBackend.applySequence backend ops state
 
     // ========================================================================

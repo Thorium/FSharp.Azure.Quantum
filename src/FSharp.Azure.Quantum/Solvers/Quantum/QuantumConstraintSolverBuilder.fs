@@ -450,7 +450,7 @@ module QuantumConstraintSolver =
             solution.Assignment
             |> Map.toList
             |> List.take (min 10 (Map.count solution.Assignment))
-            |> List.map (fun (var, value) -> sprintf "  Variable %d: %A" var value)
+            |> List.map (fun (var, value) -> $"  Variable %d{var}: %A{value}")
             |> String.concat "\n"
         
         let remainder =

@@ -151,6 +151,7 @@ module QuantumTeleportation =
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
 
+    [<Struct>]
     type private TeleportationIntent = {
         AliceInputQubit: int
         AliceBellQubit: int

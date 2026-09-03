@@ -112,7 +112,8 @@ type CatalystResult =
 // ==============================================================================
 
 let hartreeToKcalMol = 627.509
-let uncatalyzedBarrier = 30.0  // kcal/mol (literature estimate for Staudinger [2+2])
+/// kcal/mol (literature estimate for Staudinger [2+2])
+let uncatalyzedBarrier = 30.0
 
 // ==============================================================================
 // BUILT-IN CATALYST PRESETS
@@ -188,11 +189,11 @@ let private presetNames =
 /// Parse atom list from compact string format:
 ///   "B:0,0,0|H:1.23,0,0"
 let private parseAtoms (s: string) : Atom list =
-    s.Split('|')
+    s.Split '|'
     |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split(':')
+        let parts = entry.Trim().Split ':'
         if parts.Length = 2 then
-            let coords = parts.[1].Split(',')
+            let coords = parts.[1].Split ','
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
@@ -221,7 +222,7 @@ let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
 /// OR: name, preset (to reference a built-in preset by name)
 let private loadCatalystsFromCsv (path: string) : CatalystInfo list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

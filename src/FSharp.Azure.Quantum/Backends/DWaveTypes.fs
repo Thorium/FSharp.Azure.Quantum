@@ -51,7 +51,7 @@ module DWaveTypes =
         match solver with
         | Advantage_System6_1 -> 5640
         | Advantage2_Prototype -> 1200
-        | Advantage_System4_1 -> 5000
+        | Advantage_System4_1
         | Advantage_System1_1 -> 5000
         | DW_2000Q_6 -> 2048
     

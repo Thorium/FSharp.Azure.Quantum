@@ -31,13 +31,12 @@ let circuit =
 printfn "Evolution circuit (%d steps, order %d): %d gates" config.NumSteps config.Order circuit.Gates.Length
 
 // --- 3. Pick a Trotter step count for a target accuracy ---
-let steps = estimateTrotterSteps 2.0 1.0 1e-3 2   // ‖H‖≈2, t=1, tol=1e-3, 2nd order
+/// ‖H‖≈2, t=1, tol=1e-3, 2nd order
+let steps = estimateTrotterSteps 2.0 1.0 1e-3 2
 printfn "Recommended Trotter steps (‖H‖=2, t=1, tol=1e-3, order 2): %d" steps
 
 // --- 4. Decompose an arbitrary Hermitian matrix into Pauli terms ---
 // Here the Pauli-Z matrix diag(1, -1).
 let m = array2D [ [ Complex(1.0, 0.0); Complex(0.0, 0.0) ]
                   [ Complex(0.0, 0.0); Complex(-1.0, 0.0) ] ]
-match decomposeMatrixToPauli m with
-| Ok h -> printfn "Decomposed 2x2 Hermitian matrix into %d Pauli term(s)" h.Terms.Length
-| Error e -> printfn "Decomposition error: %A" e
+(decomposeMatrixToPauli m) |> Result.map (fun h -> printfn "Decomposed 2x2 Hermitian matrix into %d Pauli term(s)" h.Terms.Length) |> Result.defaultWith (fun e -> printfn "Decomposition error: %A" e)

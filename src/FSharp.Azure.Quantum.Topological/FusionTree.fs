@@ -189,11 +189,7 @@ module FusionTree =
 
             rest
             |> List.fold fuseStep (Ok [ (first, 1) ])
-            |> Result.map (fun dims ->
-                dims
-                |> List.tryFind (fun (p, _) -> p = totalCharge)
-                |> Option.map snd
-                |> Option.defaultValue 0)
+            |> Result.map (List.tryFind (fun (p, _) -> p = totalCharge) >> Option.map snd >> Option.defaultValue 0)
     
     // ========================================================================
     // TREE ENUMERATION

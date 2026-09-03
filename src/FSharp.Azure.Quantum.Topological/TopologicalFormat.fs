@@ -55,8 +55,8 @@ module TopologicalFormat =
             match str.Trim().ToLowerInvariant() with
             | "ising" -> Ok AnyonSpecies.AnyonType.Ising
             | "fibonacci" -> Ok AnyonSpecies.AnyonType.Fibonacci
-            | s when s.StartsWith("su2_") ->
-                match Int32.TryParse(s.Substring(4)) with
+            | s when s.StartsWith "su2_" ->
+                match Int32.TryParse(s.AsSpan 4) with
                 | (true, k) -> Ok (AnyonSpecies.AnyonType.SU2Level k)
                 | _ -> Error $"Invalid SU(2)_k level: {s}"
             | _ -> Error $"Unknown anyon type: {str}"
@@ -78,7 +78,7 @@ module TopologicalFormat =
             if String.IsNullOrWhiteSpace(trimmed) then
                 Ok None
             // Comments
-            elif trimmed.StartsWith("#") then
+            elif trimmed.StartsWith "#" then
                 Ok (Some (Comment trimmed))
             else
                 let parts = trimmed.Split([|' '; '\t'|], StringSplitOptions.RemoveEmptyEntries)
@@ -116,7 +116,7 @@ module TopologicalFormat =
                 lines 
                 |> Array.tryFind (fun line -> 
                     let trimmed = line.Trim()
-                    not (trimmed.StartsWith("#")) && trimmed.StartsWith("ANYON"))
+                    not (trimmed.StartsWith "#") && trimmed.StartsWith("ANYON"))
             
             match anyonTypeLine with
             | None -> Error "Missing ANYON declaration (first line must be 'ANYON <type>')"
@@ -141,9 +141,7 @@ module TopologicalFormat =
                                 | _, Error msg -> Error msg
                             ) (Ok [])
                         
-                        match operationsResult with
-                        | Ok ops -> Ok { AnyonType = aType; Operations = List.rev ops }
-                        | Error msg -> Error msg
+                        operationsResult |> Result.map (fun ops -> { AnyonType = aType; Operations = List.rev ops })
                 | _ -> Error "Invalid ANYON declaration format"
         
         /// Parse program from file
@@ -384,8 +382,7 @@ module TopologicalFormat =
                         for op in backendOperations do
                             cancellationToken.ThrowIfCancellationRequested()
                             if currentError.IsNone then
-                                let! result = backend.ApplyOperationAsync op currentState cancellationToken
-                                match result with
+                                match! backend.ApplyOperationAsync op currentState cancellationToken with
                                 | Error err -> currentError <- Some err
                                 | Ok newState ->
                                     currentState <- newState
@@ -418,8 +415,7 @@ module TopologicalFormat =
             (cancellationToken: CancellationToken)
             : Task<Result<ExecutionResult, QuantumError>> =
             task {
-                let! parseResult = Parser.parseFileAsync filePath cancellationToken
-                match parseResult with
+                match! Parser.parseFileAsync filePath cancellationToken with
                 | Error msg -> return Error (QuantumError.ValidationError ("filePath", msg))
                 | Ok program -> return! executeProgramAsync backend program cancellationToken
             }

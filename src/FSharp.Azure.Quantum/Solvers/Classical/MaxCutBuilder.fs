@@ -179,18 +179,18 @@ module MaxCut =
         let vertices = 
             [for r in 0 .. rows - 1 do
              for c in 0 .. cols - 1 do
-                 yield sprintf "R%dC%d" r c]
+                 yield $"R%d{r}C%d{c}"]
         
         let edges = 
             [// Horizontal edges
              for r in 0 .. rows - 1 do
              for c in 0 .. cols - 2 do
-                 yield (sprintf "R%dC%d" r c, sprintf "R%dC%d" r (c + 1), weight)
+                 yield ($"R%d{r}C%d{c}", sprintf "R%dC%d" r (c + 1), weight)
              
              // Vertical edges
              for r in 0 .. rows - 2 do
              for c in 0 .. cols - 1 do
-                 yield (sprintf "R%dC%d" r c, sprintf "R%dC%d" (r + 1) c, weight)]
+                 yield ($"R%d{r}C%d{c}", sprintf "R%dC%d" (r + 1) c, weight)]
         
         createProblem vertices edges
 

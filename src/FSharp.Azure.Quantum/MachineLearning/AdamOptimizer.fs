@@ -74,11 +74,11 @@ module AdamOptimizer =
     /// Validate parameter and gradient dimensions match optimizer state
     let private validateDimensions (state: AdamState) (parameters: float array) (gradients: float array) : QuantumResult<unit> =
         if parameters.Length <> state.M.Length then
-            Error (QuantumError.ValidationError ("Input", sprintf "Parameters length (%d) does not match optimizer state (%d)" parameters.Length state.M.Length))
+            Error (QuantumError.ValidationError ("Input", $"Parameters length (%d{parameters.Length}) does not match optimizer state (%d{state.M.Length})"))
         elif gradients.Length <> state.M.Length then
-            Error (QuantumError.ValidationError ("Input", sprintf "Gradients length (%d) does not match optimizer state (%d)" gradients.Length state.M.Length))
+            Error (QuantumError.ValidationError ("Input", $"Gradients length (%d{gradients.Length}) does not match optimizer state (%d{state.M.Length})"))
         elif parameters.Length <> gradients.Length then
-            Error (QuantumError.ValidationError ("Input", sprintf "Parameters length (%d) does not match gradients length (%d)" parameters.Length gradients.Length))
+            Error (QuantumError.ValidationError ("Input", $"Parameters length (%d{parameters.Length}) does not match gradients length (%d{gradients.Length})"))
         else
             Ok ()
 

@@ -28,9 +28,7 @@ module QuantumTreeSearchBuilderTests =
     
     /// Unwrap Result for testing
     let unwrapResult (result: Result<'T, QuantumError>) : 'T =
-        match result with
-        | Ok value -> value
-        | Error err -> failwith $"Operation failed: {err.Message}"
+        result |> Result.defaultWith (fun err -> failwith $"Operation failed: {err.Message}")
     
     // ========================================================================
     // BUILDER VALIDATION TESTS
@@ -328,7 +326,7 @@ module QuantumTreeSearchBuilderTests =
             // Algorithm may fail to find solution or use unsupported features
             // Accept either "no solution found" or operation errors (e.g., predicate oracles not supported)
             let validErrors = ["no solution found"; "No solution found"; "not yet supported"; "not supported"]
-            let hasValidError = validErrors |> List.exists (fun msg -> err.Message.Contains(msg))
+            let hasValidError = validErrors |> List.exists (fun msg -> err.Message.Contains msg)
             Assert.True(hasValidError, $"Unexpected error: {err.Message}")
     
     [<Fact>]
@@ -491,11 +489,7 @@ module QuantumTreeSearchBuilderTests =
         let result = QuantumTreeSearch.solve problem
         
         // Assert
-        match result with
-        | Error err ->
-            Assert.Contains("qubits", err.Message)
-        | Ok _ ->
-            Assert.Fail("Expected solve to return error")
+        result |> Result.map (fun _ -> Assert.Fail("Expected solve to return error")) |> Result.defaultWith (fun err -> Assert.Contains("qubits", err.Message))
     
     [<Fact>]
     let ``QuantumTreeSearch.solve should handle empty move generator gracefully`` () =

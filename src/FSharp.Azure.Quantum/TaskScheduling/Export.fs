@@ -10,15 +10,15 @@ module Export =
     let exportGanttChart (solution: Solution) (filePath: string) : unit =
         use writer = new System.IO.StreamWriter(filePath)
         
-        writer.WriteLine("# Gantt Chart - Task Schedule")
-        writer.WriteLine("")
-        writer.WriteLine(sprintf "Makespan: %.1f minutes" solution.Makespan.TotalMinutes)
-        writer.WriteLine(sprintf "Total Cost: $%.2f" solution.TotalCost)
-        writer.WriteLine(sprintf "Valid: %b" solution.IsValid)
-        writer.WriteLine("")
+        writer.WriteLine "# Gantt Chart - Task Schedule"
+        writer.WriteLine ""
+        writer.WriteLine($"Makespan: %.1f{solution.Makespan.TotalMinutes} minutes")
+        writer.WriteLine($"Total Cost: $%.2f{solution.TotalCost}")
+        writer.WriteLine($"Valid: %b{solution.IsValid}")
+        writer.WriteLine ""
         
-        writer.WriteLine("Task Assignments:")
-        writer.WriteLine("----------------")
+        writer.WriteLine "Task Assignments:"
+        writer.WriteLine "----------------"
         
         for assignment in solution.Assignments |> List.sortBy (fun a -> a.StartTime) do
             let barLength = max 1 (int (assignment.EndTime - assignment.StartTime).TotalMinutes)
@@ -30,8 +30,8 @@ module Export =
                 bar)
         
         if not (List.isEmpty solution.DeadlineViolations) then
-            writer.WriteLine("")
-            writer.WriteLine("Deadline Violations:")
-            writer.WriteLine("-------------------")
+            writer.WriteLine ""
+            writer.WriteLine "Deadline Violations:"
+            writer.WriteLine "-------------------"
             for taskId in solution.DeadlineViolations do
-                writer.WriteLine(sprintf "  - %s" taskId)
+                writer.WriteLine($"  - %s{taskId}")

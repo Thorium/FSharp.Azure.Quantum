@@ -12,45 +12,31 @@ module QuantumDistributionsComprehensiveTests =
 
     [<Fact>]
     let ``sample Normal rejects non-positive stddev`` () =
-        match sample (Normal(0.0, 0.0)) with
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for zero stddev"
+        (sample (Normal(0.0, 0.0))) |> Result.map (fun _ -> failwith "Expected Error for zero stddev") |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.ToLower()))
 
     [<Fact>]
     let ``sample Normal rejects negative stddev`` () =
-        match sample (Normal(0.0, -1.0)) with
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for negative stddev"
+        (sample (Normal(0.0, -1.0))) |> Result.map (fun _ -> failwith "Expected Error for negative stddev") |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.ToLower()))
 
     [<Fact>]
     let ``sample Normal rejects NaN mean`` () =
-        match sample (Normal(Double.NaN, 1.0)) with
-        | Error msg -> Assert.Contains("finite", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for NaN mean"
+        (sample (Normal(Double.NaN, 1.0))) |> Result.map (fun _ -> failwith "Expected Error for NaN mean") |> Result.defaultWith (fun msg -> Assert.Contains("finite", msg.ToLower()))
 
     [<Fact>]
     let ``sample Exponential rejects non-positive lambda`` () =
-        match sample (Exponential(0.0)) with
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for zero lambda"
+        (sample (Exponential(0.0))) |> Result.map (fun _ -> failwith "Expected Error for zero lambda") |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.ToLower()))
 
     [<Fact>]
     let ``sample Uniform rejects min >= max`` () =
-        match sample (Uniform(5.0, 3.0)) with
-        | Error msg -> Assert.Contains("min", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for min >= max"
+        (sample (Uniform(5.0, 3.0))) |> Result.map (fun _ -> failwith "Expected Error for min >= max") |> Result.defaultWith (fun msg -> Assert.Contains("min", msg.ToLower()))
 
     [<Fact>]
     let ``sample LogNormal rejects non-positive sigma`` () =
-        match sample (LogNormal(0.0, -1.0)) with
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for negative sigma"
+        (sample (LogNormal(0.0, -1.0))) |> Result.map (fun _ -> failwith "Expected Error for negative sigma") |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.ToLower()))
 
     [<Fact>]
     let ``sample Custom rejects empty name`` () =
-        match sample (Custom("", fun x -> x)) with
-        | Error msg -> Assert.Contains("name", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for empty name"
+        (sample (Custom("", id))) |> Result.map (fun _ -> failwith "Expected Error for empty name") |> Result.defaultWith (fun msg -> Assert.Contains("name", msg.ToLower()))
 
     // ========================================================================
     // SUCCESSFUL SAMPLING
@@ -66,24 +52,15 @@ module QuantumDistributionsComprehensiveTests =
 
     [<Fact>]
     let ``sample Normal returns finite value`` () =
-        match sample (Normal(10.0, 2.0)) with
-        | Ok result ->
-            Assert.True(Double.IsFinite(result.Value))
-        | Error msg -> failwith $"Expected Ok, got Error: {msg}"
+        (sample (Normal(10.0, 2.0))) |> Result.map (fun result -> Assert.True(Double.IsFinite(result.Value))) |> Result.defaultWith (fun msg -> failwith $"Expected Ok, got Error: {msg}")
 
     [<Fact>]
     let ``sample Exponential returns positive value`` () =
-        match sample (Exponential(1.0)) with
-        | Ok result ->
-            Assert.True(result.Value > 0.0, $"Exponential sample {result.Value} should be positive")
-        | Error msg -> failwith $"Expected Ok, got Error: {msg}"
+        (sample (Exponential(1.0))) |> Result.map (fun result -> Assert.True(result.Value > 0.0, $"Exponential sample {result.Value} should be positive")) |> Result.defaultWith (fun msg -> failwith $"Expected Ok, got Error: {msg}")
 
     [<Fact>]
     let ``sample LogNormal returns positive value`` () =
-        match sample (LogNormal(0.0, 1.0)) with
-        | Ok result ->
-            Assert.True(result.Value > 0.0, $"LogNormal sample {result.Value} should be positive")
-        | Error msg -> failwith $"Expected Ok, got Error: {msg}"
+        (sample (LogNormal(0.0, 1.0))) |> Result.map (fun result -> Assert.True(result.Value > 0.0, $"LogNormal sample {result.Value} should be positive")) |> Result.defaultWith (fun msg -> failwith $"Expected Ok, got Error: {msg}")
 
     [<Fact>]
     let ``sample Uniform returns value in range`` () =
@@ -108,21 +85,15 @@ module QuantumDistributionsComprehensiveTests =
 
     [<Fact>]
     let ``sampleMany returns correct count`` () =
-        match sampleMany StandardNormal 10 with
-        | Ok samples -> Assert.Equal(10, samples.Length)
-        | Error msg -> failwith $"Expected Ok, got Error: {msg}"
+        (sampleMany StandardNormal 10) |> Result.map (fun samples -> Assert.Equal(10, samples.Length)) |> Result.defaultWith (fun msg -> failwith $"Expected Ok, got Error: {msg}")
 
     [<Fact>]
     let ``sampleMany rejects non-positive count`` () =
-        match sampleMany StandardNormal 0 with
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for zero count"
+        (sampleMany StandardNormal 0) |> Result.map (fun _ -> failwith "Expected Error for zero count") |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.ToLower()))
 
     [<Fact>]
     let ``sampleMany rejects count > 1000000`` () =
-        match sampleMany StandardNormal 1000001 with
-        | Error msg -> Assert.Contains("large", msg.ToLower())
-        | Ok _ -> failwith "Expected Error for too-large count"
+        (sampleMany StandardNormal 1000001) |> Result.map (fun _ -> failwith "Expected Error for too-large count") |> Result.defaultWith (fun msg -> Assert.Contains("large", msg.ToLower()))
 
     // ========================================================================
     // STATISTICAL UTILITIES

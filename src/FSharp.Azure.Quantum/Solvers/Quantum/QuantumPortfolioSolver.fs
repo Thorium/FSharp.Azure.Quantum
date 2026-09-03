@@ -231,7 +231,7 @@ module QuantumPortfolioSolver =
                 }
         
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Failed to encode portfolio as QUBO: %s" ex.Message))
+            Error (QuantumError.OperationError ("QuboEncoding", $"Failed to encode portfolio as QUBO: %s{ex.Message}"))
 
     // ================================================================================
     // TRANSACTION COST QUBO ENCODING
@@ -438,7 +438,7 @@ module QuantumPortfolioSolver =
                     }
         
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncodingWithCosts", sprintf "Failed to encode portfolio with costs as QUBO: %s" ex.Message))
+            Error (QuantumError.OperationError ("QuboEncodingWithCosts", $"Failed to encode portfolio with costs as QUBO: %s{ex.Message}"))
     
     /// Create a portfolio problem with transaction costs
     let createProblemWithCosts 
@@ -682,14 +682,13 @@ module QuantumPortfolioSolver =
                             }
 
                     task {
-                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                        match executeResult with
+                        match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
                         | Error err -> return Error err
                         | Ok measurements ->
                             return handleMeasurements measurements
                     }            
             with ex ->
-                task { return Error (QuantumError.OperationError ("QuantumPortfolioSolver", sprintf "Quantum portfolio solver failed: %s" ex.Message)) }
+                task { return Error (QuantumError.OperationError ("QuantumPortfolioSolver", $"Quantum portfolio solver failed: %s{ex.Message}")) }
 
     /// Solve portfolio optimization using quantum backend via QAOA (synchronous)
     /// 

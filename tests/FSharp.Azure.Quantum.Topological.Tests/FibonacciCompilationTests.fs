@@ -21,11 +21,12 @@ module FibonacciCompilationTests =
     // HELPER FUNCTIONS
     // ========================================================================
 
+    [<Literal>]
     let private tolerance = 1e-10
 
     let private assertApproxEqual (expected: Complex) (actual: Complex) (msg: string) =
         let diff = abs (expected.Real - actual.Real) + abs (expected.Imaginary - actual.Imaginary)
-        Assert.True(diff < tolerance, sprintf "%s: Expected %A, got %A (diff: %g)" msg expected actual diff)
+        Assert.True(diff < tolerance, $"%s{msg}: Expected %A{expected}, got %A{actual} (diff: %g{diff})")
 
     let private assertMatrixUnitary (m: SU2Matrix) (msg: string) =
         // U · U† = I
@@ -37,9 +38,7 @@ module FibonacciCompilationTests =
         assertApproxEqual Complex.One product.D $"{msg}: (U·U†).D should be 1"
 
     let private unwrapResult (result: Result<'T, TopologicalError>) (context: string) : 'T =
-        match result with
-        | Ok value -> value
-        | Error err -> failwith $"{context}: Unexpected error: {err}"
+        result |> Result.defaultWith (fun err -> failwith $"{context}: Unexpected error: {err}")
 
     // ========================================================================
     // SECTION 1: FUSION TREE - τ QUBIT ENCODING

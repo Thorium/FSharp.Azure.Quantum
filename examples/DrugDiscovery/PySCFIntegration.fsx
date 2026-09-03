@@ -182,11 +182,11 @@ let private presetNames =
 
 /// Parse atom list from compact string: "H:0,0,0|H:0,0,0.74"
 let private parseAtoms (s: string) : Atom list =
-    s.Split('|')
+    s.Split '|'
     |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split(':')
+        let parts = entry.Trim().Split ':'
         if parts.Length = 2 then
-            let coords = parts.[1].Split(',')
+            let coords = parts.[1].Split ','
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
@@ -206,7 +206,7 @@ let private inferBonds (atoms: Atom list) : Bond list =
 /// OR: name, preset (to reference a built-in preset)
 let private loadMoleculesFromCsv (path: string) : MoleculeInfo list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 
@@ -324,7 +324,7 @@ let private initializePython () =
     | None ->
         if not quiet then printfn "  Using system Python (auto-detect)"
 
-    if not (PythonEngine.IsInitialized) then
+    if not PythonEngine.IsInitialized then
         PythonEngine.Initialize()
         if not quiet then printfn "  Python engine initialized"
 
@@ -361,8 +361,8 @@ let private createPySCFProvider (basis: string) : IntegralProvider =
             use gil = Py.GIL()
 
             let pyscf = Py.Import("pyscf")
-            let gto = pyscf.GetAttr("gto")
-            let scf = pyscf.GetAttr("scf")
+            let gto = pyscf.GetAttr "gto"
+            let scf = pyscf.GetAttr "scf"
             let ao2mo = Py.Import("pyscf.ao2mo")
             let np = Py.Import("numpy")
 
@@ -385,15 +385,15 @@ let private createPySCFProvider (basis: string) : IntegralProvider =
             let hfEnergy = mf.InvokeMethod("kernel", [||])
             let hfEnergyFloat = hfEnergy.As<float>()
 
-            let moCoeff = mf.GetAttr("mo_coeff")
-            let shape = moCoeff.GetAttr("shape")
+            let moCoeff = mf.GetAttr "mo_coeff"
+            let shape = moCoeff.GetAttr "shape"
             let numOrbitals = shape.GetItem(1).As<int>()
 
             let nuclearRepulsion = mol.InvokeMethod("energy_nuc", [||]).As<float>()
             let numElectrons = mol.InvokeMethod("nelectron", [||]).As<int>()
 
             let hcore = scf.InvokeMethod("hf", [||]).InvokeMethod("get_hcore", [| mol |])
-            let moCoeffT = moCoeff.GetAttr("T")
+            let moCoeffT = moCoeff.GetAttr "T"
             let ctrans = np.InvokeMethod("dot", [| moCoeffT; hcore |])
             let h1eMO = np.InvokeMethod("dot", [| ctrans; moCoeff |])
 

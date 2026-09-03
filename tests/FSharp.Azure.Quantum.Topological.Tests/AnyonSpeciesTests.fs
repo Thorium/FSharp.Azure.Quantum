@@ -85,9 +85,7 @@ module AnyonSpeciesTests =
     let ``Ising total quantum dimension is 2`` () =
         // D² = d₁² + d_σ² + d_ψ² = 1² + (√2)² + 1² = 1 + 2 + 1 = 4
         // D = √4 = 2
-        match AnyonSpecies.totalQuantumDimension AnyonSpecies.AnyonType.Ising with
-        | Ok d -> Assert.Equal(2.0, d, 10)
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+        (AnyonSpecies.totalQuantumDimension AnyonSpecies.AnyonType.Ising) |> Result.map (fun d -> Assert.Equal(2.0, d, 10)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
     
     [<Fact>]
     let ``Fibonacci total quantum dimension computed correctly`` () =
@@ -105,9 +103,7 @@ module AnyonSpeciesTests =
     let ``Total quantum dimension is always positive`` () =
         let types = [AnyonSpecies.AnyonType.Ising; AnyonSpecies.AnyonType.Fibonacci; AnyonSpecies.AnyonType.SU2Level 2]
         types |> List.iter (fun t ->
-            match AnyonSpecies.totalQuantumDimension t with
-            | Ok d -> Assert.True(d > 0.0)
-            | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+            (AnyonSpecies.totalQuantumDimension t) |> Result.map (fun d -> Assert.True(d > 0.0)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}"))
         )
     
     // ============================================================================

@@ -55,7 +55,7 @@ module AtomComputingBackend =
         {
             JobId = jobId
             Target = target
-            Name = Some (sprintf "AtomComputing-%s" target)
+            Name = Some ($"AtomComputing-%s{target}")
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2"  // OpenQASM 2.0
             InputParams = Map [ ("shots", shots :> obj) ]
@@ -91,10 +91,10 @@ module AtomComputingBackend =
         
         // Try both possible property names
         let results = 
-            match root.TryGetProperty("results") with
+            match root.TryGetProperty "results" with
             | (true, element) -> element
             | (false, _) ->
-                match root.TryGetProperty("measurements") with
+                match root.TryGetProperty "measurements" with
                 | (true, element) -> element
                 | (false, _) -> 
                     // Fallback: assume root is the histogram itself
@@ -129,7 +129,7 @@ module AtomComputingBackend =
         
         | "TooManyQubits" ->
             // TooManyQubits is a circuit validation error
-            QuantumError.ValidationError("circuit", sprintf "Circuit too large: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Circuit too large: %s{errorMessage}")
         
         | "QuotaExceeded" ->
             QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
@@ -140,11 +140,11 @@ module AtomComputingBackend =
         
         | "InvalidTopology" ->
             // Shouldn't happen with all-to-all connectivity, but handle gracefully
-            QuantumError.ValidationError("circuit", sprintf "Connectivity error: %s" errorMessage)
+            QuantumError.ValidationError("circuit", $"Connectivity error: %s{errorMessage}")
         
         | _ ->
             // Unknown Atom Computing error
-            QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Atom Computing error: %s - %s" errorCode errorMessage))
+            QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Atom Computing error: %s{errorCode} - %s{errorMessage}"))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS
@@ -182,14 +182,12 @@ module AtomComputingBackend =
             let submission = createJobSubmission qasmCode shots target
             
             // Step 2: Submit job
-            let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
-            match submitResult with
+            match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 // Step 3: Poll until complete (10 minute timeout for 100+ qubit circuits, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(10.0)
-                let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
-                match pollResult with
+                match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
                 | Error err -> return Error err
                 | Ok (job: QuantumJob) ->
                     // Check job status
@@ -200,8 +198,7 @@ module AtomComputingBackend =
                         | None ->
                             return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
                         | Some uri ->
-                            let! resultData = JobLifecycle.getJobResultAsync httpClient uri
-                            match resultData with
+                            match! JobLifecycle.getJobResultAsync httpClient uri with
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 // Step 5: Parse histogram from OutputData
@@ -210,7 +207,7 @@ module AtomComputingBackend =
                                     let histogram = parseAtomComputingResult resultJson
                                     return Ok histogram
                                 with
-                                | ex -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse Atom Computing results: %s" ex.Message)))
+                                | ex -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Atom Computing results: %s{ex.Message}")))
                     
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         // Map Atom Computing error to QuantumError
@@ -219,6 +216,6 @@ module AtomComputingBackend =
                     | JobStatus.Cancelled ->
                         return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
                     
-                    | _ ->
-                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status)))
+                    | JobStatus.Waiting | JobStatus.Executing ->
+                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
         }

@@ -101,9 +101,7 @@ module MoleculeTests =
         let result = Molecule.validate invalidMolecule
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("Bond references non-existent atom", err.Message)
-        | Ok _ -> Assert.True(false, "Should have failed validation")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have failed validation")) |> Result.defaultWith (fun err -> Assert.Contains("Bond references non-existent atom", err.Message))
     
     [<Fact>]
     let ``Validate bond connectivity - valid molecule passes`` () =
@@ -248,9 +246,9 @@ module GroundStateEnergyTests =
             let expected = -1.174
             let tolerance = 0.1  // 0.1 Hartree tolerance
             Assert.True(abs(vqeResult.Energy - expected) < tolerance, 
-                sprintf "Expected ~%.3f, got %.3f" expected vqeResult.Energy)
+                $"Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
         | Error err ->
-            Assert.True(false, sprintf "Energy calculation failed: %s" err.Message)
+            Assert.True(false, $"Energy calculation failed: %s{err.Message}")
     
     [<Fact>]
     let ``Estimate H2O ground state energy should be approximately -76.0 Hartree`` () =
@@ -277,9 +275,9 @@ module GroundStateEnergyTests =
             let expected = -76.0
             let tolerance = 1.0  // 1.0 Hartree tolerance
             Assert.True(abs(vqeResult.Energy - expected) < tolerance,
-                sprintf "Expected ~%.1f, got %.3f" expected vqeResult.Energy)
+                $"Expected ~%.1f{expected}, got %.3f{vqeResult.Energy}")
         | Error err ->
-            Assert.True(false, sprintf "Energy calculation failed: %s" err.Message)
+            Assert.True(false, $"Energy calculation failed: %s{err.Message}")
     
     [<Fact>]
     let ``VQE method should be selectable`` () =
@@ -329,7 +327,7 @@ module GroundStateEnergyTests =
             let expected = -1.174
             let tolerance = 0.2  // DFT may be less accurate
             Assert.True(abs(vqeResult.Energy - expected) < tolerance,
-                sprintf "DFT: Expected ~%.3f, got %.3f" expected vqeResult.Energy)
+                $"DFT: Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
         | Error _ ->
             // DFT fallback might not be implemented yet, that's ok
             Assert.True(true, "DFT not implemented - acceptable for now")
@@ -381,9 +379,7 @@ module GroundStateEnergyTests =
                      |> Async.RunSynchronously
         
         // Assert
-        match result with
-        | Error err -> Assert.Contains("Invalid", err.Message)
-        | Ok _ -> Assert.True(false, "Should have failed for invalid molecule")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have failed for invalid molecule")) |> Result.defaultWith (fun err -> Assert.Contains("Invalid", err.Message))
     
     [<Fact>]
     let ``Energy units should be in Hartree`` () =
@@ -852,14 +848,13 @@ module MolecularInputTests =
  H  0.0  0.0  0.74"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, xyzContent)
+            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
             
             try
                 // Act
-                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
-                match result with
+                match! Molecule.fromXyzFileAsync tempFile with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("H2 molecule", molecule.Name)
@@ -894,14 +889,13 @@ module MolecularInputTests =
  H  0.000 -0.757  0.587"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, xyzContent)
+            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
             
             try
                 // Act
-                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
-                match result with
+                match! Molecule.fromXyzFileAsync tempFile with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("Water molecule", molecule.Name)
@@ -926,14 +920,13 @@ module MolecularInputTests =
  H		0.0		0.0		0.74"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, xyzContent)
+            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
             
             try
                 // Act
-                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
-                match result with
+                match! Molecule.fromXyzFileAsync tempFile with
                 | Error err -> Assert.True(false, $"Should handle whitespace: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal(2, molecule.Atoms.Length)
@@ -951,14 +944,13 @@ module MolecularInputTests =
  H  0.0  0.0  0.74"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, xyzContent)
+            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
             
             try
                 // Act
-                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
-                match result with
+                match! Molecule.fromXyzFileAsync tempFile with
                 | Ok _ -> Assert.True(false, "Should reject file with wrong atom count")
                 | Error err -> Assert.Contains("Expected", err.Message)  // Error message from MoleculeFormats
             finally
@@ -975,15 +967,14 @@ module MolecularInputTests =
  &END"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, fcidumpContent)
+            do! File.WriteAllTextAsync(tempFile, fcidumpContent) |> Async.AwaitTask
             
             try
                 // Act - Use MoleculeFormats directly since FCIDump has no geometry
                 // Molecule.fromFciDumpFileAsync will fail with MissingGeometry error
-                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile System.Threading.CancellationToken.None |> Async.AwaitTask
                 
                 // Assert
-                match result with
+                match! FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile System.Threading.CancellationToken.None |> Async.AwaitTask with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok moleculeData ->
                     // Should extract NORB=2, NELEC=2 from header metadata
@@ -1007,14 +998,13 @@ module MolecularInputTests =
  &END"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, fcidumpContent)
+            do! File.WriteAllTextAsync(tempFile, fcidumpContent) |> Async.AwaitTask
             
             try
                 // Act - Use MoleculeFormats directly
-                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile System.Threading.CancellationToken.None |> Async.AwaitTask
                 
                 // Assert
-                match result with
+                match! FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile System.Threading.CancellationToken.None |> Async.AwaitTask with
                 | Ok _ -> Assert.True(false, "Should require NORB parameter")
                 | Error err -> Assert.Contains("NORB", err.Message)
             finally
@@ -1046,16 +1036,14 @@ module MolecularInputTests =
             
             try
                 // Act - save to file
-                let! saveResult = Molecule.saveToXyzFileAsync tempFile original
                 
-                match saveResult with
+                match! Molecule.saveToXyzFileAsync tempFile original with
                 | Error err -> Assert.True(false, $"Save failed: {err.Message}")
                 | Ok () ->
                 
                 // Act - reload from file
-                let! loadResult = Molecule.fromXyzFileAsync tempFile
                 
-                match loadResult with
+                match! Molecule.fromXyzFileAsync tempFile with
                 | Error err -> Assert.True(false, $"Load failed: {err.Message}")
                 | Ok reloaded ->
                     // Assert - should match original
@@ -1282,11 +1270,11 @@ module QuantumChemistryBuilderTests =
             Assert.True(chemResult.BondLengths.Count > 0, "Should compute bond lengths")
             
             // H-H bond should be present
-            let hasHHBond = chemResult.BondLengths |> Map.exists (fun k _ -> k.Contains("H"))
+            let hasHHBond = chemResult.BondLengths |> Map.exists (fun k _ -> k.Contains 'H')
             Assert.True(hasHHBond, "Should have H-H bond length")
             
         | Error err ->
-            Assert.True(false, sprintf "Solve failed: %s" err.Message)
+            Assert.True(false, $"Solve failed: %s{err.Message}")
     
     [<Fact>]
     let ``Solve should compute bond lengths for H2O`` () =
@@ -1308,7 +1296,7 @@ module QuantumChemistryBuilderTests =
             Assert.True(chemResult.BondLengths.Count >= 2, "H2O should have at least 2 bond lengths")
             
         | Error err ->
-            Assert.True(false, sprintf "Solve failed: %s" err.Message)
+            Assert.True(false, $"Solve failed: %s{err.Message}")
     
     // ========================================================================
     // TEST 7: Multiple Molecules
@@ -1447,7 +1435,7 @@ H  0.0  0.0  0.0
 H  0.0  0.0  0.74"""
             
             let tempFile = Path.GetTempFileName()
-            File.WriteAllText(tempFile, xyzContent)
+            do! File.WriteAllTextAsync(tempFile, xyzContent) |> Async.AwaitTask
             
             try
                 // Act - use builder with file loading
@@ -1458,10 +1446,9 @@ H  0.0  0.0  0.74"""
                     maxIterations 5  // Quick test
                 }
                 
-                let! result = solve problem
                 
                 // Assert
-                match result with
+                match! solve problem with
                 | Ok chemistry ->
                     // Energy should be negative (bound state)
                     Assert.True(chemistry.GroundStateEnergy < 0.0, 
@@ -1485,10 +1472,9 @@ H  0.0  0.0  0.74"""
                 maxIterations 5  // Quick test
             }
             
-            let! result = solve problem
             
             // Assert
-            match result with
+            match! solve problem with
             | Ok chemistry ->
                 Assert.True(chemistry.GroundStateEnergy < 0.0,
                     $"Ground state energy should be negative, got {chemistry.GroundStateEnergy}")
@@ -1715,7 +1701,7 @@ module H2ReferenceIntegralTests =
     let private c0 = Complex.Zero
     let private c1 = Complex.One
     let private ci = Complex.ImaginaryOne
-    let private mat (a: Complex[,]) = Matrix<Complex>.Build.DenseOfArray(a)
+    let private mat (a: Complex[,]) = Matrix<Complex>.Build.DenseOfArray a
     let private mI = mat (array2D [[c1; c0]; [c0; c1]])
     let private mX = mat (array2D [[c0; c1]; [c1; c0]])
     let private mY = mat (array2D [[c0; -ci]; [ci; c0]])
@@ -1746,7 +1732,7 @@ module H2ReferenceIntegralTests =
                         match Map.tryFind q term.Operators with
                         | Some op -> pauliMat op
                         | None -> mI
-                    acc <- acc.KroneckerProduct(p)
+                    acc <- acc.KroneckerProduct p
                 H <- H + acc.Multiply(term.Coefficient)
             let minElectronic =
                 H.Evd(Symmetricity.Hermitian).EigenValues
@@ -1770,13 +1756,9 @@ module H2ReferenceIntegralTests =
         // The integration seam: a provider supplying real integrals (here the verified
         // h2Sto3gIntegrals) yields a physically correct 4-qubit Hamiltonian.
         let provider : IntegralProvider = fun _ -> Ok h2Sto3gIntegrals
-        match buildWithMapping h2Molecule JordanWigner (Some provider) with
-        | Ok hamiltonian ->
-            Assert.Equal(4, (fromQaoaHamiltonian hamiltonian).NumQubits)
-        | Error e -> Assert.Fail($"Provider-backed build should succeed, got {e}")
+        (buildWithMapping h2Molecule JordanWigner (Some provider)) |> Result.map (fun hamiltonian -> Assert.Equal(4, (fromQaoaHamiltonian hamiltonian).NumQubits)) |> Result.defaultWith (fun e -> Assert.Fail($"Provider-backed build should succeed, got {e}"))
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``ChemistryVQE UCCSD converges to FCI for H2 within chemical accuracy`` () =
         // End-to-end VQE: the UCCSD ansatz must reach the H2 ground state. Guards
         // against the two convergence bugs — the ansatz rotation using Coefficient.Real

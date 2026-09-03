@@ -102,9 +102,8 @@ module Retry =
                 return Error(QuantumError.OperationError("Retry", "Operation cancelled"))
             else
                 // Execute operation
-                let! result = operation ct
 
-                match result with
+                match! operation ct with
                 | Ok value -> return Ok value
 
                 | Error error when isTransientError error && attempt < config.MaxAttempts ->

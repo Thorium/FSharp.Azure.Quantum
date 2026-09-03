@@ -15,10 +15,14 @@ module Types =
 
     /// Scheduling objective functions
     type Objective =
-        | MinimizeMakespan          // Minimize total completion time
-        | MinimizeCost              // Minimize total resource cost
-        | MaximizeResourceUtilization // Maximize resource usage
-        | MinimizeLateness          // Minimize deadline violations
+        /// Minimize total completion time
+        | MinimizeMakespan
+        /// Minimize total resource cost
+        | MinimizeCost
+        /// Maximize resource usage
+        | MaximizeResourceUtilization
+        /// Minimize deadline violations
+        | MinimizeLateness
 
     /// Dependency relationship between tasks
     type Dependency =

@@ -351,9 +351,7 @@ module QuantumKernels =
                 // Build matrix from successful results
                 let kernelMatrix = Array2D.zeroCreate nTest nTrain
                 for (i, j, result) in kernelEntries do
-                    match result with
-                    | Ok kernelValue -> kernelMatrix.[i, j] <- kernelValue
-                    | Error _ -> () // Already handled above
+                    result |> Result.iter (fun kernelValue -> kernelMatrix.[i, j] <- kernelValue) // Already handled above
                 Ok kernelMatrix
     
     /// Compute kernel matrix between train and test sets using Task.WhenAll.
@@ -396,9 +394,7 @@ module QuantumKernels =
                     | _ ->
                         let kernelMatrix = Array2D.zeroCreate nTest nTrain
                         for (i, j, result) in kernelEntries do
-                            match result with
-                            | Ok kernelValue -> kernelMatrix.[i, j] <- kernelValue
-                            | Error _ -> ()
+                            result |> Result.iter (fun kernelValue -> kernelMatrix.[i, j] <- kernelValue)
                         Ok kernelMatrix
         }
 
@@ -494,7 +490,7 @@ module QuantumKernels =
                 for j in 0 .. m - 1 -> matrix.[i, j] |]
         
         let mean = Array.average values
-        let variance = values |> Array.map (fun x -> (x - mean) ** 2.0) |> Array.average
+        let variance = Array.averageBy (fun x -> (x - mean) ** 2.0) values
         let stdDev = sqrt variance
         let minVal = Array.min values
         let maxVal = Array.max values

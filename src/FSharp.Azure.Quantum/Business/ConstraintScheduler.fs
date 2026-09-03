@@ -192,7 +192,7 @@ module ConstraintScheduler =
         |> Map.ofList
     
     /// Check if hard constraint is satisfied by assignment
-    let private isSatisfied (constraint': HardConstraint) (assignments: Map<TaskId, ResourceId>) : bool =
+    let private isSatisfied (assignments: Map<TaskId, ResourceId>) (constraint': HardConstraint) : bool =
         match constraint' with
         | Conflict (task1, task2) ->
             match Map.tryFind task1 assignments, Map.tryFind task2 assignments with
@@ -214,7 +214,7 @@ module ConstraintScheduler =
         assignments |> List.sumBy (fun a -> a.Cost)
 
     /// Check if soft constraint is satisfied
-    let private isSoftSatisfied (constraint': SoftConstraint) (assignments: Map<TaskId, ResourceId>) : bool =
+    let private isSoftSatisfied (assignments: Map<TaskId, ResourceId>) (constraint': SoftConstraint) : bool =
         match constraint' with
         | PreferResource (task, resource, _) ->
             match Map.tryFind task assignments with
@@ -240,12 +240,12 @@ module ConstraintScheduler =
             
         let hardSatisfied = 
             problem.HardConstraints 
-            |> List.filter (fun c -> isSatisfied c assignmentMap)
+            |> List.filter (isSatisfied assignmentMap)
             |> List.length
             
         let softSatisfied =
             problem.SoftConstraints
-            |> List.filter (fun c -> isSoftSatisfied c assignmentMap)
+            |> List.filter (isSoftSatisfied assignmentMap)
             |> List.length
             
         let totalCost = calculateCost assignments
@@ -264,7 +264,7 @@ module ConstraintScheduler =
         let actuallyFeasible =
              if isFeasible then
                  problem.HardConstraints
-                 |> List.forall (fun c -> isSatisfied c assignmentMap)
+                 |> List.forall (isSatisfied assignmentMap)
              else
                  false
 
@@ -431,7 +431,7 @@ module ConstraintScheduler =
                     match Map.tryFind task1 taskIdx, Map.tryFind task2 taskIdx with
                     | Some t1, Some t2 -> Some (t1, t2)
                     | _ -> None
-                | _ -> None
+                | RequiresResource _ | Precedence _ -> None
             )
         
         // Colors = resources, costs = resource costs
@@ -685,7 +685,7 @@ module ConstraintScheduler =
             Error (QuantumError.ValidationError ("Resources", "must have at least one resource"))
         elif problem.Tasks.Length > 50 then
             Error (QuantumError.ValidationError ("Tasks", $"too many tasks ({problem.Tasks.Length}), maximum is 50"))
-        elif problem.HardConstraints |> List.exists (function Precedence _ -> true | _ -> false) then
+        elif problem.HardConstraints |> List.exists (function Precedence _ -> true | Conflict _ | RequiresResource _ -> false) then
             // Precedence is a temporal ordering ("A before B"). This optimiser only
             // assigns tasks to resources — it has no time dimension — so precedence
             // cannot be honoured. Surfacing this is more honest than silently ignoring

@@ -428,10 +428,7 @@ module ChemistryDataProviders =
                     let instance = toMoleculeInstance data
                     // Override charge/multiplicity if provided
                     { instance with
-                        Topology =
-                            { instance.Topology with
-                                Charge = charge |> Option.orElse instance.Topology.Charge
-                                Multiplicity = multiplicity |> Option.orElse instance.Topology.Multiplicity } })
+                        Topology.Charge = charge |> Option.orElse instance.Topology.Charge; Topology.Multiplicity = multiplicity |> Option.orElse instance.Topology.Multiplicity })
             }
 
     // ========================================================================
@@ -843,9 +840,9 @@ module ChemistryDataProviders =
                                         (List.rev chargesAcc, lineIdx)
                                     else
                                         let line = lines.[lineIdx]
-                                        if line.StartsWith("M  END") then
+                                        if line.StartsWith "M  END" then
                                             (List.rev chargesAcc, lineIdx + 1)
-                                        elif line.StartsWith("M  CHG") then
+                                        elif line.StartsWith "M  CHG" then
                                             // Format: M  CHG  n  aaa vvv  aaa vvv ...
                                             let parts = line.Substring(6).Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
                                             let newCharges =
@@ -906,7 +903,7 @@ module ChemistryDataProviders =
 
         /// Parse a complete SDF file (multiple MOL records with data)
         let parseSdfFile (content: string) : Result<MolRecord array, string> =
-            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let lines = content.Replace("\r\n", "\n").Split '\n'
             
             let rec skipEmpty lineIdx =
                 if lineIdx >= lines.Length || lines.[lineIdx].Trim().Length > 0 then lineIdx
@@ -1071,9 +1068,7 @@ module ChemistryDataProviders =
         let loadMolFile (path: string) : MoleculeInstance option =
             try
                 let content = File.ReadAllText(path)
-                match MoleculeFormats.Sdf.parse content with
-                | Ok moleculeData -> Some (Conversions.fromMoleculeData moleculeData)
-                | Error _ -> None
+                (MoleculeFormats.Sdf.parse content) |> Result.map (Conversions.fromMoleculeData >> Some) |> Result.defaultValue None
             with
             | _ -> None
 
@@ -1097,9 +1092,7 @@ module ChemistryDataProviders =
                             sdfFiles
                             |> Array.collect (fun path ->
                                 let content = File.ReadAllText(path)
-                                match MoleculeFormats.Sdf.parseAll content with
-                                | Ok moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData
-                                | Error _ -> [||])
+                                (MoleculeFormats.Sdf.parseAll content) |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData) |> Result.defaultValue [||])
                         
                         let allMolecules = Array.append molMolecules sdfMolecules
                         
@@ -1205,7 +1198,7 @@ module ChemistryDataProviders =
 
         /// Parse FCIDump header from file content.
         let parseHeader (content: string) : Result<FciDumpHeader, string> =
-            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let lines = content.Replace("\r\n", "\n").Split '\n'
             
             // Find header start line (&FCI or $FCI)
             let headerStartIdx = 
@@ -1647,7 +1640,7 @@ module ChemistryDataProviders =
 
         /// Parse PDB content with options.
         let parseWithOptions (options: PdbParseOptions) (content: string) : Result<PdbStructure, string> =
-            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let lines = content.Replace("\r\n", "\n").Split '\n'
             let waterNames = set ["HOH"; "WAT"; "H2O"; "DOD"; "DIS"]
             
             let initialState : PdbParseState = 
@@ -1666,7 +1659,7 @@ module ChemistryDataProviders =
                         | "TITLE" when line.Length > 10 ->
                             let titlePart = line.[10..].Trim()
                             let newTitle = match state.Title with
-                                           | Some t -> Some (t + " " + titlePart)
+                                           | Some t -> Some ($"{t} {titlePart}")
                                            | None -> Some titlePart
                             { state with Title = newTitle }
                         | "MODEL" ->
@@ -1689,7 +1682,7 @@ module ChemistryDataProviders =
                             match parseAtomLine line true with
                             | Some atom ->
                                 let shouldInclude =
-                                    (not options.ExcludeWater || not (waterNames.Contains atom.ResName)) &&
+                                    (not (options.ExcludeWater && (waterNames.Contains atom.ResName))) &&
                                     (options.ResidueFilter.IsEmpty || 
                                      options.ResidueFilter |> List.exists (fun r -> 
                                          r.Equals(atom.ResName, StringComparison.OrdinalIgnoreCase)))
@@ -1732,10 +1725,7 @@ module ChemistryDataProviders =
                     Error $"File not found: {filePath}"
                 else
                     let content = File.ReadAllText(filePath)
-                    match parse content with
-                    | Ok structure -> 
-                        Ok { structure with SourcePath = Some filePath }
-                    | Error e -> Error e
+                    (parse content) |> Result.map (fun structure -> { structure with SourcePath = Some filePath })
             with
             | ex -> Error $"Failed to read PDB file: {ex.Message}"
 
@@ -1866,9 +1856,7 @@ module ChemistryDataProviders =
         let loadPdbFile (path: string) : MoleculeInstance array =
             try
                 let content = File.ReadAllText(path)
-                match MoleculeFormats.Pdb.parseLigands content with
-                | Ok moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData
-                | Error _ -> [||]
+                (MoleculeFormats.Pdb.parseLigands content) |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData) |> Result.defaultValue [||]
             with
             | _ -> [||]
 

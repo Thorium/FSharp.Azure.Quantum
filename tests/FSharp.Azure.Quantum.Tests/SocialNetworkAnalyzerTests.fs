@@ -75,7 +75,7 @@ module SocialNetworkAnalyzerTests =
         // Quantum-first: omitting a backend defaults to the local simulator and still solves.
         match solve problem with
         | Ok _ -> ()
-        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
 
     [<Fact>]
     let ``solve with missing MinCommunitySize and no Mode should default to FindLargestCommunity`` () =
@@ -239,7 +239,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
 
     [<Fact>]
     let ``socialNetwork CE with empty people should return ValidationError`` () =
@@ -292,9 +292,7 @@ module SocialNetworkAnalyzerTests =
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
-        match solve problem with
-        | Ok result -> Assert.Equal(10, result.TotalPeople)
-        | Error e -> failwith $"Should succeed with 10 people, got error: {e}"
+        (solve problem) |> Result.map (fun result -> Assert.Equal(10, result.TotalPeople)) |> Result.defaultWith (fun e -> failwith $"Should succeed with 10 people, got error: {e}")
 
     // ========================================================================
     // FIND LARGEST COMMUNITY (QAOA MAX CLIQUE) TESTS
@@ -382,7 +380,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
 
     // ========================================================================
     // FIND MONITOR SET (QAOA MIN VERTEX COVER) TESTS
@@ -493,7 +491,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
 
     // ========================================================================
     // FIND PAIRINGS (QAOA MAX MATCHING) TESTS
@@ -611,7 +609,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
+        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
 
     // ========================================================================
     // MODE DEFAULTS AND BACKWARDS COMPATIBILITY TESTS
@@ -819,8 +817,7 @@ module SocialNetworkAnalyzerTests =
                 "Grover strategy should find communities via decreasing clique search")
         | Error e -> failwith $"Should succeed with explicit Grover strategy, got error: {e}"
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``useQaoa with FindMonitorSet should succeed`` () =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
         let result = socialNetwork {
@@ -832,10 +829,7 @@ module SocialNetworkAnalyzerTests =
             backend quantumBackend
             shots 100
         }
-        match result with
-        | Ok r ->
-            Assert.True(r.MonitorSet.Length >= 1, "Should find monitors with QAOA")
-        | Error e -> failwith $"Should succeed with QAOA strategy for FindMonitorSet, got error: {e}"
+        result |> Result.map (fun r -> Assert.True(r.MonitorSet.Length >= 1, "Should find monitors with QAOA")) |> Result.defaultWith (fun e -> failwith $"Should succeed with QAOA strategy for FindMonitorSet, got error: {e}")
 
     [<Fact>]
     let ``useQaoa with FindPairings should succeed`` () =
@@ -849,7 +843,4 @@ module SocialNetworkAnalyzerTests =
             backend quantumBackend
             shots 100
         }
-        match result with
-        | Ok r ->
-            Assert.True(r.Pairings.Length >= 1, "Should find pairings with QAOA")
-        | Error e -> failwith $"Should succeed with QAOA strategy for FindPairings, got error: {e}"
+        result |> Result.map (fun r -> Assert.True(r.Pairings.Length >= 1, "Should find pairings with QAOA")) |> Result.defaultWith (fun e -> failwith $"Should succeed with QAOA strategy for FindPairings, got error: {e}")

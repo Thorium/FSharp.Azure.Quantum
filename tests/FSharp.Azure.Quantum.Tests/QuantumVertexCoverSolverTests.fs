@@ -123,9 +123,7 @@ module QuboEncodingTests =
     let ``toQubo returns error for empty problem`` () =
         let problem : Problem = { Vertices = []; Edges = [] }
         let result = toQubo problem
-        match result with
-        | Error err -> Assert.Contains("no vertices", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty vertices")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with empty vertices")) |> Result.defaultWith (fun err -> Assert.Contains("no vertices", err.ToString().ToLower()))
 
     [<Fact>]
     let ``toQubo handles duplicate edges without double-counting`` () =
@@ -453,9 +451,7 @@ module BackendIntegrationTests =
 
         let result = solve backend problem 100
 
-        match result with
-        | Error err -> Assert.Contains("no vertices", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with empty vertices")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with empty vertices")) |> Result.defaultWith (fun err -> Assert.Contains("no vertices", err.ToString().ToLower()))
 
     [<Fact>]
     let ``solve validates edge indices out of range`` () =
@@ -467,9 +463,7 @@ module BackendIntegrationTests =
 
         let result = solve backend problem 100
 
-        match result with
-        | Error err -> Assert.Contains("edge", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with invalid edge index")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with invalid edge index")) |> Result.defaultWith (fun err -> Assert.Contains("edge", err.ToString().ToLower()))
 
     [<Fact>]
     let ``solve rejects self-loop edges`` () =
@@ -484,9 +478,7 @@ module BackendIntegrationTests =
 
         let result = solve backend problem 100
 
-        match result with
-        | Error err -> Assert.Contains("self-loop", err.ToString().ToLower())
-        | Ok _ -> Assert.Fail("Should fail with self-loop edge")
+        result |> Result.map (fun _ -> Assert.Fail("Should fail with self-loop edge")) |> Result.defaultWith (fun err -> Assert.Contains("self-loop", err.ToString().ToLower()))
 
     [<Fact>]
     let ``solve produces valid cover on small graph`` () =
@@ -527,10 +519,7 @@ module BackendIntegrationTests =
 
         let result = solveWithConfig backend problem config
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid)
+        result |> Result.map (fun solution -> Assert.True(solution.IsValid)) |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
 
 // ============================================================================
 // QUBIT ESTIMATION TESTS

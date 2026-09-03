@@ -103,7 +103,7 @@ module ReadoutErrorMitigationTests =
         // Assert: Should succeed
         match result with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "Validation failed: %s" msg)
+        | Error msg -> Assert.True(false, $"Validation failed: %s{msg}")
     
     // Cycle #3: Calibration matrix validation
     
@@ -127,7 +127,7 @@ module ReadoutErrorMitigationTests =
         // Assert: Should be valid
         match result with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "Expected valid, got error: %s" msg)
+        | Error msg -> Assert.True(false, $"Expected valid, got error: %s{msg}")
     
     [<Fact>]
     let ``validateCalibrationMatrix should reject matrix with invalid dimensions`` () =
@@ -225,7 +225,7 @@ module ReadoutErrorMitigationTests =
             Assert.True(abs (inverse.[0,0] - 1.02) < 0.01, "Diagonal should be ~1.02")
             Assert.True(abs (inverse.[0,1] + 0.02) < 0.01, "Off-diagonal should be ~-0.02")
         | Error msg ->
-            Assert.True(false, sprintf "Inversion should succeed: %s" msg)
+            Assert.True(false, $"Inversion should succeed: %s{msg}")
     
     [<Fact>]
     let ``invertCalibrationMatrix should reject nearly singular matrix`` () =
@@ -245,11 +245,7 @@ module ReadoutErrorMitigationTests =
         let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration None
         
         // Assert: Should fail with singularity error
-        match result with
-        | Error msg ->
-            Assert.Contains("singular", msg.ToLower())
-        | Ok _ ->
-            Assert.True(false, "Should reject singular matrix")
+        result |> Result.map (fun _ -> Assert.True(false, "Should reject singular matrix")) |> Result.defaultWith (fun msg -> Assert.Contains("singular", msg.ToLower()))
     
     [<Fact>]
     let ``invertCalibrationMatrix should warn on poorly-conditioned matrix`` () =
@@ -270,9 +266,7 @@ module ReadoutErrorMitigationTests =
         let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration None
         
         // Assert: Should succeed despite warning
-        match result with
-        | Ok _ -> Assert.True(true, "Should invert but warn")
-        | Error _ -> Assert.True(false, "Should not fail, just warn")
+        result |> Result.map (fun _ -> Assert.True(true, "Should invert but warn")) |> Result.defaultWith (fun _ -> Assert.True(false, "Should not fail, just warn"))
     
     // Cycle #5: Histogram correction accuracy
     
@@ -298,12 +292,12 @@ module ReadoutErrorMitigationTests =
         // Assert: Corrected should match original
         match result with
         | Ok corrected ->
-            Assert.True(corrected.Histogram.ContainsKey("0"))
+            Assert.True(corrected.Histogram.ContainsKey "0")
             let count0 = corrected.Histogram.["0"]
             Assert.True(abs (count0 - 1000.0) < 10.0, 
-                sprintf "Expected ~1000 counts for |0⟩, got %.1f" count0)
+                $"Expected ~1000 counts for |0⟩, got %.1f{count0}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     [<Fact>]
     let ``correctReadoutErrors should improve biased measurement`` () =
@@ -335,11 +329,11 @@ module ReadoutErrorMitigationTests =
             
             // After correction: should be much closer to 1000/0 than 980/20
             Assert.True(count0 > 990.0, 
-                sprintf "Expected corrected |0⟩ > 990, got %.1f" count0)
+                $"Expected corrected |0⟩ > 990, got %.1f{count0}")
             Assert.True(count1 < 10.0, 
-                sprintf "Expected corrected |1⟩ < 10, got %.1f" count1)
+                $"Expected corrected |1⟩ < 10, got %.1f{count1}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     [<Fact>]
     let ``correctReadoutErrors should clip negative counts when configured`` () =
@@ -369,9 +363,9 @@ module ReadoutErrorMitigationTests =
         | Ok corrected ->
             for (bitstring, count) in Map.toList corrected.Histogram do
                 Assert.True(count >= 0.0, 
-                    sprintf "Count for %s should be non-negative, got %.1f" bitstring count)
+                    $"Count for %s{bitstring} should be non-negative, got %.1f{count}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     [<Fact>]
     let ``correctReadoutErrors should normalize probabilities to sum to 1.0`` () =
@@ -403,13 +397,13 @@ module ReadoutErrorMitigationTests =
             
             // Should sum to original total shots (1000)
             Assert.True(abs (totalCounts - 1000.0) < 5.0,
-                sprintf "Total counts should be ~1000, got %.1f" totalCounts)
+                $"Total counts should be ~1000, got %.1f{totalCounts}")
             
             // Check goodness of fit is high
             Assert.True(corrected.GoodnessOfFit > 0.95,
-                sprintf "Goodness of fit should be > 0.95, got %.3f" corrected.GoodnessOfFit)
+                $"Goodness of fit should be > 0.95, got %.3f{corrected.GoodnessOfFit}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     [<Fact>]
     let ``correctReadoutErrors should filter noise below threshold`` () =
@@ -438,14 +432,14 @@ module ReadoutErrorMitigationTests =
         match result with
         | Ok corrected ->
             // Should still have the dominant state
-            Assert.True(corrected.Histogram.ContainsKey("0"))
+            Assert.True(corrected.Histogram.ContainsKey "0")
             
             // Might or might not have |1⟩ depending on correction magnitude
             let count0 = corrected.Histogram.["0"]
             Assert.True(count0 > 9900.0,
-                sprintf "Dominant state should have > 9900 counts, got %.1f" count0)
+                $"Dominant state should have > 9900 counts, got %.1f{count0}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     // Cycle #6: Confidence interval coverage
     
@@ -474,19 +468,19 @@ module ReadoutErrorMitigationTests =
         | Ok corrected ->
             for (bitstring, count) in Map.toList corrected.Histogram do
                 Assert.True(corrected.ConfidenceIntervals.ContainsKey(bitstring),
-                    sprintf "Missing confidence interval for state %s" bitstring)
+                    $"Missing confidence interval for state %s{bitstring}")
                 
                 let (lower, upper) = corrected.ConfidenceIntervals.[bitstring]
                 
                 // CI should bracket the count
                 Assert.True(lower <= count && count <= upper,
-                    sprintf "Count %.1f should be within CI [%.1f, %.1f]" count lower upper)
+                    $"Count %.1f{count} should be within CI [%.1f{lower}, %.1f{upper}]")
                 
                 // CI should be reasonable (not degenerate)
                 Assert.True(upper > lower,
-                    sprintf "Upper %.1f should exceed lower %.1f" upper lower)
+                    $"Upper %.1f{upper} should exceed lower %.1f{lower}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     [<Fact>]
     let ``Confidence intervals should widen with smaller sample sizes`` () =
@@ -561,11 +555,11 @@ module ReadoutErrorMitigationTests =
         | Ok corrected ->
             for (bitstring, (lower, upper)) in Map.toList corrected.ConfidenceIntervals do
                 Assert.True(lower >= 0.0,
-                    sprintf "Lower CI bound for %s should be non-negative, got %.1f" bitstring lower)
+                    $"Lower CI bound for %s{bitstring} should be non-negative, got %.1f{lower}")
                 Assert.True(upper >= 0.0,
-                    sprintf "Upper CI bound for %s should be non-negative, got %.1f" bitstring upper)
+                    $"Upper CI bound for %s{bitstring} should be non-negative, got %.1f{upper}")
         | Error msg ->
-            Assert.True(false, sprintf "Correction should succeed: %s" msg)
+            Assert.True(false, $"Correction should succeed: %s{msg}")
     
     // ============================================================================
     // Cycle #7: Integration Tests with StateVector Simulator
@@ -583,7 +577,7 @@ module ReadoutErrorMitigationTests =
                 if rng.NextDouble() < errorRate then
                     // Flip a random bit
                     let chars = bitstring.ToCharArray()
-                    let bitToFlip = rng.Next(chars.Length)
+                    let bitToFlip = rng.Next chars.Length
                     chars.[bitToFlip] <- if chars.[bitToFlip] = '0' then '1' else '0'
                     String(chars)
                 else
@@ -662,7 +656,7 @@ module ReadoutErrorMitigationTests =
                     
                     return Ok noisyHistogram
                 with
-                | ex -> return Error (sprintf "Simulation error: %s" ex.Message)
+                | ex -> return Error ($"Simulation error: %s{ex.Message}")
             }
     
     [<Fact>]
@@ -697,7 +691,7 @@ module ReadoutErrorMitigationTests =
             Assert.True(matrix.[1, 0] < 0.08,
                 sprintf "M[1,0] should be ~0.02, got %.3f" matrix.[1, 0])
         | Error msg ->
-            Assert.True(false, sprintf "Calibration should succeed: %s" msg)
+            Assert.True(false, $"Calibration should succeed: %s{msg}")
     
     [<Fact>]
     let ``Integration: 1-qubit REM should reduce readout errors`` () =
@@ -721,13 +715,13 @@ module ReadoutErrorMitigationTests =
             // Without REM: ~98% fidelity (2% error)
             // With REM: Should achieve > 99% fidelity (50-90% error reduction)
             Assert.True(fidelity > 0.99,
-                sprintf "REM should improve fidelity to > 99%%, got %.3f" fidelity)
+                $"REM should improve fidelity to > 99%%, got %.3f{fidelity}")
             
             // Check goodness of fit
             Assert.True(corrected.GoodnessOfFit > 0.95,
-                sprintf "Goodness of fit should be > 0.95, got %.3f" corrected.GoodnessOfFit)
+                $"Goodness of fit should be > 0.95, got %.3f{corrected.GoodnessOfFit}")
         | Error msg ->
-            Assert.True(false, sprintf "REM should succeed: %s" msg)
+            Assert.True(false, $"REM should succeed: %s{msg}")
     
     [<Fact>]
     let ``Integration: 2-qubit calibration should work`` () =
@@ -754,12 +748,11 @@ module ReadoutErrorMitigationTests =
             let validation = ReadoutErrorMitigation.validateCalibrationMatrix calibration
             match validation with
             | Ok () -> Assert.True(true)
-            | Error msg -> Assert.True(false, sprintf "Calibration should be valid: %s" msg)
+            | Error msg -> Assert.True(false, $"Calibration should be valid: %s{msg}")
         | Error msg ->
-            Assert.True(false, sprintf "2-qubit calibration should succeed: %s" msg)
+            Assert.True(false, $"2-qubit calibration should succeed: %s{msg}")
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``Integration: 2-qubit REM should reduce errors`` () =
         // Arrange: Circuit that prepares |00⟩
         let circuit = CircuitBuilder.empty 2
@@ -783,9 +776,9 @@ module ReadoutErrorMitigationTests =
             // With 2% error per qubit, uncorrected fidelity ≈ 0.96
             // With REM, should achieve > 0.98
             Assert.True(fidelity > 0.97,
-                sprintf "2-qubit REM should achieve > 97%% fidelity, got %.3f" fidelity)
+                $"2-qubit REM should achieve > 97%% fidelity, got %.3f{fidelity}")
         | Error msg ->
-            Assert.True(false, sprintf "2-qubit REM should succeed: %s" msg)
+            Assert.True(false, $"2-qubit REM should succeed: %s{msg}")
     
     [<Fact>]
     let ``Integration: 3-qubit calibration should work`` () =
@@ -812,9 +805,9 @@ module ReadoutErrorMitigationTests =
             let validation = ReadoutErrorMitigation.validateCalibrationMatrix calibration
             match validation with
             | Ok () -> Assert.True(true)
-            | Error msg -> Assert.True(false, sprintf "Calibration should be valid: %s" msg)
+            | Error msg -> Assert.True(false, $"Calibration should be valid: %s{msg}")
         | Error msg ->
-            Assert.True(false, sprintf "3-qubit calibration should succeed: %s" msg)
+            Assert.True(false, $"3-qubit calibration should succeed: %s{msg}")
     
     [<Fact>]
     let ``Integration: 3-qubit REM should demonstrate error reduction`` () =
@@ -840,9 +833,9 @@ module ReadoutErrorMitigationTests =
             // With 3 qubits and 2% error each, uncorrected ≈ 94%
             // With REM, should achieve > 95%
             Assert.True(fidelity > 0.94,
-                sprintf "3-qubit REM should achieve > 94%% fidelity, got %.3f" fidelity)
+                $"3-qubit REM should achieve > 94%% fidelity, got %.3f{fidelity}")
             
             // Verify confidence intervals exist
-            Assert.True(corrected.ConfidenceIntervals.ContainsKey("000"))
+            Assert.True(corrected.ConfidenceIntervals.ContainsKey "000")
         | Error msg ->
-            Assert.True(false, sprintf "3-qubit REM should succeed: %s" msg)
+            Assert.True(false, $"3-qubit REM should succeed: %s{msg}")

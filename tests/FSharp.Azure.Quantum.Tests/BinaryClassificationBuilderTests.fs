@@ -209,8 +209,7 @@ module BinaryClassificationBuilderTests =
     // SUCCESSFUL TRAINING TESTS
     // ========================================================================
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``train with Quantum architecture should succeed`` () =
         let features, labels = makeTrainData()
         let problem = {
@@ -386,10 +385,7 @@ module BinaryClassificationBuilderTests =
             maxEpochs 5
             shots 100
         }
-        match result with
-        | Ok classifier ->
-            Assert.Equal(Hybrid, classifier.Metadata.Architecture)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun classifier -> Assert.Equal(Hybrid, classifier.Metadata.Architecture)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
 
     [<Fact>]
     let ``binaryClassification CE with backend should work`` () =
@@ -402,10 +398,7 @@ module BinaryClassificationBuilderTests =
             maxEpochs 5
             shots 100
         }
-        match result with
-        | Ok classifier ->
-            Assert.Equal(Hybrid, classifier.Metadata.Architecture)
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun classifier -> Assert.Equal(Hybrid, classifier.Metadata.Architecture)) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")
 
     [<Fact>]
     let ``binaryClassification CE with Classical should return NotImplemented`` () =
@@ -439,6 +432,4 @@ module BinaryClassificationBuilderTests =
             maxEpochs 5
             shots 100
         }
-        match result with
-        | Ok _ -> ()
-        | Error e -> failwith $"CE should succeed, got error: {e}"
+        result |> Result.map (fun _ -> ()) |> Result.defaultWith (fun e -> failwith $"CE should succeed, got error: {e}")

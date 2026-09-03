@@ -64,6 +64,7 @@ module ModularData =
     /// matrices: S Nₐ S† = Λₐ (diagonal).
     /// 
     /// Returns Error if anyon type not supported.
+    [<TailCall>]
     let rec computeSMatrix (anyonType: AnyonSpecies.AnyonType) 
         : TopologicalResult<Complex[,]> =
         
@@ -158,6 +159,7 @@ module ModularData =
     /// an anyon rotates by 2π (self-rotation).
     /// 
     /// Returns Error if anyon type not supported.
+    [<TailCall>]
     let rec computeTMatrix (anyonType: AnyonSpecies.AnyonType) 
         : TopologicalResult<Complex[,]> =
         

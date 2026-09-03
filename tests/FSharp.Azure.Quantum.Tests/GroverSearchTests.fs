@@ -13,19 +13,15 @@ open Xunit
 module GroverSearchTests =
     
     /// Helper: Create local quantum backend for testing
-    let createBackend () = new LocalBackend.LocalBackend() :> IQuantumBackend
+    let createBackend () = LocalBackend.LocalBackend() :> IQuantumBackend
     
     /// Helper: Unwrap Result<CompiledOracle, QuantumError> for testing
     let unwrapOracle (result: Result<Oracle.CompiledOracle, QuantumError>) : Oracle.CompiledOracle =
-        match result with
-        | Ok oracle -> oracle
-        | Error err -> failwith $"Oracle creation failed: {err.Message}"
+        result |> Result.defaultWith (fun err -> failwith $"Oracle creation failed: {err.Message}")
     
     /// Helper: Unwrap Result<int, QuantumError> for testing
     let unwrapInt (result: Result<int, QuantumError>) : int =
-        match result with
-        | Ok value -> value
-        | Error err -> failwith $"Operation failed: {err.Message}"
+        result |> Result.defaultWith (fun err -> failwith $"Operation failed: {err.Message}")
 
     /// Helper: Classical Search
     let classicalSearch predicate searchSpace =
@@ -174,11 +170,7 @@ module GroverSearchTests =
         let reproducibleConfig = { Grover.defaultConfig with RandomSeed = Some 42 }
 
         for target in [0; 3; 5; 7] do
-            match Grover.searchSingle target numQubits (createBackend ()) reproducibleConfig with
-            | Ok result ->
-                Assert.Contains(target, result.Solutions)
-            | Error err ->
-                Assert.True(false, $"Search for {target} failed: {err}")
+            (Grover.searchSingle target numQubits (createBackend ()) reproducibleConfig) |> Result.map (fun result -> Assert.Contains(target, result.Solutions)) |> Result.defaultWith (fun err -> Assert.True(false, $"Search for {target} failed: {err}"))
     
     [<Fact>]
     let ``SearchSingle with reproducible seed gives consistent results`` () =
@@ -266,7 +258,7 @@ module GroverSearchTests =
     // in for a submitted job). Used to prove gate-based algorithms route to whole-circuit
     // submission instead of the per-gate ApplyOperation loop.
     type MockCloudBackend() =
-        let inner = new LocalBackend.LocalBackend() :> IQuantumBackend
+        let inner = LocalBackend.LocalBackend() :> IQuantumBackend
         let mutable executeToStateCalls = 0
         let incrementalError : Result<QuantumState, QuantumError> =
             Error (QuantumError.OperationError ("ApplyOperation", "MockCloud does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))

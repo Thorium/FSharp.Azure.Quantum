@@ -187,11 +187,11 @@ if shouldRun 5 then
                 match qb.ApplyOperation (QuantumOperation.Measure 0) state with
                 | Ok (QuantumState.FusionSuperposition _) ->
                     let key = "measured"
-                    if outcomes.ContainsKey(key) then outcomes.[key] <- outcomes.[key] + 1
+                    if outcomes.ContainsKey key then outcomes.[key] <- outcomes.[key] + 1
                     else outcomes.[key] <- 1
                 | Ok _ ->
                     let key = "other"
-                    if outcomes.ContainsKey(key) then outcomes.[key] <- outcomes.[key] + 1
+                    if outcomes.ContainsKey key then outcomes.[key] <- outcomes.[key] + 1
                     else outcomes.[key] <- 1
                 | Error _ -> ()
             | Error _ -> ()

@@ -49,7 +49,7 @@ let ``IonQ cost calculation - simple circuit with error mitigation`` () =
         Assert.Equal(backend, estimate.Backend)
         Assert.True(estimate.Breakdown.IsSome, "Breakdown should be provided")
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - without error mitigation is cheaper`` () =
@@ -73,11 +73,11 @@ let ``IonQ cost calculation - without error mitigation is cheaper`` () =
         let costDiff = estimateWithEM.ExpectedCost - estimateWithoutEM.ExpectedCost
         Assert.InRange(costDiff, 80.0M<USD>, 90.0M<USD>)
     | Error err1, Ok _ ->
-        Assert.Fail(sprintf "With EM estimate failed: %s" err1.Message)
+        Assert.Fail($"With EM estimate failed: %s{err1.Message}")
     | Ok _, Error err2 ->
-        Assert.Fail(sprintf "Without EM estimate failed: %s" err2.Message)
+        Assert.Fail($"Without EM estimate failed: %s{err2.Message}")
     | Error err1, Error err2 ->
-        Assert.Fail(sprintf "Both estimates failed: %s, %s" err1.Message err2.Message)
+        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - cost increases with shot count`` () =
@@ -98,11 +98,11 @@ let ``IonQ cost calculation - cost increases with shot count`` () =
             sprintf "Higher shot count should cost more: $%.2f vs $%.2f" 
                 (usdToFloat highEstimate.ExpectedCost) (usdToFloat lowEstimate.ExpectedCost))
     | Error err, Ok _ ->
-        Assert.Fail(sprintf "Low shot estimate failed: %s" err.Message)
+        Assert.Fail($"Low shot estimate failed: %s{err.Message}")
     | Ok _, Error err ->
-        Assert.Fail(sprintf "High shot estimate failed: %s" err.Message)
+        Assert.Fail($"High shot estimate failed: %s{err.Message}")
     | Error err1, Error err2 ->
-        Assert.Fail(sprintf "Both estimates failed: %s, %s" err1.Message err2.Message)
+        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - cost increases with gate count`` () =
@@ -123,11 +123,11 @@ let ``IonQ cost calculation - cost increases with gate count`` () =
             sprintf "Larger circuit should cost more: $%.2f vs $%.2f" 
                 (usdToFloat largeEstimate.ExpectedCost) (usdToFloat smallEstimate.ExpectedCost))
     | Error err, Ok _ ->
-        Assert.Fail(sprintf "Small circuit estimate failed: %s" err.Message)
+        Assert.Fail($"Small circuit estimate failed: %s{err.Message}")
     | Ok _, Error err ->
-        Assert.Fail(sprintf "Large circuit estimate failed: %s" err.Message)
+        Assert.Fail($"Large circuit estimate failed: %s{err.Message}")
     | Error err1, Error err2 ->
-        Assert.Fail(sprintf "Both estimates failed: %s, %s" err1.Message err2.Message)
+        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - two-qubit gates cost more than single-qubit`` () =
@@ -149,11 +149,11 @@ let ``IonQ cost calculation - two-qubit gates cost more than single-qubit`` () =
             sprintf "Two-qubit gates should cost more: $%.2f vs $%.2f" 
                 (usdToFloat twoEstimate.ExpectedCost) (usdToFloat singleEstimate.ExpectedCost))
     | Error err, Ok _ ->
-        Assert.Fail(sprintf "Single-qubit estimate failed: %s" err.Message)
+        Assert.Fail($"Single-qubit estimate failed: %s{err.Message}")
     | Ok _, Error err ->
-        Assert.Fail(sprintf "Two-qubit estimate failed: %s" err.Message)
+        Assert.Fail($"Two-qubit estimate failed: %s{err.Message}")
     | Error err1, Error err2 ->
-        Assert.Fail(sprintf "Both estimates failed: %s, %s" err1.Message err2.Message)
+        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - warning for high-cost jobs`` () =
@@ -172,7 +172,7 @@ let ``IonQ cost calculation - warning for high-cost jobs`` () =
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("$200", String.concat " " estimate.Warnings)
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``IonQ cost breakdown - validates component costs`` () =
@@ -194,7 +194,7 @@ let ``IonQ cost breakdown - validates component costs`` () =
         Assert.True(breakdown.TwoQubitGateCost > 0.0M<USD>)
         Assert.Equal(breakdown.TotalCost, estimate.ExpectedCost)
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 // ============================================================================
 // QUANTINUUM COST CALCULATION TESTS
@@ -218,7 +218,7 @@ let ``Quantinuum cost calculation - HQC quota consumption`` () =
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("HQC", String.concat " " estimate.Warnings)
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``Quantinuum HQC calculation - increases with circuit complexity`` () =
@@ -288,7 +288,7 @@ let ``Rigetti cost calculation - time-based pricing`` () =
         Assert.Equal(0.0M<USD>, breakdown.BaseCost)  // No base cost for Rigetti
         Assert.True(breakdown.ShotCost > 0.0M<USD>)  // All cost is execution time
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``Rigetti cost calculation - cost scales with execution time`` () =
@@ -309,11 +309,11 @@ let ``Rigetti cost calculation - cost scales with execution time`` () =
             sprintf "Longer circuit should cost more: $%.2f vs $%.2f" 
                 (usdToFloat longEstimate.ExpectedCost) (usdToFloat shortEstimate.ExpectedCost))
     | Error err, Ok _ ->
-        Assert.Fail(sprintf "Short circuit estimate failed: %s" err.Message)
+        Assert.Fail($"Short circuit estimate failed: %s{err.Message}")
     | Ok _, Error err ->
-        Assert.Fail(sprintf "Long circuit estimate failed: %s" err.Message)
+        Assert.Fail($"Long circuit estimate failed: %s{err.Message}")
     | Error err1, Error err2 ->
-        Assert.Fail(sprintf "Both estimates failed: %s, %s" err1.Message err2.Message)
+        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``Rigetti execution time estimation - includes all gates`` () =
@@ -349,7 +349,7 @@ let ``compareCosts - returns estimates for all backends`` () =
         Assert.Equal(3, List.length estimates)
         Assert.True(estimates |> List.forall (fun e -> e.Currency <> ""), "All estimates should have currency")
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``compareCosts - handles empty backend list`` () =
@@ -362,11 +362,7 @@ let ``compareCosts - handles empty backend list`` () =
     let result = compareCosts backends circuit shots
     
     // Assert
-    match result with
-    | Ok estimates ->
-        Assert.Empty(estimates)
-    | Error err ->
-        Assert.Fail(sprintf "Expected empty list but got error: %s" err.Message)
+    result |> Result.map (fun estimates -> Assert.Empty(estimates)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected empty list but got error: %s{err.Message}"))
 
 // ============================================================================
 // BUDGET ENFORCEMENT TESTS
@@ -382,7 +378,7 @@ let ``Budget check - approves job within limits`` () =
     let circuit = createSimpleCircuit 10 5 2 2
     let shots = 100<shot>
     let backend = IonQ true
-    let estimate = match estimateCost backend circuit shots with Ok e -> e | Error _ -> failwith "Setup failed"
+    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
     
     // Act
     let result = checkBudget policy estimate 0.0M<USD> 0.0M<USD>
@@ -390,8 +386,8 @@ let ``Budget check - approves job within limits`` () =
     // Assert
     match result with
     | Approved -> ()  // Success - no need for Assert.True(true)
-    | Warning msg -> Assert.Fail(sprintf "Expected approval but got warning: %s" msg)
-    | Denied reason -> Assert.Fail(sprintf "Expected approval but got denial: %s" reason)
+    | Warning msg -> Assert.Fail($"Expected approval but got warning: %s{msg}")
+    | Denied reason -> Assert.Fail($"Expected approval but got denial: %s{reason}")
 
 [<Fact>]
 let ``Budget check - denies job exceeding per-job limit`` () =
@@ -400,7 +396,7 @@ let ``Budget check - denies job exceeding per-job limit`` () =
     let circuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    let estimate = match estimateCost backend circuit shots with Ok e -> e | Error _ -> failwith "Setup failed"
+    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
     
     // Act
     let result = checkBudget policy estimate 0.0M<USD> 0.0M<USD>
@@ -410,7 +406,7 @@ let ``Budget check - denies job exceeding per-job limit`` () =
     | Denied reason ->
         Assert.Contains("per-job limit", reason)
     | Approved -> Assert.Fail("Expected denial for per-job limit but got approval")
-    | Warning msg -> Assert.Fail(sprintf "Expected denial for per-job limit but got warning: %s" msg)
+    | Warning msg -> Assert.Fail($"Expected denial for per-job limit but got warning: %s{msg}")
 
 [<Fact>]
 let ``Budget check - denies job exceeding daily limit`` () =
@@ -420,7 +416,7 @@ let ``Budget check - denies job exceeding daily limit`` () =
     let circuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    let estimate = match estimateCost backend circuit shots with Ok e -> e | Error _ -> failwith "Setup failed"
+    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
     let dailySpent = 20.0M<USD>  // Low spending but job will push over limit
     
     // Act
@@ -431,7 +427,7 @@ let ``Budget check - denies job exceeding daily limit`` () =
     | Denied reason ->
         Assert.Contains("daily limit", reason)
     | Approved -> Assert.Fail("Expected denial for daily limit but got approval")
-    | Warning msg -> Assert.Fail(sprintf "Expected denial for daily limit but got warning: %s" msg)
+    | Warning msg -> Assert.Fail($"Expected denial for daily limit but got warning: %s{msg}")
 
 [<Fact>]
 let ``Budget check - denies job exceeding monthly limit`` () =
@@ -441,7 +437,7 @@ let ``Budget check - denies job exceeding monthly limit`` () =
     let circuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    let estimate = match estimateCost backend circuit shots with Ok e -> e | Error _ -> failwith "Setup failed"
+    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
     let monthlySpent = 100.0M<USD>  // Spent $100, job will push over $200 limit
     
     // Act
@@ -452,7 +448,7 @@ let ``Budget check - denies job exceeding monthly limit`` () =
     | Denied reason ->
         Assert.Contains("monthly limit", reason)
     | Approved -> Assert.Fail("Expected denial for monthly limit but got approval")
-    | Warning msg -> Assert.Fail(sprintf "Expected denial for monthly limit but got warning: %s" msg)
+    | Warning msg -> Assert.Fail($"Expected denial for monthly limit but got warning: %s{msg}")
 
 [<Fact>]
 let ``Budget check - warns when approaching limit`` () =
@@ -462,7 +458,7 @@ let ``Budget check - warns when approaching limit`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 100<shot>
     let backend = IonQ false  // Without EM for lower cost (~$12 base + gates)
-    let estimate = match estimateCost backend circuit shots with Ok e -> e | Error _ -> failwith "Setup failed"
+    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
     let dailySpent = 130.0M<USD>  // $130 + estimate will be > 80% of $200
     
     // Act
@@ -475,7 +471,7 @@ let ``Budget check - warns when approaching limit`` () =
     | Approved -> 
         // This is also acceptable if the estimate is small enough
         ()
-    | Denied reason -> Assert.Fail(sprintf "Should warn, not deny: %s" reason)
+    | Denied reason -> Assert.Fail($"Should warn, not deny: %s{reason}")
 
 // ============================================================================
 // COST TRACKING TESTS
@@ -626,10 +622,7 @@ let ``estimateCost - returns error for invalid shot count`` () =
     let result = estimateCost backend circuit shots
     
     // Assert
-    match result with
-    | Error err ->
-        Assert.Contains("Shot count must be at least 1", err.Message)
-    | Ok estimate -> Assert.Fail(sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost))
+    result |> Result.map (fun estimate -> Assert.Fail(sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost))) |> Result.defaultWith (fun err -> Assert.Contains("Shot count must be at least 1", err.Message))
 
 // ============================================================================
 // COST OPTIMIZATION TESTS (TKT-48)
@@ -658,9 +651,9 @@ let ``findCheapestBackend returns backend with lowest cost`` () =
             let minCost = allEstimates |> List.map (fun e -> e.ExpectedCost) |> List.min
             Assert.Equal(minCost, estimate.ExpectedCost)
         | Error err ->
-            Assert.Fail(sprintf "compareCosts failed: %s" err.Message)
+            Assert.Fail($"compareCosts failed: %s{err.Message}")
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``recommendCostOptimization suggests cheaper backend`` () =
@@ -683,7 +676,7 @@ let ``recommendCostOptimization suggests cheaper backend`` () =
     | Ok None ->
         Assert.Fail("Expected recommendation for expensive backend but got None")
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 // ============================================================================
 // CLI DASHBOARD TESTS (TKT-48)
@@ -747,11 +740,7 @@ let ``findCheapestBackend returns error for empty backend list`` () =
     let result = findCheapestBackend backends circuit shots
     
     // Assert
-    match result with
-    | Error err ->
-        Assert.Contains("No backends provided", err.Message)
-    | Ok _ ->
-        Assert.Fail("Expected error for empty backend list")
+    result |> Result.map (fun _ -> Assert.Fail("Expected error for empty backend list")) |> Result.defaultWith (fun err -> Assert.Contains("No backends provided", err.Message))
 
 [<Fact>]
 let ``recommendCostOptimization returns None when already using cheapest`` () =
@@ -773,9 +762,9 @@ let ``recommendCostOptimization returns None when already using cheapest`` () =
         // If there is a recommendation, savings should be minimal (< 20%)
         let savingsPercent = (float (recommendation.PotentialSavings / recommendation.CurrentCost.ExpectedCost)) * 100.0
         Assert.True(savingsPercent < 20.0, 
-            sprintf "Expected no recommendation or < 20%% savings, got %.1f%%" savingsPercent)
+            $"Expected no recommendation or < 20%% savings, got %.1f{savingsPercent}%%")
     | Error err ->
-        Assert.Fail(sprintf "Unexpected error: %s" err.Message)
+        Assert.Fail($"Unexpected error: %s{err.Message}")
 
 [<Fact>]
 let ``recommendCostOptimization provides detailed reasoning`` () =
@@ -797,7 +786,7 @@ let ``recommendCostOptimization provides detailed reasoning`` () =
     | Ok None ->
         () // No recommendation is also valid
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``findCheapestBackend works with single backend`` () =
@@ -815,7 +804,7 @@ let ``findCheapestBackend works with single backend`` () =
         Assert.Equal(Rigetti, cheapest)
         Assert.True(estimate.ExpectedCost > 0.0M<USD>)
     | Error err ->
-        Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+        Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 // ============================================================================
 // CSV PERSISTENCE TESTS (TKT-48)
@@ -848,7 +837,7 @@ let ``saveCostRecordToCsv saves record to CSV file`` () =
             Assert.True(lines.Length >= 1, "CSV should have at least one line")
             Assert.Contains("job-123", lines.[0])
         | Error err ->
-            Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+            Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if System.IO.File.Exists(tempFile) then
             System.IO.File.Delete(tempFile)
@@ -892,7 +881,7 @@ let ``loadCostHistoryFromCsv loads records from CSV file`` () =
             Assert.Contains(records, fun r -> r.JobId = "job-1")
             Assert.Contains(records, fun r -> r.JobId = "job-2")
         | Error err ->
-            Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+            Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if System.IO.File.Exists(tempFile) then
             System.IO.File.Delete(tempFile)
@@ -906,11 +895,7 @@ let ``loadCostHistoryFromCsv returns empty list for non-existent file`` () =
     let result = loadCostHistoryFromCsv nonExistentFile
     
     // Assert
-    match result with
-    | Ok records ->
-        Assert.Empty(records)
-    | Error err ->
-        Assert.Fail(sprintf "Expected empty list but got error: %s" err.Message)
+    result |> Result.map (fun records -> Assert.Empty(records)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected empty list but got error: %s{err.Message}"))
 
 [<Fact>]
 let ``saveCostRecordToCsv appends to existing file`` () =
@@ -944,11 +929,7 @@ let ``saveCostRecordToCsv appends to existing file`` () =
         saveCostRecordToCsv tempFile record2 |> ignore
         
         // Assert - load and verify both records exist
-        match loadCostHistoryFromCsv tempFile with
-        | Ok records ->
-            Assert.Equal(2, List.length records)
-        | Error err ->
-            Assert.Fail(sprintf "Expected 2 records but got error: %s" err.Message)
+        (loadCostHistoryFromCsv tempFile) |> Result.map (fun records -> Assert.Equal(2, List.length records)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected 2 records but got error: %s{err.Message}"))
     finally
         if System.IO.File.Exists(tempFile) then
             System.IO.File.Delete(tempFile)
@@ -979,7 +960,7 @@ let ``CSV persistence handles special characters in job IDs`` () =
             Assert.Single(records) |> ignore
             Assert.Equal("job-with-commas,quotes\"and:colons", records.[0].JobId)
         | Error err ->
-            Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+            Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if System.IO.File.Exists(tempFile) then
             System.IO.File.Delete(tempFile)
@@ -1010,7 +991,7 @@ let ``CSV persistence preserves backend information`` () =
             Assert.Single(records) |> ignore
             Assert.Equal(IonQ true, records.[0].Backend)
         | Error err ->
-            Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+            Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if System.IO.File.Exists(tempFile) then
             System.IO.File.Delete(tempFile)
@@ -1043,7 +1024,7 @@ let ``CSV persistence preserves cost accuracy`` () =
             Assert.Equal(Some 130.67M<USD>, records.[0].ActualCost)
             Assert.Equal(1234<shot>, records.[0].Shots)
         | Error err ->
-            Assert.Fail(sprintf "Expected success but got error: %s" err.Message)
+            Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if System.IO.File.Exists(tempFile) then
             System.IO.File.Delete(tempFile)

@@ -117,17 +117,17 @@ module MermaidRenderer =
                     let qubits = [ctrl1; ctrl2; targ] |> List.sort
                     // Safe: qubits list has exactly 3 elements
                     match qubits with
-                    | minQ :: _ :: maxQ :: [] ->
+                    | minQ :: _ :: [ maxQ ] ->
                         [ $"    Note over q{minQ},q{maxQ}: Toffoli (CCX)"
                           $"    q{ctrl1}->>q{targ}: Control 1"
                           $"    q{ctrl2}->>q{targ}: Control 2"
                           $"    q{targ}->>q{targ}: X" ]
-                    | _ -> failwith "Internal error: CCX should have exactly 3 qubits"
+                    | _ -> failwith $"Internal error: CCX should have exactly 3 qubits, calling gateToLines with gate: {gate}"
                 | CircuitBuilder.MCZ (ctrls, targ) ->
                     let allQubits = targ :: ctrls |> List.sort
                     // Safe: Extract min and max with pattern matching
                     match allQubits with
-                    | [] -> failwith "Internal error: MCZ should have at least 1 qubit"
+                    | [] -> failwith $"Internal error: MCZ should have at least 1 qubit, calling gateToLines with gate: {gate}"
                     | [single] ->
                         [ $"    Note over q{single}: Multi-Controlled Z"
                           $"    q{single}->>q{single}: Z" ]
@@ -348,7 +348,10 @@ module MermaidRenderer =
                         )
                     
                     let ctrlCount = controls.Length
-                    let gateLabel = if ctrlCount = 1 then "CZ" elif ctrlCount = 2 then "CCZ" else $"C{ctrlCount}Z"
+                    let gateLabel = match ctrlCount with
+                                    | 1 -> "CZ"
+                                    | 2 -> "CCZ"
+                                    | _ -> $"C{ctrlCount}Z"
                     
                     let newLines =
                         [ $"    n{gId}[{gateLabel}]" ]

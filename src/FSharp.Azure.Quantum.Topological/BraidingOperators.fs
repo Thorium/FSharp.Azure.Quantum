@@ -142,7 +142,7 @@ module BraidingOperators =
                         if (int (round (j1 + j2 - j3))) % 2 = 0 then 1.0 else -1.0
                     let theta = h1 + h2 - h3
                     Ok (Complex(parity, 0.0) * expI (π * theta))
-                | _ ->
+                | AnyonSpecies.AnyonType.Ising | AnyonSpecies.AnyonType.Fibonacci ->
                     TopologicalResult.logicError "R-matrix"
                         $"No R-matrix element defined for {a} × {b} → {c} in {anyonType} theory"
             | _ ->

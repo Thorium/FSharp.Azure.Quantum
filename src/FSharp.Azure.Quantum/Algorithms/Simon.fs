@@ -78,7 +78,7 @@ module Simon =
 
     let private hadamardsOnInputRegister (numInputQubits: int) : QuantumOperation list =
         [ 0 .. numInputQubits - 1 ]
-        |> List.map (fun i -> QuantumOperation.Gate (H i))
+        |> List.map (H >> QuantumOperation.Gate)
 
     // ========================================================================
     // GF(2) LINEAR ALGEBRA (classical post-processing)
@@ -248,8 +248,7 @@ module Simon =
 
                 let equationMasks =
                     inputBits
-                    |> Array.map (fun bits ->
-                        bits |> Array.mapi (fun i b -> b <<< i) |> Array.sum)
+                    |> Array.map (Array.mapi (fun i b -> b <<< i) >> Array.sum)
                     |> Array.filter ((<>) 0)
                     |> Array.distinct
                     |> Array.toList

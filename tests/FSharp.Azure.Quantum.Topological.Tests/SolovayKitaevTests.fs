@@ -12,11 +12,12 @@ module SolovayKitaevTests =
     // HELPER FUNCTIONS
     // ========================================================================
     
+    [<Literal>]
     let private tolerance = 1e-10
     
     let private assertApproxEqual (expected: Complex) (actual: Complex) =
         let diff = abs (expected.Real - actual.Real) + abs (expected.Imaginary - actual.Imaginary)
-        Assert.True(diff < tolerance, sprintf "Expected %A, got %A (diff: %g)" expected actual diff)
+        Assert.True(diff < tolerance, $"Expected %A{expected}, got %A{actual} (diff: %g{diff})")
     
     let private assertMatrixEqual (expected: SU2Matrix) (actual: SU2Matrix) =
         assertApproxEqual expected.A actual.A
@@ -25,7 +26,7 @@ module SolovayKitaevTests =
         assertApproxEqual expected.D actual.D
     
     let private assertApproxZero (value: float) =
-        Assert.True(abs value < tolerance, sprintf "Expected ~0, got %g" value)
+        Assert.True(abs value < tolerance, $"Expected ~0, got %g{value}")
     
     // ========================================================================
     // SU(2) MATRIX OPERATIONS TESTS
@@ -228,39 +229,39 @@ module SolovayKitaevTests =
     let ``Approximate identity gate with high precision`` () =
         let target = identity
         let result = approximateGate target 1e-10 3 10
-        Assert.True(result.Error < 1e-10, sprintf "Error too high: %g" result.Error)
+        Assert.True(result.Error < 1e-10, $"Error too high: %g{result.Error}")
         assertMatrixEqual target result.Matrix
     
     [<Fact>]
     let ``Approximate T gate returns exact T`` () =
         let target = gateToMatrix T
         let result = approximateGate target 1e-10 3 10
-        Assert.True(result.Error < 1e-10, sprintf "Error too high: %g" result.Error)
+        Assert.True(result.Error < 1e-10, $"Error too high: %g{result.Error}")
     
     [<Fact>]
     let ``Approximate S gate returns exact S`` () =
         let target = gateToMatrix S
         let result = approximateGate target 1e-10 3 10
-        Assert.True(result.Error < 1e-10, sprintf "Error too high: %g" result.Error)
+        Assert.True(result.Error < 1e-10, $"Error too high: %g{result.Error}")
     
     [<Fact>]
     let ``Approximate H gate achieves precision`` () =
         let target = gateToMatrix H
         let result = approximateGate target 1e-5 3 8
-        Assert.True(result.Error < 1e-5, sprintf "Error too high: %g (target: 1e-5)" result.Error)
+        Assert.True(result.Error < 1e-5, $"Error too high: %g{result.Error} (target: 1e-5)")
         Assert.True(result.GateCount > 0, "Should produce non-empty sequence")
     
     [<Fact>]
     let ``Approximate X gate achieves precision`` () =
         let target = gateToMatrix X
         let result = approximateGate target 1e-5 3 8
-        Assert.True(result.Error < 1e-5, sprintf "Error too high: %g (target: 1e-5)" result.Error)
+        Assert.True(result.Error < 1e-5, $"Error too high: %g{result.Error} (target: 1e-5)")
     
     [<Fact>]
     let ``Approximate Y gate achieves precision`` () =
         let target = gateToMatrix Y
         let result = approximateGate target 1e-5 3 8
-        Assert.True(result.Error < 1e-5, sprintf "Error too high: %g (target: 1e-5)" result.Error)
+        Assert.True(result.Error < 1e-5, $"Error too high: %g{result.Error} (target: 1e-5)")
     
     [<Fact>]
     let ``Approximate arbitrary Rz rotation`` () =
@@ -273,7 +274,7 @@ module SolovayKitaevTests =
         // With tPhase=π/4, the discrete gate set has coarser angular resolution,
         // so arbitrary rotations have higher approximation error.
         let result = approximateGate target 0.35 3 8
-        Assert.True(result.Error < 0.35, sprintf "Error too high: %g (target: 0.35)" result.Error)
+        Assert.True(result.Error < 0.35, $"Error too high: %g{result.Error} (target: 0.35)")
         Assert.True(result.GateCount > 0, "Should produce non-empty sequence")
     
     [<Fact>]
@@ -291,13 +292,13 @@ module SolovayKitaevTests =
     let ``Approximation respects max depth limit`` () =
         let target = gateToMatrix H
         let result = approximateGate target 1e-10 3 3  // Low max depth
-        Assert.True(result.Depth <= 3, sprintf "Exceeded max depth: %d" result.Depth)
+        Assert.True(result.Depth <= 3, $"Exceeded max depth: %d{result.Depth}")
     
     [<Fact>]
     let ``Default approximation uses reasonable parameters`` () =
         let target = gateToMatrix H
         let result = approximateGateDefault target
-        Assert.True(result.Error < 1e-5, sprintf "Default approximation error too high: %g" result.Error)
+        Assert.True(result.Error < 1e-5, $"Default approximation error too high: %g{result.Error}")
         Assert.True(result.GateCount > 0, "Should produce non-empty sequence")
     
     // ========================================================================

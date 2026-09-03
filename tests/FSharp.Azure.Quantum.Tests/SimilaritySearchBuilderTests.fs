@@ -126,18 +126,12 @@ module SimilaritySearchBuilderTests =
     let ``build with explicit backend should succeed`` () =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
         let problem = { defaultProblem with Backend = Some quantumBackend }
-        match build problem with
-        | Ok index ->
-            Assert.Equal(5, index.Items.Length)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (build problem) |> Result.map (fun index -> Assert.Equal(5, index.Items.Length)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``build with note should preserve note in metadata`` () =
         let problem = { defaultProblem with Note = Some "test note" }
-        match build problem with
-        | Ok index ->
-            Assert.Equal(Some "test note", index.Metadata.Note)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (build problem) |> Result.map (fun index -> Assert.Equal(Some "test note", index.Metadata.Note)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // FIND SIMILAR TESTS
@@ -189,13 +183,7 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``findSimilar should record search time`` () =
-        match build defaultProblem with
-        | Ok index ->
-            match findSimilar "apple" [| 1.0; 0.1; 0.0 |] 2 index with
-            | Ok results ->
-                Assert.True(results.SearchTime >= TimeSpan.Zero)
-            | Error e -> failwith $"Expected Ok, got Error: {e}"
-        | Error e -> failwith $"Expected Ok from build, got Error: {e}"
+        (build defaultProblem) |> Result.map (fun index -> (findSimilar "apple" [| 1.0; 0.1; 0.0 |] 2 index) |> Result.map (fun results -> Assert.True(results.SearchTime >= TimeSpan.Zero)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")) |> Result.defaultWith (fun e -> failwith $"Expected Ok from build, got Error: {e}")
 
     // ========================================================================
     // FIND ALL SIMILAR TESTS
@@ -300,12 +288,7 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``cluster with more clusters than items should return error`` () =
-        match build defaultProblem with
-        | Ok index ->
-            match cluster 10 10 index with
-            | Error _ -> ()
-            | Ok _ -> failwith "Expected error for numClusters > numItems"
-        | Error e -> failwith $"Expected Ok from build, got Error: {e}"
+        (build defaultProblem) |> Result.map (fun index -> (cluster 10 10 index) |> Result.iter (fun _ -> failwith "Expected error for numClusters > numItems")) |> Result.defaultWith (fun e -> failwith $"Expected Ok from build, got Error: {e}")
 
     // ========================================================================
     // COMPUTATION EXPRESSION TESTS
@@ -357,10 +340,7 @@ module SimilaritySearchBuilderTests =
             indexItems testItems
             similarityMetric QuantumKernel
         }
-        match result with
-        | Ok index ->
-            Assert.Equal(QuantumKernel, index.Metric)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        result |> Result.map (fun index -> Assert.Equal(QuantumKernel, index.Metric)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``CE similaritySearch with invalid threshold should return error`` () =

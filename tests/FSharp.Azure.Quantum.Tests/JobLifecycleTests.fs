@@ -55,12 +55,11 @@ module JobLifecycleTests =
             }
             
             // Act: Submit job
-            let! result = submitJobAsync httpClient workspaceUrl submission
             
             // Assert: Should succeed
-            match result with
+            match! submitJobAsync httpClient workspaceUrl submission with
             | Ok returnedJobId -> Assert.Equal(jobId, returnedJobId)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     [<Fact>]
@@ -85,13 +84,12 @@ module JobLifecycleTests =
             }
             
             // Act: Submit job with invalid credentials
-            let! result = submitJobAsync httpClient workspaceUrl submission
             
             // Assert: Should return InvalidCredentials error
-            match result with
+            match! submitJobAsync httpClient workspaceUrl submission with
             | Ok _ -> Assert.True(false, "Expected InvalidCredentials error")
             | Error (QuantumError.AzureError(AzureQuantumError.InvalidCredentials)) -> Assert.True(true)
-            | Error other -> Assert.True(false, sprintf "Expected InvalidCredentials but got: %A" other)
+            | Error other -> Assert.True(false, $"Expected InvalidCredentials but got: %A{other}")
         }
     
     // ============================================================================
@@ -112,23 +110,23 @@ module JobLifecycleTests =
                         "creationTime": "2025-01-01T10:00:00Z",
                         "beginExecutionTime": "2025-01-01T10:00:05Z"
                     }}"""
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let workspaceUrl = "https://test.quantum.azure.com"
             
             // Act: Get job status
-            let! result = getJobStatusAsync httpClient workspaceUrl jobId
             
             // Assert: Should return QuantumJob with Executing status
-            match result with
+            match! getJobStatusAsync httpClient workspaceUrl jobId with
             | Ok job -> 
                 Assert.Equal(jobId, job.JobId)
                 Assert.Equal(Types.JobStatus.Executing, job.Status)
                 Assert.Equal("ionq.simulator", job.Target)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     [<Fact>]
@@ -146,22 +144,22 @@ module JobLifecycleTests =
                         "beginExecutionTime": "2025-01-01T10:00:05Z",
                         "endExecutionTime": "2025-01-01T10:00:10Z"
                     }}"""
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let workspaceUrl = "https://test.quantum.azure.com"
             
             // Act: Get job status
-            let! result = getJobStatusAsync httpClient workspaceUrl jobId
             
             // Assert: Should return QuantumJob with Succeeded status
-            match result with
+            match! getJobStatusAsync httpClient workspaceUrl jobId with
             | Ok job -> 
                 Assert.Equal(Types.JobStatus.Succeeded, job.Status)
                 Assert.True(job.EndExecutionTime.IsSome)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     [<Fact>]
@@ -181,33 +179,32 @@ module JobLifecycleTests =
                             "message": "Circuit contains invalid gates"
                         }}
                     }}"""
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let workspaceUrl = "https://test.quantum.azure.com"
             
             // Act: Get job status
-            let! result = getJobStatusAsync httpClient workspaceUrl jobId
             
             // Assert: Should return QuantumJob with Failed status and error details
-            match result with
+            match! getJobStatusAsync httpClient workspaceUrl jobId with
             | Ok job -> 
                 match job.Status with
                 | Types.JobStatus.Failed (code, message) ->
                     Assert.Equal("InvalidCircuit", code)
                     Assert.Contains("invalid gates", message)
-                | _ -> Assert.True(false, sprintf "Expected Failed status but got: %A" job.Status)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+                | _ -> Assert.True(false, $"Expected Failed status but got: %A{job.Status}")
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     // ============================================================================
     // Polling Tests
     // ============================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``pollJobUntilCompleteAsync should poll until job succeeds`` () : Task =
         task {
             // Arrange: Mock that returns Executing twice, then Succeeded
@@ -237,24 +234,24 @@ module JobLifecycleTests =
                             "endExecutionTime": "2025-01-01T10:00:10Z"
                         }}"""
                 
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let workspaceUrl = "https://test.quantum.azure.com"
             let timeout = TimeSpan.FromSeconds(30.0)
-            let cts = new CancellationTokenSource()
+            use cts = new CancellationTokenSource()
             
             // Act: Poll until complete
-            let! result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token
             
             // Assert: Should eventually succeed after 3 calls
-            match result with
+            match! pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token with
             | Ok job -> 
                 Assert.Equal(3, callCount)  // Should have polled 3 times
                 Assert.Equal(Types.JobStatus.Succeeded, job.Status)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     [<Fact>]
@@ -270,28 +267,28 @@ module JobLifecycleTests =
                         "target": "ionq.simulator",
                         "creationTime": "2025-01-01T10:00:00Z"
                     }}"""
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let workspaceUrl = "https://test.quantum.azure.com"
             let timeout = TimeSpan.FromSeconds(30.0)
-            let cts = new CancellationTokenSource()
+            use cts = new CancellationTokenSource()
             
             // Cancel immediately
-            cts.Cancel()
+            do! cts.CancelAsync()
             
             // Act: Poll with canceled token
-            let! result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token
             
             // Assert: Should return Cancelled error
-            match result with
+            match! pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token with
             | Ok _ -> Assert.True(false, "Expected cancellation error")
             | Error err -> 
                 match err with
-                | QuantumError.OperationError(_, context) when context.Contains("cancelled") -> Assert.True(true)
-                | _ -> Assert.True(false, sprintf "Expected Cancelled error but got: %A" err)
+                | QuantumError.OperationError(_, context) when context.Contains "cancelled" -> Assert.True(true)
+                | _ -> Assert.True(false, $"Expected Cancelled error but got: %A{err}")
         }
     
     [<Fact>]
@@ -307,25 +304,25 @@ module JobLifecycleTests =
                         "target": "ionq.simulator",
                         "creationTime": "2025-01-01T10:00:00Z"
                     }}"""
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let workspaceUrl = "https://test.quantum.azure.com"
             let timeout = TimeSpan.FromMilliseconds(100.0)  // Very short timeout
-            let cts = new CancellationTokenSource()
+            use cts = new CancellationTokenSource()
             
             // Act: Poll with short timeout
-            let! result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token
             
             // Assert: Should return timeout error
-            match result with
+            match! pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token with
             | Ok _ -> Assert.True(false, "Expected timeout error")
             | Error err -> 
                 match err with
-                | QuantumError.OperationError(_, context) when context.Contains("cancelled") -> Assert.True(true)  // Timeout manifests as cancellation
-                | _ -> Assert.True(false, sprintf "Expected timeout/cancelled but got: %A" err)
+                | QuantumError.OperationError(_, context) when context.Contains "cancelled" -> Assert.True(true)  // Timeout manifests as cancellation
+                | _ -> Assert.True(false, $"Expected timeout/cancelled but got: %A{err}")
         }
     
     // ============================================================================
@@ -340,22 +337,22 @@ module JobLifecycleTests =
             let mockResponse _ = 
                 let jsonResponse = 
                     """{"histogram":{"00":512,"11":488},"shots":1000}"""
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent(jsonResponse, Encoding.UTF8, "application/json"))
+                               )
                 Task.FromResult(response)
             
             let httpClient = createMockHttpClient mockResponse
             let blobUri = "https://storage.blob.core.windows.net/results/job-123.json"
             
             // Act: Get job result
-            let! result = getJobResultAsync httpClient blobUri
             
             // Assert: Should return JobResult with data
-            match result with
+            match! getJobResultAsync httpClient blobUri with
             | Ok jobResult -> 
                 Assert.NotNull(jobResult.OutputData)
                 Assert.Equal("application/json", jobResult.OutputDataFormat)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     [<Fact>]
@@ -369,15 +366,14 @@ module JobLifecycleTests =
             let blobUri = "https://storage.blob.core.windows.net/results/nonexistent.json"
             
             // Act: Get job result
-            let! result = getJobResultAsync httpClient blobUri
             
             // Assert: Should return error
-            match result with
+            match! getJobResultAsync httpClient blobUri with
             | Ok _ -> Assert.True(false, "Expected error for 404")
             | Error err -> 
                 match err with
                 | QuantumError.AzureError(AzureQuantumError.UnknownError (404, _)) -> Assert.True(true)
-                | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)
+                | _ -> Assert.True(false, $"Expected 404 error but got: %A{err}")
         }
     
     // ============================================================================
@@ -396,12 +392,11 @@ module JobLifecycleTests =
             let workspaceUrl = "https://test.quantum.azure.com"
             
             // Act: Cancel job
-            let! result = cancelJobAsync httpClient workspaceUrl _jobId
             
             // Assert: Should succeed
-            match result with
+            match! cancelJobAsync httpClient workspaceUrl _jobId with
             | Ok () -> Assert.True(true)
-            | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
         }
     
     [<Fact>]
@@ -416,13 +411,12 @@ module JobLifecycleTests =
             let workspaceUrl = "https://test.quantum.azure.com"
             
             // Act: Cancel job
-            let! result = cancelJobAsync httpClient workspaceUrl jobId
             
             // Assert: Should return error
-            match result with
+            match! cancelJobAsync httpClient workspaceUrl jobId with
             | Ok _ -> Assert.True(false, "Expected error for 404")
             | Error err -> 
                 match err with
                 | QuantumError.AzureError(AzureQuantumError.UnknownError (404, _)) -> Assert.True(true)
-                | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)
+                | _ -> Assert.True(false, $"Expected 404 error but got: %A{err}")
         }

@@ -234,16 +234,12 @@ module ResultBuilderTests =
     [<Fact>]
     let ``Result.sequenceArray with all Ok returns Ok array`` () =
         let r = Result.sequenceArray [| Ok 10; Ok 20; Ok 30 |]
-        match r with
-        | Ok arr -> Assert.Equal<int array>([| 10; 20; 30 |], arr)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        r |> Result.map (fun arr -> Assert.Equal<int array>([| 10; 20; 30 |], arr)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``Result.sequenceArray with empty array returns Ok empty`` () =
         let r : Result<int array, string> = Result.sequenceArray [||]
-        match r with
-        | Ok arr -> Assert.Empty(arr)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        r |> Result.map (fun arr -> Assert.Empty(arr)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``Result.sequenceArray with Error returns first Error`` () =
@@ -253,9 +249,7 @@ module ResultBuilderTests =
     [<Fact>]
     let ``Result.traverseArray maps and sequences array`` () =
         let r = Result.traverseArray (fun x -> if x > 0 then Ok (x * 10) else Error "neg") [| 1; 2; 3 |]
-        match r with
-        | Ok arr -> Assert.Equal<int array>([| 10; 20; 30 |], arr)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        r |> Result.map (fun arr -> Assert.Equal<int array>([| 10; 20; 30 |], arr)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``Result.traverseArray returns first Error`` () =
@@ -273,12 +267,12 @@ module ResultBuilderTests =
 
     [<Fact>]
     let ``Result.orElseWith computes alternative on Error`` () =
-        let r = Result.orElseWith (fun e -> Ok (String.length e)) (Error "abc")
+        let r = Result.orElseWith (String.length >> Ok) (Error "abc")
         Assert.Equal(Ok 3, r)
 
     [<Fact>]
     let ``Result.orElseWith can return new Error`` () =
-        let r : Result<int, int> = Result.orElseWith (fun e -> Error (String.length e)) (Error "abc")
+        let r : Result<int, int> = Result.orElseWith (String.length >> Error) (Error "abc")
         Assert.Equal(Error 3, r)
 
     // ========================================================================

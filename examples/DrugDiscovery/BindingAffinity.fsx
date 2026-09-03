@@ -107,7 +107,8 @@ type BindingResult =
 
 let hartreeToKcalMol = 627.509
 let hartreeToKJMol = 2625.5
-let gasR_kcal = 1.987e-3    // Gas constant in kcal/(mol*K)
+/// Gas constant in kcal/(mol*K)
+let gasR_kcal = 1.987e-3
 
 // ==============================================================================
 // BUILT-IN BINDING SYSTEM PRESETS
@@ -239,11 +240,11 @@ let private presetNames =
 /// Parse atom list from compact string format:
 ///   "C:0,0,0|O:0,0,1.21|H:0.94,0,-0.54"
 let private parseAtoms (s: string) : Atom list =
-    s.Split('|')
+    s.Split '|'
     |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split(':')
+        let parts = entry.Trim().Split ':'
         if parts.Length = 2 then
-            let coords = parts.[1].Split(',')
+            let coords = parts.[1].Split ','
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
@@ -272,7 +273,7 @@ let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
 /// OR: name, preset (to reference a built-in preset by name)
 let private loadSystemsFromCsv (path: string) : BindingSystem list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

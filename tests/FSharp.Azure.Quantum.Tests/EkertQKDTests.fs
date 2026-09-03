@@ -43,7 +43,7 @@ let ``EkertQKD.run NoEavesdropper key bits correlated`` () =
             result.Pairs
             |> List.filter (fun p ->
                 match (p.AliceBasis, p.BobBasis) with
-                | (EkertQKD.AliceDeg0, EkertQKD.BobDeg0) -> true
+                | (EkertQKD.AliceDeg0, EkertQKD.BobDeg0)
                 | (EkertQKD.AliceDeg45, EkertQKD.BobDeg45) -> true
                 | _ -> false)
 
@@ -144,17 +144,13 @@ let ``EkertQKD.run uses all 9 basis combinations`` () =
 let ``EkertQKD.run rejects zero pairs`` () =
     let backend = createLocalBackend ()
 
-    match EkertQKD.run backend 0 None with
-    | Ok _ -> Assert.Fail("Expected Error for zero pairs")
-    | Error _ -> () // Expected: validation error
+    (EkertQKD.run backend 0 None) |> Result.iter (fun _ -> Assert.Fail("Expected Error for zero pairs")) // Expected: validation error
 
 [<Fact>]
 let ``EkertQKD.run rejects negative pairs`` () =
     let backend = createLocalBackend ()
 
-    match EkertQKD.run backend -5 None with
-    | Ok _ -> Assert.Fail("Expected Error for negative pairs")
-    | Error _ -> () // Expected: validation error
+    (EkertQKD.run backend -5 None) |> Result.iter (fun _ -> Assert.Fail("Expected Error for negative pairs")) // Expected: validation error
 
 // ========================================================================
 // Formatting tests (smoke tests)

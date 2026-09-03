@@ -122,7 +122,7 @@ let tolerance = Cli.getFloatOr "tolerance" 1e-6 args
 let basisSet = Cli.getOr "basis" "sto-3g" args
 let scanLengths =
     Cli.getOr "scan" "0.5,0.6,0.7,0.74,0.8,0.9,1.0" args
-    |> fun s -> s.Split(',')
+    |> fun s -> s.Split ','
     |> Array.choose (fun s ->
         match System.Double.TryParse(s.Trim()) with
         | true, v -> Some v

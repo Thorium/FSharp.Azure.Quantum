@@ -314,10 +314,7 @@ module FinancialDataTests =
         let portfolio = createPortfolio "Test" positions
         let covMatrix = { Assets = [| "A" |]; Values = [| [| 0.04 |] |]; IsAnnualized = true }
         let riskParams = { ConfidenceLevel = 0.95; TimeHorizon = 10; Distribution = Normal; LookbackPeriod = 252 }
-        match calculateParametricVaR portfolio covMatrix riskParams with
-        | Ok result ->
-            Assert.True(abs(result.VaRPercent - result.VaR / result.PortfolioValue) < 1e-10)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+        (calculateParametricVaR portfolio covMatrix riskParams) |> Result.map (fun result -> Assert.True(abs(result.VaRPercent - result.VaR / result.PortfolioValue) < 1e-10)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``calculateHistoricalVaR rejects insufficient data`` () =
@@ -338,7 +335,7 @@ module FinancialDataTests =
         let portfolio = createPortfolio "Test" [ makePosition "A" 100.0 100.0 Equity ]
         let rng = Random(42)
         let logReturns = Array.init 50 (fun _ -> (rng.NextDouble() - 0.5) * 0.02)
-        let dates = Array.init 50 (fun i -> DateTime(2024, 1, 1).AddDays(float i))
+        let dates = Array.init 50 (float >> DateTime(2024, 1, 1).AddDays)
         let returnSeries = [| {
             Symbol = "A"; StartDate = dates.[0]; EndDate = dates.[49]
             LogReturns = logReturns; SimpleReturns = logReturns; Dates = dates

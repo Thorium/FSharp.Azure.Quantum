@@ -300,8 +300,8 @@ module QuantumState =
             // Extract numQubits from IsingProblem (stored as obj to avoid circular dependency)
             // Uses reflection to access LinearCoeffs and QuadraticCoeffs maps
             let problemType = problem.GetType()
-            let linearCoeffs = problemType.GetProperty("LinearCoeffs").GetValue(problem) :?> Map<int, float>
-            let quadraticCoeffs = problemType.GetProperty("QuadraticCoeffs").GetValue(problem) :?> Map<(int * int), float>
+            let linearCoeffs = problemType.GetProperty("LinearCoeffs").GetValue problem :?> Map<int, float>
+            let quadraticCoeffs = problemType.GetProperty("QuadraticCoeffs").GetValue problem :?> Map<(int * int), float>
             
             let allIndices = 
                 seq {
@@ -466,8 +466,8 @@ module QuantumState =
                     solutionsSeq
                     |> Seq.collect (fun sol ->
                         let solType = sol.GetType()
-                        let spins = solType.GetProperty("Spins").GetValue(sol) :?> Map<int, int>
-                        let occurrences = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
+                        let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
+                        let occurrences = solType.GetProperty("NumOccurrences").GetValue sol :?> int
                         Seq.replicate occurrences spins
                     )
                     |> Array.ofSeq
@@ -496,7 +496,7 @@ module QuantumState =
                     Array.init shots (fun _ -> Array.zeroCreate n)
                 else
                     Array.init shots (fun _ ->
-                        let r = rng.Next(total)
+                        let r = rng.Next total
                         let idx = cumulative |> Array.findIndex (fun c -> r < c)
                         toBits (fst entries.[idx]))
 
@@ -568,8 +568,8 @@ module QuantumState =
                     solutionsSeq
                     |> Seq.fold (fun (total, matching) sol ->
                         let solType = sol.GetType()
-                        let spins = solType.GetProperty("Spins").GetValue(sol) :?> Map<int, int>
-                        let occ = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
+                        let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
+                        let occ = solType.GetProperty("NumOccurrences").GetValue sol :?> int
                         
                         // Check if this solution matches the bitstring
                         let matches = 
@@ -701,8 +701,8 @@ module QuantumState =
                     solutionsList
                     |> List.fold (fun (total, best) sol ->
                         let solType = sol.GetType()
-                        let occ = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
-                        let energy = solType.GetProperty("Energy").GetValue(sol) :?> float
+                        let occ = solType.GetProperty("NumOccurrences").GetValue sol :?> int
+                        let energy = solType.GetProperty("Energy").GetValue sol :?> float
                         total + occ, min best energy
                     ) (0, Double.MaxValue)
                 

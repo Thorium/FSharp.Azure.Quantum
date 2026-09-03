@@ -201,7 +201,7 @@ let private builtinInteractions : Interaction list =
 /// OR: name, preset (to reference a built-in preset by name)
 let private loadProteinsFromCsv (path: string) : Protein list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 
@@ -238,7 +238,7 @@ let private loadProteinsFromCsv (path: string) : Protein list =
 /// Expected columns: source, target, strength
 let private loadInteractionsFromCsv (path: string) : Interaction list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

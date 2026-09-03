@@ -184,9 +184,7 @@ let ``Molecule.fromProvider with custom provider works`` () =
     let provider = ChemistryDataProviders.defaultDatasetProvider
     let result = Molecule.fromProvider provider "LiH"
     Assert.True(Result.isOk result)
-    match result with
-    | Ok mol -> Assert.Equal("LiH", mol.Name)
-    | Error _ -> ()
+    result |> Result.iter (fun mol -> Assert.Equal("LiH", mol.Name))
 
 [<Fact>]
 let ``Molecule.fromInstance converts MoleculeInstance correctly`` () =

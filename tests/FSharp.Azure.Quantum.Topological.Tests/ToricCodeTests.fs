@@ -321,9 +321,7 @@ module ToricCodeTests =
     [<Fact>]
     let ``greedyMatching with empty excitations returns empty list`` () =
         let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
-        match ToricCode.greedyMatching lattice [] with
-        | Ok pairs -> Assert.Empty(pairs)
-        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+        (ToricCode.greedyMatching lattice []) |> Result.map (fun pairs -> Assert.Empty(pairs)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
     [<Fact>]
     let ``greedyMatching with odd excitations returns error`` () =
@@ -503,10 +501,7 @@ module ToricCodeTests =
         
         if excitations.Length > 0 then
             Assert.True(excitations.Length % 2 = 0)
-            match ToricCode.decodePlaquetteSyndrome lattice syndrome with
-            | Ok result ->
-                Assert.True(result.MatchedPairs.Length > 0)
-            | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+            (ToricCode.decodePlaquetteSyndrome lattice syndrome) |> Result.map (fun result -> Assert.True(result.MatchedPairs.Length > 0)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
     // ========================================================================
     // MWPM DECODER: FULL SYNDROME DECODING AND CORRECTION

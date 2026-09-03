@@ -101,7 +101,7 @@ module OpenQasmVersion =
     /// Detect QasmVersion from an OpenQASM header string.
     /// Returns Ok with detected version, or Error with message for unsupported versions.
     let detectVersion (qasm: string) : Result<QasmVersion, string> =
-        let m = versionHeaderPattern.Match(qasm)
+        let m = versionHeaderPattern.Match qasm
         if not m.Success then
             Error "Missing OPENQASM version declaration"
         else

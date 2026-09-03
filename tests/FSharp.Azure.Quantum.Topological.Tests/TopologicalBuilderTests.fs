@@ -24,9 +24,8 @@ module TopologicalBuilderTests =
             return ()
         }
         
-        let! result = TopologicalBuilder.execute backend program
         
-        match result with
+        match! TopologicalBuilder.execute backend program with
         | Ok _ -> Assert.True(true)
         | Error err -> Assert.Fail($"Program failed: {err.Message}")
     }
@@ -42,9 +41,8 @@ module TopologicalBuilderTests =
             return ()
         }
         
-        let! result = TopologicalBuilder.execute backend program
         
-        match result with
+        match! TopologicalBuilder.execute backend program with
         | Ok _ -> Assert.True(true) // Success - operations threaded correctly
         | Error err -> Assert.Fail($"Program failed: {err.Message}")
     }
@@ -63,9 +61,8 @@ module TopologicalBuilderTests =
             return ()
         }
         
-        let! result = TopologicalBuilder.execute simulatorBackend program
         
-        match result with
+        match! TopologicalBuilder.execute simulatorBackend program with
         | Ok _ -> Assert.True(true)
         | Error err -> Assert.Fail($"Program failed: {err.Message}")
         
@@ -88,9 +85,8 @@ module TopologicalBuilderTests =
             return ()
         }
         
-        let! result = TopologicalBuilder.execute backend program
         
-        match result with
+        match! TopologicalBuilder.execute backend program with
         | Ok _ ->
             // Successfully completed braiding sequence
             Assert.True(true)
@@ -112,9 +108,8 @@ module TopologicalBuilderTests =
             return outcome
         }
         
-        let! result = TopologicalBuilder.execute backend program
         
-        match result with
+        match! TopologicalBuilder.execute backend program with
         | Ok outcome ->
             // Measurement should succeed on a pure state
             Assert.True(true, $"Got outcome: {outcome}")
@@ -156,8 +151,7 @@ module TopologicalBuilderTests =
                     }
                     
                     // Attempt measurement on multi-term superposition
-                    let! measureResult = TopologicalBuilder.measure 0 ctx
-                    match measureResult with
+                    match! TopologicalBuilder.measure 0 ctx with
                     | Ok (particle, newCtx) ->
                         // Measurement should succeed and return a valid particle
                         Assert.NotNull(box particle)
@@ -202,8 +196,7 @@ module TopologicalBuilderTests =
             History = []
         }
         
-        let! measureResult = TopologicalBuilder.measure 0 ctx
-        match measureResult with
+        match! TopologicalBuilder.measure 0 ctx with
         | Ok (particle, _) ->
             // Result should be a valid Ising particle
             let validParticles = [AnyonSpecies.Particle.Vacuum; AnyonSpecies.Particle.Sigma; AnyonSpecies.Particle.Psi]

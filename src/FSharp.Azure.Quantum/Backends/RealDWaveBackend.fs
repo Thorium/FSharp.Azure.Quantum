@@ -220,7 +220,7 @@ module RealDWaveBackend =
     let private decodeQpAnswer (answer: JsonElement) : Result<DWaveSolution, string> =
         try
             let format =
-                match answer.TryGetProperty("format") with
+                match answer.TryGetProperty "format" with
                 | true, f -> f.GetString()
                 | _ -> ""
 
@@ -229,7 +229,7 @@ module RealDWaveBackend =
             else
                 let energiesRaw = decodeDoubles (answer.GetProperty("energies").GetString())
                 let offset =
-                    match answer.TryGetProperty("offset") with
+                    match answer.TryGetProperty "offset" with
                     | true, o when o.ValueKind = JsonValueKind.Number -> o.GetDouble()
                     | _ -> 0.0
                 let energies = energiesRaw |> Array.map (fun e -> e + offset)
@@ -237,7 +237,7 @@ module RealDWaveBackend =
                 let activeVariables = decodeInts (answer.GetProperty("active_variables").GetString())
 
                 let numOccurrences =
-                    match answer.TryGetProperty("num_occurrences") with
+                    match answer.TryGetProperty "num_occurrences" with
                     | true, n when n.ValueKind = JsonValueKind.String -> decodeInts (n.GetString())
                     | _ -> Array.create energies.Length 1  // answer_mode=raw: one occurrence each
 
@@ -256,7 +256,7 @@ module RealDWaveBackend =
                         solution)
 
                 let timing =
-                    match answer.TryGetProperty("timing") with
+                    match answer.TryGetProperty "timing" with
                     | true, t when t.ValueKind = JsonValueKind.Object ->
                         t.EnumerateObject()
                         |> Seq.choose (fun p ->
@@ -316,7 +316,7 @@ module RealDWaveBackend =
                             let! responseBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
                             use doc = JsonDocument.Parse(responseBody)
 
-                            match doc.RootElement.TryGetProperty("properties") with
+                            match doc.RootElement.TryGetProperty "properties" with
                             | false, _ ->
                                 return Error $"Solver '{config.Solver}' response has no 'properties' field"
                             | true, properties ->
@@ -353,9 +353,8 @@ module RealDWaveBackend =
         member this.SubmitProblemAsync(ising: IsingProblem, numReads: int) : Async<Result<string, string>> =
             async {
                 try
-                    let! topologyResult = this.GetSolverTopologyAsync()
 
-                    match topologyResult with
+                    match! this.GetSolverTopologyAsync() with
                     | Error e -> return Error e
                     | Ok topology ->
                         match encodeProblemAsQp topology ising with
@@ -399,16 +398,16 @@ module RealDWaveBackend =
                                     return Error $"Unexpected D-Wave submit response: {responseBody}"
                                 else
                                     let status = root.[0]
-                                    match status.TryGetProperty("id") with
+                                    match status.TryGetProperty "id" with
                                     | true, idEl when idEl.ValueKind = JsonValueKind.String ->
                                         return Ok (idEl.GetString())
                                     | _ ->
                                         // Per-problem submission error (e.g. invalid solver/params)
                                         let errorMsg =
-                                            match status.TryGetProperty("error_msg") with
+                                            match status.TryGetProperty "error_msg" with
                                             | true, e -> e.GetString()
                                             | _ ->
-                                                match status.TryGetProperty("error_message") with
+                                                match status.TryGetProperty "error_message" with
                                                 | true, e -> e.GetString()
                                                 | _ -> status.GetRawText()
                                         return Error $"D-Wave rejected problem submission: {errorMsg}"
@@ -444,14 +443,14 @@ module RealDWaveBackend =
                             let root = doc.RootElement
 
                             let status =
-                                match root.TryGetProperty("status") with
+                                match root.TryGetProperty "status" with
                                 | true, s when s.ValueKind = JsonValueKind.String -> s.GetString()
                                 | _ -> ""
 
                             // SAPI statuses: PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED
                             match status.ToUpperInvariant() with
                             | "COMPLETED" ->
-                                match root.TryGetProperty("answer") with
+                                match root.TryGetProperty "answer" with
                                 | true, answer ->
                                     return
                                         decodeQpAnswer answer
@@ -461,7 +460,7 @@ module RealDWaveBackend =
                                 | _ -> return Error $"D-Wave job {jobId} completed but response contains no answer"
                             | "FAILED" | "CANCELLED" ->
                                 let detail =
-                                    match root.TryGetProperty("error_message") with
+                                    match root.TryGetProperty "error_message" with
                                     | true, e when e.ValueKind = JsonValueKind.String -> $": {e.GetString()}"
                                     | _ -> ""
                                 return Error $"D-Wave job {jobId} failed with status: {status}{detail}"
@@ -506,11 +505,11 @@ module RealDWaveBackend =
         
         /// Get max qubits for solver
         let getMaxQubits (solverName: string) : int =
-            if solverName.Contains("system6") then 5640
-            elif solverName.Contains("system4") then 5000
-            elif solverName.Contains("system1") then 5000
-            elif solverName.Contains("prototype") then 1200
-            elif solverName.Contains("2000q") then 2048
+            if solverName.Contains "system6" then 5640
+            elif solverName.Contains "system4" then 5000
+            elif solverName.Contains "system1" then 5000
+            elif solverName.Contains "prototype" then 1200
+            elif solverName.Contains "2000q" then 2048
             else 5000  // Default
         
         /// Execute circuit on D-Wave hardware
@@ -533,15 +532,13 @@ module RealDWaveBackend =
                         return Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"))
                     else
                         // Submit to D-Wave
-                        let! submitResult = client.SubmitProblemAsync(ising, numShots)
                         
-                        match submitResult with
+                        match! client.SubmitProblemAsync(ising, numShots) with
                         | Error e -> return Error (QuantumError.BackendError ("D-Wave Submit", e))
                         | Ok jobId ->
                             // Wait for completion
-                            let! pollResult = client.PollJobAsync(jobId, ising.Offset)
                             
-                            match pollResult with
+                            match! client.PollJobAsync(jobId, ising.Offset) with
                             | Error e -> return Error (QuantumError.BackendError ("D-Wave Poll", e))
                             | Ok solution ->
                                 // Convert Ising spin solutions to binary measurements
@@ -640,10 +637,7 @@ module RealDWaveBackend =
                 | BackendAbstraction.QuantumOperation.Sequence ops ->
                     ops
                     |> List.fold (fun stateResult op ->
-                        match stateResult with
-                        | Error err -> Error err
-                        | Ok currentState ->
-                            (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState
+                        stateResult |> Result.bind (fun currentState -> (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState)
                     ) (Ok state)
                 | BackendAbstraction.QuantumOperation.Extension (:? DWaveBackend.AnnealIsingOperation as annealOp) ->
                     if annealOp.NumReads <= 0 then
@@ -699,13 +693,11 @@ module RealDWaveBackend =
                         Task.FromResult(Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}")))
                     else
                         let asyncWork = async {
-                            let! submitResult = client.SubmitProblemAsync(ising, 1)
-                            match submitResult with
+                            match! client.SubmitProblemAsync(ising, 1) with
                             | Error e ->
                                 return Error (QuantumError.BackendError ("D-Wave Submit", e))
                             | Ok jobId ->
-                                let! pollResult = client.PollJobAsync(jobId, ising.Offset)
-                                match pollResult with
+                                match! client.PollJobAsync(jobId, ising.Offset) with
                                 | Error e ->
                                     return Error (QuantumError.BackendError ("D-Wave Poll", e))
                                 | Ok solution ->
@@ -729,7 +721,7 @@ module RealDWaveBackend =
                             | Error _ -> ()
                             | Ok currentState ->
                                 let! next =
-                                    (this :> BackendAbstraction.IQuantumBackend).ApplyOperationAsync op currentState CancellationToken.None
+                                    (this :> BackendAbstraction.IQuantumBackend).ApplyOperationAsync op currentState _ct
                                     |> Async.AwaitTask
                                 current <- next
                         return current
@@ -742,13 +734,11 @@ module RealDWaveBackend =
                         match state with
                         | QuantumState.IsingSamples _ ->
                             let asyncWork = async {
-                                let! submitResult = client.SubmitProblemAsync(annealOp.Problem, annealOp.NumReads)
-                                match submitResult with
+                                match! client.SubmitProblemAsync(annealOp.Problem, annealOp.NumReads) with
                                 | Error e ->
                                     return Error (QuantumError.BackendError ("D-Wave Submit", e))
                                 | Ok jobId ->
-                                    let! pollResult = client.PollJobAsync(jobId, annealOp.Problem.Offset)
-                                    match pollResult with
+                                    match! client.PollJobAsync(jobId, annealOp.Problem.Offset) with
                                     | Error e ->
                                         return Error (QuantumError.BackendError ("D-Wave Poll", e))
                                     | Ok solution ->

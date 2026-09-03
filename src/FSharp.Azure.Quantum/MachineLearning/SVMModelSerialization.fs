@@ -157,8 +157,7 @@ module SVMModelSerialization =
                     Note = note
                 }
                 
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
+                let options = JsonSerializerOptions(WriteIndented = true)
                 
                 let json = JsonSerializer.Serialize(serializable, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
@@ -229,18 +228,18 @@ module SVMModelSerialization =
                 let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
                 
                 logInfo logger "=== Binary SVM Model Information ==="
-                logInfo logger (sprintf "File: %s" filePath)
-                logInfo logger (sprintf "Saved at: %s" model.SavedAt)
-                logInfo logger (sprintf "Support Vectors: %d" model.SupportVectorIndices.Length)
-                logInfo logger (sprintf "Training Samples: %d" model.TrainData.Length)
+                logInfo logger ($"File: %s{filePath}")
+                logInfo logger ($"Saved at: %s{model.SavedAt}")
+                logInfo logger ($"Support Vectors: %d{model.SupportVectorIndices.Length}")
+                logInfo logger ($"Training Samples: %d{model.TrainData.Length}")
                 logInfo logger (sprintf "Features: %d" (if model.TrainData.Length > 0 then model.TrainData.[0].Length else 0))
-                logInfo logger (sprintf "Bias: %.6f" model.Bias)
-                logInfo logger (sprintf "Feature Map: %s" model.FeatureMap.Type)
+                logInfo logger ($"Bias: %.6f{model.Bias}")
+                logInfo logger ($"Feature Map: %s{model.FeatureMap.Type}")
                 match model.FeatureMap.Depth with
-                | Some d -> logInfo logger (sprintf "  Depth: %d" d)
+                | Some d -> logInfo logger ($"  Depth: %d{d}")
                 | None -> ()
                 match model.Note with
-                | Some note -> logInfo logger (sprintf "Note: %s" note)
+                | Some note -> logInfo logger ($"Note: %s{note}")
                 | None -> ()
                 logInfo logger "===================================="
                 Ok ()
@@ -282,8 +281,7 @@ module SVMModelSerialization =
                     Note = note
                 }
                 
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
+                let options = JsonSerializerOptions(WriteIndented = true)
                 
                 let json = JsonSerializer.Serialize(serializable, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
@@ -372,21 +370,21 @@ module SVMModelSerialization =
                 let model = JsonSerializer.Deserialize<SerializableMultiClassSVMModel>(json)
                 
                 logInfo logger "=== Multi-Class SVM Model Information ==="
-                logInfo logger (sprintf "File: %s" filePath)
-                logInfo logger (sprintf "Saved at: %s" model.SavedAt)
-                logInfo logger (sprintf "Number of Classes: %d" model.NumClasses)
-                logInfo logger (sprintf "Class Labels: %A" model.ClassLabels)
-                logInfo logger (sprintf "Binary Models: %d" model.BinaryModels.Length)
+                logInfo logger ($"File: %s{filePath}")
+                logInfo logger ($"Saved at: %s{model.SavedAt}")
+                logInfo logger ($"Number of Classes: %d{model.NumClasses}")
+                logInfo logger ($"Class Labels: %A{model.ClassLabels}")
+                logInfo logger ($"Binary Models: %d{model.BinaryModels.Length}")
                 
                 for i in 0 .. model.BinaryModels.Length - 1 do
                     let bm = model.BinaryModels.[i]
                     logInfo logger (sprintf "  Class %d vs Rest:" model.ClassLabels.[i])
-                    logInfo logger (sprintf "    Support Vectors: %d" bm.SupportVectorIndices.Length)
-                    logInfo logger (sprintf "    Bias: %.6f" bm.Bias)
-                    logInfo logger (sprintf "    Feature Map: %s" bm.FeatureMap.Type)
+                    logInfo logger ($"    Support Vectors: %d{bm.SupportVectorIndices.Length}")
+                    logInfo logger ($"    Bias: %.6f{bm.Bias}")
+                    logInfo logger ($"    Feature Map: %s{bm.FeatureMap.Type}")
                 
                 match model.Note with
-                | Some note -> logInfo logger (sprintf "Note: %s" note)
+                | Some note -> logInfo logger ($"Note: %s{note}")
                 | None -> ()
                 logInfo logger "=========================================="
                 Ok ()

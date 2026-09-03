@@ -618,16 +618,16 @@ module GateTranspiler =
         let (needsPhaseDecomp, needsCZDecomp, needsSWAPDecomp, needsCCXDecomp, needsControlledRotationDecomp) =
             match backendName.ToLowerInvariant() with
             // IonQ: Native SWAP support, but needs S/T, CZ, controlled rotations, CCX decomposed
-            | name when name.Contains("ionq") -> 
+            | name when name.Contains "ionq" -> 
                 (true, true, false, true, true)  // SWAP is natively supported
             
             // Rigetti: Native CZ and SWAP, but needs S/T, controlled rotations, CCX decomposed
-            | name when name.Contains("rigetti") -> 
+            | name when name.Contains "rigetti" -> 
                 (true, false, false, true, true)  // CZ and SWAP natively supported
             
             // Quantinuum H-Series: Native CZ (trapped-ion), S, T, but no SWAP
             // Needs controlled rotation, SWAP, and CCX decomposition
-            | name when name.Contains("quantinuum") -> 
+            | name when name.Contains "quantinuum" -> 
                 (false, false, true, true, true)  // Needs SWAP decomposed
             
             // Atom Computing Phoenix: Native CZ (Rydberg blockade), all-to-all connectivity
@@ -636,12 +636,12 @@ module GateTranspiler =
                 (false, false, true, true, true)  // Needs SWAP decomposed
             
             // Local simulator supports everything
-            | name when name.Contains("local") -> 
+            | name when name.Contains "local" -> 
                 (false, false, false, false, false)
             
             // Topological backend: Needs all gates decomposed to elementary gates
             // For topological quantum computing (anyonic braiding), only CNOT, H, T, S, RZ supported
-            | name when name.Contains("topological") ->
+            | name when name.Contains "topological" ->
                 (false, true, true, true, true)  // Keep S/T, decompose CZ, SWAP, CCX, CRX/CRY/CRZ/CP
             
             // Unknown backend - be conservative, decompose everything

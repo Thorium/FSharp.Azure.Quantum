@@ -194,10 +194,7 @@ module FusionRules =
         : TopologicalResult<int> =
         
         fuse a b anyonType
-        |> Result.map (fun outcomes ->
-            outcomes
-            |> List.filter (fun outcome -> outcome.Result = c)
-            |> List.sumBy (fun outcome -> outcome.Multiplicity)
+        |> Result.map (List.filter (fun outcome -> outcome.Result = c) >> List.sumBy (fun outcome -> outcome.Multiplicity)
         )
     
     /// Check if fusion outcome is possible
@@ -225,10 +222,7 @@ module FusionRules =
         : TopologicalResult<AnyonSpecies.Particle list> =
         
         fuse a b anyonType
-        |> Result.map (fun outcomes ->
-            outcomes
-            |> List.map (fun outcome -> outcome.Result)
-            |> List.distinct
+        |> Result.map (List.map (fun outcome -> outcome.Result) >> List.distinct
         )
     
     /// Verify fusion algebra axioms (for testing)

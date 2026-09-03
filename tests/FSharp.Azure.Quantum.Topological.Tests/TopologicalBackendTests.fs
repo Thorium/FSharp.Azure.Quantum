@@ -46,14 +46,14 @@ module TopologicalBackendTests =
  
         match backend.InitializeState 2 with
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
         | Ok initialState ->
             let probe = LoweringProbeExtension()
             let op = QuantumOperation.Extension (probe :> IQuantumOperationExtension)
  
             match backend.ApplyOperation op initialState with
             | Error err ->
-                Assert.True(false, sprintf "ApplyOperation (extension) failed: %A" err)
+                Assert.True(false, $"ApplyOperation (extension) failed: %A{err}")
             | Ok (QuantumState.FusionSuperposition fs) ->
                 Assert.True(probe.WasLowered, "Expected LowerToGates() to be invoked")
                 Assert.True(fs.IsNormalized, "Expected resulting topological state to be normalized")
@@ -156,11 +156,11 @@ module TopologicalBackendTests =
 
         match backend.InitializeState 4 with
         | Error err ->
-            Assert.True(false, sprintf "InitializeState failed: %A" err)
+            Assert.True(false, $"InitializeState failed: %A{err}")
         | Ok initialState ->
             match backend.ApplyOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)) initialState with
             | Error err ->
-                Assert.True(false, sprintf "ApplyOperation (QPE intent) failed: %A" err)
+                Assert.True(false, $"ApplyOperation (QPE intent) failed: %A{err}")
             | Ok (QuantumState.FusionSuperposition fs) ->
                 Assert.True(fs.IsNormalized, "Expected resulting topological state to be normalized")
             | Ok _ ->
@@ -267,13 +267,7 @@ module TopologicalBackendTests =
         // Business-meaningful: Braiding implements quantum gates
         let backend = TopologicalUnifiedBackendFactory.createIsing 20
 
-        match backend.InitializeState 2 with
-        | Error err -> Assert.Fail($"InitializeState failed: {err}")
-        | Ok initialState ->
-            match backend.ApplyOperation (QuantumOperation.Braid 0) initialState with
-            | Error err -> Assert.Fail($"Braid failed: {err}")
-            | Ok braidedState ->
-                Assert.NotEqual(initialState, braidedState)
+        (backend.InitializeState 2) |> Result.map (fun initialState -> (backend.ApplyOperation (QuantumOperation.Braid 0) initialState) |> Result.map (fun braidedState -> Assert.NotEqual(initialState, braidedState)) |> Result.defaultWith (fun err -> Assert.Fail($"Braid failed: {err}"))) |> Result.defaultWith (fun err -> Assert.Fail($"InitializeState failed: {err}"))
 
     [<Fact>]
     let ``Sequential braid operations compose correctly`` () =
@@ -401,10 +395,7 @@ module TopologicalBackendTests =
         | Error err -> Assert.Fail($"InitializeState failed: {err}")
         | Ok initialState ->
             let program = QuantumOperation.Sequence []
-            match backend.ApplyOperation program initialState with
-            | Error err -> Assert.Fail($"Empty sequence failed: {err}")
-            | Ok finalState ->
-                Assert.Equal(initialState, finalState)
+            (backend.ApplyOperation program initialState) |> Result.map (fun finalState -> Assert.Equal(initialState, finalState)) |> Result.defaultWith (fun err -> Assert.Fail($"Empty sequence failed: {err}"))
 
     // ========================================================================
     // UNIFIED BACKEND: FIBONACCI ANYONS

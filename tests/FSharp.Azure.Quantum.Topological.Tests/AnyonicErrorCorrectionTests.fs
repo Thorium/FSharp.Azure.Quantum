@@ -52,42 +52,32 @@ module AnyonicErrorCorrectionTests =
     let ``Charge violation: valid Ising tree has no violations`` () =
         let tree = isingVacuumTree ()
         let result = AnyonicErrorCorrection.detectChargeViolations tree AnyonSpecies.AnyonType.Ising
-        match result with
-        | Ok violations -> Assert.Empty(violations)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``Charge violation: valid Ising psi-channel tree has no violations`` () =
         let tree = isingPsiTree ()
         let result = AnyonicErrorCorrection.detectChargeViolations tree AnyonSpecies.AnyonType.Ising
-        match result with
-        | Ok violations -> Assert.Empty(violations)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``Charge violation: valid Fibonacci tree has no violations`` () =
         let tree = fibVacuumTree ()
         let result = AnyonicErrorCorrection.detectChargeViolations tree AnyonSpecies.AnyonType.Fibonacci
-        match result with
-        | Ok violations -> Assert.Empty(violations)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``Charge violation: leaf node has no violations`` () =
         let tree = FusionTree.leaf AnyonSpecies.Particle.Sigma
         let result = AnyonicErrorCorrection.detectChargeViolations tree AnyonSpecies.AnyonType.Ising
-        match result with
-        | Ok violations -> Assert.Empty(violations)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``Charge violation: invalid channel σ×σ→σ detected`` () =
         // σ×σ can only fuse to 1 or ψ, not σ
         let badTree = FusionTree.fuse (FusionTree.leaf AnyonSpecies.Particle.Sigma) (FusionTree.leaf AnyonSpecies.Particle.Sigma) AnyonSpecies.Particle.Sigma
         let result = AnyonicErrorCorrection.detectChargeViolations badTree AnyonSpecies.AnyonType.Ising
-        match result with
-        | Ok violations -> Assert.NotEmpty(violations)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.NotEmpty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``Charge violation: invalid Fibonacci τ×τ→ψ detected`` () =
@@ -95,9 +85,7 @@ module AnyonicErrorCorrectionTests =
         // But Psi is invalid for Fibonacci altogether, so this should detect a violation
         let badTree = FusionTree.fuse (FusionTree.leaf AnyonSpecies.Particle.Tau) (FusionTree.leaf AnyonSpecies.Particle.Tau) AnyonSpecies.Particle.Psi
         let result = AnyonicErrorCorrection.detectChargeViolations badTree AnyonSpecies.AnyonType.Fibonacci
-        match result with
-        | Ok violations -> Assert.NotEmpty(violations)
-        | Error _ -> () // An error is also acceptable for invalid particles
+        result |> Result.iter (fun violations -> Assert.NotEmpty(violations)) // An error is also acceptable for invalid particles
 
     [<Fact>]
     let ``Charge violation: nested violation detected deep in tree`` () =
@@ -107,9 +95,7 @@ module AnyonicErrorCorrectionTests =
         let rightOk = FusionTree.fuse (FusionTree.leaf AnyonSpecies.Particle.Sigma) (FusionTree.leaf AnyonSpecies.Particle.Sigma) AnyonSpecies.Particle.Vacuum
         let outerTree = FusionTree.fuse leftBad rightOk AnyonSpecies.Particle.Sigma
         let result = AnyonicErrorCorrection.detectChargeViolations outerTree AnyonSpecies.AnyonType.Ising
-        match result with
-        | Ok violations -> Assert.True(violations.Length >= 1, $"Expected at least 1 violation, got {violations.Length}")
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.True(violations.Length >= 1, $"Expected at least 1 violation, got {violations.Length}")) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     // ========================================================================
     // CHARGE VIOLATION INFO
@@ -176,9 +162,7 @@ module AnyonicErrorCorrectionTests =
             // The flipped tree should now have a charge violation at the outer level
             // because (σ×σ→ψ) × (σ×σ→1) cannot fuse to vacuum
             let violations = AnyonicErrorCorrection.detectChargeViolations flipped AnyonSpecies.AnyonType.Ising
-            match violations with
-            | Ok vs -> Assert.True(vs.Length >= 1, "Charge flip should cause violation")
-            | Error err -> Assert.Fail($"Unexpected error: {err}")
+            violations |> Result.map (fun vs -> Assert.True(vs.Length >= 1, "Charge flip should cause violation")) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     [<Fact>]
@@ -277,10 +261,7 @@ module AnyonicErrorCorrectionTests =
         let tree = isingVacuumTree ()
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
         let result = AnyonicErrorCorrection.correctChargeViolations state
-        match result with
-        | Ok corrected ->
-            Assert.True(FusionTree.equals corrected.Tree state.Tree)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun corrected -> Assert.True(FusionTree.equals corrected.Tree state.Tree)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``correctChargeViolations fixes single channel flip in Ising`` () =
@@ -292,9 +273,7 @@ module AnyonicErrorCorrectionTests =
         | Ok corrected ->
             // Corrected tree should have no violations
             let checkResult = AnyonicErrorCorrection.detectChargeViolations corrected.Tree AnyonSpecies.AnyonType.Ising
-            match checkResult with
-            | Ok violations -> Assert.Empty(violations)
-            | Error err -> Assert.Fail($"Unexpected error checking corrected tree: {err}")
+            checkResult |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error checking corrected tree: {err}"))
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     [<Fact>]
@@ -308,9 +287,7 @@ module AnyonicErrorCorrectionTests =
             match result with
             | Ok corrected ->
                 let checkResult = AnyonicErrorCorrection.detectChargeViolations corrected.Tree AnyonSpecies.AnyonType.Ising
-                match checkResult with
-                | Ok violations -> Assert.Empty(violations)
-                | Error err -> Assert.Fail($"Unexpected error: {err}")
+                checkResult |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
             | Error err -> Assert.Fail($"Unexpected error: {err}")
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
@@ -327,9 +304,7 @@ module AnyonicErrorCorrectionTests =
         match result with
         | Ok corrected ->
             let checkResult = AnyonicErrorCorrection.detectChargeViolations corrected.Tree AnyonSpecies.AnyonType.Fibonacci
-            match checkResult with
-            | Ok violations -> Assert.Empty(violations)
-            | Error err -> Assert.Fail($"Unexpected error: {err}")
+            checkResult |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     [<Fact>]
@@ -337,10 +312,7 @@ module AnyonicErrorCorrectionTests =
         let tree = FusionTree.leaf AnyonSpecies.Particle.Sigma
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
         let result = AnyonicErrorCorrection.correctChargeViolations state
-        match result with
-        | Ok corrected ->
-            Assert.True(FusionTree.equals corrected.Tree state.Tree)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun corrected -> Assert.True(FusionTree.equals corrected.Tree state.Tree)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     // ========================================================================
     // CORRECTION RESULT METADATA
@@ -351,20 +323,14 @@ module AnyonicErrorCorrectionTests =
         let badTree = FusionTree.fuse (FusionTree.leaf AnyonSpecies.Particle.Sigma) (FusionTree.leaf AnyonSpecies.Particle.Sigma) AnyonSpecies.Particle.Sigma
         let state = FusionTree.create badTree AnyonSpecies.AnyonType.Ising
         let result = AnyonicErrorCorrection.correctChargeViolations state
-        match result with
-        | Ok corrected ->
-            Assert.True(corrected.CorrectionsApplied > 0, "Should report at least one correction")
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun corrected -> Assert.True(corrected.CorrectionsApplied > 0, "Should report at least one correction")) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``correction result for valid tree reports zero corrections`` () =
         let tree = isingVacuumTree ()
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
         let result = AnyonicErrorCorrection.correctChargeViolations state
-        match result with
-        | Ok corrected ->
-            Assert.Equal(0, corrected.CorrectionsApplied)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun corrected -> Assert.Equal(0, corrected.CorrectionsApplied)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     // ========================================================================
     // TOTAL CHARGE PRESERVATION
@@ -382,9 +348,7 @@ module AnyonicErrorCorrectionTests =
             match AnyonicErrorCorrection.correctChargeViolations state with
             | Ok corrected ->
                 // The corrected tree should be fully valid
-                match FusionTree.isValid corrected.Tree AnyonSpecies.AnyonType.Ising with
-                | Ok valid -> Assert.True(valid, "Corrected tree should be valid")
-                | Error err -> Assert.Fail($"Unexpected error: {err}")
+                (FusionTree.isValid corrected.Tree AnyonSpecies.AnyonType.Ising) |> Result.map (fun valid -> Assert.True(valid, "Corrected tree should be valid")) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
             | Error err -> Assert.Fail($"Unexpected error: {err}")
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
@@ -398,10 +362,7 @@ module AnyonicErrorCorrectionTests =
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
         let superposition = TopologicalOperations.pureState state
         let result = AnyonicErrorCorrection.projectToCodeSpace superposition AnyonSpecies.Particle.Vacuum
-        match result with
-        | Ok projected ->
-            Assert.Equal(1, projected.Terms.Length)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun projected -> Assert.Equal(1, projected.Terms.Length)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``projectToCodeSpace filters out wrong-charge states`` () =
@@ -435,10 +396,7 @@ module AnyonicErrorCorrectionTests =
             TopologicalOperations.Superposition.AnyonType = AnyonSpecies.AnyonType.Ising
         }
         let result = AnyonicErrorCorrection.projectToCodeSpace superposition AnyonSpecies.Particle.Vacuum
-        match result with
-        | Ok projected ->
-            Assert.Empty(projected.Terms)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun projected -> Assert.Empty(projected.Terms)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``projectToCodeSpace renormalizes after projection`` () =
@@ -488,10 +446,7 @@ module AnyonicErrorCorrectionTests =
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Fibonacci
         let superposition = TopologicalOperations.pureState state
         let result = AnyonicErrorCorrection.fullCorrection superposition AnyonSpecies.Particle.Vacuum
-        match result with
-        | Ok corrected ->
-            Assert.True(corrected.Terms.Length >= 1)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun corrected -> Assert.True(corrected.Terms.Length >= 1)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     // ========================================================================
     // EDGE CASES AND VALIDATION
@@ -501,9 +456,7 @@ module AnyonicErrorCorrectionTests =
     let ``detectChargeViolations on two-particle valid tree`` () =
         let tree = FusionTree.fuse (FusionTree.leaf AnyonSpecies.Particle.Sigma) (FusionTree.leaf AnyonSpecies.Particle.Sigma) AnyonSpecies.Particle.Vacuum
         let result = AnyonicErrorCorrection.detectChargeViolations tree AnyonSpecies.AnyonType.Ising
-        match result with
-        | Ok violations -> Assert.Empty(violations)
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        result |> Result.map (fun violations -> Assert.Empty(violations)) |> Result.defaultWith (fun err -> Assert.Fail($"Unexpected error: {err}"))
 
     [<Fact>]
     let ``correctChargeViolations handles ψ×ψ→ψ violation`` () =

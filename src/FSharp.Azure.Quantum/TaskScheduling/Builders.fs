@@ -59,9 +59,7 @@ module Builders =
             this.Combine(task, f())
         
         member this.For(sequence: seq<'U>, body: 'U -> ScheduledTask<'T>) : ScheduledTask<'T> =
-            let mutable state = this.Zero()
-            for item in sequence do
-                state <- this.Combine(state, body item)
+            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
             state
 
         /// Set task identifier (required)
@@ -84,7 +82,7 @@ module Builders =
                     match value with
                     | :? (string list) as existing -> predecessorId :: existing
                     | _ -> [predecessorId]
-                | _ -> [predecessorId]
+                | None -> [predecessorId]
             { task with Properties = Map.add "__dependencies" (box deps) task.Properties }
 
         /// Add multiple dependencies
@@ -96,7 +94,7 @@ module Builders =
                     match value with
                     | :? (string list) as existing -> predecessorIds @ existing
                     | _ -> predecessorIds
-                | _ -> predecessorIds
+                | None -> predecessorIds
             { task with Properties = Map.add "__dependencies" (box deps) task.Properties }
 
         /// Add resource requirement
@@ -168,9 +166,7 @@ module Builders =
             this.Combine(resource, f())
         
         member this.For(sequence: seq<'U>, body: 'U -> Resource<'T>) : Resource<'T> =
-            let mutable state = this.Zero()
-            for item in sequence do
-                state <- this.Combine(state, body item)
+            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
             state
 
         /// Set resource identifier (required)
@@ -249,9 +245,7 @@ module Builders =
             this.Combine(problem, f())
         
         member this.For(sequence: seq<'U>, body: 'U -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
-            let mutable state = this.Zero()
-            for item in sequence do
-                state <- this.Combine(state, body item)
+            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
             state
 
         /// Set tasks to schedule (required)
@@ -267,7 +261,7 @@ module Builders =
                         | :? (string list) as deps ->
                             deps |> List.map (fun predId -> FinishToStart(predId, task.Id, TimeSpan.Zero))
                         | _ -> []
-                    | _ -> []
+                    | None -> []
                 )
             { problem with Tasks = tasks; Dependencies = dependencies }
 

@@ -21,15 +21,15 @@ module VisualizationExtensions =
                 match tree with
                 | FusionTree.Leaf particle ->
                     // Leaf: single anyon particle
-                    sb.AppendLine(sprintf "    n%d[\"%A\"]" nodeId particle) |> ignore
-                    sb.AppendLine(sprintf "    style n%d fill:#95e1d3,stroke:#333,stroke-width:2px" nodeId) |> ignore
+                    sb.AppendLine($"    n%d{nodeId}[\"%A{particle}\"]") |> ignore
+                    sb.AppendLine($"    style n%d{nodeId} fill:#95e1d3,stroke:#333,stroke-width:2px") |> ignore
                     nodeId + 1
                 
                 | FusionTree.Fusion (left, right, channel) ->
                     // Internal node: fusion operation
                     let currentNode = nodeId
-                    sb.AppendLine(sprintf "    n%d[\"Fusion<br/>→ %A\"]" currentNode channel) |> ignore
-                    sb.AppendLine(sprintf "    style n%d fill:#4ecdc4,stroke:#333,stroke-width:2px" currentNode) |> ignore
+                    sb.AppendLine($"    n%d{currentNode}[\"Fusion<br/>→ %A{channel}\"]") |> ignore
+                    sb.AppendLine($"    style n%d{currentNode} fill:#4ecdc4,stroke:#333,stroke-width:2px") |> ignore
                     
                     // Render left subtree
                     let nextId = renderNode left (nodeId + 1)
@@ -37,7 +37,7 @@ module VisualizationExtensions =
                     
                     // Render right subtree
                     let finalId = renderNode right nextId
-                    sb.AppendLine(sprintf "    n%d --> n%d" currentNode nextId) |> ignore
+                    sb.AppendLine($"    n%d{currentNode} --> n%d{nextId}") |> ignore
                     
                     finalId
             
@@ -47,7 +47,7 @@ module VisualizationExtensions =
             // Add metadata
             sb.AppendLine("") |> ignore
             sb.AppendLine(sprintf "    subgraph Info[\"Fusion Tree Info\"]") |> ignore
-            sb.AppendLine(sprintf "        info1[\"Theory: %A\"]" this.AnyonType) |> ignore
+            sb.AppendLine($"        info1[\"Theory: %A{this.AnyonType}\"]") |> ignore
             sb.AppendLine(sprintf "        info2[\"Anyons: %d\"]" (FusionTree.size this.Tree)) |> ignore
             sb.AppendLine(sprintf "        info3[\"Depth: %d\"]" (FusionTree.depth this.Tree)) |> ignore
             sb.AppendLine(sprintf "        info4[\"Total Charge: %A\"]" (FusionTree.totalCharge this.Tree this.AnyonType)) |> ignore
@@ -61,7 +61,7 @@ module VisualizationExtensions =
             let sb = StringBuilder()
             sb.AppendLine("Fusion Tree State") |> ignore
             sb.AppendLine("=================") |> ignore
-            sb.AppendLine(sprintf "Theory: %A" this.AnyonType) |> ignore
+            sb.AppendLine($"Theory: %A{this.AnyonType}") |> ignore
             sb.AppendLine(sprintf "Anyons: %d" (FusionTree.size this.Tree)) |> ignore
             sb.AppendLine(sprintf "Depth: %d" (FusionTree.depth this.Tree)) |> ignore
             sb.AppendLine(sprintf "Total Charge: %A" (FusionTree.totalCharge this.Tree this.AnyonType)) |> ignore
@@ -75,10 +75,10 @@ module VisualizationExtensions =
                 
                 match tree with
                 | FusionTree.Leaf particle ->
-                    sb.AppendLine(sprintf "%sLeaf: %A" prefix particle) |> ignore
+                    sb.AppendLine($"%s{prefix}Leaf: %A{particle}") |> ignore
                 
                 | FusionTree.Fusion (left, right, channel) ->
-                    sb.AppendLine(sprintf "%sFusion → %A" prefix channel) |> ignore
+                    sb.AppendLine($"%s{prefix}Fusion → %A{channel}") |> ignore
                     renderTree left childIndent false
                     renderTree right childIndent true
             
@@ -99,7 +99,7 @@ module VisualizationExtensions =
             let history = List.rev this.History
             
             // Helper to get anyon names
-            let getAnyonName i = sprintf "Anyon%d" i
+            let getAnyonName i = $"Anyon%d{i}"
             
             // Process history using fold to thread anyonCount state
             let _finalAnyonCount =
@@ -114,15 +114,15 @@ module VisualizationExtensions =
                     | TopologicalBuilder.Braid index ->
                         let left = getAnyonName index
                         let right = getAnyonName (index + 1)
-                        sb.AppendLine(sprintf "    %s->>%s: Braid σ%d" left right index) |> ignore
-                        sb.AppendLine(sprintf "    %s->>%s: Swap" right left) |> ignore
+                        sb.AppendLine($"    %s{left}->>%s{right}: Braid σ%d{index}") |> ignore
+                        sb.AppendLine($"    %s{right}->>%s{left}: Swap") |> ignore
                         anyonCount
                         
                     | TopologicalBuilder.Measure (index, outcome, prob) ->
                         let left = getAnyonName index
                         let right = getAnyonName (index + 1)
-                        sb.AppendLine(sprintf "    Note over %s,%s: Measure Fusion" left right) |> ignore
-                        sb.AppendLine(sprintf "    %s-->>%s: Result: %A (P=%.2f)" left right outcome prob) |> ignore
+                        sb.AppendLine($"    Note over %s{left},%s{right}: Measure Fusion") |> ignore
+                        sb.AppendLine($"    %s{left}-->>%s{right}: Result: %A{outcome} (P=%.2f{prob})") |> ignore
                         anyonCount
                         
                     | TopologicalBuilder.Comment msg ->

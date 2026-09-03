@@ -62,9 +62,12 @@ module SimilaritySearch =
     
     /// Similarity metric to use
     type SimilarityMetric =
-        | Cosine         // Cosine similarity (default)
-        | Euclidean      // Euclidean distance
-        | QuantumKernel  // Quantum kernel similarity
+        /// Cosine similarity (default)
+        | Cosine
+        /// Euclidean distance
+        | Euclidean
+        /// Quantum kernel similarity
+        | QuantumKernel
     
     /// Similarity search problem specification
     type SearchProblem<'T> = {
@@ -253,9 +256,9 @@ module SimilaritySearch =
             
             if problem.Verbose then
                 logInfo problem.Logger "Building similarity index..."
-                logInfo problem.Logger (sprintf "  Items: %d" problem.Items.Length)
-                logInfo problem.Logger (sprintf "  Features: %d" numFeatures)
-                logInfo problem.Logger (sprintf "  Metric: %A" problem.Metric)
+                logInfo problem.Logger ($"  Items: %d{problem.Items.Length}")
+                logInfo problem.Logger ($"  Features: %d{numFeatures}")
+                logInfo problem.Logger ($"  Metric: %A{problem.Metric}")
             
             // Precompute kernel matrix if using quantum kernel. A QuantumKernel index
             // must genuinely use the quantum kernel: if the kernel computation fails we
@@ -279,7 +282,7 @@ module SimilaritySearch =
                     |> Result.map (fun matrix ->
                         Some matrix, Some { Backend = backend; FeatureMap = featureMap; Shots = problem.Shots })
 
-                | _ -> Ok (None, None)
+                | Cosine | Euclidean -> Ok (None, None)
 
             kernelResult
             |> Result.map (fun (kernelMatrix, quantumConfig) ->
@@ -461,7 +464,7 @@ module SimilaritySearch =
                         | None ->
                             Error (QuantumError.Other
                                 "QuantumKernel duplicate detection requires a precomputed kernel matrix or a live backend; this index (loaded from disk) has neither.")
-                | _ -> Ok None
+                | Cosine | Euclidean -> Ok None
 
             matrixResult |> Result.bind (fun kernelOpt ->
 
@@ -658,7 +661,7 @@ module SimilaritySearch =
                 KernelMatrix = kernelArray
                 NumItems = index.Metadata.NumItems
                 NumFeatures = index.Metadata.NumFeatures
-                CreatedAt = index.Metadata.CreatedAt.ToString("o")
+                CreatedAt = index.Metadata.CreatedAt.ToString "o"
                 Note = index.Metadata.Note
             }
             

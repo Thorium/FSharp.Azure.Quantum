@@ -275,7 +275,7 @@ module TopologicalOperationsTests =
         let testCases = [
             (Complex(1.0, 0.0), 1.0)           // |1|² = 1
             (Complex(0.0, 1.0), 1.0)           // |i|² = 1
-            (Complex(1.0/sqrt(2.0), 0.0), 0.5) // |1/√2|² = 1/2
+            (Complex(1.0/sqrt 2.0, 0.0), 0.5) // |1/√2|² = 1/2
             (Complex(0.6, 0.8), 1.0)           // |0.6 + 0.8i|² = 0.36 + 0.64 = 1
         ]
         
@@ -736,9 +736,7 @@ module TopologicalOperationsTests =
         // R-phase of qubit 1's OWN fusion channel. This is the leaf-index mapping
         // that gate compilation (S/Z/Rz on qubit q → generator 2q) relies on.
         let mk bits =
-            match FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising with
-            | Ok tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising
-            | Error err -> failwith $"tree: {err.Message}"
+            (FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising) |> Result.map (fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun err -> failwith $"tree: {err.Message}")
 
         // [0; 1]: qubit 1 in ψ channel; [0; 0]: qubit 1 in vacuum channel
         let state01 = mk [0; 1]

@@ -44,9 +44,12 @@ module SurfaceCode =
 
     /// Pauli error type
     type PauliError =
-        | PauliX   // bit flip
-        | PauliZ   // phase flip
-        | PauliY   // both
+        /// bit flip
+        | PauliX
+        /// phase flip
+        | PauliZ
+        /// both
+        | PauliY
 
     // ========================================================================
     // PLANAR CODE
@@ -54,8 +57,10 @@ module SurfaceCode =
 
     /// Boundary type for the planar code
     type BoundaryType =
-        | Rough     // top and bottom edges: support X-type logical operator
-        | Smooth    // left and right edges: support Z-type logical operator
+        /// top and bottom edges: support X-type logical operator
+        | Rough
+        /// left and right edges: support Z-type logical operator
+        | Smooth
 
     /// Edge orientation on the planar lattice
     type PlanarEdgeType =

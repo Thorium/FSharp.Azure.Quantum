@@ -14,7 +14,7 @@ module Cli =
             else
                 let token = argv.[i]
                 if token.StartsWith("--", StringComparison.Ordinal) then
-                    let key = token.Substring(2)
+                    let key = token.Substring 2
                     let nextIsValue =
                         i + 1 < argv.Length && not (argv.[i + 1].StartsWith("--", StringComparison.Ordinal))
 

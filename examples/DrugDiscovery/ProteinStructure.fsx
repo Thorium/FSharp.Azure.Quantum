@@ -262,12 +262,12 @@ let parsePdbContent (content: string) : PdbStructure =
 
     let header =
         lines
-        |> Array.tryFind (fun l -> l.StartsWith("HEADER"))
+        |> Array.tryFind (fun l -> l.StartsWith "HEADER")
         |> Option.defaultValue ""
 
     let title =
         lines
-        |> Array.filter (fun l -> l.StartsWith("TITLE"))
+        |> Array.filter (fun l -> l.StartsWith "TITLE")
         |> Array.map (fun l -> if l.Length > 10 then l.[10..].Trim() else "")
         |> String.concat " "
 

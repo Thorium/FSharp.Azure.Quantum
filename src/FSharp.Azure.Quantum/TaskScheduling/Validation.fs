@@ -22,7 +22,7 @@ module Validation =
             |> List.map fst
 
         if not (List.isEmpty duplicates) then
-            Error (QuantumError.ValidationError ("TaskIds", sprintf "Duplicate task IDs found: %A" duplicates))
+            Error (QuantumError.ValidationError ("TaskIds", $"Duplicate task IDs found: %A{duplicates}"))
         else
 
         // Check all dependencies reference existing tasks
@@ -32,10 +32,10 @@ module Validation =
             |> List.filter (fun dep ->
                 match dep with
                 | FinishToStart(predId, succId, _) ->
-                    not (Set.contains predId taskIds) || not (Set.contains succId taskIds)
+                    not ((Set.contains predId taskIds) && (Set.contains succId taskIds))
             )
 
         if not (List.isEmpty invalidDeps) then
-            Error (QuantumError.ValidationError ("Dependencies", sprintf "Invalid task dependencies reference non-existent tasks: %A" invalidDeps))
+            Error (QuantumError.ValidationError ("Dependencies", $"Invalid task dependencies reference non-existent tasks: %A{invalidDeps}"))
         else
             Ok ()

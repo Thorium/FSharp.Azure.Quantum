@@ -109,13 +109,13 @@ module MultiClassSVM =
             else
                 if config.Verbose then
                     logInfo config.Logger "Training One-vs-Rest multi-class SVM..."
-                    logInfo config.Logger (sprintf "  Classes: %d (%A)" numClasses uniqueClasses)
+                    logInfo config.Logger ($"  Classes: %d{numClasses} (%A{uniqueClasses})")
                 
                 // Train one binary classifier per class (functional)
                 uniqueClasses
                 |> Array.map (fun classLabel ->
                     if config.Verbose then
-                        logInfo config.Logger (sprintf "  Training classifier for class %d vs rest..." classLabel)
+                        logInfo config.Logger ($"  Training classifier for class %d{classLabel} vs rest...")
                     
                     // Create binary labels (class vs. rest)
                     let binaryLabels = createBinaryLabels trainLabels classLabel

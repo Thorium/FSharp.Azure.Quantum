@@ -21,7 +21,7 @@ module Client =
         // no jobs route, and the bearer token acquired by Authentication.fs is
         // scoped to https://quantum.microsoft.com/.default, which ARM rejects —
         // the previous ARM base URL made every live call fail with 401/404.
-        let private dataPlaneHost location = sprintf "https://%s.quantum.azure.com" location
+        let private dataPlaneHost location = $"https://%s{location}.quantum.azure.com"
 
         let private workspacePath subscriptionId resourceGroup workspaceName =
             sprintf
@@ -104,7 +104,7 @@ module Client =
             else
                 // Extract shot count from input params
                 let shots =
-                    match submission.InputParams.TryFind("shots") with
+                    match submission.InputParams.TryFind "shots" with
                     | Some s ->
                         try
                             s :?> int
@@ -179,7 +179,7 @@ module Client =
                 )
 
                 // Check cost limits before proceeding
-                let costCheckResult = this.CheckCostLimit(submission)
+                let costCheckResult = this.CheckCostLimit submission
 
                 match costCheckResult with
                 | Error err -> return Error err
@@ -361,7 +361,7 @@ module Client =
                                 let root = jsonDoc.RootElement
 
                                 let pageJobs =
-                                    match root.TryGetProperty("value") with
+                                    match root.TryGetProperty "value" with
                                     | true, value when value.ValueKind = JsonValueKind.Array ->
                                         value.EnumerateArray() |> Seq.map parseJob |> List.ofSeq
                                     | _ -> []
@@ -386,7 +386,7 @@ module Client =
         member this.ListJobsAsync(?cancellationToken: CancellationToken) =
             async {
                 let ct = defaultArg cancellationToken CancellationToken.None
-                return! Retry.executeWithRetry retryConfig (fun ct -> this.ListJobsAsyncInternal(ct)) ct
+                return! Retry.executeWithRetry retryConfig (fun ct -> this.ListJobsAsyncInternal ct) ct
             }
 
         /// Cancel a quantum job
@@ -537,7 +537,7 @@ module Client =
             | JobStatus.Succeeded -> true
             | JobStatus.Failed _ -> true
             | JobStatus.Cancelled -> true
-            | _ -> false
+            | JobStatus.Waiting | JobStatus.Executing -> false
 
         /// Polling loop with exponential backoff (functional recursive approach)
         member private this.pollForCompletion
@@ -557,13 +557,12 @@ module Client =
                     let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
 
                     if elapsed > float timeoutMs then
-                        return Error(QuantumError.AzureError(AzureQuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeoutMs)))
+                        return Error(QuantumError.AzureError(AzureQuantumError.Timeout($"Job %s{jobId} timed out after %d{timeoutMs}ms")))
                     else
                         // Poll job status
                         this.Log(LogLevel.Debug, "Polling job {JobId} status (delay: {Delay}ms)", jobId, currentDelay)
-                        let! statusResult = this.GetJobStatusAsync(jobId, ct)
 
-                        match statusResult with
+                        match! this.GetJobStatusAsync(jobId, ct) with
                         | Ok job when QuantumClient.isTerminalState job.Status ->
                             // Job completed (success, failure, or cancelled)
                             this.Log(

@@ -8,7 +8,7 @@ open FSharp.Azure.Quantum.Backends
 let private createLocalBackend () : IQuantumBackend =
     LocalBackend.LocalBackend() :> IQuantumBackend
 
-let private assertHighFidelity (result: QuantumTeleportation.TeleportationResult) (minFidelity: float) =
+let private assertHighFidelity (minFidelity: float) (result: QuantumTeleportation.TeleportationResult) =
     Assert.True(
         result.Fidelity >= minFidelity,
         $"Expected fidelity >= {minFidelity}, got {result.Fidelity} (bits={result.AliceMeasurement.Bit0}{result.AliceMeasurement.Bit1})"
@@ -18,33 +18,25 @@ let private assertHighFidelity (result: QuantumTeleportation.TeleportationResult
 let ``QuantumTeleportation.teleportZero returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    match QuantumTeleportation.teleportZero backend with
-    | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
-    | Ok result -> assertHighFidelity result 0.999999
+    (QuantumTeleportation.teleportZero backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.teleportOne returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    match QuantumTeleportation.teleportOne backend with
-    | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
-    | Ok result -> assertHighFidelity result 0.999999
+    (QuantumTeleportation.teleportOne backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.teleportPlus returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    match QuantumTeleportation.teleportPlus backend with
-    | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
-    | Ok result -> assertHighFidelity result 0.999999
+    (QuantumTeleportation.teleportPlus backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.teleportMinus returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    match QuantumTeleportation.teleportMinus backend with
-    | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
-    | Ok result -> assertHighFidelity result 0.999999
+    (QuantumTeleportation.teleportMinus backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.runStatistics returns all successful results`` () =
@@ -58,4 +50,4 @@ let ``QuantumTeleportation.runStatistics returns all successful results`` () =
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok results ->
         Assert.Equal(25, results.Length)
-        results |> List.iter (fun r -> assertHighFidelity r 0.999999)
+        results |> List.iter (assertHighFidelity 0.999999)

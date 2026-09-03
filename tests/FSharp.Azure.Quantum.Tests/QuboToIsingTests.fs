@@ -63,9 +63,9 @@ module QuboToIsingTests =
         let ising = quboToIsing qubo
         
         // Verify linear coefficients exist
-        Assert.True(ising.LinearCoeffs.ContainsKey(0))
-        Assert.True(ising.LinearCoeffs.ContainsKey(1))
-        Assert.True(ising.LinearCoeffs.ContainsKey(2))
+        Assert.True(ising.LinearCoeffs.ContainsKey 0)
+        Assert.True(ising.LinearCoeffs.ContainsKey 1)
+        Assert.True(ising.LinearCoeffs.ContainsKey 2)
         
         // Verify quadratic coefficients
         Assert.Equal(-1.25, ising.QuadraticCoeffs.[(0, 1)], precision = 10)
@@ -245,9 +245,7 @@ module QuboToIsingTests =
         let result = validateSpins spins
         
         Assert.True(result.IsError)
-        match result with
-        | Error msg -> Assert.Contains("Invalid spin", msg.Message)
-        | Ok _ -> Assert.True(false, "Should have failed validation")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("Invalid spin", msg.Message))
     
     [<Fact>]
     let ``validateBinary accepts valid binary values`` () =
@@ -264,9 +262,7 @@ module QuboToIsingTests =
         let result = validateBinary binary
         
         Assert.True(result.IsError)
-        match result with
-        | Error msg -> Assert.Contains("Invalid binary", msg.Message)
-        | Ok _ -> Assert.True(false, "Should have failed validation")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("Invalid binary", msg.Message))
     
     // ========================================================================
     // CONVERSION VERIFICATION TESTS
@@ -317,9 +313,7 @@ module QuboToIsingTests =
         
         for solution in solutions do
             let result = verifyConversion qubo solution
-            match result with
-            | Ok diff -> Assert.True(diff < 1e-10, $"Conversion error for {solution}")
-            | Error e -> Assert.True(false, $"Failed for {solution}: {e}")
+            result |> Result.map (fun diff -> Assert.True(diff < 1e-10, $"Conversion error for {solution}")) |> Result.defaultWith (fun e -> Assert.True(false, $"Failed for {solution}: {e}"))
     
     // ========================================================================
     // EDGE CASES AND SPECIAL SCENARIOS

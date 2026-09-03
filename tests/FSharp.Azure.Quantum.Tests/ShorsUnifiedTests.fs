@@ -60,7 +60,7 @@ module ShorTests =
             match qpePlan with
             | QPE.QpePlan.ExecuteNatively (_, exactness) ->
                 Assert.Equal(QPE.Exact, exactness)
-            | _ -> Assert.Fail("Expected QPE ExecuteNatively plan")
+            | QPE.QpePlan.ExecuteViaOps _ -> Assert.Fail("Expected QPE ExecuteNatively plan")
         | Error err ->
             Assert.Fail($"Planning failed: {err}")
 
@@ -83,7 +83,7 @@ module ShorTests =
                 Assert.Equal(QPE.Exact, exactness)
                 Assert.NotEmpty ops
                 Assert.True(ops |> List.forall backend.SupportsOperation)
-            | _ ->
+            | QPE.QpePlan.ExecuteNatively _ ->
                 Assert.Fail("Expected QPE ExecuteViaOps plan")
         | Error err ->
             Assert.Fail($"Planning failed: {err}")
@@ -107,7 +107,7 @@ module ShorTests =
             match qpePlan with
             | QPE.QpePlan.ExecuteViaOps (_, exactness) ->
                 Assert.Equal(approximate, exactness)
-            | _ ->
+            | QPE.QpePlan.ExecuteNatively _ ->
                 Assert.Fail("Expected QPE ExecuteViaOps plan")
         | Error err ->
             Assert.Fail($"Planning failed: {err}")
@@ -180,8 +180,7 @@ module ShorTests =
     // CONFIGURATION VALIDATION TESTS
     // ========================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``factor15 uses correct configuration`` () =
         let backend = createBackend()
         
@@ -353,8 +352,7 @@ module ShorTests =
     // RULE1 COMPLIANCE TESTS
     // ========================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]   // genuine end-to-end factoring of 15 (~5 min)
+    [<Fact; Trait("Category", "Slow")>]   // genuine end-to-end factoring of 15 (~5 min)
     let ``Shor accepts IQuantumBackend`` () =
         // This test validates that Shor follows RULE1
         let backend = createBackend()
@@ -365,8 +363,7 @@ module ShorTests =
         // We don't care about the result, just that it compiles and runs
         Assert.True(true)
     
-    [<Fact>]
-    [<Trait("Category", "ExtraSlow")>]   // genuine end-to-end factoring of 15 (~5 min)
+    [<Fact; Trait("Category", "ExtraSlow")>]   // genuine end-to-end factoring of 15 (~5 min)
     let ``Shor works with LocalBackend`` () =
         // Validate that LocalBackend is compatible
         let backend = LocalBackend() :> IQuantumBackend
@@ -386,8 +383,7 @@ module ShorTests =
     // QUANTUM PATH TESTS (NEW - Actual Factorization)
     // ========================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``factor15 successfully factors 15 into 3 and 5`` () =
         let backend = createBackend()
         

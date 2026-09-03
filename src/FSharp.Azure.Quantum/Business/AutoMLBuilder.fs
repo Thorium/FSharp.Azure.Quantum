@@ -75,7 +75,8 @@ module AutoML =
     /// Model type that was tried
     type ModelType =
         | BinaryClassification
-        | MultiClassClassification of int  // num classes
+        /// num classes
+        | MultiClassClassification of int
         | AnomalyDetection
         | Regression
         | SimilaritySearch
@@ -686,7 +687,7 @@ module AutoML =
                     let trialStart = DateTime.UtcNow
                     
                     // Report trial start
-                    let modelTypeStr = sprintf "%A" trial.ModelType
+                    let modelTypeStr = $"%A{trial.ModelType}"
                     reporter |> Option.iter (fun r ->
                         r.Report(Core.Progress.TrialStarted(trial.Id + 1, trials.Length, modelTypeStr)))
                     
@@ -828,9 +829,7 @@ module AutoML =
                                 logError problem.Logger $"  [ERROR] Exception: {ex.Message}"
                             Ok (createFailureResult ex.Message)
                     
-                    match result with
-                    | Ok resultTuple -> Some resultTuple
-                    | Error e -> None
+                    result |> Result.map (fun resultTuple -> Some resultTuple) |> Result.defaultValue None
             
             // 🚀 PARALLELIZED: Execute trials in parallel with controlled concurrency
             // Use maxDegreeOfParallelism to avoid overwhelming the system
@@ -913,13 +912,13 @@ module AutoML =
     /// Async.Parallel |> Async.RunSynchronously, making it safe to call from
     /// an async/task context without deadlock risk.
     let searchAsync (problem: AutoMLProblem) (cancellationToken: System.Threading.CancellationToken) : System.Threading.Tasks.Task<QuantumResult<AutoMLResult>> =
-        task {
-            // Merge explicit CancellationToken with any token on the problem
-            let problemWithToken =
-                match problem.CancellationToken with
-                | Some _ -> problem
-                | None -> { problem with CancellationToken = Some cancellationToken }
+        // Merge explicit CancellationToken with any token on the problem
+        let problemWithToken =
+            match problem.CancellationToken with
+            | Some _ -> problem
+            | None -> { problem with CancellationToken = Some cancellationToken }
 
+        task {
             return
                 validateProblem problemWithToken
                 |> Result.bind (fun () ->
@@ -981,7 +980,7 @@ module AutoML =
                             None
                         else
                             let trialStart = DateTime.UtcNow
-                            let modelTypeStr = sprintf "%A" trial.ModelType
+                            let modelTypeStr = $"%A{trial.ModelType}"
                             reporter |> Option.iter (fun r ->
                                 r.Report(Core.Progress.TrialStarted(trial.Id + 1, trials.Length, modelTypeStr)))
                             if problemWithToken.Verbose then
@@ -1097,9 +1096,7 @@ module AutoML =
                                         logError problemWithToken.Logger $"  [ERROR] Exception: {ex.Message}"
                                     Ok (createFailureResult ex.Message)
 
-                            match result with
-                            | Ok resultTuple -> Some resultTuple
-                            | Error _ -> None
+                            result |> Result.map (fun resultTuple -> Some resultTuple) |> Result.defaultValue None
 
                     // Task-based parallelization: Task.WhenAll + Task.Run for CPU-bound work
                     let maxDegreeOfParallelism = min 4 (trials.Length / 2 |> max 1)

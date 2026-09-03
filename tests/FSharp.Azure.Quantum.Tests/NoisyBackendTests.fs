@@ -18,9 +18,7 @@ module NoisyBackendTests =
 
     let private sampleWith (config: NoiseConfig) (shots: int) : Map<string, int> =
         let backend = NoisyLocalBackend(config) :> IQuantumBackend
-        match Primitives.sample backend (bell ()) shots with
-        | Ok histogram -> histogram
-        | Error e -> failwith $"sample failed: {e.Message}"
+        (Primitives.sample backend (bell ()) shots) |> Result.defaultWith (fun e -> failwith $"sample failed: {e.Message}")
 
     [<Fact>]
     let ``noiseless density-matrix simulation reproduces the pure Bell state`` () =
@@ -92,6 +90,4 @@ module NoisyBackendTests =
         // addGate does not validate qubit indices, so a circuit can reference a qubit ≥ QubitCount.
         // The failure must surface through the Result channel, not escape as an exception.
         let bad = CircuitBuilder.empty 2 |> CircuitBuilder.addGate (CircuitBuilder.X 5)
-        match simulate noiseless bad with
-        | Error _ -> ()
-        | Ok _ -> failwith "expected an Error for a gate referencing a qubit outside the register"
+        (simulate noiseless bad) |> Result.iter (fun _ -> failwith "expected an Error for a gate referencing a qubit outside the register")

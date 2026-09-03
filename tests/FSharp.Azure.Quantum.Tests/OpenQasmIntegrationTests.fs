@@ -369,10 +369,7 @@ cx q[0],q[1];
             Assert.Contains("cx q[0],q[1]", qasm2)
             
             // Re-import to verify round-trip
-            match OpenQasmImport.parse qasm2 with
-            | Ok final ->
-                Assert.Equal(2, final.Gates.Length)
-            | Error msg -> Assert.True(false, $"Re-import failed: {msg}")
+            (OpenQasmImport.parse qasm2) |> Result.map (fun final -> Assert.Equal(2, final.Gates.Length)) |> Result.defaultWith (fun msg -> Assert.True(false, $"Re-import failed: {msg}"))
         | Error msg -> Assert.True(false, $"Import failed: {msg}")
     
     // ========================================================================
@@ -565,9 +562,9 @@ cx q[0],q[2];
             |> addGate (Measure 0)
 
         let qasm = OpenQasmExport.export circuit
-        let hIdx = qasm.IndexOf("h q[0];")
-        let cxIdx = qasm.IndexOf("cx q[0],q[1];")
-        let mIdx = qasm.IndexOf("measure q[0]")
+        let hIdx = qasm.IndexOf "h q[0];"
+        let cxIdx = qasm.IndexOf "cx q[0],q[1];"
+        let mIdx = qasm.IndexOf "measure q[0]"
 
         Assert.True(hIdx >= 0 && cxIdx > hIdx && mIdx > cxIdx,
             $"Expected h before cx before measure, got indices {hIdx}, {cxIdx}, {mIdx}")

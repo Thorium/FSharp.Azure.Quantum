@@ -32,15 +32,11 @@ module FMatrixTests =
     
     /// Helper to get F-symbol or fail test with meaningful message
     let private getFSymbolOrFail data index testContext =
-        match FMatrix.getFSymbol data index with
-        | Ok value -> value
-        | Error err -> failwith $"{testContext}: {err.Message}"
+        (FMatrix.getFSymbol data index) |> Result.defaultWith (fun err -> failwith $"{testContext}: {err.Message}")
     
     /// Helper to compute F-matrix or fail with meaningful message
     let private computeFMatrixOrFail anyonType =
-        match FMatrix.computeFMatrix anyonType with
-        | Ok data -> data
-        | Error err -> failwith $"Failed to compute {anyonType} F-matrix: {err.Message}"
+        (FMatrix.computeFMatrix anyonType) |> Result.defaultWith (fun err -> failwith $"Failed to compute {anyonType} F-matrix: {err.Message}")
     
     // ========================================================================
     // ISING F-MATRIX TESTS - Testing basis transformation for Majorana modes
@@ -175,10 +171,7 @@ module FMatrixTests =
         // ensures probability conservation in quantum state transformations.
         let data = computeFMatrixOrFail AnyonSpecies.AnyonType.Ising
         
-        match FMatrix.validateFMatrix data with
-        | Error err -> failwith $"Validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "F-matrix must satisfy pentagon + unitarity")
+        (FMatrix.validateFMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "F-matrix must satisfy pentagon + unitarity")) |> Result.defaultWith (fun err -> failwith $"Validation failed: {err.Message}")
     
     [<Fact>]
     let ``Fibonacci F-matrix passes pentagon equation and unitarity validation`` () =
@@ -186,10 +179,7 @@ module FMatrixTests =
         // conditions (pentagon + unitarity) to be used for quantum computation.
         let data = computeFMatrixOrFail AnyonSpecies.AnyonType.Fibonacci
         
-        match FMatrix.validateFMatrix data with
-        | Error err -> failwith $"Validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "F-matrix must satisfy pentagon + unitarity")
+        (FMatrix.validateFMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "F-matrix must satisfy pentagon + unitarity")) |> Result.defaultWith (fun err -> failwith $"Validation failed: {err.Message}")
     
     // ========================================================================
     // UNITARITY TESTS
@@ -203,10 +193,7 @@ module FMatrixTests =
         let data = computeFMatrixOrFail AnyonSpecies.AnyonType.Ising
         let sigma = AnyonSpecies.Particle.Sigma
         
-        match FMatrix.verifyFMatrixUnitarity data sigma sigma sigma sigma with
-        | Error err -> failwith $"Unitarity check failed: {err.Message}"
-        | Ok isUnitary ->
-            Assert.True(isUnitary, "F F† = I ensures probability conservation")
+        (FMatrix.verifyFMatrixUnitarity data sigma sigma sigma sigma) |> Result.map (fun isUnitary -> Assert.True(isUnitary, "F F† = I ensures probability conservation")) |> Result.defaultWith (fun err -> failwith $"Unitarity check failed: {err.Message}")
     
     [<Fact>]
     let ``Fibonacci F-matrix satisfies golden ratio normalization identity`` () =
@@ -276,10 +263,7 @@ module FMatrixTests =
         // Business meaning: General SU(2)_k F-symbols are now computed via
         // quantum 6j-symbols (q-Racah coefficients). SU(2)_10 has 6 particle
         // types (j=0,1/2,1,...,5) with rich fusion structure.
-        match FMatrix.computeFMatrix (AnyonSpecies.AnyonType.SU2Level 10) with
-        | Error err -> failwith $"Should succeed for SU(2)_10: {err.Message}"
-        | Ok data ->
-            Assert.True(data.FSymbols.Count > 0, "SU(2)_10 should have non-trivial F-symbols")
+        (FMatrix.computeFMatrix (AnyonSpecies.AnyonType.SU2Level 10)) |> Result.map (fun data -> Assert.True(data.FSymbols.Count > 0, "SU(2)_10 should have non-trivial F-symbols")) |> Result.defaultWith (fun err -> failwith $"Should succeed for SU(2)_10: {err.Message}")
     
     [<Fact>]
     let ``getFSymbol returns trivial value (1.0) for valid but unstored F-symbols`` () =
@@ -297,10 +281,7 @@ module FMatrixTests =
         let vacuum = AnyonSpecies.Particle.Vacuum
         
         // Use valid trivial F-symbol: F[ψ,σ,σ,ψ;σ,1]
-        match FMatrix.getFSymbol emptyData (fIndex psi sigma sigma psi sigma vacuum) with
-        | Error _ -> failwith "Should succeed with trivial value for valid fusion"
-        | Ok value ->
-            assertRealValue 1.0 value
+        (FMatrix.getFSymbol emptyData (fIndex psi sigma sigma psi sigma vacuum)) |> Result.map (fun value -> assertRealValue 1.0 value) |> Result.defaultWith (fun _ -> failwith "Should succeed with trivial value for valid fusion")
     
     // ========================================================================
     // SU(2)_k GENERAL THEORY TESTS (quantum 6j-symbols)
@@ -328,10 +309,7 @@ module FMatrixTests =
         // our Racah formula implementation is correct.
         let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 3)
         
-        match FMatrix.validateFMatrix data with
-        | Error err -> failwith $"SU(2)_3 pentagon validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "SU(2)_3 F-matrix must pass pentagon + unitarity")
+        (FMatrix.validateFMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "SU(2)_3 F-matrix must pass pentagon + unitarity")) |> Result.defaultWith (fun err -> failwith $"SU(2)_3 pentagon validation failed: {err.Message}")
     
     [<Fact>]
     let ``SU(2)_4 F-matrix passes pentagon equation validation`` () =
@@ -340,10 +318,7 @@ module FMatrixTests =
         // 6j-symbol computation with half-integer spins.
         let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 4)
         
-        match FMatrix.validateFMatrix data with
-        | Error err -> failwith $"SU(2)_4 pentagon validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "SU(2)_4 F-matrix must pass pentagon + unitarity")
+        (FMatrix.validateFMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "SU(2)_4 F-matrix must pass pentagon + unitarity")) |> Result.defaultWith (fun err -> failwith $"SU(2)_4 pentagon validation failed: {err.Message}")
     
     [<Fact>]
     let ``SU(2)_5 F-matrix passes pentagon equation validation`` () =
@@ -352,10 +327,7 @@ module FMatrixTests =
         // a theory that can perform universal quantum computation via braiding.
         let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 5)
         
-        match FMatrix.validateFMatrix data with
-        | Error err -> failwith $"SU(2)_5 pentagon validation failed: {err.Message}"
-        | Ok validated ->
-            Assert.True(validated.IsValidated, "SU(2)_5 F-matrix must pass pentagon + unitarity")
+        (FMatrix.validateFMatrix data) |> Result.map (fun validated -> Assert.True(validated.IsValidated, "SU(2)_5 F-matrix must pass pentagon + unitarity")) |> Result.defaultWith (fun err -> failwith $"SU(2)_5 pentagon validation failed: {err.Message}")
     
     [<Fact>]
     let ``SU(2)_k F-matrix has correct vacuum F-symbols for all k`` () =

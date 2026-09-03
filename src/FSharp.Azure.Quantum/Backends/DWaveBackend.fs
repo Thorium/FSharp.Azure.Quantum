@@ -118,7 +118,7 @@ module DWaveBackend =
                             (currentSpins, currentEnergy)
                         else
                             // Random qubit to flip
-                            let qubit = rng.Next(numQubits)
+                            let qubit = rng.Next numQubits
                             let newSpins = flipSpin currentSpins qubit
                             let newEnergy = isingEnergy problem newSpins
 
@@ -291,10 +291,7 @@ module DWaveBackend =
                 | BackendAbstraction.QuantumOperation.Sequence ops ->
                     ops
                     |> List.fold (fun stateResult op ->
-                        match stateResult with
-                        | Error err -> Error err
-                        | Ok currentState ->
-                            (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState
+                        stateResult |> Result.bind (fun currentState -> (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState)
                     ) (Ok state)
 
                 | BackendAbstraction.QuantumOperation.Extension (:? AnnealIsingOperation as annealOp) ->

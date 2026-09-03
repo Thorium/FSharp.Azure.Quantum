@@ -154,7 +154,7 @@ if shouldRun "events" then
 
     let cts = new CancellationTokenSource()
     let eventReporter = createEventReporter()
-    eventReporter.SetCancellationToken(cts.Token)
+    eventReporter.SetCancellationToken cts.Token
 
     let mutable bestScoreSeen = 0.0
 
@@ -273,7 +273,7 @@ if shouldRun "custom-ui" then
 
     let customReporter = {
         new IProgressReporter with
-            member _.Report(event) =
+            member _.Report event =
                 match event with
                 | TrialStarted (id, total, modelType) ->
                     let percent = float id / float (max total 1) * 100.0
@@ -336,7 +336,7 @@ if shouldRun "production" then
 
     let loggingReporter = {
         new IProgressReporter with
-            member _.Report(event) =
+            member _.Report event =
                 match event with
                 | TrialCompleted (id, score, elapsed) ->
                     let entry = sprintf "[LOG] Trial %d: score=%.4f, elapsed=%.2fs, ts=%s" id score elapsed (DateTime.UtcNow.ToString("o"))

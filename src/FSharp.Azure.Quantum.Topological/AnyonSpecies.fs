@@ -143,11 +143,7 @@ module AnyonSpecies =
     /// Returns Error if the anyon type is not yet implemented.
     let totalQuantumDimension (anyonType: AnyonType) : TopologicalResult<float> =
         particles anyonType
-        |> Result.map (fun particleList ->
-            particleList
-            |> List.map quantumDimension
-            |> List.sumBy (fun d -> d * d)
-            |> sqrt
+        |> Result.map (List.map quantumDimension >> List.sumBy (fun d -> d * d) >> sqrt
         )
     
     /// Check if particle is valid for given anyon type

@@ -93,8 +93,8 @@ module SolutionVisualizationExtensions =
                 |> List.map (fun node ->
                     let label = 
                         match node.FixedColor with
-                        | Some color -> sprintf "Node %s<br/>(Fixed: %s)" node.Id color
-                        | None -> sprintf "Node %s" node.Id
+                        | Some color -> $"Node %s{node.Id}<br/>(Fixed: %s{color})"
+                        | None -> $"Node %s{node.Id}"
                     MermaidRenderer.Graph.nodeWithLabel node.Id label)
             
             // Create edges from conflicts
@@ -113,9 +113,9 @@ module SolutionVisualizationExtensions =
             let sb = StringBuilder()
             sb.AppendLine("Graph Coloring Problem") |> ignore
             sb.AppendLine("======================") |> ignore
-            sb.AppendLine(sprintf "Nodes: %d" this.Nodes.Length) |> ignore
+            sb.AppendLine($"Nodes: %d{this.Nodes.Length}") |> ignore
             sb.AppendLine(sprintf "Available Colors: %s" (String.concat ", " this.AvailableColors)) |> ignore
-            sb.AppendLine(sprintf "Objective: %A" this.Objective) |> ignore
+            sb.AppendLine($"Objective: %A{this.Objective}") |> ignore
             sb.AppendLine("") |> ignore
             sb.AppendLine("Node Conflicts:") |> ignore
             
@@ -124,12 +124,12 @@ module SolutionVisualizationExtensions =
             |> List.iter (fun node ->
                 let fixedStr = 
                     match node.FixedColor with
-                    | Some c -> sprintf " (Fixed: %s)" c
+                    | Some c -> $" (Fixed: %s{c})"
                     | None -> ""
                 let conflictsStr = 
                     if node.ConflictsWith.IsEmpty then "none"
                     else String.concat ", " node.ConflictsWith
-                sb.AppendLine(sprintf "  %s%s → conflicts with: %s" node.Id fixedStr conflictsStr) |> ignore)
+                sb.AppendLine($"  %s{node.Id}%s{fixedStr} → conflicts with: %s{conflictsStr}") |> ignore)
             
             sb.ToString()
     
@@ -145,7 +145,7 @@ module SolutionVisualizationExtensions =
             
             // Show variables as nodes
             for i in 0 .. this.NumVariables - 1 do
-                sb.AppendLine(sprintf "        v%d[\"x_%d\"]" i i) |> ignore
+                sb.AppendLine($"        v%d{i}[\"x_%d{i}\"]") |> ignore
             
             sb.AppendLine("    end") |> ignore
             sb.AppendLine("") |> ignore
@@ -162,12 +162,12 @@ module SolutionVisualizationExtensions =
                     if i = j then
                         // Diagonal term (linear coefficient)
                         let color = if coef > 0.0 then "red" else "green"
-                        sb.AppendLine(sprintf "        v%d -.\"%.2f\".-> v%d" i coef i) |> ignore
-                        sb.AppendLine(sprintf "        style v%d stroke:%s,stroke-width:3px" i color) |> ignore
+                        sb.AppendLine($"        v%d{i} -.\"%.2f{coef}\".-> v%d{i}") |> ignore
+                        sb.AppendLine($"        style v%d{i} stroke:%s{color},stroke-width:3px") |> ignore
                     else
                         // Off-diagonal term (quadratic coefficient)
                         let style = if coef > 0.0 then "solid" else "dashed"
-                        sb.AppendLine(sprintf "        v%d ==\"%.2f\"==> v%d" i coef j) |> ignore
+                        sb.AppendLine($"        v%d{i} ==\"%.2f{coef}\"==> v%d{j}") |> ignore
             
             sb.AppendLine("    end") |> ignore
             sb.AppendLine("```") |> ignore
@@ -178,8 +178,8 @@ module SolutionVisualizationExtensions =
             let sb = StringBuilder()
             sb.AppendLine("QUBO Matrix") |> ignore
             sb.AppendLine("===========") |> ignore
-            sb.AppendLine(sprintf "Variables: %d" this.NumVariables) |> ignore
-            sb.AppendLine(sprintf "Non-zero coefficients: %d" this.Q.Count) |> ignore
+            sb.AppendLine($"Variables: %d{this.NumVariables}") |> ignore
+            sb.AppendLine($"Non-zero coefficients: %d{this.Q.Count}") |> ignore
             sb.AppendLine("") |> ignore
             
             // Separate linear and quadratic terms
@@ -199,14 +199,14 @@ module SolutionVisualizationExtensions =
             if not linearTerms.IsEmpty then
                 sb.AppendLine("Linear Terms (diagonal):") |> ignore
                 for ((i, _), coef) in linearTerms do
-                    sb.AppendLine(sprintf "  x_%d: %.4f" i coef) |> ignore
+                    sb.AppendLine($"  x_%d{i}: %.4f{coef}") |> ignore
                 sb.AppendLine("") |> ignore
             
             // Display quadratic terms
             if not quadraticTerms.IsEmpty then
                 sb.AppendLine("Quadratic Terms (off-diagonal):") |> ignore
                 for ((i, j), coef) in quadraticTerms do
-                    sb.AppendLine(sprintf "  x_%d * x_%d: %.4f" i j coef) |> ignore
+                    sb.AppendLine($"  x_%d{i} * x_%d{j}: %.4f{coef}") |> ignore
                 sb.AppendLine("") |> ignore
             
             // Summary statistics
@@ -217,8 +217,8 @@ module SolutionVisualizationExtensions =
                 let avgCoef = List.average allCoefs
                 
                 sb.AppendLine("Statistics:") |> ignore
-                sb.AppendLine(sprintf "  Min coefficient: %.4f" minCoef) |> ignore
-                sb.AppendLine(sprintf "  Max coefficient: %.4f" maxCoef) |> ignore
-                sb.AppendLine(sprintf "  Avg coefficient: %.4f" avgCoef) |> ignore
+                sb.AppendLine($"  Min coefficient: %.4f{minCoef}") |> ignore
+                sb.AppendLine($"  Max coefficient: %.4f{maxCoef}") |> ignore
+                sb.AppendLine($"  Avg coefficient: %.4f{avgCoef}") |> ignore
             
             sb.ToString()

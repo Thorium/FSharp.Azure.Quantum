@@ -85,9 +85,8 @@ module VisualizationTests =
             }
             
             // Execute
-            let! result = TopologicalBuilder.executeWithContext backend program
             
-            match result with
+            match! TopologicalBuilder.executeWithContext backend program with
             | Ok ((), context) ->
                 // Generate diagram
                 let mermaid = context.ToMermaid()
@@ -104,6 +103,6 @@ module VisualizationTests =
                 printfn "%s" mermaid
                 
             | Error err ->
-                Assert.Fail(sprintf "Program execution failed: %s" err.Message)
+                Assert.Fail($"Program execution failed: %s{err.Message}")
         } :> Task
 

@@ -80,8 +80,8 @@ let pecSamples = Cli.getIntOr "pec-samples" 50 args
 /// Parse theta value, supporting "pi/N" notation.
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
-    if s.StartsWith("pi/") then
-        match Double.TryParse(s.Substring(3)) with
+    if s.StartsWith "pi/" then
+        match Double.TryParse(s.Substring 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
     elif s = "pi" then Math.PI
@@ -94,7 +94,7 @@ let theta = parseTheta (Cli.getOr "theta" "pi/4" args)
 
 /// Parse noise levels from comma-separated string.
 let parseNoiseLevels (s: string) : float list =
-    s.Split(',')
+    s.Split ','
     |> Array.choose (fun x ->
         match Double.TryParse(x.Trim()) with
         | true, v -> Some v
@@ -107,7 +107,8 @@ let zneNoiseLevels = parseNoiseLevels (Cli.getOr "zne-noise-levels" "1.0,1.5,2.0
 // Shared Setup
 // ============================================================================
 
-let trueEnergy = -1.137  // True H2 ground state energy (Hartree)
+/// True H2 ground state energy (Hartree)
+let trueEnergy = -1.137
 
 /// Noise model based on CLI parameters.
 let noiseModel: NoiseModel = {
@@ -279,9 +280,8 @@ if runRemZne then
         let combinedExecutor (circ: Circuit) : Async<Result<float, string>> =
             async {
                 let shots = 10000
-                let! measured = fullNoisyExecutor circ shots
 
-                match measured with
+                match! fullNoisyExecutor circ shots with
                 | Error err -> return Error err
                 | Ok histogram ->
                     match correctReadoutErrors histogram remCalibration remConfig with
@@ -583,15 +583,13 @@ let runCircuitWithAdaptiveEM
         | Production ->
             // REM + ZNE
             let remCfg = ReadoutErrorMitigation.defaultConfig
-            let! calResult = measureCalibrationMatrix backend 2 remCfg fullNoisyExecutor
-            match calResult with
+            match! measureCalibrationMatrix backend 2 remCfg fullNoisyExecutor with
             | Error err -> return Error (sprintf "%s: calibration failed: %s" strategyName err)
             | Ok cal ->
                 let combinedExec (c: Circuit) : Async<Result<float, string>> =
                     async {
                         let shots = 10000
-                        let! m = fullNoisyExecutor c shots
-                        match m with
+                        match! fullNoisyExecutor c shots with
                         | Error e -> return Error e
                         | Ok hist ->
                             match correctReadoutErrors hist cal remCfg with

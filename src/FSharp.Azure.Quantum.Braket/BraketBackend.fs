@@ -29,7 +29,7 @@ module BraketExecution =
         task {
             let! response = s3.GetObjectAsync(bucket, key, ct)
             use reader = new System.IO.StreamReader(response.ResponseStream)
-            return! reader.ReadToEndAsync(ct)
+            return! reader.ReadToEndAsync ct
         }
 
     /// Submit a Braket action (OpenQASM or AHS JSON), poll until it completes, and parse the
@@ -68,27 +68,28 @@ module BraketExecution =
                         let! info = braket.GetQuantumTaskAsync(GetQuantumTaskRequest(QuantumTaskArn = taskArn), ct)
                         match info.Status.Value with
                         | "COMPLETED" ->
-                            let key = sprintf "%s/results.json" info.OutputS3Directory
+                            let key = $"%s{info.OutputS3Directory}/results.json"
                             let! json = readS3Async s3 info.OutputS3Bucket key ct
                             try return Ok (parseResult json)
-                            with ex -> return Error (QuantumError.OperationError ("Braket", sprintf "Failed to parse Braket result: %s" ex.Message))
+                            with ex -> return Error (QuantumError.OperationError ("Braket", $"Failed to parse Braket result: %s{ex.Message}"))
                         | "FAILED" | "CANCELLED" ->
                             let reason = if isNull info.FailureReason then "" else info.FailureReason
-                            return Error (QuantumError.OperationError ("Braket", sprintf "Braket task %s: %s" info.Status.Value reason))
+                            return Error (QuantumError.OperationError ("Braket", $"Braket task %s{info.Status.Value}: %s{reason}"))
                         | _ when DateTime.UtcNow > deadline ->
                             return Error (QuantumError.OperationError ("Braket",
-                                sprintf "Braket task did not complete within %g minutes (last status %s); the task %s may still be running." timeout.TotalMinutes info.Status.Value taskArn))
+                                $"Braket task did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); the task %s{taskArn} may still be running."))
                         | _ ->
                             do! Task.Delay(pollInterval, ct)
                             return! poll ()
                     }
                 return! poll ()
             with ex ->
-                return Error (QuantumError.OperationError ("Braket", sprintf "Braket submission failed (check AWS credentials / device ARN): %s" ex.Message))
+                return Error (QuantumError.OperationError ("Braket", $"Braket submission failed (check AWS credentials / device ARN): %s{ex.Message}"))
         }
 
     /// Largest circuit for which we materialise a DENSE state vector from the histogram.
     /// Must match `StateVector.create`'s 20-qubit limit (2^20 amplitudes).
+    [<Literal>]
     let private maxDenseStateQubits = 20
 
     /// Largest circuit for which we materialise a SPARSE state from the histogram.
@@ -96,6 +97,7 @@ module BraketExecution =
     /// representable ceiling. Wider results (Rigetti Ankaa ~84q, QuEra 256 atoms)
     /// are returned as `QuantumState.MeasurementHistogram`, which has no width
     /// limit — it holds at most `shots` entries regardless of qubit count.
+    [<Literal>]
     let private maxSparseStateQubits = 31
 
     /// Basis index for a Braket measurement bitstring.
@@ -175,14 +177,11 @@ module BraketExecution =
         /// of qubit count, so there is NO width limit here — unlike the QuantumState
         /// reconstruction in ExecuteToState (dense ≤ 20 qubits, sparse ≤ 31).
         member _.ExecuteToHistogramAsync (circuit: ICircuit, ct: CancellationToken) : Task<Result<Map<string, int>, QuantumError>> =
-            match circuitToOpenQasm3 circuit with
-            | Error e -> Task.FromResult (Error e)
-            | Ok source ->
-                submitActionAsync braket s3 s3Config deviceArn (Braket.openQasmAction source) shots Braket.parseGateResult (TimeSpan.FromSeconds 3.0) (TimeSpan.FromMinutes 30.0) ct
+            (circuitToOpenQasm3 circuit) |> Result.map (fun source -> submitActionAsync braket s3 s3Config deviceArn (Braket.openQasmAction source) shots Braket.parseGateResult (TimeSpan.FromSeconds 3.0) (TimeSpan.FromMinutes 30.0) ct) |> Result.defaultWith (fun e -> Task.FromResult (Error e))
 
         interface IQuantumBackend with
 
-            member _.Name = sprintf "AWS Braket (%s)" deviceArn
+            member _.Name = $"AWS Braket (%s{deviceArn})"
 
             member _.NativeStateType = QuantumStateType.GateBased
 
@@ -206,7 +205,7 @@ module BraketExecution =
 
             member _.ApplyOperation (_op: QuantumOperation) (_state: QuantumState) : Result<QuantumState, QuantumError> =
                 Error (QuantumError.OperationError ("ApplyOperation",
-                    sprintf "AWS Braket (%s) does not support incremental ApplyOperation; use ExecuteToState with a complete circuit." deviceArn))
+                    $"AWS Braket (%s{deviceArn}) does not support incremental ApplyOperation; use ExecuteToState with a complete circuit."))
 
             member this.ApplyOperationAsync (op: QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task { return (this :> IQuantumBackend).ApplyOperation op state }

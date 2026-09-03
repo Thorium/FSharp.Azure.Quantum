@@ -294,7 +294,7 @@ module FinancialData =
                 Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
             else
                 let headers = 
-                    lines.[0].Split(',') 
+                    lines.[0].Split ',' 
                     |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
                 
                 let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
@@ -309,15 +309,15 @@ module FinancialData =
                     h = "adj close" || h = "adjusted_close" || h = "adjclose")
                 
                 match dateIdx, closeIdx with
-                | None, _ -> Error (QuantumError.ValidationError ("dateColumn", sprintf "Column '%s' not found" dateColumn))
-                | _, None -> Error (QuantumError.ValidationError ("closeColumn", sprintf "Column '%s' not found" closeColumn))
+                | None, _ -> Error (QuantumError.ValidationError ("dateColumn", $"Column '%s{dateColumn}' not found"))
+                | _, None -> Error (QuantumError.ValidationError ("closeColumn", $"Column '%s{closeColumn}' not found"))
                 | Some dIdx, Some cIdx ->
                     let dataLines = lines.[1..]
                     
                     let prices =
                         dataLines
                         |> Array.choose (fun line ->
-                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
                             match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
                             | Some date, Some close ->
                                 let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
@@ -340,7 +340,7 @@ module FinancialData =
                     if prices.Length = 0 then
                         Error (QuantumError.ValidationError (
                             "csv",
-                            sprintf "All %d data rows failed to parse (no valid date/close pairs found)" dataLines.Length))
+                            $"All %d{dataLines.Length} data rows failed to parse (no valid date/close pairs found)"))
                     else
                     
                     let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
@@ -353,7 +353,7 @@ module FinancialData =
                         Frequency = Daily
                     }
         with ex ->
-            Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
+            Error (QuantumError.Other ($"Failed to read CSV: %s{ex.Message}"))
     
     /// Load prices for Yahoo Finance CSV format
     let loadYahooFinanceCsv (filePath: string) (symbol: string) : QuantumResult<PriceSeries> =
@@ -374,7 +374,7 @@ module FinancialData =
                     Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
                 else
                     let headers = 
-                        lines.[0].Split(',') 
+                        lines.[0].Split ',' 
                         |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
                     
                     let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
@@ -388,15 +388,15 @@ module FinancialData =
                         h = "adj close" || h = "adjusted_close" || h = "adjclose")
                     
                     match dateIdx, closeIdx with
-                    | None, _ -> Error (QuantumError.ValidationError ("dateColumn", sprintf "Column '%s' not found" dateColumn))
-                    | _, None -> Error (QuantumError.ValidationError ("closeColumn", sprintf "Column '%s' not found" closeColumn))
+                    | None, _ -> Error (QuantumError.ValidationError ("dateColumn", $"Column '%s{dateColumn}' not found"))
+                    | _, None -> Error (QuantumError.ValidationError ("closeColumn", $"Column '%s{closeColumn}' not found"))
                     | Some dIdx, Some cIdx ->
                         let dataLines = lines.[1..]
                         
                         let prices =
                             dataLines
                             |> Array.choose (fun line ->
-                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
                                 match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
                                 | Some date, Some close ->
                                     let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
@@ -419,7 +419,7 @@ module FinancialData =
                         if prices.Length = 0 then
                             Error (QuantumError.ValidationError (
                                 "csv",
-                                sprintf "All %d data rows failed to parse (no valid date/close pairs found)" dataLines.Length))
+                                $"All %d{dataLines.Length} data rows failed to parse (no valid date/close pairs found)"))
                         else
                         
                         let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
@@ -444,7 +444,7 @@ module FinancialData =
                     cancellationToken.ThrowIfCancellationRequested()
                     return Error (QuantumError.Other "Operation was canceled")
                 | ex ->
-                    return Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
+                    return Error (QuantumError.Other ($"Failed to read CSV: %s{ex.Message}"))
             }
 
     // ========================================================================
@@ -507,8 +507,8 @@ module FinancialData =
     let private sha256Hex (text: string) =
         use sha = SHA256.Create()
         let bytes = Encoding.UTF8.GetBytes(text)
-        let hash = sha.ComputeHash(bytes)
-        hash |> Array.map (fun b -> b.ToString("x2")) |> String.Concat
+        let hash = sha.ComputeHash bytes
+        hash |> Array.map (fun b -> b.ToString "x2") |> String.Concat
 
     let private tryReadFreshCache (cachePath: string) (ttl: TimeSpan) : string option =
         try
@@ -560,25 +560,25 @@ module FinancialData =
             use doc = System.Text.Json.JsonDocument.Parse(json)
             let root = doc.RootElement
 
-            let chart = root.GetProperty("chart")
+            let chart = root.GetProperty "chart"
 
-            let errorEl = chart.GetProperty("error")
+            let errorEl = chart.GetProperty "error"
             if errorEl.ValueKind <> System.Text.Json.JsonValueKind.Null then
                 let message =
-                    match errorEl.TryGetProperty("description") with
+                    match errorEl.TryGetProperty "description" with
                     | true, v -> (v.GetString() |> Option.ofObj) |> Option.defaultValue (errorEl.ToString())
                     | _ -> errorEl.ToString()
 
                 Error (QuantumError.BackendError ("YahooFinance", message))
             else
-                let resultArr = chart.GetProperty("result")
+                let resultArr = chart.GetProperty "result"
                 if resultArr.GetArrayLength() = 0 then
                     Error (QuantumError.BackendError ("YahooFinance", "Empty result"))
                 else
                     let result0 = resultArr.[0]
 
                     let timestamps = result0.GetProperty("timestamp").EnumerateArray() |> Seq.toArray
-                    let indicators = result0.GetProperty("indicators")
+                    let indicators = result0.GetProperty "indicators"
                     let quote0 = indicators.GetProperty("quote").[0]
 
                     let closes = quote0.GetProperty("close").EnumerateArray() |> Seq.toArray
@@ -587,23 +587,23 @@ module FinancialData =
                     let lows = quote0.GetProperty("low").EnumerateArray() |> Seq.toArray
 
                     let volumes =
-                        match quote0.TryGetProperty("volume") with
+                        match quote0.TryGetProperty "volume" with
                         | true, v -> v.EnumerateArray() |> Seq.toArray
                         | _ -> Array.empty
 
                     let adjCloses =
-                        match indicators.TryGetProperty("adjclose") with
+                        match indicators.TryGetProperty "adjclose" with
                         | true, adjArr ->
                             let adj0 = adjArr.[0]
-                            match adj0.TryGetProperty("adjclose") with
+                            match adj0.TryGetProperty "adjclose" with
                             | true, v -> v.EnumerateArray() |> Seq.toArray
                             | _ -> Array.empty
                         | _ -> Array.empty
 
                     let currency =
-                        match result0.TryGetProperty("meta") with
+                        match result0.TryGetProperty "meta" with
                         | true, meta ->
-                            match meta.TryGetProperty("currency") with
+                            match meta.TryGetProperty "currency" with
                             | true, v -> (v.GetString() |> Option.ofObj) |> Option.defaultValue "USD"
                             | _ -> "USD"
                         | _ -> "USD"
@@ -687,7 +687,7 @@ module FinancialData =
                 let cacheKey = sha256Hex url
                 let cachePathOpt =
                     request.CacheDirectory
-                    |> Option.map (fun dir -> Path.Combine(dir, sprintf "yahoo_chart_%s.json" cacheKey))
+                    |> Option.map (fun dir -> Path.Combine(dir, $"yahoo_chart_%s{cacheKey}.json"))
 
                 // Try reading from cache asynchronously
                 let! cachedJsonOpt =
@@ -700,13 +700,13 @@ module FinancialData =
                     return parseYahooChartJson symbol cachedJson
                 | None ->
                     try
-                        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("FSharp.Azure.Quantum/InvestmentPortfolio")
+                        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd "FSharp.Azure.Quantum/InvestmentPortfolio"
                     with _ -> ()
 
                     try
                         use req = new HttpRequestMessage(HttpMethod.Get, url)
                         let! resp = httpClient.SendAsync(req, cancellationToken)
-                        let! body = resp.Content.ReadAsStringAsync(cancellationToken)
+                        let! body = resp.Content.ReadAsStringAsync cancellationToken
 
                         if not resp.IsSuccessStatusCode then
                             return Error (QuantumError.BackendError ("YahooFinance", $"HTTP {(int resp.StatusCode)}: {body}"))
@@ -830,7 +830,7 @@ module FinancialData =
         let commonDates =
             allDates
             |> Array.filter (fun dt ->
-                dateLookups |> Array.forall (fun lookup -> lookup.ContainsKey(dt)))
+                dateLookups |> Array.forall (fun lookup -> lookup.ContainsKey dt))
         
         // Extract aligned returns
         let alignedReturns =
@@ -838,7 +838,7 @@ module FinancialData =
             |> Array.mapi (fun seriesIdx rs ->
                 commonDates
                 |> Array.map (fun dt ->
-                    match dateLookups.[seriesIdx].TryFind(dt) with
+                    match dateLookups.[seriesIdx].TryFind dt with
                     | Some idx -> rs.LogReturns.[idx]
                     | None -> 0.0))
         
@@ -947,7 +947,7 @@ module FinancialData =
                     let posArray =
                         lines.[1..]
                         |> Array.map (fun line ->
-                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
                             
                             let symbol = fields.[sIdx]
                             let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
@@ -991,7 +991,7 @@ module FinancialData =
                 | _ ->
                     Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
         with ex ->
-            Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message))
+            Error (QuantumError.Other ($"Failed to read portfolio CSV: %s{ex.Message}"))
     
     /// Load portfolio from CSV asynchronously
     let loadPortfolioFromCsvAsync (filePath: string) (portfolioName: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Portfolio>> =
@@ -1013,7 +1013,7 @@ module FinancialData =
                         let posArray =
                             lines.[1..]
                             |> Array.map (fun line ->
-                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
                                 
                                 let symbol = fields.[sIdx]
                                 let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
@@ -1069,7 +1069,7 @@ module FinancialData =
                     cancellationToken.ThrowIfCancellationRequested()
                     return Error (QuantumError.Other "Operation was canceled")
                 | ex ->
-                    return Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message))
+                    return Error (QuantumError.Other ($"Failed to read portfolio CSV: %s{ex.Message}"))
             }
     
     /// Create portfolio from position list
@@ -1134,7 +1134,7 @@ module FinancialData =
                     ((((b.[3] * r + b.[2]) * r + b.[1]) * r + b.[0]) * r + 1.0)
             else
                 let r = if y < 0.0 then p else 1.0 - p
-                let s = log(-log(r))
+                let s = log(-log r)
                 let sign = if y < 0.0 then -1.0 else 1.0
                 sign * (c.[0] + s * (c.[1] + s * (c.[2] + s * (c.[3] + s * (c.[4] +
                        s * (c.[5] + s * (c.[6] + s * (c.[7] + s * c.[8]))))))))
@@ -1155,7 +1155,7 @@ module FinancialData =
                     // carries the return variance, so rescale the quantile to unit variance
                     // when df > 2 (below that the variance is undefined; use the raw quantile).
                     let z = if df > 2.0 then tQuantile * sqrt ((df - 2.0) / df) else tQuantile
-                    Ok (z, sprintf "Parametric (Student-t, df=%g)" df)
+                    Ok (z, $"Parametric (Student-t, df=%g{df})")
             | LogNormal ->
                 // Log-normal prices: log-returns are normal with std σ, so the loss
                 // quantile is 1 - exp(-z·σ). Express as an effective z so VaR = V·σ·z_eff.
@@ -1329,21 +1329,21 @@ module FinancialData =
             Array.create 10 0.0
         else
             let mean = logRet |> Array.average
-            let variance = logRet |> Array.map (fun r -> (r - mean) ** 2.0) |> Array.average
+            let variance = Array.averageBy (fun r -> (r - mean) ** 2.0) logRet
             let std = sqrt variance
             
             // Skewness
             let skewness =
                 if std = 0.0 then 0.0
                 else
-                    let m3 = logRet |> Array.map (fun r -> ((r - mean) / std) ** 3.0) |> Array.average
+                    let m3 = Array.averageBy (fun r -> ((r - mean) / std) ** 3.0) logRet
                     m3
             
             // Kurtosis
             let kurtosis =
                 if std = 0.0 then 0.0
                 else
-                    let m4 = logRet |> Array.map (fun r -> ((r - mean) / std) ** 4.0) |> Array.average
+                    let m4 = Array.averageBy (fun r -> ((r - mean) / std) ** 4.0) logRet
                     m4 - 3.0  // Excess kurtosis
             
             // Max drawdown
@@ -1365,7 +1365,7 @@ module FinancialData =
             
             [|
                 mean * 252.0           // Annualized mean return
-                std * sqrt(252.0)      // Annualized volatility
+                std * sqrt 252.0      // Annualized volatility
                 skewness
                 kurtosis
                 maxDrawdown

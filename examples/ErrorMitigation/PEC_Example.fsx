@@ -125,8 +125,8 @@ let compareSamples = Cli.hasFlag "compare-samples" args
 /// Parse theta value, supporting "pi/N" notation.
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
-    if s.StartsWith("pi/") then
-        match Double.TryParse(s.Substring(3)) with
+    if s.StartsWith "pi/" then
+        match Double.TryParse(s.Substring 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
     elif s = "pi" then Math.PI
@@ -141,7 +141,8 @@ let theta = parseTheta (Cli.getOr "theta" "pi/4" args)
 // Shared Setup
 // ============================================================================
 
-let trueEnergy = -1.137  // True H2 ground state energy (Hartree)
+/// True H2 ground state energy (Hartree)
+let trueEnergy = -1.137
 
 /// Noise model based on CLI parameters.
 let noiseModel: NoiseModel = {

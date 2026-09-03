@@ -184,9 +184,7 @@ module QPETests =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         // Test with 0 qubits - should be rejected
-        match QPE.estimateTGatePhase 0 backend with
-        | Ok _ -> Assert.Fail("Should reject 0 counting qubits")
-        | Error _ -> () // Expected error
+        (QPE.estimateTGatePhase 0 backend) |> Result.iter (fun _ -> Assert.Fail("Should reject 0 counting qubits")) // Expected error
     
     [<Fact>]
     let ``QPE estimates phase gate correctly`` () =
@@ -253,10 +251,7 @@ module QPETests =
             EigenVector = Some (stateVectorOf [| System.Numerics.Complex.One; System.Numerics.Complex.Zero |])
         }
 
-        match QPE.execute config backend with
-        | Error err -> Assert.Fail($"QPE with |0> eigenvector failed: {err}")
-        | Ok result ->
-            Assert.True(result.EstimatedPhase < 0.1, $"Expected phase ~0, got {result.EstimatedPhase}")
+        (QPE.execute config backend) |> Result.map (fun result -> Assert.True(result.EstimatedPhase < 0.1, $"Expected phase ~0, got {result.EstimatedPhase}")) |> Result.defaultWith (fun err -> Assert.Fail($"QPE with |0> eigenvector failed: {err}"))
 
     [<Fact>]
     let ``QPE rejects eigenvector with wrong dimension`` () =
@@ -293,7 +288,7 @@ module QPETests =
             member this.ExecuteToStateAsync circuit _ct =
                 task { return (this :> IQuantumBackend).ExecuteToState circuit }
             member _.ApplyOperationAsync _operation _state _ct =
-                task { return incremental }
+                Task.FromResult(incremental)
 
     [<Fact>]
     let ``QPE runs on a cloud-style backend via whole-circuit submission`` () =

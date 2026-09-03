@@ -476,11 +476,11 @@ let getOrMeasureCalibration
     async {
         let cacheKey = sprintf "%s-%d" backend qubits
 
-        match calibrationCache.TryGetValue(cacheKey) with
+        match calibrationCache.TryGetValue cacheKey with
         | (true, cached) ->
             if not quiet then
                 printfn "  [CACHE] Using cached calibration for %s (%d qubits)" backend qubits
-                printfn "          Timestamp: %s" (cached.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"))
+                printfn "          Timestamp: %s" (cached.Timestamp.ToString "yyyy-MM-dd HH:mm:ss")
 
             // Check if calibration is stale (> 24 hours old)
             let age = DateTime.UtcNow - cached.Timestamp
@@ -494,9 +494,8 @@ let getOrMeasureCalibration
             if not quiet then
                 printfn "  [NEW] Measuring calibration for %s (%d qubits)..." backend qubits
 
-            let! result = measureCalibrationMatrix backend qubits config exec
 
-            match result with
+            match! measureCalibrationMatrix backend qubits config exec with
             | Ok calibration ->
                 calibrationCache.[cacheKey] <- calibration
                 if not quiet then
@@ -585,14 +584,12 @@ let runCircuitWithREM
             let qubits = qubitCount circ
             let config = defaultConfig |> withCalibrationShots shots
 
-            let! calibrationResult = getOrMeasureCalibration backend qubits config exec
 
-            match calibrationResult with
+            match! getOrMeasureCalibration backend qubits config exec with
             | Error err -> return Error (sprintf "Calibration failed: %s" err)
             | Ok calibration ->
-                let! executionResult = exec circ shots
 
-                match executionResult with
+                match! exec circ shots with
                 | Error err -> return Error (sprintf "Execution failed: %s" err)
                 | Ok measured ->
                     return

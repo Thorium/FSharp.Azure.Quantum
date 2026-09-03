@@ -285,7 +285,7 @@ module ZeroNoiseExtrapolation =
                 // Check if any executions failed
                 let failures = 
                     measurementResults 
-                    |> Array.choose (function | Error e -> Some e | _ -> None)
+                    |> Array.choose (function | Error e -> Some e | Ok _ -> None)
                 
                 if not (Array.isEmpty failures) then
                     return Error (sprintf "Circuit execution failed: %s" (String.concat "; " failures))
@@ -293,7 +293,7 @@ module ZeroNoiseExtrapolation =
                     // Extract successful measurements
                     let measurements = 
                         measurementResults 
-                        |> Array.choose (function | Ok m -> Some m | _ -> None)
+                        |> Array.choose (function | Ok m -> Some m | Error _ -> None)
                         |> Array.toList
                     
                     // Step 2: Fit polynomial
@@ -313,5 +313,5 @@ module ZeroNoiseExtrapolation =
                         GoodnessOfFit = goodnessOfFit
                     }
             with
-            | ex -> return Error (sprintf "ZNE pipeline error: %s" ex.Message)
+            | ex -> return Error ($"ZNE pipeline error: %s{ex.Message}")
         }

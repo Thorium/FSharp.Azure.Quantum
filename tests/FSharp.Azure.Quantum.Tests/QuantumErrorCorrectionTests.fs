@@ -300,24 +300,16 @@ let ``AllCodes reject annealing backend`` () =
         createDefaultMockBackend () :> IQuantumBackend
 
     // BitFlip.encode should fail
-    match QuantumErrorCorrection.BitFlip.encode annealingBackend 0 with
-    | Ok _ -> Assert.Fail("Expected Error for annealing backend, got Ok")
-    | Error _ -> () // Expected
+    (QuantumErrorCorrection.BitFlip.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
     // PhaseFlip.encode should fail
-    match QuantumErrorCorrection.PhaseFlip.encode annealingBackend 0 with
-    | Ok _ -> Assert.Fail("Expected Error for annealing backend, got Ok")
-    | Error _ -> () // Expected
+    (QuantumErrorCorrection.PhaseFlip.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
     // Shor.encode should fail
-    match QuantumErrorCorrection.Shor.encode annealingBackend 0 with
-    | Ok _ -> Assert.Fail("Expected Error for annealing backend, got Ok")
-    | Error _ -> () // Expected
+    (QuantumErrorCorrection.Shor.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
     // Steane.encode should fail
-    match QuantumErrorCorrection.Steane.encode annealingBackend 0 with
-    | Ok _ -> Assert.Fail("Expected Error for annealing backend, got Ok")
-    | Error _ -> () // Expected
+    (QuantumErrorCorrection.Steane.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
 // ========================================================================
 // FORMATTING TESTS

@@ -68,6 +68,7 @@ module Shor =
     /// gcd 21 14 = 7
     /// </code>
     /// </example>
+    [<TailCall>]
     let rec private gcd a b =
         if b = 0 then a
         else gcd b (a % b)
@@ -538,7 +539,7 @@ module Shor =
                     // Step 2: Apply Hadamard to all counting qubits
                     let hadamardOps =
                         [0 .. countingQubits - 1]
-                        |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                        |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
                     let! stateAfterH =
                         UnifiedBackend.applySequence backend hadamardOps initialState

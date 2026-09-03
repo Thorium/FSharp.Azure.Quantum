@@ -38,9 +38,12 @@ module NetworkFlow =
 
     /// Node type in the supply chain network
     type NodeType =
-        | Source        // Supplier, factory, origin
-        | Sink          // Customer, destination, demand point
-        | Intermediate  // Warehouse, distribution center, hub
+        /// Supplier, factory, origin
+        | Source
+        /// Customer, destination, demand point
+        | Sink
+        /// Warehouse, distribution center, hub
+        | Intermediate
 
     /// Network node with capacity and properties
     type Node = {

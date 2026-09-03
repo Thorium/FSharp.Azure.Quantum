@@ -219,7 +219,7 @@ module Classical =
                 | [] -> Some (fst topMoves.[0])
                 | [single] -> Some (fst single)
                 | tied ->
-                    let idx = rng.Next(tied.Length)
+                    let idx = rng.Next tied.Length
                     Some (fst tied.[idx])
     
     /// Get top N candidate moves for further analysis

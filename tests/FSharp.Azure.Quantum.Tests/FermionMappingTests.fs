@@ -163,12 +163,12 @@ module FermionMappingTests =
             
             // X term: coefficient = 0.5
             Assert.Equal(Complex(0.5, 0.0), xTerm.Coefficient)
-            Assert.True(xTerm.Operators.ContainsKey(2))
+            Assert.True(xTerm.Operators.ContainsKey 2)
             Assert.Equal(PauliX, xTerm.Operators.[2])
             
             // Y term: coefficient = -0.5i
             Assert.Equal(Complex(0.0, -0.5), yTerm.Coefficient)
-            Assert.True(yTerm.Operators.ContainsKey(2))
+            Assert.True(yTerm.Operators.ContainsKey 2)
             Assert.Equal(PauliY, yTerm.Operators.[2])
         
         [<Fact>]
@@ -376,8 +376,8 @@ module FermionMappingTests =
             Assert.Equal(Complex(0.0, -0.5), yTerm.Coefficient)
             
             // Should have X or Y on qubit 2
-            Assert.True(xTerm.Operators.ContainsKey(2))
-            Assert.True(yTerm.Operators.ContainsKey(2))
+            Assert.True(xTerm.Operators.ContainsKey 2)
+            Assert.True(yTerm.Operators.ContainsKey 2)
         
         [<Fact>]
         let ``transformOperator has fewer or similar paulis than jordan wigner for small systems`` () =
@@ -530,11 +530,11 @@ module FermionMappingTests =
             
             // For Hermitian operators, all coefficients should be real (or close to real)
             jwResult.Terms |> List.iter (fun term ->
-                Assert.True(abs(term.Coefficient.Imaginary) < 1e-10 || term.Coefficient.Real <> 0.0)
+                Assert.True(abs term.Coefficient.Imaginary < 1e-10 || term.Coefficient.Real <> 0.0)
             )
             
             bkResult.Terms |> List.iter (fun term ->
-                Assert.True(abs(term.Coefficient.Imaginary) < 1e-10 || term.Coefficient.Real <> 0.0)
+                Assert.True(abs term.Coefficient.Imaginary < 1e-10 || term.Coefficient.Real <> 0.0)
             )
     
     // ========================================================================

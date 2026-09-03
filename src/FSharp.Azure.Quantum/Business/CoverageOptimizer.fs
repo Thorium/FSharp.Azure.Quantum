@@ -137,10 +137,7 @@ module CoverageOptimizer =
                 |> Option.defaultWith (fun () ->
                     FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
             let setCoverProblem = toSetCoverProblem problem
-            match QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots with
-            | Error err -> Error err
-            | Ok solution ->
-                Ok (decodeSolution problem solution)
+            (QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots) |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

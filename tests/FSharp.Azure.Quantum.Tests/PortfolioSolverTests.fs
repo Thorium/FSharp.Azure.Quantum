@@ -140,7 +140,7 @@ let ``Greedy-by-ratio should handle 50 assets efficiently`` () =
         [1..50]
         |> List.map (fun i ->
             {
-                Symbol = sprintf "ASSET%02d" i
+                Symbol = $"ASSET%02d{i}"
                 ExpectedReturn = 0.05 + (random.NextDouble() * 0.20)  // 5% to 25%
                 Risk = 0.05 + (random.NextDouble() * 0.25)            // 5% to 30%
                 Price = 10.0 + (random.NextDouble() * 190.0)          // $10 to $200
@@ -159,7 +159,7 @@ let ``Greedy-by-ratio should handle 50 assets efficiently`` () =
     
     // Assert: Performance constraint (< 1 second)
     Assert.True(solution.ElapsedMs < 1000.0, 
-        sprintf "Greedy algorithm should complete in < 1 second for 50 assets, took %.2fms" solution.ElapsedMs)
+        $"Greedy algorithm should complete in < 1 second for 50 assets, took %.2f{solution.ElapsedMs}ms")
     
     // Assert: Solution quality
     Assert.NotEmpty(solution.Allocations)
@@ -171,7 +171,7 @@ let ``Greedy-by-ratio should handle 50 assets efficiently`` () =
     solution.Allocations
     |> List.iter (fun alloc ->
         Assert.True(alloc.Value <= constraints.MaxHolding, 
-            sprintf "Asset %s exceeds MaxHolding: %.2f > %.2f" alloc.Asset.Symbol alloc.Value constraints.MaxHolding))
+            $"Asset %s{alloc.Asset.Symbol} exceeds MaxHolding: %.2f{alloc.Value} > %.2f{constraints.MaxHolding}"))
 
 [<Fact>]
 let ``Mean-variance should handle 50 assets efficiently`` () =
@@ -181,7 +181,7 @@ let ``Mean-variance should handle 50 assets efficiently`` () =
         [1..50]
         |> List.map (fun i ->
             {
-                Symbol = sprintf "ASSET%02d" i
+                Symbol = $"ASSET%02d{i}"
                 ExpectedReturn = 0.05 + (random.NextDouble() * 0.20)
                 Risk = 0.05 + (random.NextDouble() * 0.25)
                 Price = 10.0 + (random.NextDouble() * 190.0)
@@ -200,7 +200,7 @@ let ``Mean-variance should handle 50 assets efficiently`` () =
     
     // Assert: Performance constraint (< 5 seconds per requirements)
     Assert.True(solution.ElapsedMs < 5000.0, 
-        sprintf "Mean-variance should complete in < 5 seconds for 50 assets, took %.2fms" solution.ElapsedMs)
+        $"Mean-variance should complete in < 5 seconds for 50 assets, took %.2f{solution.ElapsedMs}ms")
     
     // Assert: Solution quality
     Assert.NotEmpty(solution.Allocations)
@@ -211,7 +211,7 @@ let ``Mean-variance should handle 50 assets efficiently`` () =
     
     // Assert: Diversification (mean-variance should spread across multiple assets)
     Assert.True(solution.Allocations.Length >= 3, 
-        sprintf "Mean-variance should diversify across multiple assets, got %d" solution.Allocations.Length)
+        $"Mean-variance should diversify across multiple assets, got %d{solution.Allocations.Length}")
 
 [<Fact>]
 let ``Portfolio solver should handle edge case with single asset`` () =
@@ -428,10 +428,7 @@ let ``Transaction cost QUBO validation rejects negative cost rates`` () =
     let result = toQuboWithTransactionCosts problemWithCosts
     
     // Assert
-    match result with
-    | Ok _ -> Assert.Fail("Should fail with negative cost rate")
-    | Error err -> 
-        Assert.Contains("non-negative", err.Message.ToLower())
+    result |> Result.map (fun _ -> Assert.Fail("Should fail with negative cost rate")) |> Result.defaultWith (fun err -> Assert.Contains("non-negative", err.Message.ToLower()))
 
 [<Fact>]
 let ``Transaction cost QUBO handles empty portfolio`` () =
@@ -445,10 +442,7 @@ let ``Transaction cost QUBO handles empty portfolio`` () =
     let result = toQuboWithTransactionCosts problemWithCosts
     
     // Assert
-    match result with
-    | Ok _ -> Assert.Fail("Should fail with empty assets")
-    | Error err -> 
-        Assert.Contains("no assets", err.Message.ToLower())
+    result |> Result.map (fun _ -> Assert.Fail("Should fail with empty assets")) |> Result.defaultWith (fun err -> Assert.Contains("no assets", err.Message.ToLower()))
 
 [<Fact>]
 let ``Default transaction costs are reasonable`` () =

@@ -6,53 +6,81 @@ module CircuitBuilder =
     /// Represents a quantum gate operation
     type Gate =
         // Pauli gates
-        | X of int                    // Pauli-X gate (NOT) on qubit
-        | Y of int                    // Pauli-Y gate on qubit
-        | Z of int                    // Pauli-Z gate on qubit
-        | H of int                    // Hadamard gate on qubit
+        /// Pauli-X gate (NOT) on qubit
+        | X of int
+        /// Pauli-Y gate on qubit
+        | Y of int
+        /// Pauli-Z gate on qubit
+        | Z of int
+        /// Hadamard gate on qubit
+        | H of int
         
         // Phase gates
-        | S of int                    // S gate (√Z, phase gate) on qubit
-        | SDG of int                  // S-dagger (S†, inverse phase) on qubit
-        | T of int                    // T gate (√S, π/8 gate) on qubit
-        | TDG of int                  // T-dagger (T†, inverse π/8) on qubit
-        | P of int * float            // Phase gate P(θ) = diag(1, e^(iθ)) on qubit
+        /// S gate (√Z, phase gate) on qubit
+        | S of int
+        /// S-dagger (S†, inverse phase) on qubit
+        | SDG of int
+        /// T gate (√S, π/8 gate) on qubit
+        | T of int
+        /// T-dagger (T†, inverse π/8) on qubit
+        | TDG of int
+        /// Phase gate P(θ) = diag(1, e^(iθ)) on qubit
+        | P of int * float
         
         // Rotation gates
-        | RX of int * float           // Rotation around X-axis (qubit, angle)
-        | RY of int * float           // Rotation around Y-axis (qubit, angle)
-        | RZ of int * float           // Rotation around Z-axis (qubit, angle)
+        /// Rotation around X-axis (qubit, angle)
+        | RX of int * float
+        /// Rotation around Y-axis (qubit, angle)
+        | RY of int * float
+        /// Rotation around Z-axis (qubit, angle)
+        | RZ of int * float
         
         // Universal single-qubit gate
-        | U3 of int * float * float * float  // U3(θ, φ, λ) = RZ(φ) RY(θ) RZ(λ) on qubit
+        /// U3(θ, φ, λ) = RZ(φ) RY(θ) RZ(λ) on qubit
+        | U3 of int * float * float * float
         
         // Two-qubit gates
-        | CNOT of int * int           // Controlled-NOT (control, target)
-        | CZ of int * int             // Controlled-Z (control, target)
-        | CP of int * int * float     // Controlled-P gate: CP(θ) applies P(θ) when control is |1⟩
-        | CRX of int * int * float    // Controlled-RX: CRX(θ) applies RX(θ) when control is |1⟩
-        | CRY of int * int * float    // Controlled-RY: CRY(θ) applies RY(θ) when control is |1⟩
-        | CRZ of int * int * float    // Controlled-RZ: CRZ(θ) applies RZ(θ) when control is |1⟩
-        | SWAP of int * int           // SWAP two qubits (qubit1, qubit2)
+        /// Controlled-NOT (control, target)
+        | CNOT of int * int
+        /// Controlled-Z (control, target)
+        | CZ of int * int
+        /// Controlled-P gate: CP(θ) applies P(θ) when control is |1⟩
+        | CP of int * int * float
+        /// Controlled-RX: CRX(θ) applies RX(θ) when control is |1⟩
+        | CRX of int * int * float
+        /// Controlled-RY: CRY(θ) applies RY(θ) when control is |1⟩
+        | CRY of int * int * float
+        /// Controlled-RZ: CRZ(θ) applies RZ(θ) when control is |1⟩
+        | CRZ of int * int * float
+        /// SWAP two qubits (qubit1, qubit2)
+        | SWAP of int * int
 
         // Two-qubit Ising interaction gates (native on trapped-ion and
         // superconducting hardware: IonQ RXX, Rigetti/IBM ZZ interactions)
-        | RXX of int * int * float    // exp(-iθ/2·X⊗X) (qubit1, qubit2, angle)
-        | RYY of int * int * float    // exp(-iθ/2·Y⊗Y) (qubit1, qubit2, angle)
-        | RZZ of int * int * float    // exp(-iθ/2·Z⊗Z) (qubit1, qubit2, angle)
+        /// exp(-iθ/2·X⊗X) (qubit1, qubit2, angle)
+        | RXX of int * int * float
+        /// exp(-iθ/2·Y⊗Y) (qubit1, qubit2, angle)
+        | RYY of int * int * float
+        /// exp(-iθ/2·Z⊗Z) (qubit1, qubit2, angle)
+        | RZZ of int * int * float
         
         // Three-qubit gates
-        | CCX of int * int * int      // Toffoli (CCNOT) (control1, control2, target)
+        /// Toffoli (CCNOT) (control1, control2, target)
+        | CCX of int * int * int
         
         // Multi-qubit gates
-        | MCZ of int list * int       // Multi-controlled Z (controls, target)
+        /// Multi-controlled Z (controls, target)
+        | MCZ of int list * int
         
         // Measurement
-        | Measure of int              // Measurement of qubit in computational basis
+        /// Measurement of qubit in computational basis
+        | Measure of int
 
         // Reset and synchronization
-        | Reset of int                // Reset qubit to |0⟩ state (measure + conditional X)
-        | Barrier of int list         // Synchronization barrier across specified qubits (no physical effect)
+        /// Reset qubit to |0⟩ state (measure + conditional X)
+        | Reset of int
+        /// Synchronization barrier across specified qubits (no physical effect)
+        | Barrier of int list
 
         // Classical control flow: apply the inner gate only when an earlier
         // Measure of `measuredQubit` yielded 1. The inner gate must be a plain
@@ -99,7 +127,7 @@ module CircuitBuilder =
     /// Composes two circuits by appending the gates of the second to the first
     let compose (circuit1: Circuit) (circuit2: Circuit) : Circuit =
         if circuit1.QubitCount <> circuit2.QubitCount then
-            failwith "Cannot compose circuits with different qubit counts"
+            failwith $"Cannot compose circuits with different qubit counts, calling compose with circuit1: {circuit1}, circuit2: {circuit2}"
         { circuit1 with Gates = circuit2.Gates @ circuit1.Gates }
 
     /// Gets all gates from a circuit in order

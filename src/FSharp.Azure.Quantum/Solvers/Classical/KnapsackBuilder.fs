@@ -201,7 +201,7 @@ module Knapsack =
             |> List.map (fun i ->
                 let weight = rng.NextDouble() * maxWeight
                 let value = rng.NextDouble() * maxValue
-                (sprintf "Item%d" i, weight, value))
+                ($"Item%d{i}", weight, value))
         
         let totalWeight = items |> List.sumBy (fun (_, w, _) -> w)
         let capacity = totalWeight * capacityRatio
@@ -323,6 +323,7 @@ module Knapsack =
 
     /// Upper bound on DP table cells ((items+1) * (scaled capacity+1)).
     /// Keeps memory bounded (~40 MB of floats worst case).
+    [<Literal>]
     let private maxDpCells = 5_000_000
 
     /// Exact 0/1 knapsack via the standard O(n*W) dynamic-programming table.
@@ -640,7 +641,7 @@ module Knapsack =
 
                 let backendName =
                     match backend with
-                    | Some b -> sprintf "Quantum QAOA Subset-Sum (%s)" b.Name
+                    | Some b -> $"Quantum QAOA Subset-Sum (%s{b.Name})"
                     | None -> "Classical Enumeration (All Combinations)"
 
                 Ok {

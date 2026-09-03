@@ -93,13 +93,13 @@ module AmplitudeAmplification =
             // CRITICAL: Must use complex multiplication for 2⟨ψ|φ⟩ψᵢ
             // This is where most quantum simulators fail - they only use the real part!
             let reflection =
+                let twoInnerProduct = 2.0 * innerProduct
                 [| 0 .. dimension - 1 |]
                 |> Array.map (fun i ->
                     let psiAmp = StateVector.getAmplitude i targetState
                     let phiAmp = StateVector.getAmplitude i state
                     
                     // 2⟨ψ|φ⟩ψᵢ - φᵢ (full complex multiplication)
-                    let twoInnerProduct = 2.0 * innerProduct
                     let twoPsi = twoInnerProduct * psiAmp
                     twoPsi - phiAmp
                 )
@@ -294,7 +294,7 @@ module AmplitudeAmplification =
         let private lowerUniformSuperpositionPrepOps (numQubits: int) : QuantumOperation list =
 
             [ 0 .. numQubits - 1 ]
-            |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+            |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
         let private isUniformSuperpositionCircuit (prep: CircuitBuilder.Circuit) : bool =
             // Heuristic: equal qubit count and exactly one H gate per qubit and nothing else.
@@ -489,7 +489,7 @@ module AmplitudeAmplification =
     let wStatePreparation (numQubits: int) : StatePreparation =
         fun (state: StateVector.StateVector) ->
             if numQubits <> 3 then
-                failwith "W-state preparation only implemented for 3 qubits"
+                failwith $"W-state preparation only implemented for 3 qubits, calling wStatePreparation with numQubits: {numQubits}"
             
             let dimension = StateVector.dimension state
             let invSqrt3 = 1.0 / Math.Sqrt(3.0)

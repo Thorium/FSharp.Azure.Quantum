@@ -17,8 +17,8 @@ open FSharp.Azure.Quantum.CircuitBuilder
 module QirEmitter =
 
     // Static base-profile references.
-    let private qubitRef (q: int) = sprintf "%%Qubit* inttoptr (i64 %d to %%Qubit*)" q
-    let private resultRef (r: int) = sprintf "%%Result* inttoptr (i64 %d to %%Result*)" r
+    let private qubitRef (q: int) = $"%%Qubit* inttoptr (i64 %d{q} to %%Qubit*)"
+    let private resultRef (r: int) = $"%%Result* inttoptr (i64 %d{r} to %%Result*)"
     // LLVM-valid double literal: exact 64-bit IEEE-754 hex (decimal is only valid
     // for exactly-representable values, so always use the hex form).
     let private dbl (x: float) = sprintf "0x%016X" (BitConverter.DoubleToInt64Bits x)

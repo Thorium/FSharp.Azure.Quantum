@@ -248,7 +248,8 @@ if not quiet then
     printfn ""
     printfn "  Computing quantum kernels..."
 
-let featureMap = FeatureMapType.ZZFeatureMap 2  // depth=2 for ZZ feature map
+/// depth=2 for ZZ feature map
+let featureMap = FeatureMapType.ZZFeatureMap 2
 
 /// Compute quantum kernel similarity between two feature vectors
 let computeQuantumSimilarity (x1: float array) (x2: float array) : float =

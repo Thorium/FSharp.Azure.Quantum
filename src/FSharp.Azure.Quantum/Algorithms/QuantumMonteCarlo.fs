@@ -193,11 +193,7 @@ module QuantumMonteCarlo =
             |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q)) (CircuitBuilder.empty numQubits)
         let circuit = CircuitBuilder.compose uniform oracle  // H^⊗n first, then the oracle
         runAndReadAmplitudes backend circuit
-        |> Result.map (fun amps ->
-            amps
-            |> Array.indexed
-            |> Array.choose (fun (i, a) -> if a.Real < -1e-9 then Some i else None)
-            |> Set.ofArray)
+        |> Result.map (Array.indexed >> Array.choose (fun (i, a) -> if a.Real < -1e-9 then Some i else None) >> Set.ofArray)
 
     /// Probability mass on the marked subspace for a given amplitude vector.
     let private markedProbability (markedSet: Set<int>) (amps: Complex[]) : float =
@@ -258,7 +254,7 @@ module QuantumMonteCarlo =
                     runAndReadAmplitudes backend (buildAmplified k)
                     |> Result.map (fun amps -> (k, markedProbability markedSet amps) :: acc)))
                 (Ok [])
-            |> Result.map (fun measurements -> estimateAmplitudeMLAE config.Shots (List.rev measurements)))
+            |> Result.map (List.rev >> estimateAmplitudeMLAE config.Shots))
     
     /// Measure the genuine bin probabilities q_i = |⟨i|ψ⟩|² produced by a state-preparation
     /// circuit on the given backend (basis index i ↔ bin i). Exposed so business modules

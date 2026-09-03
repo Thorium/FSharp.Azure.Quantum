@@ -37,6 +37,7 @@ module DensityMatrixSimulator =
     let depolarizing (singleQubit: float) (twoQubit: float) : NoiseConfig =
         { SingleQubitDepolarizing = singleQubit; TwoQubitDepolarizing = twoQubit }
 
+    [<Literal>]
     let private maxQubits = 8
 
     /// Qubits a gate acts on — delegates to CircuitBuilder so every Gate case
@@ -131,7 +132,7 @@ module DensityMatrixSimulator =
                         rho0
                 Ok (final, n)
             with ex ->
-                Error (QuantumError.OperationError ("NoisyLocalBackend", sprintf "density-matrix simulation failed: %s" ex.Message))
+                Error (QuantumError.OperationError ("NoisyLocalBackend", $"density-matrix simulation failed: %s{ex.Message}"))
 
     /// A noisy `IQuantumBackend` that returns a `DensityMatrix` state. Plugs into the shared
     /// primitives: `Primitives.sample`/`run` read noisy measurement statistics off its diagonal.

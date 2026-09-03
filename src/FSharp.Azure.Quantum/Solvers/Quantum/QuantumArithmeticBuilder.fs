@@ -58,11 +58,16 @@ module QuantumArithmeticOps =
     
     /// Arithmetic operation type
     type OperationType =
-        | Add                    // a + b
-        | Multiply               // a × b
-        | ModularAdd            // (a + b) mod N
-        | ModularMultiply       // (a × b) mod N
-        | ModularExponentiate   // a^x mod N
+        /// a + b
+        | Add
+        /// a × b
+        | Multiply
+        /// (a + b) mod N
+        | ModularAdd
+        /// (a × b) mod N
+        | ModularMultiply
+        /// a^x mod N
+        | ModularExponentiate
     
     /// <summary>
     /// Complete quantum arithmetic operation specification.
@@ -114,13 +119,14 @@ module QuantumArithmeticOps =
     /// for ancilla, temp registers, overflow/flag qubits, etc.
     let private computeTotalQubits (n: int) (opType: OperationType) : int =
         match opType with
-        | Add -> n
+        | Add
         | Multiply -> n
         | ModularAdd -> n + 2  // overflow + flag for Beauregard
         | ModularMultiply -> 2 * n + 3  // input + output + overflow + flag + AND-ancilla
         | ModularExponentiate -> 2 * n + 5  // result + temp + control + AND + overflow + flag + AND
 
     /// Maximum total qubits supported by LocalBackend simulation
+    [<Literal>]
     let private maxSimulationQubits = 20
 
     /// <summary>
@@ -146,7 +152,7 @@ module QuantumArithmeticOps =
             // Check modulus for modular operations
             elif match operation.Operation with
                  | ModularAdd | ModularMultiply | ModularExponentiate -> operation.Modulus.IsNone
-                 | _ -> false
+                 | Add | Multiply -> false
             then
                 Error (QuantumError.ValidationError ("Modulus", "modulus is required for modular arithmetic operations"))
             
@@ -277,9 +283,7 @@ module QuantumArithmeticOps =
             else
                 let bit = (value >>> bitIndex) &&& 1
                 if bit = 1 then
-                    match backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.X registerQubits.[bitIndex])) currentState with
-                    | Error err -> Error err
-                    | Ok nextState -> applyBits nextState (bitIndex + 1)
+                    (backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.X registerQubits.[bitIndex])) currentState) |> Result.bind (fun nextState -> applyBits nextState (bitIndex + 1))
                 else
                     applyBits currentState (bitIndex + 1)
         applyBits state 0
@@ -339,7 +343,7 @@ module QuantumArithmeticOps =
                 let isModular =
                     match operation.Operation with
                     | ModularAdd | ModularMultiply | ModularExponentiate -> true
-                    | _ -> false
+                    | Add | Multiply -> false
                 
                 let backendName = actualBackend.GetType().Name
                 

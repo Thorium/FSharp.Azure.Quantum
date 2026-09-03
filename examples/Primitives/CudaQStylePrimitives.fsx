@@ -59,10 +59,6 @@ match Primitives.observe backend bell zz, Primitives.observe backend bell x0 wit
 | _ -> eprintfn "observe failed"
 
 // cudaq.run → raw per-shot outcomes; cudaq.get_state → full statevector
-match Primitives.run backend bell 5 with
-| Ok shots -> printfn "\nrun: %d shots × %d qubits (first shot: %A)" shots.Length shots.[0].Length shots.[0]
-| Error e -> eprintfn "run failed: %s" e.Message
+(Primitives.run backend bell 5) |> Result.map (fun shots -> printfn "\nrun: %d shots × %d qubits (first shot: %A)" shots.Length shots.[0].Length shots.[0]) |> Result.defaultWith (fun e -> eprintfn "run failed: %s" e.Message)
 
-match Primitives.getState backend bell with
-| Ok _ -> printfn "getState: returned the full quantum state (simulator)"
-| Error e -> eprintfn "getState failed: %s" e.Message
+(Primitives.getState backend bell) |> Result.map (fun _ -> printfn "getState: returned the full quantum state (simulator)") |> Result.defaultWith (fun e -> eprintfn "getState failed: %s" e.Message)

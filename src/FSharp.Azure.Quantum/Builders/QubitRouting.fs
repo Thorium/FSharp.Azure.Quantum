@@ -211,7 +211,7 @@ module QubitRouting =
                 out.Add(mapQubits (fun lq -> pos.[lq]) gate)
 
         // `out` is in execution order; restore the most-recent-first storage invariant.
-        ({ circuit with Gates = out |> List.ofSeq |> List.rev }, pos)
+        ({ circuit with Gates = out |> Seq.rev |> List.ofSeq }, pos)
 
     /// Route inserting SWAPs along fewest-hop shortest paths (minimises SWAP count).
     /// Returns the routed circuit plus the final logical->physical mapping

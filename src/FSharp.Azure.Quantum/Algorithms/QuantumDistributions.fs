@@ -278,9 +278,8 @@ module QuantumDistributions =
         async {
             match plan with
             | SamplePlan.GenerateUniformViaQrng ->
-                let! qrngResult = QRNG.generateWithBackend intent.NumQubits backend
 
-                match qrngResult with
+                match! QRNG.generateWithBackend intent.NumQubits backend with
                 | Error err ->
                     return Error err
                 | Ok qrng ->
@@ -382,9 +381,8 @@ module QuantumDistributions =
                                 |> Option.iter (fun r ->
                                     r.Report(Progress.IterationUpdate(currentSample, count, None)))
 
-                                let! sampleResult = executePlan backend intent chosenPlan
 
-                                match sampleResult with
+                                match! executePlan backend intent chosenPlan with
                                 | Error execErr ->
                                     return Error execErr
                                 | Ok sample ->
@@ -423,7 +421,7 @@ module QuantumDistributions =
     /// Compute statistics from sample results
     let computeStatistics (samples: SampleResult[]) : SampleStatistics =
         if samples.Length = 0 then
-            failwith "Cannot compute statistics on empty sample array"
+            failwith $"Cannot compute statistics on empty sample array, calling computeStatistics with samples: {samples}"
         
         let values = samples |> Array.map (fun s -> s.Value)
         let n = float values.Length

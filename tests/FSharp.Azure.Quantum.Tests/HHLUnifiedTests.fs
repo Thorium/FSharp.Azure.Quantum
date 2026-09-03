@@ -338,13 +338,9 @@ module HHLUnifiedTests =
     [<Fact>]
     let ``createDiagonalMatrix validates power of 2 dimensions`` () =
         // Valid: power of 2
-        match createDiagonalMatrix [| 1.0; 2.0 |] with
-        | Ok _ -> ()
-        | Error err -> Assert.Fail($"Should accept 2 eigenvalues: {err}")
+        (createDiagonalMatrix [| 1.0; 2.0 |]) |> Result.map (fun _ -> ()) |> Result.defaultWith (fun err -> Assert.Fail($"Should accept 2 eigenvalues: {err}"))
         
-        match createDiagonalMatrix [| 1.0; 2.0; 3.0; 4.0 |] with
-        | Ok _ -> ()
-        | Error err -> Assert.Fail($"Should accept 4 eigenvalues: {err}")
+        (createDiagonalMatrix [| 1.0; 2.0; 3.0; 4.0 |]) |> Result.map (fun _ -> ()) |> Result.defaultWith (fun err -> Assert.Fail($"Should accept 4 eigenvalues: {err}"))
         
         // Invalid: not power of 2
         match createDiagonalMatrix [| 1.0; 2.0; 3.0 |] with
@@ -376,9 +372,7 @@ module HHLUnifiedTests =
     [<Fact>]
     let ``createQuantumVector validates power of 2 dimensions`` () =
         // Valid: power of 2
-        match createQuantumVector [| Complex(1.0, 0.0); Complex(0.0, 0.0) |] with
-        | Ok _ -> ()
-        | Error err -> Assert.Fail($"Should accept 2 components: {err}")
+        (createQuantumVector [| Complex(1.0, 0.0); Complex(0.0, 0.0) |]) |> Result.map (fun _ -> ()) |> Result.defaultWith (fun err -> Assert.Fail($"Should accept 2 components: {err}"))
         
         // Invalid: not power of 2
         match createQuantumVector [| Complex(1.0, 0.0); Complex(0.0, 0.0); Complex(0.0, 0.0) |] with

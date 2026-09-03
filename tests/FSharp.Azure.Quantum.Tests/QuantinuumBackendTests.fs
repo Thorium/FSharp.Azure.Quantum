@@ -100,7 +100,7 @@ module QuantinuumBackendTests =
         // Assert
         Assert.Equal(target, submission.Target)
         Assert.Equal(CircuitFormat.Custom "qasm.v2", submission.InputDataFormat)
-        Assert.True(submission.InputParams.ContainsKey("shots"))
+        Assert.True(submission.InputParams.ContainsKey "shots")
         Assert.Equal(100, submission.InputParams.["shots"] :?> int)
         Assert.IsType<string>(submission.InputData) |> ignore
         Assert.Equal(qasmCode, submission.InputData :?> string)
@@ -116,9 +116,7 @@ module QuantinuumBackendTests =
         
         // Act
         let histogram =
-            match parseQuantinuumResult resultJson with
-            | Ok h -> h
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseQuantinuumResult resultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
         
         // Assert
         Assert.Equal(2, histogram.Count)
@@ -132,9 +130,7 @@ module QuantinuumBackendTests =
         
         // Act
         let histogram =
-            match parseQuantinuumResult resultJson with
-            | Ok h -> h
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseQuantinuumResult resultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
         
         // Assert
         Assert.Equal(1, histogram.Count)
@@ -147,9 +143,7 @@ module QuantinuumBackendTests =
         
         // Act
         let histogram =
-            match parseQuantinuumResult resultJson with
-            | Ok h -> h
-            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
+            (parseQuantinuumResult resultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
         
         // Assert
         Assert.Equal(4, histogram.Count)

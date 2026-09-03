@@ -83,8 +83,7 @@ module HHLModelSerialization =
                 Note = note
             }
             
-            let options = JsonSerializerOptions()
-            options.WriteIndented <- true
+            let options = JsonSerializerOptions(WriteIndented = true)
             
             let json = JsonSerializer.Serialize(model, options)
             File.WriteAllText(filePath, json)
@@ -122,8 +121,7 @@ module HHLModelSerialization =
                     Note = note
                 }
                 
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
+                let options = JsonSerializerOptions(WriteIndented = true)
                 
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
@@ -268,18 +266,18 @@ module HHLModelSerialization =
         loadHHLModel filePath
         |> Result.map (fun model ->
             logInfo logger "=== HHL Regression Model Information ==="
-            logInfo logger (sprintf "File: %s" filePath)
-            logInfo logger (sprintf "Saved at: %s" model.SavedAt)
-            logInfo logger (sprintf "Features: %d" model.NumFeatures)
-            logInfo logger (sprintf "Samples: %d" model.NumSamples)
-            logInfo logger (sprintf "Weights: %d (intercept=%b)" model.Weights.Length model.HasIntercept)
-            logInfo logger (sprintf "R2 Score: %.6f" model.RSquared)
-            logInfo logger (sprintf "MSE: %.6f" model.MSE)
-            logInfo logger (sprintf "Success Probability: %.6f" model.SuccessProbability)
+            logInfo logger ($"File: %s{filePath}")
+            logInfo logger ($"Saved at: %s{model.SavedAt}")
+            logInfo logger ($"Features: %d{model.NumFeatures}")
+            logInfo logger ($"Samples: %d{model.NumSamples}")
+            logInfo logger ($"Weights: %d{model.Weights.Length} (intercept=%b{model.HasIntercept})")
+            logInfo logger ($"R2 Score: %.6f{model.RSquared}")
+            logInfo logger ($"MSE: %.6f{model.MSE}")
+            logInfo logger ($"Success Probability: %.6f{model.SuccessProbability}")
             match model.ConditionNumber with
-            | Some cn -> logInfo logger (sprintf "Condition Number: %.6f" cn)
+            | Some cn -> logInfo logger ($"Condition Number: %.6f{cn}")
             | None -> logInfo logger "Condition Number: N/A"
             match model.Note with
-            | Some note -> logInfo logger (sprintf "Note: %s" note)
+            | Some note -> logInfo logger ($"Note: %s{note}")
             | None -> ()
             logInfo logger "========================================")

@@ -51,7 +51,7 @@ module OpenQasmImport =
     
     /// Internal parser state
     type private ParserState = {
-        QubitCount: int option
+        QubitCount: int voption
         Gates: Gate list
         LineNumber: int
         DetectedVersion: QasmVersion option
@@ -149,7 +149,7 @@ module OpenQasmImport =
         | false, _ ->
             // Try pi expression parsing
             let piPattern = Regex(@"^(-?)(\d+(?:\.\d+)?)?\s*\*?\s*pi(?:\s*/\s*(\d+(?:\.\d+)?))?$", RegexOptions.Compiled)
-            let m = piPattern.Match(s)
+            let m = piPattern.Match s
             if m.Success then
                 let sign = if m.Groups.[1].Value = "-" then -1.0 else 1.0
                 let multiplier =
@@ -197,12 +197,12 @@ module OpenQasmImport =
     /// Expand a bare register name to all its qubit indices.
     /// Returns the linear qubit indices [offset .. offset + size - 1].
     /// In legacy mode (empty RegisterMap), expands to [0 .. QubitCount - 1].
-    let private expandRegister (regName: string) (state: ParserState) : ParseResult<int list> =
+    let private expandRegister (state: ParserState) (regName: string) : ParseResult<int list> =
         if Map.isEmpty state.RegisterMap then
             // Legacy mode: single unnamed register, expand to all qubits
             match state.QubitCount with
-            | Some qCount -> Ok [ 0 .. qCount - 1 ]
-            | None -> Error "Register used before qubit declaration"
+            | ValueSome qCount -> Ok [ 0 .. qCount - 1 ]
+            | ValueNone -> Error "Register used before qubit declaration"
         else
             match Map.tryFind regName state.RegisterMap with
             | Some (offset, size) -> Ok [ offset .. offset + size - 1 ]
@@ -333,7 +333,7 @@ module OpenQasmImport =
             Ok state
         else
             // Version declaration — accept 1.0, 2.0, and 3.0
-            let versionMatch = versionPattern.Match(cleanLine)
+            let versionMatch = versionPattern.Match cleanLine
             if versionMatch.Success then
                 let versionStr = versionMatch.Groups.[1].Value
                 match parseVersionString versionStr with
@@ -343,61 +343,61 @@ module OpenQasmImport =
                     Error $"Line {state.LineNumber}: {msg}"
             
             // Include statement
-            elif includePattern.IsMatch(cleanLine) then
+            elif includePattern.IsMatch cleanLine then
                 Ok state  // Ignore include statements
 
             // Gate definition, e.g. "gate ryy(theta) a,b { ... }" (the exporter emits these
             // for rotation gates missing from qelib1.inc/stdgates.inc). The body only
             // *defines* the gate, so it is skipped; calls to it are parsed as normal gates.
             elif cleanLine.StartsWith("gate ") || cleanLine.StartsWith("gate\t") || cleanLine = "gate" then
-                if cleanLine.Contains("{") && cleanLine.TrimEnd().EndsWith("}") then
+                if cleanLine.Contains('{') && cleanLine.TrimEnd().EndsWith("}") then
                     Ok state  // Complete single-line definition — skip
                 else
                     Error $"Line {state.LineNumber}: Multi-line gate definitions are not supported"
 
             // OpenQASM 3.0 qubit declaration: qubit[n] q;
-            elif qubitDeclPattern.IsMatch(cleanLine) then
-                let m = qubitDeclPattern.Match(cleanLine)
+            elif qubitDeclPattern.IsMatch cleanLine then
+                let m = qubitDeclPattern.Match cleanLine
                 let count = Int32.Parse(m.Groups.[1].Value)
                 let regName = m.Groups.[2].Value
                 
                 if Map.containsKey regName state.RegisterMap then
                     Error $"Line {state.LineNumber}: Duplicate register name '{regName}'"
                 else
-                    let currentTotal = state.QubitCount |> Option.defaultValue 0
+                    let currentTotal = state.QubitCount |> ValueOption.defaultValue 0
                     let newMap = Map.add regName (currentTotal, count) state.RegisterMap
-                    Ok { state with QubitCount = Some (currentTotal + count); RegisterMap = newMap }
+                    Ok { state with QubitCount = ValueSome (currentTotal + count); RegisterMap = newMap }
             
             // OpenQASM 1.0/2.0 qreg declaration: qreg q[n];
-            elif qregPattern.IsMatch(cleanLine) then
-                let m = qregPattern.Match(cleanLine)
+            elif qregPattern.IsMatch cleanLine then
+                let m = qregPattern.Match cleanLine
                 let regName = m.Groups.[1].Value
                 let count = Int32.Parse(m.Groups.[2].Value)
                 
                 if Map.containsKey regName state.RegisterMap then
                     Error $"Line {state.LineNumber}: Duplicate register name '{regName}'"
                 else
-                    let currentTotal = state.QubitCount |> Option.defaultValue 0
+                    let currentTotal = state.QubitCount |> ValueOption.defaultValue 0
                     let newMap = Map.add regName (currentTotal, count) state.RegisterMap
-                    Ok { state with QubitCount = Some (currentTotal + count); RegisterMap = newMap }
+                    Ok { state with QubitCount = ValueSome (currentTotal + count); RegisterMap = newMap }
             
             // OpenQASM 3.0 bit declaration: bit[n] c; — ignore (classical register)
-            elif bitDeclPattern.IsMatch(cleanLine) then
+            elif bitDeclPattern.IsMatch cleanLine then
                 Ok state
             
             // OpenQASM 1.0/2.0 creg declaration: creg c[n]; — ignore (classical register)
-            elif cregPattern.IsMatch(cleanLine) then
+            elif cregPattern.IsMatch cleanLine then
                 Ok state
             
             // OpenQASM 3.0 assignment measurement: c[n] = measure q[n];
-            elif assignMeasurePattern.IsMatch(cleanLine) then
-                let m = assignMeasurePattern.Match(cleanLine)
+            elif assignMeasurePattern.IsMatch cleanLine then
+                let m = assignMeasurePattern.Match cleanLine
                 let qRegName = m.Groups.[3].Value
                 let localQubit = Int32.Parse(m.Groups.[4].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Measurement used before qubit declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Measurement used before qubit declaration"
+                | ValueSome qCount ->
                     match resolveQubit qRegName localQubit state with
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Ok qubit ->
@@ -407,14 +407,14 @@ module OpenQasmImport =
                             Ok { state with Gates = (Measure qubit) :: state.Gates }
             
             // OpenQASM 2.0 arrow measurement: measure q[n] -> c[n];
-            elif arrowMeasurePattern.IsMatch(cleanLine) then
-                let m = arrowMeasurePattern.Match(cleanLine)
+            elif arrowMeasurePattern.IsMatch cleanLine then
+                let m = arrowMeasurePattern.Match cleanLine
                 let qRegName = m.Groups.[1].Value
                 let localQubit = Int32.Parse(m.Groups.[2].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Measurement used before qubit declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Measurement used before qubit declaration"
+                | ValueSome qCount ->
                     match resolveQubit qRegName localQubit state with
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Ok qubit ->
@@ -424,14 +424,14 @@ module OpenQasmImport =
                             Ok { state with Gates = (Measure qubit) :: state.Gates }
             
             // Reset instruction: reset q[n];
-            elif resetPattern.IsMatch(cleanLine) then
-                let m = resetPattern.Match(cleanLine)
+            elif resetPattern.IsMatch cleanLine then
+                let m = resetPattern.Match cleanLine
                 let regName = m.Groups.[1].Value
                 let localIdx = Int32.Parse(m.Groups.[2].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Reset used before qubit declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Reset used before qubit declaration"
+                | ValueSome qCount ->
                     match resolveQubit regName localIdx state with
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Ok qubit ->
@@ -441,14 +441,14 @@ module OpenQasmImport =
                             Ok { state with Gates = (Reset qubit) :: state.Gates }
             
             // Barrier instruction: barrier q[0],q[1],...; or barrier q;
-            elif barrierPattern.IsMatch(cleanLine) then
-                let m = barrierPattern.Match(cleanLine)
+            elif barrierPattern.IsMatch cleanLine then
+                let m = barrierPattern.Match cleanLine
                 let argsStr = m.Groups.[1].Value
-                let qubitMatches = barrierQubitPattern.Matches(argsStr)
+                let qubitMatches = barrierQubitPattern.Matches argsStr
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Barrier used before qubit declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Barrier used before qubit declaration"
+                | ValueSome qCount ->
                     if qubitMatches.Count > 0 then
                         // Explicit qubit indices: barrier q[0],q[1],...;
                         let resolvedQubits =
@@ -461,21 +461,21 @@ module OpenQasmImport =
                         match resolvedQubits |> List.tryFind Result.isError with
                         | Some (Error msg) -> Error $"Line {state.LineNumber}: {msg}"
                         | _ ->
-                            let qubits = resolvedQubits |> List.map (fun r -> match r with Ok q -> q | _ -> 0)
+                            let qubits = resolvedQubits |> List.map (fun r -> r |> Result.defaultValue 0)
                             Ok { state with Gates = (Barrier qubits) :: state.Gates }
                     else
                         // Bare register names: barrier q; or barrier q,r;
-                        let bareMatch = bareRegisterPattern.Match(argsStr)
+                        let bareMatch = bareRegisterPattern.Match argsStr
                         if bareMatch.Success then
                             let regNames =
-                                bareMatch.Groups.[1].Value.Split(',')
+                                bareMatch.Groups.[1].Value.Split ','
                                 |> Array.map (fun s -> s.Trim())
                                 |> Array.toList
-                            let expandedResults = regNames |> List.map (fun name -> expandRegister name state)
+                            let expandedResults = regNames |> List.map (expandRegister state)
                             match expandedResults |> List.tryFind Result.isError with
                             | Some (Error msg) -> Error $"Line {state.LineNumber}: {msg}"
                             | _ ->
-                                let qubits = expandedResults |> List.collect (fun r -> match r with Ok qs -> qs | _ -> [])
+                                let qubits = expandedResults |> List.collect (fun r -> r |> Result.defaultValue [])
                                 if List.isEmpty qubits then
                                     Error $"Line {state.LineNumber}: Barrier must specify at least one qubit"
                                 else
@@ -484,8 +484,8 @@ module OpenQasmImport =
                             Error $"Line {state.LineNumber}: Barrier must specify at least one qubit"
             
             // OpenQASM 3.0 per-bit conditional (must check before gate patterns)
-            elif conditionalPattern.IsMatch(cleanLine) then
-                let m = conditionalPattern.Match(cleanLine)
+            elif conditionalPattern.IsMatch cleanLine then
+                let m = conditionalPattern.Match cleanLine
                 let bitIdx = Int32.Parse(m.Groups.[2].Value)
                 let innerStatement = m.Groups.[3].Value
 
@@ -503,8 +503,8 @@ module OpenQasmImport =
                         Error $"Line {state.LineNumber}: conditional body did not contain a gate"
 
             // Three-qubit gate (must check before two-qubit)
-            elif threeQubitPattern.IsMatch(cleanLine) then
-                let m = threeQubitPattern.Match(cleanLine)
+            elif threeQubitPattern.IsMatch cleanLine then
+                let m = threeQubitPattern.Match cleanLine
                 let gateName = m.Groups.[1].Value
                 let reg1 = m.Groups.[2].Value
                 let idx1 = Int32.Parse(m.Groups.[3].Value)
@@ -514,8 +514,8 @@ module OpenQasmImport =
                 let idx3 = Int32.Parse(m.Groups.[7].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | ValueSome qCount ->
                     match resolveQubit reg1 idx1 state, resolveQubit reg2 idx2 state, resolveQubit reg3 idx3 state with
                     | Ok qubit1, Ok qubit2, Ok qubit3 ->
                         match parseThreeQubitGate gateName qubit1 qubit2 qubit3 qCount with
@@ -526,8 +526,8 @@ module OpenQasmImport =
                     | _, _, Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // Two-qubit rotation gate (with parameter) - must check before two-qubit gate
-            elif twoQubitRotationPattern.IsMatch(cleanLine) then
-                let m = twoQubitRotationPattern.Match(cleanLine)
+            elif twoQubitRotationPattern.IsMatch cleanLine then
+                let m = twoQubitRotationPattern.Match cleanLine
                 let gateName = m.Groups.[1].Value
                 let angleStr = m.Groups.[2].Value
                 let reg1 = m.Groups.[3].Value
@@ -536,8 +536,8 @@ module OpenQasmImport =
                 let idx2 = Int32.Parse(m.Groups.[6].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | ValueSome qCount ->
                     match parseAngle angleStr with
                     | Ok angle ->
                         match resolveQubit reg1 idx1 state, resolveQubit reg2 idx2 state with
@@ -550,8 +550,8 @@ module OpenQasmImport =
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // Two-qubit gate
-            elif twoQubitPattern.IsMatch(cleanLine) then
-                let m = twoQubitPattern.Match(cleanLine)
+            elif twoQubitPattern.IsMatch cleanLine then
+                let m = twoQubitPattern.Match cleanLine
                 let gateName = m.Groups.[1].Value
                 let reg1 = m.Groups.[2].Value
                 let idx1 = Int32.Parse(m.Groups.[3].Value)
@@ -559,8 +559,8 @@ module OpenQasmImport =
                 let idx2 = Int32.Parse(m.Groups.[5].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | ValueSome qCount ->
                     match resolveQubit reg1 idx1 state, resolveQubit reg2 idx2 state with
                     | Ok qubit1, Ok qubit2 ->
                         match parseTwoQubitGate gateName qubit1 qubit2 qCount with
@@ -570,8 +570,8 @@ module OpenQasmImport =
                     | _, Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // U3 gate (three parameters) - must check before rotation gate (one parameter)
-            elif u3Pattern.IsMatch(cleanLine) then
-                let m = u3Pattern.Match(cleanLine)
+            elif u3Pattern.IsMatch cleanLine then
+                let m = u3Pattern.Match cleanLine
                 let gateName = m.Groups.[1].Value
                 let thetaStr = m.Groups.[2].Value
                 let phiStr = m.Groups.[3].Value
@@ -580,8 +580,8 @@ module OpenQasmImport =
                 let localIdx = Int32.Parse(m.Groups.[6].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | ValueSome qCount ->
                     match resolveQubit regName localIdx state with
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Ok qubit ->
@@ -595,16 +595,16 @@ module OpenQasmImport =
                         | _, _, Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // Rotation gate (with parameter)
-            elif rotationPattern.IsMatch(cleanLine) then
-                let m = rotationPattern.Match(cleanLine)
+            elif rotationPattern.IsMatch cleanLine then
+                let m = rotationPattern.Match cleanLine
                 let gateName = m.Groups.[1].Value
                 let angleStr = m.Groups.[2].Value
                 let regName = m.Groups.[3].Value
                 let localIdx = Int32.Parse(m.Groups.[4].Value)
                 
                 match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                | Some qCount ->
+                | ValueNone -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | ValueSome qCount ->
                     match resolveQubit regName localIdx state with
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Ok qubit ->
@@ -616,19 +616,19 @@ module OpenQasmImport =
                         | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // Single-qubit gate (no parameters)
-            elif singleQubitPattern.IsMatch(cleanLine) then
-                let m = singleQubitPattern.Match(cleanLine)
+            elif singleQubitPattern.IsMatch cleanLine then
+                let m = singleQubitPattern.Match cleanLine
                 let gateName = m.Groups.[1].Value
                 let regName = m.Groups.[2].Value
                 let localIdx = Int32.Parse(m.Groups.[3].Value)
                 
                 // Special case: ID gate (identity/no-op) - just ignore it
-                if gateName.ToLowerInvariant() = "id" then
+                if String.Equals(gateName, "id", StringComparison.OrdinalIgnoreCase) then
                     Ok state  // Skip identity gates (they do nothing)
                 else
                     match state.QubitCount with
-                    | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                    | Some qCount ->
+                    | ValueNone -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                    | ValueSome qCount ->
                         match resolveQubit regName localIdx state with
                         | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                         | Ok qubit ->
@@ -638,19 +638,19 @@ module OpenQasmImport =
             
             else
                 // Unknown line format - provide helpful error
-                if cleanLine.StartsWith("OPENQASM") then
+                if cleanLine.StartsWith "OPENQASM" then
                     Error $"Line {state.LineNumber}: Malformed OPENQASM version declaration"
-                elif cleanLine.StartsWith("qreg") then
+                elif cleanLine.StartsWith "qreg" then
                     Error $"Line {state.LineNumber}: Malformed qreg declaration"
-                elif cleanLine.StartsWith("qubit") then
+                elif cleanLine.StartsWith "qubit" then
                     Error $"Line {state.LineNumber}: Malformed qubit declaration"
-                elif cleanLine.StartsWith("creg") then
+                elif cleanLine.StartsWith "creg" then
                     Ok state  // Ignore classical register declarations
-                elif cleanLine.StartsWith("measure") then
+                elif cleanLine.StartsWith "measure" then
                     Ok state  // Ignore standalone measure instructions (no arrow/assignment)
-                elif cleanLine.StartsWith("barrier") then
+                elif cleanLine.StartsWith "barrier" then
                     Error $"Line {state.LineNumber}: Malformed barrier instruction"
-                elif cleanLine.StartsWith("reset") then
+                elif cleanLine.StartsWith "reset" then
                     Error $"Line {state.LineNumber}: Malformed reset instruction"
                 else
                     Error $"Line {state.LineNumber}: Unrecognized instruction: {cleanLine}"
@@ -688,25 +688,23 @@ module OpenQasmImport =
         // Check for OPENQASM version first
         let lines = withoutMultiLineComments.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
         
-        if not (lines |> Array.exists (fun line -> versionPattern.IsMatch(line))) then
+        if not (lines |> Array.exists (fun line -> versionPattern.IsMatch line)) then
             Error "Missing OPENQASM version declaration (expected: OPENQASM 2.0; or OPENQASM 3.0;)"
         else
             // Parse line by line
-            let initialState = { QubitCount = None; Gates = []; LineNumber = 1; DetectedVersion = None; RegisterMap = Map.empty }
+            let initialState = { QubitCount = ValueNone; Gates = []; LineNumber = 1; DetectedVersion = None; RegisterMap = Map.empty }
             
             let rec parseLines (lineList: string list) (state: ParserState) : ParseResult<ParserState> =
                 match lineList with
                 | [] -> Ok state
                 | line :: rest ->
-                    match parseLine line state with
-                    | Ok newState -> parseLines rest { newState with LineNumber = state.LineNumber + 1 }
-                    | Error msg -> Error msg
+                    (parseLine line state) |> Result.bind (fun newState -> parseLines rest { newState with LineNumber = state.LineNumber + 1 })
             
             match parseLines (List.ofArray lines) initialState with
             | Ok finalState ->
                 match finalState.QubitCount with
-                | None -> Error "No qubit register declaration found (expected: qreg q[n]; or qubit[n] q;)"
-                | Some qCount ->
+                | ValueNone -> Error "No qubit register declaration found (expected: qreg q[n]; or qubit[n] q;)"
+                | ValueSome qCount ->
                     // finalState.Gates was accumulated by prepending, so it is already
                     // in the Circuit storage convention (most-recent-first)
                     Ok { QubitCount = qCount; Gates = finalState.Gates }
@@ -766,6 +764,4 @@ module OpenQasmImport =
     /// Validate that a string contains valid OpenQASM (any supported version).
     /// </summary>
     let validate (qasm: string) : ParseResult<unit> =
-        match parse qasm with
-        | Ok _ -> Ok ()
-        | Error msg -> Error msg
+        (parse qasm) |> Result.map (fun _ -> ())

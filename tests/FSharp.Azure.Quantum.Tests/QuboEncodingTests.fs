@@ -536,7 +536,7 @@ module QuboEncodingTests =
         // With size scaling: (100 + 1) * sqrt(10) ≈ 101 * 3.16 ≈ 319
         let expectedMinPenalty = objectiveMax + 1.0
         Assert.True(penalty >= expectedMinPenalty, 
-            sprintf "Penalty %f should be >= %f (Lucas Rule)" penalty expectedMinPenalty)
+            $"Penalty %f{penalty} should be >= %f{expectedMinPenalty} (Lucas Rule)")
     
     [<Fact>]
     let ``ConstraintPenalty Soft constraint should use preference weight`` () =
@@ -589,7 +589,7 @@ module QuboEncodingTests =
         
         // Expected: (500 + 1) * sqrt(20) ≈ 501 * 4.47 ≈ 2240
         Assert.True(visitOncePenalty > 2200.0 && visitOncePenalty < 2250.0,
-            sprintf "Expected ~2240, got %f" visitOncePenalty)
+            $"Expected ~2240, got %f{visitOncePenalty}")
     
     [<Fact>]
     let ``ConstraintPenalty Portfolio example - soft constraint at 30 percent`` () =
@@ -601,7 +601,7 @@ module QuboEncodingTests =
         
         // Expected: (500 + 1) * sqrt(20) * 0.3 ≈ 2240 * 0.3 ≈ 672
         Assert.True(softPenalty > 660.0 && softPenalty < 680.0,
-            sprintf "Expected ~672, got %f" softPenalty)
+            $"Expected ~672, got %f{softPenalty}")
     
     [<Fact>]
     let ``ConstraintPenalty should handle small problems`` () =
@@ -762,8 +762,8 @@ module QuboEncodingTests =
         // Penalty should increase (1.5x per iteration)
         // After 3 iterations: 100 * 1.5^3 = 337.5
         Assert.True(finalPenalty > initialPenalty, 
-            sprintf "Final penalty %f should be > initial %f" finalPenalty initialPenalty)
-        Assert.True(finalPenalty > 300.0, sprintf "Expected >300, got %f" finalPenalty)
+            $"Final penalty %f{finalPenalty} should be > initial %f{initialPenalty}")
+        Assert.True(finalPenalty > 300.0, $"Expected >300, got %f{finalPenalty}")
     
     [<Fact>]
     let ``tuneAdaptive should stop when valid solution found`` () =
@@ -786,8 +786,8 @@ module QuboEncodingTests =
         // Should stop after finding valid solution
         // Penalty after 2 violations: 100 * 1.5^2 = 225
         Assert.True(finalPenalty > 200.0 && finalPenalty < 250.0,
-            sprintf "Expected ~225, got %f" finalPenalty)
-        Assert.True(attempts <= 4, sprintf "Should stop early, but ran %d attempts" attempts)
+            $"Expected ~225, got %f{finalPenalty}")
+        Assert.True(attempts <= 4, $"Should stop early, but ran %d{attempts} attempts")
     
     [<Fact>]
     let ``tuneAdaptive should respect max iterations`` () =
@@ -866,7 +866,7 @@ module QuboEncodingTests =
         |> List.pairwise
         |> List.iter (fun (prev, next) ->
             Assert.True(next > prev,
-                sprintf "Penalty should increase with problem size: %f !> %f" next prev))
+                $"Penalty should increase with problem size: %f{next} !> %f{prev}"))
     
     // ============================================================================
     // TKT-38: Problem-Specific QUBO Transformations
@@ -997,7 +997,7 @@ module QuboEncodingTests =
         // Q[1,1] = -return[1] + riskWeight * covariance[1,1]
         //        = -0.15 + 0.5 * 0.09 = -0.105
         let diagonal1 = qubo.GetCoefficient(1, 1)
-        Assert.True(diagonal1 < 0.0, sprintf "Expected negative return term, got %f" diagonal1)
+        Assert.True(diagonal1 < 0.0, $"Expected negative return term, got %f{diagonal1}")
     
     [<Fact>]
     let ``Portfolio CorrelationBased should integrate risk on off-diagonal`` () =
@@ -1252,7 +1252,7 @@ module QuboEncodingTests =
             let varNames = 
                 [for i in 0 .. numVertices - 1 do
                     for c in 0 .. numColors - 1 do
-                        yield sprintf "v%d_c%d" i c]
+                        yield $"v%d{i}_c%d{c}"]
             
             {
                 Size = size
@@ -1278,7 +1278,7 @@ module QuboEncodingTests =
         
         // Verify QUBO is valid
         let validation = ProblemTransformer.validateTransformation qubo
-        Assert.True(validation.IsValid, sprintf "Custom QUBO should be valid: %A" validation.Messages)
+        Assert.True(validation.IsValid, $"Custom QUBO should be valid: %A{validation.Messages}")
     
     // ============================================================================
     // Encoding Strategy Selection Tests

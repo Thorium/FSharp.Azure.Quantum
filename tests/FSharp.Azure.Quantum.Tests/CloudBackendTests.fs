@@ -60,14 +60,14 @@ module CloudBackendTests =
             Assert.Equal(4, StateVector.dimension sv) // 2 qubits → 4 amplitudes
             // |00⟩ amplitude ≈ sqrt(500/1000) ≈ 0.707
             let amp0 = StateVector.getAmplitude 0 sv
-            Assert.True(abs (amp0.Real - sqrt 0.5) < 1e-10, sprintf "Expected ~0.707 for |00⟩, got %f" amp0.Real)
+            Assert.True(abs (amp0.Real - sqrt 0.5) < 1e-10, $"Expected ~0.707 for |00⟩, got %f{amp0.Real}")
             Assert.Equal(0.0, amp0.Imaginary)
             // |01⟩ and |10⟩ should be zero
             Assert.Equal(Complex.Zero, StateVector.getAmplitude 1 sv)
             Assert.Equal(Complex.Zero, StateVector.getAmplitude 2 sv)
             // |11⟩ amplitude ≈ sqrt(500/1000) ≈ 0.707
             let amp3 = StateVector.getAmplitude 3 sv
-            Assert.True(abs (amp3.Real - sqrt 0.5) < 1e-10, sprintf "Expected ~0.707 for |11⟩, got %f" amp3.Real)
+            Assert.True(abs (amp3.Real - sqrt 0.5) < 1e-10, $"Expected ~0.707 for |11⟩, got %f{amp3.Real}")
         | _ -> Assert.True(false, "Expected StateVector result")
 
     [<Fact>]
@@ -245,7 +245,7 @@ module CloudBackendTests =
             Assert.Equal(4, StateVector.dimension sv) // 2 qubits → 4 amplitudes
             Assert.Equal(Complex(1.0, 0.0), StateVector.getAmplitude 0 sv) // |00⟩ = 1
         | Ok _ -> Assert.True(false, "Expected StateVector")
-        | Error err -> Assert.True(false, sprintf "InitializeState failed: %A" err)
+        | Error err -> Assert.True(false, $"InitializeState failed: %A{err}")
 
     [<Fact>]
     let ``RigettiCloudBackend SupportsOperation for Gate returns true`` () =
@@ -267,10 +267,9 @@ module CloudBackendTests =
             let backend = CloudBackends.RigettiCloudBackend(httpClient, "https://test", "rigetti.sim.qvm") :> IQuantumBackend
             let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
-            let! result = backend.ApplyOperationAsync gate dummyState CancellationToken.None
-            match result with
+            match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> () // Expected
-            | Error err -> Assert.True(false, sprintf "Expected OperationError, got: %A" err)
+            | Error err -> Assert.True(false, $"Expected OperationError, got: %A{err}")
             | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
         } :> Task
 
@@ -311,7 +310,7 @@ module CloudBackendTests =
             Assert.Equal(8, StateVector.dimension sv) // 3 qubits → 8 amplitudes
             Assert.Equal(Complex(1.0, 0.0), StateVector.getAmplitude 0 sv)
         | Ok _ -> Assert.True(false, "Expected StateVector")
-        | Error err -> Assert.True(false, sprintf "InitializeState failed: %A" err)
+        | Error err -> Assert.True(false, $"InitializeState failed: %A{err}")
 
     [<Fact>]
     let ``IonQCloudBackend ApplyOperationAsync returns Error`` () : Task =
@@ -320,10 +319,9 @@ module CloudBackendTests =
             let backend = CloudBackends.IonQCloudBackend(httpClient, "https://test", "ionq.simulator") :> IQuantumBackend
             let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
-            let! result = backend.ApplyOperationAsync gate dummyState CancellationToken.None
-            match result with
+            match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
-            | Error err -> Assert.True(false, sprintf "Expected OperationError, got: %A" err)
+            | Error err -> Assert.True(false, $"Expected OperationError, got: %A{err}")
             | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
         } :> Task
 
@@ -371,7 +369,7 @@ module CloudBackendTests =
             Assert.Equal(Complex(1.0, 0.0), StateVector.getAmplitude 0 sv)
             Assert.Equal(Complex.Zero, StateVector.getAmplitude 1 sv)
         | Ok _ -> Assert.True(false, "Expected StateVector")
-        | Error err -> Assert.True(false, sprintf "InitializeState failed: %A" err)
+        | Error err -> Assert.True(false, $"InitializeState failed: %A{err}")
 
     [<Fact>]
     let ``QuantinuumCloudBackend ApplyOperationAsync returns Error`` () : Task =
@@ -380,10 +378,9 @@ module CloudBackendTests =
             let backend = CloudBackends.QuantinuumCloudBackend(httpClient, "https://test", "quantinuum.sim.h1-1sc") :> IQuantumBackend
             let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
             let gate = QuantumOperation.Measure 0
-            let! result = backend.ApplyOperationAsync gate dummyState CancellationToken.None
-            match result with
+            match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
-            | Error err -> Assert.True(false, sprintf "Expected OperationError, got: %A" err)
+            | Error err -> Assert.True(false, $"Expected OperationError, got: %A{err}")
             | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
         } :> Task
 
@@ -426,7 +423,7 @@ module CloudBackendTests =
             for i in 1 .. 15 do
                 Assert.Equal(Complex.Zero, StateVector.getAmplitude i sv)
         | Ok _ -> Assert.True(false, "Expected StateVector")
-        | Error err -> Assert.True(false, sprintf "InitializeState failed: %A" err)
+        | Error err -> Assert.True(false, $"InitializeState failed: %A{err}")
 
     [<Fact>]
     let ``AtomComputingCloudBackend ApplyOperationAsync returns Error`` () : Task =
@@ -435,10 +432,9 @@ module CloudBackendTests =
             let backend = CloudBackends.AtomComputingCloudBackend(httpClient, "https://test", "atom-computing.sim") :> IQuantumBackend
             let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
-            let! result = backend.ApplyOperationAsync gate dummyState CancellationToken.None
-            match result with
+            match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
-            | Error err -> Assert.True(false, sprintf "Expected OperationError, got: %A" err)
+            | Error err -> Assert.True(false, $"Expected OperationError, got: %A{err}")
             | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
         } :> Task
 
@@ -471,10 +467,9 @@ module CloudBackendTests =
             let backend = CloudBackends.IqmCloudBackend(httpClient, "https://test", "iqm.sim") :> IQuantumBackend
             let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
-            let! result = backend.ApplyOperationAsync gate dummyState CancellationToken.None
-            match result with
+            match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
-            | Error err -> Assert.True(false, sprintf "Expected OperationError, got: %A" err)
+            | Error err -> Assert.True(false, $"Expected OperationError, got: %A{err}")
             | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
         } :> Task
 
@@ -537,28 +532,28 @@ module CloudBackendTests =
         let backends = createAllBackends ()
         let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
         for backend in backends do
-            Assert.True(backend.SupportsOperation gate, sprintf "%s should support Gate" backend.Name)
+            Assert.True(backend.SupportsOperation gate, $"%s{backend.Name} should support Gate")
 
     [<Fact>]
     let ``All cloud backends support Measure operations`` () =
         let backends = createAllBackends ()
         let op = QuantumOperation.Measure 0
         for backend in backends do
-            Assert.True(backend.SupportsOperation op, sprintf "%s should support Measure" backend.Name)
+            Assert.True(backend.SupportsOperation op, $"%s{backend.Name} should support Measure")
 
     [<Fact>]
     let ``All cloud backends reject Braid operations`` () =
         let backends = createAllBackends ()
         let op = QuantumOperation.Braid 0
         for backend in backends do
-            Assert.False(backend.SupportsOperation op, sprintf "%s should not support Braid" backend.Name)
+            Assert.False(backend.SupportsOperation op, $"%s{backend.Name} should not support Braid")
 
     [<Fact>]
     let ``All cloud backends reject FMove operations`` () =
         let backends = createAllBackends ()
         let op = QuantumOperation.FMove (FMoveDirection.Forward, 1)
         for backend in backends do
-            Assert.False(backend.SupportsOperation op, sprintf "%s should not support FMove" backend.Name)
+            Assert.False(backend.SupportsOperation op, $"%s{backend.Name} should not support FMove")
 
     // ============================================================================
     // FACTORY TESTS
@@ -612,7 +607,7 @@ module CloudBackendTests =
             for i in 0 .. 7 do
                 let amp = StateVector.getAmplitude i sv
                 Assert.True(abs (amp.Real - expected) < 1e-10,
-                    sprintf "Amplitude[%d] expected %f, got %f" i expected amp.Real)
+                    $"Amplitude[%d{i}] expected %f{expected}, got %f{amp.Real}")
         | _ -> Assert.True(false, "Expected StateVector result")
 
     [<Fact>]
@@ -633,7 +628,7 @@ module CloudBackendTests =
                     let a = StateVector.getAmplitude i sv
                     a.Real * a.Real + a.Imaginary * a.Imaginary)
             Assert.True(abs (normSquared - 1.0) < 1e-10,
-                sprintf "State should be normalized, but norm^2 = %f" normSquared)
+                $"State should be normalized, but norm^2 = %f{normSquared}")
         | _ -> Assert.True(false, "Expected StateVector result")
 
     [<Fact>]
@@ -644,4 +639,4 @@ module CloudBackendTests =
             Assert.Equal("ApplyOperation", context)
             Assert.Contains("TestBackend", message)
             Assert.Contains("Braid", message)
-        | _ -> Assert.True(false, sprintf "Expected OperationError, got: %A" error)
+        | _ -> Assert.True(false, $"Expected OperationError, got: %A{error}")

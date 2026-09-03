@@ -73,8 +73,7 @@ module TaskSchedulingTests =
     // TEST 2: Parallel Tasks - No Dependencies
     // ============================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``Two independent tasks should schedule in parallel`` () =
         // Arrange - Two tasks with NO dependencies
         let taskA = scheduledTask {
@@ -152,9 +151,7 @@ module TaskSchedulingTests =
         let result = solve problem |> Async.RunSynchronously
         
         // Assert - Should return error
-        match result with
-        | Ok _ -> Assert.Fail("Should have failed validation")
-        | Error msg -> Assert.Contains("X", msg.Message)  // Error should mention invalid dependency "X"
+        result |> Result.map (fun _ -> Assert.Fail("Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("X", msg.Message))  // Error should mention invalid dependency "X"
     
     // ============================================================================
     // TEST 5: Validation - Duplicate Task IDs
@@ -183,9 +180,7 @@ module TaskSchedulingTests =
         let result = solve problem |> Async.RunSynchronously
         
         // Assert - Should return error
-        match result with
-        | Ok _ -> Assert.Fail("Should have failed validation")
-        | Error msg -> Assert.Contains("Duplicate", msg.Message)
+        result |> Result.map (fun _ -> Assert.Fail("Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("Duplicate", msg.Message))
     
     // ============================================================================
     // TEST 6: Resource Helper - crew
@@ -251,8 +246,7 @@ module TaskSchedulingTests =
     // TEST 8: Resource-Constrained Scheduling (Quantum Backend Required)
     // ============================================================================
     
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``Resource-constrained scheduling requires quantum backend`` () =
         // Arrange - Two parallel tasks requiring same resource (capacity 1)
         let taskA = scheduledTask {
@@ -289,7 +283,7 @@ module TaskSchedulingTests =
         // Note: QAOA with initial parameters may not always find optimal solution
         // This test verifies the quantum solver executes without error
         match result with
-        | Error msg -> Assert.Fail(sprintf "Quantum solver failed: %s" msg.Message)
+        | Error msg -> Assert.Fail($"Quantum solver failed: %s{msg.Message}")
         | Ok solution ->
             // Solution found - quantum execution successful
             Assert.NotEmpty(solution.Assignments)
@@ -540,6 +534,6 @@ module TaskSchedulingTests =
             // B must start no earlier than A finishes — the solver must not return a
             // lower-makespan but precedence-violating schedule.
             Assert.True(b.StartTime >= a.EndTime,
-                sprintf "B (start %.1f) must start after A finishes (end %.1f)" b.StartTime.TotalMinutes a.EndTime.TotalMinutes)
+                $"B (start %.1f{b.StartTime.TotalMinutes}) must start after A finishes (end %.1f{a.EndTime.TotalMinutes})")
         | Error msg ->
-            Assert.Fail(sprintf "solveQuantum should find a precedence-feasible schedule: %A" msg)
+            Assert.Fail($"solveQuantum should find a precedence-feasible schedule: %A{msg}")

@@ -29,8 +29,11 @@ module QuEra =
     /// AWS Braket device ARN for the QuEra Aquila neutral-atom analog QPU.
     let aquilaDeviceArn = "arn:aws:braket:us-east-1::device/qpu/quera/Aquila"
 
+    [<Literal>]
     let private umToMetres = 1e-6
+    [<Literal>]
     let private usToSeconds = 1e-6
+    [<Literal>]
     let private radPerUsToRadPerS = 1e6
 
     /// Compile a `RydbergProgram` to a Braket AHS program JSON.
@@ -79,12 +82,12 @@ module QuEra =
 
             // A PhysicalField: { "time_series": { "values": [...], "times": [...] }, "pattern": "uniform" }.
             let writePhysicalField (name: string) (values: ResizeArray<float>) (valueScale: float) =
-                writer.WriteStartObject(name)
-                writer.WriteStartObject("time_series")
-                writer.WriteStartArray("values")
+                writer.WriteStartObject name
+                writer.WriteStartObject "time_series"
+                writer.WriteStartArray "values"
                 for v in values do writer.WriteNumberValue(v * valueScale)
                 writer.WriteEndArray()
-                writer.WriteStartArray("times")
+                writer.WriteStartArray "times"
                 for tt in times do writer.WriteNumberValue(tt * usToSeconds)
                 writer.WriteEndArray()
                 writer.WriteEndObject()
@@ -93,44 +96,44 @@ module QuEra =
 
             writer.WriteStartObject()
 
-            writer.WriteStartObject("braketSchemaHeader")
+            writer.WriteStartObject "braketSchemaHeader"
             writer.WriteString("name", "braket.ir.ahs.program")
             writer.WriteString("version", "1")
             writer.WriteEndObject()
 
             // setup.ahs_register — atom sites (metres) and filling.
-            writer.WriteStartObject("setup")
-            writer.WriteStartObject("ahs_register")
-            writer.WriteStartArray("sites")
+            writer.WriteStartObject "setup"
+            writer.WriteStartObject "ahs_register"
+            writer.WriteStartArray "sites"
             for atom in program.Register do
                 writer.WriteStartArray()
                 writer.WriteNumberValue(atom.X * umToMetres)
                 writer.WriteNumberValue(atom.Y * umToMetres)
                 writer.WriteEndArray()
             writer.WriteEndArray()
-            writer.WriteStartArray("filling")
-            for _ in program.Register do writer.WriteNumberValue(1)
+            writer.WriteStartArray "filling"
+            for _ in program.Register do writer.WriteNumberValue 1
             writer.WriteEndArray()
             writer.WriteEndObject()   // ahs_register
             writer.WriteEndObject()   // setup
 
             // hamiltonian — a single global driving field (Ω, φ, Δ); no local detuning.
-            writer.WriteStartObject("hamiltonian")
-            writer.WriteStartArray("drivingFields")
+            writer.WriteStartObject "hamiltonian"
+            writer.WriteStartArray "drivingFields"
             writer.WriteStartObject()
             writePhysicalField "amplitude" amplitude radPerUsToRadPerS
             // Phase held at 0 for the whole evolution.
-            writer.WriteStartObject("phase")
-            writer.WriteStartObject("time_series")
-            writer.WriteStartArray("values"); writer.WriteNumberValue(0.0); writer.WriteNumberValue(0.0); writer.WriteEndArray()
-            writer.WriteStartArray("times"); writer.WriteNumberValue(0.0); writer.WriteNumberValue(totalTime * usToSeconds); writer.WriteEndArray()
+            writer.WriteStartObject "phase"
+            writer.WriteStartObject "time_series"
+            writer.WriteStartArray "values"; writer.WriteNumberValue 0.0; writer.WriteNumberValue 0.0; writer.WriteEndArray()
+            writer.WriteStartArray "times"; writer.WriteNumberValue 0.0; writer.WriteNumberValue(totalTime * usToSeconds); writer.WriteEndArray()
             writer.WriteEndObject()
             writer.WriteString("pattern", "uniform")
             writer.WriteEndObject()
             writePhysicalField "detuning" detuning radPerUsToRadPerS
             writer.WriteEndObject()   // driving field
             writer.WriteEndArray()    // drivingFields
-            writer.WriteStartArray("localDetuning"); writer.WriteEndArray()
+            writer.WriteStartArray "localDetuning"; writer.WriteEndArray()
             writer.WriteEndObject()   // hamiltonian
 
             writer.WriteEndObject()
@@ -143,10 +146,10 @@ module QuEra =
     /// (or empty), so the Rydberg bit is `1 - postSequence[i]`. Throws on malformed JSON.
     let parseAhsResult (jsonResult: string) : Map<string, int> =
         use doc = JsonDocument.Parse(jsonResult)
-        let measurements = doc.RootElement.GetProperty("measurements")
+        let measurements = doc.RootElement.GetProperty "measurements"
         (Map.empty, measurements.EnumerateArray())
         ||> Seq.fold (fun histogram shot ->
-            let post = shot.GetProperty("shotResult").GetProperty("postSequence")
+            let post = shot.GetProperty("shotResult").GetProperty "postSequence"
             let bits =
                 post.EnumerateArray()
                 |> Seq.map (fun e -> string (1 - e.GetInt32()))

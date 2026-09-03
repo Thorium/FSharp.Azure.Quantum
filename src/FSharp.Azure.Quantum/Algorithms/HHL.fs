@@ -589,7 +589,7 @@ module HHL =
                  let eigenQubitArray = eigenQubits |> List.toArray
                  let solutionQubits = [ intent.EigenvalueQubits .. intent.EigenvalueQubits + intent.SolutionQubits - 1 ]
 
-                 let hadamards = eigenQubits |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                 let hadamards = eigenQubits |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
                  let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
 
@@ -734,7 +734,7 @@ module HHL =
                          let time = -baseTime * float (1 <<< j)
                          buildControlledEvolutionOps j time)
 
-                 let hadamardsUncompute = eigenQubits |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                 let hadamardsUncompute = eigenQubits |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
                  // Gate count estimate: rough but monotonic.
                  let gateCountEstimate =

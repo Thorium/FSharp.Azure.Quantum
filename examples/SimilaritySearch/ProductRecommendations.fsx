@@ -116,7 +116,7 @@ let private builtinCatalog =
 
 let private loadCatalogFromCsv (path: string) : Product array =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do eprintfn "  Warning (CSV): %s" err
     rows
     |> List.choose (fun row ->
@@ -216,8 +216,7 @@ let queryProduct (product: Product) : RecommendationResult =
     | Ok searchResults ->
         let matches =
             searchResults.Matches
-            |> Array.toList
-            |> List.map (fun m -> (m.Item, m.Similarity, m.Rank))
+            |> Array.map (fun m -> (m.Item, m.Similarity, m.Rank)) |> Array.toList
         if not quiet then
             printfn "  %s (%s, $%.2f) -> %d matches"
                 product.Name product.Category product.Price matches.Length

@@ -26,7 +26,8 @@ open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Backends
 
 let numQubits = 3
-let markedValue = 5          // |101⟩
+/// |101⟩
+let markedValue = 5
 let searchSpace = 1 <<< numQubits
 let shots = 4000
 
@@ -60,7 +61,7 @@ match Oracle.forValue markedValue numQubits with
     | Ok finalState ->
         let hist =
             UnifiedBackend.measureState finalState shots
-            |> Array.map (fun bits -> bits |> Array.map string |> String.concat "")
+            |> Array.map (Array.map string >> String.concat "")
             |> Array.countBy id
             |> Array.sortByDescending snd
         printfn "Measured distribution after amplification:"

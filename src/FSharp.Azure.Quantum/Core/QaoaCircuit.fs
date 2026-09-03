@@ -15,10 +15,14 @@ module QaoaCircuit =
     /// Pauli operators for quantum gates
     [<Struct>]
     type PauliOperator =
-        | PauliI  // Identity
-        | PauliX  // Pauli-X (bit flip)
-        | PauliY  // Pauli-Y
-        | PauliZ  // Pauli-Z (phase flip)
+        /// Identity
+        | PauliI
+        /// Pauli-X (bit flip)
+        | PauliX
+        /// Pauli-Y
+        | PauliY
+        /// Pauli-Z (phase flip)
+        | PauliZ
     
     /// Hamiltonian term representing Pauli string with coefficient
     type HamiltonianTerm = {
@@ -41,12 +45,18 @@ module QaoaCircuit =
     
     /// Quantum gate types
     type QuantumGate =
-        | H of qubit: int                           // Hadamard gate
-        | RX of qubit: int * angle: float           // X rotation
-        | RY of qubit: int * angle: float           // Y rotation
-        | RZ of qubit: int * angle: float           // Z rotation
-        | RZZ of qubit1: int * qubit2: int * angle: float  // ZZ rotation (two-qubit)
-        | CNOT of control: int * target: int        // CNOT gate
+        /// Hadamard gate
+        | H of qubit: int
+        /// X rotation
+        | RX of qubit: int * angle: float
+        /// Y rotation
+        | RY of qubit: int * angle: float
+        /// Z rotation
+        | RZ of qubit: int * angle: float
+        /// ZZ rotation (two-qubit)
+        | RZZ of qubit1: int * qubit2: int * angle: float
+        /// CNOT gate
+        | CNOT of control: int * target: int
     
     /// QAOA circuit layer
     type QaoaLayer = {
@@ -179,7 +189,7 @@ module QaoaCircuit =
             let n = Array2D.length1 quboMatrix
 
             if n <> Array2D.length2 quboMatrix then
-                failwith "QUBO matrix must be square"
+                failwith $"QUBO matrix must be square, calling fromQubo with quboMatrix: {quboMatrix}"
 
             let entries =
                 seq {
@@ -244,16 +254,16 @@ module QaoaCircuit =
                         // Single-qubit Z rotation
                         match term.PauliOperators[0] with
                         | PauliZ -> RZ(term.QubitsIndices[0], angle)
-                        | _ -> failwith "Unsupported Pauli operator in problem Hamiltonian"
+                        | _ -> failwith $"Unsupported Pauli operator in problem Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
                     
                     | 2 ->
                         // Two-qubit ZZ rotation
                         match term.PauliOperators[0], term.PauliOperators[1] with
                         | PauliZ, PauliZ -> 
                             RZZ(term.QubitsIndices[0], term.QubitsIndices[1], angle)
-                        | _ -> failwith "Unsupported Pauli operators in problem Hamiltonian"
+                        | _ -> failwith $"Unsupported Pauli operators in problem Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
                     
-                    | _ -> failwith "Only single and two-qubit terms supported")
+                    | _ -> failwith $"Only single and two-qubit terms supported, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}")
             
             // Build mixer layer gates from mixer Hamiltonian
             let mixerGates =
@@ -266,9 +276,9 @@ module QaoaCircuit =
                         // Single-qubit X rotation
                         match term.PauliOperators[0] with
                         | PauliX -> RX(term.QubitsIndices[0], angle)
-                        | _ -> failwith "Unsupported Pauli operator in mixer Hamiltonian"
+                        | _ -> failwith $"Unsupported Pauli operator in mixer Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
                     
-                    | _ -> failwith "Mixer should only have single-qubit terms")
+                    | _ -> failwith $"Mixer should only have single-qubit terms, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}")
             
             {
                 CostGates = costGates
@@ -283,7 +293,7 @@ module QaoaCircuit =
         /// Returns: Complete QAOA circuit with initial state + p layers
         let build (problemHam: ProblemHamiltonian) (mixerHam: MixerHamiltonian) (parameters: (float * float)[]) : QaoaCircuit =
             if problemHam.NumQubits <> mixerHam.NumQubits then
-                failwith "Problem and mixer Hamiltonians must have same number of qubits"
+                failwith $"Problem and mixer Hamiltonians must have same number of qubits, calling build with problemHam: {problemHam}, mixerHam: {mixerHam}, parameters: {parameters}"
             
             let numQubits = problemHam.NumQubits
             

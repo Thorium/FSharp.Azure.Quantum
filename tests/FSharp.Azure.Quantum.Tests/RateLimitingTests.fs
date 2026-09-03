@@ -59,10 +59,10 @@ let ``RateLimiter should track rate limit state across requests`` () =
     let info2 = { Remaining = 49; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
     
     // Act
-    limiter.UpdateState(info1)
+    limiter.UpdateState info1
     let state1 = limiter.GetCurrentState()
     
-    limiter.UpdateState(info2)
+    limiter.UpdateState info2
     let state2 = limiter.GetCurrentState()
     
     // Assert
@@ -82,7 +82,7 @@ let ``RateLimiter shouldThrottle returns true when approaching rate limit`` () =
     // Arrange
     let limiter = RateLimiter()
     let info = { Remaining = 5; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
-    limiter.UpdateState(info)
+    limiter.UpdateState info
     
     // Act
     let shouldThrottle = limiter.ShouldThrottle()
@@ -95,7 +95,7 @@ let ``RateLimiter shouldThrottle returns false when plenty of requests remain`` 
     // Arrange
     let limiter = RateLimiter()
     let info = { Remaining = 50; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
-    limiter.UpdateState(info)
+    limiter.UpdateState info
     
     // Act
     let shouldThrottle = limiter.ShouldThrottle()
@@ -157,7 +157,7 @@ let ``ThrottlingHandler should parse rate limit headers from responses`` () =
             }
         
         let throttlingHandler = new ThrottlingHandler(testHandler)
-        let client = new HttpClient(throttlingHandler)
+        use client = new HttpClient(throttlingHandler)
         
         // Act
         let! response = client.GetAsync("https://test.example.com") |> Async.AwaitTask
@@ -178,8 +178,7 @@ let ``ThrottlingHandler should parse rate limit headers from responses`` () =
 // TDD Cycle #7: 429 Response Handling
 // ============================================================================
 
-[<Fact>]
-[<Trait("Category", "Slow")>]
+[<Fact; Trait("Category", "Slow")>]
 let ``ThrottlingHandler should return 429 response when rate limit is exceeded`` () =
     async {
         // Arrange
@@ -197,7 +196,7 @@ let ``ThrottlingHandler should return 429 response when rate limit is exceeded``
             }
         
         let throttlingHandler = new ThrottlingHandler(testHandler)
-        let client = new HttpClient(throttlingHandler)
+        use client = new HttpClient(throttlingHandler)
         
         // Act
         let! response = client.GetAsync("https://test.example.com") |> Async.AwaitTask

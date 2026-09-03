@@ -30,9 +30,7 @@ module BatchAccumulatorTests =
         let config = BatchConfig.create 0 (TimeSpan.FromSeconds 10.0) true
         
         // Assert
-        match config with
-        | Ok _ -> Assert.True(false, "Expected validation error for zero batch size")
-        | Error err -> Assert.Contains("must be positive", err.Message)
+        config |> Result.map (fun _ -> Assert.True(false, "Expected validation error for zero batch size")) |> Result.defaultWith (fun err -> Assert.Contains("must be positive", err.Message))
     
     [<Fact>]
     let ``BatchConfig with negative batch size should fail`` () =
@@ -40,9 +38,7 @@ module BatchAccumulatorTests =
         let config = BatchConfig.create -5 (TimeSpan.FromSeconds 10.0) true
         
         // Assert
-        match config with
-        | Ok _ -> Assert.True(false, "Expected validation error for negative batch size")
-        | Error err -> Assert.Contains("must be positive", err.Message)
+        config |> Result.map (fun _ -> Assert.True(false, "Expected validation error for negative batch size")) |> Result.defaultWith (fun err -> Assert.Contains("must be positive", err.Message))
     
     [<Fact>]
     let ``BatchConfig with zero timeout should fail`` () =
@@ -50,9 +46,7 @@ module BatchAccumulatorTests =
         let config = BatchConfig.create 50 TimeSpan.Zero true
         
         // Assert
-        match config with
-        | Ok _ -> Assert.True(false, "Expected validation error for zero timeout")
-        | Error err -> Assert.Contains("must be positive", err.Message)
+        config |> Result.map (fun _ -> Assert.True(false, "Expected validation error for zero timeout")) |> Result.defaultWith (fun err -> Assert.Contains("must be positive", err.Message))
     
     [<Fact>]
     let ``BatchConfig with negative timeout should fail`` () =
@@ -60,9 +54,7 @@ module BatchAccumulatorTests =
         let config = BatchConfig.create 50 (TimeSpan.FromSeconds -5.0) true
         
         // Assert
-        match config with
-        | Ok _ -> Assert.True(false, "Expected validation error for negative timeout")
-        | Error err -> Assert.Contains("must be positive", err.Message)
+        config |> Result.map (fun _ -> Assert.True(false, "Expected validation error for negative timeout")) |> Result.defaultWith (fun err -> Assert.Contains("must be positive", err.Message))
     
     [<Fact>]
     let ``BatchConfig default should have sensible values`` () =
@@ -85,9 +77,9 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<string>(config)
         
         // Act
-        let result1 = accumulator.Add("item1")
-        let result2 = accumulator.Add("item2")
-        let result3 = accumulator.Add("item3")
+        let result1 = accumulator.Add "item1"
+        let result2 = accumulator.Add "item2"
+        let result3 = accumulator.Add "item3"
         
         // Assert - Should return None (keep accumulating)
         Assert.True(result1.IsNone, "First item should not trigger batch")
@@ -101,9 +93,9 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<string>(config)
         
         // Act
-        let result1 = accumulator.Add("item1")
-        let result2 = accumulator.Add("item2")
-        let result3 = accumulator.Add("item3")  // Should trigger
+        let result1 = accumulator.Add "item1"
+        let result2 = accumulator.Add "item2"
+        let result3 = accumulator.Add "item3"  // Should trigger
         
         // Assert
         Assert.True(result1.IsNone)
@@ -124,11 +116,11 @@ module BatchAccumulatorTests =
         
         // Act - First batch
         accumulator.Add(1) |> ignore
-        let batch1 = accumulator.Add(2)  // Trigger
+        let batch1 = accumulator.Add 2  // Trigger
         
         // Act - Second batch (should start fresh)
-        let result1 = accumulator.Add(3)
-        let batch2 = accumulator.Add(4)  // Trigger again
+        let result1 = accumulator.Add 3
+        let batch2 = accumulator.Add 4  // Trigger again
         
         // Assert - First batch
         match batch1 with
@@ -154,7 +146,7 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<string>(config)
         
         // Act
-        let result = accumulator.Add("item")
+        let result = accumulator.Add "item"
         
         // Assert
         match result with
@@ -174,7 +166,7 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<string>(config)
         
         // Act
-        let result1 = accumulator.Add("item1")
+        let result1 = accumulator.Add "item1"
         Assert.True(result1.IsNone, "First item should not trigger immediately")
         
         // Wait for timeout
@@ -197,7 +189,7 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<string>(config)
         
         // Act
-        let result1 = accumulator.Add("item1")
+        let result1 = accumulator.Add "item1"
         System.Threading.Thread.Sleep(50)  // Short delay, well before timeout
         let result2 = accumulator.TryFlush()
         
@@ -213,10 +205,10 @@ module BatchAccumulatorTests =
         
         // Act - First batch (size trigger)
         accumulator.Add("item1") |> ignore
-        let batch1 = accumulator.Add("item2")  // Size trigger
+        let batch1 = accumulator.Add "item2"  // Size trigger
         
         // Act - Second batch (should have fresh timeout)
-        let result1 = accumulator.Add("item3")
+        let result1 = accumulator.Add "item3"
         System.Threading.Thread.Sleep(50)  // Not enough time
         let result2 = accumulator.TryFlush()
         
@@ -248,8 +240,8 @@ module BatchAccumulatorTests =
                 System.Threading.Tasks.Task.Run(fun () ->
                     for i in 1..10 do
                         let item = threadId * 100 + i
-                        match accumulator.Add(item) with
-                        | Some batch -> batches.Add(batch)
+                        match accumulator.Add item with
+                        | Some batch -> batches.Add batch
                         | None -> ()
                 )
             )
@@ -258,7 +250,7 @@ module BatchAccumulatorTests =
         
         // Flush any remaining items
         match accumulator.TryFlush() with
-        | Some batch -> batches.Add(batch)
+        | Some batch -> batches.Add batch
         | None -> ()
         
         // Assert
@@ -282,8 +274,8 @@ module BatchAccumulatorTests =
             [1..50]
             |> List.map (fun item ->
                 System.Threading.Tasks.Task.Run(fun () ->
-                    match accumulator.Add(item) with
-                    | Some batch -> batches.Add(batch)
+                    match accumulator.Add item with
+                    | Some batch -> batches.Add batch
                     | None -> ()
                 )
             )
@@ -313,8 +305,8 @@ module BatchAccumulatorTests =
             |> List.map (fun item ->
                 System.Threading.Tasks.Task.Run(fun () ->
                     System.Threading.Thread.Sleep(5 * item)  // Stagger additions
-                    match accumulator.Add(item) with
-                    | Some batch -> batches.Add(batch)
+                    match accumulator.Add item with
+                    | Some batch -> batches.Add batch
                     | None -> ()
                 )
             )
@@ -326,7 +318,7 @@ module BatchAccumulatorTests =
                     for _ in 1..5 do
                         System.Threading.Thread.Sleep(20)
                         match accumulator.TryFlush() with
-                        | Some batch -> batches.Add(batch)
+                        | Some batch -> batches.Add batch
                         | None -> ()
                 )
             )
@@ -336,7 +328,7 @@ module BatchAccumulatorTests =
         
         // Final flush - use ForceFlush to ensure all items are retrieved
         match accumulator.ForceFlush() with
-        | Some batch -> batches.Add(batch)
+        | Some batch -> batches.Add batch
         | None -> ()
         
         // Assert - All 20 items should be accounted for
@@ -448,7 +440,7 @@ module BatchAccumulatorTests =
                     return batch |> List.map (fun c -> c + "_result")
                 else
                     // Second batch fails
-                    return failwith "Batch submission failed"
+                    return failwith $"Batch submission failed, calling mockSubmit with batch: {batch}"
             }
         
         // Act & Assert
@@ -531,5 +523,5 @@ module BatchAccumulatorTests =
         metrics.RecordBatch(25, 100.0)  // 50% efficient
         
         // Assert - Average efficiency should be 75%
-        let efficiency = metrics.GetEfficiency(50)
+        let efficiency = metrics.GetEfficiency 50
         Assert.Equal(0.75, efficiency, 2)

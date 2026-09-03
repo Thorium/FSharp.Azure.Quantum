@@ -155,7 +155,7 @@ module GraphOptimization =
                 let acc' = addToList e.Source e.Target acc
                 
                 // For undirected graphs, add reverse edge
-                if not directed && not e.Directed then
+                if not (directed || e.Directed) then
                     addToList e.Target e.Source acc'
                 else
                     acc'

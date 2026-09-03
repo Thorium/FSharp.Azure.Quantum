@@ -153,6 +153,7 @@ module QPE =
         | UnitaryOperator.ModularExponentiation (baseNum, modulus) -> QpeUnitary.ModularExponentiation (baseNum, modulus)
 
     /// QPE does not require bit-reversal SWAPs; we can post-process classically.
+    [<Literal>]
     let private defaultApplyBitReversalSwaps = false
 
     /// Build an intent-first representation for QPE.
@@ -195,7 +196,7 @@ module QPE =
         // Step 2: Apply Hadamard to counting qubits: |+⟩^⊗n
         let hadamardOps =
             [0 .. config.CountingQubits - 1]
-            |> List.map (fun i -> QuantumOperation.Gate (CircuitBuilder.H i))
+            |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
         // Step 3: Prepare target qubits in eigenvector
         // For phase gates, the default eigenvector is |1⟩; a custom eigenvector
@@ -248,7 +249,7 @@ module QPE =
                     QuantumOperation.Gate (CircuitBuilder.CRZ (j, config.CountingQubits, totalTheta))
                 | ModularExponentiation _ ->
                     // Unreachable: plan() rejects ModularExponentiation before buildLoweringOps is called.
-                    failwith "ModularExponentiation cannot be lowered to gate ops; use Shor.estimateModExpPhase")
+                    failwith $"ModularExponentiation cannot be lowered to gate ops; use Shor.estimateModExpPhase, calling buildLoweringOps with intent: {intent}")
 
         // Step 5: Apply inverse QFT to counting register manually
         // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)

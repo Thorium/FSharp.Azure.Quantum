@@ -186,9 +186,7 @@ let ``parseMolFile parses M CHG charge lines`` () =
 [<Fact>]
 let ``parseMolFile returns error for invalid content`` () =
     let invalidMol = "This is not a valid MOL file"
-    match parseMolFile invalidMol with
-    | Ok _ -> Assert.Fail("Expected Error but got Ok")
-    | Error _ -> () // Expected
+    (parseMolFile invalidMol) |> Result.iter (fun _ -> Assert.Fail("Expected Error but got Ok")) // Expected
 
 // =============================================================================
 // SDF FILE PARSING TESTS
@@ -215,15 +213,15 @@ let ``parseSdfFile extracts associated data fields`` () =
     match parseSdfFile multiMoleculeSdf with
     | Ok records ->
         // Check ethanol properties
-        Assert.True(records.[0].Properties.ContainsKey("MolecularWeight"))
+        Assert.True(records.[0].Properties.ContainsKey "MolecularWeight")
         Assert.Equal("46.07", records.[0].Properties.["MolecularWeight"])
-        Assert.True(records.[0].Properties.ContainsKey("SMILES"))
+        Assert.True(records.[0].Properties.ContainsKey "SMILES")
         Assert.Equal("CCO", records.[0].Properties.["SMILES"])
         
         // Check methanol properties
-        Assert.True(records.[1].Properties.ContainsKey("MolecularWeight"))
+        Assert.True(records.[1].Properties.ContainsKey "MolecularWeight")
         Assert.Equal("32.04", records.[1].Properties.["MolecularWeight"])
-        Assert.True(records.[1].Properties.ContainsKey("SMILES"))
+        Assert.True(records.[1].Properties.ContainsKey "SMILES")
         Assert.Equal("CO", records.[1].Properties.["SMILES"])
     | Error e ->
         Assert.Fail($"Expected Ok but got Error: {e}")
@@ -287,7 +285,7 @@ let ``toMoleculeInstance preserves metadata from SDF`` () =
     | Ok records ->
         let instance = toMoleculeInstance records.[0]
         
-        Assert.True(instance.Topology.Metadata.ContainsKey("SMILES"))
+        Assert.True(instance.Topology.Metadata.ContainsKey "SMILES")
         Assert.Equal("CCO", instance.Topology.Metadata.["SMILES"])
     | Error e ->
         Assert.Fail($"Expected Ok but got Error: {e}")

@@ -149,7 +149,7 @@ module Grover =
         // Create Hadamard operations for all qubits
         let hadamardOps =
             [0 .. numQubits - 1]
-            |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+            |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
         
         // Apply sequence efficiently (single conversion if needed)
         UnifiedBackend.applySequence backend hadamardOps state
@@ -279,7 +279,7 @@ module Grover =
             else
                 let solutions =
                     [0 .. searchSpaceSize - 1]
-                    |> List.filter (fun i -> not (Oracle.isSolution spec i))
+                    |> List.filter (Oracle.isSolution spec >> not)
                 
                 if List.isEmpty solutions then
                     Error (QuantumError.ValidationError ("NOT oracle", "has no solutions"))
@@ -435,7 +435,7 @@ module Grover =
 
     let private lowerPrepareOps (numQubits: int) : QuantumOperation list =
         [ 0 .. numQubits - 1 ]
-        |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+        |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
     let private lowerSingleTargetOracleOps (target: int) (numQubits: int) : QuantumOperation list =
         [
@@ -878,9 +878,7 @@ module Grover =
                 let results =
                     [1 .. rounds]
                     |> List.choose (fun _ ->
-                        match search oracle backend config with
-                        | Ok res -> Some res
-                        | Error _ -> None
+                        (search oracle backend config) |> Result.map (fun res -> Some res) |> Result.defaultValue None
                     )
                 
                 if List.isEmpty results then
@@ -945,4 +943,4 @@ module Grover =
                 (result.SuccessProbability * 100.0)
                 result.ExecutionTimeMs
         
-        sprintf "%s\n%s" solutionsStr statsStr
+        $"%s{solutionsStr}\n%s{statsStr}"

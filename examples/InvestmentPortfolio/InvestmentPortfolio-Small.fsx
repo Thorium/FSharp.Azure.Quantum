@@ -156,7 +156,7 @@ if selectedStocks.IsEmpty then
 
 if not quiet then
     printfn "Quantum portfolio optimization: %d assets, budget $%s, shots %d, risk-aversion %.2f"
-        selectedStocks.Length (budget.ToString("N0")) shots riskAversion
+        selectedStocks.Length (budget.ToString "N0") shots riskAversion
     printfn ""
 
 let backend = LocalBackend() :> IQuantumBackend
@@ -223,7 +223,7 @@ let printTable () =
     let divider = String('-', 96)
     printfn ""
     printfn "  Quantum Portfolio (budget $%s, shots %d, risk-aversion %.2f)"
-        (budget.ToString("N0")) shots riskAversion
+        (budget.ToString "N0") shots riskAversion
     printfn "  %s" divider
     printfn "  %-6s %-18s %6s %6s %8s %10s %7s %7s %8s"
         "Symbol" "Name" "Return" "Risk" "Sharpe" "Value" "Shares" "Pct" "Status"
@@ -236,7 +236,7 @@ let printTable () =
             (r.Stock.ExpectedReturn * 100.0)
             (r.Stock.Risk * 100.0)
             r.SharpeRatio
-            (r.Value.ToString("N0"))
+            (r.Value.ToString "N0")
             r.Shares
             r.PctOfPortfolio
             status

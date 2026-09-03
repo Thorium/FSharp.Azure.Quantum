@@ -78,7 +78,7 @@ module ConstraintSchedulerTests =
                 
                 Assert.NotEqual<string>(t1Res, t2Res) // Conflict constraint
             | None -> Assert.Fail("Should have found a schedule")
-        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+        | Error e -> Assert.Fail($"Solver failed: %A{e}")
 
     [<Fact>]
     let ``Constraint Scheduler - Resource Requirement`` () =
@@ -101,7 +101,7 @@ module ConstraintSchedulerTests =
                 let t1Res = s.Assignments |> List.find (fun a -> a.Task = "T1") |> fun a -> a.Resource
                 Assert.Equal("R2", t1Res)
             | None -> Assert.Fail("Should have found a schedule")
-        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+        | Error e -> Assert.Fail($"Solver failed: %A{e}")
 
     [<Fact>]
     let ``Constraint Scheduler - Weighted Coloring (Cost Optimization)`` () =
@@ -127,7 +127,7 @@ module ConstraintSchedulerTests =
                 // Total cost should be 11.0
                 Assert.Equal(11.0, s.TotalCost)
             | None -> Assert.Fail("Should have found a schedule")
-        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+        | Error e -> Assert.Fail($"Solver failed: %A{e}")
 
     // ========================================================================
     // QAOA STRATEGY TESTS
@@ -159,7 +159,7 @@ module ConstraintSchedulerTests =
                 Assert.Contains("T1", tasks)
                 Assert.Contains("T2", tasks)
             | None -> () // QAOA is approximate; no solution is acceptable
-        | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
+        | Error e -> Assert.Fail($"QAOA SAT solver failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - Resource Requirement via SAT`` () =
@@ -181,7 +181,7 @@ module ConstraintSchedulerTests =
             | Some s ->
                 Assert.Equal(1, s.Assignments.Length)
             | None -> () // QAOA is approximate
-        | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
+        | Error e -> Assert.Fail($"QAOA SAT solver failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - Cost Optimization via SAT (no capacity)`` () =
@@ -205,10 +205,9 @@ module ConstraintSchedulerTests =
             | Some s ->
                 Assert.Equal(2, s.Assignments.Length)
             | None -> () // QAOA is approximate
-        | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
+        | Error e -> Assert.Fail($"QAOA SAT solver failed: %A{e}")
 
-    [<Fact>]
-    [<Trait("Category", "Slow")>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``QAOA Strategy - Bin Packing with Capacity Constraints`` () =
         let result = constraintScheduler {
             task "T1"
@@ -230,7 +229,7 @@ module ConstraintSchedulerTests =
                 // All 3 tasks should be assigned
                 Assert.Equal(3, s.Assignments.Length)
             | None -> () // QAOA is approximate
-        | Error e -> Assert.Fail(sprintf "QAOA bin packing solver failed: %A" e)
+        | Error e -> Assert.Fail($"QAOA bin packing solver failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - CE builder useGrover preserves Grover behavior`` () =
@@ -258,7 +257,7 @@ module ConstraintSchedulerTests =
                 let t2Res = s.Assignments |> List.find (fun a -> a.Task = "T2") |> fun a -> a.Resource
                 Assert.NotEqual<string>(t1Res, t2Res)
             | None -> Assert.Fail("Grover should have found a schedule")
-        | Error e -> Assert.Fail(sprintf "Grover solver failed: %A" e)
+        | Error e -> Assert.Fail($"Grover solver failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - Auto selects Grover when no capacity`` () =
@@ -283,7 +282,7 @@ module ConstraintSchedulerTests =
                 Assert.True(s.IsFeasible, "Auto (Grover) should find a feasible schedule")
                 Assert.Equal(2, s.Assignments.Length)
             | None -> Assert.Fail("Should have found a schedule")
-        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+        | Error e -> Assert.Fail($"Solver failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - Auto selects QAOA when capacity present`` () =
@@ -305,7 +304,7 @@ module ConstraintSchedulerTests =
             | Some s ->
                 Assert.Equal(2, s.Assignments.Length)
             | None -> () // QAOA is approximate
-        | Error e -> Assert.Fail(sprintf "Auto QAOA solver failed: %A" e)
+        | Error e -> Assert.Fail($"Auto QAOA solver failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - Validation errors unchanged`` () =
@@ -319,7 +318,7 @@ module ConstraintSchedulerTests =
         
         match result with
         | Error (QuantumError.ValidationError ("Tasks", _)) -> ()
-        | other -> Assert.Fail(sprintf "Expected validation error, got: %A" other)
+        | other -> Assert.Fail($"Expected validation error, got: %A{other}")
 
     [<Fact>]
     let ``QAOA Strategy - Programmatic API with Strategy`` () =
@@ -343,7 +342,7 @@ module ConstraintSchedulerTests =
             match r.BestSchedule with
             | Some s -> Assert.Equal(2, s.Assignments.Length)
             | None -> () // QAOA is approximate
-        | Error e -> Assert.Fail(sprintf "Programmatic QAOA failed: %A" e)
+        | Error e -> Assert.Fail($"Programmatic QAOA failed: %A{e}")
 
     [<Fact>]
     let ``QAOA Strategy - Programmatic API defaults Strategy to None`` () =
@@ -369,7 +368,7 @@ module ConstraintSchedulerTests =
                 Assert.Equal(1, s.Assignments.Length)
                 Assert.Equal("T1", s.Assignments.[0].Task)
             | None -> Assert.Fail("Should have found a schedule for single task")
-        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+        | Error e -> Assert.Fail($"Solver failed: %A{e}")
 
     [<Fact>]
     let ``Cost goal routes to cost-aware coloring even when QAOA is requested`` () =
@@ -395,7 +394,7 @@ module ConstraintSchedulerTests =
             match r.BestSchedule with
             | Some s -> Assert.Equal(2, s.Assignments.Length)
             | None -> () // quantum search is approximate
-        | Error e -> Assert.Fail(sprintf "Cost-goal solver failed: %A" e)
+        | Error e -> Assert.Fail($"Cost-goal solver failed: %A{e}")
 
     [<Fact>]
     let ``Precedence constraints are rejected honestly rather than silently ignored`` () =
@@ -418,5 +417,5 @@ module ConstraintSchedulerTests =
         match result with
         | Error (QuantumError.NotImplemented (feature, _)) ->
             Assert.Contains("Precedence", feature)
-        | Error e -> Assert.Fail(sprintf "Expected NotImplemented for precedence, got: %A" e)
+        | Error e -> Assert.Fail($"Expected NotImplemented for precedence, got: %A{e}")
         | Ok _ -> Assert.Fail("Precedence constraint should be rejected, not silently ignored")

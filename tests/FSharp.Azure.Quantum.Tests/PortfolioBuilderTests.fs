@@ -64,11 +64,7 @@ module PortfolioBuilderTests =
         let result = Portfolio.solve problem None
         
         // Assert
-        match result with
-        | Ok allocation ->
-            Assert.True(allocation.TotalValue <= budget)
-        | Error msg ->
-            Assert.Fail($"solve failed: {msg}")
+        result |> Result.map (fun allocation -> Assert.True(allocation.TotalValue <= budget)) |> Result.defaultWith (fun msg -> Assert.Fail($"solve failed: {msg}"))
 
     [<Fact>]
     let ``Portfolio.solveDirectly should solve without creating problem explicitly`` () =
@@ -105,11 +101,7 @@ module PortfolioBuilderTests =
         let result = Portfolio.solve problem backend
         
         // Assert
-        match result with
-        | Ok allocation ->
-            Assert.True(allocation.IsValid)
-        | Error msg ->
-            Assert.Fail($"solve with backend failed: {msg}")
+        result |> Result.map (fun allocation -> Assert.True(allocation.IsValid)) |> Result.defaultWith (fun msg -> Assert.Fail($"solve with backend failed: {msg}"))
 
     [<Fact>]
     let ``Portfolio.solve should handle 5 assets`` () =

@@ -179,7 +179,7 @@ let private presetNames =
 /// OR: id, preset (to reference a built-in preset by ID)
 let private loadFeaturesFromCsv (path: string) : PharmacophoreFeature list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
-    if not (List.isEmpty errors) && not quiet then
+    if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
 

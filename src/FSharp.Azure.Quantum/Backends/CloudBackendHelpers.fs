@@ -151,7 +151,7 @@ module CloudBackendHelpers =
     let unsupportedOperationError (backendName: string) (op: BackendAbstraction.QuantumOperation) : QuantumError =
         QuantumError.OperationError(
             "ApplyOperation",
-            sprintf "%s does not support operation type: %A. Only Gate, Sequence, and Measure are supported." backendName op)
+            $"%s{backendName} does not support operation type: %A{op}. Only Gate, Sequence, and Measure are supported.")
 
     // ============================================================================
     // COST GUARD (pre-submission)

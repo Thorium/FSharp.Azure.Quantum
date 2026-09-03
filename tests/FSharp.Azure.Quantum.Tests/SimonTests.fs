@@ -72,14 +72,10 @@ let ``Simon measurement vectors are orthogonal to secret`` () =
 let ``Simon rejects too many input qubits`` () =
     let backend = createLocalBackend ()
 
-    match Simon.runWithSecret (Array.create 11 1) backend 10 with
-    | Ok _ -> Assert.True(false, "Expected validation error for >10 input qubits")
-    | Error _ -> ()
+    (Simon.runWithSecret (Array.create 11 1) backend 10) |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for >10 input qubits"))
 
 [<Fact>]
 let ``Simon rejects non-bit secret`` () =
     let backend = createLocalBackend ()
 
-    match Simon.runWithSecret [| 1; 3 |] backend 10 with
-    | Ok _ -> Assert.True(false, "Expected validation error for non-bit secret")
-    | Error _ -> ()
+    (Simon.runWithSecret [| 1; 3 |] backend 10) |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for non-bit secret"))

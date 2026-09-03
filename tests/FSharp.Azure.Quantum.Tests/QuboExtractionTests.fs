@@ -237,9 +237,7 @@ module QuboExtractionTests =
         let result = validateSymmetric qubo
         
         Assert.True(result.IsError, "Asymmetric QUBO should fail validation")
-        match result with
-        | Error msg -> Assert.Contains("not symmetric", msg.Message)
-        | Ok _ -> Assert.True(false, "Should have failed validation")
+        result |> Result.map (fun _ -> Assert.True(false, "Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("not symmetric", msg.Message))
     
     [<Fact>]
     let ``validateSymmetric handles diagonal-only QUBO`` () =

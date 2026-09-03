@@ -233,8 +233,7 @@ module MagicStateDistillation =
                             | _, Error err -> Error err
                             | Ok purified, Ok distResult -> Ok (distResult.PurifiedState :: purified)
                         ) (Ok [])
-                        |> Result.bind (fun purifiedStates ->
-                            distillRounds (roundNum - 1) (List.rev purifiedStates)
+                        |> Result.bind (List.rev >> distillRounds (roundNum - 1)
                         )
                 
                 distillRounds rounds initialStates

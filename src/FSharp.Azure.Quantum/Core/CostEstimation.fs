@@ -449,10 +449,7 @@ module CostEstimation =
                     "No backends with per-job pricing available - subscription-priced backends (e.g. Quantinuum HQC) cannot be compared by expected cost"))
             | comparableBackends ->
                 compareCosts comparableBackends circuit shots
-                |> Result.map (fun estimates ->
-                    estimates
-                    |> List.minBy (fun est -> est.ExpectedCost)
-                    |> fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate))
+                |> Result.map (List.minBy (fun est -> est.ExpectedCost) >> (fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate)))
     
     // ============================================================================
     // COST OPTIMIZATION RECOMMENDATIONS
@@ -813,7 +810,7 @@ module CostEstimation =
                         abs(float ((actual - estimated) / actual)))
                 
                 let avgError = (List.average accuracyErrors) * 100.0
-                sb.AppendLine(sprintf "\n[Estimate Accuracy] %.1f%% average error" avgError) |> ignore
+                sb.AppendLine($"\n[Estimate Accuracy] %.1f{avgError}%% average error") |> ignore
         
         sb.ToString()
 
@@ -875,7 +872,7 @@ module CostEstimation =
             Error (QuantumError.ValidationError("target", "Target backend cannot be empty"))
         else
             // Detect backend type from target string
-            let isSimulator = target.ToLowerInvariant().Contains("simulator")
+            let isSimulator = target.Contains("simulator", StringComparison.OrdinalIgnoreCase)
             
             if isSimulator then
                 // Simulators are free
@@ -949,7 +946,7 @@ module CostEstimation =
     
     /// CSV field escaping - handles commas, quotes, and newlines in field values
     let private escapeCsvField (field: string) : string =
-        if field.Contains(",") || field.Contains("\"") || field.Contains("\n") || field.Contains("\r") then
+        if field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r') then
             // Escape quotes by doubling them, then wrap in quotes
             "\"" + field.Replace("\"", "\"\"") + "\""
         else
@@ -987,7 +984,7 @@ module CostEstimation =
                     backendToCsvString record.Backend
                     string (record.EstimatedCost / 1.0M<USD>)
                     actualCostStr
-                    record.Timestamp.ToString("o")  // ISO 8601 format
+                    record.Timestamp.ToString "o"  // ISO 8601 format
                     string (int record.Circuit.SingleQubitGates)
                     string (int record.Circuit.TwoQubitGates)
                     string (int record.Circuit.Measurements)

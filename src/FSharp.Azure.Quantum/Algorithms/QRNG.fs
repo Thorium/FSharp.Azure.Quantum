@@ -37,6 +37,7 @@ module QRNG =
     // INTENT → PLAN → EXECUTE (ADR: Intent-First)
     // ========================================================================
 
+    [<Struct>]
     type private QrngIntent = { NumBits: int }
 
     [<RequireQualifiedAccess>]
@@ -122,10 +123,10 @@ module QRNG =
     let generateBits (numBits: int) (seed: int option) : QRNGResult =
 
         if numBits <= 0 then
-            failwith "NumBits must be positive"
+            failwith $"NumBits must be positive, calling generateBits with numBits: {numBits}, seed: {seed}"
 
         if numBits > 1000000 then
-            failwith "NumBits too large (max 1,000,000)"
+            failwith $"NumBits too large (max 1,000,000), calling generateBits with numBits: {numBits}, seed: {seed}"
 
         let bits =
             match seed with
@@ -181,7 +182,7 @@ module QRNG =
                 None
         
         // Estimate entropy (Shannon entropy for binary sequence)
-        let count0 = bits |> Array.filter (not) |> Array.length
+        let count0 = bits |> Array.filter not |> Array.length
         let count1 = bits |> Array.filter id |> Array.length
         let p0 = float count0 / float numBits
         let p1 = float count1 / float numBits
@@ -207,7 +208,7 @@ module QRNG =
     /// Generate random integer in range [0, max)
     let generateInt (maxValue: int) : int =
         if maxValue <= 0 then
-            failwith "MaxValue must be positive"
+            failwith $"MaxValue must be positive, calling generateInt with maxValue: {maxValue}"
         
         // Calculate number of bits needed
         let numBits = 
@@ -225,7 +226,7 @@ module QRNG =
                 else
                     generateUntilValid()  // Rejection sampling
             | None ->
-                failwith "Failed to convert to integer"
+                failwith $"Failed to convert to integer, calling generateInt with maxValue: {maxValue}"
         
         generateUntilValid()
     
@@ -242,7 +243,7 @@ module QRNG =
     /// Generate random bytes
     let generateBytes (numBytes: int) : byte[] =
         if numBytes <= 0 then
-            failwith "NumBytes must be positive"
+            failwith $"NumBytes must be positive, calling generateBytes with numBytes: {numBytes}"
         
         let result = generate (numBytes * 8)
         result.AsBytes
@@ -315,7 +316,7 @@ module QRNG =
                                 else
                                     None
 
-                            let count0 = bits |> Array.filter (not) |> Array.length
+                            let count0 = bits |> Array.filter not |> Array.length
                             let count1 = numBits - count0
                             let p0 = float count0 / float numBits
                             let p1 = float count1 / float numBits
@@ -408,7 +409,7 @@ module QRNG =
         // Generate 256-bit (32-byte) key
         let keyBytes = generateBytes 32
         printfn "Generated 256-bit key:"
-        printfn "  Hex: %s" (BitConverter.ToString(keyBytes).Replace("-", ""))
+        printfn "  Hex: %s" (Convert.ToHexString keyBytes)
         printfn "  Base64: %s" (Convert.ToBase64String(keyBytes))
     
     /// Example: Generate random numbers in range

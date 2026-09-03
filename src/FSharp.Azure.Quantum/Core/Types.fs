@@ -33,7 +33,7 @@ module Types =
                     errorMessage |> Option.defaultValue "No error message"
                 )
             | "cancelled" -> Cancelled
-            | _ -> Failed("UnknownStatus", sprintf "Unknown job status: %s" status)
+            | _ -> Failed("UnknownStatus", $"Unknown job status: %s{status}")
 
     /// Azure Quantum backend information
     type Backend =

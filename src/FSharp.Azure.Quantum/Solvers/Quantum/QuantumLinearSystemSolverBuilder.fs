@@ -237,17 +237,13 @@ module QuantumLinearSystemSolver =
             
             let array2D = Array2D.init n n (fun i j -> Complex(elements[i][j], 0.0))
             
-            match createHermitianMatrix array2D with
-            | Ok matrix -> { problem with Matrix = matrix }
-            | Error err -> failwith err.Message
+            (createHermitianMatrix array2D) |> Result.map (fun matrix -> { problem with Matrix = matrix }) |> Result.defaultWith (fun err -> failwith err.Message)
         
         /// <summary>Set diagonal matrix from eigenvalues.</summary>
         /// <param name="eigenvalues">List of eigenvalues for diagonal matrix</param>
         [<CustomOperation("diagonalMatrix")>]
         member _.DiagonalMatrix(problem: LinearSystemProblem, eigenvalues: float list) : LinearSystemProblem =
-            match createDiagonalMatrix (List.toArray eigenvalues) with
-            | Ok matrix -> { problem with Matrix = matrix }
-            | Error err -> failwith err.Message
+            (createDiagonalMatrix (List.toArray eigenvalues)) |> Result.map (fun matrix -> { problem with Matrix = matrix }) |> Result.defaultWith (fun err -> failwith err.Message)
         
         /// <summary>Set input vector.</summary>
         /// <param name="components">List of vector components</param>
@@ -255,9 +251,7 @@ module QuantumLinearSystemSolver =
         member _.Vector(problem: LinearSystemProblem, components: float list) : LinearSystemProblem =
             let complexComponents = components |> List.map (fun x -> Complex(x, 0.0)) |> List.toArray
             
-            match createQuantumVector complexComponents with
-            | Ok vector -> { problem with InputVector = vector }
-            | Error err -> failwith err.Message
+            (createQuantumVector complexComponents) |> Result.map (fun vector -> { problem with InputVector = vector }) |> Result.defaultWith (fun err -> failwith err.Message)
         
         /// <summary>Set eigenvalue qubits (precision).</summary>
         /// <param name="n">Number of eigenvalue qubits</param>
@@ -428,9 +422,7 @@ module QuantumLinearSystemSolver =
             precision 4
         }
         
-        match problemResult with
-        | Error err -> Error err
-        | Ok problem -> solve problem
+        problemResult |> Result.bind (fun problem -> solve problem)
     
     /// <summary>
     /// Solve diagonal system (eigenvalues known).
@@ -447,6 +439,4 @@ module QuantumLinearSystemSolver =
             precision 6
         }
         
-        match problemResult with
-        | Error err -> Error err
-        | Ok problem -> solve problem
+        problemResult |> Result.bind (fun problem -> solve problem)

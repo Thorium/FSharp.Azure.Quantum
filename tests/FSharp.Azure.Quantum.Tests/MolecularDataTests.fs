@@ -299,9 +299,7 @@ module MolecularDataTests =
 
     [<Fact>]
     let ``loadFromSmilesList returns error when all fail`` () =
-        match loadFromSmilesList [ "" ] with
-        | Error _ -> ()
-        | Ok _ -> failwith "Expected Error when all SMILES are invalid"
+        (loadFromSmilesList [ "" ]) |> Result.iter (fun _ -> failwith "Expected Error when all SMILES are invalid")
 
     // ========================================================================
     // FEATURE EXTRACTION

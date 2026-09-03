@@ -15,8 +15,8 @@ module Data =
 
     let sha256Hex (bytes: byte array) : string =
         use sha = SHA256.Create()
-        let hash = sha.ComputeHash(bytes)
-        hash |> Array.map (fun b -> b.ToString("x2")) |> String.concat ""
+        let hash = sha.ComputeHash bytes
+        hash |> Array.map (fun b -> b.ToString "x2") |> String.concat ""
 
     let fileSha256Hex (path: string) =
         readAllBytes path |> sha256Hex
@@ -58,7 +58,7 @@ module Data =
         let lines =
             File.ReadAllLines path
             |> Array.map (fun l -> l.Trim())
-            |> Array.filter (fun l -> not (String.IsNullOrWhiteSpace l) && not (l.StartsWith("#", StringComparison.Ordinal)))
+            |> Array.filter (fun l -> not ((String.IsNullOrWhiteSpace l) || (l.StartsWith("#", StringComparison.Ordinal))))
 
         if lines.Length = 0 then
             ([], [])

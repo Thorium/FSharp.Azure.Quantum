@@ -110,8 +110,10 @@ module TopologicalOperations =
     /// This changes the tree structure but represents the same quantum state
     /// in a different basis. The F-matrix gives the change-of-basis coefficients.
     type FMoveDirection =
-        | LeftToRight  // ((a × b) × c) → (a × (b × c))
-        | RightToLeft  // (a × (b × c)) → ((a × b) × c)
+        /// ((a × b) × c) → (a × (b × c))
+        | LeftToRight
+        /// (a × (b × c)) → ((a × b) × c)
+        | RightToLeft
 
     type private Branch =
         | L
@@ -342,9 +344,7 @@ module TopologicalOperations =
                             |> List.choose (fun (fAmp, rightAssocSubtree) ->
                                 match rightAssocSubtree with
                                 | FusionTree.Fusion (_, FusionTree.Fusion (_, _, f), _) ->
-                                    match BraidingOperators.element b c f state.AnyonType with
-                                    | Ok rPhase -> Some (fAmp * conjugateIfInverse isClockwise rPhase, rightAssocSubtree)
-                                    | Error _ -> None
+                                    (BraidingOperators.element b c f state.AnyonType) |> Result.map (fun rPhase -> Some (fAmp * conjugateIfInverse isClockwise rPhase, rightAssocSubtree)) |> Result.defaultValue None
                                 | _ -> None)
 
                         // 3) Change basis back (inverse F)
@@ -386,9 +386,7 @@ module TopologicalOperations =
                         |> List.choose (fun (amp, leftAssocTree) ->
                             match leftAssocTree with
                             | FusionTree.Fusion (FusionTree.Fusion (FusionTree.Leaf a2, FusionTree.Leaf b2, e), FusionTree.Leaf c2, d2) ->
-                                match BraidingOperators.element a2 b2 e state.AnyonType with
-                                | Ok rPhase -> Some (amp * conjugateIfInverse isClockwise rPhase, leftAssocTree)
-                                | Error _ -> None
+                                (BraidingOperators.element a2 b2 e state.AnyonType) |> Result.map (fun rPhase -> Some (amp * conjugateIfInverse isClockwise rPhase, leftAssocTree)) |> Result.defaultValue None
                             | _ -> None)
 
                     let! backTerms =
@@ -608,7 +606,7 @@ module TopologicalOperations =
             AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau
         | AnyonSpecies.AnyonType.SU2Level k ->
             AnyonSpecies.Particle.SpinJ(0, k), AnyonSpecies.Particle.SpinJ(2, k)
-        | _ ->
+        | AnyonSpecies.AnyonType.Ising ->
             AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi
 
     /// Replace the fusion channel for a specific qubit's anyon pair within a tree,
@@ -674,7 +672,7 @@ module TopologicalOperations =
                 a = AnyonSpecies.Particle.Sigma && b = AnyonSpecies.Particle.Sigma)
             && (match anyonType with
                 | AnyonSpecies.AnyonType.Ising -> true
-                | _ -> false)
+                | AnyonSpecies.AnyonType.Fibonacci | AnyonSpecies.AnyonType.SU2Level _ -> false)
 
         let qubitPairCount = if isIsingParityEncoding then pairs.Length - 1 else pairs.Length
 

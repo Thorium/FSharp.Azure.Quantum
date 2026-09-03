@@ -99,14 +99,14 @@ module OpenQasmExportTests =
             empty 3
             |> addGates [H 0; X 1; CNOT (0, 1); Y 2; RZ (2, 0.5)]
         let qasm = OpenQasm.export circuit
-        let lines = qasm.Split('\n')
+        let lines = qasm.Split '\n'
         
         // Find gate lines (skip header and register declarations)
         let gateLines = 
             lines 
             |> Array.filter (fun line -> 
                 line.Contains("h q") || line.Contains("x q") || 
-                line.Contains("cx q") || line.Contains("y q") || line.Contains("rz(")
+                line.Contains "cx q" || line.Contains "y q" || line.Contains "rz("
             )
         
         Assert.Equal(5, gateLines.Length)
@@ -130,7 +130,7 @@ module OpenQasmExportTests =
     let ``export includes qelib1 include`` () =
         let circuit = { QubitCount = 1; Gates = [H 0] }
         let qasm = OpenQasm.export circuit
-        let lines = qasm.Split('\n')
+        let lines = qasm.Split '\n'
         Assert.Contains("include \"qelib1.inc\";", lines.[1])
     
     [<Fact>]

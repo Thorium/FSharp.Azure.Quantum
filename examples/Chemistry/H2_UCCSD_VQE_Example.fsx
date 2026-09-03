@@ -218,7 +218,7 @@ let paramAnalysisRow =
       "TotalUCCSDParams", sprintf "%d" totalUCCSDParams ]
     |> Map.ofList
 
-allResults.Add(paramAnalysisRow)
+allResults.Add paramAnalysisRow
 
 // This example uses VERIFIED real STO-3G integrals for H2 at its equilibrium
 // geometry (R = 0.7414 Å), bundled in the library as `h2Sto3gIntegrals`. Exact
@@ -394,7 +394,7 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
                   "UCCSDParams", sprintf "%d" totalUCCSDParams
                   "HF_Valid", sprintf "%b" isValid ]
                 |> Map.ofList
-            allResults.Add(vqeRow)
+            allResults.Add vqeRow
 
 // ==============================================================================
 // PART 4: Summary

@@ -151,8 +151,8 @@ module ProgressTests =
     [<Fact>]
     let ``EventProgressReporter IsCancellationRequested reflects token`` () =
         let reporter = createEventReporter()
-        let cts = new CancellationTokenSource()
-        reporter.SetCancellationToken(cts.Token)
+        use cts = new CancellationTokenSource()
+        reporter.SetCancellationToken cts.Token
 
         let iface = reporter :> IProgressReporter
         Assert.False(iface.IsCancellationRequested)
@@ -185,7 +185,7 @@ module ProgressTests =
 
     [<Fact>]
     let ``ConsoleProgressReporter IsCancellationRequested reflects token`` () =
-        let cts = new CancellationTokenSource()
+        use cts = new CancellationTokenSource()
         let reporter = ConsoleProgressReporter(verbose = false, cancellationToken = cts.Token) :> IProgressReporter
         Assert.False(reporter.IsCancellationRequested)
         cts.Cancel()
@@ -213,7 +213,7 @@ module ProgressTests =
 
     [<Fact>]
     let ``createConsoleReporter with cancellation token`` () =
-        let cts = new CancellationTokenSource()
+        use cts = new CancellationTokenSource()
         let reporter = createConsoleReporter (Some false) (Some cts.Token)
         Assert.False(reporter.IsCancellationRequested)
         cts.Cancel()
@@ -230,12 +230,12 @@ module ProgressTests =
 
         let reporter1 =
             { new IProgressReporter with
-                member _.Report(_) = count1 <- count1 + 1
+                member _.Report _ = count1 <- count1 + 1
                 member _.IsCancellationRequested = false }
 
         let reporter2 =
             { new IProgressReporter with
-                member _.Report(_) = count2 <- count2 + 1
+                member _.Report _ = count2 <- count2 + 1
                 member _.IsCancellationRequested = false }
 
         let agg = createAggregatingReporter [reporter1; reporter2]
@@ -249,12 +249,12 @@ module ProgressTests =
     let ``AggregatingProgressReporter IsCancellationRequested if any reporter cancelled`` () =
         let reporter1 =
             { new IProgressReporter with
-                member _.Report(_) = ()
+                member _.Report _ = ()
                 member _.IsCancellationRequested = false }
 
         let reporter2 =
             { new IProgressReporter with
-                member _.Report(_) = ()
+                member _.Report _ = ()
                 member _.IsCancellationRequested = true }
 
         let agg = createAggregatingReporter [reporter1; reporter2]
@@ -264,12 +264,12 @@ module ProgressTests =
     let ``AggregatingProgressReporter IsCancellationRequested false when none cancelled`` () =
         let reporter1 =
             { new IProgressReporter with
-                member _.Report(_) = ()
+                member _.Report _ = ()
                 member _.IsCancellationRequested = false }
 
         let reporter2 =
             { new IProgressReporter with
-                member _.Report(_) = ()
+                member _.Report _ = ()
                 member _.IsCancellationRequested = false }
 
         let agg = createAggregatingReporter [reporter1; reporter2]
@@ -292,13 +292,13 @@ module ProgressTests =
 
     [<Fact>]
     let ``checkCancellation returns Ok with non-cancelled token`` () =
-        let cts = new CancellationTokenSource()
+        use cts = new CancellationTokenSource()
         let result = checkCancellation None (Some cts.Token)
         Assert.Equal(Ok (), result)
 
     [<Fact>]
     let ``checkCancellation returns Error when token is cancelled`` () =
-        let cts = new CancellationTokenSource()
+        use cts = new CancellationTokenSource()
         cts.Cancel()
         let result = checkCancellation None (Some cts.Token)
         match result with
@@ -310,7 +310,7 @@ module ProgressTests =
     let ``checkCancellation returns Error when reporter is cancelled`` () =
         let reporter =
             { new IProgressReporter with
-                member _.Report(_) = ()
+                member _.Report _ = ()
                 member _.IsCancellationRequested = true }
         let result = checkCancellation (Some reporter) None
         match result with
@@ -326,11 +326,11 @@ module ProgressTests =
 
     [<Fact>]
     let ``checkCancellation returns Error when both token and reporter cancelled`` () =
-        let cts = new CancellationTokenSource()
+        use cts = new CancellationTokenSource()
         cts.Cancel()
         let reporter =
             { new IProgressReporter with
-                member _.Report(_) = ()
+                member _.Report _ = ()
                 member _.IsCancellationRequested = true }
         let result = checkCancellation (Some reporter) (Some cts.Token)
         match result with

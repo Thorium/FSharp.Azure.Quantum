@@ -391,7 +391,7 @@ module QuantumPeriodFinder =
     let describeResult (result: PeriodFinderResult) : string =
         let factorsText =
             match result.Factors with
-            | Some (p, q) -> sprintf "Found: %d = %d × %d" result.Number p q
+            | Some (p, q) -> $"Found: %d{result.Number} = %d{p} × %d{q}"
             | None -> "No factors found (may need retry with different base)"
         
         let successIcon = if result.Success then "✓" else "✗"

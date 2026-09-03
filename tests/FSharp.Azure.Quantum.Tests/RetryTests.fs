@@ -236,7 +236,7 @@ module RetryTests =
     [<Fact>]
     let ``executeWithRetry respects cancellation`` () =
         let config = { defaultConfig with MaxAttempts = 10 }
-        let cts = new CancellationTokenSource()
+        use cts = new CancellationTokenSource()
         cts.Cancel()
         let operation (_ct: CancellationToken) = async { return Ok 1 }
         let r = executeWithRetry config operation cts.Token |> Async.RunSynchronously

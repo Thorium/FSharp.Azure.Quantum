@@ -59,7 +59,7 @@ module CircuitExtensionsTests =
             |> addGate (H 0)
             |> addGate (Measure 0)
         let config = { VisualizationConfig.defaultConfig with ShowMeasurements = false }
-        let result = circuit.ToASCIIWithConfig(config)
+        let result = circuit.ToASCIIWithConfig config
         Assert.Contains("H", result)
         Assert.DoesNotContain("M", result)
 
@@ -69,7 +69,7 @@ module CircuitExtensionsTests =
             empty 1
             |> addGate (Measure 0)
         let config = VisualizationConfig.defaultConfig
-        let result = circuit.ToASCIIWithConfig(config)
+        let result = circuit.ToASCIIWithConfig config
         Assert.Contains("M", result)
 
     // ========================================================================

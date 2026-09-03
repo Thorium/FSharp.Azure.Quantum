@@ -308,7 +308,7 @@ module KauffmanBracket =
                         arcAtStart @ arcAtEnd
                 
                 let rec traceComponent (arcId: int) =
-                    if visited.Add(arcId) then
+                    if visited.Add arcId then
                         let connected = getConnectedArcs arcId
                         connected |> List.iter traceComponent
                 
@@ -468,25 +468,25 @@ module KauffmanBracket =
                     let conns = 
                         c.Connections
                         |> Map.toList
-                        |> List.sortBy (fun (pos, _) -> sprintf "%A" pos)
-                        |> List.map (fun (pos, arcId) -> sprintf "%A:%d" pos arcId)
+                        |> List.sortBy (fun (pos, _) -> $"%A{pos}")
+                        |> List.map (fun (pos, arcId) -> $"%A{pos}:%d{arcId}")
                         |> String.concat ";"
-                    sprintf "%d%s(%s)" id sign conns)
+                    $"%d{id}%s{sign}(%s{conns})")
                 |> String.concat ","
             let arcStr =
                 diagram.Arcs
                 |> Map.toList
                 |> List.sortBy fst
-                |> List.map (fun (id, arc) -> sprintf "%d:%A-%A" id arc.Start arc.End)
+                |> List.map (fun (id, arc) -> $"%d{id}:%A{arc.Start}-%A{arc.End}")
                 |> String.concat ","
-            sprintf "C[%s]A[%s]" crossingStr arcStr
+            $"C[%s{crossingStr}]A[%s{arcStr}]"
 
         /// Evaluate Kauffman bracket using skein relation (rigorous planar diagram version)
         let rec evaluateBracket (diagram: PlanarDiagram) (a: Complex) : Complex =
             let hash = diagramHash diagram
             let key = (hash, a)
             
-            match bracketCache.TryGetValue(key) with
+            match bracketCache.TryGetValue key with
             | (true, cached) -> cached
             | (false, _) ->
                 let result =

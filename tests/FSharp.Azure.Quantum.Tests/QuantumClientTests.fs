@@ -66,9 +66,8 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () =
               InputParams = Map.empty
               Tags = Map.empty }
 
-        let! result = client.SubmitJobAsync(submission)
 
-        match result with
+        match! client.SubmitJobAsync(submission) with
         | Ok response ->
             Assert.Equal("job-123", response.JobId)
             Assert.Equal(JobStatus.Waiting, response.Status)
@@ -81,7 +80,7 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () =
                 Assert.Contains("/providers/Microsoft.Quantum/Workspaces/ws-test", req.RequestUri.ToString())
                 Assert.Contains("/jobs/job-123", req.RequestUri.ToString())
             | None -> Assert.True(false, "Request was not captured")
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -109,14 +108,13 @@ let ``GetJobStatusAsync should send GET request and parse response`` () =
 
         let client = QuantumClient(config)
 
-        let! result = client.GetJobStatusAsync("job-456")
 
-        match result with
+        match! client.GetJobStatusAsync("job-456") with
         | Ok job ->
             Assert.Equal("job-456", job.JobId)
             Assert.Equal(JobStatus.Executing, job.Status)
             Assert.True(job.BeginExecutionTime.IsSome)
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -124,10 +122,9 @@ let ``GetJobStatusAsync should handle 404 error`` () =
     async {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
-                let response = new HttpResponseMessage(HttpStatusCode.NotFound)
-
-                response.Content <-
-                    new StringContent("""{"error": {"code": "JobNotFound", "message": "Job not found"}}""")
+                let response = new HttpResponseMessage(HttpStatusCode.NotFound,
+                                   Content = (new StringContent("""{"error": {"code": "JobNotFound", "message": "Job not found"}}"""))
+                               )
 
                 Task.FromResult(response))
 
@@ -136,9 +133,8 @@ let ``GetJobStatusAsync should handle 404 error`` () =
 
         let client = QuantumClient(config)
 
-        let! result = client.GetJobStatusAsync("nonexistent-job")
 
-        match result with
+        match! client.GetJobStatusAsync("nonexistent-job") with
         | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) -> Assert.Equal(404, statusCode)
         | _ -> Assert.True(false, "Expected NotFound error")
     }
@@ -151,8 +147,7 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () =
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 capturedRequest <- Some request
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent("{}")
+                let response = new HttpResponseMessage(HttpStatusCode.OK, Content = (new StringContent("{}")))
                 Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
@@ -160,16 +155,15 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () =
 
         let client = QuantumClient(config)
 
-        let! result = client.CancelJobAsync("job-789")
 
-        match result with
+        match! client.CancelJobAsync("job-789") with
         | Ok() ->
             match capturedRequest with
             | Some req ->
                 Assert.Equal(HttpMethod.Post, req.Method)
                 Assert.Contains("/jobs/job-789/cancel", req.RequestUri.ToString())
             | None -> Assert.True(false, "Request was not captured")
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -212,8 +206,8 @@ let ``WaitForCompletionAsync should poll until job succeeds`` () =
         | Ok job ->
             Assert.Equal("job-poll-1", job.JobId)
             Assert.Equal(JobStatus.Succeeded, job.Status)
-            Assert.True(pollCount >= 3, sprintf "Expected at least 3 polls, got %d" pollCount)
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            Assert.True(pollCount >= 3, $"Expected at least 3 polls, got %d{pollCount}")
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -247,8 +241,8 @@ let ``WaitForCompletionAsync should return error when job fails`` () =
         | Ok job ->
             match job.Status with
             | JobStatus.Failed _ -> Assert.True(true) // Expected Failed status
-            | _ -> Assert.True(false, sprintf "Expected Failed status but got: %A" job.Status)
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+            | _ -> Assert.True(false, $"Expected Failed status but got: %A{job.Status}")
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -349,14 +343,13 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () =
               InputParams = Map.empty
               Tags = Map.empty }
 
-        let! result = client.SubmitJobAsync(submission)
 
-        match result with
+        match! client.SubmitJobAsync(submission) with
         | Ok response ->
             Assert.Equal("job-retry-success", response.JobId)
             Assert.Equal(JobStatus.Waiting, response.Status)
-            Assert.True((attemptCount = 3), sprintf "Expected 3 attempts, got %d" attemptCount)
-        | Error err -> Assert.True(false, sprintf "Expected success after retries but got error: %A" err)
+            Assert.True((attemptCount = 3), $"Expected 3 attempts, got %d{attemptCount}")
+        | Error err -> Assert.True(false, $"Expected success after retries but got error: %A{err}")
     }
 
 [<Fact>]
@@ -408,17 +401,15 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
               InputParams = Map.empty
               Tags = Map.empty }
 
-        let! result = client.SubmitJobAsync(submission)
 
-        match result with
+        match! client.SubmitJobAsync(submission) with
         | Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable _)) ->
             // MaxAttempts = 2, so should make 2 total attempts
-            Assert.True((attemptCount = 2), sprintf "Expected 2 attempts (MaxAttempts=2), got %d" attemptCount)
+            Assert.True((attemptCount = 2), $"Expected 2 attempts (MaxAttempts=2), got %d{attemptCount}")
         | _ -> Assert.True(false, "Expected ServiceUnavailable error after max attempts")
     }
 
-[<Fact>]
-[<Trait("Category", "Slow")>]
+[<Fact; Trait("Category", "Slow")>]
 let ``SubmitJobAsync should not retry on non-transient errors`` () =
     async {
         let mutable attemptCount = 0
@@ -427,10 +418,9 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
             new MockHttpMessageHandler(fun request ->
                 attemptCount <- attemptCount + 1
                 // Return 400 Bad Request (non-transient)
-                let response = new HttpResponseMessage(HttpStatusCode.BadRequest)
-
-                response.Content <-
-                    new StringContent("""{"error": {"code": "InvalidInput", "message": "Invalid quantum circuit"}}""")
+                let response = new HttpResponseMessage(HttpStatusCode.BadRequest,
+                                   Content = (new StringContent("""{"error": {"code": "InvalidInput", "message": "Invalid quantum circuit"}}"""))
+                               )
 
                 Task.FromResult(response))
 
@@ -465,15 +455,14 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
               InputParams = Map.empty
               Tags = Map.empty }
 
-        let! result = client.SubmitJobAsync(submission)
 
-        match result with
+        match! client.SubmitJobAsync(submission) with
         | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) ->
             Assert.Equal(400, statusCode)
             // Should only make 1 attempt (no retries for non-transient errors)
             Assert.True(
                 (attemptCount = 1),
-                sprintf "Expected only 1 attempt for non-transient error, got %d" attemptCount
+                $"Expected only 1 attempt for non-transient error, got %d{attemptCount}"
             )
         | _ -> Assert.True(false, "Expected BadRequest error without retries")
     }
@@ -504,16 +493,15 @@ let ``GetJobStatusAsync returns full job details including execution times`` () 
 
         let client = QuantumClient(config)
 
-        let! result = client.GetJobStatusAsync("job-full-details")
 
-        match result with
+        match! client.GetJobStatusAsync("job-full-details") with
         | Ok(job: QuantumJob) ->
             Assert.Equal("job-full-details", job.JobId)
             Assert.Equal(JobStatus.Succeeded, job.Status)
             Assert.Equal("ionq.qpu", job.Target)
             Assert.True(job.BeginExecutionTime.IsSome)
             Assert.True(job.EndExecutionTime.IsSome)
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -549,9 +537,8 @@ let ``GetResultsAsync should retrieve job results after completion`` () =
 
         let client = QuantumClient(config)
 
-        let! result = client.GetResultsAsync("job-with-results")
 
-        match result with
+        match! client.GetResultsAsync("job-with-results") with
         | Ok(jobResult: JobResult) ->
             Assert.Equal("job-with-results", jobResult.JobId)
             Assert.Equal(JobStatus.Succeeded, jobResult.Status)
@@ -559,7 +546,7 @@ let ``GetResultsAsync should retrieve job results after completion`` () =
             Assert.Contains("histogram", string jobResult.OutputData)
             Assert.Equal("microsoft.quantum.measurement-results.v1", jobResult.OutputDataFormat)
             Assert.True(jobResult.ExecutionTime.IsSome)
-        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+        | Error err -> Assert.True(false, $"Expected success but got error: %A{err}")
     }
 
 [<Fact>]
@@ -584,9 +571,8 @@ let ``GetResultsAsync should return error for incomplete job`` () =
 
         let client = QuantumClient(config)
 
-        let! result = client.GetResultsAsync("job-not-complete")
 
-        match result with
+        match! client.GetResultsAsync("job-not-complete") with
         | Error _ -> Assert.True(true) // Expected error for incomplete job
         | Ok _ -> Assert.True(false, "Expected error for job without results")
     }
@@ -623,10 +609,9 @@ let ``ListJobsAsync should parse jobs and follow nextLink pagination`` () =
         let httpClient = new HttpClient(mockHandler)
         let client = QuantumClient(makeConfig httpClient)
 
-        let! result = client.ListJobsAsync()
 
-        match result with
-        | Error err -> Assert.True(false, sprintf "Expected job list, got error: %A" err)
+        match! client.ListJobsAsync() with
+        | Error err -> Assert.True(false, $"Expected job list, got error: %A{err}")
         | Ok jobs ->
             Assert.Equal(2, jobs.Length)
             Assert.Equal<string list>(["job-1"; "job-2"], jobs |> List.map (fun j -> j.JobId))
@@ -642,17 +627,17 @@ let ``ListJobsAsync hits the workspace jobs endpoint`` () =
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 capturedUrl <- request.RequestUri.ToString()
-                let response = new HttpResponseMessage(HttpStatusCode.OK)
-                response.Content <- new StringContent("""{ "value": [] }""")
+                let response = new HttpResponseMessage(HttpStatusCode.OK,
+                                   Content = (new StringContent("""{ "value": [] }"""))
+                               )
                 Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
         let client = QuantumClient(makeConfig httpClient)
 
-        let! result = client.ListJobsAsync()
 
-        match result with
-        | Error err -> Assert.True(false, sprintf "Expected empty job list, got error: %A" err)
+        match! client.ListJobsAsync() with
+        | Error err -> Assert.True(false, $"Expected empty job list, got error: %A{err}")
         | Ok jobs ->
             Assert.Empty(jobs)
             Assert.Contains("/providers/Microsoft.Quantum/Workspaces/ws-test/jobs", capturedUrl)

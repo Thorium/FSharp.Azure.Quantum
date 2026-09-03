@@ -106,9 +106,7 @@ module Program =
             
             match pos with
             | Some p -> 
-                match Board.makeMove board p with
-                | Ok newBoard -> (Some newBoard, false, hybridMetrics)
-                | Error _ -> (None, false, None)
+                (Board.makeMove board p) |> Result.map (fun newBoard -> Some newBoard, false, hybridMetrics) |> Result.defaultWith (fun _ -> None, false, None)
             | None -> (None, false, None)
         else
             // Human player
@@ -121,12 +119,11 @@ module Program =
             
             match InputHandler.getValidPlayerMove board renderBoardWithCursor with
             | InputHandler.Move pos -> 
-                match Board.makeMove board pos with
-                | Ok newBoard -> (Some newBoard, false, None)
-                | Error _ -> (None, false, None)
+                (Board.makeMove board pos) |> Result.map (fun newBoard -> Some newBoard, false, None) |> Result.defaultWith (fun _ -> None, false, None)
             | InputHandler.Quit -> (None, true, None)  // Signal quit
     
     /// Game loop for player vs AI
+    [<TailCall>]
     let rec gameLoop (board: Board) (aiPlayer: AIPlayer) (playerIsBlack: bool) : GameResult option =
         // Check game status FIRST
         match Board.getGameStatus board with
@@ -172,6 +169,7 @@ module Program =
     }
 
     /// AI vs AI game for benchmarking
+    [<TailCall>]
     let rec aiVsAiLoop (board: Board) (ai1: AIPlayer) (ai2: AIPlayer) (metrics: LocalHybrid.MoveMetrics list) (moveLog: MoveLogEntry list) (debug: bool) : GameResult * MoveLogEntry list =
         // Check game status FIRST (before printing next move)
         match Board.getGameStatus board with
@@ -206,7 +204,7 @@ module Program =
                     | None ->
                         match currentAI with
                         | ClassicalAI -> "classical"
-                        | LocalQuantumAI -> "grover"
+                        | LocalQuantumAI
                         | TopologicalQuantumAI -> "grover"
                         | LocalHybridAI ->
                             match hybridMetrics with
@@ -306,8 +304,7 @@ module Program =
         AnsiConsole.MarkupLine("[bold green]Benchmark Complete![/]")
         AnsiConsole.WriteLine()
         
-        let table = Spectre.Console.Table()
-        table.Border <- TableBorder.Rounded
+        let table = Spectre.Console.Table(Border = TableBorder.Rounded)
         table.AddColumn("[bold]Metric[/]") |> ignore
         table.AddColumn("[bold]Value[/]") |> ignore
         
@@ -322,7 +319,7 @@ module Program =
         if not result.AIMetrics.IsEmpty then
             let quantumMoves = 
                 result.AIMetrics 
-                |> List.filter (fun m -> match m.Strategy with LocalHybrid.Quantum _ -> true | _ -> false)
+                |> List.filter (fun m -> match m.Strategy with LocalHybrid.Quantum _ -> true | LocalHybrid.Classical _ -> false)
             
             let avgCandidates = 
                 result.AIMetrics 

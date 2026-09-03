@@ -804,7 +804,7 @@ module QuantumKeyDistribution =
         let strategyName = 
             match info.Strategy with
             | InterceptResend -> "Intercept-Resend"
-            | Beamsplitter p -> sprintf "Beamsplitter (p=%.2f)" p
+            | Beamsplitter p -> $"Beamsplitter (p=%.2f{p})"
             | EntanglingProbe -> "Entangling Probe"
             | CollectiveAttack -> "Collective Attack"
         
@@ -812,7 +812,7 @@ module QuantumKeyDistribution =
         sb.AppendLine "" |> ignore
         
         sb.AppendLine "Information Metrics:" |> ignore
-        sb.AppendLine (sprintf "  Mutual Information I(A:E): %.3f bits" info.MutualInformation) |> ignore
+        sb.AppendLine ($"  Mutual Information I(A:E): %.3f{info.MutualInformation} bits") |> ignore
         sb.AppendLine (sprintf "  Correct Guess Probability: %.1f%%" (info.CorrectGuessProb * 100.0)) |> ignore
         sb.AppendLine (sprintf "  Expected QBER: %.1f%%" (info.ExpectedQBER * 100.0)) |> ignore
         sb.AppendLine (sprintf "  Detection Probability: %.1f%%" (info.DetectionProbability * 100.0)) |> ignore
@@ -1208,7 +1208,7 @@ module QuantumKeyDistribution =
         
         // Compute SHA-256
         use sha256 = System.Security.Cryptography.SHA256.Create()
-        let hash = sha256.ComputeHash(bytes)
+        let hash = sha256.ComputeHash bytes
         
         // Extract bits from hash
         let maxBits = min targetLength (hash.Length * 8)
@@ -1366,7 +1366,7 @@ module QuantumKeyDistribution =
             sb.AppendLine "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" |> ignore
             sb.AppendLine $"  Errors detected: {ec.ErrorsDetected}" |> ignore
             sb.AppendLine $"  Errors corrected: {ec.ErrorsCorrected}" |> ignore
-            sb.AppendLine (sprintf "  Information leaked: %.1f bits" ec.InformationLeaked) |> ignore
+            sb.AppendLine ($"  Information leaked: %.1f{ec.InformationLeaked} bits") |> ignore
             let ecStatus = if ec.Success then "✅ SUCCESS" else "⚠️ PARTIAL"
             sb.AppendLine $"  Status: {ecStatus}" |> ignore
             sb.AppendLine "" |> ignore
@@ -1387,7 +1387,7 @@ module QuantumKeyDistribution =
         sb.AppendLine "━━━━━━━━━━━━" |> ignore
         sb.AppendLine $"  Final key length: {result.FinalKeyLength} bits" |> ignore
         sb.AppendLine (sprintf "  End-to-end efficiency: %.1f%%" (result.EndToEndEfficiency * 100.0)) |> ignore
-        sb.AppendLine (sprintf "  Total info leaked to Eve: %.1f bits" result.TotalInformationLeaked) |> ignore
+        sb.AppendLine ($"  Total info leaked to Eve: %.1f{result.TotalInformationLeaked} bits") |> ignore
         let finalStatus = if result.Success then "✅ SECURE KEY ESTABLISHED" else "❌ FAILED"
         sb.AppendLine $"  Status: {finalStatus}" |> ignore
         sb.AppendLine "" |> ignore

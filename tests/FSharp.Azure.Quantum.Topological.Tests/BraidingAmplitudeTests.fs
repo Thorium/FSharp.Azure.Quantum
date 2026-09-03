@@ -33,15 +33,11 @@ module BraidingAmplitudeTests =
     /// Create a 1-qubit Ising backend, initialize to |0⟩, and return (backend, state)
     let private initSingleQubit () =
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
-        match backend.InitializeState 1 with
-        | Ok state -> (backend, state)
-        | Error err -> failwith $"InitializeState failed: {err}"
+        (backend.InitializeState 1) |> Result.map (fun state -> backend, state) |> Result.defaultWith (fun err -> failwith $"InitializeState failed: {err}")
 
     /// Apply a gate operation and return the resulting state
     let private applyGate (backend: IQuantumBackend) (gate: CircuitBuilder.Gate) (state: QuantumState) =
-        match backend.ApplyOperation (QuantumOperation.Gate gate) state with
-        | Ok newState -> newState
-        | Error err -> failwith $"ApplyOperation failed for gate {gate}: {err}"
+        (backend.ApplyOperation (QuantumOperation.Gate gate) state) |> Result.defaultWith (fun err -> failwith $"ApplyOperation failed for gate {gate}: {err}")
 
     /// Extract the amplitude vector from a FusionSuperposition state
     let private getAmplitudes (state: QuantumState) : Complex[] =
@@ -364,9 +360,7 @@ module BraidingAmplitudeTests =
         // qubit 0 (leaves 0, 1 — index 0) ever worked.
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         let state =
-            match backend.InitializeState 2 with
-            | Ok s -> s
-            | Error err -> failwith $"InitializeState failed: {err}"
+            (backend.InitializeState 2) |> Result.defaultWith (fun err -> failwith $"InitializeState failed: {err}")
 
         // Prepare qubit 1 in |+⟩, then apply S (braid-compilation path) to qubit 1
         let afterH = applyGate backend (CircuitBuilder.Gate.H 1) state
