@@ -57,10 +57,10 @@ module VariableEncoding =
         match encoding with
         | Binary -> 1
         | OneHot n -> 
-            if n < 1 then invalidArg "n" "OneHot requires at least 1 option"
+            if n < 1 then invalidArg (nameof encoding) "OneHot requires at least 1 option"
             n
         | DomainWall n -> 
-            if n < 2 then invalidArg "n" "DomainWall requires at least 2 levels"
+            if n < 2 then invalidArg (nameof encoding) "DomainWall requires at least 2 levels"
             n - 1
         | BoundedInteger(min, max) ->
             if min > max then 
