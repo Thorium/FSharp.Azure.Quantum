@@ -520,7 +520,7 @@ module FinancialData =
                     None
             else
                 None
-        with :? System.IO.IOException | :? System.UnauthorizedAccessException -> None
+        with _ -> None
 
     let private tryReadFreshCacheAsync (cachePath: string) (ttl: TimeSpan) (cancellationToken: CancellationToken) : Task<string option> =
         task {
@@ -543,7 +543,7 @@ module FinancialData =
             if not (String.IsNullOrWhiteSpace directory) then
                 Directory.CreateDirectory(directory) |> ignore
             File.WriteAllText(cachePath, content)
-        with :? System.IO.IOException | :? System.UnauthorizedAccessException -> ()
+        with _ -> ()
 
     let private tryWriteCacheAsync (cachePath: string) (content: string) (cancellationToken: CancellationToken) : Task<unit> =
         task {
@@ -552,7 +552,7 @@ module FinancialData =
                 if not (String.IsNullOrWhiteSpace directory) then
                     Directory.CreateDirectory(directory) |> ignore
                 do! File.WriteAllTextAsync(cachePath, content, cancellationToken)
-            with :? System.IO.IOException | :? System.UnauthorizedAccessException -> ()
+            with _ -> ()
         }
 
     let private parseYahooChartJson (symbol: string) (json: string) : QuantumResult<PriceSeries> =

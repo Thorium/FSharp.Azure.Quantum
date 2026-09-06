@@ -311,7 +311,7 @@ let private discoverPythonDll () =
                     None
         else
             None
-    with :? System.IO.IOException | :? System.UnauthorizedAccessException -> None
+    with _ -> None
 
 /// Initialize Python runtime.
 let private initializePython () =
