@@ -1072,7 +1072,7 @@ module ChemistryDataProviders =
                 let content = File.ReadAllText(path)
                 (MoleculeFormats.Sdf.parse content) |> Result.map (Conversions.fromMoleculeData >> Some) |> Result.defaultValue None
             with
-            | _ -> None
+            | :? System.IO.IOException | :? System.UnauthorizedAccessException -> None
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1386,7 +1386,7 @@ module ChemistryDataProviders =
                     Some (Conversions.fromMoleculeData moleculeData)
                 | Error _ -> None
             with
-            | _ -> None
+            | :? System.IO.IOException | :? System.UnauthorizedAccessException -> None
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1860,7 +1860,7 @@ module ChemistryDataProviders =
                 let content = File.ReadAllText(path)
                 (MoleculeFormats.Pdb.parseLigands content) |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData) |> Result.defaultValue [||]
             with
-            | _ -> [||]
+            | :? System.IO.IOException | :? System.UnauthorizedAccessException -> [||]
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =

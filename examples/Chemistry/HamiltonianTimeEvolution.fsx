@@ -71,8 +71,8 @@ let trotterSteps = Cli.getIntOr "steps" 20 args
 let trotterOrder = Cli.getIntOr "order" 2 args
 let backendArg = Cli.getOr "backend" "both" args
 
-let runLocal = backendArg.ToLowerInvariant() = "local" || backendArg.ToLowerInvariant() = "both"
-let runTopo  = backendArg.ToLowerInvariant() = "topological" || backendArg.ToLowerInvariant() = "both"
+let runLocal = System.String.Equals(backendArg, "local", System.StringComparison.OrdinalIgnoreCase) || System.String.Equals(backendArg, "both", System.StringComparison.OrdinalIgnoreCase)
+let runTopo  = System.String.Equals(backendArg, "topological", System.StringComparison.OrdinalIgnoreCase) || System.String.Equals(backendArg, "both", System.StringComparison.OrdinalIgnoreCase)
 
 // ==============================================================================
 // UNIFIED STATE ANALYSIS HELPERS

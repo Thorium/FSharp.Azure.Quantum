@@ -222,31 +222,36 @@ type FailingTokenCredential(errorMessage: string) =
 
 [<Fact>]
 let ``TokenManager should propagate credential errors`` () =
-    let failingCredential = FailingTokenCredential("Invalid credentials")
-    let tokenManager = TokenManager(failingCredential)
-    
-    let ex = Assert.Throws<AuthenticationFailedException>(fun () ->
-        tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
-    )
-    
-    Assert.Contains("Invalid credentials", ex.Message)
+    task {
+        let failingCredential = FailingTokenCredential("Invalid credentials")
+        let tokenManager = TokenManager(failingCredential)
+
+        let! ex = Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
+             tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+         )
+
+        Assert.Contains("Invalid credentials", ex.Message)
+    } :> System.Threading.Tasks.Task
 
 [<Fact>]
 let ``TokenManager should handle network timeout gracefully`` () =
-    let timeoutCredential =
-        { new TokenCredential() with
-            member _.GetToken(_: TokenRequestContext, _: CancellationToken) : AccessToken =
-                raise (TimeoutException("Network timeout"))
+    task {
+        let timeoutCredential =
+            { new TokenCredential() with
+                member _.GetToken(_: TokenRequestContext, _: CancellationToken) : AccessToken =
+                    raise (TimeoutException("Network timeout"))
 
-            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) : ValueTask<AccessToken> =
-                raise (TimeoutException("Network timeout"))
-        }
-    
-    let tokenManager = TokenManager(timeoutCredential)
-    
-    Assert.Throws<TimeoutException>(fun () ->
-        tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
-    ) |> ignore
+                member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) : ValueTask<AccessToken> =
+                    raise (TimeoutException("Network timeout"))
+            }
+
+        let tokenManager = TokenManager(timeoutCredential)
+
+        let! _ = Assert.ThrowsAsync<TimeoutException>(fun () ->
+                     tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+                 )
+        ()
+    } :> System.Threading.Tasks.Task
 
 [<Fact>]
 let ``AuthenticationHandler should fail gracefully when token acquisition fails`` () =
@@ -294,9 +299,9 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
         let tokenManager = TokenManager(recoveringCredential)
 
         // First attempt should fail
-        Assert.Throws<AuthenticationFailedException>(fun () ->
-            tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
-        ) |> ignore
+        let! _ = Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
+            tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        )
 
         // Recover and clear cache
         shouldFail <- false

@@ -346,7 +346,7 @@ module AnomalyDetector =
                             TrainingTime = TimeSpan.FromMilliseconds(detectorData.TrainingTime)
                             NumFeatures = numFeatures
                             NumNormalSamples = svmModel.TrainData.Length
-                            CreatedAt = DateTime.Parse(detectorData.CreatedAt)
+                            CreatedAt = DateTime.Parse(detectorData.CreatedAt, System.Globalization.CultureInfo.InvariantCulture)
                             Note = detectorData.Note
                         }
                         FeatureMap = svmModel.FeatureMap

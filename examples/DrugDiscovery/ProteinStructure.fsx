@@ -216,16 +216,16 @@ let parseAtomLine (line: string) : PdbAtom option =
                 let resName = line.[17..19].Trim()
                 let chainId = line.[21]
                 let resSeq = Int32.Parse(line.[22..25].Trim())
-                let x = Double.Parse(line.[30..37].Trim())
-                let y = Double.Parse(line.[38..45].Trim())
-                let z = Double.Parse(line.[46..53].Trim())
+                let x = Double.Parse(line.[30..37].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+                let y = Double.Parse(line.[38..45].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+                let z = Double.Parse(line.[46..53].Trim(), System.Globalization.CultureInfo.InvariantCulture)
                 let occupancy =
                     if line.Length > 60 then
-                        try Double.Parse(line.[54..59].Trim()) with _ -> 1.0
+                        try Double.Parse(line.[54..59].Trim(), System.Globalization.CultureInfo.InvariantCulture) with _ -> 1.0
                     else 1.0
                 let tempFactor =
                     if line.Length > 66 then
-                        try Double.Parse(line.[60..65].Trim()) with _ -> 0.0
+                        try Double.Parse(line.[60..65].Trim(), System.Globalization.CultureInfo.InvariantCulture) with _ -> 0.0
                     else 0.0
                 let element =
                     if line.Length > 78 then line.[76..77].Trim()

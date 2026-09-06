@@ -724,7 +724,7 @@ module SimilaritySearch =
                             NumItems = serializable.NumItems
                             NumFeatures = serializable.NumFeatures
                             Metric = metric
-                            CreatedAt = DateTime.Parse(serializable.CreatedAt)
+                            CreatedAt = DateTime.Parse(serializable.CreatedAt, System.Globalization.CultureInfo.InvariantCulture)
                             Note = serializable.Note
                         }
                     }

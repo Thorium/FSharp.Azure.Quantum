@@ -503,7 +503,7 @@ if not quiet then
     printfn ""
 
     // Show a real Bitcoin key pair (demonstrates NBitcoin integration)
-    let key = new Key()
+    use key = new Key()
     let pubKey = key.PubKey
     let p2pkhAddr = pubKey.GetAddress(ScriptPubKeyType.Legacy, network)
 

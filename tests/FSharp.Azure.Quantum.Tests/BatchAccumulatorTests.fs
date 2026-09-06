@@ -229,115 +229,121 @@ module BatchAccumulatorTests =
     [<Fact>]
     let ``BatchAccumulator should handle concurrent adds safely`` () =
         // Arrange
-        let config = { BatchConfig.defaultConfig with MaxBatchSize = 100 }
-        let accumulator = BatchAccumulator<int>(config)
-        let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
-        
-        // Act - 10 threads each adding 10 items
-        let tasks = 
-            [1..10]
-            |> List.map (fun threadId ->
-                System.Threading.Tasks.Task.Run(fun () ->
-                    for i in 1..10 do
-                        let item = threadId * 100 + i
-                        match accumulator.Add item with
-                        | Some batch -> batches.Add batch
-                        | None -> ()
+        task {
+            let config = { BatchConfig.defaultConfig with MaxBatchSize = 100 }
+            let accumulator = BatchAccumulator<int>(config)
+            let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
+
+            // Act - 10 threads each adding 10 items
+            let tasks = 
+                [1..10]
+                |> List.map (fun threadId ->
+                    System.Threading.Tasks.Task.Run(fun () ->
+                        for i in 1..10 do
+                            let item = threadId * 100 + i
+                            match accumulator.Add item with
+                            | Some batch -> batches.Add batch
+                            | None -> ()
+                    )
                 )
-            )
-        
-        System.Threading.Tasks.Task.WaitAll(tasks |> List.toArray)
-        
-        // Flush any remaining items
-        match accumulator.TryFlush() with
-        | Some batch -> batches.Add batch
-        | None -> ()
-        
-        // Assert
-        let allItems = batches |> Seq.collect id |> Seq.toList
-        Assert.Equal(100, allItems.Length)  // All 100 items should be present
-        
-        // Check no duplicates (each item appears exactly once)
-        let distinctItems = allItems |> List.distinct
-        Assert.Equal(100, distinctItems.Length)
+
+            let! _ = System.Threading.Tasks.Task.WhenAll(tasks |> List.toArray)
+
+            // Flush any remaining items
+            match accumulator.TryFlush() with
+            | Some batch -> batches.Add batch
+            | None -> ()
+
+            // Assert
+            let allItems = batches |> Seq.collect id |> Seq.toList
+            Assert.Equal(100, allItems.Length)  // All 100 items should be present
+
+            // Check no duplicates (each item appears exactly once)
+            let distinctItems = allItems |> List.distinct
+            Assert.Equal(100, distinctItems.Length)
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``BatchAccumulator should maintain batch size limit under concurrent load`` () =
         // Arrange
-        let maxSize = 10
-        let config = { BatchConfig.defaultConfig with MaxBatchSize = maxSize }
-        let accumulator = BatchAccumulator<int>(config)
-        let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
-        
-        // Act - Multiple threads adding items
-        let tasks = 
-            [1..50]
-            |> List.map (fun item ->
-                System.Threading.Tasks.Task.Run(fun () ->
-                    match accumulator.Add item with
-                    | Some batch -> batches.Add batch
-                    | None -> ()
+        task {
+            let maxSize = 10
+            let config = { BatchConfig.defaultConfig with MaxBatchSize = maxSize }
+            let accumulator = BatchAccumulator<int>(config)
+            let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
+
+            // Act - Multiple threads adding items
+            let tasks = 
+                [1..50]
+                |> List.map (fun item ->
+                    System.Threading.Tasks.Task.Run(fun () ->
+                        match accumulator.Add item with
+                        | Some batch -> batches.Add batch
+                        | None -> ()
+                    )
                 )
+
+            let! _ = System.Threading.Tasks.Task.WhenAll(tasks |> List.toArray)
+
+            // Assert - All batches should be at max size (except possibly the last partial one)
+            let batchList = batches |> Seq.toList
+            let fullBatches = batchList |> List.filter (fun b -> b.Length = maxSize)
+            Assert.True(fullBatches.Length >= 4, $"Expected at least 4 full batches, got {fullBatches.Length}")
+
+            // All batches should be <= maxSize
+            batchList |> List.iter (fun batch ->
+                Assert.True(batch.Length <= maxSize, $"Batch size {batch.Length} exceeds max {maxSize}")
             )
-        
-        System.Threading.Tasks.Task.WaitAll(tasks |> List.toArray)
-        
-        // Assert - All batches should be at max size (except possibly the last partial one)
-        let batchList = batches |> Seq.toList
-        let fullBatches = batchList |> List.filter (fun b -> b.Length = maxSize)
-        Assert.True(fullBatches.Length >= 4, $"Expected at least 4 full batches, got {fullBatches.Length}")
-        
-        // All batches should be <= maxSize
-        batchList |> List.iter (fun batch ->
-            Assert.True(batch.Length <= maxSize, $"Batch size {batch.Length} exceeds max {maxSize}")
-        )
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``BatchAccumulator concurrent Add and TryFlush should not lose items`` () =
         // Arrange
-        let config = { BatchConfig.defaultConfig with MaxBatchSize = 1000; Timeout = TimeSpan.FromMilliseconds 50.0 }
-        let accumulator = BatchAccumulator<int>(config)
-        let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
-        
-        // Act - Some threads adding, others flushing
-        let addTasks = 
-            [1..20]
-            |> List.map (fun item ->
-                System.Threading.Tasks.Task.Run(fun () ->
-                    System.Threading.Thread.Sleep(5 * item)  // Stagger additions
-                    match accumulator.Add item with
-                    | Some batch -> batches.Add batch
-                    | None -> ()
-                )
-            )
-        
-        let flushTasks = 
-            [1..5]
-            |> List.map (fun _ ->
-                System.Threading.Tasks.Task.Run(fun () ->
-                    for _ in 1..5 do
-                        System.Threading.Thread.Sleep(20)
-                        match accumulator.TryFlush() with
+        task {
+            let config = { BatchConfig.defaultConfig with MaxBatchSize = 1000; Timeout = TimeSpan.FromMilliseconds 50.0 }
+            let accumulator = BatchAccumulator<int>(config)
+            let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
+
+            // Act - Some threads adding, others flushing
+            let addTasks = 
+                [1..20]
+                |> List.map (fun item ->
+                    System.Threading.Tasks.Task.Run(fun () ->
+                        System.Threading.Thread.Sleep(5 * item)  // Stagger additions
+                        match accumulator.Add item with
                         | Some batch -> batches.Add batch
                         | None -> ()
+                    )
                 )
-            )
-        
-        let allTasks = addTasks @ flushTasks
-        System.Threading.Tasks.Task.WaitAll(allTasks |> List.toArray)
-        
-        // Final flush - use ForceFlush to ensure all items are retrieved
-        match accumulator.ForceFlush() with
-        | Some batch -> batches.Add batch
-        | None -> ()
-        
-        // Assert - All 20 items should be accounted for
-        let allItems = batches |> Seq.collect id |> Seq.toList
-        Assert.Equal(20, allItems.Length)
-        
-        // Check all expected items present
-        let distinctItems = allItems |> List.distinct |> List.sort
-        Assert.Equal<int seq>([1..20], distinctItems)
+
+            let flushTasks = 
+                [1..5]
+                |> List.map (fun _ ->
+                    System.Threading.Tasks.Task.Run(fun () ->
+                        for _ in 1..5 do
+                            System.Threading.Thread.Sleep(20)
+                            match accumulator.TryFlush() with
+                            | Some batch -> batches.Add batch
+                            | None -> ()
+                    )
+                )
+
+            let allTasks = addTasks @ flushTasks
+            let! _ = System.Threading.Tasks.Task.WhenAll(allTasks |> List.toArray)
+
+            // Final flush - use ForceFlush to ensure all items are retrieved
+            match accumulator.ForceFlush() with
+            | Some batch -> batches.Add batch
+            | None -> ()
+
+            // Assert - All 20 items should be accounted for
+            let allItems = batches |> Seq.collect id |> Seq.toList
+            Assert.Equal(20, allItems.Length)
+
+            // Check all expected items present
+            let distinctItems = allItems |> List.distinct |> List.sort
+            Assert.Equal<int seq>([1..20], distinctItems)
+        } :> System.Threading.Tasks.Task
     
     // ============================================================================
     // batchCircuitsAsync - Async Batch Submission Function
@@ -436,30 +442,31 @@ module BatchAccumulatorTests =
     [<Fact>]
     let ``batchCircuitsAsync should handle batch submission errors gracefully`` () =
         // Arrange
-        let config = { BatchConfig.defaultConfig with MaxBatchSize = 3 }
-        let circuits = ["c1"; "c2"; "c3"; "c4"]
-        
-        let mutable batchNumber = 0
-        let mockSubmit batch = 
-            async {
-                batchNumber <- batchNumber + 1
-                if batchNumber = 1 then
-                    // First batch succeeds
-                    return batch |> List.map (fun c -> c + "_result")
-                else
-                    // Second batch fails
-                    return failwith $"Batch submission failed, calling mockSubmit with batch: {batch}"
-            }
-        
-        // Act & Assert
-        let ex = 
-            Assert.Throws<System.Exception>(fun () ->
-                batchCircuitsAsync config circuits mockSubmit
-                |> Async.RunSynchronously
-                |> ignore
-            )
-        
-        Assert.Contains("Batch submission failed", ex.Message)
+        task {
+            let config = { BatchConfig.defaultConfig with MaxBatchSize = 3 }
+            let circuits = ["c1"; "c2"; "c3"; "c4"]
+
+            let mutable batchNumber = 0
+            let mockSubmit batch = 
+                async {
+                    batchNumber <- batchNumber + 1
+                    if batchNumber = 1 then
+                        // First batch succeeds
+                        return batch |> List.map (fun c -> c + "_result")
+                    else
+                        // Second batch fails
+                        return failwith $"Batch submission failed, calling mockSubmit with batch: {batch}"
+                }
+
+            // Act & Assert
+            let! ex = 
+                Assert.ThrowsAsync<System.Exception>(fun () ->
+                     batchCircuitsAsync config circuits mockSubmit
+                     |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+                 )
+
+            Assert.Contains("Batch submission failed", ex.Message)
+        } :> System.Threading.Tasks.Task
     
     [<Fact>]
     let ``batchCircuitsAsync with disabled config should return empty results`` () =

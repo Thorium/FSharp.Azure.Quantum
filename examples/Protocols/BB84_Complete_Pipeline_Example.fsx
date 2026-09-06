@@ -74,7 +74,7 @@ let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
 
 let keyLength = Cli.getIntOr "keylength" 256 args
 let securityParam = Cli.getIntOr "security" 128 args
-let doErrorCorrection = (Cli.getOr "error-correction" "true" args).ToLowerInvariant() = "true"
+let doErrorCorrection = System.String.Equals((Cli.getOr "error-correction" "true" args), "true", System.StringComparison.OrdinalIgnoreCase)
 let seed =
     Cli.tryGet "seed" args
     |> Option.bind (fun s -> match System.Int32.TryParse(s) with true, v -> Some v | _ -> None)

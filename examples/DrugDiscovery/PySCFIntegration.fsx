@@ -286,7 +286,7 @@ let private discoverPythonDll () =
     let isWindows =
         System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(
             System.Runtime.InteropServices.OSPlatform.Windows)
-    let proc = new System.Diagnostics.Process()
+    use proc = new System.Diagnostics.Process()
     proc.StartInfo.FileName <- if isWindows then "where" else "which"
     proc.StartInfo.Arguments <- "python"
     proc.StartInfo.RedirectStandardOutput <- true
@@ -311,7 +311,7 @@ let private discoverPythonDll () =
                     None
         else
             None
-    with _ -> None
+    with :? System.IO.IOException | :? System.UnauthorizedAccessException -> None
 
 /// Initialize Python runtime.
 let private initializePython () =

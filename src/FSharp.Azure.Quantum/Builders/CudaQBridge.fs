@@ -157,5 +157,5 @@ module CudaQBridge =
                         with ex ->
                             return Error (QuantumError.OperationError ("CudaQBridge", $"failed to parse CUDA-Q output: {ex.Message}"))
                 finally
-                    try System.IO.File.Delete scriptPath with _ -> ()
+                    try System.IO.File.Delete scriptPath with :? System.IO.IOException | :? System.UnauthorizedAccessException -> ()
         }
