@@ -69,7 +69,6 @@ module PredictiveModel =
     // ========================================================================
     
     /// Problem type for prediction
-    [<Struct>]
     type ProblemType =
         /// Predict continuous values (revenue, demand, LTV)
         | Regression
