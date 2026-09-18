@@ -6,12 +6,17 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.7</Version>
+    <Version>0.4.8</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.7: BraidToGate correctness — braid→gate compilation now reproduces the exact anyonic unitaries
+    <PackageReleaseNotes>v0.4.8: Rebuilt against FSharp.Azure.Quantum v1.4.8 (core struct-union binary change — recompile)
+- CHANGED: AnyonType, BraidGenerator, Lattice/PlanarLattice, LevinWenRegions, FaultToleranceParams and the noise-parameter records are now [&lt;Struct&gt;]. Source-compatible; recompile consumers
+- fsharp-refactor code clean-up: ordinal string comparisons, use-bindings for disposables, narrower exception catches. No functional changes intended
+- Requires FSharp.Azure.Quantum v1.4.8+
+
+v0.4.7: BraidToGate correctness — braid→gate compilation now reproduces the exact anyonic unitaries
 
 - FIXED: Fibonacci braid→gate compilation emits P(±3π/5), the exact RELATIVE channel phase arg(Rτ/R¹); the previous RZ(±4π/5) used the vacuum-channel (global) angle as the relative angle, so every compiled braid was off by e^{iπ/5} on the |1⟩ component. TotalPhase carries the vacuum-channel R-symbol, so TotalPhase · gates equals diag(R¹, Rτ) exactly
 - FIXED: SU(2)_k braid→gate compilation computes the channel phase from the R-matrix (R[1/2,1/2;j=0], R[1/2,1/2;j=1]) instead of a flat Ising-like ±π/8 placeholder; the vacuum-channel factor is tracked in TotalPhase

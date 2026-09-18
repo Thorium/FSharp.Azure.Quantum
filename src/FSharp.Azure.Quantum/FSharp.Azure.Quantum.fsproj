@@ -6,12 +6,18 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.4.7</Version>
+    <Version>1.4.8</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.7: Correctness release — second-pass audit (silently-wrong-results fixes + dependency updates)
+    <PackageReleaseNotes>v1.4.8: Maintenance release — fsharp-refactor code clean-up (no functional changes intended)
+- CHANGED: ~50 small config/result unions and records are now [&lt;Struct&gt;] (e.g. QFTConfig, NoiseModel, RetryConfig, ConfusionMatrix, PortfolioConfig, AtomCoord, Edge). Source-compatible; binary-incompatible — recompile consumers against 1.4.8
+- CHANGED: OracleSpec.And/Or union fields are named (spec1, spec2)
+- Ordinal string comparisons, invariant-culture number parsing, use-bindings for disposables, and narrower exception catches throughout
+- ProblemType stays a reference union so C# callers can address its cases as nested types
+
+v1.4.7: Correctness release — second-pass audit (silently-wrong-results fixes + dependency updates)
 
 BREAKING CHANGES (vs 1.4.6):
 - QuantumClientConfig gained a required Location field (Azure region, e.g. "eastus") and Client.createConfig takes it as a new parameter. QuantumClient now targets the {location}.quantum.azure.com DATA-PLANE endpoint — the previous management.azure.com (ARM) base URL made every live job call fail 401/404 against the quantum-scoped bearer token
