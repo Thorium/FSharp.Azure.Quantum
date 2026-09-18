@@ -611,7 +611,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
                 var problemTypeStr = meta.ProblemType.IsRegression
                     ? "Regression"
-                    : $"MultiClass({((PredictiveModel.ProblemType.MultiClass)meta.ProblemType).Item})";
+                    // ProblemType is a struct union: its case fields live on the type itself
+                    : $"MultiClass({meta.ProblemType.Item})";
 
                 var arch = meta.Architecture.IsQuantum ? ModelArchitecture.Quantum
                     : meta.Architecture.IsHybrid ? ModelArchitecture.Hybrid
