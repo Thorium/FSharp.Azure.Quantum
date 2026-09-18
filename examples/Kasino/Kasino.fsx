@@ -136,7 +136,7 @@ let card rank =
 
 let displayCards cards =
     cards
-    |> List.map (fun c -> sprintf "%s(%g)" c.DisplayName c.Value)
+    |> List.map (fun c -> $"%s{c.DisplayName}(%g{c.Value})")
     |> String.concat ", "
 
 // ==============================================================================
@@ -209,11 +209,11 @@ let resultRow (scenario: string) (result: CaptureResult) : Map<string, string> =
     Map.ofList
         [ "scenario",     scenario
           "hand_card",    result.HandCard.DisplayName
-          "hand_value",   sprintf "%g" result.HandCard.Value
+          "hand_value",   $"%g{result.HandCard.Value}"
           "captured",     result.CapturedCards |> List.map (fun c -> c.DisplayName) |> String.concat "; "
-          "total_value",  sprintf "%g" result.TotalValue
-          "card_count",   sprintf "%d" result.CardCount
-          "exact_match",  sprintf "%b" result.IsExactMatch
+          "total_value",  $"%g{result.TotalValue}"
+          "card_count",   $"%d{result.CardCount}"
+          "exact_match",  $"%b{result.IsExactMatch}"
           "strategy",     result.Strategy ]
 
 // ==============================================================================
@@ -241,7 +241,7 @@ let runComplex () =
         printfn "  Multiple subsets sum to 10: [4,6], [3,7], [1,2,3,4], ..."
         printfn ""
     let hand = card (Number 10)
-    let table = [ 1 .. 7 ] |> List.map (fun n -> card (Number n))
+    let table = [ 1 .. 7 ] |> List.map (Number >> card)
     findOptimalCapture hand table "Maximize value"
     |> Option.map (resultRow "complex")
 

@@ -116,7 +116,7 @@ module QuantumTreeSearch =
     /// Validates a quantum tree search problem specification.
     /// </summary>
     let validate (problem: TreeSearchProblem<'T>) : Result<unit, QuantumError> =
-        if Option.isNone problem.InitialState then
+        if problem.InitialState.IsNone then
             Error (QuantumError.ValidationError ("InitialState", "must be provided via 'initialState' in the builder"))
         elif problem.MaxDepth < 1 then
             Error (QuantumError.ValidationError ("MaxDepth", "must be at least 1"))

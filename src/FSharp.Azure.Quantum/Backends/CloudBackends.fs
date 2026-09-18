@@ -231,18 +231,19 @@ module CloudBackends =
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
                                         | Ok jobResult ->
-                                            match jobResult.OutputData with
-                                            | :? string as resultJson ->
-                                                // Qubit count comes from the submitted circuit rather than being
-                                                // inferred from histogram keys (which are decimal state indices
-                                                // in the Azure "ionq.quantum-results.v1" format).
-                                                match IonQBackend.parseIonQResult ionqCircuit.Qubits shots resultJson with
-                                                | Ok histogram ->
-                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram ionqCircuit.Qubits)
-                                                | Error msg ->
-                                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
-                                            | other ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
+                                            return
+                                                match jobResult.OutputData with
+                                                | :? string as resultJson ->
+                                                    // Qubit count comes from the submitted circuit rather than being
+                                                    // inferred from histogram keys (which are decimal state indices
+                                                    // in the Azure "ionq.quantum-results.v1" format).
+                                                    match IonQBackend.parseIonQResult ionqCircuit.Qubits shots resultJson with
+                                                    | Ok histogram ->
+                                                        Ok (CloudBackendHelpers.histogramToQuantumState histogram ionqCircuit.Qubits)
+                                                    | Error msg ->
+                                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
+                                                | other ->
+                                                    Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                                 | JobStatus.Failed (errorCode, errorMessage) ->
                                     return Error (IonQBackend.mapIonQError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
@@ -364,18 +365,19 @@ module CloudBackends =
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
                                         | Ok jobResult ->
-                                            match jobResult.OutputData with
-                                            | :? string as resultJson ->
-                                                match QuantinuumBackend.parseQuantinuumResult resultJson with
-                                                | Ok histogram ->
-                                                    let numQubits =
-                                                        CloudBackendHelpers.inferNumQubits histogram
-                                                        |> Option.defaultValue circuit.NumQubits
-                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
-                                                | Error msg ->
-                                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Quantinuum results: %s{msg}")))
-                                            | other ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected Quantinuum output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
+                                            return
+                                                match jobResult.OutputData with
+                                                | :? string as resultJson ->
+                                                    match QuantinuumBackend.parseQuantinuumResult resultJson with
+                                                    | Ok histogram ->
+                                                        let numQubits =
+                                                            CloudBackendHelpers.inferNumQubits histogram
+                                                            |> Option.defaultValue circuit.NumQubits
+                                                        Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                                    | Error msg ->
+                                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Quantinuum results: %s{msg}")))
+                                                | other ->
+                                                    Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected Quantinuum output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                                 | JobStatus.Failed (errorCode, errorMessage) ->
                                     return Error (QuantinuumBackend.mapQuantinuumError errorCode errorMessage)
                                 | JobStatus.Cancelled ->

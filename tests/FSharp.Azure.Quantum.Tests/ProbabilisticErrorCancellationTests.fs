@@ -2,6 +2,9 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.LocalSimulator
+open System
+open System.Threading.Tasks
 
 module ProbabilisticErrorCancellationTests =
     
@@ -394,7 +397,7 @@ module ProbabilisticErrorCancellationTests =
             Normalization = 1.2  // |1.1| + |-0.1| = 1.2
         }
         
-        let rng = System.Random(42)
+        let rng = Random(42)
         
         // Act: Sample from quasi-probability distribution
         let (sampledGate, weight) = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng
@@ -418,7 +421,7 @@ module ProbabilisticErrorCancellationTests =
             Normalization = 1.5
         }
         
-        let rng = System.Random(42)
+        let rng = Random(42)
         
         // Act: Sample multiple times to check sign preservation
         let samples = 
@@ -447,7 +450,7 @@ module ProbabilisticErrorCancellationTests =
             Normalization = 1.0
         }
         
-        let rng = System.Random(42)
+        let rng = Random(42)
         
         // Act: Sample many times
         let samples = 
@@ -476,7 +479,7 @@ module ProbabilisticErrorCancellationTests =
             Normalization = 1.0
         }
         
-        let rng = System.Random(42)
+        let rng = Random(42)
         
         // Act: Sample multiple times
         let samples = 
@@ -499,7 +502,7 @@ module ProbabilisticErrorCancellationTests =
         let gate = CircuitBuilder.H 0
         let decomposition = ProbabilisticErrorCancellation.decomposeSingleQubitGate gate noiseModel
         
-        let rng = System.Random(42)
+        let rng = Random(42)
         
         // Act: Sample
         let (sampledGate, weight) = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng
@@ -524,10 +527,10 @@ module ProbabilisticErrorCancellationTests =
         }
         
         // Act: Sample with same seed twice
-        let rng1 = System.Random(123)
+        let rng1 = Random(123)
         let sample1 = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng1
         
-        let rng2 = System.Random(123)
+        let rng2 = Random(123)
         let sample2 = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng2
         
         // Assert: Should get identical results
@@ -567,7 +570,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.Overhead > 0.0, "Should have overhead")
             | Error err ->
                 Assert.Fail($"PEC failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``mitigate should demonstrate error reduction`` () =
@@ -618,7 +621,7 @@ module ProbabilisticErrorCancellationTests =
                     baselineError pecError (pecResult.ErrorReduction * 100.0)
             | Error err ->
                 Assert.Fail($"PEC failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``mitigate should track overhead correctly`` () =
@@ -659,7 +662,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(float samples, pecResult.Overhead, 1)
             | Error err ->
                 Assert.Fail($"PEC failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``mitigate should handle executor failures gracefully`` () =
@@ -691,7 +694,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Contains("execution failed", err.ToLower())
             | Ok _ -> 
                 Assert.Fail("Expected error for failing executor")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``mitigate should work with multi-gate circuit`` () =
@@ -725,7 +728,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.CorrectedExpectation <> 0.0)
             | Error err ->
                 Assert.Fail($"Multi-gate PEC failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``mitigate should be deterministic with same seed`` () =
@@ -759,7 +762,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(pec1.ErrorReduction, pec2.ErrorReduction, 10)
             | _ ->
                 Assert.Fail("Both runs should succeed")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     // ============================================================================
     // Integration Tests with QaoaSimulator - Realistic Error Mitigation
@@ -773,50 +776,50 @@ module ProbabilisticErrorCancellationTests =
         async {
             try
                 // Simplified noise model: Add random phase errors to simulate depolarizing noise
-                let rng = System.Random(123)
+                let rng = Random(123)
                 let noisyState = 
                     circuit.Gates
                     |> List.fold (fun state gate ->
                         // Apply gate
                         let afterGate = 
                             match gate with
-                            | CircuitBuilder.Gate.H q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyH q state
-                            | CircuitBuilder.Gate.X q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyX q state
-                            | CircuitBuilder.Gate.Y q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyY q state
-                            | CircuitBuilder.Gate.Z q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyZ q state
-                            | CircuitBuilder.Gate.S q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyS q state
-                            | CircuitBuilder.Gate.SDG q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applySDG q state
-                            | CircuitBuilder.Gate.T q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyT q state
-                            | CircuitBuilder.Gate.TDG q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyTDG q state
-                            | CircuitBuilder.Gate.P (q, theta) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyP q theta state
-                            | CircuitBuilder.Gate.RX (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRx q angle state
-                            | CircuitBuilder.Gate.RY (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy q angle state
-                            | CircuitBuilder.Gate.RZ (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz q angle state
-                            | CircuitBuilder.Gate.U3 (q, theta, phi, lambda) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyU3 q theta phi lambda state
-                            | CircuitBuilder.Gate.CNOT (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT ctrl tgt state
-                            | CircuitBuilder.Gate.CZ (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCZ ctrl tgt state
-                            | CircuitBuilder.Gate.MCZ (controls, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyMultiControlledZ controls tgt state
+                            | CircuitBuilder.Gate.H q -> Gates.applyH q state
+                            | CircuitBuilder.Gate.X q -> Gates.applyX q state
+                            | CircuitBuilder.Gate.Y q -> Gates.applyY q state
+                            | CircuitBuilder.Gate.Z q -> Gates.applyZ q state
+                            | CircuitBuilder.Gate.S q -> Gates.applyS q state
+                            | CircuitBuilder.Gate.SDG q -> Gates.applySDG q state
+                            | CircuitBuilder.Gate.T q -> Gates.applyT q state
+                            | CircuitBuilder.Gate.TDG q -> Gates.applyTDG q state
+                            | CircuitBuilder.Gate.P (q, theta) -> Gates.applyP q theta state
+                            | CircuitBuilder.Gate.RX (q, angle) -> Gates.applyRx q angle state
+                            | CircuitBuilder.Gate.RY (q, angle) -> Gates.applyRy q angle state
+                            | CircuitBuilder.Gate.RZ (q, angle) -> Gates.applyRz q angle state
+                            | CircuitBuilder.Gate.U3 (q, theta, phi, lambda) -> Gates.applyU3 q theta phi lambda state
+                            | CircuitBuilder.Gate.CNOT (ctrl, tgt) -> Gates.applyCNOT ctrl tgt state
+                            | CircuitBuilder.Gate.CZ (ctrl, tgt) -> Gates.applyCZ ctrl tgt state
+                            | CircuitBuilder.Gate.MCZ (controls, tgt) -> Gates.applyMultiControlledZ controls tgt state
                             | CircuitBuilder.Gate.CP (ctrl, tgt, theta) -> 
                                 // CP gate: Controlled-Phase
-                                FSharp.Azure.Quantum.LocalSimulator.Gates.applyCP ctrl tgt theta state
-                            | CircuitBuilder.Gate.CRX (ctrl, tgt, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCRX ctrl tgt angle state
-                            | CircuitBuilder.Gate.CRY (ctrl, tgt, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCRY ctrl tgt angle state
-                            | CircuitBuilder.Gate.CRZ (ctrl, tgt, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCRZ ctrl tgt angle state
-                            | CircuitBuilder.Gate.SWAP (q1, q2) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applySWAP q1 q2 state
-                            | CircuitBuilder.Gate.CCX (c1, c2, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCCX c1 c2 tgt state
+                                Gates.applyCP ctrl tgt theta state
+                            | CircuitBuilder.Gate.CRX (ctrl, tgt, angle) -> Gates.applyCRX ctrl tgt angle state
+                            | CircuitBuilder.Gate.CRY (ctrl, tgt, angle) -> Gates.applyCRY ctrl tgt angle state
+                            | CircuitBuilder.Gate.CRZ (ctrl, tgt, angle) -> Gates.applyCRZ ctrl tgt angle state
+                            | CircuitBuilder.Gate.SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
+                            | CircuitBuilder.Gate.CCX (c1, c2, tgt) -> Gates.applyCCX c1 c2 tgt state
                             | CircuitBuilder.Gate.Measure q -> 
                                 // Perform realistic measurement with state collapse
-                                let outcome = FSharp.Azure.Quantum.LocalSimulator.Measurement.measureSingleQubit rng q state
-                                FSharp.Azure.Quantum.LocalSimulator.Measurement.collapseAfterMeasurement q outcome state
+                                let outcome = Measurement.measureSingleQubit rng q state
+                                Measurement.collapseAfterMeasurement q outcome state
                             | CircuitBuilder.Gate.Reset q ->
-                                let outcome = FSharp.Azure.Quantum.LocalSimulator.Measurement.measureSingleQubit rng q state
-                                let collapsed = FSharp.Azure.Quantum.LocalSimulator.Measurement.collapseAfterMeasurement q outcome state
-                                if outcome = 1 then FSharp.Azure.Quantum.LocalSimulator.Gates.applyX q collapsed else collapsed
+                                let outcome = Measurement.measureSingleQubit rng q state
+                                let collapsed = Measurement.collapseAfterMeasurement q outcome state
+                                if outcome = 1 then Gates.applyX q collapsed else collapsed
                             | CircuitBuilder.Gate.Barrier _ -> state
                         
                         // Add depolarizing noise: random Z rotation with probability noise
                         if rng.NextDouble() < noise then
-                            let randomAngle = (rng.NextDouble() - 0.5) * noise * 2.0 * System.Math.PI
+                            let randomAngle = (rng.NextDouble() - 0.5) * noise * 2.0 * Math.PI
                             let qubit = 
                                 match gate with
                                 | CircuitBuilder.Gate.H q -> q
@@ -846,17 +849,17 @@ module ProbabilisticErrorCancellationTests =
                                 | CircuitBuilder.Gate.Barrier qubits ->
                                     if List.isEmpty qubits then 0
                                     else List.head qubits
-                            FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz qubit randomAngle afterGate
+                            Gates.applyRz qubit randomAngle afterGate
                         else
                             afterGate
-                    ) (FSharp.Azure.Quantum.LocalSimulator.StateVector.init circuit.QubitCount)
+                    ) (StateVector.init circuit.QubitCount)
                 
                 // Compute expectation value ⟨Z₀⟩ = P(0) - P(1) for first qubit
-                let dimension = FSharp.Azure.Quantum.LocalSimulator.StateVector.dimension noisyState
+                let dimension = StateVector.dimension noisyState
                 let mutable expectation = 0.0
                 
                 for basisIndex in 0 .. dimension - 1 do
-                    let amp = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude basisIndex noisyState
+                    let amp = StateVector.getAmplitude basisIndex noisyState
                     let prob = amp.Magnitude * amp.Magnitude
                     // Z eigenvalue: |0⟩ → +1, |1⟩ → -1
                     let zValue = if (basisIndex &&& 1) = 0 then 1.0 else -1.0
@@ -873,7 +876,7 @@ module ProbabilisticErrorCancellationTests =
             // Arrange: Circuit with RY rotation (creates measurable ⟨Z⟩)
             let circuit: CircuitBuilder.Circuit = {
                 QubitCount = 1
-                Gates = [CircuitBuilder.Gate.RY (0, System.Math.PI / 6.0)]  // Small rotation, ⟨Z⟩ ≈ 0.87
+                Gates = [CircuitBuilder.Gate.RY (0, Math.PI / 6.0)]  // Small rotation, ⟨Z⟩ ≈ 0.87
             }
             
             let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
@@ -906,13 +909,13 @@ module ProbabilisticErrorCancellationTests =
                     "At least one expectation should be significantly non-zero")
             | Error err ->
                 Assert.Fail($"PEC should succeed: {err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should handle Pauli rotation gates`` () =
         async {
             // Arrange: Circuit with Rx rotation
-            let angle = System.Math.PI / 4.0
+            let angle = Math.PI / 4.0
             let circuit: CircuitBuilder.Circuit = {
                 QubitCount = 1
                 Gates = [CircuitBuilder.Gate.RX (0, angle)]
@@ -945,7 +948,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(40, pecResult.SamplesUsed)
             | Error err ->
                 Assert.Fail($"Integration test failed: {err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should mitigate two-qubit gate errors`` () =
@@ -987,14 +990,14 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(60.0, pecResult.Overhead)
             | Error err ->
                 Assert.Fail($"Two-qubit PEC failed: {err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should work with multi-gate QAOA-like circuit`` () =
         async {
             // Arrange: Simple QAOA-inspired circuit
-            let gamma = System.Math.PI / 8.0
-            let beta = System.Math.PI / 4.0
+            let gamma = Math.PI / 8.0
+            let beta = Math.PI / 4.0
             
             let circuit: CircuitBuilder.Circuit = {
                 QubitCount = 2
@@ -1041,7 +1044,7 @@ module ProbabilisticErrorCancellationTests =
                            "At least one expectation should be non-zero")
             | Error err ->
                 Assert.Fail($"QAOA-like circuit PEC failed: {err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC overhead should scale with sample count`` () =
@@ -1083,7 +1086,7 @@ module ProbabilisticErrorCancellationTests =
             Assert.Equal(20.0, overheads.[0])
             Assert.Equal(50.0, overheads.[1])
             Assert.Equal(100.0, overheads.[2])
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should be deterministic with same seed`` () =
@@ -1126,7 +1129,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.Equal(r1.SamplesUsed, r2.SamplesUsed)
             | _ ->
                 Assert.Fail("Both PEC runs should succeed")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should handle circuits with only identity-like gates`` () =
@@ -1167,7 +1170,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(pecResult.Overhead = 25.0)
             | Error err ->
                 Assert.Fail($"Simple circuit PEC failed: {err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should reduce variance with more samples`` () =
@@ -1175,7 +1178,7 @@ module ProbabilisticErrorCancellationTests =
             // Arrange: Test circuit
             let circuit: CircuitBuilder.Circuit = {
                 QubitCount = 1
-                Gates = [CircuitBuilder.Gate.RY (0, System.Math.PI / 3.0)]
+                Gates = [CircuitBuilder.Gate.RY (0, Math.PI / 3.0)]
             }
             
             let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
@@ -1206,7 +1209,7 @@ module ProbabilisticErrorCancellationTests =
                 Assert.True(high.Overhead > low.Overhead, "More samples = higher overhead")
             | _ ->
                 Assert.Fail("Both configurations should succeed")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Integration: PEC should track error reduction metric`` () =
@@ -1247,4 +1250,4 @@ module ProbabilisticErrorCancellationTests =
                     "PEC should produce measurable difference")
             | Error err ->
                 Assert.Fail($"Error reduction tracking failed: {err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task

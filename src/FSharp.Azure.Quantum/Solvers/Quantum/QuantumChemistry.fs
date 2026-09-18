@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.QuantumChemistry
 
 open System
+open System.Numerics
+open System.Threading
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
 open FSharp.Azure.Quantum.Data  // For PeriodicTable and ChemistryDataProviders
@@ -528,7 +530,7 @@ module Molecule =
     ///   open FSharp.Azure.Quantum.QuantumChemistry
     ///   let water = MoleculeLibrary.get "H2O" |> Molecule.fromLibrary
     ///   let energy = GroundStateEnergy.estimateEnergy backend water
-    let fromLibrary (libMol: FSharp.Azure.Quantum.Data.MoleculeLibrary.Molecule) : Molecule =
+    let fromLibrary (libMol: MoleculeLibrary.Molecule) : Molecule =
         {
             Name = libMol.Name
             Atoms = libMol.Atoms |> List.map (fun a -> 
@@ -547,7 +549,7 @@ module Molecule =
     ///   | Some mol -> printfn "Found: %s with %d atoms" mol.Name mol.Atoms.Length
     ///   | None -> printfn "Not found"
     let tryFromLibrary (name: string) : Molecule option =
-        FSharp.Azure.Quantum.Data.MoleculeLibrary.tryGet name
+        MoleculeLibrary.tryGet name
         |> Option.map fromLibrary
     
     /// Get a molecule from MoleculeLibrary by name and convert it
@@ -556,7 +558,7 @@ module Molecule =
     /// Example:
     ///   let water = Molecule.fromLibraryByName "H2O"
     let fromLibraryByName (name: string) : Molecule =
-        FSharp.Azure.Quantum.Data.MoleculeLibrary.get name
+        MoleculeLibrary.get name
         |> fromLibrary
 
     // ========================================================================
@@ -646,7 +648,7 @@ module Molecule =
     
     /// Convert MoleculeFormats.MoleculeData to Molecule.
     /// Internal helper that chains through MoleculeInstance conversion.
-    let private fromMoleculeData (data: FSharp.Azure.Quantum.Data.MoleculeFormats.MoleculeData) : Result<Molecule, QuantumError> =
+    let private fromMoleculeData (data: MoleculeFormats.MoleculeData) : Result<Molecule, QuantumError> =
         let instance = ChemistryDataProviders.Conversions.fromMoleculeData data
         fromInstance instance
     
@@ -657,9 +659,9 @@ module Molecule =
     ///   match result with
     ///   | Ok mol -> printfn "Loaded: %s" mol.Name
     ///   | Error e -> printfn "Error: %A" e
-    let fromXyzFileTask (filePath: string) (ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+    let fromXyzFileTask (filePath: string) (ct: CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
         task {
-            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync filePath ct
+            let! result = MoleculeFormats.Xyz.readAsync filePath ct
             return result |> Result.bind fromMoleculeData
         }
 
@@ -668,14 +670,14 @@ module Molecule =
     let fromXyzFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             let! ct = Async.CancellationToken
-            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
+            let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
             return result |> Result.bind fromMoleculeData
         }
     
     /// Load molecule from XYZ file synchronously.
     [<System.Obsolete("Use fromXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let fromXyzFile (filePath: string) : Result<Molecule, QuantumError> =
-        fromXyzFileTask filePath System.Threading.CancellationToken.None
+        fromXyzFileTask filePath CancellationToken.None
         |> Async.AwaitTask |> Async.RunSynchronously
     
     /// Load molecule from FCIDump file asynchronously (Task-based, zero bridging).
@@ -685,9 +687,9 @@ module Molecule =
     /// 
     /// Example:
     ///   let! result = Molecule.fromFciDumpFileTask "h2.fcidump" ct
-    let fromFciDumpFileTask (filePath: string) (ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+    let fromFciDumpFileTask (filePath: string) (ct: CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
         task {
-            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync filePath ct
+            let! result = MoleculeFormats.FciDump.readAsync filePath ct
             return result |> Result.bind fromMoleculeData
         }
 
@@ -696,14 +698,14 @@ module Molecule =
     let fromFciDumpFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             let! ct = Async.CancellationToken
-            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync filePath ct |> Async.AwaitTask
+            let! result = MoleculeFormats.FciDump.readAsync filePath ct |> Async.AwaitTask
             return result |> Result.bind fromMoleculeData
         }
     
     /// Load molecule from FCIDump file synchronously.
     [<System.Obsolete("Use fromFciDumpFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let fromFciDumpFile (filePath: string) : Result<Molecule, QuantumError> =
-        fromFciDumpFileTask filePath System.Threading.CancellationToken.None
+        fromFciDumpFileTask filePath CancellationToken.None
         |> Async.AwaitTask |> Async.RunSynchronously
     
     /// Format molecule as XYZ string.
@@ -723,7 +725,7 @@ module Molecule =
     /// 
     /// Example:
     ///   let! result = Molecule.saveToXyzFileTask "output.xyz" molecule ct
-    let saveToXyzFileTask (filePath: string) (molecule: Molecule) (ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<Result<unit, QuantumError>> =
+    let saveToXyzFileTask (filePath: string) (molecule: Molecule) (ct: CancellationToken) : System.Threading.Tasks.Task<Result<unit, QuantumError>> =
         task {
             try
                 let content = toXyz molecule
@@ -748,7 +750,7 @@ module Molecule =
     /// Save molecule to XYZ file synchronously.
     [<System.Obsolete("Use saveToXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let saveToXyzFile (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
-        saveToXyzFileTask filePath molecule System.Threading.CancellationToken.None
+        saveToXyzFileTask filePath molecule CancellationToken.None
         |> Async.AwaitTask |> Async.RunSynchronously
 
 // ============================================================================
@@ -1186,7 +1188,7 @@ module FermionMapping =
                     |> Map.ofArray
                 
                 {
-                    Coefficient = System.Numerics.Complex(term.Coefficient, 0.0)
+                    Coefficient = Complex(term.Coefficient, 0.0)
                     Operators = operators
                 } : PauliString
             )
@@ -1886,7 +1888,7 @@ module FermionMapping =
                                                         return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
                                                     | QaoaCircuit.PauliOperator.PauliY ->
                                                         // Change to Z basis: S†H gates (RX(-π/2))
-                                                        let! afterRX = backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -System.Math.PI / 2.0))) st
+                                                        let! afterRX = backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -Math.PI / 2.0))) st
                                                         return afterRX
                                                     | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> return st
                                                 })
@@ -1935,7 +1937,7 @@ module FermionMapping =
                                                     | QaoaCircuit.PauliOperator.PauliX ->
                                                         return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
                                                     | QaoaCircuit.PauliOperator.PauliY ->
-                                                        return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, System.Math.PI / 2.0))) st
+                                                        return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, Math.PI / 2.0))) st
                                                     | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> return st
                                                 })
                                         
@@ -1978,7 +1980,7 @@ module FermionMapping =
                                             return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
                                         | QaoaCircuit.PauliOperator.PauliY ->
                                             // Measure Y: apply S†H (equivalent to RX(-π/2))
-                                            return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -System.Math.PI / 2.0))) st
+                                            return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -Math.PI / 2.0))) st
                                         | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> 
                                             // Z and I: no basis change needed
                                             return st
@@ -2054,7 +2056,7 @@ module FermionMapping =
                     let totalParams = numSingles + numDoubles
                     
                     // Initialize parameters (small random values near zero)
-                    let rng = System.Random(42)
+                    let rng = Random(42)
                     let initialParameters = 
                         Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
                     
@@ -2296,7 +2298,7 @@ type SolverConfig = {
     
     /// Quantum backend for execution (RULE1)
     /// None = use LocalBackend by default
-    Backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend option
+    Backend: BackendAbstraction.IQuantumBackend option
     
     /// Optional progress reporter for VQE iterations
     ProgressReporter: Progress.IProgressReporter option
@@ -2366,7 +2368,7 @@ module MolecularHamiltonian =
                     if abs h_pq > 1e-12 then
                         // Alpha spin (even indices)
                         yield {
-                            FermionMapping.Coefficient = System.Numerics.Complex(h_pq, 0.0)
+                            FermionMapping.Coefficient = Complex(h_pq, 0.0)
                             FermionMapping.Operators = [
                                 { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
                                 { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
@@ -2374,7 +2376,7 @@ module MolecularHamiltonian =
                         }
                         // Beta spin (odd indices)
                         yield {
-                            FermionMapping.Coefficient = System.Numerics.Complex(h_pq, 0.0)
+                            FermionMapping.Coefficient = Complex(h_pq, 0.0)
                             FermionMapping.Operators = [
                                 { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
                                 { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
@@ -2392,7 +2394,7 @@ module MolecularHamiltonian =
                                 // Four spin combinations: αα, αβ, βα, ββ
                                 // αα: p↑ r↑ s↑ q↑
                                 yield {
-                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
                                     FermionMapping.Operators = [
                                         { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
                                         { FermionMapping.OrbitalIndex = 2 * r; FermionMapping.OperatorType = FermionMapping.Creation }
@@ -2402,7 +2404,7 @@ module MolecularHamiltonian =
                                 }
                                 // ββ: p↓ r↓ s↓ q↓
                                 yield {
-                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
                                     FermionMapping.Operators = [
                                         { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
                                         { FermionMapping.OrbitalIndex = 2 * r + 1; FermionMapping.OperatorType = FermionMapping.Creation }
@@ -2412,7 +2414,7 @@ module MolecularHamiltonian =
                                 }
                                 // αβ: p↑ r↓ s↓ q↑
                                 yield {
-                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
                                     FermionMapping.Operators = [
                                         { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
                                         { FermionMapping.OrbitalIndex = 2 * r + 1; FermionMapping.OperatorType = FermionMapping.Creation }
@@ -2422,7 +2424,7 @@ module MolecularHamiltonian =
                                 }
                                 // βα: p↓ r↑ s↑ q↓
                                 yield {
-                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
                                     FermionMapping.Operators = [
                                         { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
                                         { FermionMapping.OrbitalIndex = 2 * r; FermionMapping.OperatorType = FermionMapping.Creation }
@@ -3490,7 +3492,7 @@ module QuantumChemistryBuilder =
         /// Load from FCIDump file path
         | FciDumpFile of string
         /// Load from dataset provider by name
-        | FromProvider of provider: FSharp.Azure.Quantum.Data.ChemistryDataProviders.IMoleculeDatasetProvider * name: string
+        | FromProvider of provider: ChemistryDataProviders.IMoleculeDatasetProvider * name: string
         /// Load from default provider by name
         | FromDefaultProvider of string
     
@@ -3711,7 +3713,7 @@ module QuantumChemistryBuilder =
         /// </code>
         /// </example>
         [<CustomOperation("molecule_from_provider")>]
-        member _.MoleculeFromProvider(problem: ChemistryProblem, provider: FSharp.Azure.Quantum.Data.ChemistryDataProviders.IMoleculeDatasetProvider, name: string) : ChemistryProblem =
+        member _.MoleculeFromProvider(problem: ChemistryProblem, provider: ChemistryDataProviders.IMoleculeDatasetProvider, name: string) : ChemistryProblem =
             { problem with MoleculeSource = Some (FromProvider (provider, name)) }
         
         /// <summary>Load molecule by name from the default dataset provider.</summary>

@@ -555,7 +555,7 @@ module HHLUnifiedTests =
                 let idx = i * 4 + i  // Diagonal index
                 assertComplexEqual (Complex(1.0, 0.0)) matrix.Elements[idx] $"Diagonal element {i}"
         | Error (QuantumError.NotImplemented _) -> 
-            Assert.Fail($"Unexpected error: Not implemented?")
+            Assert.Fail("Unexpected error: Not implemented?")
         | Error err -> 
             Assert.Fail($"Unexpected error: {err}")
     

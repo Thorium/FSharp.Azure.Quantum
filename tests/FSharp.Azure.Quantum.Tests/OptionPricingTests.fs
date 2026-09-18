@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -43,7 +44,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``optionPricing CE should respect qubits and shots`` () =
@@ -66,7 +67,7 @@ module OptionPricingTests =
                 |> Async.StartImmediateAsTask
 
             result |> Result.map (fun price -> Assert.Equal(4, price.QubitsUsed)) |> Result.defaultWith (fun err -> failwith $"Should succeed, got error: {err}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``optionPricing CE should reject missing backend`` () =
@@ -83,7 +84,7 @@ module OptionPricingTests =
                 Assert.Equal("Backend", param)
             | _ ->
                 failwith "Should return ValidationError for missing backend"
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``price should reject numQubits less than 2`` () =
@@ -103,7 +104,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``price should reject negative spot price`` () =
@@ -123,7 +124,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``priceEuropeanPut should return valid result`` () =
@@ -143,7 +144,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Call option should have non-negative price`` () =
@@ -162,7 +163,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Pricing with different qubit counts should work`` () =
@@ -185,7 +186,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ========================================================================
     // GREEKS TESTS - Option Sensitivities via Quantum Finite Differences
@@ -237,7 +238,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``greeksEuropeanPut should return all Greeks with LocalBackend`` () =
@@ -269,7 +270,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``calculateGreeks should validate config SpotBump`` () =
@@ -291,7 +292,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``calculateGreeks should validate TimeToExpiry vs TimeBump`` () =
@@ -314,7 +315,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``calculateGreeks with custom config should work`` () =
@@ -343,7 +344,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact; Trait("Category", "Slow")>]
     let ``Greeks for deep ITM call should have Delta near 1`` () =
@@ -366,7 +367,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Greeks for deep OTM call should have Delta near 0`` () =
@@ -389,7 +390,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     // ========================================================================
     // COMPARATOR ORACLE TESTS - Verify diagonal oracle correctness
@@ -416,7 +417,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``Put option with strike far above spot prices correctly`` () =
@@ -439,7 +440,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``Call price increases with spot price (monotonicity)`` () =
@@ -466,7 +467,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``Asian call option prices with comparator oracle`` () =
@@ -485,7 +486,7 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``Asian put option prices with comparator oracle`` () =
@@ -504,4 +505,4 @@ module OptionPricingTests =
             }
             let! _ = test |> Async.StartImmediateAsTask
             ()
-        } :> System.Threading.Tasks.Task
+        } :> Task

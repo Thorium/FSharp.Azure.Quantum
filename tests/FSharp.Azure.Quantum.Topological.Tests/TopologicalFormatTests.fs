@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Topological.Tests
 
 open System
 open System.IO
+open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Topological
@@ -282,7 +283,7 @@ BRAID -1
             let syncResult = Executor.executeProgram backend program
 
             let! asyncResult =
-                Executor.executeProgramAsync backend program System.Threading.CancellationToken.None
+                Executor.executeProgramAsync backend program CancellationToken.None
 
             match syncResult, asyncResult with
             | Ok syncExec, Ok asyncExec ->
@@ -309,7 +310,7 @@ BRAID -1
             }
 
             let! result =
-                Executor.executeProgramAsync backend program System.Threading.CancellationToken.None
+                Executor.executeProgramAsync backend program CancellationToken.None
 
             match result with
             | Error err ->
@@ -335,7 +336,7 @@ BRAID -1
                 ]
             }
 
-            use cts = new System.Threading.CancellationTokenSource()
+            use cts = new CancellationTokenSource()
             do! cts.CancelAsync()
 
             let mutable threw = false
@@ -343,7 +344,7 @@ BRAID -1
                 let! _ = Executor.executeProgramAsync backend program cts.Token
                 ()
             with
-            | :? System.OperationCanceledException -> threw <- true
+            | :? OperationCanceledException -> threw <- true
 
             Assert.True(threw, "Should have thrown OperationCanceledException or TaskCanceledException")
         }
@@ -370,7 +371,7 @@ BRAID -1
                         TopologicalUnifiedBackendFactory.createIsing 16
 
                     let! result =
-                        Executor.executeFileAsync backend tempFile System.Threading.CancellationToken.None
+                        Executor.executeFileAsync backend tempFile CancellationToken.None
 
                     match result with
                     | Ok exec ->
@@ -390,7 +391,7 @@ BRAID -1
                 TopologicalUnifiedBackendFactory.createIsing 16
 
             let! result =
-                Executor.executeFileAsync backend "/nonexistent/file.tqp" System.Threading.CancellationToken.None
+                Executor.executeFileAsync backend "/nonexistent/file.tqp" CancellationToken.None
 
             match result with
             | Error err ->
@@ -417,7 +418,7 @@ BRAID -1
                 }
 
                 // Write asynchronously
-                let! writeResult = Serializer.serializeToFileAsync program tempFile System.Threading.CancellationToken.None
+                let! writeResult = Serializer.serializeToFileAsync program tempFile CancellationToken.None
                 match writeResult with
                 | Error msg -> failwith $"Async write failed: {msg}"
                 | Ok () -> ()
@@ -427,7 +428,7 @@ BRAID -1
                     TopologicalUnifiedBackendFactory.createIsing 16
 
                 let! result =
-                    Executor.executeFileAsync backend tempFile System.Threading.CancellationToken.None
+                    Executor.executeFileAsync backend tempFile CancellationToken.None
 
                 match result with
                 | Ok exec ->

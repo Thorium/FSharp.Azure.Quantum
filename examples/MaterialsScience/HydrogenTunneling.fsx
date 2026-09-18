@@ -202,7 +202,7 @@ if not quiet then
 let mutable anyVqeFailure = false
 
 let createFeHMolecule (bondLength: float) (multiplicity: int) : Molecule =
-    { Name = sprintf "FeH (M=%d)" multiplicity
+    { Name = $"FeH (M=%d{multiplicity})"
       Atoms = [
           { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
           { Element = "H"; Position = (0.0, 0.0, bondLength) } ]
@@ -220,9 +220,9 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
             printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
         Map.ofList [
             "molecule", molecule.Name; "label", label
-            "energy_hartree", sprintf "%.6f" energy
-            "iterations", sprintf "%d" iterations
-            "time_seconds", sprintf "%.2f" time
+            "energy_hartree", $"%.6f{energy}"
+            "iterations", $"%d{iterations}"
+            "time_seconds", $"%.2f{time}"
             "has_vqe_failure", "false" ]
     | Error msg ->
         anyVqeFailure <- true
@@ -238,9 +238,9 @@ let bondLengthResults =
       (1.63, "Equilibrium (trap site)")
       (2.00, "Extended (delocalized)") ]
     |> List.map (fun (bl, desc) ->
-        let label = sprintf "FeH R=%.2f A" bl
+        let label = $"FeH R=%.2f{bl} A"
         runVqe label desc (createFeHMolecule bl 4)
-        |> Map.add "bond_length_A" (sprintf "%.2f" bl))
+        |> Map.add "bond_length_A" $"%.2f{bl}")
 
 // Spin state comparison at equilibrium
 let quartetResult = runVqe "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
@@ -255,8 +255,8 @@ let spinGapRow =
         let gap_meV = (eD - eQ) * hartreeToEV * 1000.0
         if not quiet then printfn "  Spin excitation energy: %.1f meV" gap_meV
         Map.ofList [
-            "quantity", "spin_gap"; "spin_gap_meV", sprintf "%.1f" gap_meV
-            "quartet_hartree", sprintf "%.6f" eQ; "doublet_hartree", sprintf "%.6f" eD
+            "quantity", "spin_gap"; "spin_gap_meV", $"%.1f{gap_meV}"
+            "quartet_hartree", $"%.6f{eQ}"; "doublet_hartree", $"%.6f{eD}"
             "has_vqe_failure", "false" ]
     | _ ->
         Map.ofList [ "quantity", "spin_gap"; "has_vqe_failure", "true" ]
@@ -323,15 +323,15 @@ let tunnelingRows =
         let regime = if rate_H > classical then "Quantum" else "Classical"
         Map.ofList [
             "metal", metal.Name; "short_name", metal.ShortName
-            "barrier_height_eV", sprintf "%.2f" metal.BarrierHeight
-            "barrier_width_A", sprintf "%.1f" metal.BarrierWidth
-            "P_H", sprintf "%.2e" P_H; "P_D", sprintf "%.2e" P_D
-            "quantum_rate_Hz", sprintf "%.2e" rate_H
-            "classical_rate_Hz", sprintf "%.2e" classical
-            "diffusion_m2s", sprintf "%.2e" D_H
+            "barrier_height_eV", $"%.2f{metal.BarrierHeight}"
+            "barrier_width_A", $"%.1f{metal.BarrierWidth}"
+            "P_H", $"%.2e{P_H}"; "P_D", $"%.2e{P_D}"
+            "quantum_rate_Hz", $"%.2e{rate_H}"
+            "classical_rate_Hz", $"%.2e{classical}"
+            "diffusion_m2s", $"%.2e{D_H}"
             "dominant_regime", regime
-            "temperature_K", sprintf "%.0f" userTemperature
-            "has_vqe_failure", sprintf "%b" anyVqeFailure ])
+            "temperature_K", $"%.0f{userTemperature}"
+            "has_vqe_failure", $"%b{anyVqeFailure}" ])
 
 let vqeAllResults = bondLengthResults @ spinResults
 let allResultRows = tunnelingRows @ vqeAllResults @ [spinGapRow]

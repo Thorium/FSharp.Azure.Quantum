@@ -128,7 +128,7 @@ let estimateTimeYears (keyBits: int) : float =
 /// Build a recommendation string.
 let recommend (cipher: CipherInfo) (qSafe: bool) (qBits: float) : string =
     if qSafe then
-        sprintf "%s is quantum-safe (%.0f-bit quantum security)" cipher.Name qBits
+        $"%s{cipher.Name} is quantum-safe (%.0f{qBits}-bit quantum security)"
     elif qBits >= 64.0 then
         sprintf "%s has reduced security (%.0f-bit quantum). Consider %d-bit keys."
             cipher.Name qBits (cipher.KeyBits * 2)
@@ -322,10 +322,10 @@ let printTable () =
     |> List.iteri (fun i r ->
         let safeStr = if r.QuantumSafe then "Yes" else "No"
         let timeStr =
-            if r.TimeYears > 1e15 then sprintf "%.0e" r.TimeYears
+            if r.TimeYears > 1e15 then $"%.0e{r.TimeYears}"
             elif r.TimeYears > 1e9 then sprintf "%.0fB" (r.TimeYears / 1e9)
             elif r.TimeYears > 1e6 then sprintf "%.0fM" (r.TimeYears / 1e6)
-            else sprintf "%.1f" r.TimeYears
+            else $"%.1f{r.TimeYears}"
         printfn "  %-4d  %-12s  %4d  %8.0f  %8.0f  %8s  %-6s  %s"
             (i + 1) r.Cipher.Name r.Cipher.KeyBits
             r.ClassicalSecurityBits r.QuantumSecurityBits
@@ -365,17 +365,17 @@ let resultMaps =
           "cipher", r.Cipher.Name
           "key_bits", string r.Cipher.KeyBits
           "block_bits", string r.Cipher.BlockBits
-          "classical_security_bits", sprintf "%.0f" r.ClassicalSecurityBits
-          "quantum_security_bits", sprintf "%.0f" r.QuantumSecurityBits
+          "classical_security_bits", $"%.0f{r.ClassicalSecurityBits}"
+          "quantum_security_bits", $"%.0f{r.QuantumSecurityBits}"
           "quantum_safe", string r.QuantumSafe
-          "grover_iterations_log2", sprintf "%.1f" r.GroverIterationsLog2
+          "grover_iterations_log2", $"%.1f{r.GroverIterationsLog2}"
           "resource_estimate", r.ResourceEstimate
-          "attack_time_years", sprintf "%.2e" r.TimeYears
+          "attack_time_years", $"%.2e{r.TimeYears}"
           "recommendation", r.Recommendation
           "grover_demo_target", string demoTarget
           "grover_demo_found", demoFound
           "grover_demo_iterations", string demoIters
-          "grover_demo_success_prob", sprintf "%.4f" demoProb
+          "grover_demo_success_prob", $"%.4f{demoProb}"
           "has_quantum_failure", string (r.HasQuantumFailure || demoFailed) ]
         |> Map.ofList)
 

@@ -146,7 +146,7 @@ module QuantumRegressionHHLTests =
             // Weight should be approximately 2.0 (from y = 2x)
             // But due to quantum measurement noise, we allow large tolerance
             printfn $"Trained weight: {result.Weights[0]}"
-            printfn $"Expected: 2.0"
+            printfn "Expected: 2.0"
             printfn $"Success probability: {result.SuccessProbability}"
     
     [<Fact>]
@@ -172,7 +172,7 @@ module QuantumRegressionHHLTests =
             Assert.Equal(2, result.Weights.Length)
             Assert.True(result.HasIntercept)
             printfn $"Weights with intercept: [{result.Weights[0]:F4}, {result.Weights[1]:F4}]"
-            printfn $"Expected: [1.0, 2.0] (approximately)"
+            printfn "Expected: [1.0, 2.0] (approximately)"
     
     // ========================================================================
     // INTEGRATION TESTS WITH PREDICTIVEMODELBUILDER
@@ -246,7 +246,7 @@ module QuantumRegressionHHLTests =
         | Ok result ->
             printfn $"R² score: {result.RSquared:F4}"
             printfn $"Weights: [{result.Weights[0]:F4}, {result.Weights[1]:F4}]"
-            printfn $"Expected: [1.0, 2.0]"
+            printfn "Expected: [1.0, 2.0]"
             Assert.True(result.RSquared > 0.95, $"R² too low: {result.RSquared}")
     
     [<Fact>]
@@ -305,7 +305,7 @@ module QuantumRegressionHHLTests =
         | Ok result ->
             printfn $"R² score: {result.RSquared:F4}"
             printfn $"Weights: [{result.Weights[0]:F4}, {result.Weights[1]:F4}, {result.Weights[2]:F4}]"
-            printfn $"Expected: [5.0, 3.0, 2.0]"
+            printfn "Expected: [5.0, 3.0, 2.0]"
             // Multi-feature is harder - accept R² > 0.60 as reasonable
             Assert.True(result.RSquared > 0.60, $"R² too low for multi-feature: {result.RSquared}")
     

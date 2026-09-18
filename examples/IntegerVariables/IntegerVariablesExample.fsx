@@ -96,7 +96,7 @@ let encodingRow
     Map.ofList
         [ "example",  example
           "encoding", encoding
-          "qubits",   sprintf "%d" qubits
+          "qubits",   $"%d{qubits}"
           "detail",   detail ]
 
 // ==============================================================================
@@ -145,7 +145,7 @@ let runEncodings () =
         let eff = 16.0 / float q
         if not quiet then
             printfn "  %-20s | %6d | %.2fx" name q eff
-        allResults.Add (encodingRow "encodings" name q (sprintf "%.2fx efficiency" eff))
+        allResults.Add (encodingRow "encodings" name q $"%.2f{eff}x efficiency")
 
     if not quiet then
         printfn ""
@@ -184,7 +184,7 @@ let runProduction () =
             let bitsStr = bits |> List.map string |> String.concat ""
             printfn "    qty %d -> %s -> %d" qty bitsStr decoded
 
-    allResults.Add (encodingRow "production" "BoundedInteger" totalQ (sprintf "%d vars x %d qubits" products.Length qPerVar))
+    allResults.Add (encodingRow "production" "BoundedInteger" totalQ $"%d{products.Length} vars x %d{qPerVar} qubits")
 
 /// Example 3: Scheduling with DomainWall encoding
 let runScheduling () =
@@ -210,7 +210,7 @@ let runScheduling () =
             let decoded = VariableEncoding.decode enc bits
             printfn "    Priority %d: %s -> %d" p bitsStr decoded
 
-    allResults.Add (encodingRow "scheduling" "DomainWall" (q * tasks.Length) (sprintf "%d tasks x %d levels" tasks.Length levels))
+    allResults.Add (encodingRow "scheduling" "DomainWall" (q * tasks.Length) $"%d{tasks.Length} tasks x %d{levels} levels")
 
 /// Example 4: Route selection with OneHot
 let runRoutes () =
@@ -240,7 +240,7 @@ let runRoutes () =
         printfn "  Constraint penalty (weight=%.0f): diag=%.0f, off-diag=%.0f"
             constraintWeight penalty.[0, 0] penalty.[0, 1]
 
-    allResults.Add (encodingRow "routes" "OneHot" q (sprintf "%d routes" routes.Length))
+    allResults.Add (encodingRow "routes" "OneHot" q $"%d{routes.Length} routes")
 
 /// Example 5: Mixed integer variables
 let runMixed () =
@@ -271,7 +271,7 @@ let runMixed () =
         printfn "  QUBO matrix: %d total qubits" quboMatrix.Size
         printfn "  Variable names: %A" quboMatrix.VariableNames
 
-    allResults.Add (encodingRow "mixed" "Mixed" quboMatrix.Size (sprintf "%d vars" variables.Length))
+    allResults.Add (encodingRow "mixed" "Mixed" quboMatrix.Size $"%d{variables.Length} vars")
 
 // ==============================================================================
 // MAIN EXECUTION

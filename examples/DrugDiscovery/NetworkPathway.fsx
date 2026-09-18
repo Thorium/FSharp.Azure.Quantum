@@ -477,9 +477,9 @@ let resultMaps =
     ranked
     |> List.map (fun r ->
         let totalScore =
-            match solutionStats with Some s -> sprintf "%.3f" s.TotalScore | None -> "FAILED"
+            match solutionStats with Some s -> $"%.3f{s.TotalScore}" | None -> "FAILED"
         let synergyBonus =
-            match solutionStats with Some s -> sprintf "%.3f" s.SynergyBonus | None -> "FAILED"
+            match solutionStats with Some s -> $"%.3f{s.SynergyBonus}" | None -> "FAILED"
         let combinedValue =
             match solutionStats with Some s -> sprintf "%.3f" (s.TotalScore + s.SynergyBonus) | None -> "FAILED"
         let backendName =
@@ -489,9 +489,9 @@ let resultMaps =
 
         [ "rank", string r.Rank
           "name", r.Protein.Name
-          "disease_score", sprintf "%.2f" r.Protein.DiseaseScore
-          "druggability", sprintf "%.2f" r.Protein.Druggability
-          "combined_score", sprintf "%.2f" r.CombinedScore
+          "disease_score", $"%.2f{r.Protein.DiseaseScore}"
+          "druggability", $"%.2f{r.Protein.Druggability}"
+          "combined_score", $"%.2f{r.CombinedScore}"
           "role", r.Protein.Role
           "priority", r.Priority
           "selected", string r.Selected
@@ -500,10 +500,10 @@ let resultMaps =
           "combined_value", combinedValue
           "num_selected", numSelected
           "target_goal", string k
-          "synergy_weight", sprintf "%.2f" synergyWeight
+          "synergy_weight", $"%.2f{synergyWeight}"
           "backend", backendName
           "shots", string shots
-          "compute_time_s", sprintf "%.1f" elapsed
+          "compute_time_s", $"%.1f{elapsed}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

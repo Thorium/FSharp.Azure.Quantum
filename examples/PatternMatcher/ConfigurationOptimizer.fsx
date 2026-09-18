@@ -129,8 +129,8 @@ if exampleChoice = "all" || exampleChoice = "db" then
             pr "  #%d - Config %d: Cache=%dMB Pool=%d Timeout=%ds Log=%s => TP=%.0f q/s Lat=%.1fms CPU=%.0f%%"
                 (i + 1) index config.CacheSize config.PoolSize config.QueryTimeout config.LogLevel throughput latency cpuUsage
             csvRows <- [
-                "db"; string index; sprintf "%d" config.CacheSize; sprintf "%d" config.PoolSize
-                config.LogLevel; sprintf "%.0f" throughput; sprintf "%.1f" latency; sprintf "%.1f" cpuUsage
+                "db"; string index; $"%d{config.CacheSize}"; $"%d{config.PoolSize}"
+                config.LogLevel; $"%.0f{throughput}"; $"%.1f{latency}"; $"%.1f{cpuUsage}"
             ] :: csvRows
         )
         pr "  Quantum advantage: sqrt(256) = 16x fewer evaluations"
@@ -198,8 +198,8 @@ if exampleChoice = "all" || exampleChoice = "ml" then
             pr "  #%d - Config %d: LR=%.3f Batch=%d Layers=%d Dropout=%.1f => Acc=%.2f%%"
                 (i + 1) index config.LearningRate config.BatchSize config.Layers config.DropoutRate accuracy
             csvRows <- [
-                "ml"; string index; sprintf "%.3f" config.LearningRate; sprintf "%d" config.BatchSize
-                sprintf "%d" config.Layers; sprintf "%.1f" config.DropoutRate; sprintf "%.2f" accuracy; ""
+                "ml"; string index; $"%.3f{config.LearningRate}"; $"%d{config.BatchSize}"
+                $"%d{config.Layers}"; $"%.1f{config.DropoutRate}"; $"%.2f{accuracy}"; ""
             ] :: csvRows
         )
         pr "  Quantum advantage: sqrt(128) ~ 11x fewer training runs"
@@ -266,8 +266,8 @@ if exampleChoice = "all" || exampleChoice = "feature" then
             pr "  #%d - Subset %d: [%s] (%d features, %.2f%% acc)"
                 (i + 1) index (String.concat ", " featureSet) count accuracy
             csvRows <- [
-                "feature"; string index; String.concat "|" featureSet; sprintf "%d" count
-                sprintf "%.2f" accuracy; ""; ""; ""
+                "feature"; string index; String.concat "|" featureSet; $"%d{count}"
+                $"%.2f{accuracy}"; ""; ""; ""
             ] :: csvRows
         )
         pr "  Quantum advantage: sqrt(256) = 16x fewer model trainings"

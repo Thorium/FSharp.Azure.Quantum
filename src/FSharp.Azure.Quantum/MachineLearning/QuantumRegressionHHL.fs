@@ -365,7 +365,7 @@ module QuantumRegressionHHL =
                         // - explicit gate-level lowering + backend transpilation for general Hermitian matrices
                         
                         if config.Verbose then
-                            logInfo config.Logger $"   Solving via HHL algorithm..."
+                            logInfo config.Logger "   Solving via HHL algorithm..."
                             logInfo config.Logger $"   Total qubits: {config.EigenvalueQubits + hhlConfig.SolutionQubits + 1}"
                         
                         // Execute HHL with new unified API

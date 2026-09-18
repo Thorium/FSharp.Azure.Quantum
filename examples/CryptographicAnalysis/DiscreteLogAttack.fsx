@@ -272,7 +272,7 @@ let printTable () =
         let safeStr = if r.AttackSuccess then "No" else "Yes"
         let resultStr =
             match r.RecoveredKey, r.EveSecret with
-            | Some k, Some s -> sprintf "a=%d secret=%d" k s
+            | Some k, Some s -> $"a=%d{k} secret=%d{s}"
             | _ -> "no solution"
         printfn "  %-4d  %-10s  %-20s  %5d  %3d  %6d  %-6s  %s"
             (i + 1) r.Group.Name r.Group.RealSystem r.Group.Prime

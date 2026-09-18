@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.CircuitBuilder
+open System.IO
 
 /// TKT-97: OpenQASM 2.0 Export Tests
 /// Following TDD approach with comprehensive coverage
@@ -219,37 +220,37 @@ module OpenQasmExportTests =
     [<Fact>]
     let ``exportToFile creates file with correct content`` () =
         let circuit = { QubitCount = 1; Gates = [H 0] }
-        let tempFile = System.IO.Path.GetTempFileName()
-        let qasmFile = System.IO.Path.ChangeExtension(tempFile, ".qasm")
+        let tempFile = Path.GetTempFileName()
+        let qasmFile = Path.ChangeExtension(tempFile, ".qasm")
         
         try
             OpenQasm.exportToFile circuit qasmFile
             
-            Assert.True(System.IO.File.Exists qasmFile)
-            let content = System.IO.File.ReadAllText qasmFile
+            Assert.True(File.Exists qasmFile)
+            let content = File.ReadAllText qasmFile
             Assert.Contains("OPENQASM 2.0;", content)
             Assert.Contains("h q[0];", content)
         finally
-            if System.IO.File.Exists qasmFile then
-                System.IO.File.Delete qasmFile
+            if File.Exists qasmFile then
+                File.Delete qasmFile
     
     [<Fact>]
     let ``exportToFile overwrites existing file`` () =
         let circuit1 = { QubitCount = 1; Gates = [H 0] }
         let circuit2 = { QubitCount = 1; Gates = [X 0] }
-        let tempFile = System.IO.Path.GetTempFileName()
-        let qasmFile = System.IO.Path.ChangeExtension(tempFile, ".qasm")
+        let tempFile = Path.GetTempFileName()
+        let qasmFile = Path.ChangeExtension(tempFile, ".qasm")
         
         try
             OpenQasm.exportToFile circuit1 qasmFile
             OpenQasm.exportToFile circuit2 qasmFile
             
-            let content = System.IO.File.ReadAllText qasmFile
+            let content = File.ReadAllText qasmFile
             Assert.Contains("x q[0];", content)
             Assert.DoesNotContain("h q[0];", content)
         finally
-            if System.IO.File.Exists qasmFile then
-                System.IO.File.Delete qasmFile
+            if File.Exists qasmFile then
+                File.Delete qasmFile
     
     // ========================================================================
     // VERSION TEST

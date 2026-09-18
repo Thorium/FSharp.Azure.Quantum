@@ -386,5 +386,5 @@ module ProbabilisticErrorCancellation =
                             })
                         |> Result.mapError (sprintf "Baseline execution failed: %s")
             with
-            | ex -> return Error ($"PEC pipeline error: %s{ex.Message}")
+            | ex -> return Error $"PEC pipeline error: %s{ex.Message}"
         }

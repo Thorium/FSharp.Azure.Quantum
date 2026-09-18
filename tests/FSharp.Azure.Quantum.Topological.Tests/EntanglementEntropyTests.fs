@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Topological.Tests
 
 open Xunit
 open FSharp.Azure.Quantum.Topological
+open System.Numerics
 
 module EntanglementEntropyTests =
     
@@ -443,7 +444,7 @@ module EntanglementEntropyTests =
     [<Fact>]
     let ``densityMatrix of single qubit |0⟩ is correct`` () =
         // |0⟩ = [1, 0] → ρ = [[1,0],[0,0]]
-        let amps = [ System.Numerics.Complex.One; System.Numerics.Complex.Zero ]
+        let amps = [ Complex.One; Complex.Zero ]
         let rho = EntanglementEntropy.densityMatrix amps
         
         Assert.Equal(1.0, rho.[0, 0].Real, 10)
@@ -455,7 +456,7 @@ module EntanglementEntropyTests =
     let ``densityMatrix of |+⟩ state has equal off-diagonal elements`` () =
         // |+⟩ = [1/√2, 1/√2] → ρ = [[1/2, 1/2],[1/2, 1/2]]
         let s = 1.0 / sqrt 2.0
-        let amps = [ System.Numerics.Complex(s, 0.0); System.Numerics.Complex(s, 0.0) ]
+        let amps = [ Complex(s, 0.0); Complex(s, 0.0) ]
         let rho = EntanglementEntropy.densityMatrix amps
         
         Assert.Equal(0.5, rho.[0, 0].Real, 10)
@@ -466,7 +467,7 @@ module EntanglementEntropyTests =
     [<Fact>]
     let ``densityMatrix trace equals 1 for normalized state`` () =
         let s = 1.0 / sqrt 2.0
-        let amps = [ System.Numerics.Complex(s, 0.0); System.Numerics.Complex(0.0, s) ]
+        let amps = [ Complex(s, 0.0); Complex(0.0, s) ]
         let rho = EntanglementEntropy.densityMatrix amps
         
         let trace = rho.[0, 0].Real + rho.[1, 1].Real
@@ -481,10 +482,10 @@ module EntanglementEntropyTests =
         // |ψ⟩ = |0⟩_A ⊗ |0⟩_B = [1, 0, 0, 0]
         // ρ_A = Tr_B(|00⟩⟨00|) = |0⟩⟨0| = [[1,0],[0,0]]
         let amps = [
-            System.Numerics.Complex.One
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
+            Complex.One
+            Complex.Zero
+            Complex.Zero
+            Complex.Zero
         ]
         let rho = EntanglementEntropy.densityMatrix amps
         
@@ -502,10 +503,10 @@ module EntanglementEntropyTests =
         // ρ_A = Tr_B(|Φ+⟩⟨Φ+|) = I/2
         let s = 1.0 / sqrt 2.0
         let amps = [
-            System.Numerics.Complex(s, 0.0)
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex(s, 0.0)
+            Complex(s, 0.0)
+            Complex.Zero
+            Complex.Zero
+            Complex(s, 0.0)
         ]
         let rho = EntanglementEntropy.densityMatrix amps
         
@@ -521,10 +522,10 @@ module EntanglementEntropyTests =
     let ``partialTraceA of Bell state returns maximally mixed state`` () =
         let s = 1.0 / sqrt 2.0
         let amps = [
-            System.Numerics.Complex(s, 0.0)
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex(s, 0.0)
+            Complex(s, 0.0)
+            Complex.Zero
+            Complex.Zero
+            Complex(s, 0.0)
         ]
         let rho = EntanglementEntropy.densityMatrix amps
         
@@ -539,10 +540,10 @@ module EntanglementEntropyTests =
     [<Fact>]
     let ``partialTraceB with mismatched dimensions returns error`` () =
         let amps = [
-            System.Numerics.Complex.One
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
+            Complex.One
+            Complex.Zero
+            Complex.Zero
+            Complex.Zero
         ]
         let rho = EntanglementEntropy.densityMatrix amps
         
@@ -556,10 +557,10 @@ module EntanglementEntropyTests =
         // Tr(ρ_A) = Tr(ρ_AB) = 1 for normalized states
         let s = 1.0 / sqrt 2.0
         let amps = [
-            System.Numerics.Complex(s, 0.0)
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex(s, 0.0)
+            Complex(s, 0.0)
+            Complex.Zero
+            Complex.Zero
+            Complex(s, 0.0)
         ]
         let rho = EntanglementEntropy.densityMatrix amps
         
@@ -577,7 +578,7 @@ module EntanglementEntropyTests =
     let ``eigenvaluesHermitian of identity matrix returns all ones`` () =
         let n = 3
         let identity = Array2D.init n n (fun i j ->
-            if i = j then System.Numerics.Complex.One else System.Numerics.Complex.Zero)
+            if i = j then Complex.One else Complex.Zero)
         
         match EntanglementEntropy.eigenvaluesHermitian identity 100 1e-12 with
         | Ok eigenvals ->
@@ -588,9 +589,9 @@ module EntanglementEntropyTests =
     [<Fact>]
     let ``eigenvaluesHermitian of diagonal matrix returns diagonal entries`` () =
         let matrix = Array2D.init 2 2 (fun i j ->
-            if i = 0 && j = 0 then System.Numerics.Complex(0.7, 0.0)
-            elif i = 1 && j = 1 then System.Numerics.Complex(0.3, 0.0)
-            else System.Numerics.Complex.Zero)
+            if i = 0 && j = 0 then Complex(0.7, 0.0)
+            elif i = 1 && j = 1 then Complex(0.3, 0.0)
+            else Complex.Zero)
         
         match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
         | Ok eigenvals ->
@@ -602,7 +603,7 @@ module EntanglementEntropyTests =
     
     [<Fact>]
     let ``eigenvaluesHermitian of 1x1 matrix returns single value`` () =
-        let matrix = Array2D.init 1 1 (fun _ _ -> System.Numerics.Complex(0.42, 0.0))
+        let matrix = Array2D.init 1 1 (fun _ _ -> Complex(0.42, 0.0))
         match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
         | Ok eigenvals ->
             Assert.Equal(1, eigenvals.Length)
@@ -611,14 +612,14 @@ module EntanglementEntropyTests =
     
     [<Fact>]
     let ``eigenvaluesHermitian of empty matrix returns empty`` () =
-        let matrix = Array2D.create 0 0 System.Numerics.Complex.Zero
+        let matrix = Array2D.create 0 0 Complex.Zero
         (EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12) |> Result.map (fun eigenvals -> Assert.Empty(eigenvals)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
     [<Fact>]
     let ``eigenvaluesHermitian of maximally mixed 2x2 returns equal eigenvalues`` () =
         // I/2 = [[0.5, 0], [0, 0.5]]
         let matrix = Array2D.init 2 2 (fun i j ->
-            if i = j then System.Numerics.Complex(0.5, 0.0) else System.Numerics.Complex.Zero)
+            if i = j then Complex(0.5, 0.0) else Complex.Zero)
 
         match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
         | Ok eigenvals ->
@@ -632,7 +633,7 @@ module EntanglementEntropyTests =
         // |+⟩⟨+| = [[1/2, 1/2], [1/2, 1/2]] is a pure state: eigenvalues {1, 0}.
         // Regression for the Jacobi rotation-angle bug (the old reciprocal-θ
         // tangent with forced pivot zeroing returned {0.7071, 0.2929}).
-        let matrix = Array2D.init 2 2 (fun _ _ -> System.Numerics.Complex(0.5, 0.0))
+        let matrix = Array2D.init 2 2 (fun _ _ -> Complex(0.5, 0.0))
 
         match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
         | Ok eigenvals ->
@@ -648,9 +649,9 @@ module EntanglementEntropyTests =
         // diagonalized only Re(ρ) = I/2 and returned {1/2, 1/2}.
         let matrix = Array2D.init 2 2 (fun i j ->
             match i, j with
-            | 0, 0 | 1, 1 -> System.Numerics.Complex(0.5, 0.0)
-            | 0, 1 -> System.Numerics.Complex(0.0, -0.5)
-            | _ -> System.Numerics.Complex(0.0, 0.5))
+            | 0, 0 | 1, 1 -> Complex(0.5, 0.0)
+            | 0, 1 -> Complex(0.0, -0.5)
+            | _ -> Complex(0.0, 0.5))
 
         match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
         | Ok eigenvals ->
@@ -665,9 +666,9 @@ module EntanglementEntropyTests =
         // (the old Re-only diagonalization reported the MAXIMAL value log 2).
         let rho = Array2D.init 2 2 (fun i j ->
             match i, j with
-            | 0, 0 | 1, 1 -> System.Numerics.Complex(0.5, 0.0)
-            | 0, 1 -> System.Numerics.Complex(0.0, -0.5)
-            | _ -> System.Numerics.Complex(0.0, 0.5))
+            | 0, 0 | 1, 1 -> Complex(0.5, 0.0)
+            | 0, 1 -> Complex(0.0, -0.5)
+            | _ -> Complex(0.0, 0.5))
 
         (EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 6)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
@@ -678,10 +679,10 @@ module EntanglementEntropyTests =
         // complex off-diagonals — full pipeline regression for the Re-only bug.
         let s = 1.0 / sqrt 2.0
         let amps = [
-            System.Numerics.Complex(s, 0.0)
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex(0.0, s)
-            System.Numerics.Complex.Zero
+            Complex(s, 0.0)
+            Complex.Zero
+            Complex(0.0, s)
+            Complex.Zero
         ]
         (EntanglementEntropy.entanglementEntropy amps 2 2) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 6)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
 
@@ -693,7 +694,7 @@ module EntanglementEntropyTests =
     let ``vonNeumannEntropyFromDensityMatrix of pure state returns zero`` () =
         // |0⟩⟨0| has eigenvalues [1, 0] → S = 0
         let rho = Array2D.init 2 2 (fun i j ->
-            if i = 0 && j = 0 then System.Numerics.Complex.One else System.Numerics.Complex.Zero)
+            if i = 0 && j = 0 then Complex.One else Complex.Zero)
         
         (EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 8)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
@@ -701,7 +702,7 @@ module EntanglementEntropyTests =
     let ``vonNeumannEntropyFromDensityMatrix of maximally mixed state returns log(2)`` () =
         // I/2 has eigenvalues [0.5, 0.5] → S = log(2)
         let rho = Array2D.init 2 2 (fun i j ->
-            if i = j then System.Numerics.Complex(0.5, 0.0) else System.Numerics.Complex.Zero)
+            if i = j then Complex(0.5, 0.0) else Complex.Zero)
         
         match EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho with
         | Ok result ->
@@ -717,10 +718,10 @@ module EntanglementEntropyTests =
     let ``entanglementEntropy of product state is zero`` () =
         // |00⟩ = [1, 0, 0, 0] → no entanglement → S = 0
         let amps = [
-            System.Numerics.Complex.One
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
+            Complex.One
+            Complex.Zero
+            Complex.Zero
+            Complex.Zero
         ]
         (EntanglementEntropy.entanglementEntropy amps 2 2) |> Result.map (fun result -> Assert.Equal(0.0, result.Entropy, 6)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got: {err.Message}"))
     
@@ -729,10 +730,10 @@ module EntanglementEntropyTests =
         // |Φ+⟩ = (|00⟩ + |11⟩)/√2 → maximally entangled → S = log(2)
         let s = 1.0 / sqrt 2.0
         let amps = [
-            System.Numerics.Complex(s, 0.0)
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex(s, 0.0)
+            Complex(s, 0.0)
+            Complex.Zero
+            Complex.Zero
+            Complex(s, 0.0)
         ]
         match EntanglementEntropy.entanglementEntropy amps 2 2 with
         | Ok result ->
@@ -744,10 +745,10 @@ module EntanglementEntropyTests =
     let ``entanglementEntropy with mismatched dimensions returns error`` () =
         // 4 amplitudes but dimA=3, dimB=2 → error
         let amps = [
-            System.Numerics.Complex.One
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
+            Complex.One
+            Complex.Zero
+            Complex.Zero
+            Complex.Zero
         ]
         match EntanglementEntropy.entanglementEntropy amps 3 2 with
         | Error (TopologicalError.ValidationError _) -> ()
@@ -759,10 +760,10 @@ module EntanglementEntropyTests =
         let c = cos (System.Math.PI / 8.0)
         let s = sin (System.Math.PI / 8.0)
         let amps = [
-            System.Numerics.Complex(c, 0.0)
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex.Zero
-            System.Numerics.Complex(s, 0.0)
+            Complex(c, 0.0)
+            Complex.Zero
+            Complex.Zero
+            Complex(s, 0.0)
         ]
         match EntanglementEntropy.entanglementEntropy amps 2 2 with
         | Ok result ->

@@ -256,7 +256,7 @@ if shouldRun 7 then
         match FeatureMap.buildFeatureMap (ZZFeatureMap 1) feat with
         | Ok circ ->
             pr "%-12s | %6d | %5d" desc circ.QubitCount (gateCount circ)
-            addResult (sprintf "7_scale_%d" feat.Length) circ.QubitCount (gateCount circ) true []
+            addResult $"7_scale_%d{feat.Length}" circ.QubitCount (gateCount circ) true []
         | Error err ->
             pr "%-12s | Error: %s" desc err.Message
 

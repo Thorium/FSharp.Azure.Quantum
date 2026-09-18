@@ -63,7 +63,7 @@ module VisualizationTests =
                 task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
     // Helper to ignore Result value for 'do!' bindings in builder
-    let ignoreResult (task: System.Threading.Tasks.Task<Result<TopologicalBuilder.BuilderContext, QuantumError>>) =
+    let ignoreResult (task: Task<Result<TopologicalBuilder.BuilderContext, QuantumError>>) =
         task
 
     [<Fact>]

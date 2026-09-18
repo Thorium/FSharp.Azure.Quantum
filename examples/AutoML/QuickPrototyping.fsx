@@ -72,7 +72,7 @@ let record (r: ExampleResult) =
     jsonResults <- jsonResults @ [ r ]
     csvRows <- csvRows @ [
         [ r.Name; r.Label; r.BestModel; r.Architecture
-          sprintf "%.4f" r.Score; string r.Trials; sprintf "%.1f" r.SearchTimeSec ] ]
+          $"%.4f{r.Score}"; string r.Trials; $"%.1f{r.SearchTimeSec}" ] ]
 
 // --- Data Generators ---
 
@@ -162,7 +162,7 @@ if shouldRun "zeroconfig" then
 
         record
             { Name = "zeroconfig"; Label = "Zero-Config Binary"
-              BestModel = r.BestModelType; Architecture = sprintf "%A" r.BestArchitecture
+              BestModel = r.BestModelType; Architecture = $"%A{r.BestArchitecture}"
               Score = r.Score; Trials = r.SuccessfulTrials
               SearchTimeSec = r.TotalSearchTime.TotalSeconds }
     pr ""
@@ -206,7 +206,7 @@ if shouldRun "custom" then
             let modelStr =
                 match trial.ModelType with
                 | AutoML.BinaryClassification -> "Binary"
-                | AutoML.MultiClassClassification n -> sprintf "Multi-%d" n
+                | AutoML.MultiClassClassification n -> $"Multi-%d{n}"
                 | AutoML.Regression -> "Regression"
                 | AutoML.AnomalyDetection -> "Anomaly"
                 | AutoML.SimilaritySearch -> "Similarity"
@@ -221,7 +221,7 @@ if shouldRun "custom" then
 
         record
             { Name = "custom"; Label = "Custom Multi-Class"
-              BestModel = r.BestModelType; Architecture = sprintf "%A" r.BestArchitecture
+              BestModel = r.BestModelType; Architecture = $"%A{r.BestArchitecture}"
               Score = r.Score; Trials = r.SuccessfulTrials
               SearchTimeSec = r.TotalSearchTime.TotalSeconds }
     pr ""
@@ -266,7 +266,7 @@ if shouldRun "regression" then
 
         record
             { Name = "regression"; Label = "Revenue Regression"
-              BestModel = r.BestModelType; Architecture = sprintf "%A" r.BestArchitecture
+              BestModel = r.BestModelType; Architecture = $"%A{r.BestArchitecture}"
               Score = r.Score; Trials = r.SuccessfulTrials
               SearchTimeSec = r.TotalSearchTime.TotalSeconds }
     pr ""
@@ -305,7 +305,7 @@ if shouldRun "compare" then
             |> Array.groupBy (fun t ->
                 match t.ModelType with
                 | AutoML.BinaryClassification -> "Binary"
-                | AutoML.MultiClassClassification n -> sprintf "Multi-%d" n
+                | AutoML.MultiClassClassification n -> $"Multi-%d{n}"
                 | AutoML.Regression -> "Regression"
                 | AutoML.AnomalyDetection -> "Anomaly"
                 | AutoML.SimilaritySearch -> "Similarity")
@@ -317,7 +317,7 @@ if shouldRun "compare" then
 
         record
             { Name = "compare"; Label = "Full Comparison"
-              BestModel = r.BestModelType; Architecture = sprintf "%A" r.BestArchitecture
+              BestModel = r.BestModelType; Architecture = $"%A{r.BestArchitecture}"
               Score = r.Score; Trials = r.SuccessfulTrials
               SearchTimeSec = r.TotalSearchTime.TotalSeconds }
     pr ""
@@ -360,7 +360,7 @@ if shouldRun "production" then
 
         record
             { Name = "production"; Label = "Production Workflow"
-              BestModel = r.BestModelType; Architecture = sprintf "%A" r.BestArchitecture
+              BestModel = r.BestModelType; Architecture = $"%A{r.BestArchitecture}"
               Score = r.Score; Trials = r.SuccessfulTrials
               SearchTimeSec = r.TotalSearchTime.TotalSeconds }
     pr ""

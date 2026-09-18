@@ -182,7 +182,7 @@ if shouldRun 1 then
     match result1 with
     | Error err ->
         if not quiet then printfn "Training failed: %A" err
-        results.Add({| Example = "1-multiclass"; Status = "error"; Details = Map.ofList ["error", box (sprintf "%A" err)] |})
+        results.Add({| Example = "1-multiclass"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
 
     | Ok model ->
         example1Model <- Some model
@@ -283,7 +283,7 @@ if shouldRun 2 then
     match result2 with
     | Error err ->
         if not quiet then printfn "Training failed: %A" err
-        results.Add({| Example = "2-advanced"; Status = "error"; Details = Map.ofList ["error", box (sprintf "%A" err)] |})
+        results.Add({| Example = "2-advanced"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
 
     | Ok model ->
         if not quiet then printfn "Advanced model trained!\n"
@@ -398,7 +398,7 @@ if shouldRun 3 then
     match result3 with
     | Error err ->
         if not quiet then printfn "Training failed: %A" err
-        results.Add({| Example = "3-regression"; Status = "error"; Details = Map.ofList ["error", box (sprintf "%A" err)] |})
+        results.Add({| Example = "3-regression"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
 
     | Ok model ->
         if not quiet then
@@ -480,7 +480,7 @@ if shouldRun 4 then
     match modelForProduction with
     | Error err ->
         if not quiet then printfn "Model not available: %A" err
-        results.Add({| Example = "4-production"; Status = "error"; Details = Map.ofList ["error", box (sprintf "%A" err)] |})
+        results.Add({| Example = "4-production"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
     | Ok model ->
         if not quiet then printfn "Processing batch of customers for churn assessment...\n"
         
@@ -520,12 +520,16 @@ if shouldRun 4 then
 // OUTPUT
 // ============================================================================
 
-if outputPath.IsSome then
+match outputPath with
+| Some v ->
     let payload = {| script = "CustomerChurnPrediction.fsx"; timestamp = DateTime.UtcNow; results = results |> Seq.toArray |}
-    Reporting.writeJson outputPath.Value payload
-    if not quiet then printfn "Results written to %s" outputPath.Value
+    Reporting.writeJson v payload
+    if not quiet then printfn "Results written to %s" v
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some csvPathValue ->
     let header = ["example"; "status"; "detail"]
     let rows =
         results
@@ -533,12 +537,14 @@ if csvPath.IsSome then
             let detail =
                 r.Details
                 |> Map.toList
-                |> List.map (fun (k, v) -> sprintf "%s=%O" k v)
+                |> List.map (fun (k, v) -> $"%s{k}=%O{v}")
                 |> String.concat "; "
             [r.Example; r.Status; detail])
         |> Seq.toList
-    Reporting.writeCsv csvPath.Value header rows
-    if not quiet then printfn "CSV written to %s" csvPath.Value
+    Reporting.writeCsv csvPathValue header rows
+    if not quiet then printfn "CSV written to %s" csvPathValue
+| None ->
+    ()
 
 // ============================================================================
 // USAGE HINTS

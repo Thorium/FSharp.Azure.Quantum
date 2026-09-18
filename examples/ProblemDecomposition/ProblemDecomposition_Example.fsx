@@ -104,7 +104,7 @@ if runAll || exampleName = "partition" then
 
     for i, (verts, subEdges) in partitions |> List.indexed do
         let vertStr = verts |> List.sort |> List.map string |> String.concat ","
-        let edgeStr = subEdges |> List.map (fun (a, b) -> sprintf "%d-%d" a b) |> String.concat ", "
+        let edgeStr = subEdges |> List.map (fun (a, b) -> $"%d{a}-%d{b}") |> String.concat ", "
         pr "  Partition %-2d  { %-17s}  [ %s ]" (i + 1) vertStr edgeStr
         jsonResults <- (box {| Example = "Partition"; Index = i + 1; Vertices = vertStr; Edges = edgeStr |}) :: jsonResults
         csvRows <- [ "Partition"; string (i + 1); vertStr; edgeStr ] :: csvRows
@@ -209,7 +209,7 @@ if runAll || exampleName = "solve" then
         pr "  Sum:    %.1f (expected %.1f)" sol.Sum (problem.Values |> List.sum)
         pr "  Count:  %d (expected %d)" sol.Count problem.Values.Length
         jsonResults <- (box {| Example = "SolveWithDecomp"; Sum = sol.Sum; Count = sol.Count |}) :: jsonResults
-        csvRows <- [ "SolveWithDecomp"; sprintf "%.1f" sol.Sum; string sol.Count; "" ] :: csvRows
+        csvRows <- [ "SolveWithDecomp"; $"%.1f{sol.Sum}"; string sol.Count; "" ] :: csvRows
     | Error e ->
         pr "  FAILED: %A" e
 

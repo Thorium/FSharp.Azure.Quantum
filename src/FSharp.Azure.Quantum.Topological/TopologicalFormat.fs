@@ -386,7 +386,7 @@ module TopologicalFormat =
                                 | Error err -> currentError <- Some err
                                 | Ok newState ->
                                     currentState <- newState
-                                    messages.Add($"Applied operation: {op}")
+                                    messages.Add $"Applied operation: {op}"
 
                         match currentError with
                         | Some err -> return Error err

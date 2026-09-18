@@ -85,7 +85,7 @@ module Batching =
         
         /// Atomically drain up to maxCount items from the queue
         let drainQueue(maxCount: int option) =
-            let limit = defaultArg maxCount System.Int32.MaxValue
+            let limit = defaultArg maxCount Int32.MaxValue
             let rec drain acc count =
                 if count >= limit then List.rev acc
                 else

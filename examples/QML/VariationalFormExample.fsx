@@ -129,7 +129,7 @@ let addRow name nParams totalGates rotGates entGates =
 
 // â”€â”€ EXAMPLE 1: RealAmplitudes (depth from CLI) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 1 then
-    section (sprintf "EXAMPLE 1: RealAmplitudes (depth=%d)" cliDepth)
+    section $"EXAMPLE 1: RealAmplitudes (depth=%d{cliDepth})"
     pr "Strategy: Ry rotations + CZ entanglement"
     pr ""
 
@@ -323,7 +323,7 @@ if shouldRun 9 then
             let ry = gates |> List.filter (function RY _ -> true | _ -> false) |> List.length
             let cz = gates |> List.filter (function CZ _ -> true | _ -> false) |> List.length
             pr "%5d | %6d | %5d | %4d | %4d" d vParams.Length (gateCount circ) ry cz
-            addRow (sprintf "9_depth_%d" d) vParams.Length (gateCount circ) ry cz
+            addRow $"9_depth_%d{d}" vParams.Length (gateCount circ) ry cz
         | Error _ ->
             pr "%5d | %6s | %5s | %4s | %4s" d "Err" "Err" "--" "--"
 

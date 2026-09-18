@@ -128,13 +128,14 @@ if shouldRun 3 then
         }
         let! result = TopologicalBuilder.execute qb program
         sw.Stop()
-        match result with
-        | Ok () ->
-            pr "  %s: %.3f ms" label sw.Elapsed.TotalMilliseconds
-            return Ok sw.Elapsed.TotalMilliseconds
-        | Error err ->
-            pr "  %s: FAILED - %s" label err.Message
-            return Error err
+        return
+            match result with
+            | Ok () ->
+                pr "  %s: %.3f ms" label sw.Elapsed.TotalMilliseconds
+                Ok sw.Elapsed.TotalMilliseconds
+            | Error err ->
+                pr "  %s: FAILED - %s" label err.Message
+                Error err
     }
 
     let iT = bench quantumBackend AnyonSpecies.AnyonType.Ising "Ising    "
@@ -148,7 +149,7 @@ if shouldRun 3 then
         else pr "  Fibonacci %.2fx faster" (t1 / t2)
 
         jsonResults <- ("3_performance", box {| ising_ms = t1; fib_ms = t2 |}) :: jsonResults
-        csvRows <- [ "3_performance"; sprintf "%.3f" t1; sprintf "%.3f" t2 ] :: csvRows
+        csvRows <- [ "3_performance"; $"%.3f{t1}"; $"%.3f{t2}" ] :: csvRows
     | _ ->
         pr "  Comparison incomplete"
 
@@ -255,7 +256,8 @@ if not quiet then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "BackendComparison.fsx"
            backend   = quantumBackend.Name
@@ -263,11 +265,16 @@ if outputPath.IsSome then
            example   = exChoice
            trials    = numTrials
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

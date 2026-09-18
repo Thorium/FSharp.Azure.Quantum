@@ -659,9 +659,10 @@ module ModelSerialization =
                     | Ok () -> results.[i] <- Some fileName
                     | Error e -> firstError <- Some e
             
-            match firstError with
-            | Some error -> return Error error
-            | None -> return Ok (results |> Array.choose id)
+            return
+                match firstError with
+                | Some error -> Error error
+                | None -> Ok (results |> Array.choose id)
         }
     
     /// Save multiple models with automatic naming

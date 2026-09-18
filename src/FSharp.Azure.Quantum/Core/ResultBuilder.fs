@@ -277,7 +277,7 @@ module JsonHelpers =
         tryGetJsonProperty name element |> Option.map (fun e -> e.GetDouble())
 
     /// Try to get a DateTimeOffset property from a JsonElement.
-    let tryGetJsonDateTimeOffset (name: string) (element: JsonElement) : System.DateTimeOffset option =
+    let tryGetJsonDateTimeOffset (name: string) (element: JsonElement) : DateTimeOffset option =
         tryGetJsonProperty name element |> Option.map (fun e -> e.GetDateTimeOffset())
 
     /// Get a string property, returning a default if missing or null.

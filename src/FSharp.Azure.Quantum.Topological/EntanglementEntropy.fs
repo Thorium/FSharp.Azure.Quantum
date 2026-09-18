@@ -584,7 +584,7 @@ module EntanglementEntropy =
                     $"  γ = log(D) = {gamma:F6} (natural log)\n" +
                     $"  γ = {gammaBits:F6} bits (log₂)\n" +
                     $"  D = {d:F6} (total quantum dimension)\n" +
-                    $"\nInterpretation:\n" +
+                    "\nInterpretation:\n" +
                     $"  - Total quantum dimension: D = {d:F6}\n" +
                     $"  - Long-range entanglement: {entanglementStatus}\n" +
                     $"  - Topological order: {orderStatus}"
@@ -603,7 +603,7 @@ module EntanglementEntropy =
         |> Result.bind (fun gamma1 ->
             topologicalEntropy anyonType2
             |> Result.map (fun gamma2 ->
-                $"Topological Entropy Comparison:\n" +
+                "Topological Entropy Comparison:\n" +
                 $"  {anyonType1}: γ = {gamma1:F6}\n" +
                 $"  {anyonType2}: γ = {gamma2:F6}\n" +
                 $"  Ratio: {gamma1 / gamma2:F4}"

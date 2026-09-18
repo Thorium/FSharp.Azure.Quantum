@@ -361,7 +361,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
+        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Compute the ground state energy profile for one fragment.
 let private computeFragment
@@ -514,11 +514,11 @@ let resultMaps =
           "description", r.Fragment.Description
           "atoms", string r.Fragment.Molecule.Atoms.Length
           "electrons", string r.Electrons
-          "energy_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.Energy)
-          "energy_per_electron_ha", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.EnergyPerElectron)
+          "energy_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.Energy}")
+          "energy_per_electron_ha", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.EnergyPerElectron}")
           "energy_kcal_mol", (if r.HasVqeFailure then "FAILED" else sprintf "%.2f" (r.Energy * hartreeToKcalMol))
           "energy_ev", (if r.HasVqeFailure then "FAILED" else sprintf "%.4f" (r.Energy * hartreeToEv))
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

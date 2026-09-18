@@ -126,7 +126,7 @@ if not quiet then
 match outputFile, screeningResult with
 | Some path, Ok result ->
     let resultMap = Map.ofList [
-        "Method", sprintf "%A" result.Method
+        "Method", $"%A{result.Method}"
         "MoleculesProcessed", string result.MoleculesProcessed
         "InputFile", resolvedInput
         "BatchSize", string batchSize
@@ -159,6 +159,4 @@ if outputFile.IsNone && inputFile = (Path.Combine(scriptDir, "_data", "actives_t
     printfn ""
 
 // Exit with appropriate code
-match screeningResult with
-| Ok _ -> exit 0
-| Error _ -> exit 1
+screeningResult |> Result.map (fun _ -> exit 0) |> Result.defaultWith (fun _ -> exit 1)

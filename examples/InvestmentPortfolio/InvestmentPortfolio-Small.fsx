@@ -256,23 +256,23 @@ let resultMaps : Map<string, string> list =
     |> List.map (fun r ->
         [ "symbol",              r.Stock.Symbol
           "name",                r.Stock.Name
-          "expected_return",     sprintf "%.4f" r.Stock.ExpectedReturn
-          "risk",                sprintf "%.4f" r.Stock.Risk
-          "price",               sprintf "%.2f" r.Stock.Price
-          "shares",              sprintf "%.4f" r.Shares
-          "value",               sprintf "%.2f" r.Value
-          "pct_of_portfolio",    sprintf "%.2f" r.PctOfPortfolio
-          "sharpe_ratio",        sprintf "%.4f" r.SharpeRatio
-          "portfolio_return",    sprintf "%.4f" r.PortfolioReturn
-          "portfolio_risk",      sprintf "%.4f" r.PortfolioRisk
-          "portfolio_sharpe",    sprintf "%.4f" r.PortfolioSharpe
-          "best_energy",         sprintf "%.4f" r.BestEnergy
+          "expected_return",     $"%.4f{r.Stock.ExpectedReturn}"
+          "risk",                $"%.4f{r.Stock.Risk}"
+          "price",               $"%.2f{r.Stock.Price}"
+          "shares",              $"%.4f{r.Shares}"
+          "value",               $"%.2f{r.Value}"
+          "pct_of_portfolio",    $"%.2f{r.PctOfPortfolio}"
+          "sharpe_ratio",        $"%.4f{r.SharpeRatio}"
+          "portfolio_return",    $"%.4f{r.PortfolioReturn}"
+          "portfolio_risk",      $"%.4f{r.PortfolioRisk}"
+          "portfolio_sharpe",    $"%.4f{r.PortfolioSharpe}"
+          "best_energy",         $"%.4f{r.BestEnergy}"
           "backend_name",        r.BackendName
-          "solver_elapsed_ms",   sprintf "%.1f" r.SolverElapsedMs
-          "budget",              sprintf "%.2f" budget
-          "shots",               sprintf "%d" shots
-          "risk_aversion",       sprintf "%.2f" riskAversion
-          "has_quantum_failure", sprintf "%b" r.HasQuantumFailure ]
+          "solver_elapsed_ms",   $"%.1f{r.SolverElapsedMs}"
+          "budget",              $"%.2f{budget}"
+          "shots",               $"%d{shots}"
+          "risk_aversion",       $"%.2f{riskAversion}"
+          "has_quantum_failure", $"%b{r.HasQuantumFailure}" ]
         |> Map.ofList)
 
 match outputPath with

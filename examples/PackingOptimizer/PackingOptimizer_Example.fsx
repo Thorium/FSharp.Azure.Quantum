@@ -71,7 +71,7 @@ let displayResult (label: string) (result: Result<PackingOptimizer.PackingResult
         for a in sorted do
             pr "  %-20s  %10.1f  %6d" a.Item.Id a.Item.Size a.BinIndex
             jsonResults <- (box {| Example = label; Item = a.Item.Id; Size = a.Item.Size; Bin = a.BinIndex |}) :: jsonResults
-            csvRows <- [ label; a.Item.Id; sprintf "%.1f" a.Item.Size; string a.BinIndex; "true" ] :: csvRows
+            csvRows <- [ label; a.Item.Id; $"%.1f{a.Item.Size}"; string a.BinIndex; "true" ] :: csvRows
         pr ""
         pr "  Bins used:    %d" r.BinsUsed
         pr "  Items:        %d / %d assigned%s" r.ItemsAssigned r.TotalItems

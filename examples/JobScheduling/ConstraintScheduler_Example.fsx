@@ -87,8 +87,8 @@ let displaySchedule (label: string) (result: Result<ConstraintScheduler.Scheduli
                                    feasible = schedule.IsFeasible
                                    assignments = schedule.Assignments.Length |}) :: jsonResults
             schedule.Assignments |> List.iter (fun a ->
-                csvRows <- [label; a.Task; a.Resource; sprintf "%.2f" a.Cost;
-                            sprintf "%b" schedule.IsFeasible] :: csvRows
+                csvRows <- [label; a.Task; a.Resource; $"%.2f{a.Cost}";
+                            $"%b{schedule.IsFeasible}"] :: csvRows
             )
         | None ->
             pr "  No feasible schedule found with current constraints."
@@ -226,8 +226,8 @@ if runAll || exampleName = "cloud" then
                                    feasible = schedule.IsFeasible
                                    assignments = schedule.Assignments.Length |}) :: jsonResults
             schedule.Assignments |> List.iter (fun a ->
-                csvRows <- ["cloud"; a.Task; a.Resource; sprintf "%.2f" a.Cost;
-                            sprintf "%b" schedule.IsFeasible] :: csvRows
+                csvRows <- ["cloud"; a.Task; a.Resource; $"%.2f{a.Cost}";
+                            $"%b{schedule.IsFeasible}"] :: csvRows
             )
         | None ->
             pr "  Quantum optimization did not converge. Try increasing shots or adjusting constraints."

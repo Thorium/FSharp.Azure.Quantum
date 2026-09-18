@@ -211,12 +211,12 @@ let allResults = System.Collections.Generic.List<Map<string,string>>()
 /// Build the parameter-analysis result row.
 let paramAnalysisRow =
     [ "Section", "ParameterAnalysis"
-      "BondLength_A", sprintf "%.4f" bondLength
-      "NumElectrons", sprintf "%d" numElectrons
-      "NumOrbitals", sprintf "%d" numOrbitals
-      "SinglesExcitations", sprintf "%d" numSinglesExcitations
-      "DoublesExcitations", sprintf "%d" numDoublesExcitations
-      "TotalUCCSDParams", sprintf "%d" totalUCCSDParams ]
+      "BondLength_A", $"%.4f{bondLength}"
+      "NumElectrons", $"%d{numElectrons}"
+      "NumOrbitals", $"%d{numOrbitals}"
+      "SinglesExcitations", $"%d{numSinglesExcitations}"
+      "DoublesExcitations", $"%d{numDoublesExcitations}"
+      "TotalUCCSDParams", $"%d{totalUCCSDParams}" ]
     |> Map.ofList
 
 allResults.Add paramAnalysisRow
@@ -264,7 +264,7 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
                                | PauliOperator.PauliY -> "Y"
                                | PauliOperator.PauliZ -> "Z"
                                | PauliOperator.PauliI -> "I"
-                    sprintf "%s_%d" pStr q)
+                    $"%s{pStr}_%d{q}")
                 |> String.concat " "
             printfn "  %d. %.4f x %s" (i+1) term.Coefficient.Real paulis)
         printfn ""
@@ -381,19 +381,19 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
 
             let vqeRow =
                 [ "Section", "VQE_Result"
-                  "BondLength_A", sprintf "%.4f" bondLength
-                  "ElectronicEnergy_Hartree", sprintf "%.6f" result.Energy
-                  "NuclearRepulsion_Hartree", sprintf "%.6f" nuclearRepulsion
-                  "TotalEnergy_Hartree", sprintf "%.6f" totalEnergy
+                  "BondLength_A", $"%.4f{bondLength}"
+                  "ElectronicEnergy_Hartree", $"%.6f{result.Energy}"
+                  "NuclearRepulsion_Hartree", $"%.6f{nuclearRepulsion}"
+                  "TotalEnergy_Hartree", $"%.6f{totalEnergy}"
                   "TotalEnergy_eV", sprintf "%.6f" (totalEnergy * 27.2114)
-                  "Iterations", sprintf "%d" result.Iterations
-                  "Converged", sprintf "%b" result.Converged
-                  "Error_Hartree", sprintf "%.6f" energyError
+                  "Iterations", $"%d{result.Iterations}"
+                  "Converged", $"%b{result.Converged}"
+                  "Error_Hartree", $"%.6f{energyError}"
                   "ChemAccuracy", sprintf "%b" (energyError < chemicalAccuracy)
-                  "NumQubits", sprintf "%d" molecularHamiltonian.NumQubits
-                  "PauliTerms", sprintf "%d" molecularHamiltonian.Terms.Length
-                  "UCCSDParams", sprintf "%d" totalUCCSDParams
-                  "HF_Valid", sprintf "%b" isValid ]
+                  "NumQubits", $"%d{molecularHamiltonian.NumQubits}"
+                  "PauliTerms", $"%d{molecularHamiltonian.Terms.Length}"
+                  "UCCSDParams", $"%d{totalUCCSDParams}"
+                  "HF_Valid", $"%b{isValid}" ]
                 |> Map.ofList
             allResults.Add vqeRow
 

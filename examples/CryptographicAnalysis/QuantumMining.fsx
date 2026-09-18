@@ -147,7 +147,7 @@ let hasLeadingZeroBits (hash: byte[]) (zeroBits: int) : bool =
 
 /// Format hash bytes as hex string
 let hashToHex (hash: byte[]) : string =
-    hash |> Array.map (fun b -> sprintf "%02x" b) |> String.concat ""
+    hash |> Array.map (fun b -> $"%02x{b}") |> String.concat ""
 
 /// Mining predicate: does SHA256(blockData || nonce) meet difficulty?
 let miningPredicate (blockData: byte[]) (zeroBits: int) (nonce: int) : bool =
@@ -222,7 +222,7 @@ results.Add(
       "difficulty_bits", string difficulty
       "valid_nonces", string validNonces.Length
       "solution_density", sprintf "%.4f" (float validNonces.Length / float searchSpace)
-      "time_ms", sprintf "%.2f" classicalTimeMs
+      "time_ms", $"%.2f{classicalTimeMs}"
       "method", "brute_force"
       "queries", string searchSpace ]
     |> Map.ofList)
@@ -276,7 +276,7 @@ else
             printfn "  Oracle creation failed: %A" err
         results.Add(
             [ "scenario", "Quantum Mining"
-              "status", sprintf "oracle_error: %A" err ]
+              "status", $"oracle_error: %A{err}" ]
             |> Map.ofList)
     | Ok oracle ->
         if not quiet then
@@ -304,7 +304,7 @@ else
                 printfn "  Grover search failed: %A" err
             results.Add(
                 [ "scenario", "Quantum Mining"
-                  "status", sprintf "search_error: %A" err ]
+                  "status", $"search_error: %A{err}" ]
                 |> Map.ofList)
         | Ok result ->
             sw2.Stop()
@@ -365,8 +365,8 @@ else
                   "solutions_found", string result.Solutions.Length
                   "solutions_verified", string verifiedSolutions.Length
                   "iterations", string result.Iterations
-                  "success_probability", sprintf "%.4f" result.SuccessProbability
-                  "time_ms", sprintf "%.2f" quantumTimeMs
+                  "success_probability", $"%.4f{result.SuccessProbability}"
+                  "time_ms", $"%.2f{quantumTimeMs}"
                   "method", "grover"
                   "shots", string shots ]
                 |> Map.ofList)
@@ -459,13 +459,13 @@ for d in 1 .. maxDiffToTest do
             d count density classicalAvg groverOpt speedup
 
     results.Add(
-        [ "scenario", sprintf "Difficulty_%d" d
+        [ "scenario", $"Difficulty_%d{d}"
           "difficulty_bits", string d
           "valid_nonces", string count
-          "density", sprintf "%.4f" density
+          "density", $"%.4f{density}"
           "classical_queries", string classicalAvg
           "grover_iterations", string groverOpt
-          "speedup", if groverOpt > 0 then sprintf "%.1f" speedup else "N/A" ]
+          "speedup", if groverOpt > 0 then $"%.1f{speedup}" else "N/A" ]
         |> Map.ofList)
 
 if not quiet then
@@ -660,7 +660,7 @@ match csvPath with
 | Some path ->
     let allKeys =
         resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.collect (Map.toList >> List.map fst)
         |> List.distinct
     let rows =
         resultsList

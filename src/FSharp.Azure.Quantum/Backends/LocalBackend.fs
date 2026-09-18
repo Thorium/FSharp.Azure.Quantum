@@ -149,7 +149,7 @@ module LocalBackend =
                 
                 Ok finalState
             with
-            | :? System.OperationCanceledException ->
+            | :? OperationCanceledException ->
                 Error (QuantumError.OperationError ("LocalBackend", "Execution was cancelled"))
             | ex ->
                 Error (QuantumError.OperationError ("LocalBackend", ex.Message))
@@ -184,7 +184,7 @@ module LocalBackend =
                             |> fst
                         Ok (QuantumState.StateVector finalState)
                     with
-                    | :? System.OperationCanceledException ->
+                    | :? OperationCanceledException ->
                         Error (QuantumError.OperationError ("LocalBackend", "Execution was cancelled"))
                     | ex ->
                         Error (QuantumError.OperationError ("LocalBackend", ex.Message))
@@ -202,7 +202,7 @@ module LocalBackend =
                             |> fst
                         Ok (QuantumState.StateVector finalState)
                     with
-                    | :? System.OperationCanceledException ->
+                    | :? OperationCanceledException ->
                         Error (QuantumError.OperationError ("LocalBackend", "Execution was cancelled"))
                     | ex ->
                         Error (QuantumError.OperationError ("LocalBackend", ex.Message))
@@ -302,13 +302,13 @@ module LocalBackend =
                                  let dim = 1 <<< numQubits
                                  let sumAmp =
                                      [| 0 .. dim - 1 |]
-                                     |> Array.fold (fun acc i -> acc + StateVector.getAmplitude i sv) System.Numerics.Complex.Zero
-                                 let meanAmp = sumAmp / System.Numerics.Complex(float dim, 0.0)
+                                     |> Array.fold (fun acc i -> acc + StateVector.getAmplitude i sv) Complex.Zero
+                                 let meanAmp = sumAmp / Complex(float dim, 0.0)
                                  let amps =
                                      [| 0 .. dim - 1 |]
                                      |> Array.map (fun i ->
                                          let a = StateVector.getAmplitude i sv
-                                         (meanAmp * System.Numerics.Complex(2.0, 0.0)) - a)
+                                         (meanAmp * Complex(2.0, 0.0)) - a)
                                  let newSv = StateVector.create amps
                                  Ok (QuantumState.StateVector newSv)
                              | _ ->

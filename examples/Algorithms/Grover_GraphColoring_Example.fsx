@@ -146,7 +146,7 @@ if shouldRun "1" then
             Example = "1-Path-2Color"; GraphType = "Path (bipartite)"
             NumVertices = 3; NumEdges = 2; NumColors = 2; Qubits = 0
             QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = sprintf "Oracle error: %A" err
+            Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -165,7 +165,7 @@ if shouldRun "1" then
                 Example = "1-Path-2Color"; GraphType = "Path (bipartite)"
                 NumVertices = 3; NumEdges = 2; NumColors = 2; Qubits = oracle.NumQubits
                 QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = sprintf "Search error: %A" err
+                Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             // Filter to only valid solutions (satisfy oracle)
@@ -231,7 +231,7 @@ if shouldRun "2" then
             Example = "2-Triangle-3Color"; GraphType = "Complete K3"
             NumVertices = 3; NumEdges = 3; NumColors = 3; Qubits = 0
             QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = sprintf "Oracle error: %A" err
+            Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -250,7 +250,7 @@ if shouldRun "2" then
                 Example = "2-Triangle-3Color"; GraphType = "Complete K3"
                 NumVertices = 3; NumEdges = 3; NumColors = 3; Qubits = oracle.NumQubits
                 QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = sprintf "Search error: %A" err
+                Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             let colorings =
@@ -310,7 +310,7 @@ if shouldRun "3" then
             Example = "3-Square-C4"; GraphType = "4-cycle (square)"
             NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = 0
             QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = sprintf "Oracle error: %A" err
+            Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -329,7 +329,7 @@ if shouldRun "3" then
                 Example = "3-Square-C4"; GraphType = "4-cycle (square)"
                 NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = oracle.NumQubits
                 QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = sprintf "Search error: %A" err
+                Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             let colorings =
@@ -398,7 +398,7 @@ if shouldRun "4" then
             Example = "4-RegisterAlloc"; GraphType = "Interference graph"
             NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = 0
             QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = sprintf "Oracle error: %A" err
+            Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -417,7 +417,7 @@ if shouldRun "4" then
                 Example = "4-RegisterAlloc"; GraphType = "Interference graph"
                 NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = oracle.NumQubits
                 QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = sprintf "Search error: %A" err
+                Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             let registers = [|"EAX"; "EBX"; "ECX"|]
@@ -524,7 +524,7 @@ match csvPath with
         |> List.map (fun r ->
             [ r.Example; r.GraphType; string r.NumVertices; string r.NumEdges; string r.NumColors
               string r.Qubits; string r.QuantumColorings.Length
-              sprintf "%.4f" r.SuccessProbability; string r.Iterations; string r.Shots; r.Status ])
+              $"%.4f{r.SuccessProbability}"; string r.Iterations; string r.Shots; r.Status ])
     Reporting.writeCsv path header rows
     if not quiet then printfn "CSV written to %s" path
 | None -> ()

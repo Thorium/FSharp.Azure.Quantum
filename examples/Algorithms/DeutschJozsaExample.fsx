@@ -162,7 +162,7 @@ for (backendKey, backend) in backendsToTest do
     for oracle in oraclesToTest do
         match oracle.Run numQubits backend shots with
         | Ok result ->
-            let correct = (sprintf "%A" result.OracleType) = oracle.Expected
+            let correct = $"%A{result.OracleType}" = oracle.Expected
 
             if not quiet then
                 printfn "  %-22s [%s]" oracle.Name oracle.Description
@@ -178,8 +178,8 @@ for (backendKey, backend) in backendsToTest do
                   "oracle_name", oracle.Name
                   "description", oracle.Description
                   "expected", oracle.Expected
-                  "result", sprintf "%A" result.OracleType
-                  "zero_probability", sprintf "%.4f" result.ZeroProbability
+                  "result", $"%A{result.OracleType}"
+                  "zero_probability", $"%.4f{result.ZeroProbability}"
                   "qubits", string result.NumQubits
                   "shots", string result.Shots
                   "correct", string correct ]
@@ -194,7 +194,7 @@ for (backendKey, backend) in backendsToTest do
                 [ "backend", backendKey
                   "oracle", oracle.Key
                   "oracle_name", oracle.Name
-                  "error", sprintf "%A" err ]
+                  "error", $"%A{err}" ]
                 |> Map.ofList)
 
 // ============================================================================
@@ -241,7 +241,7 @@ match csvPath with
 | Some path ->
     let allKeys =
         resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.collect (Map.toList >> List.map fst)
         |> List.distinct
     let rows =
         resultsList

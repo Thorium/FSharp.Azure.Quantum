@@ -61,7 +61,7 @@ let shouldRun ex =
 let separator () =
     pr "%s" (String.replicate 60 "-")
 
-let fmt (x: float) = sprintf "%.4f" x
+let fmt (x: float) = $"%.4f{x}"
 let fmtArr (xs: float array) =
     xs |> Array.map fmt |> String.concat ", " |> sprintf "[%s]"
 
@@ -121,7 +121,7 @@ if shouldRun 1 then
 
     jsonResults <- ("1_setup", box {| backend = "LocalBackend"
                                       featureMap = "AngleEncoding"
-                                      ansatz = sprintf "RealAmplitudes(depth=%d)" cliDepth
+                                      ansatz = $"RealAmplitudes(depth=%d{cliDepth})"
                                       learningRate = config.LearningRate
                                       maxEpochs = config.MaxEpochs
                                       shots = config.Shots |}) :: jsonResults
@@ -334,7 +334,8 @@ if shouldRun 8 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "VQCExample.fsx"
            backend   = "Local Simulator"
@@ -345,11 +346,16 @@ if outputPath.IsSome then
            ansatzDepth = cliDepth
            example   = exChoice
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "metric1"; "metric2"; "metric3"; "metric4" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

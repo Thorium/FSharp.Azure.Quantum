@@ -220,7 +220,7 @@ if shouldRun 1 then
                 Example = "1-minimal"
                 Status = "ok"
                 Details = Map.ofList [
-                    "architecture", box (sprintf "%A" classifier.Metadata.Architecture)
+                    "architecture", box $"%A{classifier.Metadata.Architecture}"
                     "training_accuracy", box (classifier.Metadata.TrainingAccuracy * 100.0)
                     "prediction", box (if prediction.IsPositive then "FRAUD" else "LEGITIMATE")
                     "confidence", box (prediction.Confidence * 100.0)
@@ -454,12 +454,16 @@ let processNightlyBatch() =
 // OUTPUT
 // ============================================================================
 
-if outputPath.IsSome then
+match outputPath with
+| Some v ->
     let payload = {| script = "FraudDetection.fsx"; timestamp = DateTime.UtcNow; results = results |> Seq.toArray |}
-    Reporting.writeJson outputPath.Value payload
-    if not quiet then printfn "Results written to %s" outputPath.Value
+    Reporting.writeJson v payload
+    if not quiet then printfn "Results written to %s" v
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some csvPathValue ->
     let header = ["example"; "status"; "detail"]
     let rows =
         results
@@ -467,12 +471,14 @@ if csvPath.IsSome then
             let detail =
                 r.Details
                 |> Map.toList
-                |> List.map (fun (k, v) -> sprintf "%s=%O" k v)
+                |> List.map (fun (k, v) -> $"%s{k}=%O{v}")
                 |> String.concat "; "
             [r.Example; r.Status; detail])
         |> Seq.toList
-    Reporting.writeCsv csvPath.Value header rows
-    if not quiet then printfn "CSV written to %s" csvPath.Value
+    Reporting.writeCsv csvPathValue header rows
+    if not quiet then printfn "CSV written to %s" csvPathValue
+| None ->
+    ()
 
 // ============================================================================
 // USAGE HINTS

@@ -300,8 +300,8 @@ if shouldRun "qft0" then
             [ "example", "qft0"
               "qubits", string n
               "gate_count", string result.GateCount
-              "execution_time_ms", sprintf "%.2f" result.ExecutionTimeMs
-              "detail", sprintf "QFT on |0> with %d qubits" n ]
+              "execution_time_ms", $"%.2f{result.ExecutionTimeMs}"
+              "detail", $"QFT on |0> with %d{n} qubits" ]
             |> Map.ofList)
     | Error err ->
         if not quiet then printfn "  Error: %A" err
@@ -354,7 +354,7 @@ if shouldRun "qft1" then
             [ "example", "qft1"
               "qubits", string n
               "gate_count", string result.GateCount
-              "detail", sprintf "QFT on |1> with %d qubits" n ]
+              "detail", $"QFT on |1> with %d{n} qubits" ]
             |> Map.ofList)
     | Error err ->
         if not quiet then printfn "  Error: %A" err
@@ -405,7 +405,7 @@ if shouldRun "qft5" then
                 [ "example", "qft5"
                   "qubits", string n
                   "gate_count", string result.GateCount
-                  "detail", sprintf "QFT on |5> with %d qubits" n ]
+                  "detail", $"QFT on |5> with %d{n} qubits" ]
                 |> Map.ofList)
         | Error err ->
             if not quiet then printfn "  Error: %A" err
@@ -465,7 +465,7 @@ if shouldRun "roundtrip" then
     for applySwaps in [true; false] do
         for inverse in [true; false] do
             let config = { defaultConfig with ApplySwaps = applySwaps; Inverse = inverse }
-            let desc = sprintf "ApplySwaps=%b, Inverse=%b" applySwaps inverse
+            let desc = $"ApplySwaps=%b{applySwaps}, Inverse=%b{inverse}"
             match verifyUnitarity n backend config with
             | Ok isUnitary ->
                 let status = if isUnitary then "PASS" else "FAIL"
@@ -508,7 +508,7 @@ if shouldRun "complexity" then
             [ "example", "complexity"
               "qubits", string n
               "gate_count", string qft
-              "detail", sprintf "Complexity comparison for n=%d" n ]
+              "detail", $"Complexity comparison for n=%d{n}" ]
             |> Map.ofList)
 
     if not quiet then

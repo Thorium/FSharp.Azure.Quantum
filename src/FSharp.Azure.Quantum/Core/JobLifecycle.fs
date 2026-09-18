@@ -144,7 +144,7 @@ module JobLifecycle =
                     let getRequiredString (name: string) =
                         let prop = root.GetProperty name
                         if prop.ValueKind = JsonValueKind.Null then
-                            failwith ($"Required property '%s{name}' is null")
+                            failwith $"Required property '%s{name}' is null"
                         else
                             prop.GetString()
                     

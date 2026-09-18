@@ -23,10 +23,10 @@ module MeasurementTests =
     let ``Get basis state probability - should reject invalid index`` () =
         let state = StateVector.init 2
         
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Measurement.getBasisStateProbability -1 state |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Measurement.getBasisStateProbability 4 state |> ignore
         ) |> ignore
     
@@ -131,12 +131,12 @@ module MeasurementTests =
         let state = StateVector.init 2
         
         // Invalid outcome
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Measurement.collapseAfterMeasurement 0 2 state |> ignore
         ) |> ignore
         
         // Invalid qubit index
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Measurement.collapseAfterMeasurement 3 0 state |> ignore
         ) |> ignore
     
@@ -156,10 +156,10 @@ module MeasurementTests =
         let rng = Random(42)
         let state = StateVector.init 1
         
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Measurement.sampleMeasurements rng 0 state |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Measurement.sampleMeasurements rng -1 state |> ignore
         ) |> ignore
     

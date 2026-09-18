@@ -1401,6 +1401,7 @@ module TopologicalOperations =
     /// This allows the Core package to work with topological superpositions
     /// without creating a circular dependency, while still allowing the
     /// Topological package to access the underlying Superposition for operations.
+    [<Sealed>]
     type SuperpositionWrapper(superposition: Superposition) =
         member _.Superposition = superposition
         

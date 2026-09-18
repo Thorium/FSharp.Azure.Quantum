@@ -155,7 +155,7 @@ let private loadAssetsFromCsv (filePath: string) : AssetInfo list =
     rows |> List.mapi (fun i row ->
         let get key = row.Values |> Map.tryFind key |> Option.defaultValue ""
         match get "preset" with
-        | p when not (System.String.IsNullOrWhiteSpace p) ->
+        | p when not (String.IsNullOrWhiteSpace p) ->
             match builtInAssets |> Map.tryFind (p.Trim().ToLowerInvariant()) with
             | Some a -> a
             | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
@@ -228,7 +228,7 @@ let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option 
                 }
                 match fetchYahooHistory httpClient request with
                 | Ok priceSeries -> calculateReturns priceSeries
-                | Error error -> raise (InvalidOperationException(sprintf "Failed to fetch Yahoo data for %s: %A" symbol error)))
+                | Error error -> raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}")))
             |> List.toArray
         Some series
     with _ -> None
@@ -559,23 +559,23 @@ let resultMaps : Map<string, string> list =
     |> List.map (fun r ->
         [ "symbol",              r.Asset.Symbol
           "name",                r.Asset.Name
-          "asset_class",         sprintf "%A" r.Asset.Class
-          "weight",              sprintf "%.4f" r.Asset.Weight
-          "expected_return",     sprintf "%.4f" r.Asset.ExpectedReturn
-          "volatility",          sprintf "%.4f" r.Asset.Volatility
-          "mean_daily_return",   sprintf "%.6f" r.MeanDailyReturn
-          "daily_volatility",    sprintf "%.6f" r.DailyVolatility
-          "min_return",          sprintf "%.6f" r.MinReturn
-          "max_return",          sprintf "%.6f" r.MaxReturn
-          "var_contribution",    sprintf "%.2f" r.Contribution
-          "confidence",          sprintf "%.4f" confidenceLevel
-          "horizon_days",        sprintf "%d" timeHorizon
-          "portfolio_value",     sprintf "%.2f" portfolioValue
-          "quantum_var",         if Double.IsNaN quantumVaRValue then "" else sprintf "%.2f" quantumVaRValue
-          "quantum_es",          if Double.IsNaN quantumESValue then "" else sprintf "%.2f" quantumESValue
-          "stress_2008_loss",    sprintf "%.2f" crisis2008Loss
-          "stress_covid_loss",   sprintf "%.2f" covidLoss
-          "has_quantum_failure", sprintf "%b" r.HasQuantumFailure ]
+          "asset_class",         $"%A{r.Asset.Class}"
+          "weight",              $"%.4f{r.Asset.Weight}"
+          "expected_return",     $"%.4f{r.Asset.ExpectedReturn}"
+          "volatility",          $"%.4f{r.Asset.Volatility}"
+          "mean_daily_return",   $"%.6f{r.MeanDailyReturn}"
+          "daily_volatility",    $"%.6f{r.DailyVolatility}"
+          "min_return",          $"%.6f{r.MinReturn}"
+          "max_return",          $"%.6f{r.MaxReturn}"
+          "var_contribution",    $"%.2f{r.Contribution}"
+          "confidence",          $"%.4f{confidenceLevel}"
+          "horizon_days",        $"%d{timeHorizon}"
+          "portfolio_value",     $"%.2f{portfolioValue}"
+          "quantum_var",         if Double.IsNaN quantumVaRValue then "" else $"%.2f{quantumVaRValue}"
+          "quantum_es",          if Double.IsNaN quantumESValue then "" else $"%.2f{quantumESValue}"
+          "stress_2008_loss",    $"%.2f{crisis2008Loss}"
+          "stress_covid_loss",   $"%.2f{covidLoss}"
+          "has_quantum_failure", $"%b{r.HasQuantumFailure}" ]
         |> Map.ofList)
 
 match outputPath with

@@ -40,7 +40,7 @@ module SolutionVisualizationExtensions =
         
         /// Generate ASCII art representation
         member this.ToASCII() : string =
-            let sb = System.Text.StringBuilder()
+            let sb = StringBuilder()
             sb.AppendLine("Graph Coloring Solution") |> ignore
             sb.AppendLine("======================") |> ignore
             sb.AppendLine($"Colors Used: {this.ColorsUsed}") |> ignore

@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open FSharp.Azure.Quantum
+open System.Threading.Tasks
 
 module ZeroNoiseExtrapolationTests =
     
@@ -227,7 +228,7 @@ module ZeroNoiseExtrapolationTests =
                 Assert.True(zneResult.GoodnessOfFit >= 0.0 && zneResult.GoodnessOfFit <= 1.0)
             | Error err ->
                 Assert.Fail($"ZNE pipeline failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``mitigate should demonstrate error reduction`` () =
@@ -268,7 +269,7 @@ module ZeroNoiseExtrapolationTests =
                         zneResult.ZeroNoiseValue baseline)
             | Error err ->
                 Assert.Fail($"ZNE failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     // Cycle #5: Configuration builders and defaults - Idiomatic F# usability
     
@@ -368,7 +369,7 @@ module ZeroNoiseExtrapolationTests =
             match! ZeroNoiseExtrapolation.mitigate circuit config failingExecutor with
             | Error err -> Assert.Contains("execution failed", err)
             | Ok _ -> Assert.Fail("Expected error for failing executor")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``fitPolynomial should fail with insufficient data points`` () =
@@ -417,7 +418,7 @@ module ZeroNoiseExtrapolationTests =
                 Assert.Equal(0.85, zneResult.ZeroNoiseValue, 2)
             | Error err -> 
                 Assert.Fail($"Should handle single noise level: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     // Cycle #7: Benchmark - Demonstrate 30-50% error reduction and 3x overhead
     
@@ -473,7 +474,7 @@ module ZeroNoiseExtrapolationTests =
                     errorReduction baselineError zneError
             | Error err ->
                 Assert.Fail($"Benchmark failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Benchmark ZNE overhead should be 3x circuit executions`` () =
@@ -500,7 +501,7 @@ module ZeroNoiseExtrapolationTests =
                 printfn "✓ Benchmark: 3x overhead (3 circuit executions for 3 noise levels)"
             | Error err ->
                 Assert.Fail($"Benchmark failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task
     
     [<Fact>]
     let ``Benchmark parallel execution should be faster than sequential`` () =
@@ -533,4 +534,4 @@ module ZeroNoiseExtrapolationTests =
                     speedup parallelTime theoreticalSequential
             | Error err ->
                 Assert.Fail($"Benchmark failed: %s{err}")
-        } |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+        } |> Async.StartImmediateAsTask :> Task

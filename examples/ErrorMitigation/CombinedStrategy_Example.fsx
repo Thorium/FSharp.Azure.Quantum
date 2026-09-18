@@ -81,7 +81,7 @@ let pecSamples = Cli.getIntOr "pec-samples" 50 args
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
     if s.StartsWith "pi/" then
-        match Double.TryParse(s.Substring 3) with
+        match Double.TryParse(s.AsSpan 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
     elif s = "pi" then Math.PI
@@ -286,7 +286,7 @@ if runRemZne then
                 | Error err -> return Error err
                 | Ok histogram ->
                     match correctReadoutErrors histogram remCalibration remConfig with
-                    | Error err -> return Error (sprintf "REM failed: %s" err)
+                    | Error err -> return Error $"REM failed: %s{err}"
                     | Ok corrected ->
                         // Convert histogram to expectation value (simplified energy mapping)
                         let expectation =
@@ -331,12 +331,12 @@ if runRemZne then
             allResults.Add(
                 [ "example", "1_rem_zne"
                   "strategy", "REM + ZNE"
-                  "readout_error", sprintf "%.4f" readoutError
-                  "single_qubit_error", sprintf "%.4f" singleQubitError
-                  "two_qubit_error", sprintf "%.4f" twoQubitError
-                  "zero_noise_energy_Ha", sprintf "%.6f" zneResult.ZeroNoiseValue
-                  "error_Ha", sprintf "%.6f" error
-                  "r_squared", sprintf "%.4f" zneResult.GoodnessOfFit
+                  "readout_error", $"%.4f{readoutError}"
+                  "single_qubit_error", $"%.4f{singleQubitError}"
+                  "two_qubit_error", $"%.4f{twoQubitError}"
+                  "zero_noise_energy_Ha", $"%.6f{zneResult.ZeroNoiseValue}"
+                  "error_Ha", $"%.6f{error}"
+                  "r_squared", $"%.4f{zneResult.GoodnessOfFit}"
                   "overhead_x", sprintf "%d" (List.length zneNoiseLevels)
                   "pec_samples", "" ]
                 |> Map.ofList)
@@ -431,12 +431,12 @@ if runRemZnePec then
             allResults.Add(
                 [ "example", "2_rem_zne_pec"
                   "strategy", "REM + ZNE + PEC"
-                  "readout_error", sprintf "%.4f" readoutError
-                  "single_qubit_error", sprintf "%.4f" singleQubitError
-                  "two_qubit_error", sprintf "%.4f" twoQubitError
-                  "zero_noise_energy_Ha", sprintf "%.6f" zneResult.ZeroNoiseValue
-                  "error_Ha", sprintf "%.6f" combinedError
-                  "r_squared", sprintf "%.4f" zneResult.GoodnessOfFit
+                  "readout_error", $"%.4f{readoutError}"
+                  "single_qubit_error", $"%.4f{singleQubitError}"
+                  "two_qubit_error", $"%.4f{twoQubitError}"
+                  "zero_noise_energy_Ha", $"%.6f{zneResult.ZeroNoiseValue}"
+                  "error_Ha", $"%.6f{combinedError}"
+                  "r_squared", $"%.4f{zneResult.GoodnessOfFit}"
                   "overhead_x", sprintf "%d" (pecSamples * List.length zneNoiseLevels)
                   "pec_samples", string pecSamples ]
                 |> Map.ofList)
@@ -510,15 +510,15 @@ for s in strategies do
     allResults.Add(
         [ "example", "3_cost_benefit"
           "strategy", s.Name
-          "readout_error", sprintf "%.4f" readoutError
-          "single_qubit_error", sprintf "%.4f" singleQubitError
-          "two_qubit_error", sprintf "%.4f" twoQubitError
+          "readout_error", $"%.4f{readoutError}"
+          "single_qubit_error", $"%.4f{singleQubitError}"
+          "two_qubit_error", $"%.4f{twoQubitError}"
           "zero_noise_energy_Ha", ""
           "error_Ha", ""
           "r_squared", ""
-          "overhead_x", sprintf "%.0f" s.Overhead
+          "overhead_x", $"%.0f{s.Overhead}"
           "pec_samples", ""
-          "error_reduction_pct", sprintf "%.1f" s.ErrorReduction ]
+          "error_reduction_pct", $"%.1f{s.ErrorReduction}" ]
         |> Map.ofList)
 
 if not quiet then
@@ -579,13 +579,13 @@ let runCircuitWithAdaptiveEM
                             let energy = if bs = "00" then -1.2 else -1.0
                             prob * energy)
                     Ok expectation
-                | Error err -> Error (sprintf "%s: %s" strategyName err)
+                | Error err -> Error $"%s{strategyName}: %s{err}"
 
         | Production ->
             // REM + ZNE
             let remCfg = ReadoutErrorMitigation.defaultConfig
             match! measureCalibrationMatrix backend 2 remCfg fullNoisyExecutor with
-            | Error err -> return Error (sprintf "%s: calibration failed: %s" strategyName err)
+            | Error err -> return Error $"%s{strategyName}: calibration failed: %s{err}"
             | Ok cal ->
                 let combinedExec (c: Circuit) : Async<Result<float, string>> =
                     async {
@@ -610,7 +610,7 @@ let runCircuitWithAdaptiveEM
                 return
                     match zneResult with
                     | Ok res -> Ok res.ZeroNoiseValue
-                    | Error err -> Error (sprintf "%s: %s" strategyName err)
+                    | Error err -> Error $"%s{strategyName}: %s{err}"
 
         | HighAccuracy ->
             // REM + PEC
@@ -619,7 +619,7 @@ let runCircuitWithAdaptiveEM
             return
                 match pecResult with
                 | Ok res -> Ok res.CorrectedExpectation
-                | Error err -> Error (sprintf "%s: %s" strategyName err)
+                | Error err -> Error $"%s{strategyName}: %s{err}"
 
         | Maximum ->
             // REM + ZNE + PEC (both techniques applied independently, take best)
@@ -634,7 +634,7 @@ let runCircuitWithAdaptiveEM
                     Ok ((pec.CorrectedExpectation + zne.ZeroNoiseValue) / 2.0)
                 | Ok pec, Error _ -> Ok pec.CorrectedExpectation
                 | Error _, Ok zne -> Ok zne.ZeroNoiseValue
-                | Error e1, Error e2 -> Error (sprintf "%s: PEC=%s, ZNE=%s" strategyName e1 e2)
+                | Error e1, Error e2 -> Error $"%s{strategyName}: PEC=%s{e1}, ZNE=%s{e2}"
     }
 
 if not quiet then
@@ -662,10 +662,10 @@ match Async.RunSynchronously (runCircuitWithAdaptiveEM vqeCircuit "ionq" Product
     allResults.Add(
         [ "example", "4_adaptive_api"
           "strategy", "Production (REM + ZNE)"
-          "readout_error", sprintf "%.4f" readoutError
-          "single_qubit_error", sprintf "%.4f" singleQubitError
-          "two_qubit_error", sprintf "%.4f" twoQubitError
-          "zero_noise_energy_Ha", sprintf "%.6f" energy
+          "readout_error", $"%.4f{readoutError}"
+          "single_qubit_error", $"%.4f{singleQubitError}"
+          "two_qubit_error", $"%.4f{twoQubitError}"
+          "zero_noise_energy_Ha", $"%.6f{energy}"
           "error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
           "r_squared", ""
           "overhead_x", "3"

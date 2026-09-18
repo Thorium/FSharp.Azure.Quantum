@@ -105,12 +105,12 @@ module BuildersCSharpExtensions =
     
     /// <summary>Map Result&lt;T, E&gt; to Result&lt;U, E&gt; using C# Func&lt;T, U&gt;.</summary>
     [<Extension>]
-    let MapResult (result: Result<'T, 'E>) (mapper: System.Func<'T, 'U>) : Result<'U, 'E> =
+    let MapResult (result: Result<'T, 'E>) (mapper: Func<'T, 'U>) : Result<'U, 'E> =
         Result.map mapper.Invoke result
     
     /// <summary>Bind Result&lt;T, E&gt; to Result&lt;U, E&gt; using C# Func&lt;T, Result&lt;U, E&gt;&gt;.</summary>
     [<Extension>]
-    let BindResult (result: Result<'T, 'E>) (binder: System.Func<'T, Result<'U, 'E>>) : Result<'U, 'E> =
+    let BindResult (result: Result<'T, 'E>) (binder: Func<'T, Result<'U, 'E>>) : Result<'U, 'E> =
         Result.bind binder.Invoke result
     
     /// <summary>Check if Result is Ok (C# helper).</summary>
@@ -870,7 +870,7 @@ module QuantumBackendCSharpExtensions =
     let ExecuteToStateTask 
         (backend: IQuantumBackend) 
         (circuit: ICircuit) : Task<Result<QuantumState, QuantumError>> =
-        backend.ExecuteToStateAsync circuit System.Threading.CancellationToken.None
+        backend.ExecuteToStateAsync circuit CancellationToken.None
     
     /// <summary>
     /// Get backend name (C# property helper).

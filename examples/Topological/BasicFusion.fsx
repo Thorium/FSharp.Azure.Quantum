@@ -108,12 +108,12 @@ if shouldRun 2 then
                     match outcome with
                     | AnyonSpecies.Particle.Vacuum -> "vacuum (trivial)"
                     | AnyonSpecies.Particle.Psi    -> "psi (fermion)"
-                    | _                            -> sprintf "%A" outcome
+                    | _                            -> $"%A{outcome}"
                 pr "Outcome: %s   (probability: %.4f)" outName probability
 
-                jsonResults <- ("2_measure", box {| outcome = sprintf "%A" outcome
+                jsonResults <- ("2_measure", box {| outcome = $"%A{outcome}"
                                                     probability = probability |}) :: jsonResults
-                csvRows <- [ "2_measure"; sprintf "%A" outcome; sprintf "%.4f" probability ] :: csvRows
+                csvRows <- [ "2_measure"; $"%A{outcome}"; $"%.4f{probability}" ] :: csvRows
             | None ->
                 pr "Outcome: (no classical outcome)   (probability: %.4f)" probability
     | Error err ->
@@ -167,7 +167,7 @@ if shouldRun 3 then
         jsonResults <- ("3_stats", box {| trials = cliTrials; vacuum = vacCount; psi = psiCount
                                           vacuumPct = vacPct; psiPct = psiPct |}) :: jsonResults
         csvRows <- [ "3_stats"; string vacCount; string psiCount;
-                      sprintf "%.1f" vacPct; sprintf "%.1f" psiPct ] :: csvRows
+                      $"%.1f{vacPct}"; $"%.1f{psiPct}" ] :: csvRows
     | Error err ->
         pr "Measurement setup failed: %s" err.Message
 
@@ -206,7 +206,8 @@ if shouldRun 4 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "BasicFusion.fsx"
            backend   = "Topological (Ising)"
@@ -214,11 +215,16 @@ if outputPath.IsSome then
            example   = exChoice
            trials    = cliTrials
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

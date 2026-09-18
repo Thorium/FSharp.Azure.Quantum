@@ -265,7 +265,7 @@ module CloudBackendTests =
         task {
             let httpClient = createDummyHttpClient ()
             let backend = CloudBackends.RigettiCloudBackend(httpClient, "https://test", "rigetti.sim.qvm") :> IQuantumBackend
-            let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
+            let dummyState = QuantumState.StateVector (StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
             match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> () // Expected
@@ -317,7 +317,7 @@ module CloudBackendTests =
         task {
             let httpClient = createDummyHttpClient ()
             let backend = CloudBackends.IonQCloudBackend(httpClient, "https://test", "ionq.simulator") :> IQuantumBackend
-            let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
+            let dummyState = QuantumState.StateVector (StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
             match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
@@ -376,7 +376,7 @@ module CloudBackendTests =
         task {
             let httpClient = createDummyHttpClient ()
             let backend = CloudBackends.QuantinuumCloudBackend(httpClient, "https://test", "quantinuum.sim.h1-1sc") :> IQuantumBackend
-            let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
+            let dummyState = QuantumState.StateVector (StateVector.init 2)
             let gate = QuantumOperation.Measure 0
             match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
@@ -430,7 +430,7 @@ module CloudBackendTests =
         task {
             let httpClient = createDummyHttpClient ()
             let backend = CloudBackends.AtomComputingCloudBackend(httpClient, "https://test", "atom-computing.sim") :> IQuantumBackend
-            let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
+            let dummyState = QuantumState.StateVector (StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
             match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
@@ -465,7 +465,7 @@ module CloudBackendTests =
         task {
             let httpClient = createDummyHttpClient ()
             let backend = CloudBackends.IqmCloudBackend(httpClient, "https://test", "iqm.sim") :> IQuantumBackend
-            let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
+            let dummyState = QuantumState.StateVector (StateVector.init 2)
             let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
             match! backend.ApplyOperationAsync gate dummyState CancellationToken.None with
             | Error (QuantumError.OperationError _) -> ()
@@ -484,7 +484,7 @@ module CloudBackendTests =
     let ``IqmBackend createJobSubmission uses OpenQASM 2.0 format`` () =
         let submission = IqmBackend.createJobSubmission "OPENQASM 2.0;" 500 "iqm.sim"
         Assert.Equal("iqm.sim", submission.Target)
-        Assert.Equal(FSharp.Azure.Quantum.Core.Types.CircuitFormat.Custom "qasm.v2", submission.InputDataFormat)
+        Assert.Equal(Types.CircuitFormat.Custom "qasm.v2", submission.InputDataFormat)
 
     [<Fact>]
     let ``AtomComputingCloudBackend QPU MaxQubits is 100`` () =

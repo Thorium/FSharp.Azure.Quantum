@@ -160,12 +160,30 @@ module Program =
                 // Shouldn't happen but handle it
                 None
     
+    [<RequireQualifiedAccess>]
+    type Source =
+        | Threat
+        | Grover
+        | Classical
+        | HybridClassical
+        | HybridQuantum
+        | Hybrid
+
+        override this.ToString() =
+            match this with
+            | Source.Threat -> "threat"
+            | Source.Grover -> "grover"
+            | Source.Classical -> "classical"
+            | Source.HybridClassical -> "hybrid-classical"
+            | Source.HybridQuantum -> "hybrid-quantum"
+            | Source.Hybrid -> "hybrid"
+
     /// Move log entry for debugging
     type MoveLogEntry = {
         MoveNumber: int
         Player: Cell
         Position: Position
-        Source: string  // "threat", "grover", "classical", "hybrid-classical", "hybrid-quantum"
+        Source: Source  // "threat", "grover", "classical", "hybrid-classical", "hybrid-quantum"
     }
 
     /// AI vs AI game for benchmarking
@@ -200,19 +218,19 @@ module Program =
                 // Determine move source
                 let source =
                     match threatMove with
-                    | Some _ -> "threat"
+                    | Some _ -> Source.Threat
                     | None ->
                         match currentAI with
-                        | ClassicalAI -> "classical"
+                        | ClassicalAI -> Source.Classical
                         | LocalQuantumAI
-                        | TopologicalQuantumAI -> "grover"
+                        | TopologicalQuantumAI -> Source.Grover
                         | LocalHybridAI ->
                             match hybridMetrics with
                             | Some m ->
                                 match m.Strategy with
-                                | LocalHybrid.Classical _ -> "hybrid-classical"
-                                | LocalHybrid.Quantum _ -> "hybrid-quantum"
-                            | None -> "hybrid"
+                                | LocalHybrid.Classical _ -> Source.HybridClassical
+                                | LocalHybrid.Quantum _ -> Source.HybridQuantum
+                            | None -> Source.Hybrid
                 
                 let entry = {
                     MoveNumber = moveNum
@@ -304,7 +322,7 @@ module Program =
         AnsiConsole.MarkupLine("[bold green]Benchmark Complete![/]")
         AnsiConsole.WriteLine()
         
-        let table = Spectre.Console.Table(Border = TableBorder.Rounded)
+        let table = Table(Border = TableBorder.Rounded)
         table.AddColumn("[bold]Metric[/]") |> ignore
         table.AddColumn("[bold]Value[/]") |> ignore
         
@@ -405,16 +423,16 @@ module Program =
                         let playerChar = if entry.Player = Black then "X" else "O"
                         let sourceTag = 
                             match entry.Source with
-                            | "threat" -> " [red]<THREAT>[/]"
-                            | "grover" -> " [magenta]<GROVER>[/]"
-                            | "classical" -> ""
+                            | Source.Threat -> " [red]<THREAT>[/]"
+                            | Source.Grover -> " [magenta]<GROVER>[/]"
+                            | Source.Classical -> ""
                             | s -> $" [grey]<{s}>[/]"
                         AnsiConsole.MarkupLine($"  {entry.MoveNumber,3}. {playerChar} ({entry.Position.Row},{entry.Position.Col}){sourceTag}")
                     
                     0  // Success
                 
                 | _ ->
-                    ConsoleRenderer.displayError $"Invalid AI player names. Use: classical, quantum, hybrid, or topological"
+                    ConsoleRenderer.displayError "Invalid AI player names. Use: classical, quantum, hybrid, or topological"
                     AnsiConsole.WriteLine()
                     AnsiConsole.MarkupLine("[cyan]Usage:[/] Gomoku --ai-vs-ai <ai1> <ai2> [--debug]")
                     AnsiConsole.MarkupLine("[cyan]Example:[/] Gomoku --ai-vs-ai classical quantum")

@@ -97,7 +97,7 @@ if shouldRun 1 then
     pr "  Error correction:     up to %d errors" ((d - 1) / 2)
 
     jsonResults <- ("1_lattice", box {| width = lattice.Width; height = lattice.Height; k = k; n = n; d = d; rate = rate |}) :: jsonResults
-    csvRows <- [ "1_lattice"; string k; string n; string d; sprintf "%.4f" rate ] :: csvRows
+    csvRows <- [ "1_lattice"; string k; string n; string d; $"%.4f{rate}" ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Ground state
@@ -244,7 +244,8 @@ if shouldRun 6 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "ToricCodeExample.fsx"
            backend   = quantumBackend.Name
@@ -252,11 +253,16 @@ if outputPath.IsSome then
            example   = exChoice
            latticeSize = latticeSize
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

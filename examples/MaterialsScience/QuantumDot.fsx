@@ -231,10 +231,10 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
             printfn "    Energy: %.6f Ha (%.3f eV), Iterations: %d, Time: %.2f s" energy (energy * hartreeToEV) iterations time
         Map.ofList [
             "molecule", molecule.Name; "label", label
-            "energy_hartree", sprintf "%.6f" energy
+            "energy_hartree", $"%.6f{energy}"
             "energy_eV", sprintf "%.3f" (energy * hartreeToEV)
-            "iterations", sprintf "%d" iterations
-            "time_seconds", sprintf "%.2f" time
+            "iterations", $"%d{iterations}"
+            "time_seconds", $"%.2f{time}"
             "has_vqe_failure", "false" ]
     | Error msg ->
         anyVqeFailure <- true
@@ -246,7 +246,7 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
             "has_vqe_failure", "true" ]
 
 let vqeResults = [
-    runVqe "CdSe Dimer" (sprintf "Cd-Se bond: %.2f A" cdSeBondLength) (createCdSeDimer())
+    runVqe "CdSe Dimer" $"Cd-Se bond: %.2f{cdSeBondLength} A" (createCdSeDimer())
     runVqe "Cd2Se2 Cluster" "Rhombus structure, 4 atoms" (createCd2Se2Cluster())
     runVqe "ZnS Dimer" "Comparison material, Zn-S bond: 2.34 A" (createZnSDimer())
 ]
@@ -308,16 +308,16 @@ let materialRows =
         Map.ofList [
             "material", mat.Name
             "short_name", mat.ShortName
-            "electron_mass", sprintf "%.3f" mat.ElectronMass
-            "hole_mass", sprintf "%.3f" mat.HoleMass
-            "bulk_band_gap_eV", sprintf "%.3f" mat.BulkBandGap
-            "qd_band_gap_eV", sprintf "%.3f" qdGap
-            "confinement_eV", sprintf "%.3f" confine
-            "wavelength_nm", sprintf "%.0f" wl
+            "electron_mass", $"%.3f{mat.ElectronMass}"
+            "hole_mass", $"%.3f{mat.HoleMass}"
+            "bulk_band_gap_eV", $"%.3f{mat.BulkBandGap}"
+            "qd_band_gap_eV", $"%.3f{qdGap}"
+            "confinement_eV", $"%.3f{confine}"
+            "wavelength_nm", $"%.0f{wl}"
             "emission_color", emissionColor wl
-            "dielectric_constant", sprintf "%.2f" mat.DielectricConstant
-            "dot_size_nm", sprintf "%.1f" dotSize
-            "has_vqe_failure", sprintf "%b" anyVqeFailure ])
+            "dielectric_constant", $"%.2f{mat.DielectricConstant}"
+            "dot_size_nm", $"%.1f{dotSize}"
+            "has_vqe_failure", $"%b{anyVqeFailure}" ])
 
 let allResultRows = materialRows @ vqeResults
 

@@ -6,6 +6,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms.QuantumMonteCarlo
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
+open System.Threading.Tasks
 
 module QuantumMonteCarloTests =
 
@@ -65,7 +66,7 @@ module QuantumMonteCarloTests =
                 Assert.True(abs (qmc.ExpectationValue - 0.3) < 0.02,
                     $"Expected marked amplitude a ≈ 0.3, got {qmc.ExpectationValue}")
             | Error e -> failwith $"QAE failed: {e}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     // ========================================================================
     // VALIDATION
@@ -79,7 +80,7 @@ module QuantumMonteCarloTests =
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Error (QuantumError.ValidationError ("NumQubits", _)) -> ()
             | r -> failwith $"Expected ValidationError for NumQubits, got {r}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects NumQubits > 20`` () =
@@ -89,7 +90,7 @@ module QuantumMonteCarloTests =
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Error (QuantumError.ValidationError ("NumQubits", _)) -> ()
             | r -> failwith $"Expected ValidationError for NumQubits, got {r}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects negative GroverIterations`` () =
@@ -99,7 +100,7 @@ module QuantumMonteCarloTests =
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Error (QuantumError.ValidationError ("GroverIterations", _)) -> ()
             | r -> failwith $"Expected ValidationError for GroverIterations, got {r}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects Shots < 100`` () =
@@ -109,7 +110,7 @@ module QuantumMonteCarloTests =
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Error (QuantumError.ValidationError ("Shots", _)) -> ()
             | r -> failwith $"Expected ValidationError for Shots, got {r}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects state prep qubit count mismatch`` () =
@@ -119,7 +120,7 @@ module QuantumMonteCarloTests =
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Error (QuantumError.ValidationError _) -> ()
             | r -> failwith $"Expected ValidationError for qubit count mismatch, got {r}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     // ========================================================================
     // SUCCESSFUL EXECUTION
@@ -139,7 +140,7 @@ module QuantumMonteCarloTests =
                     $"SuccessProbability {qmc.SuccessProbability} should be in [0,1]")
                 Assert.True(qmc.QuantumQueries > 0, "QuantumQueries should be positive")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``estimateExpectation with zero Grover iterations still works`` () =
@@ -148,7 +149,7 @@ module QuantumMonteCarloTests =
             let qb = createBackend()
             let! result = estimateExpectation config qb |> Async.StartImmediateAsTask
             result |> Result.map (fun qmc -> Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -168,7 +169,7 @@ module QuantumMonteCarloTests =
             let qb = createBackend()
             let! result = estimateProbability statePrep oracle 1 qb |> Async.StartImmediateAsTask
             result |> Result.map (fun p -> Assert.True(p >= 0.0 && p <= 1.0, $"Probability {p} should be in [0,1]")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``integrate returns a finite value`` () =
@@ -180,7 +181,7 @@ module QuantumMonteCarloTests =
             let qb = createBackend()
             let! result = integrate functionOracle (0.0, 1.0) 1 qb |> Async.StartImmediateAsTask
             result |> Result.map (fun value -> Assert.True(System.Double.IsFinite(value), $"Integration result {value} should be finite")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     // ========================================================================
     // QMC RESULT FIELDS
@@ -196,7 +197,7 @@ module QuantumMonteCarloTests =
                 // QuantumQueries = GroverIterations * Shots
                 Assert.Equal(2 * 200, qmc.QuantumQueries)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``QMCResult has correct ClassicalEquivalent calculation`` () =
@@ -208,4 +209,4 @@ module QuantumMonteCarloTests =
                 // ClassicalEquivalent = GroverIterations^2
                 Assert.Equal(9, qmc.ClassicalEquivalent)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> System.Threading.Tasks.Task
+        } :> Task

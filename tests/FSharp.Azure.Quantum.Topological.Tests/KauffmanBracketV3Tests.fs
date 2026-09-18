@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum.Topological.KauffmanBracket
 open FSharp.Azure.Quantum.Topological.KauffmanBracket.Planar
 open FSharp.Azure.Quantum.Topological.KnotConstructors
+open System
 open System.Numerics
 
 // ========================================
@@ -20,7 +21,7 @@ let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) 
     )
 
 /// Get standard A value for testing (exp(i*pi/4))
-let testA = Complex(System.Math.Cos(System.Math.PI / 4.0), System.Math.Sin(System.Math.PI / 4.0))
+let testA = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
 
 /// Calculate expected d value: d = -A^2 - A^(-2)
 let expectedD (a: Complex) : Complex =
@@ -363,8 +364,8 @@ let ``Jones polynomial of unknot is well-defined`` () =
     let jones = jonesPolynomial unknot a
     
     // Assert
-    Assert.False(System.Double.IsNaN(jones.Real))
-    Assert.False(System.Double.IsNaN(jones.Imaginary))
+    Assert.False(Double.IsNaN(jones.Real))
+    Assert.False(Double.IsNaN(jones.Imaginary))
 
 // ========================================
 // TDD Cycle 9: Crossing Resolution (Skein Relation)
@@ -410,7 +411,7 @@ let ``Ising value gives non-degenerate result`` () =
     
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
-    Assert.False(System.Double.IsNaN(bracket.Real))
+    Assert.False(Double.IsNaN(bracket.Real))
 
 [<Fact>]
 let ``Fibonacci value gives non-degenerate result`` () =
@@ -422,7 +423,7 @@ let ``Fibonacci value gives non-degenerate result`` () =
     
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
-    Assert.False(System.Double.IsNaN(bracket.Real))
+    Assert.False(Double.IsNaN(bracket.Real))
 
 // ========================================
 // Property-Based Tests

@@ -31,7 +31,7 @@ module IqmBackend =
         {
             JobId = Guid.NewGuid().ToString()
             Target = target
-            Name = Some ($"IQM-%s{target}")
+            Name = Some $"IQM-%s{target}"
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2"  // OpenQASM 2.0
             InputParams = Map [ ("shots", shots :> obj) ]

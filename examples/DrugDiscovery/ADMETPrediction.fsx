@@ -560,13 +560,13 @@ let encodeFeatures (desc: ADMETDescriptors) : float array =
 let createFeatureMapCircuit (features: float array) (nQubits: int) : string =
     // Build quantum circuit string (for display)
     let sb = System.Text.StringBuilder()
-    sb.AppendLine(sprintf "// ZZ-Feature Map for ADMET (%d qubits, depth %d)" nQubits featureMapDepth) |> ignore
+    sb.AppendLine($"// ZZ-Feature Map for ADMET (%d{nQubits} qubits, depth %d{featureMapDepth})") |> ignore
     
     for layer in 0 .. featureMapDepth - 1 do
-        sb.AppendLine(sprintf "// Layer %d" layer) |> ignore
+        sb.AppendLine($"// Layer %d{layer}") |> ignore
         // Hadamard layer
         for q in 0 .. nQubits - 1 do
-            sb.AppendLine(sprintf "H q[%d];" q) |> ignore
+            sb.AppendLine($"H q[%d{q}];") |> ignore
         // Single-qubit rotations (encode features)
         for q in 0 .. nQubits - 1 do
             let featureIdx = q % features.Length
@@ -951,7 +951,7 @@ let predictionToMap (p: ADMETPrediction) : Map<string, string> =
         "LipinskiViolations", string p.LipinskiViolations
         "VeberViolations", string p.VeberViolations
         "DrugLikeness", p.DrugLikeness
-        "BioavailabilityScore", sprintf "%.3f" p.BioavailabilityScore
+        "BioavailabilityScore", $"%.3f{p.BioavailabilityScore}"
         "Caco2Permeability", p.Caco2Permeability
         "PgpSubstrate", string p.PgpSubstrate
         "BCSClass", p.BCSClass
@@ -966,7 +966,7 @@ let predictionToMap (p: ADMETPrediction) : Map<string, string> =
         "hERGInhibition", p.hERGInhibition
         "HepatotoxicityRisk", p.HepatotoxicityRisk
         "AMES", p.AMES
-        "OverallADMETScore", sprintf "%.3f" p.OverallADMETScore
+        "OverallADMETScore", $"%.3f{p.OverallADMETScore}"
         "Recommendation", p.Recommendation
         "FormulationNote", p.FormulationNote
     ]
@@ -987,7 +987,7 @@ match csvFile with
     ]
     let rows =
         predictions |> List.map (fun p ->
-            [ p.CompoundId; p.Smiles; sprintf "%.3f" p.OverallADMETScore; p.Recommendation
+            [ p.CompoundId; p.Smiles; $"%.3f{p.OverallADMETScore}"; p.Recommendation
               p.DrugLikeness; p.BCSClass; p.BBBPermeability; p.MetabolicStability
               p.hERGInhibition; p.HepatotoxicityRisk; string p.LipinskiViolations
               p.FormulationNote ])

@@ -145,7 +145,7 @@ if shouldRun "1" then
             pr "  Success Probability: %.4f" result.SuccessProbability
             pr "  Condition Number (kappa): %s" (
                 match result.ConditionNumber with
-                | Some k -> sprintf "%.2f" k
+                | Some k -> $"%.2f{k}"
                 | None -> "N/A"
             )
             pr "  Gates Used: %d" result.GateCount
@@ -160,9 +160,9 @@ if shouldRun "1" then
                 "scenario", "1_simple_2x2"
                 "matrix", "diag(2,1)"
                 "vector", "[4,2]"
-                "success_probability", sprintf "%.6f" result.SuccessProbability
-                "condition_number", (match result.ConditionNumber with Some k -> sprintf "%.2f" k | None -> "N/A")
-                "gate_count", sprintf "%d" result.GateCount
+                "success_probability", $"%.6f{result.SuccessProbability}"
+                "condition_number", (match result.ConditionNumber with Some k -> $"%.2f{k}" | None -> "N/A")
+                "gate_count", $"%d{result.GateCount}"
                 "backend", result.BackendName
             ])
 
@@ -225,9 +225,9 @@ if shouldRun "2" then
                 "scenario", "2_ill_conditioned"
                 "matrix", "diag(100,1)"
                 "vector", "[1,1]"
-                "success_probability", sprintf "%.6f" result.SuccessProbability
-                "condition_number", (match result.ConditionNumber with Some k -> sprintf "%.2f" k | None -> "N/A")
-                "gate_count", sprintf "%d" result.GateCount
+                "success_probability", $"%.6f{result.SuccessProbability}"
+                "condition_number", (match result.ConditionNumber with Some k -> $"%.2f{k}" | None -> "N/A")
+                "gate_count", $"%d{result.GateCount}"
                 "backend", result.BackendName
             ])
 
@@ -274,9 +274,9 @@ if shouldRun "3" then
                 "scenario", "3_4x4_system"
                 "matrix", "diag(2,3,4,5)"
                 "vector", "[1,0,0,0]"
-                "success_probability", sprintf "%.6f" result.SuccessProbability
-                "condition_number", (match result.ConditionNumber with Some k -> sprintf "%.2f" k | None -> "N/A")
-                "gate_count", sprintf "%d" result.GateCount
+                "success_probability", $"%.6f{result.SuccessProbability}"
+                "condition_number", (match result.ConditionNumber with Some k -> $"%.2f{k}" | None -> "N/A")
+                "gate_count", $"%d{result.GateCount}"
                 "backend", result.BackendName
             ])
 
@@ -319,8 +319,8 @@ if shouldRun "4" then
 
         results.Add(Map.ofList [
             "scenario", "4_mottonen_state_prep"
-            "num_qubits", sprintf "%d" state.NumQubits
-            "dimension", sprintf "%d" state.Amplitudes.Length
+            "num_qubits", $"%d{state.NumQubits}"
+            "dimension", $"%d{state.Amplitudes.Length}"
             "status", "success"
         ])
     with
@@ -328,7 +328,7 @@ if shouldRun "4" then
         pr "Error: %s" ex.Message
         results.Add(Map.ofList [
             "scenario", "4_mottonen_state_prep"
-            "status", sprintf "error: %s" ex.Message
+            "status", $"error: %s{ex.Message}"
         ])
 
 // ============================================================================
@@ -378,10 +378,10 @@ if shouldRun "5" then
 
     results.Add(Map.ofList [
         "scenario", "5_trotter_suzuki"
-        "pauli_terms", sprintf "%d" pauliHamiltonian.Terms.Length
-        "num_qubits", sprintf "%d" pauliHamiltonian.NumQubits
-        "trotter_steps", sprintf "%d" trotterConfig.NumSteps
-        "estimated_steps", sprintf "%d" estimatedSteps
+        "pauli_terms", $"%d{pauliHamiltonian.Terms.Length}"
+        "num_qubits", $"%d{pauliHamiltonian.NumQubits}"
+        "trotter_steps", $"%d{trotterConfig.NumSteps}"
+        "estimated_steps", $"%d{estimatedSteps}"
     ])
 
 // ============================================================================
@@ -459,16 +459,20 @@ pr ""
 // Structured output
 // ---------------------------------------------------------------------------
 
-if outputPath.IsSome then
+match outputPath with
+| Some v ->
     let payload = {| script = "HHLAlgorithm.fsx"
                      timestamp = DateTime.UtcNow
                      precision = cliPrecision
                      example = example
                      results = results |> Seq.toArray |}
-    Reporting.writeJson outputPath.Value payload
-    pr "Results written to %s" outputPath.Value
+    Reporting.writeJson v payload
+    pr "Results written to %s" v
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = ["scenario"; "matrix"; "vector"; "success_probability";
                   "condition_number"; "gate_count"; "backend"; "status"]
     let rows =
@@ -476,8 +480,10 @@ if csvPath.IsSome then
         |> Seq.map (fun m ->
             header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
         |> Seq.toList
-    Reporting.writeCsv csvPath.Value header rows
-    pr "CSV written to %s" csvPath.Value
+    Reporting.writeCsv v header rows
+    pr "CSV written to %s" v
+| None ->
+    ()
 
 // Usage hints
 if argv.Length = 0 && outputPath.IsNone && csvPath.IsNone then

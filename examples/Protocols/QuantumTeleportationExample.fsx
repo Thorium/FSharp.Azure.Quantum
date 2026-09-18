@@ -131,9 +131,9 @@ let shouldRun name = stateName = "all" || stateName = name
 /// Build a structured result row from a teleportation result.
 let resultRow (test: string) (result: TeleportationResult) : Map<string, string> =
     [ "test", test
-      "alice_measurement", sprintf "%A" result.AliceMeasurement
-      "bob_correction", sprintf "%A" result.BobCorrection
-      "fidelity", sprintf "%.4f" result.Fidelity
+      "alice_measurement", $"%A{result.AliceMeasurement}"
+      "bob_correction", $"%A{result.BobCorrection}"
+      "fidelity", $"%.4f{result.Fidelity}"
       "num_qubits", string result.NumQubits
       "backend", result.BackendName ]
     |> Map.ofList

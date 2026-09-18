@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open System.Net
 open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.Retry
@@ -190,7 +191,7 @@ module RetryTests =
             let operation (_ct: CancellationToken) = async { return Ok 42 }
             let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
             Assert.Equal(Ok 42, r)
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``executeWithRetry returns Error for non-transient error`` () =
@@ -206,7 +207,7 @@ module RetryTests =
             match r with
             | Error (QuantumError.ValidationError _) -> ()
             | _ -> failwith "Expected ValidationError"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``executeWithRetry retries on transient error then succeeds`` () =
@@ -223,7 +224,7 @@ module RetryTests =
             let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
             Assert.Equal(3, attempts)
             Assert.Equal(Ok "success", r)
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``executeWithRetry stops after MaxAttempts`` () =
@@ -239,7 +240,7 @@ module RetryTests =
             match r with
             | Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _)) -> ()
             | _ -> failwith "Expected ServiceUnavailable error"
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``executeWithRetry respects cancellation`` () =
@@ -252,4 +253,4 @@ module RetryTests =
             | Error (QuantumError.OperationError (_, msg)) ->
                 Assert.Contains("cancelled", msg.ToLower())
             | _ -> failwith "Expected cancellation error"
-        } :> System.Threading.Tasks.Task
+        } :> Task

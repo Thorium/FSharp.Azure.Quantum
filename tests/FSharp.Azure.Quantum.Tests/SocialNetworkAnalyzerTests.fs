@@ -75,7 +75,7 @@ module SocialNetworkAnalyzerTests =
         // Quantum-first: omitting a backend defaults to the local simulator and still solves.
         match solve problem with
         | Ok _ -> ()
-        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
+        | other -> failwith $"Expected Ok via default local simulator, got: %A{other}"
 
     [<Fact>]
     let ``solve with missing MinCommunitySize and no Mode should default to FindLargestCommunity`` () =
@@ -239,7 +239,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
+        | other -> failwith $"Expected Ok via default local simulator, got: %A{other}"
 
     [<Fact>]
     let ``socialNetwork CE with empty people should return ValidationError`` () =
@@ -380,7 +380,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
+        | other -> failwith $"Expected Ok via default local simulator, got: %A{other}"
 
     // ========================================================================
     // FIND MONITOR SET (QAOA MIN VERTEX COVER) TESTS
@@ -491,7 +491,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
+        | other -> failwith $"Expected Ok via default local simulator, got: %A{other}"
 
     // ========================================================================
     // FIND PAIRINGS (QAOA MAX MATCHING) TESTS
@@ -609,7 +609,7 @@ module SocialNetworkAnalyzerTests =
         }
         match result with
         | Ok _ -> ()
-        | other -> failwith ($"Expected Ok via default local simulator, got: %A{other}")
+        | other -> failwith $"Expected Ok via default local simulator, got: %A{other}"
 
     // ========================================================================
     // MODE DEFAULTS AND BACKWARDS COMPATIBILITY TESTS

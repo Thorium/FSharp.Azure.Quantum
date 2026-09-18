@@ -139,13 +139,13 @@ let prepareAndVerify (mol: HFMolecule) : Map<string, string> =
         if not quiet then printfn "  Error: %A" err; printfn ""
         Map.ofList [
             "molecule", mol.ShortName
-            "electrons", sprintf "%d" mol.Electrons
-            "spin_orbitals", sprintf "%d" mol.SpinOrbitals
+            "electrons", $"%d{mol.Electrons}"
+            "spin_orbitals", $"%d{mol.SpinOrbitals}"
             "expected_state", mol.ExpectedStateLabel
             "num_qubits", "N/A"
             "hf_match", "N/A"
             "probability", "N/A"
-            "status", sprintf "Error: %A" err
+            "status", $"Error: %A{err}"
         ]
     | Ok hfState ->
         let nQubits = numQubits hfState
@@ -174,12 +174,12 @@ let prepareAndVerify (mol: HFMolecule) : Map<string, string> =
 
         Map.ofList [
             "molecule", mol.ShortName
-            "electrons", sprintf "%d" mol.Electrons
-            "spin_orbitals", sprintf "%d" mol.SpinOrbitals
+            "electrons", $"%d{mol.Electrons}"
+            "spin_orbitals", $"%d{mol.SpinOrbitals}"
             "expected_state", mol.ExpectedStateLabel
-            "num_qubits", sprintf "%d" nQubits
-            "hf_match", sprintf "%b" isCorrect
-            "probability", sprintf "%.6f" prob
+            "num_qubits", $"%d{nQubits}"
+            "hf_match", $"%b{isCorrect}"
+            "probability", $"%.6f{prob}"
             "status", "OK"
         ]
 
@@ -205,15 +205,15 @@ let runValidationTest (testLabel: string) (electrons: int) (orbitals: int) : Map
     | Error err ->
         if not quiet then printfn "    Correctly rejected: %A" err; printfn ""
         Map.ofList [
-            "test", testLabel; "electrons", sprintf "%d" electrons
-            "orbitals", sprintf "%d" orbitals; "status", "Rejected"
-            "error", sprintf "%A" err
+            "test", testLabel; "electrons", $"%d{electrons}"
+            "orbitals", $"%d{orbitals}"; "status", "Rejected"
+            "error", $"%A{err}"
         ]
     | Ok _ ->
         if not quiet then printfn "    Unexpectedly accepted (should have been rejected!)"; printfn ""
         Map.ofList [
-            "test", testLabel; "electrons", sprintf "%d" electrons
-            "orbitals", sprintf "%d" orbitals; "status", "Accepted (unexpected)"
+            "test", testLabel; "electrons", $"%d{electrons}"
+            "orbitals", $"%d{orbitals}"; "status", "Accepted (unexpected)"
             "error", "N/A"
         ]
 

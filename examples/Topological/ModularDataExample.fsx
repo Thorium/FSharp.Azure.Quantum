@@ -69,8 +69,8 @@ let printMatrix name (matrix: Complex[,]) =
         let cells =
             [| for j in 0 .. cols - 1 do
                 let c = matrix.[i, j]
-                if abs c.Imaginary < 1e-10 then sprintf "%7.4f" c.Real
-                else sprintf "%6.3f%+6.3fi" c.Real c.Imaginary |]
+                if abs c.Imaginary < 1e-10 then $"%7.4f{c.Real}"
+                else $"%6.3f{c.Real}%+6.3f{c.Imaginary}i" |]
         pr "    %s" (String.Join("  ", cells))
 
 let fmtCheck ok = if ok then "PASS" else "FAIL"
@@ -118,7 +118,7 @@ if shouldRun 1 then
             | Error err -> pr "    g=%d: error %s" g err.Message
 
         jsonResults <- ("1_ising", box {| charge = isingData.CentralCharge; sUnitary = sU; tDiag = tD; stRel = st |}) :: jsonResults
-        csvRows <- [ "1_ising"; sprintf "%.2f" isingData.CentralCharge; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
+        csvRows <- [ "1_ising"; $"%.2f{isingData.CentralCharge}"; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Fibonacci Anyon Modular Data
@@ -158,7 +158,7 @@ if shouldRun 2 then
             | Error err -> pr "    g=%d: error %s" g err.Message
 
         jsonResults <- ("2_fibonacci", box {| charge = fibData.CentralCharge; sUnitary = sU; tDiag = tD; stRel = st |}) :: jsonResults
-        csvRows <- [ "2_fibonacci"; sprintf "%.4f" fibData.CentralCharge; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
+        csvRows <- [ "2_fibonacci"; $"%.4f{fibData.CentralCharge}"; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 3 -- SU(2)_3 Modular Data
@@ -206,7 +206,7 @@ if shouldRun 3 then
             | Error err -> pr "    g=%d: error %s" g err.Message
 
         jsonResults <- ("3_su2_3", box {| charge = su2Data.CentralCharge; sUnitary = sU; tDiag = tD; stRel = st |}) :: jsonResults
-        csvRows <- [ "3_su2_3"; sprintf "%.4f" su2Data.CentralCharge; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
+        csvRows <- [ "3_su2_3"; $"%.4f{su2Data.CentralCharge}"; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 4 -- Theory comparison table
@@ -264,18 +264,24 @@ if shouldRun 5 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "ModularDataExample.fsx"
            backend   = quantumBackend.Name
            timestamp = DateTime.UtcNow.ToString("o")
            example   = exChoice
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

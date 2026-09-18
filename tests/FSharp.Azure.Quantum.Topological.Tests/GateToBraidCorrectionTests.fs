@@ -240,7 +240,7 @@ module GateToBraidCorrectionTests =
         // CNOT on Ising via an exact amplitude-level intercept.)
         let cnotGate = CircuitBuilder.Gate.CNOT (0, 1)
 
-        (GateToBraid.compileGateToBraid cnotGate 2 1e-3) |> Result.map (fun _ -> failwith "CNOT braid compilation should fail explicitly for Ising anyons") |> Result.defaultWith (fun err -> Assert.False(System.String.IsNullOrWhiteSpace err.Message))
+        (GateToBraid.compileGateToBraid cnotGate 2 1e-3) |> Result.map (fun _ -> failwith "CNOT braid compilation should fail explicitly for Ising anyons") |> Result.defaultWith (fun err -> Assert.False(String.IsNullOrWhiteSpace err.Message))
 
     // ========================================================================
     // COMPILATION SUMMARY TESTS

@@ -302,7 +302,7 @@ module BraidingAmplitudeTests =
         // It should always pass (it just confirms the R-matrix is correct).
         Assert.True(diff < 0.05,
             $"Physical braid phase mismatch. Expected i, got {actualRelNorm}. Diff = {diff}. " +
-            $"If this fails, the R-matrix implementation is wrong.")
+            "If this fails, the R-matrix implementation is wrong.")
 
     [<Fact>]
     let ``Two clockwise braids physically produce relative phase -1`` () =

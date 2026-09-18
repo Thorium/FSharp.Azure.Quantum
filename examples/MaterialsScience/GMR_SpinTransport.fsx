@@ -212,7 +212,7 @@ let mutable anyVqeFailure = false
 let feFeBondLength = 2.02
 
 let createFe2Dimer (multiplicity: int) : Molecule =
-    { Name = sprintf "Fe2_M%d" multiplicity
+    { Name = $"Fe2_M%d{multiplicity}"
       Atoms = [
           { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
           { Element = "Fe"; Position = (feFeBondLength, 0.0, 0.0) } ]
@@ -229,9 +229,9 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
             printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
         Map.ofList [
             "molecule", molecule.Name; "label", label
-            "energy_hartree", sprintf "%.6f" energy
-            "iterations", sprintf "%d" iterations
-            "time_seconds", sprintf "%.2f" time
+            "energy_hartree", $"%.6f{energy}"
+            "iterations", $"%d{iterations}"
+            "time_seconds", $"%.2f{time}"
             "has_vqe_failure", "false" ]
     | Error msg ->
         anyVqeFailure <- true
@@ -260,8 +260,8 @@ let exchangeRow =
         if not quiet then printfn "  Exchange coupling J = %.1f meV (%s)" J_meV kind
         Map.ofList [
             "quantity", "exchange_coupling"
-            "J_hartree", sprintf "%.6f" J_Ha; "J_eV", sprintf "%.3f" J_eV
-            "J_meV", sprintf "%.1f" J_meV; "J_K", sprintf "%.0f" J_K
+            "J_hartree", $"%.6f{J_Ha}"; "J_eV", $"%.3f{J_eV}"
+            "J_meV", $"%.1f{J_meV}"; "J_K", $"%.0f{J_K}"
             "coupling_type", kind; "has_vqe_failure", "false" ]
     | _ ->
         Map.ofList [ "quantity", "exchange_coupling"; "has_vqe_failure", "true" ]
@@ -335,16 +335,16 @@ let gmrRows =
         let gmr = gmrRatio fm.MajorityResistivity fm.MinorityResistivity
         Map.ofList [
             "material", fm.Name; "short_name", fm.ShortName
-            "majority_resistivity", sprintf "%.1f" fm.MajorityResistivity
-            "minority_resistivity", sprintf "%.1f" fm.MinorityResistivity
+            "majority_resistivity", $"%.1f{fm.MajorityResistivity}"
+            "minority_resistivity", $"%.1f{fm.MinorityResistivity}"
             "spin_asymmetry", sprintf "%.2f" (spinAsymmetry fm.MajorityResistivity fm.MinorityResistivity)
-            "spin_polarization", sprintf "%.2f" fm.SpinPolarization
-            "R_parallel", sprintf "%.2f" R_P
-            "R_antiparallel", sprintf "%.2f" R_AP
+            "spin_polarization", $"%.2f{fm.SpinPolarization}"
+            "R_parallel", $"%.2f{R_P}"
+            "R_antiparallel", $"%.2f{R_AP}"
             "gmr_pct", sprintf "%.1f" (gmr * 100.0)
-            "layers", sprintf "%d" numLayers
-            "temperature_K", sprintf "%.0f" userTemperature
-            "has_vqe_failure", sprintf "%b" anyVqeFailure ])
+            "layers", $"%d{numLayers}"
+            "temperature_K", $"%.0f{userTemperature}"
+            "has_vqe_failure", $"%b{anyVqeFailure}" ])
 
 let allResultRows = gmrRows @ vqeResults @ [exchangeRow]
 

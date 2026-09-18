@@ -55,7 +55,7 @@ module AtomComputingBackend =
         {
             JobId = jobId
             Target = target
-            Name = Some ($"AtomComputing-%s{target}")
+            Name = Some $"AtomComputing-%s{target}"
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2"  // OpenQASM 2.0
             InputParams = Map [ ("shots", shots :> obj) ]

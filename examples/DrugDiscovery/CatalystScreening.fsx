@@ -126,7 +126,7 @@ let uncatalyzedBarrier = 30.0
 /// Create a single-atom catalyst model (metal + H for charge balance).
 let private createCatalyst element bondLength name formula acidity notes indUse : CatalystInfo =
     let mol : Molecule =
-        { Name = sprintf "%s (model)" element
+        { Name = $"%s{element} (model)"
           Atoms =
             [ { Element = element; Position = (0.0, 0.0, 0.0) }
               { Element = "H"; Position = (bondLength, 0.0, 0.0) } ]
@@ -354,7 +354,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
+        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Unwrap energy result, tracking failure.
 let private unwrapEnergy (res: Result<float, string>) (anyFailure: byref<bool>) : float =
@@ -393,7 +393,7 @@ let private screenCatalyst
 
     // Catalyst-substrate complex (offset substrate by 3 A)
     let complex : Molecule =
-        { Name = sprintf "%s + CO" catInfo.Formula
+        { Name = $"%s{catInfo.Formula} + CO"
           Atoms =
             catInfo.Molecule.Atoms @
             (carbonyl.Atoms |> List.map (fun a ->
@@ -501,7 +501,7 @@ let printTable () =
         if r.HasVqeFailure then
             printfn "  %-4d  %-22s  %-10s  %14s  %14s  %12s  %10.1f"
                 (i + 1)
-                (sprintf "%s (%s)" r.Catalyst.Name r.Catalyst.Formula)
+                $"%s{r.Catalyst.Name} (%s{r.Catalyst.Formula})"
                 r.Catalyst.LewisAcidity
                 "FAILED"
                 "FAILED"
@@ -510,7 +510,7 @@ let printTable () =
         else
             printfn "  %-4d  %-22s  %-10s  %14.6f  %14.2f  %12.1f  %10.1f"
                 (i + 1)
-                (sprintf "%s (%s)" r.Catalyst.Name r.Catalyst.Formula)
+                $"%s{r.Catalyst.Name} (%s{r.Catalyst.Formula})"
                 r.Catalyst.LewisAcidity
                 r.BindingEnergyHartree
                 r.BindingEnergyKcal
@@ -528,7 +528,7 @@ let printTable () =
     |> List.iteri (fun i r ->
         printfn "  %-4d  %-22s  %s / %s"
             (i + 1)
-            (sprintf "%s" r.Catalyst.Formula)
+            $"%s{r.Catalyst.Formula}"
             r.Catalyst.SelectivityNotes
             r.Catalyst.IndustrialUse)
 
@@ -569,14 +569,14 @@ let resultMaps =
           "lewis_acidity", r.Catalyst.LewisAcidity
           "selectivity", r.Catalyst.SelectivityNotes
           "industrial_use", r.Catalyst.IndustrialUse
-          "catalyst_energy_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.CatalystEnergy)
-          "substrate_energy_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.SubstrateEnergy)
-          "complex_energy_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.ComplexEnergy)
-          "binding_energy_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.BindingEnergyHartree)
-          "binding_energy_kcal_mol", (if r.HasVqeFailure then "FAILED" else sprintf "%.2f" r.BindingEnergyKcal)
-          "estimated_barrier_reduction_kcal", (if r.HasVqeFailure then "FAILED" else sprintf "%.1f" r.EstimatedBarrierReduction)
-          "estimated_barrier_kcal", (if r.HasVqeFailure then "FAILED" else sprintf "%.1f" r.EstimatedBarrier)
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+          "catalyst_energy_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.CatalystEnergy}")
+          "substrate_energy_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.SubstrateEnergy}")
+          "complex_energy_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.ComplexEnergy}")
+          "binding_energy_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.BindingEnergyHartree}")
+          "binding_energy_kcal_mol", (if r.HasVqeFailure then "FAILED" else $"%.2f{r.BindingEnergyKcal}")
+          "estimated_barrier_reduction_kcal", (if r.HasVqeFailure then "FAILED" else $"%.1f{r.EstimatedBarrierReduction}")
+          "estimated_barrier_kcal", (if r.HasVqeFailure then "FAILED" else $"%.1f{r.EstimatedBarrier}")
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

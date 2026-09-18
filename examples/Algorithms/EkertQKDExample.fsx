@@ -138,7 +138,7 @@ if runScenario "secure" then
     match run backend numPairs seed with
     | Error err ->
         if not quiet then printfn "  ERROR: %A" err
-        results.Add([ "scenario", "secure_exchange"; "error", sprintf "%A" err ] |> Map.ofList)
+        results.Add([ "scenario", "secure_exchange"; "error", $"%A{err}" ] |> Map.ofList)
 
     | Ok result ->
         if not quiet then
@@ -163,10 +163,10 @@ if runScenario "secure" then
             [ "scenario", "secure_exchange"
               "total_pairs", string result.TotalPairs
               "sifted_key_length", string result.SiftedKeyLength
-              "key_rate", sprintf "%.4f" result.KeyRate
+              "key_rate", $"%.4f{result.KeyRate}"
               "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
-              "quantum_bound", sprintf "%.4f" result.CHSHTest.QuantumBound
-              "classical_bound", sprintf "%.4f" result.CHSHTest.ClassicalBound
+              "quantum_bound", $"%.4f{result.CHSHTest.QuantumBound}"
+              "classical_bound", $"%.4f{result.CHSHTest.ClassicalBound}"
               "is_secure", string result.IsSecure ]
             |> Map.ofList)
 
@@ -182,7 +182,7 @@ if runScenario "chsh" then
     match run backend (max numPairs 300) (Some 123) with
     | Error err ->
         if not quiet then printfn "  ERROR: %A" err
-        results.Add([ "scenario", "chsh_analysis"; "error", sprintf "%A" err ] |> Map.ofList)
+        results.Add([ "scenario", "chsh_analysis"; "error", $"%A{err}" ] |> Map.ofList)
 
     | Ok result ->
         if not quiet then
@@ -192,7 +192,7 @@ if runScenario "chsh" then
             results.Add(
                 [ "scenario", "chsh_analysis"
                   "correlation_pair", name
-                  "correlation_value", sprintf "%.4f" value
+                  "correlation_value", $"%.4f{value}"
                   "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
                   "is_secure", string result.CHSHTest.IsSecure ]
                 |> Map.ofList)
@@ -245,7 +245,7 @@ if runScenario "eve" then
               "chsh_s", sprintf "%.4f" (abs noEve.CHSHTest.S)
               "is_secure", string noEve.IsSecure
               "sifted_key_length", string noEve.SiftedKeyLength
-              "key_rate", sprintf "%.4f" noEve.KeyRate ]
+              "key_rate", $"%.4f{noEve.KeyRate}" ]
             |> Map.ofList)
 
         results.Add(
@@ -254,7 +254,7 @@ if runScenario "eve" then
               "chsh_s", sprintf "%.4f" (abs withEve.CHSHTest.S)
               "is_secure", string withEve.IsSecure
               "sifted_key_length", string withEve.SiftedKeyLength
-              "key_rate", sprintf "%.4f" withEve.KeyRate
+              "key_rate", $"%.4f{withEve.KeyRate}"
               "eavesdropper_detected", string withEve.CHSHTest.EavesdropperDetected ]
             |> Map.ofList)
 
@@ -283,7 +283,7 @@ if runScenario "report" then
             [ "scenario", "full_report"
               "total_pairs", string result.TotalPairs
               "sifted_key_length", string result.SiftedKeyLength
-              "key_rate", sprintf "%.4f" result.KeyRate
+              "key_rate", $"%.4f{result.KeyRate}"
               "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
               "is_secure", string result.IsSecure
               "backend", result.BackendName ]
@@ -316,7 +316,7 @@ match csvPath with
 | Some path ->
     let allKeys =
         resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.collect (Map.toList >> List.map fst)
         |> List.distinct
     let rows =
         resultsList

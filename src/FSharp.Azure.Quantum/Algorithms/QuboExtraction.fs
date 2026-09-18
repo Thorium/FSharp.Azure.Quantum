@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open FSharp.Azure.Quantum.Core
+open System.Collections.Generic
 
 /// QUBO extraction from QAOA circuits for D-Wave backend.
 ///
@@ -47,11 +48,11 @@ module QuboExtraction =
     let fromProblemHamiltonian (hamiltonian: ProblemHamiltonian) : Map<(int * int), float> =
 
         // First pass: collect linear coefficients and ZZ coefficients per qubit
-        let linear = System.Collections.Generic.Dictionary<int, float>()
-        let zzSum = System.Collections.Generic.Dictionary<int, float>()
-        let offDiagonal = System.Collections.Generic.Dictionary<int * int, float>()
+        let linear = Dictionary<int, float>()
+        let zzSum = Dictionary<int, float>()
+        let offDiagonal = Dictionary<int * int, float>()
 
-        let addTo (d: System.Collections.Generic.Dictionary<'k, float>) key value =
+        let addTo (d: Dictionary<'k, float>) key value =
             match d.TryGetValue key with
             | true, v -> d.[key] <- v + value
             | false, _ -> d.[key] <- value

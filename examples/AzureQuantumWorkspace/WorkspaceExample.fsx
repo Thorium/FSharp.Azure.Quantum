@@ -113,7 +113,7 @@ if shouldRun "create" then
     record
         { Name = "create"; Label = "Workspace Connection"
           Status = "OK"
-          Detail = sprintf "%s @ %s" workspace.Config.WorkspaceName workspace.Config.Location }
+          Detail = $"%s{workspace.Config.WorkspaceName} @ %s{workspace.Config.Location}" }
 
 // ============================================================================
 // EXAMPLE 2: Environment-Based Configuration
@@ -213,7 +213,7 @@ if shouldRun "backends" then
     record
         { Name = "backends"; Label = "Backend Comparison"
           Status = "OK"
-          Detail = sprintf "local backend=%s type=%A" quantumBackend.Name quantumBackend.NativeStateType }
+          Detail = $"local backend=%s{quantumBackend.Name} type=%A{quantumBackend.NativeStateType}" }
 
 // ============================================================================
 // EXAMPLE 4: Real Cloud Job Submission (env-gated — the ONLY example that
@@ -266,10 +266,10 @@ if exampleArg = "submit" then
         match backend.ExecuteToState (CircuitAbstraction.wrapCircuit circuit) with
         | Ok _ ->
             pr "  [OK] Job completed on backend '%s'" backend.Name
-            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "OK"; Detail = sprintf "target=%s" target }
+            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "OK"; Detail = $"target=%s{target}" }
         | Error err ->
             pr "  [ERROR] %A" err
-            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "ERROR"; Detail = sprintf "%A" err }
+            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "ERROR"; Detail = $"%A{err}" }
 
 // --- JSON output ---
 

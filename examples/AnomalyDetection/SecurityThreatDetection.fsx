@@ -577,12 +577,16 @@ let retrainWeekly() =
 // OUTPUT
 // ============================================================================
 
-if outputPath.IsSome then
+match outputPath with
+| Some v ->
     let payload = {| script = "SecurityThreatDetection.fsx"; timestamp = DateTime.UtcNow; results = results |> Seq.toArray |}
-    Reporting.writeJson outputPath.Value payload
-    if not quiet then printfn "Results written to %s" outputPath.Value
+    Reporting.writeJson v payload
+    if not quiet then printfn "Results written to %s" v
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some csvPathValue ->
     let header = ["example"; "status"; "detail"]
     let rows =
         results
@@ -590,12 +594,14 @@ if csvPath.IsSome then
             let detail =
                 r.Details
                 |> Map.toList
-                |> List.map (fun (k, v) -> sprintf "%s=%O" k v)
+                |> List.map (fun (k, v) -> $"%s{k}=%O{v}")
                 |> String.concat "; "
             [r.Example; r.Status; detail])
         |> Seq.toList
-    Reporting.writeCsv csvPath.Value header rows
-    if not quiet then printfn "CSV written to %s" csvPath.Value
+    Reporting.writeCsv csvPathValue header rows
+    if not quiet then printfn "CSV written to %s" csvPathValue
+| None ->
+    ()
 
 // ============================================================================
 // USAGE HINTS

@@ -175,7 +175,7 @@ module TreeSearch =
         
         try
             // Sample random paths
-            let random = System.Random()
+            let random = Random()
             let searchSpaceSize = 1 <<< (config.MaxDepth * bitsNeeded config.BranchingFactor)
             let samplesToTake = min sampleSize searchSpaceSize
             
@@ -302,7 +302,7 @@ module TreeSearch =
             let scoreThreshold = 
                 if sampledThreshold = 0.0 then
                     // Fallback: use negative infinity to accept any valid path
-                    System.Double.NegativeInfinity
+                    Double.NegativeInfinity
                 else
                     // Use the lower of sampled or a percentile-adjusted value (more forgiving)
                     min sampledThreshold (sampledThreshold * 0.5)

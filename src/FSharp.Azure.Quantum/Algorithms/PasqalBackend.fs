@@ -98,7 +98,7 @@ module Pasqal =
         {
             JobId = Guid.NewGuid().ToString()
             Target = target
-            Name = Some ($"Pasqal-%s{target}")
+            Name = Some $"Pasqal-%s{target}"
             InputData = pulserJson :> obj
             InputDataFormat = CircuitFormat.Custom "pasqal.pulser.abstract-repr.v1"
             InputParams = Map [ ("count", shots :> obj) ]

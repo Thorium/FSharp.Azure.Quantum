@@ -43,6 +43,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.Examples.Common
+open System
 
 // ==============================================================================
 // CLI ARGUMENT PARSING
@@ -71,8 +72,8 @@ let trotterSteps = Cli.getIntOr "steps" 20 args
 let trotterOrder = Cli.getIntOr "order" 2 args
 let backendArg = Cli.getOr "backend" "both" args
 
-let runLocal = System.String.Equals(backendArg, "local", System.StringComparison.OrdinalIgnoreCase) || System.String.Equals(backendArg, "both", System.StringComparison.OrdinalIgnoreCase)
-let runTopo  = System.String.Equals(backendArg, "topological", System.StringComparison.OrdinalIgnoreCase) || System.String.Equals(backendArg, "both", System.StringComparison.OrdinalIgnoreCase)
+let runLocal = String.Equals(backendArg, "local", StringComparison.OrdinalIgnoreCase) || String.Equals(backendArg, "both", StringComparison.OrdinalIgnoreCase)
+let runTopo  = String.Equals(backendArg, "topological", StringComparison.OrdinalIgnoreCase) || String.Equals(backendArg, "both", StringComparison.OrdinalIgnoreCase)
 
 // ==============================================================================
 // UNIFIED STATE ANALYSIS HELPERS
@@ -200,15 +201,15 @@ match hamiltonianResult with
             Map.ofList [
                 "backend", backendLabel
                 "backend_name", backend.Name
-                "bond_length_A", sprintf "%.2f" bondLength
-                "time_au", sprintf "%.1f" evolutionTime
-                "trotter_steps", sprintf "%d" trotterSteps
-                "trotter_order", sprintf "%d" trotterOrder
-                "num_qubits", sprintf "%d" hamiltonian.NumQubits
-                "num_terms", sprintf "%d" hamiltonian.Terms.Length
+                "bond_length_A", $"%.2f{bondLength}"
+                "time_au", $"%.1f{evolutionTime}"
+                "trotter_steps", $"%d{trotterSteps}"
+                "trotter_order", $"%d{trotterOrder}"
+                "num_qubits", $"%d{hamiltonian.NumQubits}"
+                "num_terms", $"%d{hamiltonian.Terms.Length}"
                 "ground_state_prob", "N/A"
                 "normalized", "N/A"
-                "status", sprintf "Error: %A" err
+                "status", $"Error: %A{err}"
             ]
         | Ok finalState ->
             let p0 = getBasisProbability finalState 0 hamiltonian.NumQubits
@@ -225,14 +226,14 @@ match hamiltonianResult with
             Map.ofList [
                 "backend", backendLabel
                 "backend_name", backend.Name
-                "bond_length_A", sprintf "%.2f" bondLength
-                "time_au", sprintf "%.1f" evolutionTime
-                "trotter_steps", sprintf "%d" trotterSteps
-                "trotter_order", sprintf "%d" trotterOrder
-                "num_qubits", sprintf "%d" hamiltonian.NumQubits
-                "num_terms", sprintf "%d" hamiltonian.Terms.Length
-                "ground_state_prob", sprintf "%.6f" p0
-                "normalized", sprintf "%b" normalized
+                "bond_length_A", $"%.2f{bondLength}"
+                "time_au", $"%.1f{evolutionTime}"
+                "trotter_steps", $"%d{trotterSteps}"
+                "trotter_order", $"%d{trotterOrder}"
+                "num_qubits", $"%d{hamiltonian.NumQubits}"
+                "num_terms", $"%d{hamiltonian.Terms.Length}"
+                "ground_state_prob", $"%.6f{p0}"
+                "normalized", $"%b{normalized}"
                 "status", "OK"
             ]
 
@@ -311,26 +312,26 @@ match hamiltonianResult with
                 Map.ofList [
                     "backend", "Trotter-1st-order"
                     "backend_name", localBackend.Name
-                    "bond_length_A", sprintf "%.2f" bondLength
-                    "time_au", sprintf "%.1f" evolutionTime
-                    "trotter_steps", sprintf "%d" trotterSteps
+                    "bond_length_A", $"%.2f{bondLength}"
+                    "time_au", $"%.1f{evolutionTime}"
+                    "trotter_steps", $"%d{trotterSteps}"
                     "trotter_order", "1"
-                    "num_qubits", sprintf "%d" hamiltonian.NumQubits
-                    "num_terms", sprintf "%d" hamiltonian.Terms.Length
-                    "ground_state_prob", sprintf "%.6f" p0_1st
+                    "num_qubits", $"%d{hamiltonian.NumQubits}"
+                    "num_terms", $"%d{hamiltonian.Terms.Length}"
+                    "ground_state_prob", $"%.6f{p0_1st}"
                     "normalized", sprintf "%b" (QuantumState.isNormalized state1st)
                     "status", "OK"
                 ]
                 Map.ofList [
                     "backend", "Trotter-2nd-order"
                     "backend_name", localBackend.Name
-                    "bond_length_A", sprintf "%.2f" bondLength
-                    "time_au", sprintf "%.1f" evolutionTime
-                    "trotter_steps", sprintf "%d" trotterSteps
+                    "bond_length_A", $"%.2f{bondLength}"
+                    "time_au", $"%.1f{evolutionTime}"
+                    "trotter_steps", $"%d{trotterSteps}"
                     "trotter_order", "2"
-                    "num_qubits", sprintf "%d" hamiltonian.NumQubits
-                    "num_terms", sprintf "%d" hamiltonian.Terms.Length
-                    "ground_state_prob", sprintf "%.6f" p0_2nd
+                    "num_qubits", $"%d{hamiltonian.NumQubits}"
+                    "num_terms", $"%d{hamiltonian.Terms.Length}"
+                    "ground_state_prob", $"%.6f{p0_2nd}"
                     "normalized", sprintf "%b" (QuantumState.isNormalized state2nd)
                     "status", "OK"
                 ]

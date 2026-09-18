@@ -235,7 +235,7 @@ let private fmtPct (v: float option) =
     | Some x -> sprintf "%8.4f%%" (x * 100.0)
     | None   -> sprintf "%9s" "â€”"
 
-let private fmtMs (ms: float) = sprintf "%8.1f" ms
+let private fmtMs (ms: float) = $"%8.1f{ms}"
 
 let printTable () =
     let divider = String('-', 96)
@@ -270,25 +270,25 @@ printTable ()
 // ==============================================================================
 
 let private metricStr (v: float option) =
-    match v with Some x -> sprintf "%.6f" x | None -> ""
+    match v with Some x -> $"%.6f{x}" | None -> ""
 
 let resultMaps : Map<string, string> list =
     results
     |> List.map (fun r ->
         [ "key",                    r.Level.Key
           "label",                  r.Level.Label
-          "confidence",             sprintf "%.4f" r.Level.Confidence
+          "confidence",             $"%.4f{r.Level.Confidence}"
           "method",                 r.Method
           "var",                    metricStr r.VaR
           "cvar",                   metricStr r.CVaR
           "expected_shortfall",     metricStr r.ExpectedShortfall
           "volatility",             metricStr r.Volatility
-          "execution_time_ms",      sprintf "%.2f" r.ExecutionTimeMs
-          "qubits",                 sprintf "%d" numQubits
-          "grover_iterations",      sprintf "%d" groverIterations
-          "shots",                  sprintf "%d" shots
-          "simulation_paths",       sprintf "%d" simulationPaths
-          "has_quantum_failure",    sprintf "%b" r.HasQuantumFailure ]
+          "execution_time_ms",      $"%.2f{r.ExecutionTimeMs}"
+          "qubits",                 $"%d{numQubits}"
+          "grover_iterations",      $"%d{groverIterations}"
+          "shots",                  $"%d{shots}"
+          "simulation_paths",       $"%d{simulationPaths}"
+          "has_quantum_failure",    $"%b{r.HasQuantumFailure}" ]
         |> Map.ofList)
 
 match outputPath with

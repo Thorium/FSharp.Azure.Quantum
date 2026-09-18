@@ -4,6 +4,7 @@ open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.LocalSimulator
 
 // Import CircuitBuilder for gate construction
 module CB = FSharp.Azure.Quantum.CircuitBuilder
@@ -489,7 +490,7 @@ module Arithmetic =
             let requiredQubits = ancillaQubit + 1
             let stateSize = 
                 match state with
-                | QuantumState.StateVector sv -> FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+                | QuantumState.StateVector sv -> StateVector.numQubits sv
                 | _ -> maxQubitInUse + 2  // Assume enough for other state types
             
             if stateSize < requiredQubits then
@@ -622,7 +623,7 @@ module Arithmetic =
             let requiredQubits = flagQubit + 1
             let stateSize = 
                 match state with
-                | QuantumState.StateVector sv -> FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+                | QuantumState.StateVector sv -> StateVector.numQubits sv
                 | _ -> maxQubitInUse + 3
             
             if stateSize < requiredQubits then
@@ -743,7 +744,7 @@ module Arithmetic =
             let requiredQubits = flagQubit + 1
             let stateSize =
                 match state with
-                | QuantumState.StateVector sv -> FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+                | QuantumState.StateVector sv -> StateVector.numQubits sv
                 | _ -> maxQubitInUse + 3
 
             if stateSize < requiredQubits then
@@ -848,7 +849,7 @@ module Arithmetic =
             let requiredQubits = andAncilla + 3  // andAncilla + overflow + flag
             let stateSize =
                 match state with
-                | QuantumState.StateVector sv -> FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+                | QuantumState.StateVector sv -> StateVector.numQubits sv
                 | _ -> maxQubitInUse + 4
 
             if stateSize < requiredQubits then
@@ -1184,7 +1185,7 @@ module QuantumArithmetic =
             let withH = c |> CB.addGate (CB.H targetQubit)
             [targetPos + 1 .. n - 1]
             |> List.fold (fun c controlPos ->
-                let angle = 2.0 * System.Math.PI / float (1 <<< (controlPos - targetPos + 1))
+                let angle = 2.0 * Math.PI / float (1 <<< (controlPos - targetPos + 1))
                 c |> CB.addGate (CB.CP (qubits.[controlPos], targetQubit, angle))) withH
         ) circuit
 
@@ -1197,7 +1198,7 @@ module QuantumArithmetic =
             let withPhases =
                 [n - 1 .. -1 .. targetPos + 1]
                 |> List.fold (fun c controlPos ->
-                    let angle = -2.0 * System.Math.PI / float (1 <<< (controlPos - targetPos + 1))
+                    let angle = -2.0 * Math.PI / float (1 <<< (controlPos - targetPos + 1))
                     c |> CB.addGate (CB.CP (qubits.[controlPos], targetQubit, angle))) c
             withPhases |> CB.addGate (CB.H targetQubit)
         ) circuit
@@ -1213,7 +1214,7 @@ module QuantumArithmetic =
             let reduced = constant &&& (denom - 1)
             if reduced = 0 then c
             else
-                let angle = 2.0 * System.Math.PI * float reduced / float denom
+                let angle = 2.0 * Math.PI * float reduced / float denom
                 match control with
                 | Some ctrl -> c |> CB.addGate (CB.CP (ctrl, registerQubits.[m], angle))
                 | None -> c |> CB.addGate (CB.P (registerQubits.[m], angle))

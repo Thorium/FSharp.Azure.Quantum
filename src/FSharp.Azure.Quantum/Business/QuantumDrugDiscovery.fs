@@ -244,9 +244,10 @@ type QuantumDrugDiscoveryBuilder() =
                 return result
             | Some (FilePath path) -> return ProviderDataLoader.loadFromFilePath path
             | None ->
-                match state.CandidatesPath with
-                | Some path -> return ProviderDataLoader.loadFromFilePath path
-                | None -> return Error (QuantumError.ValidationError ("Input", "No candidates specified. Use 'load_candidates_from_file' or 'load_candidates_from_provider'."))
+                return
+                    match state.CandidatesPath with
+                    | Some path -> ProviderDataLoader.loadFromFilePath path
+                    | None -> Error (QuantumError.ValidationError ("Input", "No candidates specified. Use 'load_candidates_from_file' or 'load_candidates_from_provider'."))
         }
 
     member private _.MapFeatureMap featureMap =

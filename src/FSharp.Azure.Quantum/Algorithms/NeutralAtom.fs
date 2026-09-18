@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki  // brings PauliString/PauliHamiltonian record labels into scope
+open System
 
 /// Neutral-atom (Rydberg) analog quantum computing.
 ///
@@ -83,7 +84,7 @@ module NeutralAtom =
                     for i in 0 .. n - 1 do addGate (CircuitBuilder.P (i, delta * dt))
                 // Interaction: exp(-i Vᵢⱼ dt nᵢ nⱼ) = CP(-Vᵢⱼ·dt).
                 for (i, j, v) in interactions do
-                    if System.Double.IsFinite v && v <> 0.0 then
+                    if Double.IsFinite v && v <> 0.0 then
                         addGate (CircuitBuilder.CP (i, j, -v * dt))
         circuit
 
@@ -204,7 +205,7 @@ module NeutralAtom =
         | Error e -> Error e
         | Ok _ ->
             let objective (p: float[]) =
-                (energyOf p) |> Result.defaultWith (fun _ -> System.Double.MaxValue)
+                (energyOf p) |> Result.defaultWith (fun _ -> Double.MaxValue)
             match initialParameters.Length with
             | 0 -> Ok ([||], objective [||])
             | 1 ->
@@ -214,11 +215,11 @@ module NeutralAtom =
                     |> List.map (fun t -> t, objective [| t |])
                     |> List.minBy snd
                 let seed = initialParameters.[0]
-                let (coarseT, _) = scan seed (max 1.0 (abs seed * 2.0 + System.Math.PI)) 60
-                let (fineT, fineV) = scan coarseT (System.Math.PI / 20.0) 40
+                let (coarseT, _) = scan seed (max 1.0 (abs seed * 2.0 + Math.PI)) 60
+                let (fineT, fineV) = scan coarseT (Math.PI / 20.0) 40
                 // If every scanned point errored (MaxValue) or produced a non-finite energy, don't
                 // report a fabricated optimum — fall back to the (validated) seed parameter.
-                if System.Double.IsNaN fineV || System.Double.IsInfinity fineV || fineV >= System.Double.MaxValue then
+                if Double.IsNaN fineV || Double.IsInfinity fineV || fineV >= Double.MaxValue then
                     Ok ([| seed |], objective [| seed |])
                 else
                     Ok ([| fineT |], fineV)
@@ -226,7 +227,7 @@ module NeutralAtom =
                 try
                     let r = QaoaOptimizer.Optimizer.minimize objective initialParameters
                     // Fall back to the seed if the optimizer returns a non-finite objective.
-                    if System.Double.IsNaN r.FinalObjectiveValue || System.Double.IsInfinity r.FinalObjectiveValue then
+                    if Double.IsNaN r.FinalObjectiveValue || Double.IsInfinity r.FinalObjectiveValue then
                         Ok (initialParameters, objective initialParameters)
                     else
                         Ok (r.OptimizedParameters, r.FinalObjectiveValue)

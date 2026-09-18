@@ -202,7 +202,7 @@ match backend.Execute circuit numShots with
             let bitstringStr = String.Join("", bitstring)
             let partitionStr =
                 [ 0 .. numVertices - 1 ]
-                |> List.map (fun v -> if bitstring.[v] = 0 then sprintf "%d" v else sprintf "[%d]" v)
+                |> List.map (fun v -> if bitstring.[v] = 0 then $"%d{v}" else $"[%d{v}]")
                 |> String.concat " "
             printfn "  %s       | %5d | %9.1f | %s" bitstringStr count cutValue partitionStr
 
@@ -247,12 +247,12 @@ match backend.Execute circuit numShots with
           "shots", string numShots
           "seed", string seed
           "best_partition", String.Join("", bestBitstring)
-          "best_cut_value", sprintf "%.1f" bestCut
+          "best_cut_value", $"%.1f{bestCut}"
           "best_occurrences", string bestCount
           "distinct_solutions", string counts.Length
           "set_0", (set0 |> List.map string |> String.concat ";")
           "set_1", (set1 |> List.map string |> String.concat ";")
-          "cut_edges", (cutEdges |> List.map (fun (u, v, w) -> sprintf "%d-%d(%.1f)" u v w) |> String.concat ";")
+          "cut_edges", (cutEdges |> List.map (fun (u, v, w) -> $"%d{u}-%d{v}(%.1f{w})") |> String.concat ";")
           "backend", execResult.BackendName ]
         |> Map.ofList)
 

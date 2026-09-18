@@ -213,7 +213,7 @@ module QaoaExecutionHelpers =
                     (gamma, beta))
             
             match executeQaoaCircuit backend problemHam mixerHam parameters shots with
-            | Error _ -> System.Double.MaxValue  // Penalty for failed execution
+            | Error _ -> Double.MaxValue  // Penalty for failed execution
             | Ok measurements ->
                 // Calculate average QUBO energy across all measurements
                 measurements
@@ -303,7 +303,7 @@ module QaoaExecutionHelpers =
         let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
         let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
         
-        let initialState = {| BestSolution = None; BestEnergy = System.Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
+        let initialState = {| BestSolution = None; BestEnergy = Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
         
         // Try different parameter combinations
         let result =
@@ -509,7 +509,7 @@ module QaoaExecutionHelpers =
                         (flatParams.[2 * i], flatParams.[2 * i + 1]))
 
                 match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
-                | Error _ -> System.Double.MaxValue
+                | Error _ -> Double.MaxValue
                 | Ok measurements ->
                     measurements
                     |> Array.map (fun bits -> evaluateQuboSparse quboMap bits)
@@ -568,7 +568,7 @@ module QaoaExecutionHelpers =
         let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
         let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
 
-        let initialState = {| BestSolution = None; BestEnergy = System.Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
+        let initialState = {| BestSolution = None; BestEnergy = Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
 
         let result =
             (initialState, seq {

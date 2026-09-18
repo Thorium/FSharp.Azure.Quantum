@@ -489,27 +489,27 @@ module KauffmanBracket =
             match bracketCache.TryGetValue key with
             | (true, cached) -> cached
             | (false, _) ->
-                let result =
-                    if Map.isEmpty diagram.Crossings then
-                        // n loops → d^(n-1) where d = -A² - A⁻²
-                        // Convention: single unknot loop = 1, each ADDITIONAL loop multiplies by d
-                        let n = countComponents diagram
-                        if n <= 1 then Complex.One
-                        else Complex.Pow(loopValue a, float (n - 1))
-                    else
-                        let crossingId = diagram.Crossings |> Map.toList |> List.head |> fst
-                        let crossing = diagram.Crossings.[crossingId]
-                        
-                        let (smoothing0, smoothing1) = resolveCrossing diagram crossingId
-                        let value0 = evaluateBracket smoothing0 a
-                        let value1 = evaluateBracket smoothing1 a
-                        
-                        match crossing.Sign with
-                        | Positive -> a * value0 + (Complex.One / a) * value1
-                        | Negative -> (Complex.One / a) * value0 + a * value1
-                
-                bracketCache.TryAdd(key, result) |> ignore
-                result
+                bracketCache.GetOrAdd(key, fun _ ->
+                    let result =
+                        if Map.isEmpty diagram.Crossings then
+                            // n loops → d^(n-1) where d = -A² - A⁻²
+                            // Convention: single unknot loop = 1, each ADDITIONAL loop multiplies by d
+                            let n = countComponents diagram
+                            if n <= 1 then Complex.One
+                            else Complex.Pow(loopValue a, float (n - 1))
+                        else
+                            let crossingId = diagram.Crossings |> Map.toList |> List.head |> fst
+                            let crossing = diagram.Crossings.[crossingId]
+
+                            let (smoothing0, smoothing1) = resolveCrossing diagram crossingId
+                            let value0 = evaluateBracket smoothing0 a
+                            let value1 = evaluateBracket smoothing1 a
+
+                            match crossing.Sign with
+                            | Positive -> a * value0 + (Complex.One / a) * value1
+                            | Negative -> (Complex.One / a) * value0 + a * value1
+
+                    result)
 
         /// Compute Jones polynomial from planar diagram
         let jonesPolynomial (diagram: PlanarDiagram) (a: Complex) : Complex =

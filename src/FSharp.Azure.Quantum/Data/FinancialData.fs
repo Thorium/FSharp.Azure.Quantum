@@ -14,6 +14,7 @@ open System.Net.Http
 open System.IO
 open System.Security.Cryptography
 open System.Text
+open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
@@ -289,7 +290,7 @@ module FinancialData =
         : QuantumResult<PriceSeries> =
         
         try
-            let lines = System.IO.File.ReadAllLines(filePath)
+            let lines = File.ReadAllLines(filePath)
             if lines.Length < 2 then
                 Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
             else
@@ -557,13 +558,13 @@ module FinancialData =
 
     let private parseYahooChartJson (symbol: string) (json: string) : QuantumResult<PriceSeries> =
         try
-            use doc = System.Text.Json.JsonDocument.Parse(json)
+            use doc = JsonDocument.Parse(json)
             let root = doc.RootElement
 
             let chart = root.GetProperty "chart"
 
             let errorEl = chart.GetProperty "error"
-            if errorEl.ValueKind <> System.Text.Json.JsonValueKind.Null then
+            if errorEl.ValueKind <> JsonValueKind.Null then
                 let message =
                     match errorEl.TryGetProperty "description" with
                     | true, v -> (v.GetString() |> Option.ofObj) |> Option.defaultValue (errorEl.ToString())
@@ -608,8 +609,8 @@ module FinancialData =
                             | _ -> "USD"
                         | _ -> "USD"
 
-                    let inline tryGetFloat (el: System.Text.Json.JsonElement) : float option =
-                        if el.ValueKind = System.Text.Json.JsonValueKind.Number then
+                    let inline tryGetFloat (el: JsonElement) : float option =
+                        if el.ValueKind = JsonValueKind.Number then
                             el.GetDouble() |> Some
                         else
                             None
@@ -623,11 +624,12 @@ module FinancialData =
                         [|
                             for i in 0 .. count - 1 do
                                 let closeOpt = tryGetFloat closes.[i]
-                                if closeOpt.IsSome then
+                                match closeOpt with
+                                | Some v ->
                                     let ts = timestamps.[i].GetInt64()
-                                    let openP = tryGetFloat opens.[i] |> Option.defaultValue closeOpt.Value
-                                    let highP = tryGetFloat highs.[i] |> Option.defaultValue closeOpt.Value
-                                    let lowP = tryGetFloat lows.[i] |> Option.defaultValue closeOpt.Value
+                                    let openP = tryGetFloat opens.[i] |> Option.defaultValue v
+                                    let highP = tryGetFloat highs.[i] |> Option.defaultValue v
+                                    let lowP = tryGetFloat lows.[i] |> Option.defaultValue v
 
                                     let volume =
                                         if i < volumes.Length then
@@ -646,10 +648,12 @@ module FinancialData =
                                         Open = openP
                                         High = highP
                                         Low = lowP
-                                        Close = closeOpt.Value
+                                        Close = v
                                         Volume = volume
                                         AdjustedClose = adjClose
                                     }
+                                | None ->
+                                    ()
                         |]
                         |> Array.sortBy (fun b -> b.Date)
 
@@ -930,7 +934,7 @@ module FinancialData =
     /// Load portfolio from CSV
     let loadPortfolioFromCsv (filePath: string) (portfolioName: string) : QuantumResult<Portfolio> =
         try
-            let lines = System.IO.File.ReadAllLines(filePath)
+            let lines = File.ReadAllLines(filePath)
             if lines.Length < 2 then
                 Error (QuantumError.ValidationError ("file", "CSV must have header and at least one position"))
             else

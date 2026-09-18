@@ -313,5 +313,5 @@ module ZeroNoiseExtrapolation =
                         GoodnessOfFit = goodnessOfFit
                     }
             with
-            | ex -> return Error ($"ZNE pipeline error: %s{ex.Message}")
+            | ex -> return Error $"ZNE pipeline error: %s{ex.Message}"
         }

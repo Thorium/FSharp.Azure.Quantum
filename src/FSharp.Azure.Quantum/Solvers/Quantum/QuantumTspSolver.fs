@@ -73,7 +73,7 @@ module QuantumTspSolver =
             match QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam [| (gamma, beta) |] numShots with
             | Error _ -> 
                 // Return large penalty if execution fails
-                System.Double.MaxValue
+                Double.MaxValue
             | Ok measurements ->
                 
                 // Decode all measurements and find best tour cost
@@ -117,13 +117,13 @@ module QuantumTspSolver =
                     )
                 
                 if tourResults.Length = 0 then
-                    System.Double.MaxValue  // No valid tours - large penalty
+                    Double.MaxValue  // No valid tours - large penalty
                 else
                     Array.min tourResults  // Return best (minimum) tour length
         with
         | ex ->
             // Return large penalty on any error
-            System.Double.MaxValue
+            Double.MaxValue
 
     /// Configuration for quantum TSP solving
     type QuantumTspConfig = {

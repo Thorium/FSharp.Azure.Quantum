@@ -115,7 +115,7 @@ let makeConfig strategy initStrat =
 
 let strategies =
     [ ("SingleRun-Standard", makeConfig SingleRun StandardQAOA)
-      (sprintf "MultiStart-%dx" multiStarts, makeConfig (MultiStart multiStarts) RandomUniform)
+      ($"MultiStart-%d{multiStarts}x", makeConfig (MultiStart multiStarts) RandomUniform)
       ("SingleRun-TwoLocal", makeConfig SingleRun TwoLocalPattern) ]
 
 let results =
@@ -232,7 +232,7 @@ csvPath
     let rows =
         results
         |> List.map (fun (name, r) ->
-            [ name; sprintf "%.6f" r.FinalEnergy; string r.Converged
+            [ name; $"%.6f{r.FinalEnergy}"; string r.Converged
               string r.TotalEvaluations
               sprintf "%.4f" (fst r.OptimizedParameters.[0])
               sprintf "%.4f" (snd r.OptimizedParameters.[0]) ])

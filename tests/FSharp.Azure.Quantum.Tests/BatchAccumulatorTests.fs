@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core.Batching
 
@@ -238,7 +239,7 @@ module BatchAccumulatorTests =
             let tasks = 
                 [1..10]
                 |> List.map (fun threadId ->
-                    System.Threading.Tasks.Task.Run(fun () ->
+                    Task.Run(fun () ->
                         for i in 1..10 do
                             let item = threadId * 100 + i
                             match accumulator.Add item with
@@ -247,7 +248,7 @@ module BatchAccumulatorTests =
                     )
                 )
 
-            let! _ = System.Threading.Tasks.Task.WhenAll(tasks |> List.toArray)
+            let! _ = Task.WhenAll(tasks |> List.toArray)
 
             // Flush any remaining items
             match accumulator.TryFlush() with
@@ -261,7 +262,7 @@ module BatchAccumulatorTests =
             // Check no duplicates (each item appears exactly once)
             let distinctItems = allItems |> List.distinct
             Assert.Equal(100, distinctItems.Length)
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``BatchAccumulator should maintain batch size limit under concurrent load`` () =
@@ -276,14 +277,14 @@ module BatchAccumulatorTests =
             let tasks = 
                 [1..50]
                 |> List.map (fun item ->
-                    System.Threading.Tasks.Task.Run(fun () ->
+                    Task.Run(fun () ->
                         match accumulator.Add item with
                         | Some batch -> batches.Add batch
                         | None -> ()
                     )
                 )
 
-            let! _ = System.Threading.Tasks.Task.WhenAll(tasks |> List.toArray)
+            let! _ = Task.WhenAll(tasks |> List.toArray)
 
             // Assert - All batches should be at max size (except possibly the last partial one)
             let batchList = batches |> Seq.toList
@@ -294,7 +295,7 @@ module BatchAccumulatorTests =
             batchList |> List.iter (fun batch ->
                 Assert.True(batch.Length <= maxSize, $"Batch size {batch.Length} exceeds max {maxSize}")
             )
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``BatchAccumulator concurrent Add and TryFlush should not lose items`` () =
@@ -308,7 +309,7 @@ module BatchAccumulatorTests =
             let addTasks = 
                 [1..20]
                 |> List.map (fun item ->
-                    System.Threading.Tasks.Task.Run(fun () ->
+                    Task.Run(fun () ->
                         System.Threading.Thread.Sleep(5 * item)  // Stagger additions
                         match accumulator.Add item with
                         | Some batch -> batches.Add batch
@@ -319,7 +320,7 @@ module BatchAccumulatorTests =
             let flushTasks = 
                 [1..5]
                 |> List.map (fun _ ->
-                    System.Threading.Tasks.Task.Run(fun () ->
+                    Task.Run(fun () ->
                         for _ in 1..5 do
                             System.Threading.Thread.Sleep(20)
                             match accumulator.TryFlush() with
@@ -329,7 +330,7 @@ module BatchAccumulatorTests =
                 )
 
             let allTasks = addTasks @ flushTasks
-            let! _ = System.Threading.Tasks.Task.WhenAll(allTasks |> List.toArray)
+            let! _ = Task.WhenAll(allTasks |> List.toArray)
 
             // Final flush - use ForceFlush to ensure all items are retrieved
             match accumulator.ForceFlush() with
@@ -343,7 +344,7 @@ module BatchAccumulatorTests =
             // Check all expected items present
             let distinctItems = allItems |> List.distinct |> List.sort
             Assert.Equal<int seq>([1..20], distinctItems)
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // batchCircuitsAsync - Async Batch Submission Function
@@ -366,7 +367,7 @@ module BatchAccumulatorTests =
 
             // Assert
             Assert.Empty(results)
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``batchCircuitsAsync with single circuit should return single result`` () =
@@ -386,7 +387,7 @@ module BatchAccumulatorTests =
             // Assert
             Assert.Equal(1, results.Length)
             Assert.Equal("circuit1_result", results.[0])
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``batchCircuitsAsync should batch multiple circuits based on size limit`` () =
@@ -415,7 +416,7 @@ module BatchAccumulatorTests =
                 ["c1_result"; "c2_result"; "c3_result"; "c4_result"; "c5_result"], 
                 results
             )
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``batchCircuitsAsync should preserve circuit order in results`` () =
@@ -437,7 +438,7 @@ module BatchAccumulatorTests =
                 ["A_result"; "B_result"; "C_result"; "D_result"], 
                 results
             )
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``batchCircuitsAsync should handle batch submission errors gracefully`` () =
@@ -460,13 +461,13 @@ module BatchAccumulatorTests =
 
             // Act & Assert
             let! ex = 
-                Assert.ThrowsAsync<System.Exception>(fun () ->
+                Assert.ThrowsAsync<Exception>(fun () ->
                      batchCircuitsAsync config circuits mockSubmit
-                     |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+                     |> Async.StartImmediateAsTask :> Task
                  )
 
             Assert.Contains("Batch submission failed", ex.Message)
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``batchCircuitsAsync with disabled config should return empty results`` () =
@@ -485,7 +486,7 @@ module BatchAccumulatorTests =
 
             // Assert
             Assert.Empty(results)
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // Batch Metrics - Track Batch Efficiency

@@ -264,10 +264,10 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
             printfn "    Energy: %.6f Ha (%.3f eV), Iterations: %d, Time: %.2f s" energy (energy * hartreeToEV) iterations time
         Map.ofList [
             "molecule", molecule.Name; "label", label
-            "energy_hartree", sprintf "%.6f" energy
+            "energy_hartree", $"%.6f{energy}"
             "energy_eV", sprintf "%.3f" (energy * hartreeToEV)
-            "iterations", sprintf "%d" iterations
-            "time_seconds", sprintf "%.2f" time
+            "iterations", $"%d{iterations}"
+            "time_seconds", $"%.2f{time}"
             "has_vqe_failure", "false" ]
     | Error msg ->
         anyVqeFailure <- true
@@ -359,16 +359,16 @@ let semiRows =
         let sqEff = shockleyQueisserEfficiency semi.BandGap
         Map.ofList [
             "material", semi.Name; "short_name", semi.ShortName
-            "band_gap_eV", sprintf "%.4f" semi.BandGap
+            "band_gap_eV", $"%.4f{semi.BandGap}"
             "band_gap_type", semi.BandGapType
-            "effective_mass_e", sprintf "%.3f" semi.EffectiveMassE
-            "effective_mass_h", sprintf "%.3f" semi.EffectiveMassH
-            "lattice_constant_A", sprintf "%.3f" semi.LatticeConstant
-            "band_gap_at_T_eV", sprintf "%.4f" E_g_T
-            "temperature_K", sprintf "%.0f" userTemperature
-            "carrier_concentration_cm3", sprintf "%.2e" n_i
+            "effective_mass_e", $"%.3f{semi.EffectiveMassE}"
+            "effective_mass_h", $"%.3f{semi.EffectiveMassH}"
+            "lattice_constant_A", $"%.3f{semi.LatticeConstant}"
+            "band_gap_at_T_eV", $"%.4f{E_g_T}"
+            "temperature_K", $"%.0f{userTemperature}"
+            "carrier_concentration_cm3", $"%.2e{n_i}"
             "sq_efficiency_pct", sprintf "%.1f" (sqEff * 100.0)
-            "has_vqe_failure", sprintf "%b" anyVqeFailure ])
+            "has_vqe_failure", $"%b{anyVqeFailure}" ])
 
 let allResultRows = semiRows @ vqeResults
 

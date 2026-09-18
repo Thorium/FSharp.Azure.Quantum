@@ -58,7 +58,7 @@ module Data =
         let lines =
             File.ReadAllLines path
             |> Array.map (fun l -> l.Trim())
-            |> Array.filter (fun l -> not ((String.IsNullOrWhiteSpace l) || (l.StartsWith('#'))))
+            |> Array.filter (fun l -> not ((String.IsNullOrWhiteSpace l) || (l.StartsWith '#')))
 
         if lines.Length = 0 then
             ([], [])
@@ -112,7 +112,7 @@ module Data =
         |> Array.map (fun l -> l.Trim())
         |> Array.filter (fun l ->
             not (String.IsNullOrWhiteSpace l)
-            && not (l.StartsWith('#')))
+            && not (l.StartsWith '#'))
         |> Array.toList
 
     /// Read SMILES strings from a .smi or .csv file (one SMILES per line, or first column).

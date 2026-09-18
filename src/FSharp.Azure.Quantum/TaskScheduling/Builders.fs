@@ -43,7 +43,7 @@ module Builders =
         member _.Combine(task1: ScheduledTask<'T>, task2: ScheduledTask<'T>) : ScheduledTask<'T> =
             // For tasks, combine by taking non-default values from task2
             {
-                Id = if System.String.IsNullOrEmpty task2.Id then task1.Id else task2.Id
+                Id = if String.IsNullOrEmpty task2.Id then task1.Id else task2.Id
                 Value = match task2.Value with | Some _ -> task2.Value | None -> task1.Value
                 Duration = if task2.Duration = TimeSpan.Zero then task1.Duration else task2.Duration
                 EarliestStart = match task2.EarliestStart with | Some _ -> task2.EarliestStart | None -> task1.EarliestStart
@@ -131,7 +131,7 @@ module Builders =
                 Id = ""
                 Value = None
                 Capacity = 0.0
-                AvailableWindows = [(0.0, System.Double.MaxValue)]
+                AvailableWindows = [(0.0, Double.MaxValue)]
                 CostPerUnit = 0.0
                 Properties = Map.empty
             }
@@ -144,7 +144,7 @@ module Builders =
                 Id = ""
                 Value = None
                 Capacity = 0.0
-                AvailableWindows = [(0.0, System.Double.MaxValue)]
+                AvailableWindows = [(0.0, Double.MaxValue)]
                 CostPerUnit = 0.0
                 Properties = Map.empty
             }
@@ -152,10 +152,10 @@ module Builders =
         member _.Combine(res1: Resource<'T>, res2: Resource<'T>) : Resource<'T> =
             // For resources, combine by taking non-default values from res2
             {
-                Id = if System.String.IsNullOrEmpty res2.Id then res1.Id else res2.Id
+                Id = if String.IsNullOrEmpty res2.Id then res1.Id else res2.Id
                 Value = match res2.Value with | Some _ -> res2.Value | None -> res1.Value
                 Capacity = if res2.Capacity = 0.0 then res1.Capacity else res2.Capacity
-                AvailableWindows = if res2.AvailableWindows = [(0.0, System.Double.MaxValue)] then res1.AvailableWindows else res2.AvailableWindows
+                AvailableWindows = if res2.AvailableWindows = [(0.0, Double.MaxValue)] then res1.AvailableWindows else res2.AvailableWindows
                 CostPerUnit = if res2.CostPerUnit = 0.0 then res1.CostPerUnit else res2.CostPerUnit
                 Properties = Map.fold (fun acc k v -> Map.add k v acc) res1.Properties res2.Properties
             }
@@ -198,7 +198,7 @@ module Builders =
             Id = id
             Value = Some id
             Capacity = capacity
-            AvailableWindows = [(0.0, System.Double.MaxValue)]
+            AvailableWindows = [(0.0, Double.MaxValue)]
             CostPerUnit = costPerUnit
             Properties = Map.empty
         }

@@ -53,7 +53,7 @@ module ShorsTests =
                 Ok result
             else
                 Error result.Message
-        | Error err -> Error ($"%A{err}")
+        | Error err -> Error $"%A{err}"
     
     // ========================================================================
     // LOCAL SIMULATION TESTS (using ShorsAlgorithm module)

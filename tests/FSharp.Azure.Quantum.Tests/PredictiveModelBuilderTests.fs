@@ -234,7 +234,7 @@ module PredictiveModelBuilderTests =
         match train problem with
         | Ok model ->
             Assert.Equal(Regression, model.Metadata.ProblemType)
-            Assert.False(System.Double.IsNaN model.Metadata.TrainingScore, "R² should be a finite number")
+            Assert.False(Double.IsNaN model.Metadata.TrainingScore, "R² should be a finite number")
             Assert.True(model.Metadata.TrainingScore <= 1.0,
                 $"R² should be ≤ 1, got {model.Metadata.TrainingScore}")
         | Error e -> failwith $"Should succeed, got error: {e}"

@@ -224,15 +224,15 @@ let solveAndReport
         Some (Map.ofList
             [ "example",           label
               "method",            "QAOA"
-              "items_count",       sprintf "%d" problem.ItemCount
-              "capacity",          sprintf "%.0f" capacity
-              "selected_count",    sprintf "%d" solution.SelectedItems.Length
+              "items_count",       $"%d{problem.ItemCount}"
+              "capacity",          $"%.0f{capacity}"
+              "selected_count",    $"%d{solution.SelectedItems.Length}"
               "selected_items",    solution.SelectedItems |> List.map (fun i -> i.Id) |> String.concat "; "
-              "total_weight",      sprintf "%.2f" solution.TotalWeight
-              "total_value",       sprintf "%.2f" solution.TotalValue
-              "utilization_pct",   sprintf "%.1f" solution.CapacityUtilization
-              "efficiency",        sprintf "%.2f" solution.Efficiency
-              "feasible",          sprintf "%b" solution.IsFeasible
+              "total_weight",      $"%.2f{solution.TotalWeight}"
+              "total_value",       $"%.2f{solution.TotalValue}"
+              "utilization_pct",   $"%.1f{solution.CapacityUtilization}"
+              "efficiency",        $"%.2f{solution.Efficiency}"
+              "feasible",          $"%b{solution.IsFeasible}"
               "backend",           solution.BackendName ])
 
     | Error err ->
@@ -333,15 +333,15 @@ match inputPath with
             allResults.Add (Map.ofList
                 [ "example",           "random"
                   "method",            "QAOA"
-                  "items_count",       sprintf "%d" randomProblem.ItemCount
-                  "capacity",          sprintf "%.0f" randomProblem.Capacity
-                  "selected_count",    sprintf "%d" solution.SelectedItems.Length
+                  "items_count",       $"%d{randomProblem.ItemCount}"
+                  "capacity",          $"%.0f{randomProblem.Capacity}"
+                  "selected_count",    $"%d{solution.SelectedItems.Length}"
                   "selected_items",    solution.SelectedItems |> List.map (fun i -> i.Id) |> String.concat "; "
-                  "total_weight",      sprintf "%.2f" solution.TotalWeight
-                  "total_value",       sprintf "%.2f" solution.TotalValue
-                  "utilization_pct",   sprintf "%.1f" solution.CapacityUtilization
-                  "efficiency",        sprintf "%.2f" solution.Efficiency
-                  "feasible",          sprintf "%b" solution.IsFeasible
+                  "total_weight",      $"%.2f{solution.TotalWeight}"
+                  "total_value",       $"%.2f{solution.TotalValue}"
+                  "utilization_pct",   $"%.1f{solution.CapacityUtilization}"
+                  "efficiency",        $"%.2f{solution.Efficiency}"
+                  "feasible",          $"%b{solution.IsFeasible}"
                   "backend",           solution.BackendName ])
         | Error err ->
             if not quiet then printfn "  Failed: %A" err
@@ -389,15 +389,15 @@ match inputPath with
             allResults.Add (Map.ofList
                 [ "example",           "random"
                   "method",            "QAOA"
-                  "items_count",       sprintf "%d" randomProblem.ItemCount
-                  "capacity",          sprintf "%.0f" randomProblem.Capacity
-                  "selected_count",    sprintf "%d" solution.SelectedItems.Length
+                  "items_count",       $"%d{randomProblem.ItemCount}"
+                  "capacity",          $"%.0f{randomProblem.Capacity}"
+                  "selected_count",    $"%d{solution.SelectedItems.Length}"
                   "selected_items",    solution.SelectedItems |> List.map (fun i -> i.Id) |> String.concat "; "
-                  "total_weight",      sprintf "%.2f" solution.TotalWeight
-                  "total_value",       sprintf "%.2f" solution.TotalValue
-                  "utilization_pct",   sprintf "%.1f" solution.CapacityUtilization
-                  "efficiency",        sprintf "%.2f" solution.Efficiency
-                  "feasible",          sprintf "%b" solution.IsFeasible
+                  "total_weight",      $"%.2f{solution.TotalWeight}"
+                  "total_value",       $"%.2f{solution.TotalValue}"
+                  "utilization_pct",   $"%.1f{solution.CapacityUtilization}"
+                  "efficiency",        $"%.2f{solution.Efficiency}"
+                  "feasible",          $"%b{solution.IsFeasible}"
                   "backend",           solution.BackendName ])
         | Error err ->
             if not quiet then printfn "  Failed: %A" err

@@ -73,7 +73,7 @@ let registerAllocation = graphColoring {
     node "y" ["x"; "w"]
     node "z" ["x"; "w"]
     node "w" ["y"; "z"]
-    colors [ for i in 0 .. numColors - 1 -> sprintf "R%d" i ]
+    colors [ for i in 0 .. numColors - 1 -> $"R%d{i}" ]
     objective MinimizeColors
 }
 
@@ -132,7 +132,7 @@ match GraphColoring.solve registerAllocation numColors (Some quantumBackend) wit
     // JSON output
     outputPath |> Option.iter (fun path ->
         let assignments =
-            solution.Assignments |> Map.toList |> List.map (fun (v, c) -> sprintf "%s=%s" v c) |> String.concat ";"
+            solution.Assignments |> Map.toList |> List.map (fun (v, c) -> $"%s{v}=%s{c}") |> String.concat ";"
         let payload =
             {| colorsUsed = solution.ColorsUsed
                colorsAvailable = numColors

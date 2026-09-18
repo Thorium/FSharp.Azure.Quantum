@@ -140,7 +140,7 @@ mermaidFile
 |> Option.iter (fun path ->
     let content =
         results
-        |> List.map (fun r -> sprintf "%% %s\n%s" r.Label r.MermaidDiagram)
+        |> List.map (fun r -> $"%% %s{r.Label}\n%s{r.MermaidDiagram}")
         |> String.concat "\n\n"
     IO.File.WriteAllText(path, content)
     pr "Mermaid diagrams written to %s" path)

@@ -12,9 +12,9 @@ module Export =
         
         writer.WriteLine "# Gantt Chart - Task Schedule"
         writer.WriteLine ""
-        writer.WriteLine($"Makespan: %.1f{solution.Makespan.TotalMinutes} minutes")
-        writer.WriteLine($"Total Cost: $%.2f{solution.TotalCost}")
-        writer.WriteLine($"Valid: %b{solution.IsValid}")
+        writer.WriteLine $"Makespan: %.1f{solution.Makespan.TotalMinutes} minutes"
+        writer.WriteLine $"Total Cost: $%.2f{solution.TotalCost}"
+        writer.WriteLine $"Valid: %b{solution.IsValid}"
         writer.WriteLine ""
         
         writer.WriteLine "Task Assignments:"
@@ -34,4 +34,4 @@ module Export =
             writer.WriteLine "Deadline Violations:"
             writer.WriteLine "-------------------"
             for taskId in solution.DeadlineViolations do
-                writer.WriteLine($"  - %s{taskId}")
+                writer.WriteLine $"  - %s{taskId}"

@@ -87,9 +87,10 @@ module ResourceEstimation =
         let logicalErrorAt d = 0.03 * (ratio ** (float (d + 1) / 2.0))
         // Smallest odd distance meeting the budget (capped; if p >= threshold the
         // code does not suppress and we report the capped distance honestly).
-        let mutable d = 3
-        while logicalErrorAt d > requiredLogicalError && d < 101 do
-            d <- d + 2
+        let rec advanceD d =
+            if logicalErrorAt d > requiredLogicalError && d < 101 then advanceD (d + 2) else d
+
+        let d = advanceD 3
         let perLogical = 2 * d * d
         { CodeDistance = d
           PhysicalQubitsPerLogical = perLogical

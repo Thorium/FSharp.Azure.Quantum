@@ -100,7 +100,7 @@ let extractVars (numVars: int) (solution: int) : bool array =
 
 /// Format variable assignment as a string
 let formatAssignment (vars: bool array) =
-    vars |> Array.mapi (fun i v -> sprintf "x%d=%b" i v) |> String.concat ", "
+    vars |> Array.mapi (fun i v -> $"x%d{i}=%b{v}") |> String.concat ", "
 
 type ExampleResult = {
     Example: string
@@ -146,7 +146,7 @@ if shouldRun "1" then
         allResults.Add({
             Example = "1-Simple-2SAT"; Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
             NumVariables = 2; SearchSpace = 4; ClassicalSolutions = []; QuantumSolutions = []
-            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = sprintf "Oracle error: %A" err
+            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -178,7 +178,7 @@ if shouldRun "1" then
             allResults.Add({
                 Example = "1-Simple-2SAT"; Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
                 NumVariables = 2; SearchSpace = 4; ClassicalSolutions = classicalSols; QuantumSolutions = []
-                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = sprintf "Search error: %A" err
+                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             if not quiet then
@@ -233,7 +233,7 @@ if shouldRun "2" then
         allResults.Add({
             Example = "2-3SAT-NP-Complete"; Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
             NumVariables = 3; SearchSpace = 8; ClassicalSolutions = []; QuantumSolutions = []
-            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = sprintf "Oracle error: %A" err
+            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -262,7 +262,7 @@ if shouldRun "2" then
             allResults.Add({
                 Example = "2-3SAT-NP-Complete"; Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
                 NumVariables = 3; SearchSpace = 8; ClassicalSolutions = classicalSols; QuantumSolutions = []
-                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = sprintf "Search error: %A" err
+                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             if not quiet then
@@ -316,7 +316,7 @@ if shouldRun "3" then
         allResults.Add({
             Example = "3-UNSAT"; Formula = "(x0) AND (NOT x0)"
             NumVariables = 1; SearchSpace = 2; ClassicalSolutions = []; QuantumSolutions = []
-            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = sprintf "Oracle error: %A" err
+            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Oracle error: %A{err}"
         })
     | Ok oracle ->
         if not quiet then
@@ -346,7 +346,7 @@ if shouldRun "3" then
             allResults.Add({
                 Example = "3-UNSAT"; Formula = "(x0) AND (NOT x0)"
                 NumVariables = 1; SearchSpace = 2; ClassicalSolutions = []; QuantumSolutions = []
-                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = sprintf "Search error: %A" err
+                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Search error: %A{err}"
             })
         | Ok result ->
             if not quiet then
@@ -426,8 +426,8 @@ match csvPath with
         |> Seq.toList
         |> List.map (fun r ->
             [ r.Example; r.Formula; string r.NumVariables; string r.SearchSpace
-              sprintf "%A" r.ClassicalSolutions; sprintf "%A" r.QuantumSolutions
-              sprintf "%.4f" r.SuccessProbability; string r.Iterations; string r.Shots; r.Status ])
+              $"%A{r.ClassicalSolutions}"; $"%A{r.QuantumSolutions}"
+              $"%.4f{r.SuccessProbability}"; string r.Iterations; string r.Shots; r.Status ])
     Reporting.writeCsv path header rows
     if not quiet then printfn "CSV written to %s" path
 | None -> ()

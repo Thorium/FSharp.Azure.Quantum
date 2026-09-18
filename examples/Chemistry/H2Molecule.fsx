@@ -188,13 +188,13 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
             printfn "  Iterations: %d" vqeResult.Iterations
             printfn "  Converged: %b" vqeResult.Converged
         [ "Label", label
-          "BondLength_A", sprintf "%.4f" distance
-          "Method", sprintf "%A" method
-          "Energy_Hartree", sprintf "%.6f" vqeResult.Energy
-          "Energy_eV", sprintf "%.6f" eV
-          "Error_Hartree", sprintf "%.6f" error
-          "Iterations", sprintf "%d" vqeResult.Iterations
-          "Converged", sprintf "%b" vqeResult.Converged ]
+          "BondLength_A", $"%.4f{distance}"
+          "Method", $"%A{method}"
+          "Energy_Hartree", $"%.6f{vqeResult.Energy}"
+          "Energy_eV", $"%.6f{eV}"
+          "Error_Hartree", $"%.6f{error}"
+          "Iterations", $"%d{vqeResult.Iterations}"
+          "Converged", $"%b{vqeResult.Converged}" ]
         |> Map.ofList
         |> Some
     | Error err ->
@@ -324,13 +324,13 @@ let scanResults =
         | Ok vqeResult ->
             if not quiet then
                 printfn "  Distance %.2f A: %.6f Hartree (%d iterations)" d vqeResult.Energy vqeResult.Iterations
-            [ "Label", sprintf "Scan_%.2f" d
-              "BondLength_A", sprintf "%.4f" d
+            [ "Label", $"Scan_%.2f{d}"
+              "BondLength_A", $"%.4f{d}"
               "Method", "VQE"
-              "Energy_Hartree", sprintf "%.6f" vqeResult.Energy
+              "Energy_Hartree", $"%.6f{vqeResult.Energy}"
               "Energy_eV", sprintf "%.6f" (vqeResult.Energy * 27.2114)
-              "Iterations", sprintf "%d" vqeResult.Iterations
-              "Converged", sprintf "%b" vqeResult.Converged ]
+              "Iterations", $"%d{vqeResult.Iterations}"
+              "Converged", $"%b{vqeResult.Converged}" ]
             |> Map.ofList
             |> Some
         | Error err ->

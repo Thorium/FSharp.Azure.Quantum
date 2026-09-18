@@ -117,7 +117,7 @@ match solutionResult with
         let header = ["Source"; "Target"; "Weight"]
         let rows =
             solution.SelectedEdges |> List.map (fun e ->
-                [e.Source; e.Target; sprintf "%.2f" e.Weight])
+                [e.Source; e.Target; $"%.2f{e.Weight}"])
         Reporting.writeCsv path header rows
         pr "CSV written to %s" path
     )

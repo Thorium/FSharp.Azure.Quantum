@@ -554,13 +554,13 @@ for ligand in pdb.Ligands do
         [ "type", "binding_site"
           "ligand_id", ligand.Name
           "pocket_residues", string (List.length site.PocketResidues)
-          "volume_a3", sprintf "%.1f" site.Volume
-          "centroid_x", sprintf "%.2f" cx
-          "centroid_y", sprintf "%.2f" cy
-          "centroid_z", sprintf "%.2f" cz
+          "volume_a3", $"%.1f{site.Volume}"
+          "centroid_x", $"%.2f{cx}"
+          "centroid_y", $"%.2f{cy}"
+          "centroid_z", $"%.2f{cz}"
           "hydrophobic_fraction_pct", sprintf "%.1f" (site.HydrophobicFraction * 100.0)
           "hbond_sites", string site.HydrogenBondSites
-          "druggability_score", sprintf "%.2f" druggScore
+          "druggability_score", $"%.2f{druggScore}"
           "druggability_assessment", druggAssessment ]
         |> Map.ofList)
 
@@ -595,7 +595,7 @@ for ligand in pdb.Ligands do
 
         // Build molecule from extracted fragment
         let fragmentMolecule : Molecule = {
-            Name = sprintf "%s-BindingSiteFragment" ligand.Name
+            Name = $"%s{ligand.Name}-BindingSiteFragment"
             Atoms =
                 fragment
                 |> List.map (fun (elem, pos) ->
@@ -633,10 +633,10 @@ for ligand in pdb.Ligands do
                 [ "type", "vqe_fragment"
                   "ligand_id", ligand.Name
                   "fragment_atoms", string (List.length fragment)
-                  "energy_hartree", sprintf "%.6f" vqeResult.Energy
-                  "computation_time_s", sprintf "%.2f" elapsed
+                  "energy_hartree", $"%.6f{vqeResult.Energy}"
+                  "computation_time_s", $"%.2f{elapsed}"
                   "max_iterations", string maxIterations
-                  "tolerance", sprintf "%.1e" tolerance
+                  "tolerance", $"%.1e{tolerance}"
                   "backend", backend.Name ]
                 |> Map.ofList)
 

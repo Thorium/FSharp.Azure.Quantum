@@ -322,7 +322,7 @@ module HHLTypes =
             numerator / denominator
         
         // Initialize with random vector (seeded for reproducibility)
-        let rng = System.Random(42)
+        let rng = Random(42)
         let v0 = Array.init n (fun _ -> Complex(rng.NextDouble(), rng.NextDouble()))
         let v0Normalized = normalize v0
         

@@ -63,7 +63,7 @@ let applyBraids indices state =
     (Ok state, indices) ||> List.fold (fun acc idx ->
         acc |> Result.bind (fun s ->
             quantumBackend.ApplyOperation (QuantumOperation.Braid idx) s
-            |> Result.mapError (fun e -> sprintf "Braid %d failed: %A" idx e)))
+            |> Result.mapError (fun e -> $"Braid %d{idx} failed: %A{e}")))
 
 // ---------------------------------------------------------------------------
 // Example 1 -- Core Topological Math (Layer 1)
@@ -90,7 +90,7 @@ if shouldRun 1 then
     pr "  Quantum dimension of sigma: %.4f" sigmaDim
 
     jsonResults <- ("1_core", box {| sigmaDim = sigmaDim |}) :: jsonResults
-    csvRows <- [ "1_core"; sprintf "%.4f" sigmaDim ] :: csvRows
+    csvRows <- [ "1_core"; $"%.4f{sigmaDim}" ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Backend Capabilities (Layer 2)
@@ -119,7 +119,7 @@ if shouldRun 3 then
     let circuitResult =
         pr "  Initializing 4-anyon qubit..."
         quantumBackend.InitializeState 4
-        |> Result.mapError (fun e -> sprintf "Init failed: %A" e)
+        |> Result.mapError (fun e -> $"Init failed: %A{e}")
         |> Result.bind (fun qubit ->
             match qubit with
             | QuantumState.FusionSuperposition fs ->
@@ -141,13 +141,13 @@ if shouldRun 3 then
                 | Some nativeState ->
                     let singleState = snd (List.head nativeState.Terms)
                     TopologicalOperations.measureFusion 0 singleState
-                    |> Result.mapError (fun e -> sprintf "Measure: %s" e.Message)
+                    |> Result.mapError (fun e -> $"Measure: %s{e.Message}")
                     |> Result.bind (fun outcomes ->
                         let (prob, result) = List.head outcomes
                         match result.ClassicalOutcome with
                         | Some outcome ->
                             pr "  Outcome: %A (prob: %.4f)" outcome prob
-                            Ok (sprintf "%A" outcome, prob)
+                            Ok ($"%A{outcome}", prob)
                         | None -> Ok ("collapsed", 0.0))
                 | None -> Error "Could not unwrap state"
             | _ -> Error "Invalid state type")
@@ -155,7 +155,7 @@ if shouldRun 3 then
     match circuitResult with
     | Ok (outcome, prob) ->
         jsonResults <- ("3_circuit", box {| outcome = outcome; probability = prob |}) :: jsonResults
-        csvRows <- [ "3_circuit"; outcome; sprintf "%.4f" prob ] :: csvRows
+        csvRows <- [ "3_circuit"; outcome; $"%.4f{prob}" ] :: csvRows
     | Error msg ->
         pr "  Error: %s" msg
         jsonResults <- ("3_circuit", box {| error = msg |}) :: jsonResults
@@ -174,7 +174,7 @@ if shouldRun 4 then
     let knotResult =
         pr "  Braiding pattern (trefoil): %A" braidingPattern
         quantumBackend.InitializeState 6
-        |> Result.mapError (fun e -> sprintf "Init: %A" e)
+        |> Result.mapError (fun e -> $"Init: %A{e}")
         |> Result.bind (applyBraids braidingPattern)
         |> Result.bind (fun state ->
             match state with
@@ -191,7 +191,7 @@ if shouldRun 4 then
                             pr "  Fusion outcome: %A" outcome
                             pr "  Reannihilation probability: %.6f" prob
                             pr "  (Related to |Kauffman bracket|^2)"
-                            Ok (sprintf "%A" outcome, prob)
+                            Ok ($"%A{outcome}", prob)
                         | None -> Ok ("collapsed", 0.0))
                 | None -> Error "Invalid state"
             | _ -> Error "Invalid state type")
@@ -199,7 +199,7 @@ if shouldRun 4 then
     match knotResult with
     | Ok (outcome, prob) ->
         jsonResults <- ("4_knot", box {| outcome = outcome; probability = prob |}) :: jsonResults
-        csvRows <- [ "4_knot"; outcome; sprintf "%.6f" prob ] :: csvRows
+        csvRows <- [ "4_knot"; outcome; $"%.6f{prob}" ] :: csvRows
     | Error msg ->
         pr "  Error: %s" msg
 
@@ -229,8 +229,8 @@ if shouldRun 5 then
     match builderResult with
     | Ok outcome ->
         pr "  Builder outcome: %A" outcome
-        jsonResults <- ("5_builder", box {| outcome = sprintf "%A" outcome |}) :: jsonResults
-        csvRows <- [ "5_builder"; sprintf "%A" outcome ] :: csvRows
+        jsonResults <- ("5_builder", box {| outcome = $"%A{outcome}" |}) :: jsonResults
+        csvRows <- [ "5_builder"; $"%A{outcome}" ] :: csvRows
     | Error e ->
         pr "  Builder failed: %A" e
 
@@ -272,18 +272,24 @@ if shouldRun 6 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "TopologicalExample.fsx"
            backend   = quantumBackend.Name
            timestamp = DateTime.UtcNow.ToString("o")
            example   = exChoice
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

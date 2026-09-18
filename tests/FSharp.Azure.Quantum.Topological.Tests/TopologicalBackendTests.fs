@@ -6,6 +6,7 @@ open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.LocalSimulator
 
 module TopologicalBackendTests =
 
@@ -470,11 +471,11 @@ module TopologicalBackendTests =
             | Error err -> Assert.Fail($"Conversion to GateBased failed: {err}")
             | Ok (QuantumState.StateVector sv) ->
                 // Should be a 1-qubit state with 2 amplitudes
-                let n = FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+                let n = StateVector.numQubits sv
                 Assert.Equal(1, n)
                 // Ground state: amplitude 1.0 at |0⟩, 0 at |1⟩
-                let amp0 = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude 0 sv
-                let amp1 = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude 1 sv
+                let amp0 = StateVector.getAmplitude 0 sv
+                let amp1 = StateVector.getAmplitude 1 sv
                 Assert.True(abs (amp0.Magnitude - 1.0) < 1e-6,
                     $"|0⟩ amplitude magnitude should be ~1.0, got {amp0.Magnitude}")
                 Assert.True(amp1.Magnitude < 1e-6,
@@ -514,14 +515,14 @@ module TopologicalBackendTests =
             match QuantumStateConversion.convert QuantumStateType.GateBased initialState with
             | Error err -> Assert.Fail($"Conversion failed: {err}")
             | Ok (QuantumState.StateVector sv) ->
-                let n = FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+                let n = StateVector.numQubits sv
                 Assert.Equal(2, n)
                 // Ground state: amplitude 1.0 at |00⟩, 0 everywhere else
-                let amp0 = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude 0 sv
+                let amp0 = StateVector.getAmplitude 0 sv
                 Assert.True(abs (amp0.Magnitude - 1.0) < 1e-6,
                     $"|00⟩ amplitude should be ~1.0, got {amp0.Magnitude}")
                 for i in 1..3 do
-                    let amp = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude i sv
+                    let amp = StateVector.getAmplitude i sv
                     Assert.True(amp.Magnitude < 1e-6,
                         $"|{i}⟩ amplitude should be ~0, got {amp.Magnitude}")
             | Ok other ->
@@ -530,7 +531,7 @@ module TopologicalBackendTests =
     [<Fact>]
     let ``Conversion to TopologicalBraiding returns NotImplemented`` () =
         // Creating a gate-based state and trying to convert TO TopologicalBraiding should fail
-        let sv = FSharp.Azure.Quantum.LocalSimulator.StateVector.init 1
+        let sv = StateVector.init 1
         let state = QuantumState.StateVector sv
 
         match QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state with

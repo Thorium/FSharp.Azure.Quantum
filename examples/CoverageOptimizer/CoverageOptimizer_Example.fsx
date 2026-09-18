@@ -72,7 +72,7 @@ let displayResult (label: string) (result: Result<CoverageOptimizer.CoverageResu
             let covers = opt.CoveredElements |> List.map string |> String.concat ","
             pr "  %-20s  %8.1f  [%s]" opt.Id opt.Cost covers
             jsonResults <- (box {| Example = label; Option = opt.Id; CoveredElements = covers; Cost = opt.Cost; Selected = true |}) :: jsonResults
-            csvRows <- [ label; opt.Id; covers; sprintf "%.1f" opt.Cost; "true" ] :: csvRows
+            csvRows <- [ label; opt.Id; covers; $"%.1f{opt.Cost}"; "true" ] :: csvRows
         pr ""
         pr "  Total cost:     %.1f" r.TotalCost
         pr "  Coverage:       %d / %d elements%s" r.ElementsCovered r.TotalElements

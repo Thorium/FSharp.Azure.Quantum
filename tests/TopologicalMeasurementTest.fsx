@@ -5,10 +5,12 @@
 #r "nuget: MathNet.Numerics"
 #r "nuget: MathNet.Numerics.FSharp"
 
+#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../src/FSharp.Azure.Quantum.Topological/TopologicalError.fs"
 #load "../src/FSharp.Azure.Quantum.Topological/AnyonSpecies.fs"
 #load "../src/FSharp.Azure.Quantum.Topological/FusionRules.fs"
 #load "../src/FSharp.Azure.Quantum.Topological/TopologicalHelpers.fs"
+#load "../src/FSharp.Azure.Quantum.Topological/FMatrix.fs"
 #load "../src/FSharp.Azure.Quantum.Topological/BraidingOperators.fs"
 #load "../src/FSharp.Azure.Quantum.Topological/FusionTree.fs"
 #load "../src/FSharp.Azure.Quantum.Topological/TopologicalOperations.fs"

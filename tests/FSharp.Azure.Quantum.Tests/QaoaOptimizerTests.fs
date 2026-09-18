@@ -2,6 +2,7 @@ module FSharp.Azure.Quantum.Tests.QaoaOptimizerTests
 
 open Xunit
 open FSharp.Azure.Quantum.Core.QaoaOptimizer
+open System
 
 [<Fact>]
 let ``Optimizer should converge for simple 2-qubit QAOA problem`` () =
@@ -46,7 +47,7 @@ let ``Optimizer should enforce parameter bounds for QAOA angles`` () =
     
     // Parameter bounds: gamma ∈ [0, π], beta ∈ [0, π]
     let lowerBounds = [| 0.0; 0.0 |]
-    let upperBounds = [| System.Math.PI; System.Math.PI |]
+    let upperBounds = [| Math.PI; Math.PI |]
     
     // Run optimizer with bounds
     let result = Optimizer.minimizeWithBounds objectiveFunction initialParameters lowerBounds upperBounds 1e-6 1000
@@ -58,10 +59,10 @@ let ``Optimizer should enforce parameter bounds for QAOA angles`` () =
     let optimizedGamma = result.OptimizedParameters[0]
     let optimizedBeta = result.OptimizedParameters[1]
     
-    Assert.InRange(optimizedGamma, 0.0, System.Math.PI)
-    Assert.InRange(optimizedBeta, 0.0, System.Math.PI)
+    Assert.InRange(optimizedGamma, 0.0, Math.PI)
+    Assert.InRange(optimizedBeta, 0.0, Math.PI)
     
     // Since objective prefers gamma=-1 but bounded at 0, should converge to gamma=0
     Assert.InRange(optimizedGamma, 0.0, 0.1)
     // Since objective prefers beta=5 but bounded at π, should converge to beta=π
-    Assert.InRange(optimizedBeta, System.Math.PI - 0.1, System.Math.PI)
+    Assert.InRange(optimizedBeta, Math.PI - 0.1, Math.PI)

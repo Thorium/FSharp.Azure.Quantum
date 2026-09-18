@@ -374,7 +374,7 @@ module QuantumResultBuilder =
             finally cleanup()
         
         /// Using for IDisposable resources
-        member this.Using(resource: 'T when 'T :> System.IDisposable, binder: 'T -> QuantumResult<'U>) : QuantumResult<'U> =
+        member this.Using(resource: 'T when 'T :> IDisposable, binder: 'T -> QuantumResult<'U>) : QuantumResult<'U> =
             this.TryFinally(
                 (fun () -> binder resource),
                 (fun () -> if not (isNull (box resource)) then resource.Dispose())

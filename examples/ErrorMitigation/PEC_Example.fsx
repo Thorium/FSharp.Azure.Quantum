@@ -126,7 +126,7 @@ let compareSamples = Cli.hasFlag "compare-samples" args
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
     if s.StartsWith "pi/" then
-        match Double.TryParse(s.Substring 3) with
+        match Double.TryParse(s.AsSpan 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
     elif s = "pi" then Math.PI
@@ -258,16 +258,16 @@ match Async.RunSynchronously (mitigate h2Circuit pecConfig noisyExecutor) with
     allResults.Add(
         [ "example", "1_basic_pec"
           "samples", string pecSamples
-          "single_qubit_error", sprintf "%.4f" singleQubitError
-          "two_qubit_error", sprintf "%.4f" twoQubitError
-          "readout_error", sprintf "%.4f" readoutError
-          "corrected_energy_Ha", sprintf "%.6f" result.CorrectedExpectation
-          "uncorrected_energy_Ha", sprintf "%.6f" result.UncorrectedExpectation
-          "corrected_error_Ha", sprintf "%.6f" correctedError
-          "uncorrected_error_Ha", sprintf "%.6f" uncorrectedError
-          "accuracy_improvement_x", sprintf "%.2f" accuracyImprovement
+          "single_qubit_error", $"%.4f{singleQubitError}"
+          "two_qubit_error", $"%.4f{twoQubitError}"
+          "readout_error", $"%.4f{readoutError}"
+          "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+          "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+          "corrected_error_Ha", $"%.6f{correctedError}"
+          "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
+          "accuracy_improvement_x", $"%.2f{accuracyImprovement}"
           "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
-          "overhead_x", sprintf "%.0f" result.Overhead ]
+          "overhead_x", $"%.0f{result.Overhead}" ]
         |> Map.ofList)
 
 | Error msg ->
@@ -370,16 +370,16 @@ match Async.RunSynchronously (mitigate h2Circuit highPrecisionConfig noisyExecut
     allResults.Add(
         [ "example", "3_high_precision"
           "samples", string highPrecisionConfig.Samples
-          "single_qubit_error", sprintf "%.4f" singleQubitError
-          "two_qubit_error", sprintf "%.4f" twoQubitError
-          "readout_error", sprintf "%.4f" readoutError
-          "corrected_energy_Ha", sprintf "%.6f" result.CorrectedExpectation
-          "uncorrected_energy_Ha", sprintf "%.6f" result.UncorrectedExpectation
-          "corrected_error_Ha", sprintf "%.6f" errorHartree
+          "single_qubit_error", $"%.4f{singleQubitError}"
+          "two_qubit_error", $"%.4f{twoQubitError}"
+          "readout_error", $"%.4f{readoutError}"
+          "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+          "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+          "corrected_error_Ha", $"%.6f{errorHartree}"
           "uncorrected_error_Ha", sprintf "%.6f" (abs (result.UncorrectedExpectation - trueEnergy))
           "accuracy_improvement_x", ""
           "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
-          "overhead_x", sprintf "%.0f" result.Overhead ]
+          "overhead_x", $"%.0f{result.Overhead}" ]
         |> Map.ofList)
 
 | Error msg ->
@@ -425,16 +425,16 @@ if compareSamples || not quiet then
 
             if compareSamples then
                 allResults.Add(
-                    [ "example", sprintf "4_compare_%d_samples" s
+                    [ "example", $"4_compare_%d{s}_samples"
                       "samples", string s
-                      "single_qubit_error", sprintf "%.4f" singleQubitError
-                      "two_qubit_error", sprintf "%.4f" twoQubitError
-                      "readout_error", sprintf "%.4f" readoutError
-                      "corrected_energy_Ha", sprintf "%.6f" result.CorrectedExpectation
-                      "uncorrected_energy_Ha", sprintf "%.6f" result.UncorrectedExpectation
-                      "corrected_error_Ha", sprintf "%.6f" error
-                      "uncorrected_error_Ha", sprintf "%.6f" uncorrectedError
-                      "accuracy_improvement_x", sprintf "%.2f" improvement
+                      "single_qubit_error", $"%.4f{singleQubitError}"
+                      "two_qubit_error", $"%.4f{twoQubitError}"
+                      "readout_error", $"%.4f{readoutError}"
+                      "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+                      "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+                      "corrected_error_Ha", $"%.6f{error}"
+                      "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
+                      "accuracy_improvement_x", $"%.2f{improvement}"
                       "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
                       "overhead_x", string s ]
                     |> Map.ofList)
@@ -479,9 +479,7 @@ let runVQEWithPEC
             }
             let! result = mitigate circ config noisyExecutor
             return
-                match result with
-                | Ok res -> Ok res.CorrectedExpectation
-                | Error err -> Error err
+                result |> Result.map (fun res -> res.CorrectedExpectation)
     }
 
 if not quiet then
@@ -501,10 +499,10 @@ match Async.RunSynchronously (runVQEWithPEC h2Circuit noiseModel pecSamples) wit
     allResults.Add(
         [ "example", "5_production_pattern"
           "samples", string pecSamples
-          "single_qubit_error", sprintf "%.4f" singleQubitError
-          "two_qubit_error", sprintf "%.4f" twoQubitError
-          "readout_error", sprintf "%.4f" readoutError
-          "corrected_energy_Ha", sprintf "%.6f" energy
+          "single_qubit_error", $"%.4f{singleQubitError}"
+          "two_qubit_error", $"%.4f{twoQubitError}"
+          "readout_error", $"%.4f{readoutError}"
+          "corrected_energy_Ha", $"%.6f{energy}"
           "uncorrected_energy_Ha", ""
           "corrected_error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
           "uncorrected_error_Ha", ""

@@ -49,7 +49,7 @@ module LocalQuantum =
             (pos, totalScore))
     
     /// Use real Grover's algorithm to search for high-scoring positions
-    let private groverSearch (scoredPositions: (Position * float) list) (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<Position option> =
+    let private groverSearch (scoredPositions: (Position * float) list) (backend: BackendAbstraction.IQuantumBackend) : QuantumResult<Position option> =
         let n = scoredPositions.Length
         
         if n = 0 then Ok None
@@ -127,7 +127,7 @@ module LocalQuantum =
     
     /// Select best move using real Grover's quantum search algorithm
     /// This demonstrates the quantum advantage: O(√N) vs O(N) classical search
-    let selectBestMove (board: Board) (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) (candidates: Position list option) : Position option * int =
+    let selectBestMove (board: Board) (backend: BackendAbstraction.IQuantumBackend) (candidates: Position list option) : Position option * int =
         // FAST PRE-CHECK: Immediate threats take absolute priority
         // Don't waste quantum resources on obvious tactical moves
         match ThreatDetection.getImmediateThreat board with

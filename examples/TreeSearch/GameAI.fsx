@@ -268,7 +268,7 @@ if exampleChoice = "all" || exampleChoice = "tictactoe" then
         pr "  Quantum Advantage: %b" result.QuantumAdvantage
         pr ""
         jsonResults <- ("tictactoe", box {| bestMove = result.BestMove; score = result.Score; pathsExplored = result.PathsExplored; qubits = result.QubitsRequired; quantumAdvantage = result.QuantumAdvantage |}) :: jsonResults
-        csvRows <- ["tictactoe"; sprintf "%d" result.BestMove; sprintf "%.4f" result.Score; sprintf "%d" result.PathsExplored; sprintf "%d" result.QubitsRequired; sprintf "%b" result.QuantumAdvantage] :: csvRows
+        csvRows <- ["tictactoe"; $"%d{result.BestMove}"; $"%.4f{result.Score}"; $"%d{result.PathsExplored}"; $"%d{result.QubitsRequired}"; $"%b{result.QuantumAdvantage}"] :: csvRows
     | Error err ->
         pr "Error: %s" err.Message
         csvRows <- ["tictactoe"; "error"; err.Message; ""; ""; ""] :: csvRows
@@ -308,7 +308,7 @@ if exampleChoice = "all" || exampleChoice = "chess" then
         pr "  Quantum Advantage: %b" result.QuantumAdvantage
         pr ""
         jsonResults <- ("chess", box {| bestMove = result.BestMove; score = result.Score; pathsExplored = result.PathsExplored; qubits = result.QubitsRequired; quantumAdvantage = result.QuantumAdvantage |}) :: jsonResults
-        csvRows <- ["chess"; sprintf "%d" result.BestMove; sprintf "%.4f" result.Score; sprintf "%d" result.PathsExplored; sprintf "%d" result.QubitsRequired; sprintf "%b" result.QuantumAdvantage] :: csvRows
+        csvRows <- ["chess"; $"%d{result.BestMove}"; $"%.4f{result.Score}"; $"%d{result.PathsExplored}"; $"%d{result.QubitsRequired}"; $"%b{result.QuantumAdvantage}"] :: csvRows
     | Error err ->
         pr "Error: %s" err.Message
         csvRows <- ["chess"; "error"; err.Message; ""; ""; ""] :: csvRows
@@ -346,7 +346,7 @@ if exampleChoice = "all" || exampleChoice = "business" then
         pr "  Quantum Advantage: %b" result.QuantumAdvantage
         pr ""
         jsonResults <- ("business", box {| bestMove = result.BestMove; score = result.Score; pathsExplored = result.PathsExplored; qubits = result.QubitsRequired; quantumAdvantage = result.QuantumAdvantage |}) :: jsonResults
-        csvRows <- ["business"; sprintf "%d" result.BestMove; sprintf "%.4f" result.Score; sprintf "%d" result.PathsExplored; sprintf "%d" result.QubitsRequired; sprintf "%b" result.QuantumAdvantage] :: csvRows
+        csvRows <- ["business"; $"%d{result.BestMove}"; $"%.4f{result.Score}"; $"%d{result.PathsExplored}"; $"%d{result.QubitsRequired}"; $"%b{result.QuantumAdvantage}"] :: csvRows
     | Error err ->
         pr "Error: %s" err.Message
         csvRows <- ["business"; "error"; err.Message; ""; ""; ""] :: csvRows

@@ -122,7 +122,7 @@ let samples = Cli.getIntOr "samples" 1024 args
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
     if s.StartsWith "pi/" then
-        match Double.TryParse(s.Substring 3) with
+        match Double.TryParse(s.AsSpan 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
     elif s = "pi" then Math.PI
@@ -260,16 +260,16 @@ match Async.RunSynchronously (mitigate vqeCircuit config1 noisyExecutor) with
     allResults.Add(
         [ "example", "1_basic_zne"
           "backend", backend
-          "theta_rad", sprintf "%.4f" theta
+          "theta_rad", $"%.4f{theta}"
           "noise_levels", (noiseLevels |> List.map (sprintf "%.2f") |> String.concat ";")
           "poly_degree", string polyDegree
           "samples", string samples
-          "zero_noise_energy_Ha", sprintf "%.6f" result.ZeroNoiseValue
-          "r_squared", sprintf "%.4f" result.GoodnessOfFit
-          "baseline_energy_Ha", sprintf "%.6f" baselineEnergy
-          "baseline_error_Ha", sprintf "%.6f" baselineError
-          "mitigated_error_Ha", sprintf "%.6f" mitigatedError
-          "error_reduction_pct", sprintf "%.1f" errorReduction ]
+          "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
+          "r_squared", $"%.4f{result.GoodnessOfFit}"
+          "baseline_energy_Ha", $"%.6f{baselineEnergy}"
+          "baseline_error_Ha", $"%.6f{baselineError}"
+          "mitigated_error_Ha", $"%.6f{mitigatedError}"
+          "error_reduction_pct", $"%.1f{errorReduction}" ]
         |> Map.ofList)
 
 | Error msg ->
@@ -326,12 +326,12 @@ match Async.RunSynchronously (mitigate vqeCircuit customConfig noisyExecutor) wi
     allResults.Add(
         [ "example", "2_custom_config"
           "backend", "ionq"
-          "theta_rad", sprintf "%.4f" theta
+          "theta_rad", $"%.4f{theta}"
           "noise_levels", (customNoiseLevels |> List.map (fun x -> sprintf "%.2f" (x + 1.0)) |> String.concat ";")
           "poly_degree", "3"
           "samples", string (samples * 2)
-          "zero_noise_energy_Ha", sprintf "%.6f" result.ZeroNoiseValue
-          "r_squared", sprintf "%.4f" result.GoodnessOfFit
+          "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
+          "r_squared", $"%.4f{result.GoodnessOfFit}"
           "baseline_error_Ha", ""
           "mitigated_error_Ha", sprintf "%.6f" (abs (result.ZeroNoiseValue - trueEnergy))
           "error_reduction_pct", "" ]
@@ -375,12 +375,12 @@ match Async.RunSynchronously (mitigate vqeCircuit rigettiConfig noisyExecutor) w
     allResults.Add(
         [ "example", "3_rigetti_pulse_stretch"
           "backend", "rigetti"
-          "theta_rad", sprintf "%.4f" theta
+          "theta_rad", $"%.4f{theta}"
           "noise_levels", "1.00;1.50;2.00"
           "poly_degree", "2"
           "samples", string samples
-          "zero_noise_energy_Ha", sprintf "%.6f" result.ZeroNoiseValue
-          "r_squared", sprintf "%.4f" result.GoodnessOfFit
+          "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
+          "r_squared", $"%.4f{result.GoodnessOfFit}"
           "baseline_error_Ha", ""
           "mitigated_error_Ha", sprintf "%.6f" (abs (result.ZeroNoiseValue - trueEnergy))
           "error_reduction_pct", "" ]
@@ -411,9 +411,7 @@ let runVQEWithZNE (circ: Circuit) (backendName: string) : Async<Result<float, st
             | _ -> defaultIonQConfig
         let! result = mitigate circ cfg noisyExecutor
         return
-            match result with
-            | Ok res -> Ok res.ZeroNoiseValue
-            | Error err -> Error err
+            result |> Result.map (fun res -> res.ZeroNoiseValue)
     }
 
 if not quiet then
@@ -432,11 +430,11 @@ match Async.RunSynchronously (runVQEWithZNE vqeCircuit backend) with
     allResults.Add(
         [ "example", "4_production_pattern"
           "backend", backend
-          "theta_rad", sprintf "%.4f" theta
+          "theta_rad", $"%.4f{theta}"
           "noise_levels", ""
           "poly_degree", ""
           "samples", ""
-          "zero_noise_energy_Ha", sprintf "%.6f" energy
+          "zero_noise_energy_Ha", $"%.6f{energy}"
           "r_squared", ""
           "baseline_error_Ha", ""
           "mitigated_error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))

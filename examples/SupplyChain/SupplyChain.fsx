@@ -272,15 +272,15 @@ let hasQuantumFailure, routeMaps =
                 [ "rank", string (i + 1)
                   "source", e.Source
                   "target", e.Target
-                  "cost_per_unit", sprintf "%.2f" e.Weight
-                  "total_cost", sprintf "%.2f" solution.TotalCost
-                  "demand_satisfied", sprintf "%.0f" solution.DemandSatisfied
-                  "total_demand", sprintf "%.0f" solution.TotalDemand
-                  "fill_rate", sprintf "%.3f" solution.FillRate
+                  "cost_per_unit", $"%.2f{e.Weight}"
+                  "total_cost", $"%.2f{solution.TotalCost}"
+                  "demand_satisfied", $"%.0f{solution.DemandSatisfied}"
+                  "total_demand", $"%.0f{solution.TotalDemand}"
+                  "fill_rate", $"%.3f{solution.FillRate}"
                   "backend", solution.BackendName
                   "shots", string solution.NumShots
-                  "elapsed_ms", sprintf "%.0f" elapsed
-                  "estimated_revenue", sprintf "%.2f" totalRevenue
+                  "elapsed_ms", $"%.0f{elapsed}"
+                  "estimated_revenue", $"%.2f{totalRevenue}"
                   "estimated_profit", sprintf "%.2f" (totalRevenue - solution.TotalCost)
                   "has_quantum_failure", "False" ]
                 |> Map.ofList)
@@ -296,7 +296,7 @@ let resultMaps =
             "fill_rate", "0.000"
             "backend", quantumBackend.Name
             "shots", string cliShots
-            "elapsed_ms", sprintf "%.0f" elapsed
+            "elapsed_ms", $"%.0f{elapsed}"
             "estimated_revenue", ""; "estimated_profit", ""
             "has_quantum_failure", string hasQuantumFailure ]
           |> Map.ofList ]

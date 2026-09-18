@@ -82,7 +82,7 @@ module InputHandler =
                     Some (Move pos)
         
         with
-        | :? System.FormatException ->
+        | :? FormatException ->
             ConsoleRenderer.displayError "Invalid input! Please enter numbers only."
             None
         | ex ->
@@ -110,7 +110,7 @@ module InputHandler =
                 ConsoleRenderer.displayError "Invalid choice! Please select 1-5."
                 None
         with
-        | :? System.FormatException ->
+        | :? FormatException ->
             ConsoleRenderer.displayError "Invalid input! Please enter a number."
             None
         | ex ->
@@ -161,5 +161,5 @@ module InputHandler =
     let waitForKey() : unit =
         AnsiConsole.WriteLine()
         AnsiConsole.Markup("[grey]Press any key to continue...[/]")
-        System.Console.ReadKey(true) |> ignore
+        Console.ReadKey(true) |> ignore
         AnsiConsole.WriteLine()

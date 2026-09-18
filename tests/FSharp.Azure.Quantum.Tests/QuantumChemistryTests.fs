@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
+open System.Threading.Tasks
 
 /// Tests for Molecule Representation (Task 1)
 module MoleculeTests =
@@ -249,7 +250,7 @@ module GroundStateEnergyTests =
                     $"Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}")
             | Error err ->
                 Assert.True(false, $"Energy calculation failed: %s{err.Message}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Estimate H2O ground state energy should be approximately -76.0 Hartree`` () =
@@ -279,7 +280,7 @@ module GroundStateEnergyTests =
                     $"Expected ~%.1f{expected}, got %.3f{vqeResult.Energy}")
             | Error err ->
                 Assert.True(false, $"Energy calculation failed: %s{err.Message}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``VQE method should be selectable`` () =
@@ -303,7 +304,7 @@ module GroundStateEnergyTests =
 
             // Assert
             Assert.True(result |> Result.isOk, "VQE should complete successfully")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Classical DFT fallback should work for small molecules`` () =
@@ -336,7 +337,7 @@ module GroundStateEnergyTests =
             | Error _ ->
                 // DFT fallback might not be implemented yet, that's ok
                 Assert.True(true, "DFT not implemented - acceptable for now")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Auto-detect method should choose appropriate algorithm`` () =
@@ -359,7 +360,7 @@ module GroundStateEnergyTests =
 
             // Assert
             Assert.True(result |> Result.isOk, "Auto-detect should work")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Invalid molecule should return error`` () =
@@ -389,7 +390,7 @@ module GroundStateEnergyTests =
 
             // Assert
             result |> Result.map (fun _ -> Assert.True(false, "Should have failed for invalid molecule")) |> Result.defaultWith (fun err -> Assert.Contains("Invalid", err.Message))
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Energy units should be in Hartree`` () =
@@ -417,7 +418,7 @@ module GroundStateEnergyTests =
                 Assert.True(vqeResult.Energy > -10.0, "H2 energy should be > -10 Hartree")
             | Error _ ->
                 Assert.True(false, "Should calculate energy")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``VQE should handle convergence limits`` () =
@@ -444,7 +445,7 @@ module GroundStateEnergyTests =
             | Error err -> 
                 // Acceptable to hit max iterations with tight constraints
                 Assert.True(true, "Hit max iterations - acceptable")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Initial parameters can be provided for VQE`` () =
@@ -468,7 +469,7 @@ module GroundStateEnergyTests =
 
             // Assert
             Assert.True(result |> Result.isOk, "Should accept initial parameters")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
 /// Tests for Hamiltonian Simulation (Task 3)
 module HamiltonianSimulationTests =
@@ -1289,7 +1290,7 @@ module QuantumChemistryBuilderTests =
 
             | Error err ->
                 Assert.True(false, $"Solve failed: %s{err.Message}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Solve should compute bond lengths for H2O`` () =
@@ -1312,7 +1313,7 @@ module QuantumChemistryBuilderTests =
 
             | Error err ->
                 Assert.True(false, $"Solve failed: %s{err.Message}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ========================================================================
     // TEST 7: Multiple Molecules
@@ -1588,7 +1589,7 @@ module VQEErrorMitigationTests =
                 Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
             | Error err ->
                 Assert.Fail($"VQE should succeed: {err.Message}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``VQE run should succeed with error mitigation strategy`` () =
@@ -1633,7 +1634,7 @@ module VQEErrorMitigationTests =
                 Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
             | Error err ->
                 Assert.Fail($"VQE with error mitigation should succeed: {err.Message}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``ErrorMitigationStrategy selectStrategy should return valid strategy`` () =

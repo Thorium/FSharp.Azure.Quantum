@@ -299,7 +299,7 @@ let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option 
                 }
                 match fetchYahooHistory httpClient request with
                 | Ok priceSeries -> calculateReturns priceSeries
-                | Error error -> raise (InvalidOperationException(sprintf "Failed to fetch Yahoo data for %s: %A" symbol error)))
+                | Error error -> raise (InvalidOperationException($"Failed to fetch Yahoo data for %s{symbol}: %A{error}")))
             |> List.toArray
         Some series
     with _ -> None
@@ -562,7 +562,7 @@ let printTable () =
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
         let qvarStr = if Double.IsNaN r.QuantumVaR then "â€”" else sprintf "$%s" (r.QuantumVaR.ToString "N0")
         let tailStr = if Double.IsNaN r.TailProbability then "â€”" else sprintf "%.4f%%" (r.TailProbability * 100.0)
-        let speedStr = if Double.IsNaN r.Speedup then "â€”" else sprintf "%.1fx" r.Speedup
+        let speedStr = if Double.IsNaN r.Speedup then "â€”" else $"%.1f{r.Speedup}x"
         printfn "  %-32s %10s $%14s %7.2f%% %12s %10s %8s %8s"
             (if r.Scenario.Name.Length > 32 then r.Scenario.Name.[..31] else r.Scenario.Name)
             catStr
@@ -602,21 +602,21 @@ let resultMaps : Map<string, string> list =
     |> List.map (fun r ->
         [ "scenario_key",         r.Scenario.Key
           "scenario_name",        r.Scenario.Name
-          "category",             sprintf "%A" r.Scenario.Category
-          "classical_loss",       sprintf "%.2f" r.ClassicalLoss
+          "category",             $"%A{r.Scenario.Category}"
+          "classical_loss",       $"%.2f{r.ClassicalLoss}"
           "classical_loss_pct",   sprintf "%.4f" (r.ClassicalLossPct / 100.0)
-          "quantum_var",          if Double.IsNaN r.QuantumVaR then "" else sprintf "%.2f" r.QuantumVaR
-          "quantum_es",           if Double.IsNaN r.QuantumES then "" else sprintf "%.2f" r.QuantumES
-          "tail_probability",     if Double.IsNaN r.TailProbability then "" else sprintf "%.6f" r.TailProbability
-          "vol_multiplier",       sprintf "%.1f" r.Scenario.VolatilityMultiplier
-          "corr_multiplier",      sprintf "%.1f" r.Scenario.CorrelationMultiplier
-          "probability_weight",   sprintf "%.4f" r.Scenario.ProbabilityWeight
-          "quantum_queries",      if r.QuantumQueries = 0 then "" else sprintf "%d" r.QuantumQueries
-          "speedup",              if Double.IsNaN r.Speedup then "" else sprintf "%.1f" r.Speedup
-          "confidence",           sprintf "%.4f" confidenceLevel
-          "horizon_days",         sprintf "%d" timeHorizon
-          "portfolio_value",      sprintf "%.2f" portfolioValue
-          "has_quantum_failure",  sprintf "%b" r.HasQuantumFailure ]
+          "quantum_var",          if Double.IsNaN r.QuantumVaR then "" else $"%.2f{r.QuantumVaR}"
+          "quantum_es",           if Double.IsNaN r.QuantumES then "" else $"%.2f{r.QuantumES}"
+          "tail_probability",     if Double.IsNaN r.TailProbability then "" else $"%.6f{r.TailProbability}"
+          "vol_multiplier",       $"%.1f{r.Scenario.VolatilityMultiplier}"
+          "corr_multiplier",      $"%.1f{r.Scenario.CorrelationMultiplier}"
+          "probability_weight",   $"%.4f{r.Scenario.ProbabilityWeight}"
+          "quantum_queries",      if r.QuantumQueries = 0 then "" else $"%d{r.QuantumQueries}"
+          "speedup",              if Double.IsNaN r.Speedup then "" else $"%.1f{r.Speedup}"
+          "confidence",           $"%.4f{confidenceLevel}"
+          "horizon_days",         $"%d{timeHorizon}"
+          "portfolio_value",      $"%.2f{portfolioValue}"
+          "has_quantum_failure",  $"%b{r.HasQuantumFailure}" ]
         |> Map.ofList)
 
 match outputPath with

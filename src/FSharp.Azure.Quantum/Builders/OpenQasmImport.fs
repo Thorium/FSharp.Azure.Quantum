@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum
 
 open System
+open System.Globalization
 open System.IO
 open System.Text.RegularExpressions
 open System.Threading
@@ -144,7 +145,7 @@ module OpenQasmImport =
     let private parseAngle (angleStr: string) : ParseResult<float> =
         let s = angleStr.Trim()
         // Try plain numeric first
-        match Double.TryParse(s, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture) with
+        match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
         | true, value -> Ok value
         | false, _ ->
             // Try pi expression parsing
@@ -154,13 +155,13 @@ module OpenQasmImport =
                 let sign = if m.Groups.[1].Value = "-" then -1.0 else 1.0
                 let multiplier =
                     if m.Groups.[2].Success && m.Groups.[2].Value <> "" then
-                        match Double.TryParse(m.Groups.[2].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture) with
+                        match Double.TryParse(m.Groups.[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture) with
                         | true, v -> v
                         | false, _ -> 1.0
                     else 1.0
                 let divisor =
                     if m.Groups.[3].Success && m.Groups.[3].Value <> "" then
-                        match Double.TryParse(m.Groups.[3].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture) with
+                        match Double.TryParse(m.Groups.[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture) with
                         | true, v -> if v = 0.0 then 1.0 else v
                         | false, _ -> 1.0
                     else 1.0

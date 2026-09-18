@@ -140,7 +140,7 @@ module QuantumRiskEngineTests =
                         Metrics = [ValueAtRisk] }
         let report = RiskEngine.execute config
         match report.VaR with
-        | ValueSome var -> Assert.True(System.Double.IsFinite(var), $"VaR should be finite, got {var}")
+        | ValueSome var -> Assert.True(Double.IsFinite(var), $"VaR should be finite, got {var}")
         | ValueNone -> failwith "Expected VaR to be computed"
 
     [<Fact>]

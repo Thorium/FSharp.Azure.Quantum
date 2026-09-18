@@ -191,7 +191,7 @@ let loadLocationsFromCsv (path: string) : Location * Location list =
             |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
             |> Option.defaultValue 0.0 }
     match rows with
-    | [] -> failwith "Input CSV is empty"
+    | [] -> failwith $"Input CSV is empty, calling loadLocationsFromCsv with path: {path}"
     | depot :: rest -> (toLocation depot, rest |> List.map toLocation)
 
 let warehouse, customers =
@@ -247,16 +247,16 @@ let estimateDrivingTime (distanceKm: float) : TimeSpan =
 /// Format distance with appropriate precision
 let formatDistance (distance: float) : string =
     if distance < 50.0 then 
-        sprintf "%.1f km" distance
+        $"%.1f{distance} km"
     elif distance < 150.0 then 
-        sprintf "%.0f km" distance
+        $"%.0f{distance} km"
     else 
-        sprintf "%.0f km" distance
+        $"%.0f{distance} km"
 
 /// Format time in readable format
 let formatTime (time: TimeSpan) : string =
     if time.TotalHours >= 1.0 then
-        sprintf "%.1f hours" time.TotalHours
+        $"%.1f{time.TotalHours} hours"
     else
         sprintf "%d minutes" (int time.TotalMinutes)
 
@@ -331,7 +331,7 @@ let solveWithHybridSolver (locations: Location list) : Result<(Route * Performan
         let (route, perf) = solutionToRoute locations solution
         // Return route, performance, and solver reasoning
         Ok (route, perf, solution.Reasoning)
-    | Error err -> Error (sprintf "HybridSolver failed: %s" err.Message)
+    | Error err -> Error $"HybridSolver failed: %s{err.Message}"
 
 /// Calculate naive route (just visit in given order) for baseline
 let calculateNaiveRoute (locations: Location list) : Route =
@@ -434,15 +434,15 @@ let routeStops =
 let resultRows : Map<string, string> list =
     [ Map.ofList
         [ "method", resultSolver
-          "total_distance_km", sprintf "%.2f" resultRoute.TotalDistance
-          "estimated_time_hours", sprintf "%.2f" resultRoute.TotalTime.TotalHours
-          "num_stops", sprintf "%d" allStops.Length
+          "total_distance_km", $"%.2f{resultRoute.TotalDistance}"
+          "estimated_time_hours", $"%.2f{resultRoute.TotalTime.TotalHours}"
+          "num_stops", $"%d{allStops.Length}"
           "improvement_pct",
               match resultPerf.Improvement with
-              | Some pct -> sprintf "%.1f" pct
+              | Some pct -> $"%.1f{pct}"
               | None -> "N/A"
-          "solution_time_ms", sprintf "%.0f" resultPerf.SolutionTime.TotalMilliseconds
-          "naive_distance_km", sprintf "%.2f" naiveRoute.TotalDistance
+          "solution_time_ms", $"%.0f{resultPerf.SolutionTime.TotalMilliseconds}"
+          "naive_distance_km", $"%.2f{naiveRoute.TotalDistance}"
           "route", routeStops ] ]
 
 match outputPath with

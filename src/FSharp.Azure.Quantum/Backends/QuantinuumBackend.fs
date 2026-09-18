@@ -55,7 +55,7 @@ module QuantinuumBackend =
         {
             JobId = jobId
             Target = target
-            Name = Some ($"Quantinuum-%s{target}")
+            Name = Some $"Quantinuum-%s{target}"
             InputData = qasmCode :> obj
             InputDataFormat = CircuitFormat.Custom "qasm.v2"  // OpenQASM 2.0
             InputParams = Map [ ("shots", shots :> obj) ]
@@ -190,13 +190,14 @@ module QuantinuumBackend =
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 // Step 5: Parse histogram from OutputData
-                                match jobResult.OutputData with
-                                | :? string as resultJson ->
-                                    match parseQuantinuumResult resultJson with
-                                    | Ok histogram -> return Ok histogram
-                                    | Error msg -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Quantinuum results: %s{msg}")))
-                                | other ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected Quantinuum output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
+                                return
+                                    match jobResult.OutputData with
+                                    | :? string as resultJson ->
+                                        match parseQuantinuumResult resultJson with
+                                        | Ok histogram -> Ok histogram
+                                        | Error msg -> Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Quantinuum results: %s{msg}")))
+                                    | other ->
+                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected Quantinuum output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                     
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         // Map Quantinuum error to QuantumError

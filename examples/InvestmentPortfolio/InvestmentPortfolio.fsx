@@ -217,7 +217,7 @@ let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
 
     match HybridSolver.solvePortfolio assets constraints None None None with
     | Ok solution ->
-        let method = sprintf "%A" solution.Method
+        let method = $"%A{solution.Method}"
         let pReturn = solution.Result.ExpectedReturn
         let pRisk = solution.Result.Risk
         let pSharpe = solution.Result.SharpeRatio
@@ -305,19 +305,19 @@ let resultMaps : Map<string, string> list =
     |> List.map (fun r ->
         [ "symbol",                    r.Stock.Symbol
           "name",                      r.Stock.Name
-          "expected_return",           sprintf "%.4f" r.Stock.ExpectedReturn
-          "volatility",                sprintf "%.4f" r.Stock.Volatility
-          "price",                     sprintf "%.2f" r.Stock.Price
-          "shares",                    sprintf "%.4f" r.Shares
-          "value",                     sprintf "%.2f" r.Value
-          "pct_of_portfolio",          sprintf "%.2f" r.PctOfPortfolio
-          "sharpe_ratio",              sprintf "%.4f" r.SharpeRatio
-          "portfolio_expected_return", sprintf "%.4f" r.PortfolioReturn
-          "portfolio_risk",            sprintf "%.4f" r.PortfolioRisk
-          "portfolio_sharpe",          sprintf "%.4f" r.PortfolioSharpe
+          "expected_return",           $"%.4f{r.Stock.ExpectedReturn}"
+          "volatility",                $"%.4f{r.Stock.Volatility}"
+          "price",                     $"%.2f{r.Stock.Price}"
+          "shares",                    $"%.4f{r.Shares}"
+          "value",                     $"%.2f{r.Value}"
+          "pct_of_portfolio",          $"%.2f{r.PctOfPortfolio}"
+          "sharpe_ratio",              $"%.4f{r.SharpeRatio}"
+          "portfolio_expected_return", $"%.4f{r.PortfolioReturn}"
+          "portfolio_risk",            $"%.4f{r.PortfolioRisk}"
+          "portfolio_sharpe",          $"%.4f{r.PortfolioSharpe}"
           "solver_method",             r.SolverMethod
-          "budget",                    sprintf "%.2f" budget
-          "has_optimization_failure",  sprintf "%b" r.HasOptimizationFailure ]
+          "budget",                    $"%.2f{budget}"
+          "has_optimization_failure",  $"%b{r.HasOptimizationFailure}" ]
         |> Map.ofList)
 
 match outputPath with

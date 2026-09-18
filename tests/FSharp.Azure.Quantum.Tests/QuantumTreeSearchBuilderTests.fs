@@ -158,7 +158,7 @@ module QuantumTreeSearchBuilderTests =
         Assert.Equal(3, problem.MaxDepth)
         Assert.Equal(4, problem.BranchingFactor)
         Assert.Equal(0.15, problem.TopPercentile)
-        Assert.True(Option.isNone problem.Backend)
+        Assert.True(problem.Backend.IsNone)
     
     [<Fact>]
     let ``quantumTreeSearch builder should use default values`` () =
@@ -188,7 +188,7 @@ module QuantumTreeSearchBuilderTests =
         }
         
         // Assert
-        Assert.True(Option.isSome problem.Backend)
+        Assert.True(problem.Backend.IsSome)
     
     [<Fact>]
     let ``quantumTreeSearch builder should validate and throw on invalid problem`` () =
@@ -216,7 +216,7 @@ module QuantumTreeSearchBuilderTests =
         Assert.Equal(3, problem.MaxDepth)
         Assert.Equal(16, problem.BranchingFactor)
         Assert.Equal(0.2, problem.TopPercentile)
-        Assert.True(Option.isNone problem.Backend)
+        Assert.True(problem.Backend.IsNone)
     
     [<Fact>]
     let ``QuantumTreeSearch.forGameAI should create game AI problem`` () =

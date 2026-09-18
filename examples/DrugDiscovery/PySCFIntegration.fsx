@@ -370,7 +370,7 @@ let private createPySCFProvider (basis: string) : IntegralProvider =
                 molecule.Atoms
                 |> List.map (fun atom ->
                     let (x, y, z) = atom.Position
-                    sprintf "%s %.8f %.8f %.8f" atom.Element x y z)
+                    $"%s{atom.Element} %.8f{x} %.8f{y} %.8f{z}")
                 |> String.concat "; "
 
             let mol = gto.InvokeMethod("Mole", [||])
@@ -418,7 +418,7 @@ let private createPySCFProvider (basis: string) : IntegralProvider =
             }
 
         with ex ->
-            Error (sprintf "PySCF calculation failed: %s" ex.Message)
+            Error $"PySCF calculation failed: %s{ex.Message}"
 
 // ==============================================================================
 // QUANTUM BACKEND (Rule 1: all VQE via IQuantumBackend)
@@ -649,7 +649,7 @@ let resultMaps =
           "num_atoms", string r.Info.Molecule.Atoms.Length
           "num_orbitals", string r.NumOrbitals
           "num_electrons", string r.NumElectrons
-          "nuclear_repulsion_hartree", sprintf "%.6f" r.NuclearRepulsion
+          "nuclear_repulsion_hartree", $"%.6f{r.NuclearRepulsion}"
           "basis_set", basisSet
           "hf_energy_hartree",
             (r.HfEnergyHartree |> Option.map (sprintf "%.6f") |> Option.defaultValue "")
@@ -659,9 +659,9 @@ let resultMaps =
             (r.CorrelationEnergyHartree |> Option.map (sprintf "%.6f") |> Option.defaultValue "")
           "mode", mode
           "max_iterations", string maxIterations
-          "tolerance", sprintf "%g" tolerance
+          "tolerance", $"%g{tolerance}"
           "backend", backend.Name
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
           "error", (r.ErrorMessage |> Option.defaultValue "")
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)

@@ -2,6 +2,7 @@ module FSharp.Azure.Quantum.Topological.Tests.KauffmanBracketTests
 
 open Xunit
 open FSharp.Azure.Quantum.Topological.KauffmanBracket
+open System
 open System.Numerics
 
 // ========================================
@@ -18,7 +19,7 @@ let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) 
     )
 
 /// Get standard A value for testing (exp(i*pi/4))
-let standardA = Complex(System.Math.Cos(System.Math.PI / 4.0), System.Math.Sin(System.Math.PI / 4.0))
+let standardA = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
 
 /// Calculate expected d value: d = -A^2 - A^(-2)
 let expectedD (a: Complex) : Complex =
@@ -209,8 +210,8 @@ let ``Jones polynomial of trefoil is well-defined`` () =
     
     // Assert
     Assert.NotEqual(Complex.Zero, jones)
-    Assert.False(System.Double.IsNaN(jones.Real))
-    Assert.False(System.Double.IsNaN(jones.Imaginary))
+    Assert.False(Double.IsNaN(jones.Real))
+    Assert.False(Double.IsNaN(jones.Imaginary))
 
 // ========================================
 // TDD Cycle 5: Standard TQFT Values
@@ -220,7 +221,7 @@ let ``Jones polynomial of trefoil is well-defined`` () =
 let ``Ising evaluation uses correct A value`` () =
     // Arrange
     let knot = unknot
-    let expectedA = Complex(System.Math.Cos(System.Math.PI / 4.0), System.Math.Sin(System.Math.PI / 4.0))
+    let expectedA = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
     let expectedBracket = evaluateBracket knot expectedA
     
     // Act
@@ -239,8 +240,8 @@ let ``Fibonacci evaluation returns complex number`` () =
     
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
-    Assert.False(System.Double.IsNaN(bracket.Real))
-    Assert.False(System.Double.IsNaN(bracket.Imaginary))
+    Assert.False(Double.IsNaN(bracket.Real))
+    Assert.False(Double.IsNaN(bracket.Imaginary))
 
 [<Fact>]
 let ``Jones at t=-1 is well-defined for trefoil`` () =
@@ -252,8 +253,8 @@ let ``Jones at t=-1 is well-defined for trefoil`` () =
     
     // Assert
     Assert.NotEqual(Complex.Zero, jones)
-    Assert.False(System.Double.IsNaN(jones.Real))
-    Assert.False(System.Double.IsNaN(jones.Imaginary))
+    Assert.False(Double.IsNaN(jones.Real))
+    Assert.False(Double.IsNaN(jones.Imaginary))
 
 // ========================================
 // TDD Cycle 6: Figure-Eight Knot

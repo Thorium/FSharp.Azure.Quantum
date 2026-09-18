@@ -111,7 +111,7 @@ module QuantumBinaryILPSolver =
         elif b < 1.0 then 1
         else
             // Integer bit counting: find smallest t such that 2^t >= b+1
-            let bInt = int (System.Math.Ceiling b)
+            let bInt = int (Math.Ceiling b)
             let rec countBits value bits =
                 if value <= 0 then bits
                 else countBits (value >>> 1) (bits + 1)
@@ -418,7 +418,7 @@ module QuantumBinaryILPSolver =
         | [] ->
             {
                 Variables = [||]
-                ObjectiveValue = System.Double.PositiveInfinity
+                ObjectiveValue = Double.PositiveInfinity
                 ConstraintsSatisfied = 0
                 TotalConstraints = 0
                 IsValid = false

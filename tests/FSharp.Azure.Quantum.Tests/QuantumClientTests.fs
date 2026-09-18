@@ -67,7 +67,7 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () =
               Tags = Map.empty }
 
 
-        match! client.SubmitJobAsync(submission) with
+        match! client.SubmitJobAsync submission with
         | Ok response ->
             Assert.Equal("job-123", response.JobId)
             Assert.Equal(JobStatus.Waiting, response.Status)
@@ -109,7 +109,7 @@ let ``GetJobStatusAsync should send GET request and parse response`` () =
         let client = QuantumClient(config)
 
 
-        match! client.GetJobStatusAsync("job-456") with
+        match! client.GetJobStatusAsync "job-456" with
         | Ok job ->
             Assert.Equal("job-456", job.JobId)
             Assert.Equal(JobStatus.Executing, job.Status)
@@ -134,7 +134,7 @@ let ``GetJobStatusAsync should handle 404 error`` () =
         let client = QuantumClient(config)
 
 
-        match! client.GetJobStatusAsync("nonexistent-job") with
+        match! client.GetJobStatusAsync "nonexistent-job" with
         | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) -> Assert.Equal(404, statusCode)
         | _ -> Assert.True(false, "Expected NotFound error")
     }
@@ -156,7 +156,7 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () =
         let client = QuantumClient(config)
 
 
-        match! client.CancelJobAsync("job-789") with
+        match! client.CancelJobAsync "job-789" with
         | Ok() ->
             match capturedRequest with
             | Some req ->
@@ -344,7 +344,7 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () =
               Tags = Map.empty }
 
 
-        match! client.SubmitJobAsync(submission) with
+        match! client.SubmitJobAsync submission with
         | Ok response ->
             Assert.Equal("job-retry-success", response.JobId)
             Assert.Equal(JobStatus.Waiting, response.Status)
@@ -402,7 +402,7 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
               Tags = Map.empty }
 
 
-        match! client.SubmitJobAsync(submission) with
+        match! client.SubmitJobAsync submission with
         | Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable _)) ->
             // MaxAttempts = 2, so should make 2 total attempts
             Assert.True((attemptCount = 2), $"Expected 2 attempts (MaxAttempts=2), got %d{attemptCount}")
@@ -456,7 +456,7 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
               Tags = Map.empty }
 
 
-        match! client.SubmitJobAsync(submission) with
+        match! client.SubmitJobAsync submission with
         | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) ->
             Assert.Equal(400, statusCode)
             // Should only make 1 attempt (no retries for non-transient errors)
@@ -494,7 +494,7 @@ let ``GetJobStatusAsync returns full job details including execution times`` () 
         let client = QuantumClient(config)
 
 
-        match! client.GetJobStatusAsync("job-full-details") with
+        match! client.GetJobStatusAsync "job-full-details" with
         | Ok(job: QuantumJob) ->
             Assert.Equal("job-full-details", job.JobId)
             Assert.Equal(JobStatus.Succeeded, job.Status)
@@ -538,7 +538,7 @@ let ``GetResultsAsync should retrieve job results after completion`` () =
         let client = QuantumClient(config)
 
 
-        match! client.GetResultsAsync("job-with-results") with
+        match! client.GetResultsAsync "job-with-results" with
         | Ok(jobResult: JobResult) ->
             Assert.Equal("job-with-results", jobResult.JobId)
             Assert.Equal(JobStatus.Succeeded, jobResult.Status)
@@ -572,7 +572,7 @@ let ``GetResultsAsync should return error for incomplete job`` () =
         let client = QuantumClient(config)
 
 
-        match! client.GetResultsAsync("job-not-complete") with
+        match! client.GetResultsAsync "job-not-complete" with
         | Error _ -> Assert.True(true) // Expected error for incomplete job
         | Ok _ -> Assert.True(false, "Expected error for job without results")
     }

@@ -144,11 +144,11 @@ for msg in messagesToTest do
 
         results.Add(
             [ "scenario", "send"
-              "sent", sprintf "%d%d" msg.Bit1 msg.Bit2
+              "sent", $"%d{msg.Bit1}%d{msg.Bit2}"
               "encoding", encoding
               "received", ""
               "success", "false"
-              "error", sprintf "%A" err ]
+              "error", $"%A{err}" ]
             |> Map.ofList)
 
     | Ok result ->
@@ -163,9 +163,9 @@ for msg in messagesToTest do
 
         results.Add(
             [ "scenario", "send"
-              "sent", sprintf "%d%d" msg.Bit1 msg.Bit2
+              "sent", $"%d{msg.Bit1}%d{msg.Bit2}"
               "encoding", encoding
-              "received", sprintf "%d%d" result.ReceivedMessage.Bit1 result.ReceivedMessage.Bit2
+              "received", $"%d{result.ReceivedMessage.Bit1}%d{result.ReceivedMessage.Bit2}"
               "success", string success
               "error", "" ]
             |> Map.ofList)
@@ -195,7 +195,7 @@ for msg in messagesToTest do
 
         results.Add(
             [ "scenario", "statistics"
-              "message", sprintf "%d%d" msg.Bit1 msg.Bit2
+              "message", $"%d{msg.Bit1}%d{msg.Bit2}"
               "trials", string stats.TotalTrials
               "correct", string stats.SuccessCount
               "accuracy", sprintf "%.4f" (float stats.SuccessCount / float stats.TotalTrials)
@@ -232,7 +232,7 @@ match csvPath with
 | Some path ->
     let allKeys =
         resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.collect (Map.toList >> List.map fst)
         |> List.distinct
     let rows =
         resultsList

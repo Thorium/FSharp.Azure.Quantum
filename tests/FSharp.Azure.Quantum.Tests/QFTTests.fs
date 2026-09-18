@@ -256,7 +256,7 @@ module QFTTests =
         | Ok result ->
             // Should have successfully transformed |5⟩
             Assert.True(result.GateCount > 0, "Should have applied gates")
-            Assert.Equal(numQubits, FSharp.Azure.Quantum.Core.QuantumState.numQubits result.FinalState)
+            Assert.Equal(numQubits, QuantumState.numQubits result.FinalState)
     
     [<Fact>]
     let ``QFT transformBasisState rejects invalid basis index`` () =
@@ -267,7 +267,7 @@ module QFTTests =
         
         match QFT.transformBasisState numQubits invalidIndex backend config with
         | Ok _ -> Assert.Fail("Should reject out-of-range basis index")
-        | Error (FSharp.Azure.Quantum.Core.QuantumError.ValidationError _) -> 
+        | Error (QuantumError.ValidationError _) -> 
             Assert.True(true, "Correctly rejected invalid index")
         | Error err -> Assert.Fail($"Wrong error type: {err}")
     
@@ -283,7 +283,7 @@ module QFTTests =
         | Ok result ->
             // Should produce same result as transformBasisState
             Assert.True(result.GateCount > 0, "Should have applied gates")
-            Assert.Equal(numQubits, FSharp.Azure.Quantum.Core.QuantumState.numQubits result.FinalState)
+            Assert.Equal(numQubits, QuantumState.numQubits result.FinalState)
     
     [<Fact>]
     let ``QFT transformBasisState with all basis states`` () =

@@ -17,6 +17,7 @@ open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.QuantumArithmetic
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.CircuitBuilder
+open System
 open System.Numerics
 
 module QuantumArithmeticTests =
@@ -41,7 +42,7 @@ module QuantumArithmeticTests =
         let numQubits = qubitCount circuit
         let initialState = StateVector.init numQubits
         let gates = getGates circuit
-        let rng = System.Random(42)  // Fixed seed for reproducibility
+        let rng = Random(42)  // Fixed seed for reproducibility
         
         /// Apply a single gate to a state vector
         let applyGate (state: StateVector.StateVector) (gate: Gate) : StateVector.StateVector =
@@ -353,9 +354,9 @@ module QuantumArithmeticTests =
         
         let qubit = 0
         let numQubits = 1
-        let theta = System.Math.PI
+        let theta = Math.PI
         let phi = 0.0
-        let lambda = System.Math.PI
+        let lambda = Math.PI
         
         let circuit =
             empty numQubits
@@ -375,9 +376,9 @@ module QuantumArithmeticTests =
         
         let qubit = 0
         let numQubits = 1
-        let theta = System.Math.PI / 3.0   // 60 degrees
-        let phi = System.Math.PI / 4.0     // 45 degrees
-        let lambda = System.Math.PI / 6.0  // 30 degrees
+        let theta = Math.PI / 3.0   // 60 degrees
+        let phi = Math.PI / 4.0     // 45 degrees
+        let lambda = Math.PI / 6.0  // 30 degrees
         
         // Circuit 1: Using U3 gate
         let circuit1 =
@@ -427,7 +428,7 @@ module QuantumArithmeticTests =
         
         let qubit = 0
         let numQubits = 1
-        let theta = System.Math.PI / 2.0
+        let theta = Math.PI / 2.0
         
         let circuit =
             empty numQubits

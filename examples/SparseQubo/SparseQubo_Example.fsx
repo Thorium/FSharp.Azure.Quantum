@@ -119,7 +119,7 @@ if runAll || exampleName = "evaluate" then
         let bitsStr = bits |> Array.map string |> String.concat ""
         pr "  %-16s  %10.1f  %d / 3" bitsStr cost edgesCut
         jsonResults <- (box {| Example = "Evaluate"; Bitstring = bitsStr; Cost = cost; EdgesCut = edgesCut |}) :: jsonResults
-        csvRows <- [ "Evaluate"; bitsStr; sprintf "%.1f" cost; string edgesCut ] :: csvRows
+        csvRows <- [ "Evaluate"; bitsStr; $"%.1f{cost}"; string edgesCut ] :: csvRows
 
     pr ""
     pr "  (Lower QUBO cost = more edges cut = better Max-Cut solution)"
@@ -150,7 +150,7 @@ if runAll || exampleName = "gridsearch" then
         for i, (gamma, beta) in bestParams |> Array.indexed do
             pr "    Layer %d: gamma=%.4f, beta=%.4f" (i + 1) gamma beta
         jsonResults <- (box {| Example = "GridSearch"; Bitstring = bitsStr; Cost = cost |}) :: jsonResults
-        csvRows <- [ "GridSearch"; bitsStr; sprintf "%.2f" cost; "" ] :: csvRows
+        csvRows <- [ "GridSearch"; bitsStr; $"%.2f{cost}"; "" ] :: csvRows
     | Error e ->
         pr "GridSearch FAILED: %A" e
 
@@ -181,7 +181,7 @@ if runAll || exampleName = "optimize" then
         for i, (gamma, beta) in bestParams |> Array.indexed do
             pr "    Layer %d: gamma=%.4f, beta=%.4f" (i + 1) gamma beta
         jsonResults <- (box {| Example = "Optimize"; Bitstring = bitsStr; Cost = cost; Converged = converged |}) :: jsonResults
-        csvRows <- [ "Optimize"; bitsStr; sprintf "%.2f" cost; string converged ] :: csvRows
+        csvRows <- [ "Optimize"; bitsStr; $"%.2f{cost}"; string converged ] :: csvRows
     | Error e ->
         pr "Optimization FAILED: %A" e
 
@@ -212,7 +212,7 @@ if runAll || exampleName = "budget" then
     }
 
     pr "  Budget: %d total shots, %s time limit" budget.MaxTotalShots
-        (match budget.MaxTimeMs with Some ms -> sprintf "%dms" ms | None -> "none")
+        (match budget.MaxTimeMs with Some ms -> $"%d{ms}ms" | None -> "none")
 
     let result = QaoaExecutionHelpers.executeWithBudget quantumBackend denseQubo config budget
 
@@ -226,7 +226,7 @@ if runAll || exampleName = "budget" then
         pr "  Converged:       %b" converged
         pr "  Parameters:      %d layers" bestParams.Length
         jsonResults <- (box {| Example = "Budget"; Bitstring = bitsStr; Cost = cost; Converged = converged |}) :: jsonResults
-        csvRows <- [ "Budget"; bitsStr; sprintf "%.2f" cost; string converged ] :: csvRows
+        csvRows <- [ "Budget"; bitsStr; $"%.2f{cost}"; string converged ] :: csvRows
     | Error e ->
         pr "Budget Execution FAILED: %A" e
 

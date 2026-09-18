@@ -6,6 +6,7 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.ProblemDecomposition
 open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.LocalSimulator
 open System.Threading
 open System.Threading.Tasks
 
@@ -21,9 +22,9 @@ type private UnlimitedBackend() =
         member _.SupportsOperation (_op: QuantumOperation) = true
         member _.ApplyOperation (_op: QuantumOperation) (state: QuantumState) = Ok state
         member _.ExecuteToState (_circuit) =
-            Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 1))
+            Ok (QuantumState.StateVector (StateVector.init 1))
         member _.InitializeState (n: int) =
-            Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init n))
+            Ok (QuantumState.StateVector (StateVector.init n))
 
         member this.ExecuteToStateAsync circuit ct =
             task { return (this :> IQuantumBackend).ExecuteToState circuit }
@@ -38,9 +39,9 @@ type private LimitedBackend(maxQubits: int) =
         member _.SupportsOperation (_op: QuantumOperation) = true
         member _.ApplyOperation (_op: QuantumOperation) (state: QuantumState) = Ok state
         member _.ExecuteToState (_circuit) =
-            Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 1))
+            Ok (QuantumState.StateVector (StateVector.init 1))
         member _.InitializeState (n: int) =
-            Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init n))
+            Ok (QuantumState.StateVector (StateVector.init n))
 
         member this.ExecuteToStateAsync circuit ct =
             task { return (this :> IQuantumBackend).ExecuteToState circuit }

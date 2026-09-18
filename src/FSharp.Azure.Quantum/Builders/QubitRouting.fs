@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.CircuitBuilder
+open System.Collections.Generic
 
 /// Qubit routing for connectivity-limited hardware.
 ///
@@ -70,8 +71,8 @@ module QubitRouting =
         else
             // Mutable BFS frontier — a standard graph kernel; immutable folds
             // would re-allocate the visited set on every expansion.
-            let visited = System.Collections.Generic.HashSet<int>()
-            let queue = System.Collections.Generic.Queue<int list>()  // paths stored reversed (head = current)
+            let visited = HashSet<int>()
+            let queue = Queue<int list>()  // paths stored reversed (head = current)
             queue.Enqueue [ src ]
             visited.Add src |> ignore
             let mutable result = None
@@ -92,9 +93,9 @@ module QubitRouting =
     let shortestPathWeighted (edgeCost: int * int -> float) (cm: CouplingMap) (src: int) (dst: int) : int list option =
         if src = dst then Some [ src ]
         else
-            let dist = System.Collections.Generic.Dictionary<int, float>()
-            let prev = System.Collections.Generic.Dictionary<int, int>()
-            let pq = System.Collections.Generic.SortedSet<float * int>()  // (distance, node)
+            let dist = Dictionary<int, float>()
+            let prev = Dictionary<int, int>()
+            let pq = SortedSet<float * int>()  // (distance, node)
             dist.[src] <- 0.0
             pq.Add((0.0, src)) |> ignore
             let mutable settled = false

@@ -134,7 +134,7 @@ module ConsoleRenderer =
         
         AnsiConsole.Progress()
             .Start(fun ctx ->
-                let progressTask = ctx.AddTask($"[cyan]{task}[/]")
+                let progressTask = ctx.AddTask $"[cyan]{task}[/]"
                 progressTask.IsIndeterminate <- true
                 
                 result <- action()

@@ -145,7 +145,7 @@ module QuantumPatternMatcherBuilderTests =
         | Choice2Of2 _ -> Assert.Fail("Expected item list")
         Assert.Equal(5, problem.TopN)
         Assert.Equal(2000, problem.Shots)
-        Assert.True(Option.isNone problem.Backend)
+        Assert.True(problem.Backend.IsNone)
     
     [<Fact>]
     let ``patternMatcher builder should use default values`` () =
@@ -172,7 +172,7 @@ module QuantumPatternMatcherBuilderTests =
         }
         
         // Assert
-        Assert.True(Option.isSome problem.Backend)
+        Assert.True(problem.Backend.IsSome)
     
     [<Fact>]
     let ``patternMatcher builder should accept search space as size`` () =
@@ -229,7 +229,7 @@ module QuantumPatternMatcherBuilderTests =
         | Choice2Of2 _ -> Assert.Fail("Expected item list")
         Assert.Equal(1, problem.TopN)
         Assert.Equal(1000, problem.Shots)
-        Assert.True(Option.isNone problem.Backend)
+        Assert.True(problem.Backend.IsNone)
     
     [<Fact>]
     let ``QuantumPatternMatcher.findAll should cap at 10 results`` () =

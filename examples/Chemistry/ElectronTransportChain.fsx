@@ -401,7 +401,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
+        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Marcus theory ET rate: k = (2pi/hbar) |H_AB|^2 (4pi*lambda*kT)^(-1/2) exp(-(dG+lambda)^2 / 4*lambda*kT).
 /// Here dG is the ionization energy used as the driving force.
@@ -422,8 +422,8 @@ let private formatHalfLife (k: float) : string =
         if hl < 1e-9 then sprintf "%.1e ns" (hl * 1e9)
         elif hl < 1e-6 then sprintf "%.1e us" (hl * 1e6)
         elif hl < 1e-3 then sprintf "%.1e ms" (hl * 1e3)
-        elif hl < 1.0 then sprintf "%.2f s" hl
-        elif hl < 60.0 then sprintf "%.1f s" hl
+        elif hl < 1.0 then $"%.2f{hl} s"
+        elif hl < 60.0 then $"%.1f{hl} s"
         elif hl < 3600.0 then sprintf "%.1f min" (hl / 60.0)
         else sprintf "%.1f h" (hl / 3600.0)
     else "N/A"
@@ -591,17 +591,17 @@ let resultMaps =
           "system", r.Pair.Name
           "biological_analogue", r.Pair.BiologicalAnalogue
           "description", r.Pair.Description
-          "reduced_energy_ha", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.ReducedEnergy)
-          "oxidized_energy_ha", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.OxidizedEnergy)
-          "ie_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.IonizationEnergyHartree)
-          "ie_ev", (if r.HasVqeFailure then "FAILED" else sprintf "%.4f" r.IonizationEnergyEv)
-          "marcus_rate_per_s", (if r.HasVqeFailure then "FAILED" else sprintf "%.2e" r.MarcusRate)
+          "reduced_energy_ha", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.ReducedEnergy}")
+          "oxidized_energy_ha", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.OxidizedEnergy}")
+          "ie_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.IonizationEnergyHartree}")
+          "ie_ev", (if r.HasVqeFailure then "FAILED" else $"%.4f{r.IonizationEnergyEv}")
+          "marcus_rate_per_s", (if r.HasVqeFailure then "FAILED" else $"%.2e{r.MarcusRate}")
           "half_life", r.HalfLife
           "rate_assessment", r.RateAssessment
-          "lambda_ev", sprintf "%.2f" reorganizationEnergy_eV
-          "coupling_ev", sprintf "%.3f" electronicCoupling_eV
-          "temperature_k", sprintf "%.1f" temperature
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+          "lambda_ev", $"%.2f{reorganizationEnergy_eV}"
+          "coupling_ev", $"%.3f{electronicCoupling_eV}"
+          "temperature_k", $"%.1f{temperature}"
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

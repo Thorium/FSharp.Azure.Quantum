@@ -75,8 +75,8 @@ let mutable csvRows : string list list = []
 let record (r: QPEResult) =
     jsonResults <- jsonResults @ [ r ]
     csvRows <- csvRows @ [
-        [ r.Scenario; r.Label; sprintf "%.6f" r.Phase; sprintf "%.6f" r.ExpectedPhase
-          sprintf "%.6f" r.PhaseError; string r.Qubits; string r.GateCount
+        [ r.Scenario; r.Label; $"%.6f{r.Phase}"; $"%.6f{r.ExpectedPhase}"
+          $"%.6f{r.PhaseError}"; string r.Qubits; string r.GateCount
           string r.PrecisionBits; r.Note ] ]
 
 // ============================================================================
@@ -115,7 +115,7 @@ if shouldRun "tgate" then
                   Phase = result.Phase; ExpectedPhase = expected; PhaseError = err
                   Qubits = result.TotalQubits; GateCount = result.GateCount
                   PrecisionBits = result.Precision
-                  Note = sprintf "eigenvalue magnitude=%.4f" result.Eigenvalue.Magnitude }
+                  Note = $"eigenvalue magnitude=%.4f{result.Eigenvalue.Magnitude}" }
 
         | Error err -> pr "  [ERROR] Execution: %s" err.Message
 
@@ -163,7 +163,7 @@ if shouldRun "molecular" then
                   Phase = result.Phase; ExpectedPhase = expectedPhase; PhaseError = err
                   Qubits = result.TotalQubits; GateCount = result.GateCount
                   PrecisionBits = prob.Precision
-                  Note = sprintf "energy=%.6f a.u., theta=%.4f" energyAU theta }
+                  Note = $"energy=%.6f{energyAU} a.u., theta=%.4f{theta}" }
 
         | Error err -> pr "  [ERROR] Execution: %s" err.Message
 
@@ -207,7 +207,7 @@ if shouldRun "crystal" then
                   Phase = result.Phase; ExpectedPhase = expectedPhase; PhaseError = err
                   Qubits = result.TotalQubits; GateCount = result.GateCount
                   PrecisionBits = problem.Precision
-                  Note = sprintf "phaseAngle=%.4f rad" phaseAngle }
+                  Note = $"phaseAngle=%.4f{phaseAngle} rad" }
 
         | Error err -> pr "  [ERROR] %s" err.Message
 

@@ -203,9 +203,7 @@ match indexResult with
     if not quiet then printfn "  Index built: %d items, threshold=%.2f" catalog.Length cliThreshold
 
 let index =
-    match indexResult with
-    | Ok idx -> idx
-    | Error _ -> failwith "unreachable"
+    indexResult |> Result.defaultWith (fun _ -> failwith "unreachable")
 
 // ==============================================================================
 // QUERY EACH PRODUCT
@@ -287,7 +285,7 @@ let resultMaps =
             [ [ "query_id", r.QueryProduct.Id
                 "query_name", r.QueryProduct.Name
                 "query_category", r.QueryProduct.Category
-                "query_price", sprintf "%.2f" r.QueryProduct.Price
+                "query_price", $"%.2f{r.QueryProduct.Price}"
                 "match_rank", "1"
                 "match_id", ""
                 "match_name", ""
@@ -301,12 +299,12 @@ let resultMaps =
                 [ "query_id", r.QueryProduct.Id
                   "query_name", r.QueryProduct.Name
                   "query_category", r.QueryProduct.Category
-                  "query_price", sprintf "%.2f" r.QueryProduct.Price
+                  "query_price", $"%.2f{r.QueryProduct.Price}"
                   "match_rank", string rank
                   "match_id", m.Id
                   "match_name", m.Name
-                  "match_price", sprintf "%.2f" m.Price
-                  "similarity", sprintf "%.4f" sim
+                  "match_price", $"%.2f{m.Price}"
+                  "similarity", $"%.4f{sim}"
                   "has_quantum_failure", string r.HasQuantumFailure ]
                 |> Map.ofList))
 

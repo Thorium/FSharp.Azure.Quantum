@@ -541,7 +541,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
+        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Interpret an activation energy barrier for metabolic context.
 let private assessBarrier (eaKcal: float) : string =
@@ -559,8 +559,8 @@ let private formatHalfLife (k: float) : string =
         if hl < 1e-9 then sprintf "%.1e ns" (hl * 1e9)
         elif hl < 1e-6 then sprintf "%.1e us" (hl * 1e6)
         elif hl < 1e-3 then sprintf "%.1e ms" (hl * 1e3)
-        elif hl < 1.0 then sprintf "%.2f s" hl
-        elif hl < 60.0 then sprintf "%.1f s" hl
+        elif hl < 1.0 then $"%.2f{hl} s"
+        elif hl < 60.0 then $"%.1f{hl} s"
         elif hl < 3600.0 then sprintf "%.1f min" (hl / 60.0)
         else sprintf "%.1f h" (hl / 3600.0)
     else "N/A"
@@ -723,18 +723,18 @@ let resultMaps =
           "pathway", r.Pathway.Name
           "enzyme", r.Pathway.Enzyme
           "description", r.Pathway.Description
-          "ea_hartree", sprintf "%.6f" r.ActivationEnergyHartree
-          "ea_kcal_mol", sprintf "%.2f" r.ActivationEnergyKcal
-          "de_kcal_mol", sprintf "%.2f" r.ReactionEnergyKcal
-          "rate_constant_s", sprintf "%.2e" r.RateConstant
+          "ea_hartree", $"%.6f{r.ActivationEnergyHartree}"
+          "ea_kcal_mol", $"%.2f{r.ActivationEnergyKcal}"
+          "de_kcal_mol", $"%.2f{r.ReactionEnergyKcal}"
+          "rate_constant_s", $"%.2e{r.RateConstant}"
           "half_life", r.HalfLife
           "barrier_assessment", r.BarrierAssessment
           "thermodynamics", (if r.ReactionEnergyKcal < 0.0 then "exothermic" else "endothermic")
-          "reactant_energy_ha", sprintf "%.6f" r.ReactantEnergy
-          "ts_energy_ha", sprintf "%.6f" r.TsEnergy
-          "product_energy_ha", sprintf "%.6f" r.ProductEnergy
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
-          "temperature_k", sprintf "%.1f" temperature
+          "reactant_energy_ha", $"%.6f{r.ReactantEnergy}"
+          "ts_energy_ha", $"%.6f{r.TsEnergy}"
+          "product_energy_ha", $"%.6f{r.ProductEnergy}"
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
+          "temperature_k", $"%.1f{temperature}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

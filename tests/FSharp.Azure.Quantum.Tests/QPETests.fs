@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open System
+open System.Numerics
 open System.Threading
 open System.Threading.Tasks
 
@@ -220,7 +221,7 @@ module QPETests =
     // CUSTOM EIGENVECTOR SUPPORT
     // ========================================================================
 
-    let private stateVectorOf (amplitudes: System.Numerics.Complex[]) : QuantumState =
+    let private stateVectorOf (amplitudes: Complex[]) : QuantumState =
         QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.create amplitudes)
 
     [<Fact>]
@@ -231,7 +232,7 @@ module QPETests =
             CountingQubits = 3
             TargetQubits = 1
             UnitaryOperator = QPE.UnitaryOperator.PhaseGate (Math.PI / 2.0)
-            EigenVector = Some (stateVectorOf [| System.Numerics.Complex.Zero; System.Numerics.Complex.One |])
+            EigenVector = Some (stateVectorOf [| Complex.Zero; Complex.One |])
         }
 
         match QPE.execute config backend with
@@ -248,7 +249,7 @@ module QPETests =
             CountingQubits = 3
             TargetQubits = 1
             UnitaryOperator = QPE.UnitaryOperator.PhaseGate (Math.PI / 2.0)
-            EigenVector = Some (stateVectorOf [| System.Numerics.Complex.One; System.Numerics.Complex.Zero |])
+            EigenVector = Some (stateVectorOf [| Complex.One; Complex.Zero |])
         }
 
         (QPE.execute config backend) |> Result.map (fun result -> Assert.True(result.EstimatedPhase < 0.1, $"Expected phase ~0, got {result.EstimatedPhase}")) |> Result.defaultWith (fun err -> Assert.Fail($"QPE with |0> eigenvector failed: {err}"))
@@ -261,7 +262,7 @@ module QPETests =
             TargetQubits = 1
             UnitaryOperator = QPE.UnitaryOperator.TGate
             // 4 amplitudes = 2 qubits, but TargetQubits = 1
-            EigenVector = Some (stateVectorOf (Array.create 4 (System.Numerics.Complex(0.5, 0.0))))
+            EigenVector = Some (stateVectorOf (Array.create 4 (Complex(0.5, 0.0))))
         }
 
         match QPE.execute config backend with

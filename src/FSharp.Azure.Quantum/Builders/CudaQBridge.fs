@@ -51,7 +51,7 @@ module CudaQBridge =
         | CircuitBuilder.CCX (a, b, t) -> line (sprintf "x.ctrl(%s, %s, %s)" (q a) (q b) (q t))
         | CircuitBuilder.MCZ (controls, t) ->
             let args = (controls @ [ t ]) |> List.map q |> String.concat ", "
-            line ($"z.ctrl(%s{args})")
+            line $"z.ctrl(%s{args})"
         | CircuitBuilder.Measure _ -> Ok None   // all qubits are measured with mz(q) at the end
         | CircuitBuilder.Reset i -> line (sprintf "reset(%s)" (q i))
         | CircuitBuilder.Barrier _ -> Ok None   // scheduling hint only — no effect on simulation, safe to skip

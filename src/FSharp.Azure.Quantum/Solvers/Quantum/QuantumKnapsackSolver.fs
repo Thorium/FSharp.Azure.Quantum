@@ -111,7 +111,7 @@ module QuantumKnapsackSolver =
         if b <= 0.0 then 0
         elif b < 1.0 then 1
         else
-            let bInt = int (System.Math.Ceiling b)
+            let bInt = int (Math.Ceiling b)
             let rec countBits value bits =
                 if value <= 0 then bits
                 else countBits (value >>> 1) (bits + 1)
@@ -407,7 +407,7 @@ module QuantumKnapsackSolver =
         // Sort items by value-to-weight ratio (descending)
         let sortedItems = 
             problem.Items
-            |> List.map (fun item -> item, if item.Weight = 0.0 then System.Double.MaxValue else item.Value / item.Weight)
+            |> List.map (fun item -> item, if item.Weight = 0.0 then Double.MaxValue else item.Value / item.Weight)
             |> List.sortByDescending snd
             |> List.map fst
         

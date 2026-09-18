@@ -476,9 +476,9 @@ let optionResults =
             let deltaR = calculateDelta market spec backend |> Async.RunSynchronously
             let vegaR = calculateVega market spec backend |> Async.RunSynchronously
             let thetaR = calculateTheta market spec backend |> Async.RunSynchronously
-            let delta = match deltaR with Ok d -> d | Error _ -> nan
-            let vega = match vegaR with Ok v -> v | Error _ -> nan
-            let theta = match thetaR with Ok t -> t | Error _ -> nan
+            let delta = deltaR |> Result.defaultValue nan
+            let vega = vegaR |> Result.defaultValue nan
+            let theta = thetaR |> Result.defaultValue nan
             if not quiet then
                 printfn "  [OK]   %-35s  Price: $%8.4f  Delta: %7.4f  Vega: %7.4f  Theta: %7.4f"
                     name pr.Price delta vega theta
@@ -513,9 +513,9 @@ let printTable () =
     printfn "  %s" divider
     for r in sortedResults do
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
-        let fmt v = if Double.IsNaN v then "â€”" else sprintf "%8.4f" v
-        let priceFmt = if Double.IsNaN r.Price then "       â€”" else sprintf "$%8.4f" r.Price
-        let errFmt = if Double.IsNaN r.StdError then "       â€”" else sprintf "$%7.4f" r.StdError
+        let fmt v = if Double.IsNaN v then "â€”" else $"%8.4f{v}"
+        let priceFmt = if Double.IsNaN r.Price then "       â€”" else $"$%8.4f{r.Price}"
+        let errFmt = if Double.IsNaN r.StdError then "       â€”" else $"$%7.4f{r.StdError}"
         printfn "  %-32s %8s %10s %8s %8s %8s %8s %8s"
             (if r.Name.Length > 32 then r.Name.[..31] else r.Name)
             r.OptionType
@@ -543,17 +543,17 @@ let resultMaps : Map<string, string> list =
         [ "key",                  r.Key
           "name",                 r.Name
           "option_type",          r.OptionType
-          "spot",                 sprintf "%.2f" market.Spot
-          "strike",               sprintf "%.2f" market.Strike
-          "rate",                 sprintf "%.4f" market.RiskFreeRate
-          "volatility",           sprintf "%.4f" market.Volatility
-          "expiry",               sprintf "%.2f" market.TimeToExpiry
-          "price",                if Double.IsNaN r.Price then "" else sprintf "%.4f" r.Price
-          "std_error",            if Double.IsNaN r.StdError then "" else sprintf "%.4f" r.StdError
-          "delta",                if Double.IsNaN r.Delta then "" else sprintf "%.6f" r.Delta
-          "vega",                 if Double.IsNaN r.Vega then "" else sprintf "%.6f" r.Vega
-          "theta",                if Double.IsNaN r.Theta then "" else sprintf "%.6f" r.Theta
-          "has_quantum_failure",  sprintf "%b" r.HasQuantumFailure ]
+          "spot",                 $"%.2f{market.Spot}"
+          "strike",               $"%.2f{market.Strike}"
+          "rate",                 $"%.4f{market.RiskFreeRate}"
+          "volatility",           $"%.4f{market.Volatility}"
+          "expiry",               $"%.2f{market.TimeToExpiry}"
+          "price",                if Double.IsNaN r.Price then "" else $"%.4f{r.Price}"
+          "std_error",            if Double.IsNaN r.StdError then "" else $"%.4f{r.StdError}"
+          "delta",                if Double.IsNaN r.Delta then "" else $"%.6f{r.Delta}"
+          "vega",                 if Double.IsNaN r.Vega then "" else $"%.6f{r.Vega}"
+          "theta",                if Double.IsNaN r.Theta then "" else $"%.6f{r.Theta}"
+          "has_quantum_failure",  $"%b{r.HasQuantumFailure}" ]
         |> Map.ofList)
 
 match outputPath with

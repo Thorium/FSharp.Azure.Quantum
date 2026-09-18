@@ -594,8 +594,8 @@ module Oracle =
     let private qubitsPerVertex (numColors: int) : int =
         if numColors <= 1 then 1
         else
-            let log2 = System.Math.Log(float numColors) / System.Math.Log(2.0)
-            int (System.Math.Ceiling(log2))
+            let log2 = Math.Log(float numColors) / Math.Log(2.0)
+            int (Math.Ceiling(log2))
     
     /// Helper: Extract color assignment for a vertex from bit pattern
     /// For vertex v with c qubits per vertex, extract c bits starting at position v*c
@@ -848,7 +848,7 @@ module Oracle =
             if colorValue < config.NumColors then
                 yield config.ColorCosts[colorValue]
             else
-                yield System.Double.PositiveInfinity  // Invalid color = infinite cost
+                yield Double.PositiveInfinity  // Invalid color = infinite cost
         |]
         |> Array.sum
     

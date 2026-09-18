@@ -158,7 +158,7 @@ for (backendKey, backend) in backendsToTest do
         results.Add(
             [ "backend", backendKey
               "secret", secretArg
-              "error", sprintf "%A" err ]
+              "error", $"%A{err}" ]
             |> Map.ofList)
 
 // ============================================================================
@@ -192,7 +192,7 @@ match csvPath with
 | Some path ->
     let allKeys =
         resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.collect (Map.toList >> List.map fst)
         |> List.distinct
     let rows =
         resultsList

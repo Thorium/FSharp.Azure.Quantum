@@ -287,7 +287,7 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
                     let timeDiff = (tx.Timestamp - lastTx.Timestamp).TotalMinutes
                     if timeDiff < 30.0 && lastTx.To = tx.From then
                         (chains, tx :: currentChain)
-                    else if currentChain.Length >= 3 then
+                    elif currentChain.Length >= 3 then
                         (currentChain :: chains, [ tx ])
                     else
                         (chains, [ tx ])) ([], [])
@@ -312,7 +312,7 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
                 |> List.map (fun t -> t.From)
             { Members = f.AccountId :: senders
               Confidence = 0.8
-              PatternType = sprintf "Money Mule (%s <- %d senders)" f.AccountId senders.Length })
+              PatternType = $"Money Mule (%s{f.AccountId} <- %d{senders.Length} senders)" })
 
     // Pattern 3: Circular transactions
     let circularPatterns =
@@ -337,12 +337,12 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
             allIds
             |> List.collect (fun start -> dfs [ start ] Set.empty start 0 5)
             |> List.filter (fun cycle -> cycle.Length >= 3)
-            |> List.distinctBy (fun cycle -> cycle |> List.sort |> String.concat ",")
+            |> List.distinctBy (List.sort >> String.concat ",")
         cycles
         |> List.map (fun cycle ->
             { Members = cycle
               Confidence = 0.9
-              PatternType = sprintf "Circular (%d accounts)" cycle.Length })
+              PatternType = $"Circular (%d{cycle.Length} accounts)" })
 
     layeringPatterns @ mulePatterns @ circularPatterns
 
@@ -389,7 +389,7 @@ let calculateRiskScores
             | Some f ->
                 (score0, reasons0)
                 |> addIf (f.TransactionVelocity > 5.0) 0.2
-                       (sprintf "High velocity: %.1f tx/day" f.TransactionVelocity)
+                       $"High velocity: %.1f{f.TransactionVelocity} tx/day"
                 |> addIf (f.ClusteringCoefficient > 0.8) 0.15
                        "Highly clustered connections"
                 |> addIf (f.InDegree > 5 && f.OutDegree <= 1) 0.25
@@ -401,7 +401,7 @@ let calculateRiskScores
         let s2, r2 =
             (s1, r1)
             |> addIf (acc.Country = "XX") 0.1 "Unknown jurisdiction"
-            |> addIf (accountAge < 90.0) 0.15 (sprintf "New account (%.0f days old)" accountAge)
+            |> addIf (accountAge < 90.0) 0.15 $"New account (%.0f{accountAge} days old)"
 
         // Factor 3: Fraud pattern involvement
         let s3, r3 =
@@ -448,14 +448,10 @@ let communityResult = detectCommunities accounts transactions
 let fraudPatterns = detectFraudPatterns transactions features
 
 let hasQuantumFailure =
-    match communityResult with
-    | Error _ -> true
-    | Ok _ -> false
+    communityResult |> Result.isError
 
 let communityMap =
-    match communityResult with
-    | Ok m -> m
-    | Error _ -> Map.empty
+    communityResult |> Result.defaultWith (fun _ -> Map.empty)
 
 let riskScores =
     calculateRiskScores accounts features fraudPatterns communityMap hasQuantumFailure
@@ -526,7 +522,7 @@ let resultMaps =
     filteredScores
     |> List.map (fun r ->
         [ "account_id", r.AccountId
-          "risk_score", sprintf "%.4f" r.RiskScore
+          "risk_score", $"%.4f{r.RiskScore}"
           "risk_pct", sprintf "%.1f" (r.RiskScore * 100.0)
           "community", string r.Community
           "top_reason", (r.Reasons |> List.tryHead |> Option.defaultValue "")

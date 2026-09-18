@@ -403,10 +403,10 @@ let resultRows : Map<string, string> list =
                       "end_hours", sprintf "%.2f" (a.EndTime.TotalHours)
                       "duration_hours", sprintf "%.2f" ((a.EndTime - a.StartTime).TotalHours)
                       "makespan_hours", sprintf "%.2f" (schedule.Makespan.TotalHours)
-                      "total_cost", sprintf "%.2f" schedule.TotalCost
-                      "speedup", sprintf "%.2f" speedup
-                      "time_saved_pct", sprintf "%.1f" timeSavedPct
-                      "solution_time_ms", sprintf "%.0f" elapsedMs
+                      "total_cost", $"%.2f{schedule.TotalCost}"
+                      "speedup", $"%.2f{speedup}"
+                      "time_saved_pct", $"%.1f{timeSavedPct}"
+                      "solution_time_ms", $"%.0f{elapsedMs}"
                       "status", "ok" ])
         assignmentRows
     | None ->
@@ -420,7 +420,7 @@ let resultRows : Map<string, string> list =
               "total_cost", "N/A"
               "speedup", "N/A"
               "time_saved_pct", "N/A"
-              "solution_time_ms", sprintf "%.0f" elapsed.TotalMilliseconds
+              "solution_time_ms", $"%.0f{elapsed.TotalMilliseconds}"
               "status", "failed" ] ]
 
 match outputPath with

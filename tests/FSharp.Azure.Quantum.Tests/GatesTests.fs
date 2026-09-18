@@ -261,10 +261,10 @@ module GatesTests =
         Gates.applyX 1 state2q |> ignore
         
         // Invalid indices: -1, 2
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<Exception>(fun () -> 
             Gates.applyX -1 state2q |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<Exception>(fun () -> 
             Gates.applyX 2 state2q |> ignore
         ) |> ignore
     
@@ -446,18 +446,18 @@ module GatesTests =
         Gates.applyCZ 0 1 state2q |> ignore
         
         // Invalid: same control and target
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<Exception>(fun () -> 
             Gates.applyCNOT 0 0 state2q |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<Exception>(fun () -> 
             Gates.applyCZ 1 1 state2q |> ignore
         ) |> ignore
         
         // Invalid: out of range
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Gates.applyCNOT 2 0 state2q |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             Gates.applyCZ 0 3 state2q |> ignore
         ) |> ignore
 
@@ -541,6 +541,6 @@ module GatesTests =
     [<Fact>]
     let ``Ising gates reject same-qubit application`` () =
         let state = StateVector.init 2
-        Assert.Throws<System.Exception>(fun () -> Gates.applyRxx 0 0 1.0 state |> ignore) |> ignore
-        Assert.Throws<System.Exception>(fun () -> Gates.applyRyy 1 1 1.0 state |> ignore) |> ignore
-        Assert.Throws<System.Exception>(fun () -> Gates.applyRzz 0 0 1.0 state |> ignore) |> ignore
+        Assert.Throws<Exception>(fun () -> Gates.applyRxx 0 0 1.0 state |> ignore) |> ignore
+        Assert.Throws<Exception>(fun () -> Gates.applyRyy 1 1 1.0 state |> ignore) |> ignore
+        Assert.Throws<Exception>(fun () -> Gates.applyRzz 0 0 1.0 state |> ignore) |> ignore

@@ -392,13 +392,13 @@ let resultToMap (idx: int, smiles: string, desc: MolecularData.MolecularDescript
     Map.ofList [
         "CandidateIndex", string idx
         "Smiles", smiles
-        "QuantumSimilarity", sprintf "%.4f" quantumSim
-        "ClassicalSimilarity", sprintf "%.4f" classicalSim
-        "MolecularWeight", sprintf "%.1f" desc.MolecularWeight
-        "LogP", sprintf "%.2f" desc.LogP
+        "QuantumSimilarity", $"%.4f{quantumSim}"
+        "ClassicalSimilarity", $"%.4f{classicalSim}"
+        "MolecularWeight", $"%.1f{desc.MolecularWeight}"
+        "LogP", $"%.2f{desc.LogP}"
         "HBondDonors", string desc.HydrogenBondDonors
         "HBondAcceptors", string desc.HydrogenBondAcceptors
-        "TPSA", sprintf "%.1f" desc.TPSA
+        "TPSA", $"%.1f{desc.TPSA}"
         "RotatableBonds", string desc.RotatableBonds
         "IsQuantumHit", string (quantumSim >= similarityThreshold)
         "IsClassicalHit", string (classicalSim >= similarityThreshold)
@@ -426,9 +426,9 @@ match csvFile with
                 |> List.tryFind (fun (i, _, _, _) -> i = idx)
                 |> Option.map (fun (_, _, _, sim) -> sim)
                 |> Option.defaultValue 0.0
-            [ string idx; smiles; sprintf "%.4f" qSim; sprintf "%.4f" cSim
-              sprintf "%.1f" desc.MolecularWeight; sprintf "%.2f" desc.LogP
-              sprintf "%.1f" desc.TPSA; string (qSim >= similarityThreshold) ])
+            [ string idx; smiles; $"%.4f{qSim}"; $"%.4f{cSim}"
+              $"%.1f{desc.MolecularWeight}"; $"%.2f{desc.LogP}"
+              $"%.1f{desc.TPSA}"; string (qSim >= similarityThreshold) ])
     Reporting.writeCsv path header rows
     printfn "CSV results written to: %s" path
 | None -> ()

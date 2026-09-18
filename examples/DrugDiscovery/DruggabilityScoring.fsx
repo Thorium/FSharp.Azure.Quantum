@@ -457,7 +457,7 @@ let resultMaps =
     |> List.map (fun r ->
         let (x, y, z) = r.Feature.Position
         let totalWeight =
-            match solutionStats with Some s -> sprintf "%.2f" s.TotalWeight | None -> "FAILED"
+            match solutionStats with Some s -> $"%.2f{s.TotalWeight}" | None -> "FAILED"
         let isValid =
             match solutionStats with Some s -> string s.IsValid | None -> "FAILED"
         let backendName =
@@ -466,19 +466,19 @@ let resultMaps =
         [ "rank", string r.Rank
           "feature_id", r.Feature.Id
           "feature_type", featureTypeName r.Feature.Type
-          "position_x", sprintf "%.1f" x
-          "position_y", sprintf "%.1f" y
-          "position_z", sprintf "%.1f" z
-          "importance", sprintf "%.2f" r.Feature.Importance
+          "position_x", $"%.1f{x}"
+          "position_y", $"%.1f{y}"
+          "position_z", $"%.1f{z}"
+          "importance", $"%.2f{r.Feature.Importance}"
           "selected", string r.Selected
           "total_weight", totalWeight
           "is_valid", isValid
-          "overlap_threshold_a", sprintf "%.1f" overlapThreshold
-          "druggability_score", sprintf "%.2f" druggabilityScore
+          "overlap_threshold_a", $"%.1f{overlapThreshold}"
+          "druggability_score", $"%.2f{druggabilityScore}"
           "druggability_rating", druggabilityRating
           "backend", backendName
           "shots", string shots
-          "compute_time_s", sprintf "%.1f" elapsed
+          "compute_time_s", $"%.1f{elapsed}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

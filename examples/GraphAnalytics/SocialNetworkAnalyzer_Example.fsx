@@ -103,8 +103,8 @@ if runAll || exampleName = "classical" then
                                communitiesFound = result.Communities.Length |}) :: jsonResults
         result.Communities |> List.iter (fun c ->
             csvRows <- [
-                "classical"; sprintf "%A" c.Members; sprintf "%.2f" c.Strength;
-                sprintf "%d" c.InternalConnections
+                "classical"; $"%A{c.Members}"; $"%.2f{c.Strength}";
+                $"%d{c.InternalConnections}"
             ] :: csvRows
         )
 
@@ -168,8 +168,8 @@ if runAll || exampleName = "quantum" then
                                communitiesFound = result.Communities.Length |}) :: jsonResults
         result.Communities |> List.iter (fun c ->
             csvRows <- [
-                "quantum"; sprintf "%A" c.Members; sprintf "%.2f" c.Strength;
-                sprintf "%d" c.InternalConnections
+                "quantum"; $"%A{c.Members}"; $"%.2f{c.Strength}";
+                $"%d{c.InternalConnections}"
             ] :: csvRows
         )
 
@@ -229,8 +229,8 @@ if runAll || exampleName = "fraud" then
                                fraudRings = result.Communities.Length |}) :: jsonResults
         result.Communities |> List.iter (fun c ->
             csvRows <- [
-                "fraud"; sprintf "%A" c.Members; sprintf "%.2f" c.Strength;
-                sprintf "%d" c.InternalConnections
+                "fraud"; $"%A{c.Members}"; $"%.2f{c.Strength}";
+                $"%d{c.InternalConnections}"
             ] :: csvRows
         )
 

@@ -134,7 +134,7 @@ let private h2oSystem : BondSystem =
 
     let makeStretched (factor: float) : Molecule =
         { eq with
-            Name = sprintf "H2O (O-H x%.1f)" factor
+            Name = $"H2O (O-H x%.1f{factor})"
             Atoms =
               [ { Element = "O"; Position = (0.0, 0.0, 0.0) }
                 { Element = "H"; Position = (0.96 * factor, 0.0, 0.0) }
@@ -161,7 +161,7 @@ let private hfSystem : BondSystem =
 
     let makeStretched (factor: float) : Molecule =
         { eq with
-            Name = sprintf "HF (H-F x%.1f)" factor
+            Name = $"HF (H-F x%.1f{factor})"
             Atoms =
               [ { Element = "H"; Position = (0.0, 0.0, 0.0) }
                 { Element = "F"; Position = (0.92 * factor, 0.0, 0.0) } ] }
@@ -187,7 +187,7 @@ let private lihSystem : BondSystem =
 
     let makeStretched (factor: float) : Molecule =
         { eq with
-            Name = sprintf "LiH (Li-H x%.1f)" factor
+            Name = $"LiH (Li-H x%.1f{factor})"
             Atoms =
               [ { Element = "Li"; Position = (0.0, 0.0, 0.0) }
                 { Element = "H"; Position = (1.60 * factor, 0.0, 0.0) } ] }
@@ -213,7 +213,7 @@ let private h2System : BondSystem =
 
     let makeStretched (factor: float) : Molecule =
         { eq with
-            Name = sprintf "H2 (H-H x%.1f)" factor
+            Name = $"H2 (H-H x%.1f{factor})"
             Atoms =
               [ { Element = "H"; Position = (0.0, 0.0, 0.0) }
                 { Element = "H"; Position = (0.74 * factor, 0.0, 0.0) } ] }
@@ -313,7 +313,7 @@ let private loadSystemsFromCsv (path: string) : BondSystem list =
                                 let (x, y, z) = atom.Position
                                 { atom with Position = (x * factor, y * factor, z * factor) })
                     { eqMol with
-                        Name = sprintf "%s (x%.1f)" name factor
+                        Name = $"%s{name} (x%.1f{factor})"
                         Atoms = stretchedAtoms }
                 Some
                     { Name = name
@@ -407,7 +407,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
+        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Compute BDE for one bond system: E(stretched) - E(equilibrium).
 let private computeSystem
@@ -561,18 +561,18 @@ let resultMaps =
         [ "rank", string (i + 1)
           "system", r.System.Name
           "bond_type", r.System.BondType
-          "bond_length_angstrom", sprintf "%.2f" r.System.BondLengthAngstrom
+          "bond_length_angstrom", $"%.2f{r.System.BondLengthAngstrom}"
           "biological_role", r.System.BiologicalRole
           "description", r.System.Description
           "atoms", string r.System.EquilibriumMolecule.Atoms.Length
           "electrons", string r.Electrons
-          "eq_energy_ha", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.EquilibriumEnergy)
-          "stretched_energy_ha", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.StretchedEnergy)
-          "bde_hartree", (if r.HasVqeFailure then "FAILED" else sprintf "%.6f" r.BdeHartree)
-          "bde_kcal_mol", (if r.HasVqeFailure then "FAILED" else sprintf "%.2f" r.BdeKcalMol)
-          "bde_ev", (if r.HasVqeFailure then "FAILED" else sprintf "%.4f" r.BdeEv)
-          "stretch_factor", sprintf "%.1f" r.StretchFactor
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+          "eq_energy_ha", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.EquilibriumEnergy}")
+          "stretched_energy_ha", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.StretchedEnergy}")
+          "bde_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.BdeHartree}")
+          "bde_kcal_mol", (if r.HasVqeFailure then "FAILED" else $"%.2f{r.BdeKcalMol}")
+          "bde_ev", (if r.HasVqeFailure then "FAILED" else $"%.4f{r.BdeEv}")
+          "stretch_factor", $"%.1f{r.StretchFactor}"
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

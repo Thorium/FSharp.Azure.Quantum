@@ -76,10 +76,10 @@ let standardA = Complex.FromPolarCoordinates(1.0, 2.0 * Math.PI / 5.0)
 
 let fmtComplex (c: Complex) =
     if Math.Abs(c.Imaginary) < 1e-10 then
-        sprintf "%.6f" c.Real
+        $"%.6f{c.Real}"
     else
         let sign = if c.Imaginary >= 0.0 then "+" else ""
-        sprintf "%.6f %s%.6fi" c.Real sign c.Imaginary
+        $"%.6f{c.Real} %s{sign}%.6f{c.Imaginary}i"
 
 let printComplex name (c: Complex) =
     pr "  %s = %s" name (fmtComplex c)
@@ -218,19 +218,19 @@ if shouldRun 6 then
     pr "--- Ising Anyon Theory (A = e^(ipi/4)) ---"
     for (name, diagram) in knots do
         let v = Planar.evaluateBracket diagram Planar.isingA
-        printComplex (sprintf "Ising(%s)" name) v
+        printComplex $"Ising(%s{name})" v
 
     pr ""
     pr "--- Fibonacci Anyon Theory (A = e^(ipi/5)) ---"
     for (name, diagram) in knots do
         let v = Planar.evaluateBracket diagram Planar.fibonacciA
-        printComplex (sprintf "Fibonacci(%s)" name) v
+        printComplex $"Fibonacci(%s{name})" v
 
     pr ""
     pr "--- Jones Polynomial at t = -1 (A = e^(ipi/4)) ---"
     for (name, diagram) in knots do
         let v = Planar.jonesPolynomial diagram Planar.standardA
-        printComplex (sprintf "J(%s,-1)" name) v
+        printComplex $"J(%s{name},-1)" v
 
     pr ""
     pr "  Ising: Topological superconductors"
@@ -318,18 +318,24 @@ if not quiet then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "KauffmanJones.fsx"
            backend   = quantumBackend.Name
            timestamp = DateTime.UtcNow.ToString("o")
            example   = exChoice
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

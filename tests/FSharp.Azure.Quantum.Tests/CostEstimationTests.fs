@@ -1,6 +1,7 @@
 module FSharp.Azure.Quantum.Tests.CostEstimationTests
 
 open System
+open System.IO
 open Xunit
 open FSharp.Azure.Quantum.Core.CostEstimation
 open FSharp.Azure.Quantum.Core
@@ -685,7 +686,7 @@ let ``recommendCostOptimization suggests cheaper backend`` () =
 [<Fact>]
 let ``displayCostDashboard shows spending summary`` () =
     // Arrange
-    let now = System.DateTimeOffset.UtcNow
+    let now = DateTimeOffset.UtcNow
     let circuit = createSimpleCircuit 50 30 2 2
     let records = [
         {
@@ -813,7 +814,7 @@ let ``findCheapestBackend works with single backend`` () =
 [<Fact>]
 let ``saveCostRecordToCsv saves record to CSV file`` () =
     // Arrange
-    let tempFile = System.IO.Path.GetTempFileName()
+    let tempFile = Path.GetTempFileName()
     try
         let circuit = createSimpleCircuit 50 30 2 2
         let record = {
@@ -832,20 +833,20 @@ let ``saveCostRecordToCsv saves record to CSV file`` () =
         // Assert
         match result with
         | Ok () ->
-            Assert.True(System.IO.File.Exists(tempFile), "CSV file should exist")
-            let lines = System.IO.File.ReadAllLines(tempFile)
+            Assert.True(File.Exists(tempFile), "CSV file should exist")
+            let lines = File.ReadAllLines(tempFile)
             Assert.True(lines.Length >= 1, "CSV should have at least one line")
             Assert.Contains("job-123", lines.[0])
         | Error err ->
             Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
-        if System.IO.File.Exists(tempFile) then
-            System.IO.File.Delete(tempFile)
+        if File.Exists(tempFile) then
+            File.Delete(tempFile)
 
 [<Fact>]
 let ``loadCostHistoryFromCsv loads records from CSV file`` () =
     // Arrange
-    let tempFile = System.IO.Path.GetTempFileName()
+    let tempFile = Path.GetTempFileName()
     try
         let circuit = createSimpleCircuit 50 30 2 2
         let record1 = {
@@ -883,13 +884,13 @@ let ``loadCostHistoryFromCsv loads records from CSV file`` () =
         | Error err ->
             Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
-        if System.IO.File.Exists(tempFile) then
-            System.IO.File.Delete(tempFile)
+        if File.Exists(tempFile) then
+            File.Delete(tempFile)
 
 [<Fact>]
 let ``loadCostHistoryFromCsv returns empty list for non-existent file`` () =
     // Arrange
-    let nonExistentFile = "nonexistent-" + System.Guid.NewGuid().ToString() + ".csv"
+    let nonExistentFile = "nonexistent-" + Guid.NewGuid().ToString() + ".csv"
     
     // Act
     let result = loadCostHistoryFromCsv nonExistentFile
@@ -900,7 +901,7 @@ let ``loadCostHistoryFromCsv returns empty list for non-existent file`` () =
 [<Fact>]
 let ``saveCostRecordToCsv appends to existing file`` () =
     // Arrange
-    let tempFile = System.IO.Path.GetTempFileName()
+    let tempFile = Path.GetTempFileName()
     try
         let circuit = createSimpleCircuit 50 30 2 2
         let record1 = {
@@ -931,13 +932,13 @@ let ``saveCostRecordToCsv appends to existing file`` () =
         // Assert - load and verify both records exist
         (loadCostHistoryFromCsv tempFile) |> Result.map (fun records -> Assert.Equal(2, List.length records)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected 2 records but got error: %s{err.Message}"))
     finally
-        if System.IO.File.Exists(tempFile) then
-            System.IO.File.Delete(tempFile)
+        if File.Exists(tempFile) then
+            File.Delete(tempFile)
 
 [<Fact>]
 let ``CSV persistence handles special characters in job IDs`` () =
     // Arrange
-    let tempFile = System.IO.Path.GetTempFileName()
+    let tempFile = Path.GetTempFileName()
     try
         let circuit = createSimpleCircuit 50 30 2 2
         let record = {
@@ -962,13 +963,13 @@ let ``CSV persistence handles special characters in job IDs`` () =
         | Error err ->
             Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
-        if System.IO.File.Exists(tempFile) then
-            System.IO.File.Delete(tempFile)
+        if File.Exists(tempFile) then
+            File.Delete(tempFile)
 
 [<Fact>]
 let ``CSV persistence preserves backend information`` () =
     // Arrange
-    let tempFile = System.IO.Path.GetTempFileName()
+    let tempFile = Path.GetTempFileName()
     try
         let circuit = createSimpleCircuit 50 30 2 2
         let record = {
@@ -993,13 +994,13 @@ let ``CSV persistence preserves backend information`` () =
         | Error err ->
             Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
-        if System.IO.File.Exists(tempFile) then
-            System.IO.File.Delete(tempFile)
+        if File.Exists(tempFile) then
+            File.Delete(tempFile)
 
 [<Fact>]
 let ``CSV persistence preserves cost accuracy`` () =
     // Arrange
-    let tempFile = System.IO.Path.GetTempFileName()
+    let tempFile = Path.GetTempFileName()
     try
         let circuit = createSimpleCircuit 50 30 2 2
         let record = {
@@ -1026,5 +1027,5 @@ let ``CSV persistence preserves cost accuracy`` () =
         | Error err ->
             Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
-        if System.IO.File.Exists(tempFile) then
-            System.IO.File.Delete(tempFile)
+        if File.Exists(tempFile) then
+            File.Delete(tempFile)

@@ -100,7 +100,7 @@ if runAll || exampleName = "independent" then
             let sel = selectedIds.Contains n.Id
             pr "  %-16s  %8.2f  %10s" n.Id n.Weight (if sel then "YES" else "-")
             jsonResults <- (box {| Example = "IndependentSet"; Compound = n.Id; Weight = n.Weight; Selected = sel |}) :: jsonResults
-            csvRows <- [ "IndependentSet"; n.Id; sprintf "%.2f" n.Weight; (if sel then "true" else "false") ] :: csvRows
+            csvRows <- [ "IndependentSet"; n.Id; $"%.2f{n.Weight}"; (if sel then "true" else "false") ] :: csvRows
         pr ""
         pr "  Total weight:  %.2f" sol.TotalWeight
         pr "  Valid:         %b (no conflicts)" sol.IsValid
@@ -154,7 +154,7 @@ if runAll || exampleName = "influence" then
             let sel = selectedIds.Contains n.Id
             pr "  %-10s  %8.2f  %10s" n.Id n.Score (if sel then "YES" else "-")
             jsonResults <- (box {| Example = "Influence"; Gene = n.Id; Score = n.Score; Selected = sel |}) :: jsonResults
-            csvRows <- [ "Influence"; n.Id; sprintf "%.2f" n.Score; (if sel then "true" else "false") ] :: csvRows
+            csvRows <- [ "Influence"; n.Id; $"%.2f{n.Score}"; (if sel then "true" else "false") ] :: csvRows
         pr ""
         pr "  Total score:    %.2f" sol.TotalScore
         pr "  Synergy bonus:  %.2f" sol.SynergyBonus
@@ -212,7 +212,7 @@ if runAll || exampleName = "diverse" then
             let sel = selectedIds.Contains item.Id
             pr "  %-14s  %8.2f  %8.1f  %10s" item.Id item.Value item.Cost (if sel then "YES" else "-")
             jsonResults <- (box {| Example = "DiverseSelection"; Compound = item.Id; Value = item.Value; Cost = item.Cost; Selected = sel |}) :: jsonResults
-            csvRows <- [ "DiverseSelection"; item.Id; sprintf "%.2f" item.Value; (if sel then "true" else "false") ] :: csvRows
+            csvRows <- [ "DiverseSelection"; item.Id; $"%.2f{item.Value}"; (if sel then "true" else "false") ] :: csvRows
         pr ""
         pr "  Total value:      %.2f" sol.TotalValue
         pr "  Total cost:       %.1f / %.1f budget" sol.TotalCost problem.Budget

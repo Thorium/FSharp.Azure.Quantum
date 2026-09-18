@@ -208,7 +208,7 @@ module GateToBraid =
     /// Compose a list of braids (left-to-right) in the Ising σ-pair encoding
     /// (2(n+1) strands for n qubits).
     /// Returns Error if any composition fails (e.g., mismatched strand counts)
-    let composeBraids (braids: BraidGroup.BraidWord list) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let composeBraids (numQubits: int) (braids: BraidGroup.BraidWord list) : Result<BraidGroup.BraidWord, TopologicalError> =
         braids
         |> List.fold (fun acc braid ->
             match acc with
@@ -222,7 +222,7 @@ module GateToBraid =
         gates
         |> List.map (fun gate -> basicGateToBraid gate qubitIndex numQubits)
         |> ResultPrivate.sequence
-        |> Result.bind (fun braids -> composeBraids braids numQubits)
+        |> Result.bind (composeBraids numQubits)
     
     /// Hadamard gate decomposition — NOT REALIZABLE by Ising within-pair braiding.
     ///

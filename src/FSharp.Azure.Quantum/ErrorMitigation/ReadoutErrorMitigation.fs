@@ -140,7 +140,7 @@ module ReadoutErrorMitigation =
         async {
             try
                 if qubits < 1 || qubits > 10 then
-                    return Error ($"Qubit count must be 1-10 (got %d{qubits})")
+                    return Error $"Qubit count must be 1-10 (got %d{qubits})"
                 else
                     // Prepare |0⟩^⊗n circuit (empty circuit, starts in |0⟩)
                     let dimension = pown 2 qubits
@@ -191,7 +191,7 @@ module ReadoutErrorMitigation =
                             CalibrationShots = config.CalibrationShots
                         }
             with
-            | ex -> return Error ($"Calibration measurement error: %s{ex.Message}")
+            | ex -> return Error $"Calibration measurement error: %s{ex.Message}"
         }
     
     // ============================================================================
@@ -212,7 +212,7 @@ module ReadoutErrorMitigation =
             // Check if matrix is singular (determinant ≈ 0)
             let det = matrix.Determinant()
             if abs det < 1e-10 then
-                Error ($"Matrix is nearly singular (det = %.2e{det}). Cannot invert reliably.")
+                Error $"Matrix is nearly singular (det = %.2e{det}). Cannot invert reliably."
             else
                 // Check condition number (ratio of largest to smallest singular value)
                 let conditionNumber = matrix.ConditionNumber()
@@ -227,7 +227,7 @@ module ReadoutErrorMitigation =
                 let result = Array2D.init inverse.RowCount inverse.ColumnCount (fun i j -> inverse.[i, j])
                 Ok result
         with
-        | ex -> Error ($"Matrix inversion failed: %s{ex.Message}")
+        | ex -> Error $"Matrix inversion failed: %s{ex.Message}"
     
     // ============================================================================
     // Histogram Correction - Error Mitigation
@@ -254,7 +254,7 @@ module ReadoutErrorMitigation =
         let dimensionMismatch =
             measured |> Map.exists (fun bitstring _ -> bitstring.Length <> calibration.Qubits)
         if dimensionMismatch then
-            Error ($"Calibration is for %d{calibration.Qubits} qubits but the measured histogram contains bitstrings of a different width. Supply a calibration matching the measured qubit count.")
+            Error $"Calibration is for %d{calibration.Qubits} qubits but the measured histogram contains bitstrings of a different width. Supply a calibration matching the measured qubit count."
         else
 
         // Step 1: Invert calibration matrix
@@ -346,7 +346,7 @@ module ReadoutErrorMitigation =
                     GoodnessOfFit = goodnessOfFit
                 }
             with
-            | ex -> Error ($"Histogram correction error: %s{ex.Message}")
+            | ex -> Error $"Histogram correction error: %s{ex.Message}"
     
     // ============================================================================
     // Public API - Composable Functions
@@ -374,20 +374,20 @@ module ReadoutErrorMitigation =
                 // Step 1: Measure calibration matrix (can be cached and reused)
                 
                 match! measureCalibrationMatrix backend qubits config executor with
-                | Error err -> return Error ($"Calibration failed: %s{err}")
+                | Error err -> return Error $"Calibration failed: %s{err}"
                 | Ok calibration ->
                     // Step 2: Execute actual circuit
                     let shots = config.CalibrationShots  // Use same number of shots
                     
                     match! executor circuit shots with
-                    | Error err -> return Error ($"Circuit execution failed: %s{err}")
+                    | Error err -> return Error $"Circuit execution failed: %s{err}"
                     | Ok measured ->
                         // Step 3: Correct readout errors
                         let correctionResult = correctReadoutErrors measured calibration config
                         
                         return correctionResult
             with
-            | ex -> return Error ($"REM pipeline error: %s{ex.Message}")
+            | ex -> return Error $"REM pipeline error: %s{ex.Message}"
         }
     
     /// Validate calibration matrix properties.
@@ -436,4 +436,4 @@ module ReadoutErrorMitigation =
                 else
                     Error (String.concat "; " allErrors)
         with
-        | ex -> Error ($"Validation error: %s{ex.Message}")
+        | ex -> Error $"Validation error: %s{ex.Message}"

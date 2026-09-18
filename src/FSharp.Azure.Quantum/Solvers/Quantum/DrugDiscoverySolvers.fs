@@ -605,7 +605,7 @@ module DrugDiscoverySolvers =
             if b <= 0.0 then 0
             elif b < 1.0 then 1
             else
-                let bInt = int (System.Math.Ceiling b)
+                let bInt = int (Math.Ceiling b)
                 let rec countBits value bits =
                     if value <= 0 then bits
                     else countBits (value >>> 1) (bits + 1)
@@ -684,7 +684,7 @@ module DrugDiscoverySolvers =
                     |> List.filter (fun (i, _) -> repaired.[i] = 1)
                     |> List.sortBy (fun (_, item) -> 
                         // Guard against division by zero - if cost is 0, item is "free" so keep it (high ratio)
-                        if item.Cost <= 0.0 then System.Double.MaxValue
+                        if item.Cost <= 0.0 then Double.MaxValue
                         else item.Value / item.Cost)  // Remove worst ratio first
                 
                 let _finalCost =

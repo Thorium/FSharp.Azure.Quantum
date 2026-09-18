@@ -123,7 +123,7 @@ let resultRow (example: string) (solution: GraphColoring.ColoringSolution) : Map
     let assignments =
         solution.Assignments
         |> Map.toList
-        |> List.map (fun (k, v) -> sprintf "%s=%s" k v)
+        |> List.map (fun (k, v) -> $"%s{k}=%s{v}")
         |> String.concat ";"
     [ "example", example
       "colors_used", string solution.ColorsUsed

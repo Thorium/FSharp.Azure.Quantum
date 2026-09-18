@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open System
+open System.Threading.Tasks
 
 module ReadoutErrorMitigationTests =
     
@@ -645,7 +646,7 @@ module ReadoutErrorMitigationTests =
                         |> List.map (fun _ ->
                             let outcome = LocalSimulator.Measurement.measureComputationalBasis rng state
                             // Convert to bitstring
-                            let bitstring = System.Convert.ToString(outcome, 2).PadLeft(qubits, '0')
+                            let bitstring = Convert.ToString(outcome, 2).PadLeft(qubits, '0')
                             bitstring)
                         |> List.groupBy id
                         |> List.map (fun (key, values) -> (key, values.Length))
@@ -656,7 +657,7 @@ module ReadoutErrorMitigationTests =
                     
                     return Ok noisyHistogram
                 with
-                | ex -> return Error ($"Simulation error: %s{ex.Message}")
+                | ex -> return Error $"Simulation error: %s{ex.Message}"
             }
     
     [<Fact>]
@@ -693,7 +694,7 @@ module ReadoutErrorMitigationTests =
                     sprintf "M[1,0] should be ~0.02, got %.3f" matrix.[1, 0])
             | Error msg ->
                 Assert.True(false, $"Calibration should succeed: %s{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Integration: 1-qubit REM should reduce readout errors`` () =
@@ -725,7 +726,7 @@ module ReadoutErrorMitigationTests =
                     $"Goodness of fit should be > 0.95, got %.3f{corrected.GoodnessOfFit}")
             | Error msg ->
                 Assert.True(false, $"REM should succeed: %s{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Integration: 2-qubit calibration should work`` () =
@@ -756,7 +757,7 @@ module ReadoutErrorMitigationTests =
                 | Error msg -> Assert.True(false, $"Calibration should be valid: %s{msg}")
             | Error msg ->
                 Assert.True(false, $"2-qubit calibration should succeed: %s{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact; Trait("Category", "Slow")>]
     let ``Integration: 2-qubit REM should reduce errors`` () =
@@ -786,7 +787,7 @@ module ReadoutErrorMitigationTests =
                     $"2-qubit REM should achieve > 97%% fidelity, got %.3f{fidelity}")
             | Error msg ->
                 Assert.True(false, $"2-qubit REM should succeed: %s{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Integration: 3-qubit calibration should work`` () =
@@ -817,7 +818,7 @@ module ReadoutErrorMitigationTests =
                 | Error msg -> Assert.True(false, $"Calibration should be valid: %s{msg}")
             | Error msg ->
                 Assert.True(false, $"3-qubit calibration should succeed: %s{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Integration: 3-qubit REM should demonstrate error reduction`` () =
@@ -850,4 +851,4 @@ module ReadoutErrorMitigationTests =
                 Assert.True(corrected.ConfidenceIntervals.ContainsKey "000")
             | Error msg ->
                 Assert.True(false, $"3-qubit REM should succeed: %s{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task

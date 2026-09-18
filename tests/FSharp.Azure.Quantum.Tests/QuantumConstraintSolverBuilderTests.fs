@@ -131,7 +131,7 @@ module QuantumConstraintSolverBuilderTests =
         Assert.Equal(4, List.length problem.Domain)
         Assert.Equal(2, List.length problem.Constraints)
         Assert.Equal(2000, problem.Shots)
-        Assert.True(Option.isNone problem.Backend)
+        Assert.True(problem.Backend.IsNone)
     
     [<Fact>]
     let ``constraintSolver builder should use default values`` () =
@@ -159,7 +159,7 @@ module QuantumConstraintSolverBuilderTests =
         }
         
         // Assert
-        Assert.True(Option.isSome problem.Backend)
+        Assert.True(problem.Backend.IsSome)
     
     [<Fact>]
     let ``constraintSolver builder should accept multiple constraints`` () =
@@ -202,7 +202,7 @@ module QuantumConstraintSolverBuilderTests =
         Assert.Equal(4, List.length problem.Domain)
         Assert.Equal(1, List.length problem.Constraints)
         Assert.Equal(1000, problem.Shots)
-        Assert.True(Option.isNone problem.Backend)
+        Assert.True(problem.Backend.IsNone)
     
     [<Fact>]
     let ``QuantumConstraintSolver.estimateResources should return resource estimate`` () =

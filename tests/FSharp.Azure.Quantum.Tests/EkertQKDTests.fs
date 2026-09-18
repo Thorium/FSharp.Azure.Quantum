@@ -24,7 +24,7 @@ let ``EkertQKD.run NoEavesdropper CHSH violated`` () =
         let absS = abs result.CHSHTest.S
         Assert.True(absS > 2.0, $"Expected |S| > 2.0 (CHSH violation), got |S| = {absS}")
         Assert.True(result.CHSHTest.IsSecure, $"Expected IsSecure = true, S = {result.CHSHTest.S}")
-        Assert.True(result.IsSecure, $"Expected overall IsSecure = true")
+        Assert.True(result.IsSecure, "Expected overall IsSecure = true")
 
 // ========================================================================
 // Key bit correlation tests (no eavesdropper)

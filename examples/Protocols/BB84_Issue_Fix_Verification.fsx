@@ -179,11 +179,11 @@ let consistencyResults =
             if result.FinalKeyLength = expectedFinal then
                 Ok (i, result.FinalKeyLength, result.SiftedKey.Length)
             else
-                Error (sprintf "Run %d: key length mismatch (expected %d, got %d)" i expectedFinal result.FinalKeyLength)
+                Error $"Run %d{i}: key length mismatch (expected %d{expectedFinal}, got %d{result.FinalKeyLength})"
         | Error err ->
-            Error (sprintf "Run %d: protocol error: %A" i err))
+            Error $"Run %d{i}: protocol error: %A{err}")
 
-let test3Failures = consistencyResults |> List.choose (fun r -> match r with Error e -> Some e | _ -> None)
+let test3Failures = consistencyResults |> List.choose (fun r -> match r with Error e -> Some e | Ok _ -> None)
 let test3Pass = test3Failures.IsEmpty
 
 if test3Pass then

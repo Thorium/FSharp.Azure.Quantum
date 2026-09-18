@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Topological.Tests
 open Xunit
 open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum
+open System
+open System.Numerics
 
 module BraidToGateTests =
 
@@ -151,7 +153,7 @@ module BraidToGateTests =
         match sequence.Gates.[0] with
         | CircuitBuilder.Gate.P (q, angle) ->
             Assert.Equal(0, q)
-            Assert.Equal(3.0 * System.Math.PI / 5.0, angle, 10)  // arg(Rτ/R¹) mod 2π
+            Assert.Equal(3.0 * Math.PI / 5.0, angle, 10)  // arg(Rτ/R¹) mod 2π
         | _ -> failwith "Expected P gate"
 
     [<Fact>]
@@ -178,9 +180,9 @@ module BraidToGateTests =
         match sequence.Gates.[0] with
         | CircuitBuilder.Gate.P (_, angle) ->
             let diag0 = sequence.TotalPhase
-            let diag1 = sequence.TotalPhase * System.Numerics.Complex.Exp(System.Numerics.Complex.ImaginaryOne * System.Numerics.Complex(angle, 0.0))
-            let r1 = System.Numerics.Complex.Exp(System.Numerics.Complex.ImaginaryOne * System.Numerics.Complex(4.0 * System.Math.PI / 5.0, 0.0))
-            let rTau = System.Numerics.Complex.Exp(System.Numerics.Complex.ImaginaryOne * System.Numerics.Complex(-3.0 * System.Math.PI / 5.0, 0.0))
+            let diag1 = sequence.TotalPhase * Complex.Exp(Complex.ImaginaryOne * Complex(angle, 0.0))
+            let r1 = Complex.Exp(Complex.ImaginaryOne * Complex(4.0 * Math.PI / 5.0, 0.0))
+            let rTau = Complex.Exp(Complex.ImaginaryOne * Complex(-3.0 * Math.PI / 5.0, 0.0))
             Assert.Equal(r1.Real, diag0.Real, 10)
             Assert.Equal(r1.Imaginary, diag0.Imaginary, 10)
             Assert.Equal(rTau.Real, diag1.Real, 10)
@@ -228,8 +230,8 @@ module BraidToGateTests =
     let ``Adjacent Rz gates on same qubit merge`` () =
         // Business meaning: Multiple rotations combine into single rotation
         let gates = [
-            CircuitBuilder.Gate.RZ (2, System.Math.PI / 4.0)
-            CircuitBuilder.Gate.RZ (2, System.Math.PI / 8.0)
+            CircuitBuilder.Gate.RZ (2, Math.PI / 4.0)
+            CircuitBuilder.Gate.RZ (2, Math.PI / 8.0)
         ]
         let optimized = BraidToGate.optimizeGates 1 gates
         
@@ -237,15 +239,15 @@ module BraidToGateTests =
         match optimized.[0] with
         | CircuitBuilder.Gate.RZ (q, angle) ->
             Assert.Equal(2, q)
-            Assert.Equal(3.0 * System.Math.PI / 8.0, angle, 10)
+            Assert.Equal(3.0 * Math.PI / 8.0, angle, 10)
         | _ -> failwith "Expected merged Rz gate"
     
     [<Fact>]
     let ``Rz gates on different qubits do not merge`` () =
         // Business meaning: Parallel operations are independent
         let gates = [
-            CircuitBuilder.Gate.RZ (0, System.Math.PI / 4.0)
-            CircuitBuilder.Gate.RZ (1, System.Math.PI / 8.0)
+            CircuitBuilder.Gate.RZ (0, Math.PI / 4.0)
+            CircuitBuilder.Gate.RZ (1, Math.PI / 8.0)
         ]
         let optimized = BraidToGate.optimizeGates 1 gates
         
@@ -499,7 +501,7 @@ module BraidToGateTests =
             compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Ising phase"
 
-        let expectedAngle = -System.Math.PI / 8.0
+        let expectedAngle = -Math.PI / 8.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -511,7 +513,7 @@ module BraidToGateTests =
             compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Ising inv phase"
 
-        let expectedAngle = System.Math.PI / 8.0
+        let expectedAngle = Math.PI / 8.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -528,7 +530,7 @@ module BraidToGateTests =
                 "Two Ising phase"
 
         // exp(-iπ/8) * exp(-iπ/8) = exp(-iπ/4)
-        let expectedAngle = -System.Math.PI / 4.0
+        let expectedAngle = -Math.PI / 4.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -556,7 +558,7 @@ module BraidToGateTests =
             compileOrFail braid AnyonSpecies.AnyonType.Fibonacci
                 BraidToGate.defaultOptions "Fibonacci phase"
 
-        let expectedAngle = 4.0 * System.Math.PI / 5.0
+        let expectedAngle = 4.0 * Math.PI / 5.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -568,7 +570,7 @@ module BraidToGateTests =
             compileOrFail braid AnyonSpecies.AnyonType.Fibonacci
                 BraidToGate.defaultOptions "Fibonacci inv phase"
 
-        let expectedAngle = -4.0 * System.Math.PI / 5.0
+        let expectedAngle = -4.0 * Math.PI / 5.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -589,7 +591,7 @@ module BraidToGateTests =
                 "Multi-gen phase"
 
         // 3 * (-π/8) + 1 * (π/8) = -2π/8 = -π/4
-        let expectedAngle = -System.Math.PI / 4.0
+        let expectedAngle = -Math.PI / 4.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -616,8 +618,8 @@ module BraidToGateTests =
         let ccw = BraidToGate.braidingPhase AnyonSpecies.AnyonType.Ising false
 
         // Clockwise: exp(-iπ/8) per Kitaev (2006) convention
-        Assert.Equal(cos (-System.Math.PI / 8.0), cw.Real, 10)
-        Assert.Equal(sin (-System.Math.PI / 8.0), cw.Imaginary, 10)
+        Assert.Equal(cos (-Math.PI / 8.0), cw.Real, 10)
+        Assert.Equal(sin (-Math.PI / 8.0), cw.Imaginary, 10)
 
         // Counter-clockwise: exp(iπ/8) = conjugate
         Assert.Equal(cw.Real, ccw.Real, 10)

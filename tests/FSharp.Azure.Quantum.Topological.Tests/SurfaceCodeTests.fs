@@ -115,7 +115,7 @@ module SurfaceCodeTests =
         let lattice = { SurfaceCode.PlanarLattice.Distance = 3 }
         let state = SurfaceCode.initializePlanarGroundState lattice
         let edge : SurfaceCode.PlanarEdge = { Position = { X = 0; Y = 0 }; EdgeType = SurfaceCode.PHorizontal }
-        let errState = SurfaceCode.applyPlanarZError state edge
+        let errState = SurfaceCode.applyPlanarZError edge state
         let q = Map.find edge errState.Qubits
         Assert.Equal(SurfaceCode.Minus, q)
 
@@ -134,7 +134,7 @@ module SurfaceCodeTests =
         let state = SurfaceCode.initializePlanarGroundState lattice
         // Apply Z error to a horizontal edge in the interior
         let edge : SurfaceCode.PlanarEdge = { Position = { X = 2; Y = 1 }; EdgeType = SurfaceCode.PHorizontal }
-        let errState = SurfaceCode.applyPlanarZError state edge
+        let errState = SurfaceCode.applyPlanarZError edge state
         let syndrome = SurfaceCode.measurePlanarSyndrome errState
         // Z error creates X-stabilizer violations
         Assert.True(syndrome.XDefects.Length > 0, "Z error should create X-defects")
@@ -149,8 +149,8 @@ module SurfaceCodeTests =
         let edge2 : SurfaceCode.PlanarEdge = { Position = { X = 3; Y = 2 }; EdgeType = SurfaceCode.PHorizontal }
         let errState =
             state
-            |> fun s -> SurfaceCode.applyPlanarZError s edge1
-            |> fun s -> SurfaceCode.applyPlanarZError s edge2
+            |> SurfaceCode.applyPlanarZError edge1
+            |> SurfaceCode.applyPlanarZError edge2
         let syndrome = SurfaceCode.measurePlanarSyndrome errState
         Assert.True(syndrome.XDefects.Length >= 2, "Two Z errors should create multiple defects")
 

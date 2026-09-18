@@ -44,7 +44,7 @@ module AlgorithmExtensionsTests =
         
         // Setup simple 2x2 identity system: I * x = b
         // x should equal b
-        let vector = [| System.Numerics.Complex.One; System.Numerics.Complex.Zero |]
+        let vector = [| Complex.One; Complex.Zero |]
         let matrixRes = HHLTypes.createDiagonalMatrix [| 1.0; 1.0 |]
         let vectorRes = HHLTypes.createQuantumVector vector
         

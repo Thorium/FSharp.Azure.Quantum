@@ -310,8 +310,8 @@ let runSudoku () =
         allResults.Add(Map.ofList
             [ "example",              "sudoku"
               "status",               "solved"
-              "constraints_met",      sprintf "%b" solution.AllConstraintsSatisfied
-              "assignments",          sprintf "%d" solution.Assignment.Count
+              "constraints_met",      $"%b{solution.AllConstraintsSatisfied}"
+              "assignments",          $"%d{solution.Assignment.Count}"
               "search_space",         "4096"
               "backend",              "LocalBackend" ])
 
@@ -366,8 +366,8 @@ let runQueens () =
         allResults.Add(Map.ofList
             [ "example",              "queens"
               "status",               "solved"
-              "constraints_met",      sprintf "%b" solution.AllConstraintsSatisfied
-              "assignments",          sprintf "%d" solution.Assignment.Count
+              "constraints_met",      $"%b{solution.AllConstraintsSatisfied}"
+              "assignments",          $"%d{solution.Assignment.Count}"
               "search_space",         "256"
               "backend",              "LocalBackend" ])
 
@@ -434,8 +434,8 @@ let runScheduling () =
         allResults.Add(Map.ofList
             [ "example",              "scheduling"
               "status",               "solved"
-              "constraints_met",      sprintf "%b" solution.AllConstraintsSatisfied
-              "assignments",          sprintf "%d" solution.Assignment.Count
+              "constraints_met",      $"%b{solution.AllConstraintsSatisfied}"
+              "assignments",          $"%d{solution.Assignment.Count}"
               "search_space",         "3125"
               "backend",              "LocalBackend" ])
 

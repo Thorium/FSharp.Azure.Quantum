@@ -47,7 +47,7 @@ let cliError   = Cli.getFloatOr "error-rate" 0.05 args
 let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
 let shouldRun ex = exChoice = "all" || exChoice = string ex
 let separator () = pr "%s" (String.replicate 60 "-")
-let fmt (x: float) = sprintf "%.6f" x
+let fmt (x: float) = $"%.6f{x}"
 
 // ---------------------------------------------------------------------------
 // Quantum backend (Rule 1) â€” topological IQuantumBackend
@@ -92,8 +92,8 @@ if shouldRun 1 then
                                                      outputFidelity = p.Fidelity
                                                      outputError = p.ErrorRate
                                                      suppression = suppression |}) :: jsonResults
-            csvRows <- [ "1_single_round"; fmt p.Fidelity; sprintf "%.8f" p.ErrorRate;
-                          sprintf "%.1f" suppression ] :: csvRows
+            csvRows <- [ "1_single_round"; fmt p.Fidelity; $"%.8f{p.ErrorRate}";
+                          $"%.1f{suppression}" ] :: csvRows
         | Error err ->
             pr "Distillation failed: %s" err.Message
     | states ->
@@ -132,8 +132,8 @@ if shouldRun 2 then
                                                   rounds = 2
                                                   outputError = finalState.ErrorRate
                                                   theoretical = theoretical |}) :: jsonResults
-            csvRows <- [ "2_iterative"; sprintf "%.8f" finalState.ErrorRate;
-                          sprintf "%.8f" theoretical; sprintf "%.1f" suppression ] :: csvRows
+            csvRows <- [ "2_iterative"; $"%.8f{finalState.ErrorRate}";
+                          $"%.8f{theoretical}"; $"%.1f{suppression}" ] :: csvRows
         | Error err ->
             pr "Iterative distillation failed: %s" err.Message
     | s ->
@@ -157,7 +157,7 @@ if shouldRun 3 then
 
     jsonResults <- ("3_resources", box {| targetFidelity = targetFid
                                           noisyFidelity = noisyFid |}) :: jsonResults
-    csvRows <- [ "3_resources"; sprintf "%.4f" targetFid; sprintf "%.4f" noisyFid ] :: csvRows
+    csvRows <- [ "3_resources"; $"%.4f{targetFid}"; $"%.4f{noisyFid}" ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 4 â€” Apply T-gate via magic state injection
@@ -218,7 +218,8 @@ if shouldRun 4 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "MagicStateDistillation.fsx"
            backend   = "Topological (Ising)"
@@ -226,11 +227,16 @@ if outputPath.IsSome then
            example   = exChoice
            errorRate = cliError
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "metric1"; "metric2"; "metric3" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

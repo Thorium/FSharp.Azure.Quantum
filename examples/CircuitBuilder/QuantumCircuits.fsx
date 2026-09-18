@@ -121,10 +121,10 @@ if shouldRun "ghz" then
 
     record
         { Name = "ghz"
-          Label = sprintf "GHZ State (%d qubits)" ghzQubits
+          Label = $"GHZ State (%d{ghzQubits} qubits)"
           Qubits = ghzState.QubitCount
           Gates = List.length ghzState.Gates
-          Note = sprintf "|00...0>+|11...1> over %d qubits" ghzQubits
+          Note = $"|00...0>+|11...1> over %d{ghzQubits} qubits"
           Qasm = None }
 
 // ============================================================================
@@ -178,7 +178,7 @@ if shouldRun "super" then
 
     record
         { Name = "super"
-          Label = sprintf "Superposition (%d qubits)" superQubits
+          Label = $"Superposition (%d{superQubits} qubits)"
           Qubits = superposition.QubitCount
           Gates = List.length superposition.Gates
           Note = sprintf "Uniform over %d basis states" (pown 2 superQubits)
@@ -273,7 +273,7 @@ if shouldRun "optimize" then
           Label = "Circuit Optimization"
           Qubits = unoptimized.QubitCount
           Gates = beforeGates
-          Note = sprintf "Reduced from %d to %d gates" beforeGates afterGates
+          Note = $"Reduced from %d{beforeGates} to %d{afterGates} gates"
           Qasm = None }
 
 // ============================================================================

@@ -130,7 +130,7 @@ if shouldRun 2 then
                                             correlated = correlatedCount
                                             correlationPct = corrPct |}) :: jsonResults
     csvRows <- [ "2_correlation"; string cliTrials; string correlatedCount;
-                  sprintf "%.1f" corrPct ] :: csvRows
+                  $"%.1f{corrPct}" ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 3 â€” Gate-based vs topological comparison
@@ -165,7 +165,8 @@ if shouldRun 3 then
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
-if outputPath.IsSome then
+match outputPath with
+| Some outputPathValue ->
     let payload =
         {| script    = "BellState.fsx"
            backend   = "Topological (Ising)"
@@ -173,11 +174,16 @@ if outputPath.IsSome then
            example   = exChoice
            trials    = cliTrials
            results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPath.Value payload
+    Reporting.writeJson outputPathValue payload
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3" ]
-    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+    Reporting.writeCsv v header (csvRows |> List.rev)
+| None ->
+    ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

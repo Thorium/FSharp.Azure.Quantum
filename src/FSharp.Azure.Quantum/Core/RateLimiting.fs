@@ -43,7 +43,7 @@ module RateLimiting =
                 values 
                 |> Seq.tryHead 
                 |> Option.bind (fun v -> 
-                    match System.Int32.TryParse(v) with
+                    match Int32.TryParse(v) with
                     | true, parsed -> Some parsed
                     | false, _ -> None)
             | false, _ -> None

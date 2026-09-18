@@ -647,7 +647,7 @@ module ProblemTransformer =
         match customTransformations.TryGetValue problemName with
         | true, transform -> transform problemData
         | false, _ -> 
-            failwith ($"Problem '%s{problemName}' not registered. Call registerProblem first.")
+            failwith $"Problem '%s{problemName}' not registered. Call registerProblem first."
     
     /// Recommend encoding strategy based on problem type and size.
     /// 

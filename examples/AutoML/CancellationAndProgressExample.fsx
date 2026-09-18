@@ -75,8 +75,8 @@ let record (r: ExampleResult) =
     jsonResults <- jsonResults @ [ r ]
     csvRows <- csvRows @ [
         [ r.Name; r.Label; r.BestModel
-          sprintf "%.4f" r.Score; string r.Trials; string r.Cancelled
-          sprintf "%.1f" r.SearchTimeSec ] ]
+          $"%.4f{r.Score}"; string r.Trials; string r.Cancelled
+          $"%.1f{r.SearchTimeSec}" ] ]
 
 // --- Sample Data ---
 
@@ -241,7 +241,7 @@ if shouldRun "timeout" then
 
     match result with
     | Error err ->
-        let errMsg = sprintf "%A" err
+        let errMsg = $"%A{err}"
         if errMsg.Contains("cancelled") || errMsg.Contains("Cancellation") then
             pr "  [TIMEOUT] Search timed out - returning best result found"
         else
@@ -277,7 +277,7 @@ if shouldRun "custom-ui" then
                 match event with
                 | TrialStarted (id, total, modelType) ->
                     let percent = float id / float (max total 1) * 100.0
-                    uiTracker.UpdateProgress(percent, sprintf "Trial %d/%d: %s" id total modelType)
+                    uiTracker.UpdateProgress(percent, $"Trial %d{id}/%d{total}: %s{modelType}")
                     pr "  [UI] Progress: %.0f%% - Trial %d/%d: %s" percent id total modelType
 
                 | TrialCompleted (id, score, _) ->
@@ -286,7 +286,7 @@ if shouldRun "custom-ui" then
                     pr "  [UI] Progress: %.0f%% - Score: %.1f%%" percent (score * 100.0)
 
                 | PhaseChanged (phase, _) ->
-                    uiTracker.UpdateProgress(0.0, sprintf "Phase: %s" phase)
+                    uiTracker.UpdateProgress(0.0, $"Phase: %s{phase}")
                     pr "  [UI] Phase: %s" phase
 
                 | ProgressUpdate (percent, msg) ->
@@ -344,7 +344,7 @@ if shouldRun "production" then
                     pr "  %s" entry
 
                 | TrialFailed (id, error) ->
-                    let entry = sprintf "[LOG] ERROR Trial %d: %s" id error
+                    let entry = $"[LOG] ERROR Trial %d{id}: %s{error}"
                     logEntries <- logEntries @ [ entry ]
                     pr "  %s" entry
 

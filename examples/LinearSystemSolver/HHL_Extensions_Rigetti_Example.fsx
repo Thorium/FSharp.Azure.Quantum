@@ -99,7 +99,7 @@ if shouldRun "1" then
             results.Add(Map.ofList [
                 "feature", "1_condition_number"
                 "matrix", "diag(2,5)"
-                "condition_number", sprintf "%.2f" kappa
+                "condition_number", $"%.2f{kappa}"
                 "assessment", if kappa <= 10.0 then "well-conditioned" elif kappa <= 100.0 then "moderate" else "ill-conditioned"
             ])
         | None ->
@@ -165,11 +165,11 @@ if shouldRun "2" then
 
             results.Add(Map.ofList [
                 "feature", "2_error_bounds"
-                "rigetti_total_error", sprintf "%.6f" rigettiErrors.TotalError
-                "rigetti_success_prob", sprintf "%.4f" rigettiErrors.EstimatedSuccessProbability
-                "ionq_total_error", sprintf "%.6f" ionqErrors.TotalError
-                "ionq_success_prob", sprintf "%.4f" ionqErrors.EstimatedSuccessProbability
-                "improvement_ratio", sprintf "%.2f" ratio
+                "rigetti_total_error", $"%.6f{rigettiErrors.TotalError}"
+                "rigetti_success_prob", $"%.4f{rigettiErrors.EstimatedSuccessProbability}"
+                "ionq_total_error", $"%.6f{ionqErrors.TotalError}"
+                "ionq_success_prob", $"%.4f{ionqErrors.EstimatedSuccessProbability}"
+                "improvement_ratio", $"%.2f{ratio}"
             ])
     | Error err, _ ->
         pr "Matrix error: %A" err
@@ -204,7 +204,7 @@ if shouldRun "3" then
 
         results.Add(Map.ofList [
             "feature", "3_adaptive_method"
-            "condition_number", sprintf "%.0f" kappa
+            "condition_number", $"%.0f{kappa}"
             "selected_method", methodName
         ])
 
@@ -259,11 +259,11 @@ if shouldRun "4" then
 
             results.Add(Map.ofList [
                 "feature", "4_optimized_config"
-                "condition_number", sprintf "%.2f" kappa
-                "qpe_qubits", sprintf "%d" config.EigenvalueQubits
+                "condition_number", $"%.2f{kappa}"
+                "qpe_qubits", $"%d{config.EigenvalueQubits}"
                 "inversion_method", methodName
-                "min_eigenvalue", sprintf "%.6f" config.MinEigenvalue
-                "post_selection", sprintf "%b" config.UsePostSelection
+                "min_eigenvalue", $"%.6f{config.MinEigenvalue}"
+                "post_selection", $"%b{config.UsePostSelection}"
             ])
     | _ -> ()
 
@@ -331,9 +331,9 @@ if shouldRun "5" then
                     "vector", "[1,1]"
                     "x0", sprintf "%.6f" result.Solution[0].Real
                     "x1", sprintf "%.6f" result.Solution[1].Real
-                    "success_probability", sprintf "%.6f" result.SuccessProbability
-                    "gate_count", sprintf "%d" result.GateCount
-                    "condition_number", sprintf "%.2f" kappa
+                    "success_probability", $"%.6f{result.SuccessProbability}"
+                    "gate_count", $"%d{result.GateCount}"
+                    "condition_number", $"%.2f{kappa}"
                 ])
 
     | Error err, _ -> pr "Matrix error: %A" err
@@ -379,17 +379,21 @@ pr ""
 // Structured output
 // ---------------------------------------------------------------------------
 
-if outputPath.IsSome then
+match outputPath with
+| Some v ->
     let payload = {| script = "HHL_Extensions_Rigetti_Example.fsx"
                      timestamp = DateTime.UtcNow
                      feature = feature
                      accuracy = cliAccuracy
                      fidelity = cliFidelity
                      results = results |> Seq.toArray |}
-    Reporting.writeJson outputPath.Value payload
-    pr "Results written to %s" outputPath.Value
+    Reporting.writeJson v payload
+    pr "Results written to %s" v
+| None ->
+    ()
 
-if csvPath.IsSome then
+match csvPath with
+| Some v ->
     let header = ["feature"; "condition_number"; "selected_method"; "success_probability";
                   "gate_count"; "x0"; "x1"; "rigetti_total_error"; "ionq_total_error"]
     let rows =
@@ -397,8 +401,10 @@ if csvPath.IsSome then
         |> Seq.map (fun m ->
             header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
         |> Seq.toList
-    Reporting.writeCsv csvPath.Value header rows
-    pr "CSV written to %s" csvPath.Value
+    Reporting.writeCsv v header rows
+    pr "CSV written to %s" v
+| None ->
+    ()
 
 // Usage hints
 if argv.Length = 0 && outputPath.IsNone && csvPath.IsNone then

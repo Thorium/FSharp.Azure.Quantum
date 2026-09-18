@@ -1661,7 +1661,7 @@ module ChemistryDataProviders =
                         | "TITLE" when line.Length > 10 ->
                             let titlePart = line.[10..].Trim()
                             let newTitle = match state.Title with
-                                           | Some t -> Some ($"{t} {titlePart}")
+                                           | Some t -> Some $"{t} {titlePart}"
                                            | None -> Some titlePart
                             { state with Title = newTitle }
                         | "MODEL" ->

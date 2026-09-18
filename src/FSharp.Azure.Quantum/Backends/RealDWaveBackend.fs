@@ -306,7 +306,7 @@ module RealDWaveBackend =
                 | None ->
                     try
                         use! response =
-                            httpClient.GetAsync($"{config.Endpoint}solvers/remote/{config.Solver}/")
+                            httpClient.GetAsync $"{config.Endpoint}solvers/remote/{config.Solver}/"
                             |> Async.AwaitTask
 
                         if not response.IsSuccessStatusCode then
@@ -431,7 +431,7 @@ module RealDWaveBackend =
                         return Error $"D-Wave job {jobId} timed out after 300 seconds"
                     else
                         use! response =
-                            httpClient.GetAsync($"{config.Endpoint}problems/{jobId}/")
+                            httpClient.GetAsync $"{config.Endpoint}problems/{jobId}/"
                             |> Async.AwaitTask
 
                         if not response.IsSuccessStatusCode then

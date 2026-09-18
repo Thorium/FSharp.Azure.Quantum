@@ -27,10 +27,10 @@ module QaoaSimulatorTests =
     
     [<Fact>]
     let ``Initialize uniform superposition - should reject invalid qubit counts`` () =
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<Exception>(fun () -> 
             QaoaSimulator.initializeUniformSuperposition 0 |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<Exception>(fun () -> 
             QaoaSimulator.initializeUniformSuperposition 17 |> ignore
         ) |> ignore
     
@@ -69,7 +69,7 @@ module QaoaSimulatorTests =
         let state = QaoaSimulator.initializeUniformSuperposition 2
         let costCoeffs = [| 1.0 |]  // Wrong length
         
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             QaoaSimulator.applyCostLayer 1.0 costCoeffs state |> ignore
         )
     
@@ -93,12 +93,12 @@ module QaoaSimulatorTests =
         let state = QaoaSimulator.initializeUniformSuperposition 2
         
         // Same qubit for both indices
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             QaoaSimulator.applyCostInteraction 1.0 0 0 1.0 state |> ignore
         ) |> ignore
         
         // Out of range
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             QaoaSimulator.applyCostInteraction 1.0 0 2 1.0 state |> ignore
         ) |> ignore
     
@@ -165,7 +165,7 @@ module QaoaSimulatorTests =
         let betas = [| 0.4 |]  // Wrong length
         let costCoeffs = [| 1.0; 1.0 |]
         
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             QaoaSimulator.runQaoaCircuit 2 gammas betas costCoeffs |> ignore
         )
     
@@ -222,7 +222,7 @@ module QaoaSimulatorTests =
         let state = QaoaSimulator.initializeUniformSuperposition 2
         let costCoeffs = [| 1.0 |]  // Wrong length
         
-        Assert.Throws<System.Exception>(fun () ->
+        Assert.Throws<Exception>(fun () ->
             QaoaSimulator.computeCostExpectation costCoeffs state |> ignore
         )
     

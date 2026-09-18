@@ -178,15 +178,15 @@ match result with
         let row =
             [ string keyLength
               string bb84.SiftedKey.Length
-              sprintf "%.4f" bb84.EavesdropCheck.ErrorRate
+              $"%.4f{bb84.EavesdropCheck.ErrorRate}"
               string bb84.EavesdropCheck.EavesdropDetected
               string (qkd.ErrorCorrection |> Option.map (fun ec -> ec.ErrorsDetected) |> Option.defaultValue 0)
               string (qkd.ErrorCorrection |> Option.map (fun ec -> ec.ErrorsCorrected) |> Option.defaultValue 0)
               string pa.OriginalLength
               string pa.FinalLength
               string qkd.FinalKeyLength
-              sprintf "%.4f" qkd.EndToEndEfficiency
-              sprintf "%.2f" qkd.TotalInformationLeaked
+              $"%.4f{qkd.EndToEndEfficiency}"
+              $"%.2f{qkd.TotalInformationLeaked}"
               string qkd.SecurityLevel
               string qkd.Success ]
         Reporting.writeCsv path header [ row ]

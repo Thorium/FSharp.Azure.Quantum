@@ -170,7 +170,7 @@ module SurfaceCode =
         { state with Qubits = newQubits }
 
     /// Apply Z error to an edge in the planar code.
-    let applyPlanarZError (state: PlanarCodeState) (edge: PlanarEdge) : PlanarCodeState =
+    let applyPlanarZError (edge: PlanarEdge) (state: PlanarCodeState) : PlanarCodeState =
         let newQubits =
             state.Qubits
             |> Map.change edge (Option.map (function
@@ -383,7 +383,7 @@ module SurfaceCode =
                 // Apply X corrections
                 let afterX =
                     xResult.Corrections
-                    |> List.fold (fun s e -> applyPlanarZError s e) state
+                    |> List.fold (fun s e -> applyPlanarZError e s) state
                 // Apply Z corrections
                 let afterXZ =
                     zResult.Corrections

@@ -199,16 +199,16 @@ match result with
 
     resultRows.Add(
         [ "example", "European Call"
-          "spot", sprintf "%.2f" spotPrice
-          "strike", sprintf "%.2f" strikePrice
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
-          "price", sprintf "%.4f" price.Price
-          "confidence_interval", sprintf "%.4f" price.ConfidenceInterval
-          "qubits", sprintf "%d" price.QubitsUsed
+          "spot", $"%.2f{spotPrice}"
+          "strike", $"%.2f{strikePrice}"
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
+          "price", $"%.4f{price.Price}"
+          "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+          "qubits", $"%d{price.QubitsUsed}"
           "method", price.Method
-          "speedup", sprintf "%.1f" price.Speedup
+          "speedup", $"%.1f{price.Speedup}"
           "error", "" ]
         |> Map.ofList)
 
@@ -219,17 +219,17 @@ match result with
 
     resultRows.Add(
         [ "example", "European Call"
-          "spot", sprintf "%.2f" spotPrice
-          "strike", sprintf "%.2f" strikePrice
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
+          "spot", $"%.2f{spotPrice}"
+          "strike", $"%.2f{strikePrice}"
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
           "price", ""
           "confidence_interval", ""
           "qubits", ""
           "method", ""
           "speedup", ""
-          "error", sprintf "%A" err ]
+          "error", $"%A{err}" ]
         |> Map.ofList)
 
 // ============================================================================
@@ -278,31 +278,31 @@ match callPrice, putPrice with
 
     resultRows.Add(
         [ "example", "European Call (Put-Call)"
-          "spot", sprintf "%.2f" spotPrice
-          "strike", sprintf "%.2f" strikePrice
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
-          "price", sprintf "%.4f" call.Price
-          "confidence_interval", sprintf "%.4f" call.ConfidenceInterval
-          "qubits", sprintf "%d" call.QubitsUsed
+          "spot", $"%.2f{spotPrice}"
+          "strike", $"%.2f{strikePrice}"
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
+          "price", $"%.4f{call.Price}"
+          "confidence_interval", $"%.4f{call.ConfidenceInterval}"
+          "qubits", $"%d{call.QubitsUsed}"
           "method", call.Method
-          "speedup", sprintf "%.1f" call.Speedup
+          "speedup", $"%.1f{call.Speedup}"
           "error", "" ]
         |> Map.ofList)
 
     resultRows.Add(
         [ "example", "European Put (Put-Call)"
-          "spot", sprintf "%.2f" spotPrice
-          "strike", sprintf "%.2f" strikePrice
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
-          "price", sprintf "%.4f" put.Price
-          "confidence_interval", sprintf "%.4f" put.ConfidenceInterval
-          "qubits", sprintf "%d" put.QubitsUsed
+          "spot", $"%.2f{spotPrice}"
+          "strike", $"%.2f{strikePrice}"
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
+          "price", $"%.4f{put.Price}"
+          "confidence_interval", $"%.4f{put.ConfidenceInterval}"
+          "qubits", $"%d{put.QubitsUsed}"
           "method", put.Method
-          "speedup", sprintf "%.1f" put.Speedup
+          "speedup", $"%.1f{put.Speedup}"
           "error", "" ]
         |> Map.ofList)
 
@@ -341,35 +341,35 @@ for (strike, description) in strikes do
             printfn "    Price: $%.4f Â± $%.4f" price.Price price.ConfidenceInterval
 
         resultRows.Add(
-            [ "example", sprintf "Moneyness %s" description
-              "spot", sprintf "%.2f" spotPrice
-              "strike", sprintf "%.2f" strike
-              "rate", sprintf "%.4f" riskFreeRate
-              "volatility", sprintf "%.4f" volatility
-              "expiry", sprintf "%.1f" timeToExpiry
-              "price", sprintf "%.4f" price.Price
-              "confidence_interval", sprintf "%.4f" price.ConfidenceInterval
-              "qubits", sprintf "%d" price.QubitsUsed
+            [ "example", $"Moneyness %s{description}"
+              "spot", $"%.2f{spotPrice}"
+              "strike", $"%.2f{strike}"
+              "rate", $"%.4f{riskFreeRate}"
+              "volatility", $"%.4f{volatility}"
+              "expiry", $"%.1f{timeToExpiry}"
+              "price", $"%.4f{price.Price}"
+              "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+              "qubits", $"%d{price.QubitsUsed}"
               "method", price.Method
-              "speedup", sprintf "%.1f" price.Speedup
+              "speedup", $"%.1f{price.Speedup}"
               "error", "" ]
             |> Map.ofList)
     | Error err ->
         if not quiet then printfn "  Strike $%.2f: Error %A" strike err
 
         resultRows.Add(
-            [ "example", sprintf "Moneyness %s" description
-              "spot", sprintf "%.2f" spotPrice
-              "strike", sprintf "%.2f" strike
-              "rate", sprintf "%.4f" riskFreeRate
-              "volatility", sprintf "%.4f" volatility
-              "expiry", sprintf "%.1f" timeToExpiry
+            [ "example", $"Moneyness %s{description}"
+              "spot", $"%.2f{spotPrice}"
+              "strike", $"%.2f{strike}"
+              "rate", $"%.4f{riskFreeRate}"
+              "volatility", $"%.4f{volatility}"
+              "expiry", $"%.1f{timeToExpiry}"
               "price", ""
               "confidence_interval", ""
               "qubits", ""
               "method", ""
               "speedup", ""
-              "error", sprintf "%A" err ]
+              "error", $"%A{err}" ]
             |> Map.ofList)
 
 if not quiet then printfn ""
@@ -400,16 +400,16 @@ for vol in volatilities do
 
         resultRows.Add(
             [ "example", sprintf "Volatility %.0f%%" (vol * 100.0)
-              "spot", sprintf "%.2f" spotPrice
-              "strike", sprintf "%.2f" spotPrice
-              "rate", sprintf "%.4f" riskFreeRate
-              "volatility", sprintf "%.4f" vol
-              "expiry", sprintf "%.1f" timeToExpiry
-              "price", sprintf "%.4f" price.Price
-              "confidence_interval", sprintf "%.4f" price.ConfidenceInterval
-              "qubits", sprintf "%d" price.QubitsUsed
+              "spot", $"%.2f{spotPrice}"
+              "strike", $"%.2f{spotPrice}"
+              "rate", $"%.4f{riskFreeRate}"
+              "volatility", $"%.4f{vol}"
+              "expiry", $"%.1f{timeToExpiry}"
+              "price", $"%.4f{price.Price}"
+              "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+              "qubits", $"%d{price.QubitsUsed}"
               "method", price.Method
-              "speedup", sprintf "%.1f" price.Speedup
+              "speedup", $"%.1f{price.Speedup}"
               "error", "" ]
             |> Map.ofList)
     | Error err ->
@@ -449,15 +449,15 @@ match invalidResult with
         [ "example", "Validation (negative spot)"
           "spot", "-100.00"
           "strike", "105.00"
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
           "price", ""
           "confidence_interval", ""
           "qubits", ""
           "method", ""
           "speedup", ""
-          "error", sprintf "ValidationError(%s, %s)" param msg ]
+          "error", $"ValidationError(%s{param}, %s{msg})" ]
         |> Map.ofList)
 | _ ->
     if not quiet then printfn "  âœ— Should have rejected negative spot"
@@ -503,16 +503,16 @@ match asianResult with
 
     resultRows.Add(
         [ "example", "Asian Call"
-          "spot", sprintf "%.2f" spotPrice
-          "strike", sprintf "%.2f" strikePrice
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
-          "price", sprintf "%.4f" price.Price
-          "confidence_interval", sprintf "%.4f" price.ConfidenceInterval
-          "qubits", sprintf "%d" price.QubitsUsed
+          "spot", $"%.2f{spotPrice}"
+          "strike", $"%.2f{strikePrice}"
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
+          "price", $"%.4f{price.Price}"
+          "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+          "qubits", $"%d{price.QubitsUsed}"
           "method", price.Method
-          "speedup", sprintf "%.1f" price.Speedup
+          "speedup", $"%.1f{price.Speedup}"
           "error", "" ]
         |> Map.ofList)
 | Error err ->
@@ -520,17 +520,17 @@ match asianResult with
 
     resultRows.Add(
         [ "example", "Asian Call"
-          "spot", sprintf "%.2f" spotPrice
-          "strike", sprintf "%.2f" strikePrice
-          "rate", sprintf "%.4f" riskFreeRate
-          "volatility", sprintf "%.4f" volatility
-          "expiry", sprintf "%.1f" timeToExpiry
+          "spot", $"%.2f{spotPrice}"
+          "strike", $"%.2f{strikePrice}"
+          "rate", $"%.4f{riskFreeRate}"
+          "volatility", $"%.4f{volatility}"
+          "expiry", $"%.1f{timeToExpiry}"
           "price", ""
           "confidence_interval", ""
           "qubits", ""
           "method", ""
           "speedup", ""
-          "error", sprintf "%A" err ]
+          "error", $"%A{err}" ]
         |> Map.ofList)
 
 if not quiet then printfn ""

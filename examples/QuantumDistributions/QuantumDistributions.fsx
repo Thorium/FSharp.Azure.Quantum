@@ -102,21 +102,21 @@ let statsRow (label: string) (dist: string) (stats: SampleStatistics) : Map<stri
     Map.ofList
         [ "example",      label
           "distribution",  dist
-          "count",         sprintf "%d" stats.Count
-          "mean",          sprintf "%.4f" stats.Mean
-          "stddev",        sprintf "%.4f" stats.StdDev
-          "min",           sprintf "%.4f" stats.Min
-          "max",           sprintf "%.4f" stats.Max ]
+          "count",         $"%d{stats.Count}"
+          "mean",          $"%.4f{stats.Mean}"
+          "stddev",        $"%.4f{stats.StdDev}"
+          "min",           $"%.4f{stats.Min}"
+          "max",           $"%.4f{stats.Max}" ]
 
 let singleRow (label: string) (dist: string) (value: float) (qubits: int) : Map<string, string> =
     Map.ofList
         [ "example",      label
           "distribution",  dist
           "count",         "1"
-          "mean",          sprintf "%.4f" value
+          "mean",          $"%.4f{value}"
           "stddev",        ""
-          "min",           sprintf "%.4f" value
-          "max",           sprintf "%.4f" value ]
+          "min",           $"%.4f{value}"
+          "max",           $"%.4f{value}" ]
 
 // ==============================================================================
 // EXAMPLES
@@ -214,7 +214,7 @@ let runServer () =
                 cumulative <- cumulative + s.Value
                 printfn "    Request %2d: %.3fs (cumulative: %.2fs)" (i + 1) s.Value cumulative)
             printfn "  Mean interval: %.3fs (expected %.3fs)" stats.Mean (1.0 / lambda)
-        allResults.Add (statsRow "server" (sprintf "Exp(%.1f)" lambda) stats)
+        allResults.Add (statsRow "server" $"Exp(%.1f{lambda})" stats)
     | Error msg ->
         if not quiet then printfn "  Error: %s" msg
 
@@ -308,10 +308,10 @@ let runMonteCarlo () =
         allResults.Add (Map.ofList
             [ "example",      "montecarlo"
               "distribution",  "U(0,1) pairs"
-              "count",         sprintf "%d" total
-              "mean",          sprintf "%.6f" piEst
+              "count",         $"%d{total}"
+              "mean",          $"%.6f{piEst}"
               "stddev",        ""
-              "min",           sprintf "%.6f" err
+              "min",           $"%.6f{err}"
               "max",           "" ])
     | Error msg ->
         if not quiet then printfn "  Error: %s" msg

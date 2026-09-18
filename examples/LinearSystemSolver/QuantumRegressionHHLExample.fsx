@@ -117,18 +117,18 @@ if shouldRun 1 then
             Map.ofList [
                 "example", box "1_simple_regression"
                 "weights", box (result.Weights |> Array.map (fun w -> Math.Round(w, 4)))
-                "r_squared", box (sprintf "%.4f" result.RSquared)
-                "mse", box (sprintf "%.6f" result.MSE)
-                "success_probability", box (sprintf "%.4f" result.SuccessProbability)
-                "prediction_x5", box (sprintf "%.4f" yPred)
+                "r_squared", box $"%.4f{result.RSquared}"
+                "mse", box $"%.6f{result.MSE}"
+                "success_probability", box $"%.4f{result.SuccessProbability}"
+                "prediction_x5", box $"%.4f{yPred}"
                 "prediction_error", box (sprintf "%.4f" (abs (yPred - yTrue)))
             ]
         ]
         csvRows <- csvRows @ [
-            [ "1_simple"; sprintf "%.4f" result.RSquared; sprintf "%.6f" result.MSE
-              sprintf "%.4f" result.SuccessProbability
-              (result.Weights |> Array.map (fun w -> sprintf "%.4f" w) |> String.concat ";")
-              sprintf "%.4f" yPred; sprintf "%.4f" (abs (yPred - yTrue)) ]
+            [ "1_simple"; $"%.4f{result.RSquared}"; $"%.6f{result.MSE}"
+              $"%.4f{result.SuccessProbability}"
+              (result.Weights |> Array.map (fun w -> $"%.4f{w}") |> String.concat ";")
+              $"%.4f{yPred}"; sprintf "%.4f" (abs (yPred - yTrue)) ]
         ]
 
 // ── EXAMPLE 2: Multi-feature regression y = 3x1 + 2x2 + 1 ─────────
@@ -186,19 +186,19 @@ if shouldRun 2 then
             Map.ofList [
                 "example", box "2_multi_feature"
                 "weights", box (result.Weights |> Array.map (fun w -> Math.Round(w, 4)))
-                "r_squared", box (sprintf "%.4f" result.RSquared)
-                "mse", box (sprintf "%.6f" result.MSE)
-                "success_probability", box (sprintf "%.4f" result.SuccessProbability)
+                "r_squared", box $"%.4f{result.RSquared}"
+                "mse", box $"%.6f{result.MSE}"
+                "success_probability", box $"%.4f{result.SuccessProbability}"
                 "num_features", box result.NumFeatures
-                "prediction_x2_3", box (sprintf "%.4f" yPred)
+                "prediction_x2_3", box $"%.4f{yPred}"
                 "prediction_error", box (sprintf "%.4f" (abs (yPred - yTrue)))
             ]
         ]
         csvRows <- csvRows @ [
-            [ "2_multi"; sprintf "%.4f" result.RSquared; sprintf "%.6f" result.MSE
-              sprintf "%.4f" result.SuccessProbability
-              (result.Weights |> Array.map (fun w -> sprintf "%.4f" w) |> String.concat ";")
-              sprintf "%.4f" yPred; sprintf "%.4f" (abs (yPred - yTrue)) ]
+            [ "2_multi"; $"%.4f{result.RSquared}"; $"%.6f{result.MSE}"
+              $"%.4f{result.SuccessProbability}"
+              (result.Weights |> Array.map (fun w -> $"%.4f{w}") |> String.concat ";")
+              $"%.4f{yPred}"; sprintf "%.4f" (abs (yPred - yTrue)) ]
         ]
 
 // ── EXAMPLE 3: Batch prediction on test set ─────────────────────────
@@ -255,21 +255,21 @@ if shouldRun 3 then
         results <- results @ [
             Map.ofList [
                 "example", box "3_batch_prediction"
-                "r_squared", box (sprintf "%.4f" result.RSquared)
-                "mse", box (sprintf "%.6f" result.MSE)
+                "r_squared", box $"%.4f{result.RSquared}"
+                "mse", box $"%.6f{result.MSE}"
                 "test_points", box testX.Length
-                "avg_error", box (sprintf "%.4f" avgError)
-                "max_error", box (sprintf "%.4f" maxError)
+                "avg_error", box $"%.4f{avgError}"
+                "max_error", box $"%.4f{maxError}"
             ]
         ]
         for i in 0 .. testX.Length - 1 do
             let err = abs (preds.[i] - testY.[i])
             csvRows <- csvRows @ [
                 [ sprintf "3_batch_x%.0f" testX.[i].[0]
-                  sprintf "%.4f" result.RSquared; sprintf "%.6f" result.MSE
-                  sprintf "%.4f" result.SuccessProbability
-                  (result.Weights |> Array.map (fun w -> sprintf "%.4f" w) |> String.concat ";")
-                  sprintf "%.4f" preds.[i]; sprintf "%.4f" err ]
+                  $"%.4f{result.RSquared}"; $"%.6f{result.MSE}"
+                  $"%.4f{result.SuccessProbability}"
+                  (result.Weights |> Array.map (fun w -> $"%.4f{w}") |> String.concat ";")
+                  sprintf "%.4f" preds.[i]; $"%.4f{err}" ]
             ]
 
 // ── Output ───────────────────────────────────────────────────────────

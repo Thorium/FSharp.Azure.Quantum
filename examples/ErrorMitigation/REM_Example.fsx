@@ -322,14 +322,14 @@ match Async.RunSynchronously (measureCalibrationMatrix "ionq" 1 remConfig execut
 
             allResults.Add(
                 [ "example", "1_single_qubit"
-                  "readout_error", sprintf "%.4f" readoutError
+                  "readout_error", $"%.4f{readoutError}"
                   "calibration_shots", string calibrationShots
                   "circuit_shots", string circuitShots
-                  "uncorrected_error_counts", sprintf "%.0f" uncorrectedError
-                  "corrected_error_counts", sprintf "%.0f" correctedError
-                  "error_reduction_pct", sprintf "%.1f" errorReduction
-                  "goodness_of_fit", sprintf "%.4f" corrected.GoodnessOfFit
-                  "confidence_level", sprintf "%.2f" confidence ]
+                  "uncorrected_error_counts", $"%.0f{uncorrectedError}"
+                  "corrected_error_counts", $"%.0f{correctedError}"
+                  "error_reduction_pct", $"%.1f{errorReduction}"
+                  "goodness_of_fit", $"%.4f{corrected.GoodnessOfFit}"
+                  "confidence_level", $"%.2f{confidence}" ]
                 |> Map.ofList)
 
 if not quiet then
@@ -378,11 +378,11 @@ match Async.RunSynchronously (mitigate bellStateCircuit "ionq" remConfig twoQubi
 
     allResults.Add(
         [ "example", "2_bell_state"
-          "readout_error", sprintf "%.4f" readoutError
+          "readout_error", $"%.4f{readoutError}"
           "calibration_shots", string calibrationShots
           "circuit_shots", string circuitShots
-          "goodness_of_fit", sprintf "%.4f" corrected.GoodnessOfFit
-          "confidence_level", sprintf "%.2f" confidence
+          "goodness_of_fit", $"%.4f{corrected.GoodnessOfFit}"
+          "confidence_level", $"%.2f{confidence}"
           "uncorrected_error_counts", ""
           "corrected_error_counts", ""
           "error_reduction_pct", "" ]
@@ -437,11 +437,11 @@ if not quiet then
 
 allResults.Add(
     [ "example", "3_config_options"
-      "readout_error", sprintf "%.4f" readoutError
+      "readout_error", $"%.4f{readoutError}"
       "calibration_shots", string calibrationShots
       "circuit_shots", string circuitShots
       "goodness_of_fit", ""
-      "confidence_level", sprintf "%.2f" confidence
+      "confidence_level", $"%.2f{confidence}"
       "uncorrected_error_counts", ""
       "corrected_error_counts", ""
       "error_reduction_pct", "" ]
@@ -474,7 +474,7 @@ let getOrMeasureCalibration
     (exec: Circuit -> int -> Async<Result<Map<string, int>, string>>)
     : Async<Result<CalibrationMatrix, string>> =
     async {
-        let cacheKey = sprintf "%s-%d" backend qubits
+        let cacheKey = $"%s{backend}-%d{qubits}"
 
         match calibrationCache.TryGetValue cacheKey with
         | (true, cached) ->
@@ -548,11 +548,11 @@ if not quiet then
 
 allResults.Add(
     [ "example", "4_caching_pattern"
-      "readout_error", sprintf "%.4f" readoutError
+      "readout_error", $"%.4f{readoutError}"
       "calibration_shots", string calibrationShots
       "circuit_shots", string circuitShots
       "goodness_of_fit", ""
-      "confidence_level", sprintf "%.2f" confidence
+      "confidence_level", $"%.2f{confidence}"
       "uncorrected_error_counts", ""
       "corrected_error_counts", ""
       "error_reduction_pct", "" ]
@@ -586,18 +586,18 @@ let runCircuitWithREM
 
 
             match! getOrMeasureCalibration backend qubits config exec with
-            | Error err -> return Error (sprintf "Calibration failed: %s" err)
+            | Error err -> return Error $"Calibration failed: %s{err}"
             | Ok calibration ->
 
                 match! exec circ shots with
-                | Error err -> return Error (sprintf "Execution failed: %s" err)
+                | Error err -> return Error $"Execution failed: %s{err}"
                 | Ok measured ->
                     return
                         match correctReadoutErrors measured calibration config with
                         | Ok correctedResult -> Ok correctedResult.Histogram
-                        | Error err -> Error (sprintf "Correction failed: %s" err)
+                        | Error err -> Error $"Correction failed: %s{err}"
         with
-        | ex -> return Error (sprintf "REM pipeline error: %s" ex.Message)
+        | ex -> return Error $"REM pipeline error: %s{ex.Message}"
     }
 
 if not quiet then
@@ -622,11 +622,11 @@ match Async.RunSynchronously (runCircuitWithREM bellStateCircuit "ionq" circuitS
 
     allResults.Add(
         [ "example", "5_production_api"
-          "readout_error", sprintf "%.4f" readoutError
+          "readout_error", $"%.4f{readoutError}"
           "calibration_shots", string calibrationShots
           "circuit_shots", string circuitShots
           "goodness_of_fit", ""
-          "confidence_level", sprintf "%.2f" confidence
+          "confidence_level", $"%.2f{confidence}"
           "uncorrected_error_counts", ""
           "corrected_error_counts", ""
           "error_reduction_pct", "" ]

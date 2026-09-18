@@ -69,6 +69,7 @@ module PredictiveModel =
     // ========================================================================
     
     /// Problem type for prediction
+    [<Struct>]
     type ProblemType =
         /// Predict continuous values (revenue, demand, LTV)
         | Regression
@@ -157,7 +158,7 @@ module PredictiveModel =
         ProgressReporter: Core.Progress.IProgressReporter option
         
         /// Optional cancellation token for early termination
-        CancellationToken: System.Threading.CancellationToken option
+        CancellationToken: CancellationToken option
     }
     
     /// Trained predictive model
@@ -1170,7 +1171,7 @@ module PredictiveModel =
         /// <summary>Set a cancellation token for early termination of training.</summary>
         /// <param name="token">Cancellation token</param>
         [<CustomOperation("cancellationToken")>]
-        member _.CancellationToken(problem: PredictionProblem, token: System.Threading.CancellationToken) =
+        member _.CancellationToken(problem: PredictionProblem, token: CancellationToken) =
             { problem with CancellationToken = Some token }
     
     /// Create predictive model computation expression

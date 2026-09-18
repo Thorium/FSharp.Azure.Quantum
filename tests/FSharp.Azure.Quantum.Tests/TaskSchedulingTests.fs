@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading.Tasks
 
 module TaskSchedulingTests =
     
@@ -68,7 +69,7 @@ module TaskSchedulingTests =
 
             | Error msg ->
                 Assert.Fail($"Scheduling failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // TEST 2: Parallel Tasks - No Dependencies
@@ -111,7 +112,7 @@ module TaskSchedulingTests =
 
             | Error msg ->
                 Assert.Fail($"Scheduling failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // TEST 3: Time Unit Helpers
@@ -155,7 +156,7 @@ module TaskSchedulingTests =
 
             // Assert - Should return error
             result |> Result.map (fun _ -> Assert.Fail("Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("X", msg.Message))
-        } :> System.Threading.Tasks.Task  // Error should mention invalid dependency "X"
+        } :> Task  // Error should mention invalid dependency "X"
     
     // ============================================================================
     // TEST 5: Validation - Duplicate Task IDs
@@ -186,7 +187,7 @@ module TaskSchedulingTests =
 
             // Assert - Should return error
             result |> Result.map (fun _ -> Assert.Fail("Should have failed validation")) |> Result.defaultWith (fun msg -> Assert.Contains("Duplicate", msg.Message))
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // TEST 6: Resource Helper - crew
@@ -247,7 +248,7 @@ module TaskSchedulingTests =
 
             | Error msg ->
                 Assert.Fail($"Scheduling failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // TEST 8: Resource-Constrained Scheduling (Quantum Backend Required)
@@ -298,7 +299,7 @@ module TaskSchedulingTests =
 
                 // Verify makespan is reasonable (not infinite)
                 Assert.True(solution.Makespan.TotalMinutes > 0.0 && solution.Makespan.TotalMinutes < 100000.0)
-        } :> System.Threading.Tasks.Task
+        } :> Task
             
             // TODO: Add parameter optimization to improve solution quality
             // For now, just verify quantum solver can execute
@@ -339,7 +340,7 @@ module TaskSchedulingTests =
 
             | Error msg ->
                 Assert.Fail($"Scheduling failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     [<Fact>]
     let ``Task meeting deadline should not report violation`` () =
@@ -373,7 +374,7 @@ module TaskSchedulingTests =
 
             | Error msg ->
                 Assert.Fail($"Scheduling failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
     
     // ============================================================================
     // TEST 10: Powerplant Startup - $25k/hour ROI Validation
@@ -512,7 +513,7 @@ module TaskSchedulingTests =
 
             | Error msg ->
                 Assert.Fail($"Scheduling failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
 
 
@@ -549,4 +550,4 @@ module TaskSchedulingTests =
                     $"B (start %.1f{b.StartTime.TotalMinutes}) must start after A finishes (end %.1f{a.EndTime.TotalMinutes})")
             | Error msg ->
                 Assert.Fail($"solveQuantum should find a precedence-feasible schedule: %A{msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task

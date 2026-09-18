@@ -119,7 +119,7 @@ let resultRow
     [ "example", example
       "vertices", string vertices.Length
       "edges", string edgeCount
-      "cut_value", sprintf "%.1f" solution.CutValue
+      "cut_value", $"%.1f{solution.CutValue}"
       "cut_edges", string solution.CutEdges.Length
       "partition_s", (solution.PartitionS |> String.concat ";")
       "partition_t", (solution.PartitionT |> String.concat ";")

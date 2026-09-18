@@ -18,7 +18,7 @@ type MockTokenCredential(tokenValue: string, expiresOn: DateTimeOffset) =
         AccessToken(tokenValue, expiresOn)
 
     override this.GetTokenAsync(requestContext: TokenRequestContext, cancellationToken: CancellationToken) =
-        System.Threading.Tasks.ValueTask<AccessToken>(AccessToken(tokenValue, expiresOn))
+        ValueTask<AccessToken>(AccessToken(tokenValue, expiresOn))
 
 [<Fact>]
 let ``TokenManager should acquire token on first request`` () =
@@ -46,7 +46,7 @@ let ``TokenManager should cache token on subsequent requests`` () =
 
                 member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                     callCount <- callCount + 1
-                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
+                    ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
 
         use tokenManager = TokenManager(trackingCredential)
 
@@ -58,7 +58,7 @@ let ``TokenManager should cache token on subsequent requests`` () =
         let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(1, callCount) // Should not increment
         Assert.Equal(token1, token2)
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 [<Fact>]
 let ``TokenManager should refresh expired token`` () =
@@ -74,7 +74,7 @@ let ``TokenManager should refresh expired token`` () =
 
                 member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                     callCount <- callCount + 1
-                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry)) }
+                    ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry)) }
 
         use tokenManager = TokenManager(trackingCredential)
 
@@ -93,7 +93,7 @@ let ``TokenManager should refresh expired token`` () =
         let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(2, callCount)
         Assert.Equal("token-2", token2)
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 [<Fact>]
 let ``TokenManager ClearCache should force token refresh`` () =
@@ -109,7 +109,7 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
                 member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                     callCount <- callCount + 1
-                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
+                    ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
 
         use tokenManager = TokenManager(trackingCredential)
 
@@ -120,7 +120,7 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
         let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(2, callCount)
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 // ============================================================================
 // Credential Provider Tests
@@ -179,7 +179,7 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
             Assert.Equal("test-bearer-token", capturedReq.Headers.Authorization.Parameter)
         | None ->
             Assert.Fail("No request was captured")
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 [<Fact>]
 let ``AuthenticationHandler skips Authorization for requests marked no-auth`` () =
@@ -205,7 +205,7 @@ let ``AuthenticationHandler skips Authorization for requests marked no-auth`` ()
             Assert.Null(capturedReq.Headers.Authorization)
         | None ->
             Assert.Fail("No request was captured")
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 // ============================================================================
 // Error Handling Tests
@@ -227,11 +227,11 @@ let ``TokenManager should propagate credential errors`` () =
         let tokenManager = TokenManager(failingCredential)
 
         let! ex = Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-             tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+             tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task
          )
 
         Assert.Contains("Invalid credentials", ex.Message)
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 [<Fact>]
 let ``TokenManager should handle network timeout gracefully`` () =
@@ -248,10 +248,10 @@ let ``TokenManager should handle network timeout gracefully`` () =
         let tokenManager = TokenManager(timeoutCredential)
 
         let! _ = Assert.ThrowsAsync<TimeoutException>(fun () ->
-                     tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+                     tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task
                  )
         ()
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 [<Fact>]
 let ``AuthenticationHandler should fail gracefully when token acquisition fails`` () =
@@ -267,13 +267,13 @@ let ``AuthenticationHandler should fail gracefully when token acquisition fails`
 
         // Async task failures should throw AuthenticationFailedException
         let! ex = 
-            Assert.ThrowsAsync<Azure.Identity.AuthenticationFailedException>(fun () ->
+            Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
                 client.SendAsync request :> Task
             )
 
         // Verify exception message
         Assert.Contains("Token acquisition failed", ex.Message)
-    } :> System.Threading.Tasks.Task
+    } :> Task
 
 [<Fact>]
 let ``TokenManager should recover after clearing cache from failed state`` () =
@@ -293,14 +293,14 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
                     if shouldFail then
                         raise (AuthenticationFailedException("First attempt fails"))
                     else
-                        System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("recovered-token", expiresOn))
+                        ValueTask<AccessToken>(AccessToken("recovered-token", expiresOn))
             }
 
         let tokenManager = TokenManager(recoveringCredential)
 
         // First attempt should fail
         let! _ = Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-            tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> System.Threading.Tasks.Task
+            tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task
         )
 
         // Recover and clear cache
@@ -310,5 +310,5 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
         // Second attempt should succeed
         let! token = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal("recovered-token", token)
-    } :> System.Threading.Tasks.Task
+    } :> Task
 

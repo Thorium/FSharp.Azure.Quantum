@@ -164,7 +164,7 @@ let runFactorization (scenario: string) (n: int) (prec: int) (maxAtt: int) =
                     printfn ""
 
                 addResult scenario n "factored"
-                    (sprintf "%d x %d" p q)
+                    $"%d{p} x %d{q}"
                     result.Base result.Period result.QubitsUsed result.Attempts ""
 
             | None ->

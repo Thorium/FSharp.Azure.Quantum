@@ -318,7 +318,7 @@ module RegimeAwareOptimizer =
             let sharpe =
                 if solution.Result.Risk > 0.0 then solution.Result.ExpectedReturn / solution.Result.Risk
                 else 0.0
-            let methodStr = sprintf "%A" solution.Method
+            let methodStr = $"%A{solution.Method}"
             Ok (solution.Result.Allocations, solution.Result.TotalValue, solution.Result.ExpectedReturn, solution.Result.Risk, sharpe, methodStr)
         | Error e -> Error e.Message
 
@@ -371,8 +371,8 @@ let sortedResults =
               SharpeRatio = sharpe
               ExpectedReturn = assetReturn
               Risk = assetRisk
-              DetectedRegime = sprintf "%A" detectedRegime
-              TrueRegime = sprintf "%A" trueRegime
+              DetectedRegime = $"%A{detectedRegime}"
+              TrueRegime = $"%A{trueRegime}"
               RegimeAccurate = regimeAccurate
               Strategy = strategy
               PortfolioReturn = pReturn
@@ -387,8 +387,8 @@ let sortedResults =
         selectedStocks |> List.map (fun stock ->
             { Stock = stock; Shares = 0.0; Value = 0.0; PctOfPortfolio = 0.0
               SharpeRatio = 0.0; ExpectedReturn = 0.0; Risk = 0.0
-              DetectedRegime = sprintf "%A" detectedRegime
-              TrueRegime = sprintf "%A" trueRegime
+              DetectedRegime = $"%A{detectedRegime}"
+              TrueRegime = $"%A{trueRegime}"
               RegimeAccurate = regimeAccurate
               Strategy = strategy
               PortfolioReturn = 0.0; PortfolioRisk = 0.0; PortfolioSharpe = 0.0
@@ -441,25 +441,25 @@ let resultMaps : Map<string, string> list =
     |> List.map (fun r ->
         [ "symbol",                      r.Stock.Symbol
           "name",                        r.Stock.Name
-          "price",                       sprintf "%.2f" r.Stock.Price
-          "expected_return",             sprintf "%.6f" r.ExpectedReturn
-          "risk",                        sprintf "%.6f" r.Risk
-          "sharpe_ratio",                sprintf "%.4f" r.SharpeRatio
-          "shares",                      sprintf "%.4f" r.Shares
-          "value",                       sprintf "%.2f" r.Value
-          "pct_of_portfolio",            sprintf "%.2f" r.PctOfPortfolio
+          "price",                       $"%.2f{r.Stock.Price}"
+          "expected_return",             $"%.6f{r.ExpectedReturn}"
+          "risk",                        $"%.6f{r.Risk}"
+          "sharpe_ratio",                $"%.4f{r.SharpeRatio}"
+          "shares",                      $"%.4f{r.Shares}"
+          "value",                       $"%.2f{r.Value}"
+          "pct_of_portfolio",            $"%.2f{r.PctOfPortfolio}"
           "detected_regime",             r.DetectedRegime
           "true_regime",                 r.TrueRegime
-          "regime_accurate",             sprintf "%b" r.RegimeAccurate
+          "regime_accurate",             $"%b{r.RegimeAccurate}"
           "strategy",                    r.Strategy
-          "portfolio_return",            sprintf "%.6f" r.PortfolioReturn
-          "portfolio_risk",              sprintf "%.6f" r.PortfolioRisk
-          "portfolio_sharpe",            sprintf "%.4f" r.PortfolioSharpe
+          "portfolio_return",            $"%.6f{r.PortfolioReturn}"
+          "portfolio_risk",              $"%.6f{r.PortfolioRisk}"
+          "portfolio_sharpe",            $"%.4f{r.PortfolioSharpe}"
           "solver_method",               r.SolverMethod
-          "budget",                      sprintf "%.2f" budget
-          "days",                        sprintf "%d" days
-          "seed",                        sprintf "%d" seed
-          "has_optimization_failure",    sprintf "%b" r.HasOptimizationFailure ]
+          "budget",                      $"%.2f{budget}"
+          "days",                        $"%d{days}"
+          "seed",                        $"%d{seed}"
+          "has_optimization_failure",    $"%b{r.HasOptimizationFailure}" ]
         |> Map.ofList)
 
 match outputPath with

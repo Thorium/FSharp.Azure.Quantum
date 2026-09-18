@@ -157,7 +157,7 @@ module IntegrationTests =
                 Assert.Fail($"Sync version failed: {msg}")
             | _, Error msg -> 
                 Assert.Fail($"Async version failed: {msg}")
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     [<Fact>]
     let ``QuantumPortfolioSolver - solveAsync allows concurrent execution`` () =
@@ -200,7 +200,7 @@ module IntegrationTests =
                 | Error msg -> 
                     Assert.Fail($"Parallel execution failed: {msg}")
             )
-        } :> System.Threading.Tasks.Task
+        } :> Task
 
     // ===========================================
     // Test Scenario 5: HybridSolver Small Problem

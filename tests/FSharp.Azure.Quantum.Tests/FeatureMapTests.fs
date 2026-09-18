@@ -4,6 +4,7 @@ open System
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.CircuitBuilder
+open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.MachineLearning.FeatureMap
 
@@ -205,12 +206,12 @@ module FeatureMapTests =
         Assert.Equal(2, circuit.QubitCount)
 
     let private simulateCircuit (circuit: Circuit) =
-        let initial = FSharp.Azure.Quantum.LocalSimulator.StateVector.init circuit.QubitCount
+        let initial = StateVector.init circuit.QubitCount
         getGates circuit
         |> List.fold (fun s g ->
             match g with
-            | RY (q, a) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy q a s
-            | CNOT (c, t) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT c t s
+            | RY (q, a) -> Gates.applyRy q a s
+            | CNOT (c, t) -> Gates.applyCNOT c t s
             | g -> failwith $"Unexpected gate in amplitude encoding: {g}") initial
 
     /// Regression: the Gray-code multiplexer used to skip structural CNOTs for
@@ -231,7 +232,7 @@ module FeatureMapTests =
         let state = simulateCircuit circuit
 
         for i in 0 .. expected.Length - 1 do
-            let amp = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude i state
+            let amp = StateVector.getAmplitude i state
             Assert.Equal(expected.[i], amp.Real, 8)
             Assert.Equal(0.0, amp.Imaginary, 8)
 
@@ -246,7 +247,7 @@ module FeatureMapTests =
         let state = simulateCircuit circuit
 
         for i in 0 .. expected.Length - 1 do
-            let amp = FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude i state
+            let amp = StateVector.getAmplitude i state
             Assert.Equal(expected.[i], amp.Real, 8)
 
     // ========================================================================

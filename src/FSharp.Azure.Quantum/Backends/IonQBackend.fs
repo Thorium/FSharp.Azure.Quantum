@@ -68,7 +68,7 @@ module IonQBackend =
     /// - SingleQubitRotation("rx", 2, 1.57) → {"gate": "rx", "target": 2, "rotation": 1.57}
     /// - Measure([|0;1;2|]) → {"gate": "measure", "target": [0, 1, 2]}
     let serializeGate (gate: IonQGate) : string =
-        use stream = new System.IO.MemoryStream()
+        use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream)
         
         writer.WriteStartObject()
@@ -187,7 +187,7 @@ module IonQBackend =
         {
             JobId = jobId
             Target = target
-            Name = Some ($"IonQ-%s{target}")
+            Name = Some $"IonQ-%s{target}"
             InputData = circuitJson :> obj
             InputDataFormat = CircuitFormat.IonQ_V1
             InputParams = Map [ ("shots", shots :> obj) ]
@@ -385,13 +385,14 @@ module IonQBackend =
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 // Step 5: Parse histogram from OutputData
-                                match jobResult.OutputData with
-                                | :? string as resultJson ->
-                                    match parseIonQResult circuit.Qubits shots resultJson with
-                                    | Ok histogram -> return Ok histogram
-                                    | Error msg -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
-                                | other ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
+                                return
+                                    match jobResult.OutputData with
+                                    | :? string as resultJson ->
+                                        match parseIonQResult circuit.Qubits shots resultJson with
+                                        | Ok histogram -> Ok histogram
+                                        | Error msg -> Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
+                                    | other ->
+                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                     
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         // Map IonQ error to QuantumError

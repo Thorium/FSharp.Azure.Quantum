@@ -77,7 +77,7 @@ let quantumBackend = LocalBackend() :> IQuantumBackend
 // Problem definition (high-level CE for display)
 // ---------------------------------------------------------------------------
 
-let colorNames = [ for i in 0 .. numColors - 1 -> sprintf "Color%d" i ]
+let colorNames = [ for i in 0 .. numColors - 1 -> $"Color%d{i}" ]
 
 let coloringProblem = graphColoring {
     node "A" ["B"; "C"]
@@ -162,13 +162,13 @@ match Quantum.QuantumGraphColoringSolver.toQubo quantumProblem penaltyWeight wit
         let coefficients =
             quboMatrix.Q
             |> Map.toList
-            |> List.map (fun ((i, j), v) -> sprintf "(%d,%d)=%.4f" i j v)
+            |> List.map (fun ((i, j), v) -> $"(%d{i},%d{j})=%.4f{v}")
             |> String.concat ";"
         let variables =
             variableMap
             |> Map.toList
             |> List.sortBy fst
-            |> List.map (fun (idx, (vertex, color)) -> sprintf "x%d=%s:%d" idx vertex color)
+            |> List.map (fun (idx, (vertex, color)) -> $"x%d{idx}=%s{vertex}:%d{color}")
             |> String.concat ";"
         let payload =
             {| numVariables = quboMatrix.NumVariables
@@ -188,7 +188,7 @@ match Quantum.QuantumGraphColoringSolver.toQubo quantumProblem penaltyWeight wit
             |> Map.toList
             |> List.sortBy fst
             |> List.map (fun ((i, j), v) ->
-                [ string i; string j; sprintf "%.4f" v; if i = j then "linear" else "quadratic" ])
+                [ string i; string j; $"%.4f{v}"; if i = j then "linear" else "quadratic" ])
         Reporting.writeCsv path header rows
         pr "CSV written to %s" path)
 

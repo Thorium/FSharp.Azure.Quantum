@@ -88,7 +88,7 @@ module Cli =
             for opt in options do
                 let defaultStr =
                     match opt.Default with
-                    | Some d -> sprintf " (default: %s)" d
+                    | Some d -> $" (default: %s{d})"
                     | None -> ""
                 printfn "    --%-20s %s%s" opt.Name opt.Description defaultStr
             printfn "    --%-20s %s" "help" "Show this help message"

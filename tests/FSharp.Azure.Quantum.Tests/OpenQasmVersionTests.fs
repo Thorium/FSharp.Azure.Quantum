@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.OpenQasmVersion
+open System
 
 /// OpenQASM versioned support tests.
 /// Covers QasmVersion, QasmConfig, version detection, V3.0 export/import,
@@ -582,7 +583,7 @@ rx(pi) q[0];
         | Ok circuit ->
             Assert.Equal(1, circuit.Gates.Length)
             match (getGates circuit).[0] with
-            | RX (0, angle) -> Assert.True(abs (angle - System.Math.PI) < 1e-10)
+            | RX (0, angle) -> Assert.True(abs (angle - Math.PI) < 1e-10)
             | _ -> failwith $"Expected RX, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -597,7 +598,7 @@ ry(pi/2) q[0];
         match result with
         | Ok circuit ->
             match (getGates circuit).[0] with
-            | RY (0, angle) -> Assert.True(abs (angle - System.Math.PI / 2.0) < 1e-10)
+            | RY (0, angle) -> Assert.True(abs (angle - Math.PI / 2.0) < 1e-10)
             | _ -> failwith $"Expected RY, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -612,7 +613,7 @@ rz(pi/4) q[0];
         match result with
         | Ok circuit ->
             match (getGates circuit).[0] with
-            | RZ (0, angle) -> Assert.True(abs (angle - System.Math.PI / 4.0) < 1e-10)
+            | RZ (0, angle) -> Assert.True(abs (angle - Math.PI / 4.0) < 1e-10)
             | _ -> failwith $"Expected RZ, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -627,7 +628,7 @@ rx(2*pi) q[0];
         match result with
         | Ok circuit ->
             match (getGates circuit).[0] with
-            | RX (0, angle) -> Assert.True(abs (angle - 2.0 * System.Math.PI) < 1e-10)
+            | RX (0, angle) -> Assert.True(abs (angle - 2.0 * Math.PI) < 1e-10)
             | _ -> failwith $"Expected RX, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -642,7 +643,7 @@ rz(-pi/4) q[0];
         match result with
         | Ok circuit ->
             match (getGates circuit).[0] with
-            | RZ (0, angle) -> Assert.True(abs (angle - (-System.Math.PI / 4.0)) < 1e-10)
+            | RZ (0, angle) -> Assert.True(abs (angle - (-Math.PI / 4.0)) < 1e-10)
             | _ -> failwith $"Expected RZ, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -657,7 +658,7 @@ rz(3*pi/4) q[0];
         match result with
         | Ok circuit ->
             match (getGates circuit).[0] with
-            | RZ (0, angle) -> Assert.True(abs (angle - 3.0 * System.Math.PI / 4.0) < 1e-10)
+            | RZ (0, angle) -> Assert.True(abs (angle - 3.0 * Math.PI / 4.0) < 1e-10)
             | _ -> failwith $"Expected RZ, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -673,9 +674,9 @@ u3(pi/2,0,pi) q[0];
         | Ok circuit ->
             match (getGates circuit).[0] with
             | U3 (0, theta, phi, lambda) ->
-                Assert.True(abs (theta - System.Math.PI / 2.0) < 1e-10)
+                Assert.True(abs (theta - Math.PI / 2.0) < 1e-10)
                 Assert.True(abs phi < 1e-10)
-                Assert.True(abs (lambda - System.Math.PI) < 1e-10)
+                Assert.True(abs (lambda - Math.PI) < 1e-10)
             | _ -> failwith $"Expected U3, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
@@ -690,7 +691,7 @@ cp(pi/4) q[0],q[1];
         match result with
         | Ok circuit ->
             match (getGates circuit).[0] with
-            | CP (0, 1, angle) -> Assert.True(abs (angle - System.Math.PI / 4.0) < 1e-10)
+            | CP (0, 1, angle) -> Assert.True(abs (angle - Math.PI / 4.0) < 1e-10)
             | _ -> failwith $"Expected CP, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 

@@ -173,7 +173,7 @@ for (backendKey, backend) in backendsToTest do
                         let strength = if abs correlation > 0.9 then "STRONG" elif abs correlation > 0.5 then "moderate" else "weak"
                         printfn "     Entanglement: correlation = %.4f [%s]" correlation strength
 
-                    sprintf "%.4f" correlation
+                    $"%.4f{correlation}"
                 | Error _ ->
                     if not quiet then
                         printfn "     Entanglement: verification unavailable"
@@ -202,7 +202,7 @@ for (backendKey, backend) in backendsToTest do
                 [ "backend", backendKey
                   "state_key", spec.Key
                   "state_label", spec.Label
-                  "error", sprintf "%A" err
+                  "error", $"%A{err}"
                   "success", "false" ]
                 |> Map.ofList)
 
@@ -245,7 +245,7 @@ match csvPath with
 | Some path ->
     let allKeys =
         resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.collect (Map.toList >> List.map fst)
         |> List.distinct
     let rows =
         resultsList

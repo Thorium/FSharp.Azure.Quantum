@@ -424,9 +424,9 @@ let resultMaps =
     ranked
     |> List.map (fun r ->
         let totalValue =
-            match solutionStats with Some s -> sprintf "%.2f" s.TotalValue | None -> "FAILED"
+            match solutionStats with Some s -> $"%.2f{s.TotalValue}" | None -> "FAILED"
         let diversityBonus =
-            match solutionStats with Some s -> sprintf "%.2f" s.DiversityBonus | None -> "FAILED"
+            match solutionStats with Some s -> $"%.2f{s.DiversityBonus}" | None -> "FAILED"
         let combinedScore =
             match solutionStats with Some s -> sprintf "%.2f" (s.TotalValue + s.DiversityBonus) | None -> "FAILED"
         let isFeasible =
@@ -437,17 +437,17 @@ let resultMaps =
         [ "rank", string r.Rank
           "id", r.Compound.Id
           "chemical_class", r.Compound.ChemicalClass
-          "activity_score", sprintf "%.1f" r.Compound.ActivityScore
-          "follow_up_cost", sprintf "%.0f" r.Compound.FollowUpCost
-          "selectivity", sprintf "%.2f" r.Compound.Selectivity
-          "drug_likeness", sprintf "%.2f" r.Compound.DrugLikeness
-          "value", sprintf "%.2f" r.Value
+          "activity_score", $"%.1f{r.Compound.ActivityScore}"
+          "follow_up_cost", $"%.0f{r.Compound.FollowUpCost}"
+          "selectivity", $"%.2f{r.Compound.Selectivity}"
+          "drug_likeness", $"%.2f{r.Compound.DrugLikeness}"
+          "value", $"%.2f{r.Value}"
           "selected", string r.Selected
           "total_value", totalValue
           "diversity_bonus", diversityBonus
           "combined_score", combinedScore
           "is_feasible", isFeasible
-          "budget", sprintf "%.0f" budget
+          "budget", $"%.0f{budget}"
           "budget_utilization_pct",
             (match solutionStats with
              | Some _ when r.Selected ->
@@ -456,7 +456,7 @@ let resultMaps =
              | _ -> "")
           "backend", backendName
           "shots", string shots
-          "compute_time_s", sprintf "%.1f" elapsed
+          "compute_time_s", $"%.1f{elapsed}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

@@ -202,7 +202,7 @@ let mutable anyVqeFailure = false
 
 /// Create H2 at varying separation — simplest Mott model
 let createH2MottModel (separation_A: float) : Molecule =
-    { Name = sprintf "H2_R=%.2fA" separation_A
+    { Name = $"H2_R=%.2f{separation_A}A"
       Atoms = [
           { Element = "H"; Position = (0.0, 0.0, 0.0) }
           { Element = "H"; Position = (separation_A, 0.0, 0.0) } ]
@@ -220,9 +220,9 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
             printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
         Map.ofList [
             "molecule", molecule.Name; "label", label
-            "energy_hartree", sprintf "%.6f" energy
-            "iterations", sprintf "%d" iterations
-            "time_seconds", sprintf "%.2f" time
+            "energy_hartree", $"%.6f{energy}"
+            "iterations", $"%d{iterations}"
+            "time_seconds", $"%.2f{time}"
             "has_vqe_failure", "false" ]
     | Error msg ->
         anyVqeFailure <- true
@@ -243,9 +243,9 @@ let vqeResults =
     separations
     |> List.map (fun (sep, regime) ->
         let model = createH2MottModel sep
-        let label = sprintf "H2 R=%.2f A (%s)" sep regime
+        let label = $"H2 R=%.2f{sep} A (%s{regime})"
         let result = runVqe label regime model
-        result |> Map.add "separation_A" (sprintf "%.2f" sep) |> Map.add "regime" regime)
+        result |> Map.add "separation_A" $"%.2f{sep}" |> Map.add "regime" regime)
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
@@ -307,18 +307,18 @@ let materialRows =
         Map.ofList [
             "material", mat.Name
             "short_name", mat.ShortName
-            "dielectric_constant", sprintf "%.1f" mat.DielectricConstant
-            "effective_mass", sprintf "%.2f" mat.EffectiveMass
-            "effective_bohr_A", sprintf "%.1f" a_H
-            "critical_density_per_cm3", sprintf "%.2e" mat.CriticalDensity
-            "hubbard_U_eV", sprintf "%.2f" U
-            "bandwidth_W_eV", sprintf "%.2f" W
-            "U_over_W", sprintf "%.2f" ratio
+            "dielectric_constant", $"%.1f{mat.DielectricConstant}"
+            "effective_mass", $"%.2f{mat.EffectiveMass}"
+            "effective_bohr_A", $"%.1f{a_H}"
+            "critical_density_per_cm3", $"%.2e{mat.CriticalDensity}"
+            "hubbard_U_eV", $"%.2f{U}"
+            "bandwidth_W_eV", $"%.2f{W}"
+            "U_over_W", $"%.2f{ratio}"
             "predicted_phase", phase
-            "hopping_t_eV", sprintf "%.2f" t_estimate
+            "hopping_t_eV", $"%.2f{t_estimate}"
             "transition_type", mat.TransitionType
-            "transition_temp_K", (match mat.TransitionTemp with Some t -> sprintf "%.0f" t | None -> "N/A")
-            "has_vqe_failure", sprintf "%b" anyVqeFailure ])
+            "transition_temp_K", (match mat.TransitionTemp with Some t -> $"%.0f{t}" | None -> "N/A")
+            "has_vqe_failure", $"%b{anyVqeFailure}" ])
 
 let allResultRows = materialRows @ vqeResults
 

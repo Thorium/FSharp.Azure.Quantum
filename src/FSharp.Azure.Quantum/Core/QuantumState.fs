@@ -444,7 +444,7 @@ module QuantumState =
             // Sample from D-Wave annealing solutions using reflection
             let solutionsSeq = objToSeq solutions
             let n = numQubits state
-            let rng = System.Random()
+            let rng = Random()
             
             let spinToBit = function 
                 | -1 -> 0 
@@ -584,7 +584,7 @@ module QuantumState =
 
         | QuantumState.MeasurementHistogram (histogram, _) ->
             // Empirical probability from sampled counts (classical, like IsingSamples)
-            let key = System.String(bitstring |> Array.map (fun b -> if b = 1 then '1' else '0'))
+            let key = String(bitstring |> Array.map (fun b -> if b = 1 then '1' else '0'))
             let total = histogram |> Map.fold (fun acc _ count -> acc + max 0 count) 0
             if total = 0 then 0.0
             else

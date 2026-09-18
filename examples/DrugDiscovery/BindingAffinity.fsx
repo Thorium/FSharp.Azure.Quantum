@@ -390,7 +390,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
+        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Build a complex molecule from ligand + protein fragments.
 let private buildComplex (system: BindingSystem) : Molecule =
@@ -400,7 +400,7 @@ let private buildComplex (system: BindingSystem) : Molecule =
             { b with
                 Atom1 = b.Atom1 + system.Ligand.Atoms.Length
                 Atom2 = b.Atom2 + system.Ligand.Atoms.Length })
-    { Name = sprintf "%s complex" system.Name
+    { Name = $"%s{system.Name} complex"
       Atoms = system.Ligand.Atoms @ system.ProteinFragment.Atoms
       Bonds = system.Ligand.Bonds @ offsetBonds
       Charge = 0
@@ -421,10 +421,10 @@ let private estimateKd (dEKcal: float) (tempK: float) : float * string =
     if dEKcal < 0.0 then
         let kd = exp(dEKcal / rt)  // dimensionless ratio; interpret as molar
         let kdStr =
-            if kd < 1e-9 then sprintf "%.2e M (picomolar)" kd
-            elif kd < 1e-6 then sprintf "%.2e M (nanomolar)" kd
-            elif kd < 1e-3 then sprintf "%.2e M (micromolar)" kd
-            else sprintf "%.2e M (millimolar)" kd
+            if kd < 1e-9 then $"%.2e{kd} M (picomolar)"
+            elif kd < 1e-6 then $"%.2e{kd} M (nanomolar)"
+            elif kd < 1e-3 then $"%.2e{kd} M (micromolar)"
+            else $"%.2e{kd} M (millimolar)"
         (kd, kdStr)
     else
         (infinity, "N/A (unfavorable)")
@@ -578,16 +578,16 @@ let resultMaps =
           "system", r.System.Name
           "interaction_type", r.System.InteractionType
           "description", r.System.Description
-          "binding_energy_hartree", sprintf "%.6f" r.BindingEnergyHartree
-          "binding_energy_kcal_mol", sprintf "%.2f" r.BindingEnergyKcal
-          "binding_energy_kj_mol", sprintf "%.2f" r.BindingEnergyKJ
+          "binding_energy_hartree", $"%.6f{r.BindingEnergyHartree}"
+          "binding_energy_kcal_mol", $"%.2f{r.BindingEnergyKcal}"
+          "binding_energy_kj_mol", $"%.2f{r.BindingEnergyKJ}"
           "estimated_kd", r.KdStr
           "interpretation", r.Interpretation
-          "ligand_energy_ha", sprintf "%.6f" r.LigandEnergy
-          "protein_energy_ha", sprintf "%.6f" r.ProteinEnergy
-          "complex_energy_ha", sprintf "%.6f" r.ComplexEnergy
-          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
-          "temperature_k", sprintf "%.1f" temperature
+          "ligand_energy_ha", $"%.6f{r.LigandEnergy}"
+          "protein_energy_ha", $"%.6f{r.ProteinEnergy}"
+          "complex_energy_ha", $"%.6f{r.ComplexEnergy}"
+          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
+          "temperature_k", $"%.1f{temperature}"
           "has_vqe_failure", string r.HasVqeFailure ]
         |> Map.ofList)
 

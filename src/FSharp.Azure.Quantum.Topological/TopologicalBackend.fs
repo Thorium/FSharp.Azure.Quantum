@@ -751,7 +751,7 @@ module TopologicalUnifiedBackend =
 
                     try
                         let requiredAnyons =
-                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType) |> Result.map (fun tree -> FusionTree.size tree) |> Result.defaultWith (fun _ -> System.Int32.MaxValue)
+                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType) |> Result.map (fun tree -> FusionTree.size tree) |> Result.defaultWith (fun _ -> Int32.MaxValue)
 
                         if requiredAnyons > maxAnyons then
                             false

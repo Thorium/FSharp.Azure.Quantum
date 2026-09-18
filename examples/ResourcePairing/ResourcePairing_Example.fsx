@@ -71,7 +71,7 @@ let displayResult (label: string) (result: Result<ResourcePairing.PairingResult,
         for p in r.Pairings do
             pr "  %-18s  %-18s  %10.2f" p.Participant1 p.Participant2 p.Weight
             jsonResults <- (box {| Example = label; Participant1 = p.Participant1; Participant2 = p.Participant2; Weight = p.Weight |}) :: jsonResults
-            csvRows <- [ label; p.Participant1; p.Participant2; sprintf "%.2f" p.Weight; "true" ] :: csvRows
+            csvRows <- [ label; p.Participant1; p.Participant2; $"%.2f{p.Weight}"; "true" ] :: csvRows
         pr ""
         pr "  Total score:  %.2f" r.TotalScore
         pr "  Paired:       %d / %d participants%s" r.ParticipantsPaired r.TotalParticipants

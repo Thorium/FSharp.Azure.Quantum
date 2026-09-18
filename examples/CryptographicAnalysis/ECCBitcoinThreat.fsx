@@ -187,7 +187,7 @@ let findGenerator (curve: EllipticCurve) : (ECPoint * int) option =
 let formatPoint (point: ECPoint) : string =
     match point with
     | Infinity -> "O (infinity)"
-    | Finite (x, y) -> sprintf "(%d, %d)" x y
+    | Finite (x, y) -> $"(%d{x}, %d{y})"
 
 // ==============================================================================
 // BUILT-IN CURVE PRESETS
@@ -385,7 +385,7 @@ let printTable () =
         let safeStr = if r.AttackSuccess then "No" else "Yes"
         let resultStr =
             match r.RecoveredKey with
-            | Some d -> sprintf "d=%d (key recovered)" d
+            | Some d -> $"d=%d{d} (key recovered)"
             | None -> "no solution"
         printfn "  %-4d  %-16s  %-20s  %5d  %5d  %6d  %-6s  %s"
             (i + 1) r.Curve.Name r.Curve.RealCurve r.Curve.Prime
