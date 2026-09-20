@@ -73,13 +73,36 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "Grover_SAT_Example.fsx" "Solve Boolean Satisfiability (SAT) problems using Grover's quantum search." [
-    { Name = "example"; Description = "Which example to run (1/2/3/all)"; Default = Some "all" }
-    { Name = "shots"; Description = "Number of measurement shots"; Default = Some "1000" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-]
+Cli.exitIfHelp
+    "Grover_SAT_Example.fsx"
+    "Solve Boolean Satisfiability (SAT) problems using Grover's quantum search."
+    [
+        {
+            Name = "example"
+            Description = "Which example to run (1/2/3/all)"
+            Default = Some "all"
+        }
+        {
+            Name = "shots"
+            Description = "Number of measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
 
 let exampleChoice = Cli.getOr "example" "all" args
 let shots = Cli.getIntOr "shots" 1000 args
@@ -102,18 +125,19 @@ let extractVars (numVars: int) (solution: int) : bool array =
 let formatAssignment (vars: bool array) =
     vars |> Array.mapi (fun i v -> $"x%d{i}=%b{v}") |> String.concat ", "
 
-type ExampleResult = {
-    Example: string
-    Formula: string
-    NumVariables: int
-    SearchSpace: int
-    ClassicalSolutions: int list
-    QuantumSolutions: int list
-    SuccessProbability: float
-    Iterations: int
-    Shots: int
-    Status: string
-}
+type ExampleResult =
+    {
+        Example: string
+        Formula: string
+        NumVariables: int
+        SearchSpace: int
+        ClassicalSolutions: int list
+        QuantumSolutions: int list
+        SuccessProbability: float
+        Iterations: int
+        Shots: int
+        Status: string
+    }
 
 let allResults = System.Collections.Generic.List<ExampleResult>()
 
@@ -132,54 +156,87 @@ if shouldRun "1" then
         printfn "Formula: (x0 OR x1) AND (NOT x0 OR x1)"
         printfn ""
 
-    let simple2SAT = {
-        NumVariables = 2
-        Clauses = [
-            clause [var 0; var 1]       // x0 OR x1
-            clause [notVar 0; var 1]    // NOT x0 OR x1
-        ]
-    }
+    let simple2SAT =
+        {
+            NumVariables = 2
+            Clauses =
+                [
+                    clause [ var 0; var 1 ] // x0 OR x1
+                    clause [ notVar 0; var 1 ] // NOT x0 OR x1
+                ]
+        }
 
     match satOracle simple2SAT with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "1-Simple-2SAT"; Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
-            NumVariables = 2; SearchSpace = 4; ClassicalSolutions = []; QuantumSolutions = []
-            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "1-Simple-2SAT"
+                Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
+                NumVariables = 2
+                SearchSpace = 4
+                ClassicalSolutions = []
+                QuantumSolutions = []
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
             printfn "Oracle created: %d qubits, search space = %d states" oracle.NumQubits (1 <<< oracle.NumQubits)
 
         // Find classical solutions for verification
         let classicalSols =
-            [ for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
-                if Oracle.isSolution oracle.Spec i then yield i ]
+            [
+                for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
+                    if Oracle.isSolution oracle.Spec i then
+                        yield i
+            ]
 
         if not quiet then
             printfn ""
             printfn "Classical verification (all assignments):"
+
             for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
                 let vars = extractVars 2 i
                 let isSol = Oracle.isSolution oracle.Spec i
                 let mark = if isSol then "SOLUTION" else "       "
                 printfn "  %s  %s (assignment=%d)" mark (formatAssignment vars) i
+
             printfn ""
             printfn "Running Grover's algorithm (%d shots)..." shots
 
         // Create quantum backend (Rule 1: IQuantumBackend)
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "1-Simple-2SAT"; Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
-                NumVariables = 2; SearchSpace = 4; ClassicalSolutions = classicalSols; QuantumSolutions = []
-                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "1-Simple-2SAT"
+                    Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
+                    NumVariables = 2
+                    SearchSpace = 4
+                    ClassicalSolutions = classicalSols
+                    QuantumSolutions = []
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
             if not quiet then
                 if result.Solutions.IsEmpty then
@@ -188,17 +245,24 @@ if shouldRun "1" then
                     for solution in result.Solutions do
                         let vars = extractVars 2 solution
                         printfn "  Found solution: %s (assignment=%d)" (formatAssignment vars) solution
+
                     printfn "  Success probability: %.2f%%" (result.SuccessProbability * 100.0)
                     printfn "  Iterations used: %d" result.Iterations
 
-            allResults.Add({
-                Example = "1-Simple-2SAT"; Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
-                NumVariables = 2; SearchSpace = 4; ClassicalSolutions = classicalSols
-                QuantumSolutions = result.Solutions
-                SuccessProbability = result.SuccessProbability
-                Iterations = result.Iterations; Shots = shots
-                Status = if result.Solutions.IsEmpty then "No solution" else "OK"
-            })
+            allResults.Add(
+                {
+                    Example = "1-Simple-2SAT"
+                    Formula = "(x0 OR x1) AND (NOT x0 OR x1)"
+                    NumVariables = 2
+                    SearchSpace = 4
+                    ClassicalSolutions = classicalSols
+                    QuantumSolutions = result.Solutions
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status = if result.Solutions.IsEmpty then "No solution" else "OK"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -218,52 +282,85 @@ if shouldRun "2" then
         printfn "Formula: (x0 OR x1 OR x2) AND (NOT x0 OR NOT x1 OR x2) AND (x0 OR NOT x2)"
         printfn ""
 
-    let threeSAT = {
-        NumVariables = 3
-        Clauses = [
-            clause [var 0; var 1; var 2]           // x0 OR x1 OR x2
-            clause [notVar 0; notVar 1; var 2]    // NOT x0 OR NOT x1 OR x2
-            clause [var 0; notVar 2]               // x0 OR NOT x2
-        ]
-    }
+    let threeSAT =
+        {
+            NumVariables = 3
+            Clauses =
+                [
+                    clause [ var 0; var 1; var 2 ] // x0 OR x1 OR x2
+                    clause [ notVar 0; notVar 1; var 2 ] // NOT x0 OR NOT x1 OR x2
+                    clause [ var 0; notVar 2 ] // x0 OR NOT x2
+                ]
+        }
 
     match satOracle threeSAT with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "2-3SAT-NP-Complete"; Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
-            NumVariables = 3; SearchSpace = 8; ClassicalSolutions = []; QuantumSolutions = []
-            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "2-3SAT-NP-Complete"
+                Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
+                NumVariables = 3
+                SearchSpace = 8
+                ClassicalSolutions = []
+                QuantumSolutions = []
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
             printfn "Oracle created: %d qubits, search space = %d states" oracle.NumQubits (1 <<< oracle.NumQubits)
 
         let classicalSols =
-            [ for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
-                if Oracle.isSolution oracle.Spec i then yield i ]
+            [
+                for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
+                    if Oracle.isSolution oracle.Spec i then
+                        yield i
+            ]
 
         if not quiet then
             printfn ""
             printfn "All satisfying assignments (classical verification):"
+
             for sol in classicalSols do
                 let vars = extractVars 3 sol
                 printfn "  %s (assignment=%d)" (formatAssignment vars) sol
+
             printfn "Total solutions: %d out of %d" classicalSols.Length (1 <<< oracle.NumQubits)
             printfn ""
             printfn "Running Grover's algorithm (%d shots)..." shots
 
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "2-3SAT-NP-Complete"; Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
-                NumVariables = 3; SearchSpace = 8; ClassicalSolutions = classicalSols; QuantumSolutions = []
-                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "2-3SAT-NP-Complete"
+                    Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
+                    NumVariables = 3
+                    SearchSpace = 8
+                    ClassicalSolutions = classicalSols
+                    QuantumSolutions = []
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
             if not quiet then
                 if result.Solutions.IsEmpty then
@@ -272,17 +369,24 @@ if shouldRun "2" then
                     for solution in result.Solutions do
                         let vars = extractVars 3 solution
                         printfn "  Found solution: %s (assignment=%d)" (formatAssignment vars) solution
+
                     printfn "  Success probability: %.2f%%" (result.SuccessProbability * 100.0)
                     printfn "  Iterations used: %d" result.Iterations
 
-            allResults.Add({
-                Example = "2-3SAT-NP-Complete"; Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
-                NumVariables = 3; SearchSpace = 8; ClassicalSolutions = classicalSols
-                QuantumSolutions = result.Solutions
-                SuccessProbability = result.SuccessProbability
-                Iterations = result.Iterations; Shots = shots
-                Status = if result.Solutions.IsEmpty then "No solution" else "OK"
-            })
+            allResults.Add(
+                {
+                    Example = "2-3SAT-NP-Complete"
+                    Formula = "(x0|x1|x2) AND (!x0|!x1|x2) AND (x0|!x2)"
+                    NumVariables = 3
+                    SearchSpace = 8
+                    ClassicalSolutions = classicalSols
+                    QuantumSolutions = result.Solutions
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status = if result.Solutions.IsEmpty then "No solution" else "OK"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -302,52 +406,85 @@ if shouldRun "3" then
         printfn "Formula: (x0) AND (NOT x0)"
         printfn ""
 
-    let unsatFormula = {
-        NumVariables = 1
-        Clauses = [
-            clause [var 0]      // x0
-            clause [notVar 0]   // NOT x0
-        ]
-    }
+    let unsatFormula =
+        {
+            NumVariables = 1
+            Clauses =
+                [
+                    clause [ var 0 ] // x0
+                    clause [ notVar 0 ] // NOT x0
+                ]
+        }
 
     match satOracle unsatFormula with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "3-UNSAT"; Formula = "(x0) AND (NOT x0)"
-            NumVariables = 1; SearchSpace = 2; ClassicalSolutions = []; QuantumSolutions = []
-            SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "3-UNSAT"
+                Formula = "(x0) AND (NOT x0)"
+                NumVariables = 1
+                SearchSpace = 2
+                ClassicalSolutions = []
+                QuantumSolutions = []
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
             printfn "Oracle created: %d qubits" oracle.NumQubits
 
         let classicalSols =
-            [ for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
-                if Oracle.isSolution oracle.Spec i then yield i ]
+            [
+                for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
+                    if Oracle.isSolution oracle.Spec i then
+                        yield i
+            ]
 
         if not quiet then
             printfn ""
             printfn "Checking all possible assignments:"
+
             for i in 0 .. (1 <<< oracle.NumQubits) - 1 do
                 let x0 = (i &&& 1) = 1
                 printfn "  x0=%b (assignment=%d) - NOT a solution" x0 i
+
             printfn ""
             printfn "Total solutions: %d (formula is UNSATISFIABLE)" classicalSols.Length
             printfn ""
             printfn "Running Grover's algorithm (expected to find no solution)..."
 
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "3-UNSAT"; Formula = "(x0) AND (NOT x0)"
-                NumVariables = 1; SearchSpace = 2; ClassicalSolutions = []; QuantumSolutions = []
-                SuccessProbability = 0.0; Iterations = 0; Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "3-UNSAT"
+                    Formula = "(x0) AND (NOT x0)"
+                    NumVariables = 1
+                    SearchSpace = 2
+                    ClassicalSolutions = []
+                    QuantumSolutions = []
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
             if not quiet then
                 if result.Solutions.IsEmpty then
@@ -355,14 +492,24 @@ if shouldRun "3" then
                 else
                     printfn "  Unexpected: Found assignments %A (may be false positives)" result.Solutions
 
-            allResults.Add({
-                Example = "3-UNSAT"; Formula = "(x0) AND (NOT x0)"
-                NumVariables = 1; SearchSpace = 2; ClassicalSolutions = classicalSols
-                QuantumSolutions = result.Solutions
-                SuccessProbability = result.SuccessProbability
-                Iterations = result.Iterations; Shots = shots
-                Status = if result.Solutions.IsEmpty then "UNSAT confirmed" else "False positive"
-            })
+            allResults.Add(
+                {
+                    Example = "3-UNSAT"
+                    Formula = "(x0) AND (NOT x0)"
+                    NumVariables = 1
+                    SearchSpace = 2
+                    ClassicalSolutions = classicalSols
+                    QuantumSolutions = result.Solutions
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status =
+                        if result.Solutions.IsEmpty then
+                            "UNSAT confirmed"
+                        else
+                            "False positive"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -376,6 +523,7 @@ if shouldRun "3" then
 if not quiet then
     printfn "SAT Solver Summary"
     printfn "=================="
+
     for r in allResults do
         printfn ""
         printfn "  %s" r.Example
@@ -385,6 +533,7 @@ if not quiet then
         printfn "    Quantum solutions:   %A" r.QuantumSolutions
         printfn "    Probability: %.2f%%, Iterations: %d" (r.SuccessProbability * 100.0) r.Iterations
         printfn "    Status: %s" r.Status
+
     printfn ""
     printfn "Key Takeaways:"
     printfn "  1. SAT oracles enable quantum search for satisfying assignments"
@@ -401,35 +550,64 @@ let resultRecords =
     allResults
     |> Seq.toList
     |> List.map (fun r ->
-        {| Example = r.Example
-           Formula = r.Formula
-           NumVariables = r.NumVariables
-           SearchSpace = r.SearchSpace
-           ClassicalSolutions = r.ClassicalSolutions
-           QuantumSolutions = r.QuantumSolutions
-           SuccessProbability = r.SuccessProbability
-           Iterations = r.Iterations
-           Shots = r.Shots
-           Status = r.Status |})
+        {|
+            Example = r.Example
+            Formula = r.Formula
+            NumVariables = r.NumVariables
+            SearchSpace = r.SearchSpace
+            ClassicalSolutions = r.ClassicalSolutions
+            QuantumSolutions = r.QuantumSolutions
+            SuccessProbability = r.SuccessProbability
+            Iterations = r.Iterations
+            Shots = r.Shots
+            Status = r.Status
+        |})
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultRecords
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
-    let header = ["Example"; "Formula"; "NumVariables"; "SearchSpace"; "ClassicalSolutions"; "QuantumSolutions"; "SuccessProbability"; "Iterations"; "Shots"; "Status"]
+    let header =
+        [
+            "Example"
+            "Formula"
+            "NumVariables"
+            "SearchSpace"
+            "ClassicalSolutions"
+            "QuantumSolutions"
+            "SuccessProbability"
+            "Iterations"
+            "Shots"
+            "Status"
+        ]
+
     let rows =
         allResults
         |> Seq.toList
         |> List.map (fun r ->
-            [ r.Example; r.Formula; string r.NumVariables; string r.SearchSpace
-              $"%A{r.ClassicalSolutions}"; $"%A{r.QuantumSolutions}"
-              $"%.4f{r.SuccessProbability}"; string r.Iterations; string r.Shots; r.Status ])
+            [
+                r.Example
+                r.Formula
+                string r.NumVariables
+                string r.SearchSpace
+                $"%A{r.ClassicalSolutions}"
+                $"%A{r.QuantumSolutions}"
+                $"%.4f{r.SuccessProbability}"
+                string r.Iterations
+                string r.Shots
+                r.Status
+            ])
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "CSV written to %s" path
+
+    if not quiet then
+        printfn "CSV written to %s" path
 | None -> ()
 
 // ============================================================================

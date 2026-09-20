@@ -63,15 +63,20 @@ module CloudBackends =
 
             member _.NativeStateType = QuantumStateType.GateBased
 
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Run on the thread pool so the task's continuations never post back to
                 // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
                 // here would otherwise deadlock permanently on the first HTTP continuation.
-                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
-                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
-                    .GetAwaiter().GetResult()
+                Task
+                    .Run<Result<QuantumState, QuantumError>>(fun () ->
+                        (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
 
-            member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 0: Route for the device coupling map — insert SWAPs so every
                     // two-qubit gate acts on physically-adjacent qubits. No-op when no
@@ -86,76 +91,134 @@ module CloudBackends =
                             match CircuitAdapter.tryGetCircuit circuit with
                             | Some gateCircuit ->
                                 let routed, mapping = QubitRouting.route cm gateCircuit
-                                wrapCircuit routed, Some (mapping, gateCircuit.QubitCount)
+                                wrapCircuit routed, Some(mapping, gateCircuit.QubitCount)
                             | None -> circuit, None
                         | None -> circuit, None
                     // Step 1: Convert ICircuit → QuilProgram
-                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> CircuitAdapter.toQuilProgram circuit) with
+                    match
+                        CloudBackendHelpers.checkCostGuard target shots costLimitUsd
+                        |> Result.bind (fun () -> CircuitAdapter.toQuilProgram circuit)
+                    with
                     | Error err -> return Error err
                     | Ok quilProgram ->
                         // Step 2: Submit and wait for results
                         let submission = RigettiBackend.createJobSubmission quilProgram shots target None
+
                         match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
                         | Error err -> return Error err
                         | Ok jobId ->
-                            match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
+                            match!
+                                JobLifecycle.pollJobUntilCompleteAsync
+                                    httpClient
+                                    workspaceUrl
+                                    jobId
+                                    timeout
+                                    cancellationToken
+                            with
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
                                 | JobStatus.Succeeded ->
                                     match job.OutputDataUri with
                                     | None ->
-                                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                                        return
+                                            Error(
+                                                QuantumError.AzureError(
+                                                    AzureQuantumError.UnknownError(
+                                                        500,
+                                                        "Job completed but no output URI available"
+                                                    )
+                                                )
+                                            )
                                     | Some uri ->
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
                                         | Ok jobResult ->
                                             try
                                                 let resultJson = jobResult.OutputData :?> string
+
                                                 match RigettiBackend.parseRigettiResults resultJson with
                                                 | Error err -> return Error err
                                                 | Ok histogram ->
                                                     let histogram =
                                                         match routing with
-                                                        | Some (mapping, numLogical) ->
-                                                            CloudBackendHelpers.unrouteHistogram mapping numLogical histogram
+                                                        | Some(mapping, numLogical) ->
+                                                            CloudBackendHelpers.unrouteHistogram
+                                                                mapping
+                                                                numLogical
+                                                                histogram
                                                         | None -> histogram
+
                                                     let numQubits =
                                                         CloudBackendHelpers.inferNumQubits histogram
                                                         |> Option.defaultValue circuit.NumQubits
-                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
-                                            with
-                                            | ex ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Rigetti results: %s{ex.Message}")))
-                                | JobStatus.Failed (errorCode, errorMessage) ->
-                                    return Error (RigettiBackend.mapRigettiError errorCode errorMessage)
+
+                                                    return
+                                                        Ok(
+                                                            CloudBackendHelpers.histogramToQuantumState
+                                                                histogram
+                                                                numQubits
+                                                        )
+                                            with ex ->
+                                                return
+                                                    Error(
+                                                        QuantumError.AzureError(
+                                                            AzureQuantumError.UnknownError(
+                                                                0,
+                                                                $"Failed to parse Rigetti results: %s{ex.Message}"
+                                                            )
+                                                        )
+                                                    )
+                                | JobStatus.Failed(errorCode, errorMessage) ->
+                                    return Error(RigettiBackend.mapRigettiError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
-                                    return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
-                                | JobStatus.Waiting | JobStatus.Executing ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
+                                    return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
+                                | JobStatus.Waiting
+                                | JobStatus.Executing ->
+                                    return
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(
+                                                    0,
+                                                    $"Unexpected job status: %A{job.Status}"
+                                                )
+                                            )
+                                        )
                 }
 
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok (QuantumState.StateVector (StateVector.init numQubits))
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok(QuantumState.StateVector(StateVector.init numQubits))
 
-            member this.ApplyOperation (op: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+            member this.ApplyOperation
+                (op: QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 let iface = (this :> IQuantumBackend)
+
                 iface.ApplyOperationAsync op state CancellationToken.None
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 
-            member _.ApplyOperationAsync (op: QuantumOperation) (_state: QuantumState) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ApplyOperationAsync
+                (op: QuantumOperation)
+                (_state: QuantumState)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Cloud backends don't support incremental state operations efficiently.
                     // For single-operation application, we'd need to reconstruct the full circuit.
                     // This is a fundamental limitation of cloud hardware: you can't "apply one more gate"
                     // to an existing remote quantum state.
-                    return Error (QuantumError.OperationError(
-                        "ApplyOperation",
-                        $"Rigetti Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                $"Rigetti Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                            )
+                        )
                 }
 
-            member _.SupportsOperation (op: QuantumOperation) : bool =
+            member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
         interface IQubitLimitedBackend with
@@ -163,7 +226,7 @@ module CloudBackends =
                 // Rigetti QVM simulator: effectively unlimited for small circuits
                 // Rigetti QPU Ankaa-3: 84 qubits
                 if target.Contains "qpu" then Some 84
-                elif target.Contains "sim" then Some 20  // StateVector.create limit
+                elif target.Contains "sim" then Some 20 // StateVector.create limit
                 else None
 
     // ============================================================================
@@ -200,33 +263,57 @@ module CloudBackends =
 
             member _.NativeStateType = QuantumStateType.GateBased
 
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Run on the thread pool so the task's continuations never post back to
                 // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
                 // here would otherwise deadlock permanently on the first HTTP continuation.
-                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
-                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
-                    .GetAwaiter().GetResult()
+                Task
+                    .Run<Result<QuantumState, QuantumError>>(fun () ->
+                        (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
 
-            member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → IonQCircuit
-                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> CircuitAdapter.toIonQCircuit circuit) with
+                    match
+                        CloudBackendHelpers.checkCostGuard target shots costLimitUsd
+                        |> Result.bind (fun () -> CircuitAdapter.toIonQCircuit circuit)
+                    with
                     | Error err -> return Error err
                     | Ok ionqCircuit ->
                         // Step 2: Submit and wait for results
                         let submission = IonQBackend.createJobSubmission ionqCircuit shots target
+
                         match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
                         | Error err -> return Error err
                         | Ok jobId ->
-                            match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
+                            match!
+                                JobLifecycle.pollJobUntilCompleteAsync
+                                    httpClient
+                                    workspaceUrl
+                                    jobId
+                                    timeout
+                                    cancellationToken
+                            with
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
                                 | JobStatus.Succeeded ->
                                     match job.OutputDataUri with
                                     | None ->
-                                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                                        return
+                                            Error(
+                                                QuantumError.AzureError(
+                                                    AzureQuantumError.UnknownError(
+                                                        500,
+                                                        "Job completed but no output URI available"
+                                                    )
+                                                )
+                                            )
                                     | Some uri ->
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
@@ -237,38 +324,84 @@ module CloudBackends =
                                                     // Qubit count comes from the submitted circuit rather than being
                                                     // inferred from histogram keys (which are decimal state indices
                                                     // in the Azure "ionq.quantum-results.v1" format).
-                                                    match IonQBackend.parseIonQResult ionqCircuit.Qubits shots resultJson with
+                                                    match
+                                                        IonQBackend.parseIonQResult ionqCircuit.Qubits shots resultJson
+                                                    with
                                                     | Ok histogram ->
-                                                        Ok (CloudBackendHelpers.histogramToQuantumState histogram ionqCircuit.Qubits)
+                                                        Ok(
+                                                            CloudBackendHelpers.histogramToQuantumState
+                                                                histogram
+                                                                ionqCircuit.Qubits
+                                                        )
                                                     | Error msg ->
-                                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
+                                                        Error(
+                                                            QuantumError.AzureError(
+                                                                AzureQuantumError.UnknownError(
+                                                                    0,
+                                                                    $"Failed to parse IonQ results: %s{msg}"
+                                                                )
+                                                            )
+                                                        )
                                                 | other ->
-                                                    Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
-                                | JobStatus.Failed (errorCode, errorMessage) ->
-                                    return Error (IonQBackend.mapIonQError errorCode errorMessage)
+                                                    Error(
+                                                        QuantumError.AzureError(
+                                                            AzureQuantumError.UnknownError(
+                                                                0,
+                                                                sprintf
+                                                                    "Expected IonQ output data to be a JSON string, got %s"
+                                                                    (if isNull other then
+                                                                         "null"
+                                                                     else
+                                                                         other.GetType().Name)
+                                                            )
+                                                        )
+                                                    )
+                                | JobStatus.Failed(errorCode, errorMessage) ->
+                                    return Error(IonQBackend.mapIonQError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
-                                    return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
-                                | JobStatus.Waiting | JobStatus.Executing ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
+                                    return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
+                                | JobStatus.Waiting
+                                | JobStatus.Executing ->
+                                    return
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(
+                                                    0,
+                                                    $"Unexpected job status: %A{job.Status}"
+                                                )
+                                            )
+                                        )
                 }
 
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok (QuantumState.StateVector (StateVector.init numQubits))
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok(QuantumState.StateVector(StateVector.init numQubits))
 
-            member this.ApplyOperation (op: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+            member this.ApplyOperation
+                (op: QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 let iface = (this :> IQuantumBackend)
+
                 iface.ApplyOperationAsync op state CancellationToken.None
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 
-            member _.ApplyOperationAsync (op: QuantumOperation) (_state: QuantumState) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ApplyOperationAsync
+                (op: QuantumOperation)
+                (_state: QuantumState)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
-                    return Error (QuantumError.OperationError(
-                        "ApplyOperation",
-                        $"IonQ Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                $"IonQ Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                            )
+                        )
                 }
 
-            member _.SupportsOperation (op: QuantumOperation) : bool =
+            member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
         interface IQubitLimitedBackend with
@@ -278,7 +411,7 @@ module CloudBackends =
                 // IonQ Forte: 36 qubits
                 if target.Contains "aria" then Some 25
                 elif target.Contains "forte" then Some 36
-                elif target.Contains "simulator" then Some 20  // StateVector.create limit
+                elif target.Contains "simulator" then Some 20 // StateVector.create limit
                 else None
 
     // ============================================================================
@@ -314,19 +447,34 @@ module CloudBackends =
             match CircuitAdapter.tryGetCircuit circuit with
             | Some builderCircuit ->
                 try
-                    Ok (FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
+                    Ok(FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
                 with ex ->
-                    Error (QuantumError.OperationError("OpenQASM export", $"Failed to export circuit to OpenQASM: %s{ex.Message}"))
+                    Error(
+                        QuantumError.OperationError(
+                            "OpenQASM export",
+                            $"Failed to export circuit to OpenQASM: %s{ex.Message}"
+                        )
+                    )
             | None ->
                 // Try QAOA circuit path
                 match CircuitAdapter.tryGetQaoaCircuit circuit with
                 | Some qaoaCircuit ->
                     try
-                        Ok (QaoaCircuit.toOpenQasm qaoaCircuit)
+                        Ok(QaoaCircuit.toOpenQasm qaoaCircuit)
                     with ex ->
-                        Error (QuantumError.OperationError("OpenQASM export", $"Failed to export QAOA circuit to OpenQASM: %s{ex.Message}"))
+                        Error(
+                            QuantumError.OperationError(
+                                "OpenQASM export",
+                                $"Failed to export QAOA circuit to OpenQASM: %s{ex.Message}"
+                            )
+                        )
                 | None ->
-                    Error (QuantumError.OperationError("Circuit extraction", "Cannot extract circuit from ICircuit wrapper for OpenQASM export"))
+                    Error(
+                        QuantumError.OperationError(
+                            "Circuit extraction",
+                            "Cannot extract circuit from ICircuit wrapper for OpenQASM export"
+                        )
+                    )
 
         interface IQuantumBackend with
 
@@ -334,33 +482,57 @@ module CloudBackends =
 
             member _.NativeStateType = QuantumStateType.GateBased
 
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Run on the thread pool so the task's continuations never post back to
                 // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
                 // here would otherwise deadlock permanently on the first HTTP continuation.
-                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
-                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
-                    .GetAwaiter().GetResult()
+                Task
+                    .Run<Result<QuantumState, QuantumError>>(fun () ->
+                        (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
 
-            member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
-                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> circuitToOpenQasm circuit) with
+                    match
+                        CloudBackendHelpers.checkCostGuard target shots costLimitUsd
+                        |> Result.bind (fun () -> circuitToOpenQasm circuit)
+                    with
                     | Error err -> return Error err
                     | Ok qasmCode ->
                         // Step 2: Submit and wait for results
                         let submission = QuantinuumBackend.createJobSubmission qasmCode shots target
+
                         match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
                         | Error err -> return Error err
                         | Ok jobId ->
-                            match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
+                            match!
+                                JobLifecycle.pollJobUntilCompleteAsync
+                                    httpClient
+                                    workspaceUrl
+                                    jobId
+                                    timeout
+                                    cancellationToken
+                            with
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
                                 | JobStatus.Succeeded ->
                                     match job.OutputDataUri with
                                     | None ->
-                                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                                        return
+                                            Error(
+                                                QuantumError.AzureError(
+                                                    AzureQuantumError.UnknownError(
+                                                        500,
+                                                        "Job completed but no output URI available"
+                                                    )
+                                                )
+                                            )
                                     | Some uri ->
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
@@ -373,36 +545,81 @@ module CloudBackends =
                                                         let numQubits =
                                                             CloudBackendHelpers.inferNumQubits histogram
                                                             |> Option.defaultValue circuit.NumQubits
-                                                        Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+
+                                                        Ok(
+                                                            CloudBackendHelpers.histogramToQuantumState
+                                                                histogram
+                                                                numQubits
+                                                        )
                                                     | Error msg ->
-                                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Quantinuum results: %s{msg}")))
+                                                        Error(
+                                                            QuantumError.AzureError(
+                                                                AzureQuantumError.UnknownError(
+                                                                    0,
+                                                                    $"Failed to parse Quantinuum results: %s{msg}"
+                                                                )
+                                                            )
+                                                        )
                                                 | other ->
-                                                    Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected Quantinuum output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
-                                | JobStatus.Failed (errorCode, errorMessage) ->
-                                    return Error (QuantinuumBackend.mapQuantinuumError errorCode errorMessage)
+                                                    Error(
+                                                        QuantumError.AzureError(
+                                                            AzureQuantumError.UnknownError(
+                                                                0,
+                                                                sprintf
+                                                                    "Expected Quantinuum output data to be a JSON string, got %s"
+                                                                    (if isNull other then
+                                                                         "null"
+                                                                     else
+                                                                         other.GetType().Name)
+                                                            )
+                                                        )
+                                                    )
+                                | JobStatus.Failed(errorCode, errorMessage) ->
+                                    return Error(QuantinuumBackend.mapQuantinuumError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
-                                    return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
-                                | JobStatus.Waiting | JobStatus.Executing ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
+                                    return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
+                                | JobStatus.Waiting
+                                | JobStatus.Executing ->
+                                    return
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(
+                                                    0,
+                                                    $"Unexpected job status: %A{job.Status}"
+                                                )
+                                            )
+                                        )
                 }
 
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok (QuantumState.StateVector (StateVector.init numQubits))
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok(QuantumState.StateVector(StateVector.init numQubits))
 
-            member this.ApplyOperation (op: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+            member this.ApplyOperation
+                (op: QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 let iface = (this :> IQuantumBackend)
+
                 iface.ApplyOperationAsync op state CancellationToken.None
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 
-            member _.ApplyOperationAsync (op: QuantumOperation) (_state: QuantumState) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ApplyOperationAsync
+                (op: QuantumOperation)
+                (_state: QuantumState)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
-                    return Error (QuantumError.OperationError(
-                        "ApplyOperation",
-                        $"Quantinuum Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                $"Quantinuum Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                            )
+                        )
                 }
 
-            member _.SupportsOperation (op: QuantumOperation) : bool =
+            member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
         interface IQubitLimitedBackend with
@@ -412,7 +629,7 @@ module CloudBackends =
                 // Quantinuum H2: 56 qubits
                 if target.Contains "h2" then Some 56
                 elif target.Contains "h1" then Some 32
-                else Some 20  // Conservative default, StateVector limit
+                else Some 20 // Conservative default, StateVector limit
 
     // ============================================================================
     // ATOM COMPUTING CLOUD BACKEND
@@ -440,25 +657,40 @@ module CloudBackends =
         ) =
 
         let shots = defaultArg shots 1000
-        let timeout = defaultArg timeout (TimeSpan.FromMinutes(10.0))  // Longer default for Atom Computing
+        let timeout = defaultArg timeout (TimeSpan.FromMinutes(10.0)) // Longer default for Atom Computing
 
         /// Convert ICircuit to OpenQASM 2.0 string for Atom Computing.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
             match CircuitAdapter.tryGetCircuit circuit with
             | Some builderCircuit ->
                 try
-                    Ok (FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
+                    Ok(FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
                 with ex ->
-                    Error (QuantumError.OperationError("OpenQASM export", $"Failed to export circuit to OpenQASM: %s{ex.Message}"))
+                    Error(
+                        QuantumError.OperationError(
+                            "OpenQASM export",
+                            $"Failed to export circuit to OpenQASM: %s{ex.Message}"
+                        )
+                    )
             | None ->
                 match CircuitAdapter.tryGetQaoaCircuit circuit with
                 | Some qaoaCircuit ->
                     try
-                        Ok (QaoaCircuit.toOpenQasm qaoaCircuit)
+                        Ok(QaoaCircuit.toOpenQasm qaoaCircuit)
                     with ex ->
-                        Error (QuantumError.OperationError("OpenQASM export", $"Failed to export QAOA circuit to OpenQASM: %s{ex.Message}"))
+                        Error(
+                            QuantumError.OperationError(
+                                "OpenQASM export",
+                                $"Failed to export QAOA circuit to OpenQASM: %s{ex.Message}"
+                            )
+                        )
                 | None ->
-                    Error (QuantumError.OperationError("Circuit extraction", "Cannot extract circuit from ICircuit wrapper for OpenQASM export"))
+                    Error(
+                        QuantumError.OperationError(
+                            "Circuit extraction",
+                            "Cannot extract circuit from ICircuit wrapper for OpenQASM export"
+                        )
+                    )
 
         interface IQuantumBackend with
 
@@ -466,33 +698,57 @@ module CloudBackends =
 
             member _.NativeStateType = QuantumStateType.GateBased
 
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Run on the thread pool so the task's continuations never post back to
                 // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
                 // here would otherwise deadlock permanently on the first HTTP continuation.
-                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
-                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
-                    .GetAwaiter().GetResult()
+                Task
+                    .Run<Result<QuantumState, QuantumError>>(fun () ->
+                        (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
 
-            member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
-                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> circuitToOpenQasm circuit) with
+                    match
+                        CloudBackendHelpers.checkCostGuard target shots costLimitUsd
+                        |> Result.bind (fun () -> circuitToOpenQasm circuit)
+                    with
                     | Error err -> return Error err
                     | Ok qasmCode ->
                         // Step 2: Submit and wait for results
                         let submission = AtomComputingBackend.createJobSubmission qasmCode shots target
+
                         match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
                         | Error err -> return Error err
                         | Ok jobId ->
-                            match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
+                            match!
+                                JobLifecycle.pollJobUntilCompleteAsync
+                                    httpClient
+                                    workspaceUrl
+                                    jobId
+                                    timeout
+                                    cancellationToken
+                            with
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
                                 | JobStatus.Succeeded ->
                                     match job.OutputDataUri with
                                     | None ->
-                                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                                        return
+                                            Error(
+                                                QuantumError.AzureError(
+                                                    AzureQuantumError.UnknownError(
+                                                        500,
+                                                        "Job completed but no output URI available"
+                                                    )
+                                                )
+                                            )
                                     | Some uri ->
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
@@ -500,38 +756,69 @@ module CloudBackends =
                                             try
                                                 let resultJson = jobResult.OutputData :?> string
                                                 let histogram = AtomComputingBackend.parseAtomComputingResult resultJson
+
                                                 let numQubits =
                                                     CloudBackendHelpers.inferNumQubits histogram
                                                     |> Option.defaultValue circuit.NumQubits
-                                                return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
-                                            with
-                                            | ex ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse Atom Computing results: %s{ex.Message}")))
-                                | JobStatus.Failed (errorCode, errorMessage) ->
-                                    return Error (AtomComputingBackend.mapAtomComputingError errorCode errorMessage)
+
+                                                return
+                                                    Ok(CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                            with ex ->
+                                                return
+                                                    Error(
+                                                        QuantumError.AzureError(
+                                                            AzureQuantumError.UnknownError(
+                                                                0,
+                                                                $"Failed to parse Atom Computing results: %s{ex.Message}"
+                                                            )
+                                                        )
+                                                    )
+                                | JobStatus.Failed(errorCode, errorMessage) ->
+                                    return Error(AtomComputingBackend.mapAtomComputingError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
-                                    return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
-                                | JobStatus.Waiting | JobStatus.Executing ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
+                                    return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
+                                | JobStatus.Waiting
+                                | JobStatus.Executing ->
+                                    return
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(
+                                                    0,
+                                                    $"Unexpected job status: %A{job.Status}"
+                                                )
+                                            )
+                                        )
                 }
 
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok (QuantumState.StateVector (StateVector.init numQubits))
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok(QuantumState.StateVector(StateVector.init numQubits))
 
-            member this.ApplyOperation (op: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+            member this.ApplyOperation
+                (op: QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 let iface = (this :> IQuantumBackend)
+
                 iface.ApplyOperationAsync op state CancellationToken.None
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 
-            member _.ApplyOperationAsync (op: QuantumOperation) (_state: QuantumState) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ApplyOperationAsync
+                (op: QuantumOperation)
+                (_state: QuantumState)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
-                    return Error (QuantumError.OperationError(
-                        "ApplyOperation",
-                        $"Atom Computing Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                $"Atom Computing Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                            )
+                        )
                 }
 
-            member _.SupportsOperation (op: QuantumOperation) : bool =
+            member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
         interface IQubitLimitedBackend with
@@ -539,7 +826,7 @@ module CloudBackends =
                 // Atom Computing Phoenix: 100+ qubits
                 // Simulator: limited by state vector size
                 if target.Contains "qpu" then Some 100
-                elif target.Contains "sim" then Some 20  // StateVector.create limit
+                elif target.Contains "sim" then Some 20 // StateVector.create limit
                 else None
 
     /// IQuantumBackend implementation for IQM (superconducting) via Azure Quantum.
@@ -571,18 +858,33 @@ module CloudBackends =
             match CircuitAdapter.tryGetCircuit circuit with
             | Some builderCircuit ->
                 try
-                    Ok (FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
+                    Ok(FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
                 with ex ->
-                    Error (QuantumError.OperationError("OpenQASM export", $"Failed to export circuit to OpenQASM: %s{ex.Message}"))
+                    Error(
+                        QuantumError.OperationError(
+                            "OpenQASM export",
+                            $"Failed to export circuit to OpenQASM: %s{ex.Message}"
+                        )
+                    )
             | None ->
                 match CircuitAdapter.tryGetQaoaCircuit circuit with
                 | Some qaoaCircuit ->
                     try
-                        Ok (QaoaCircuit.toOpenQasm qaoaCircuit)
+                        Ok(QaoaCircuit.toOpenQasm qaoaCircuit)
                     with ex ->
-                        Error (QuantumError.OperationError("OpenQASM export", $"Failed to export QAOA circuit to OpenQASM: %s{ex.Message}"))
+                        Error(
+                            QuantumError.OperationError(
+                                "OpenQASM export",
+                                $"Failed to export QAOA circuit to OpenQASM: %s{ex.Message}"
+                            )
+                        )
                 | None ->
-                    Error (QuantumError.OperationError("Circuit extraction", "Cannot extract circuit from ICircuit wrapper for OpenQASM export"))
+                    Error(
+                        QuantumError.OperationError(
+                            "Circuit extraction",
+                            "Cannot extract circuit from ICircuit wrapper for OpenQASM export"
+                        )
+                    )
 
         interface IQuantumBackend with
 
@@ -590,33 +892,57 @@ module CloudBackends =
 
             member _.NativeStateType = QuantumStateType.GateBased
 
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Run on the thread pool so the task's continuations never post back to
                 // the caller's SynchronizationContext: blocking a UI thread (WPF/WinForms)
                 // here would otherwise deadlock permanently on the first HTTP continuation.
-                Task.Run<Result<QuantumState, QuantumError>>(fun () ->
-                    (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
-                    .GetAwaiter().GetResult()
+                Task
+                    .Run<Result<QuantumState, QuantumError>>(fun () ->
+                        (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
 
-            member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
-                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> circuitToOpenQasm circuit) with
+                    match
+                        CloudBackendHelpers.checkCostGuard target shots costLimitUsd
+                        |> Result.bind (fun () -> circuitToOpenQasm circuit)
+                    with
                     | Error err -> return Error err
                     | Ok qasmCode ->
                         // Step 2: Submit and wait for results
                         let submission = IqmBackend.createJobSubmission qasmCode shots target
+
                         match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
                         | Error err -> return Error err
                         | Ok jobId ->
-                            match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
+                            match!
+                                JobLifecycle.pollJobUntilCompleteAsync
+                                    httpClient
+                                    workspaceUrl
+                                    jobId
+                                    timeout
+                                    cancellationToken
+                            with
                             | Error err -> return Error err
                             | Ok job ->
                                 match job.Status with
                                 | JobStatus.Succeeded ->
                                     match job.OutputDataUri with
                                     | None ->
-                                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                                        return
+                                            Error(
+                                                QuantumError.AzureError(
+                                                    AzureQuantumError.UnknownError(
+                                                        500,
+                                                        "Job completed but no output URI available"
+                                                    )
+                                                )
+                                            )
                                     | Some uri ->
                                         match! JobLifecycle.getJobResultAsync httpClient uri with
                                         | Error err -> return Error err
@@ -624,38 +950,69 @@ module CloudBackends =
                                             try
                                                 let resultJson = jobResult.OutputData :?> string
                                                 let histogram = IqmBackend.parseIqmResult resultJson
+
                                                 let numQubits =
                                                     CloudBackendHelpers.inferNumQubits histogram
                                                     |> Option.defaultValue circuit.NumQubits
-                                                return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
-                                            with
-                                            | ex ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IQM results: %s{ex.Message}")))
-                                | JobStatus.Failed (errorCode, errorMessage) ->
-                                    return Error (IqmBackend.mapIqmError errorCode errorMessage)
+
+                                                return
+                                                    Ok(CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                            with ex ->
+                                                return
+                                                    Error(
+                                                        QuantumError.AzureError(
+                                                            AzureQuantumError.UnknownError(
+                                                                0,
+                                                                $"Failed to parse IQM results: %s{ex.Message}"
+                                                            )
+                                                        )
+                                                    )
+                                | JobStatus.Failed(errorCode, errorMessage) ->
+                                    return Error(IqmBackend.mapIqmError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
-                                    return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
-                                | JobStatus.Waiting | JobStatus.Executing ->
-                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
+                                    return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
+                                | JobStatus.Waiting
+                                | JobStatus.Executing ->
+                                    return
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(
+                                                    0,
+                                                    $"Unexpected job status: %A{job.Status}"
+                                                )
+                                            )
+                                        )
                 }
 
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok (QuantumState.StateVector (StateVector.init numQubits))
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok(QuantumState.StateVector(StateVector.init numQubits))
 
-            member this.ApplyOperation (op: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+            member this.ApplyOperation
+                (op: QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 let iface = (this :> IQuantumBackend)
+
                 iface.ApplyOperationAsync op state CancellationToken.None
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 
-            member _.ApplyOperationAsync (op: QuantumOperation) (_state: QuantumState) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ApplyOperationAsync
+                (op: QuantumOperation)
+                (_state: QuantumState)
+                (cancellationToken: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
-                    return Error (QuantumError.OperationError(
-                        "ApplyOperation",
-                        $"IQM Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                $"IQM Cloud (%s{target}) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                            )
+                        )
                 }
 
-            member _.SupportsOperation (op: QuantumOperation) : bool =
+            member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
         interface IQubitLimitedBackend with
@@ -676,14 +1033,25 @@ module CloudBackends =
     module CloudBackendFactory =
 
         /// Create a Rigetti cloud backend.
-        let createRigetti (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
+        let createRigetti
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            : IQuantumBackend =
             RigettiCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
 
         /// Create a Rigetti cloud backend that automatically routes circuits for the
         /// given device coupling map (inserts SWAPs so two-qubit gates respect the
         /// hardware connectivity). Use this for connectivity-limited QPUs; supply the
         /// device's coupling map (e.g. QubitRouting.grid / .linear / .fromPairs).
-        let createRigettiRouted (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) (couplingMap: QubitRouting.CouplingMap) : IQuantumBackend =
+        let createRigettiRouted
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            (couplingMap: QubitRouting.CouplingMap)
+            : IQuantumBackend =
             RigettiCloudBackend(httpClient, workspaceUrl, target, shots, couplingMap = couplingMap) :> IQuantumBackend
 
         /// Create an IonQ cloud backend.
@@ -691,11 +1059,21 @@ module CloudBackends =
             IonQCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
 
         /// Create a Quantinuum cloud backend.
-        let createQuantinuum (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
+        let createQuantinuum
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            : IQuantumBackend =
             QuantinuumCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
 
         /// Create an Atom Computing cloud backend.
-        let createAtomComputing (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
+        let createAtomComputing
+            (httpClient: HttpClient)
+            (workspaceUrl: string)
+            (target: string)
+            (shots: int)
+            : IQuantumBackend =
             AtomComputingCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
 
         /// Create an IQM cloud backend (superconducting, OpenQASM 2.0 via Azure Quantum).

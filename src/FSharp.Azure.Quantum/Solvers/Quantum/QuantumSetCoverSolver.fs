@@ -39,43 +39,46 @@ module QuantumSetCoverSolver =
     // ========================================================================
 
     /// A subset in the collection
-    type Subset = {
-        Id: string
-        /// Elements contained in this subset (indices into the universe)
-        Elements: int list
-        /// Cost of selecting this subset; default 1.0
-        Cost: float
-    }
+    type Subset =
+        {
+            Id: string
+            /// Elements contained in this subset (indices into the universe)
+            Elements: int list
+            /// Cost of selecting this subset; default 1.0
+            Cost: float
+        }
 
     /// Set cover problem definition
-    type Problem = {
-        /// Number of elements in the universe (U = {0, 1, ..., UniverseSize-1})
-        UniverseSize: int
-        /// Collection of subsets
-        Subsets: Subset list
-    }
+    type Problem =
+        {
+            /// Number of elements in the universe (U = {0, 1, ..., UniverseSize-1})
+            UniverseSize: int
+            /// Collection of subsets
+            Subsets: Subset list
+        }
 
     /// Set cover solution
-    type Solution = {
-        /// Subsets selected in the cover
-        SelectedSubsets: Subset list
-        /// Total cost of the selected subsets
-        TotalCost: float
-        /// Number of subsets in the cover
-        CoverSize: int
-        /// Whether every element in U is covered
-        IsValid: bool
-        /// Whether constraint repair was applied
-        WasRepaired: bool
-        /// Name of the quantum backend used
-        BackendName: string
-        /// Number of measurement shots
-        NumShots: int
-        /// Optimized QAOA (gamma, beta) parameters per layer
-        OptimizedParameters: (float * float)[] option
-        /// Whether Nelder-Mead converged
-        OptimizationConverged: bool option
-    }
+    type Solution =
+        {
+            /// Subsets selected in the cover
+            SelectedSubsets: Subset list
+            /// Total cost of the selected subsets
+            TotalCost: float
+            /// Number of subsets in the cover
+            CoverSize: int
+            /// Whether every element in U is covered
+            IsValid: bool
+            /// Whether constraint repair was applied
+            WasRepaired: bool
+            /// Name of the quantum backend used
+            BackendName: string
+            /// Number of measurement shots
+            NumShots: int
+            /// Optimized QAOA (gamma, beta) parameters per layer
+            OptimizedParameters: (float * float)[] option
+            /// Whether Nelder-Mead converged
+            OptimizationConverged: bool option
+        }
 
     // ========================================================================
     // CONFIGURATION (type alias for unified config)
@@ -83,9 +86,9 @@ module QuantumSetCoverSolver =
 
     type Config = QaoaSolverConfig
 
-    let defaultConfig : Config = QaoaExecutionHelpers.defaultConfig
-    let fastConfig : Config = QaoaExecutionHelpers.fastConfig
-    let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
+    let defaultConfig: Config = QaoaExecutionHelpers.defaultConfig
+    let fastConfig: Config = QaoaExecutionHelpers.fastConfig
+    let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
     // COVERAGE MAP & SLACK LAYOUT
@@ -95,9 +98,7 @@ module QuantumSetCoverSolver =
     let private buildCoverageMap (problem: Problem) : Map<int, int list> =
         problem.Subsets
         |> List.indexed
-        |> List.collect (fun (j, subset) ->
-            subset.Elements
-            |> List.map (fun e -> (e, j)))
+        |> List.collect (fun (j, subset) -> subset.Elements |> List.map (fun e -> (e, j)))
         |> List.groupBy fst
         |> List.map (fun (e, pairs) -> (e, pairs |> List.map snd))
         |> Map.ofList
@@ -108,12 +109,17 @@ module QuantumSetCoverSolver =
     /// (0 bits when m <= 1: with a single candidate the constraint is x_j = 1).
     /// Integer bit counting mirrors QuantumBinaryILPSolver.slackBitsForBound.
     let private slackBitsForCoverage (m: int) : int =
-        if m <= 1 then 0
+        if m <= 1 then
+            0
         else
             let bound = m - 1
+
             let rec countBits value bits =
-                if value <= 0 then bits
-                else countBits (value >>> 1) (bits + 1)
+                if value <= 0 then
+                    bits
+                else
+                    countBits (value >>> 1) (bits + 1)
+
             countBits bound 0
 
     /// Covered elements in deterministic (ascending) order with their covering
@@ -121,6 +127,7 @@ module QuantumSetCoverSolver =
     /// subset-selection variables.
     let private coverageEntries (problem: Problem) : (int * int list) list =
         let coverageMap = buildCoverageMap problem
+
         [ 0 .. problem.UniverseSize - 1 ]
         |> List.choose (fun e ->
             coverageMap
@@ -184,16 +191,17 @@ module QuantumSetCoverSolver =
 
                 // Diagonal: lambda * (a^2 - 2*a)  (the -2a comes from the -1 constant)
                 let diagonal =
-                    coeffs
-                    |> List.map (fun (v, a) -> ((v, v), penalty * (a * a - 2.0 * a)))
+                    coeffs |> List.map (fun (v, a) -> ((v, v), penalty * (a * a - 2.0 * a)))
 
                 // Off-diagonal: 2 * lambda * a_u * a_v, symmetric split across (u,v) and (v,u)
                 let offDiagonal =
-                    [ for (u, au) in coeffs do
-                        for (v, av) in coeffs do
-                            if u < v then
-                                yield ((u, v), penalty * au * av)
-                                yield ((v, u), penalty * au * av) ]
+                    [
+                        for (u, au) in coeffs do
+                            for (v, av) in coeffs do
+                                if u < v then
+                                    yield ((u, v), penalty * au * av)
+                                    yield ((v, u), penalty * au * av)
+                    ]
 
                 (slackStart + numSlackBits, acc @ diagonal @ offDiagonal))
 
@@ -204,13 +212,13 @@ module QuantumSetCoverSolver =
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         if problem.Subsets.IsEmpty then
-            Error (QuantumError.ValidationError ("subsets", "Problem has no subsets"))
+            Error(QuantumError.ValidationError("subsets", "Problem has no subsets"))
         elif problem.UniverseSize <= 0 then
-            Error (QuantumError.ValidationError ("universeSize", "Universe size must be positive"))
+            Error(QuantumError.ValidationError("universeSize", "Universe size must be positive"))
         else
             let numVars = estimateQubits problem
             let quboMap = buildQuboMap problem
-            Ok (Qubo.toDenseArray numVars quboMap)
+            Ok(Qubo.toDenseArray numVars quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -220,8 +228,7 @@ module QuantumSetCoverSolver =
     let private coveredElements (problem: Problem) (bits: int[]) : Set<int> =
         problem.Subsets
         |> List.indexed
-        |> List.collect (fun (j, subset) ->
-            if bits.[j] = 1 then subset.Elements else [])
+        |> List.collect (fun (j, subset) -> if bits.[j] = 1 then subset.Elements else [])
         |> Set.ofList
 
     /// Check whether a bitstring represents a valid set cover:
@@ -229,8 +236,8 @@ module QuantumSetCoverSolver =
     /// Also validates bitstring length matches subset count.
     let isValid (problem: Problem) (bits: int[]) : bool =
         bits.Length = problem.Subsets.Length
-        && (
-            let covered = coveredElements problem bits
+        && (let covered = coveredElements problem bits
+
             [ 0 .. problem.UniverseSize - 1 ]
             |> List.forall (fun e -> covered |> Set.contains e))
 
@@ -266,6 +273,7 @@ module QuantumSetCoverSolver =
         let rec addCoverage (current: int[]) =
             let covered = coveredElements problem current
             let uncovered = Set.difference universe covered
+
             if Set.isEmpty uncovered then
                 current
             else
@@ -280,17 +288,21 @@ module QuantumSetCoverSolver =
                             subset.Elements
                             |> List.filter (fun e -> uncovered |> Set.contains e)
                             |> List.length
+
                         if newlyCovered > 0 then
                             let effectiveness =
-                                if subset.Cost <= 0.0 then infinity
-                                else float newlyCovered / subset.Cost
-                            Some (j, effectiveness)
+                                if subset.Cost <= 0.0 then
+                                    infinity
+                                else
+                                    float newlyCovered / subset.Cost
+
+                            Some(j, effectiveness)
                         else
                             None)
                     |> List.sortByDescending snd
 
                 match bestSubset with
-                | [] -> current  // No subset can cover remaining (impossible if well-formed)
+                | [] -> current // No subset can cover remaining (impossible if well-formed)
                 | (j, _) :: _ ->
                     let updated = Array.copy current
                     updated.[j] <- 1
@@ -303,6 +315,7 @@ module QuantumSetCoverSolver =
             | (j, _) :: rest ->
                 let tentative = Array.copy current
                 tentative.[j] <- 0
+
                 if isValid problem tentative then
                     tryRemove tentative rest
                 else
@@ -360,12 +373,14 @@ module QuantumSetCoverSolver =
         : Result<Solution, QuantumError> =
 
         if problem.Subsets.IsEmpty then
-            Error (QuantumError.ValidationError ("subsets", "Problem has no subsets"))
+            Error(QuantumError.ValidationError("subsets", "Problem has no subsets"))
         elif problem.UniverseSize <= 0 then
-            Error (QuantumError.ValidationError ("universeSize", "Universe size must be positive"))
-        elif problem.Subsets |> List.exists (fun s ->
-                s.Elements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize)) then
-            Error (QuantumError.ValidationError ("elements", "Element index out of range"))
+            Error(QuantumError.ValidationError("universeSize", "Universe size must be positive"))
+        elif
+            problem.Subsets
+            |> List.exists (fun s -> s.Elements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
+        then
+            Error(QuantumError.ValidationError("elements", "Element index out of range"))
         else
             let solveSingle (subProblem: Problem) =
                 match toQubo subProblem with
@@ -374,22 +389,24 @@ module QuantumSetCoverSolver =
                     let result =
                         if config.EnableOptimization then
                             executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) ->
-                                (bits, Some optParams, Some converged))
+                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
                             executeQaoaWithGridSearch backend qubo config
-                            |> Result.map (fun (bits, optParams) ->
-                                (bits, Some optParams, None))
+                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
                     | Error err -> Error err
-                    | Ok (bits, optParams, converged) ->
+                    | Ok(bits, optParams, converged) ->
                         // Keep only the subset-selection bits: the trailing coverage
                         // slack bits encode the >=1 inequality inside the QUBO and
                         // carry no solution content.
                         let numSubsets = subProblem.Subsets.Length
+
                         let decisionBits =
-                            if bits.Length > numSubsets then bits.[0 .. numSubsets - 1] else bits
+                            if bits.Length > numSubsets then
+                                bits.[0 .. numSubsets - 1]
+                            else
+                                bits
 
                         let finalBits, wasRepaired =
                             if config.EnableConstraintRepair && not (isValid subProblem decisionBits) then
@@ -398,15 +415,17 @@ module QuantumSetCoverSolver =
                                 (decisionBits, false)
 
                         let solution = decodeSolution subProblem finalBits
-                        Ok { solution with
+
+                        Ok
+                            { solution with
                                 BackendName = backend.Name
                                 NumShots = config.FinalShots
                                 WasRepaired = wasRepaired
                                 OptimizedParameters = optParams
-                                OptimizationConverged = converged }
+                                OptimizationConverged = converged
+                            }
 
-            ProblemDecomposition.solveWithDecomposition
-                backend problem estimateQubits decompose recombine solveSingle
+            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve set cover using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
@@ -416,10 +435,11 @@ module QuantumSetCoverSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Task<Result<Solution, QuantumError>> = task {
-        cancellationToken.ThrowIfCancellationRequested()
-        return solveWithConfig backend problem config
-    }
+        : Task<Result<Solution, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
 
     /// Solve set cover using QAOA with default configuration.
     [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -429,7 +449,11 @@ module QuantumSetCoverSolver =
         (shots: int)
         : Result<Solution, QuantumError> =
 
-        let config = { defaultConfig with FinalShots = shots }
+        let config =
+            { defaultConfig with
+                FinalShots = shots
+            }
+
         solveWithConfigAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -445,13 +469,17 @@ module QuantumSetCoverSolver =
     let private solveClassical (problem: Problem) : Solution =
         if problem.Subsets.IsEmpty || problem.UniverseSize <= 0 then
             decodeSolution problem (Array.zeroCreate (max 0 problem.Subsets.Length))
-            |> fun s -> { s with BackendName = "Classical Greedy" }
+            |> fun s ->
+                { s with
+                    BackendName = "Classical Greedy"
+                }
         else
             let universe = Set.ofList [ 0 .. problem.UniverseSize - 1 ]
             let n = problem.Subsets.Length
 
             let rec greedyCover (selected: Set<int>) (covered: Set<int>) =
                 let uncovered = Set.difference universe covered
+
                 if Set.isEmpty uncovered then
                     selected
                 else
@@ -464,24 +492,32 @@ module QuantumSetCoverSolver =
                                 subset.Elements
                                 |> List.filter (fun e -> uncovered |> Set.contains e)
                                 |> List.length
+
                             if newlyCovered > 0 then
                                 let effectiveness =
-                                    if subset.Cost <= 0.0 then infinity
-                                    else float newlyCovered / subset.Cost
-                                Some (j, subset, effectiveness)
+                                    if subset.Cost <= 0.0 then
+                                        infinity
+                                    else
+                                        float newlyCovered / subset.Cost
+
+                                Some(j, subset, effectiveness)
                             else
                                 None)
                         |> List.sortByDescending (fun (_, _, effectiveness) -> effectiveness)
 
                     match bestCandidate with
-                    | [] -> selected  // Cannot cover remaining elements
+                    | [] -> selected // Cannot cover remaining elements
                     | (j, subset, _) :: _ ->
                         let newCovered =
-                            subset.Elements
-                            |> List.fold (fun acc e -> acc |> Set.add e) covered
+                            subset.Elements |> List.fold (fun acc e -> acc |> Set.add e) covered
+
                         greedyCover (selected |> Set.add j) newCovered
 
             let selectedSet = greedyCover Set.empty Set.empty
             let bits = Array.init n (fun j -> if selectedSet |> Set.contains j then 1 else 0)
+
             decodeSolution problem bits
-            |> fun s -> { s with BackendName = "Classical Greedy" }
+            |> fun s ->
+                { s with
+                    BackendName = "Classical Greedy"
+                }

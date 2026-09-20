@@ -7,7 +7,7 @@ open System.Threading
 open System.Threading.Tasks
 
 /// TKT-97: OpenQASM Export Module (Versioned)
-/// 
+///
 /// Export quantum circuits to OpenQASM 1.0, 2.0, or 3.0 format.
 /// Supports IBM Qiskit compatibility (2.0) and modern OpenQASM 3.0 syntax.
 ///
@@ -31,30 +31,29 @@ open System.Threading.Tasks
 /// let config = OpenQasmVersion.configFor V3_0
 /// let qasmV3 = OpenQasm.exportWithConfig config circuit
 /// ```
-
 /// <summary>
 /// OpenQASM export module with version-parameterized output.
 /// </summary>
 module OpenQasmExport =
-    
+
     open CircuitBuilder
     open OpenQasmVersion
-    
+
     // ========================================================================
     // CONSTANTS
     // ========================================================================
-    
+
     /// OpenQASM version number (default)
     let version = "2.0"
-    
+
     /// Number of decimal places for angle formatting
     [<Literal>]
     let private angleDecimalPlaces = 10
-    
+
     // ========================================================================
     // ANGLE FORMATTING
     // ========================================================================
-    
+
     /// <summary>
     /// Format angle with specified decimal precision for OpenQASM.
     /// </summary>
@@ -63,11 +62,11 @@ module OpenQasmExport =
         // this would otherwise emit "rx(1,5707963268)", which is invalid OpenQASM and gets silently
         // rejected by Braket/IQM and the other backends that consume this exporter.
         angle.ToString($"F{angleDecimalPlaces}", System.Globalization.CultureInfo.InvariantCulture)
-    
+
     // ========================================================================
     // GATE TRANSLATION
     // ========================================================================
-    
+
     /// <summary>
     /// Translate a single gate to an OpenQASM instruction.
     /// Most gate names are the same across all supported versions (qelib1.inc / stdgates.inc),
@@ -77,70 +76,45 @@ module OpenQasmExport =
     /// </summary>
     let rec private gateToQasm (config: QasmConfig) (gate: Gate) : string =
         match gate with
-        | X q -> 
-            $"x q[{q}];"
-        | Y q -> 
-            $"y q[{q}];"
-        | Z q -> 
-            $"z q[{q}];"
-        | H q -> 
-            $"h q[{q}];"
-        | S q -> 
-            $"s q[{q}];"
-        | SDG q -> 
-            $"sdg q[{q}];"
-        | T q -> 
-            $"t q[{q}];"
-        | TDG q -> 
-            $"tdg q[{q}];"
-        | CNOT (control, target) -> 
-            $"cx q[{control}],q[{target}];"
-        | CZ (control, target) -> 
-            $"cz q[{control}],q[{target}];"
-        | SWAP (q1, q2) -> 
-            $"swap q[{q1}],q[{q2}];"
-        | CCX (control1, control2, target) -> 
-            $"ccx q[{control1}],q[{control2}],q[{target}];"
-        | RX (q, angle) -> 
-            $"rx({formatAngle angle}) q[{q}];"
-        | RY (q, angle) -> 
-            $"ry({formatAngle angle}) q[{q}];"
-        | RZ (q, angle) -> 
-            $"rz({formatAngle angle}) q[{q}];"
-        | P (q, theta) -> 
-            $"p({formatAngle theta}) q[{q}];"
-        | CP (control, target, theta) -> 
-            $"cp({formatAngle theta}) q[{control}],q[{target}];"
-        | CRX (control, target, theta) ->
-            $"crx({formatAngle theta}) q[{control}],q[{target}];"
-        | CRY (control, target, theta) ->
-            $"cry({formatAngle theta}) q[{control}],q[{target}];"
-        | CRZ (control, target, theta) ->
-            $"crz({formatAngle theta}) q[{control}],q[{target}];"
-        | RXX (q1, q2, theta) ->
-            $"rxx({formatAngle theta}) q[{q1}],q[{q2}];"
-        | RYY (q1, q2, theta) ->
-            $"ryy({formatAngle theta}) q[{q1}],q[{q2}];"
-        | RZZ (q1, q2, theta) ->
-            $"rzz({formatAngle theta}) q[{q1}],q[{q2}];"
-        | U3 (q, theta, phi, lambda) ->
-            $"u3({formatAngle theta},{formatAngle phi},{formatAngle lambda}) q[{q}];"
-        | MCZ (controls, target) ->
-            failwith "MCZ gate found in OpenQASM export. Call GateTranspiler.transpile() first to decompose multi-controlled gates."
-        | Measure q ->
-            measureInstruction config q
-        | Reset q ->
-            $"reset q[{q}];"
+        | X q -> $"x q[{q}];"
+        | Y q -> $"y q[{q}];"
+        | Z q -> $"z q[{q}];"
+        | H q -> $"h q[{q}];"
+        | S q -> $"s q[{q}];"
+        | SDG q -> $"sdg q[{q}];"
+        | T q -> $"t q[{q}];"
+        | TDG q -> $"tdg q[{q}];"
+        | CNOT(control, target) -> $"cx q[{control}],q[{target}];"
+        | CZ(control, target) -> $"cz q[{control}],q[{target}];"
+        | SWAP(q1, q2) -> $"swap q[{q1}],q[{q2}];"
+        | CCX(control1, control2, target) -> $"ccx q[{control1}],q[{control2}],q[{target}];"
+        | RX(q, angle) -> $"rx({formatAngle angle}) q[{q}];"
+        | RY(q, angle) -> $"ry({formatAngle angle}) q[{q}];"
+        | RZ(q, angle) -> $"rz({formatAngle angle}) q[{q}];"
+        | P(q, theta) -> $"p({formatAngle theta}) q[{q}];"
+        | CP(control, target, theta) -> $"cp({formatAngle theta}) q[{control}],q[{target}];"
+        | CRX(control, target, theta) -> $"crx({formatAngle theta}) q[{control}],q[{target}];"
+        | CRY(control, target, theta) -> $"cry({formatAngle theta}) q[{control}],q[{target}];"
+        | CRZ(control, target, theta) -> $"crz({formatAngle theta}) q[{control}],q[{target}];"
+        | RXX(q1, q2, theta) -> $"rxx({formatAngle theta}) q[{q1}],q[{q2}];"
+        | RYY(q1, q2, theta) -> $"ryy({formatAngle theta}) q[{q1}],q[{q2}];"
+        | RZZ(q1, q2, theta) -> $"rzz({formatAngle theta}) q[{q1}],q[{q2}];"
+        | U3(q, theta, phi, lambda) -> $"u3({formatAngle theta},{formatAngle phi},{formatAngle lambda}) q[{q}];"
+        | MCZ(controls, target) ->
+            failwith
+                "MCZ gate found in OpenQASM export. Call GateTranspiler.transpile() first to decompose multi-controlled gates."
+        | Measure q -> measureInstruction config q
+        | Reset q -> $"reset q[{q}];"
         | Barrier qubits ->
             let qubitList = qubits |> List.map (fun q -> $"q[{q}]") |> String.concat ","
             $"barrier {qubitList};"
-        | Conditional (q, inner) ->
+        | Conditional(q, inner) ->
             // Per-bit classical conditions exist only in OpenQASM 3.0;
             // 2.0 `if` compares an entire creg and cannot express this.
             match config.Version with
             | V3_0 -> $"if (c[{q}] == 1) {{ {gateToQasm config inner} }}"
-            | V1_0 | V2_0 ->
-                failwith "Conditional gates require OpenQASM 3.0 export (per-bit if). Use QasmVersion.V3_0."
+            | V1_0
+            | V2_0 -> failwith "Conditional gates require OpenQASM 3.0 export (per-bit if). Use QasmVersion.V3_0."
 
 
     // ========================================================================
@@ -151,10 +125,10 @@ module OpenQasmExport =
     let rec private circuitUses (pred: Gate -> bool) (gates: Gate list) : bool =
         gates
         |> List.exists (fun g ->
-            pred g ||
-            (match g with
-             | Conditional (_, inner) -> circuitUses pred [inner]
-             | _ -> false))
+            pred g
+            || (match g with
+                | Conditional(_, inner) -> circuitUses pred [ inner ]
+                | _ -> false))
 
     /// Exact inline definitions for the two-qubit Ising rotations, in terms of gates that
     /// both qelib1.inc and stdgates.inc provide (h, rx, rz, cx):
@@ -163,9 +137,13 @@ module OpenQasmExport =
     ///   ryy(θ) = (RX(-π/2)⊗RX(-π/2))·rzz(θ)·(RX(π/2)⊗RX(π/2))   (RX(∓π/2) conjugation maps Z to ∓Y)
     /// Each is exp(-iθ/2·P⊗P) exactly (not merely up to global phase).
     [<Literal>]
-    let private rxxGateDef = "gate rxx(theta) a,b { h a; h b; cx a,b; rz(theta) b; cx a,b; h a; h b; }"
+    let private rxxGateDef =
+        "gate rxx(theta) a,b { h a; h b; cx a,b; rz(theta) b; cx a,b; h a; h b; }"
+
     [<Literal>]
-    let private ryyGateDef = "gate ryy(theta) a,b { rx(pi/2) a; rx(pi/2) b; cx a,b; rz(theta) b; cx a,b; rx(-pi/2) a; rx(-pi/2) b; }"
+    let private ryyGateDef =
+        "gate ryy(theta) a,b { rx(pi/2) a; rx(pi/2) b; cx a,b; rz(theta) b; cx a,b; rx(-pi/2) a; rx(-pi/2) b; }"
+
     [<Literal>]
     let private rzzGateDef = "gate rzz(theta) a,b { cx a,b; rz(theta) b; cx a,b; }"
 
@@ -175,21 +153,43 @@ module OpenQasmExport =
     /// makes backends reject the program.
     let private missingRotationGateDefs (config: QasmConfig) (circuit: Circuit) : string list =
         let uses pred = circuitUses pred circuit.Gates
-        let usesRxx = uses (function RXX _ -> true | _ -> false)
-        let usesRyy = uses (function RYY _ -> true | _ -> false)
-        let usesRzz = uses (function RZZ _ -> true | _ -> false)
+
+        let usesRxx =
+            uses (function
+                | RXX _ -> true
+                | _ -> false)
+
+        let usesRyy =
+            uses (function
+                | RYY _ -> true
+                | _ -> false)
+
+        let usesRzz =
+            uses (function
+                | RZZ _ -> true
+                | _ -> false)
+
         match config.Version with
         | V3_0 ->
-            [ if usesRxx then rxxGateDef
-              if usesRyy then ryyGateDef
-              if usesRzz then rzzGateDef ]
-        | V1_0 | V2_0 ->
-            [ if usesRyy then ryyGateDef ]
+            [
+                if usesRxx then
+                    rxxGateDef
+                if usesRyy then
+                    ryyGateDef
+                if usesRzz then
+                    rzzGateDef
+            ]
+        | V1_0
+        | V2_0 ->
+            [
+                if usesRyy then
+                    ryyGateDef
+            ]
 
     // ========================================================================
     // VALIDATION
     // ========================================================================
-    
+
     /// <summary>
     /// Validate that a circuit is compatible with OpenQASM export.
     /// Validation is version-independent (qubit bounds checking applies to all versions).
@@ -203,96 +203,120 @@ module OpenQasmExport =
                     if q < 0 || q >= circuit.QubitCount then
                         Error $"Invalid {gateName}: qubit {q} out of range [0, {circuit.QubitCount - 1}]"
                     else
-                        Ok ()
-                
+                        Ok()
+
                 match gate with
-                | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q | Reset q -> 
-                    checkQubit q "single-qubit gate"
-                | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) -> 
-                    checkQubit q "rotation gate"
-                | U3 (q, _, _, _) ->
-                    checkQubit q "U3 gate"
-                | CNOT (control, target) | CZ (control, target) | CP (control, target, _) 
-                | CRX (control, target, _) | CRY (control, target, _) | CRZ (control, target, _) ->
+                | X q
+                | Y q
+                | Z q
+                | H q
+                | S q
+                | SDG q
+                | T q
+                | TDG q
+                | Measure q
+                | Reset q -> checkQubit q "single-qubit gate"
+                | RX(q, _)
+                | RY(q, _)
+                | RZ(q, _)
+                | P(q, _) -> checkQubit q "rotation gate"
+                | U3(q, _, _, _) -> checkQubit q "U3 gate"
+                | CNOT(control, target)
+                | CZ(control, target)
+                | CP(control, target, _)
+                | CRX(control, target, _)
+                | CRY(control, target, _)
+                | CRZ(control, target, _) ->
                     match checkQubit control "two-qubit control", checkQubit target "two-qubit target" with
-                    | Ok (), Ok () -> 
+                    | Ok(), Ok() ->
                         if control = target then
                             Error "Two-qubit gate control and target must be different qubits"
                         else
-                            Ok ()
+                            Ok()
                     | Error msg, _ -> Error msg
                     | _, Error msg -> Error msg
-                | Conditional (q, inner) ->
+                | Conditional(q, inner) ->
                     match checkQubit q "Conditional measured qubit" with
                     | Error msg -> Error msg
-                    | Ok () ->
+                    | Ok() ->
                         match inner with
-                        | Conditional _ | Measure _ | Reset _ ->
-                            Error $"Conditional body must be a plain unitary gate, got {CircuitBuilder.getGateName inner}"
+                        | Conditional _
+                        | Measure _
+                        | Reset _ ->
+                            Error
+                                $"Conditional body must be a plain unitary gate, got {CircuitBuilder.getGateName inner}"
                         | _ -> validateGate inner
-                | SWAP (q1, q2)
-                | RXX (q1, q2, _) | RYY (q1, q2, _) | RZZ (q1, q2, _) ->
+                | SWAP(q1, q2)
+                | RXX(q1, q2, _)
+                | RYY(q1, q2, _)
+                | RZZ(q1, q2, _) ->
                     let name = CircuitBuilder.getGateName gate
+
                     match checkQubit q1 $"{name} qubit1", checkQubit q2 $"{name} qubit2" with
-                    | Ok (), Ok () ->
+                    | Ok(), Ok() ->
                         if q1 = q2 then
                             Error $"{name} qubits must be different"
                         else
-                            Ok ()
+                            Ok()
                     | Error msg, _ -> Error msg
                     | _, Error msg -> Error msg
-                | CCX (control1, control2, target) ->
-                    match checkQubit control1 "CCX control1", checkQubit control2 "CCX control2", checkQubit target "CCX target" with
-                    | Ok (), Ok (), Ok () -> 
+                | CCX(control1, control2, target) ->
+                    match
+                        checkQubit control1 "CCX control1",
+                        checkQubit control2 "CCX control2",
+                        checkQubit target "CCX target"
+                    with
+                    | Ok(), Ok(), Ok() ->
                         if control1 = control2 || control1 = target || control2 = target then
                             Error "CCX (Toffoli) control and target qubits must be distinct"
                         else
-                            Ok ()
+                            Ok()
                     | Error msg, _, _ -> Error msg
                     | _, Error msg, _ -> Error msg
                     | _, _, Error msg -> Error msg
-                | MCZ (controls, target) ->
+                | MCZ(controls, target) ->
                     let controlResults = controls |> List.map (fun c -> checkQubit c "MCZ control")
                     let targetResult = checkQubit target "MCZ target"
-                    
+
                     match List.tryFind Result.isError controlResults with
-                    | Some (Error msg) -> Error msg
+                    | Some(Error msg) -> Error msg
                     | _ ->
                         match targetResult with
                         | Error msg -> Error msg
-                        | Ok () ->
+                        | Ok() ->
                             let allQubits = target :: controls
+
                             if List.distinct allQubits |> List.length <> List.length allQubits then
                                 Error "MCZ control and target qubits must be distinct"
                             else
-                                Ok ()
+                                Ok()
                 | Barrier qubits ->
                     if List.isEmpty qubits then
                         Error "Barrier must specify at least one qubit"
                     else
                         let qubitResults = qubits |> List.map (fun q -> checkQubit q "Barrier qubit")
+
                         match List.tryFind Result.isError qubitResults with
-                        | Some (Error msg) -> Error msg
+                        | Some(Error msg) -> Error msg
                         | _ ->
                             if List.distinct qubits |> List.length <> List.length qubits then
                                 Error "Barrier qubits must be distinct"
                             else
-                                Ok ()
-            
+                                Ok()
+
             circuit.Gates
             |> List.tryPick (fun gate ->
                 match validateGate gate with
                 | Error msg -> Some msg
-                | Ok () -> None
-            )
+                | Ok() -> None)
             |> function
                 | Some errorMsg -> Error errorMsg
-                | None -> Ok ()
-    
+                | None -> Ok()
+
     // ========================================================================
     // EXPORT (VERSIONED)
     // ========================================================================
-    
+
     /// <summary>
     /// Export circuit to OpenQASM text format using the specified version configuration.
     /// </summary>
@@ -302,7 +326,7 @@ module OpenQasmExport =
     /// <returns>OpenQASM code as string in the specified version format</returns>
     let exportWithConfig (config: QasmConfig) (circuit: Circuit) : string =
         let sb = StringBuilder()
-        
+
         // Header
         sb.AppendLine(headerLine config) |> ignore
         sb.AppendLine(includeLine config) |> ignore
@@ -313,41 +337,44 @@ module OpenQasmExport =
 
         // Register declarations
         sb.AppendLine(qubitRegisterDecl config circuit.QubitCount) |> ignore
-        
+
         // Classical register declaration. Measurements write c[q] for qubit q
         // and conditionals read c[q], so the register must span all qubits.
         let needsClassicalRegister =
             circuit.Gates
             |> List.exists (fun g ->
                 match g with
-                | Measure _ | Conditional _ -> true
+                | Measure _
+                | Conditional _ -> true
                 | _ -> false)
+
         if needsClassicalRegister then
             sb.AppendLine(classicalRegisterDecl config circuit.QubitCount) |> ignore
 
         // Gate instructions (Gates is stored most-recent-first; emit in program order)
         for gate in List.rev circuit.Gates do
             sb.AppendLine(gateToQasm config gate) |> ignore
-        
+
         sb.ToString().TrimEnd()
-    
+
     /// <summary>
     /// Export circuit to OpenQASM 2.0 text format (backward compatible).
     /// </summary>
     let export (circuit: Circuit) : string =
         exportWithConfig (configFor V2_0) circuit
-    
+
     /// <summary>
     /// Export circuit to a .qasm file using the specified version configuration.
     /// </summary>
     let exportToFileWithConfig (config: QasmConfig) (circuit: Circuit) (filePath: string) : unit =
         let directory = Path.GetDirectoryName(filePath)
+
         if not ((String.IsNullOrEmpty directory) || (Directory.Exists directory)) then
             Directory.CreateDirectory(directory) |> ignore
-        
+
         let qasmCode = exportWithConfig config circuit
         File.WriteAllText(filePath, qasmCode)
-    
+
     /// <summary>
     /// Export circuit to a .qasm file (OpenQASM 2.0, backward compatible).
     /// </summary>
@@ -357,14 +384,21 @@ module OpenQasmExport =
     /// <summary>
     /// Export circuit to a .qasm file asynchronously using the specified version configuration.
     /// </summary>
-    let exportToFileWithConfigAsync (config: QasmConfig) (circuit: Circuit) (filePath: string) (ct: CancellationToken) : Task<unit> = task {
-        let directory = Path.GetDirectoryName(filePath)
-        if not ((String.IsNullOrEmpty directory) || (Directory.Exists directory)) then
-            Directory.CreateDirectory(directory) |> ignore
+    let exportToFileWithConfigAsync
+        (config: QasmConfig)
+        (circuit: Circuit)
+        (filePath: string)
+        (ct: CancellationToken)
+        : Task<unit> =
+        task {
+            let directory = Path.GetDirectoryName(filePath)
 
-        let qasmCode = exportWithConfig config circuit
-        do! File.WriteAllTextAsync(filePath, qasmCode, ct)
-    }
+            if not ((String.IsNullOrEmpty directory) || (Directory.Exists directory)) then
+                Directory.CreateDirectory(directory) |> ignore
+
+            let qasmCode = exportWithConfig config circuit
+            do! File.WriteAllTextAsync(filePath, qasmCode, ct)
+        }
 
     /// <summary>
     /// Export circuit to a .qasm file asynchronously (OpenQASM 2.0, backward compatible).
@@ -377,32 +411,32 @@ module OpenQasmExport =
 /// Provides both backward-compatible 2.0 functions and new versioned functions.
 /// </summary>
 module OpenQasm =
-    
+
     open OpenQasmVersion
-    
+
     /// <summary>OpenQASM default version number</summary>
     let version = OpenQasmExport.version
-    
+
     /// <summary>Export circuit to OpenQASM 2.0 text format (default)</summary>
     let export = OpenQasmExport.export
-    
+
     /// <summary>Export circuit to OpenQASM text format using specified version config</summary>
     let exportWithConfig = OpenQasmExport.exportWithConfig
-    
+
     /// <summary>Export circuit to OpenQASM 3.0 text format</summary>
     let exportV3 = OpenQasmExport.exportWithConfig (configFor V3_0)
-    
+
     /// <summary>Export circuit to file (OpenQASM 2.0, default)</summary>
     let exportToFile = OpenQasmExport.exportToFile
-    
+
     /// <summary>Export circuit to file using specified version config</summary>
     let exportToFileWithConfig = OpenQasmExport.exportToFileWithConfig
-    
+
     /// <summary>Export circuit to file asynchronously (OpenQASM 2.0, default)</summary>
     let exportToFileAsync = OpenQasmExport.exportToFileAsync
-    
+
     /// <summary>Export circuit to file asynchronously using specified version config</summary>
     let exportToFileWithConfigAsync = OpenQasmExport.exportToFileWithConfigAsync
-    
+
     /// <summary>Validate circuit is OpenQASM compatible</summary>
     let validate = OpenQasmExport.validate

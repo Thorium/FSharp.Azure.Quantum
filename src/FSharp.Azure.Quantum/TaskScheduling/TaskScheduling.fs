@@ -28,82 +28,84 @@ open FSharp.Azure.Quantum.TaskScheduling.Types
 ///
 /// EXAMPLE USAGE:
 ///   open FSharp.Azure.Quantum.TaskScheduling
-///   
+///
 ///   let taskA = scheduledTask {
 ///       taskId "TaskA"
 ///       duration (hours 2.0)
 ///   }
-///   
+///
 ///   let taskB = scheduledTask {
 ///       taskId "TaskB"
 ///       duration (minutes 30.0)
 ///       after "TaskA"  // Dependency co-located!
 ///       deadline 180.0
 ///   }
-///   
+///
 ///   let problem = scheduling {
 ///       tasks [taskA; taskB]
 ///       objective MinimizeMakespan
 ///   }
-///   
+///
 ///   let! result = solve problem
 
 // ============================================================================
 // RE-EXPORT TYPES AND FUNCTIONS - Make everything available at FSharp.Azure.Quantum level
 [<AutoOpen>]
 module TaskSchedulingTypes =
-    
+
     // Open Types module so all types and union cases are available
     open FSharp.Azure.Quantum.TaskScheduling.Types
 
     // Re-export builder functions
-    let scheduledTask<'T> = FSharp.Azure.Quantum.TaskScheduling.Builders.scheduledTask<'T>
+    let scheduledTask<'T> =
+        FSharp.Azure.Quantum.TaskScheduling.Builders.scheduledTask<'T>
+
     let resource<'T> = FSharp.Azure.Quantum.TaskScheduling.Builders.resource<'T>
     let crew = FSharp.Azure.Quantum.TaskScheduling.Builders.crew
-    let scheduling<'TTask, 'TResource> = FSharp.Azure.Quantum.TaskScheduling.Builders.scheduling<'TTask, 'TResource>
-    
+
+    let scheduling<'TTask, 'TResource> =
+        FSharp.Azure.Quantum.TaskScheduling.Builders.scheduling<'TTask, 'TResource>
+
     // Re-export time helper functions (redundant but explicit)
     let minutes = minutes
     let hours = hours
     let days = days
 
     // Public API functions
-    
+
     /// Solve scheduling problem and return optimized schedule (classical dependency-only)
-    /// 
+    ///
     /// Note: This solver handles dependencies but ignores resource capacity constraints.
     /// For resource-constrained scheduling, use solveQuantum with IQuantumBackend.
     /// Internal: classical dependency-only solver. Not part of the public quantum-first API.
     /// Public callers must use solveQuantum with an IQuantumBackend (local simulator or cloud).
     let internal solve (problem: SchedulingProblem<'TTask, 'TResource>) : Async<QuantumResult<Solution>> =
-        async {
-            return FSharp.Azure.Quantum.TaskScheduling.ClassicalSolver.solve problem
-        }
+        async { return FSharp.Azure.Quantum.TaskScheduling.ClassicalSolver.solve problem }
 
     /// Solve scheduling problem with resource constraints using quantum backend
-    /// 
+    ///
     /// RULE 1 COMPLIANCE:
     /// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
-    /// 
+    ///
     /// Resource-constrained scheduling is solved via quantum optimization:
     /// 1. Encodes tasks, dependencies, and resource limits as QUBO problem
     /// 2. Uses QAOA or quantum annealing to find optimal schedule
     /// 3. Respects resource capacity constraints (unlike classical solver)
-    /// 
+    ///
     /// Use this when:
     /// - Tasks have resource requirements (workers, machines, budget)
     /// - Resources have limited capacity
     /// - Need optimal allocation under constraints
-    /// 
+    ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let! result = solveQuantum backend problem
-    let solveQuantum 
+    let solveQuantum
         (backend: BackendAbstraction.IQuantumBackend)
-        (problem: SchedulingProblem<'TTask, 'TResource>) 
+        (problem: SchedulingProblem<'TTask, 'TResource>)
         : Async<QuantumResult<Solution>> =
         FSharp.Azure.Quantum.TaskScheduling.QuantumSolver.solveAsync backend problem
-    
+
     /// Export schedule as Gantt chart to text file
     let exportGanttChart (solution: Solution) (filePath: string) : unit =
         FSharp.Azure.Quantum.TaskScheduling.Export.exportGanttChart solution filePath
@@ -129,7 +131,12 @@ module Scheduling =
         }
 
     /// Create a task with resource requirements (C# helper)
-    let taskWithRequirements (id: string) (value: 'T) (duration: TimeSpan) (requirements: (string * float) list) : ScheduledTask<'T> =
+    let taskWithRequirements
+        (id: string)
+        (value: 'T)
+        (duration: TimeSpan)
+        (requirements: (string * float) list)
+        : ScheduledTask<'T> =
         {
             Id = id
             Value = Some value
@@ -144,13 +151,15 @@ module Scheduling =
     /// SchedulingBuilder for C# FluentAPI
     type SchedulingBuilder<'TTask, 'TResource> private (problem: SchedulingProblem<'TTask, 'TResource>) =
         static member Create() =
-            SchedulingBuilder({
-                Tasks = []
-                Resources = []
-                Dependencies = []
-                Objective = MinimizeMakespan
-                TimeHorizon = TimeSpan.FromMinutes 1000.0
-            })
+            SchedulingBuilder(
+                {
+                    Tasks = []
+                    Resources = []
+                    Dependencies = []
+                    Objective = MinimizeMakespan
+                    TimeHorizon = TimeSpan.FromMinutes 1000.0
+                }
+            )
 
         member _.Tasks(tasks: ScheduledTask<'TTask> list) =
             SchedulingBuilder({ problem with Tasks = tasks })
@@ -159,7 +168,11 @@ module Scheduling =
             SchedulingBuilder({ problem with Resources = resources })
 
         member _.AddDependency(dependency: Dependency) =
-            SchedulingBuilder({ problem with Dependencies = dependency :: problem.Dependencies })
+            SchedulingBuilder(
+                { problem with
+                    Dependencies = dependency :: problem.Dependencies
+                }
+            )
 
         member _.Objective(objective: Objective) =
             SchedulingBuilder({ problem with Objective = objective })

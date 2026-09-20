@@ -20,24 +20,27 @@ module ModExpPhaseTests =
     [<Fact>]
     let ``estimateModExpPhase rejects modulus < 2`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 2 1 4 bknd with
-        | Error (QuantumError.ValidationError ("modulus", _)) -> ()
+        | Error(QuantumError.ValidationError("modulus", _)) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError for modulus, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for modulus < 2")
 
     [<Fact>]
     let ``estimateModExpPhase rejects baseNum < 2`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 1 7 4 bknd with
-        | Error (QuantumError.ValidationError ("baseNum", _)) -> ()
+        | Error(QuantumError.ValidationError("baseNum", _)) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError for baseNum, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for baseNum < 2")
 
     [<Fact>]
     let ``estimateModExpPhase rejects baseNum >= modulus`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 7 7 4 bknd with
-        | Error (QuantumError.ValidationError ("baseNum", _)) -> ()
+        | Error(QuantumError.ValidationError("baseNum", _)) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError for baseNum, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for baseNum >= modulus")
 
@@ -46,33 +49,34 @@ module ModExpPhaseTests =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
         // 6 and 15 share factor 3 → gcd(6,15) = 3
         match Shor.estimateModExpPhase 6 15 4 bknd with
-        | Error (QuantumError.ValidationError ("baseNum", msg)) ->
-            Assert.Contains("coprime", msg)
+        | Error(QuantumError.ValidationError("baseNum", msg)) -> Assert.Contains("coprime", msg)
         | Error err -> Assert.Fail($"Expected ValidationError for non-coprime, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for non-coprime baseNum and modulus")
 
     [<Fact>]
     let ``estimateModExpPhase rejects zero countingQubits`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 2 7 0 bknd with
-        | Error (QuantumError.ValidationError ("countingQubits", _)) -> ()
+        | Error(QuantumError.ValidationError("countingQubits", _)) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError for countingQubits, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for zero countingQubits")
 
     [<Fact>]
     let ``estimateModExpPhase rejects negative countingQubits`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 2 7 -1 bknd with
-        | Error (QuantumError.ValidationError ("countingQubits", _)) -> ()
+        | Error(QuantumError.ValidationError("countingQubits", _)) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError for countingQubits, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for negative countingQubits")
 
     [<Fact>]
     let ``estimateModExpPhase rejects countingQubits > 16`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 2 7 17 bknd with
-        | Error (QuantumError.ValidationError ("countingQubits", msg)) ->
-            Assert.Contains("16", msg)
+        | Error(QuantumError.ValidationError("countingQubits", msg)) -> Assert.Contains("16", msg)
         | Error err -> Assert.Fail($"Expected ValidationError for countingQubits > 16, got: {err}")
         | Ok _ -> Assert.Fail("Expected error for countingQubits > 16")
 
@@ -81,8 +85,7 @@ module ModExpPhaseTests =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
         // N=15, n=4 bits, workspace = 2*4+4 = 12, so c > 8 would exceed 20
         match Shor.estimateModExpPhase 2 15 9 bknd with
-        | Error (QuantumError.ValidationError ("totalQubits", msg)) ->
-            Assert.Contains("20", msg)
+        | Error(QuantumError.ValidationError("totalQubits", msg)) -> Assert.Contains("20", msg)
         | Error err -> Assert.Fail($"Expected ValidationError for totalQubits, got: {err}")
         | Ok _ -> Assert.Fail("Expected error when total qubits exceed 20")
 
@@ -97,6 +100,7 @@ module ModExpPhaseTests =
     [<Fact>]
     let ``estimateModExpPhase a=2 mod 5 returns valid phase (c=4)`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         match Shor.estimateModExpPhase 2 5 4 bknd with
         | Error err -> Assert.Fail($"estimateModExpPhase failed: {err}")
         | Ok result ->
@@ -104,11 +108,12 @@ module ModExpPhaseTests =
             // With 4 counting qubits (2^4=16 slots), the valid measurement
             // outcomes that yield phases s/4 are: 0, 4, 8, 12 → phases 0.0, 0.25, 0.5, 0.75
             let validPhases = [| 0.0; 0.25; 0.5; 0.75 |]
+
             let isValidPhase =
-                validPhases |> Array.exists (fun expected ->
-                    abs (result.EstimatedPhase - expected) < 0.001)
-            Assert.True(isValidPhase,
-                $"Phase {result.EstimatedPhase} not close to any valid s/4 phase: {validPhases}")
+                validPhases
+                |> Array.exists (fun expected -> abs (result.EstimatedPhase - expected) < 0.001)
+
+            Assert.True(isValidPhase, $"Phase {result.EstimatedPhase} not close to any valid s/4 phase: {validPhases}")
             Assert.Equal(4, result.CountingQubits)
             Assert.Equal(14, result.TotalQubits)
             Assert.Equal(4, result.ModularMultiplications)
@@ -126,11 +131,12 @@ module ModExpPhaseTests =
             // r=4, with 3 counting qubits (8 slots), valid phases s/4:
             // measurement outcomes 0, 2, 4, 6 → phases 0.0, 0.25, 0.5, 0.75
             let validPhases = [| 0.0; 0.25; 0.5; 0.75 |]
+
             let isValidPhase =
-                validPhases |> Array.exists (fun expected ->
-                    abs (result.EstimatedPhase - expected) < 0.001)
-            Assert.True(isValidPhase,
-                $"Phase {result.EstimatedPhase} not close to any valid s/4 phase: {validPhases}")
+                validPhases
+                |> Array.exists (fun expected -> abs (result.EstimatedPhase - expected) < 0.001)
+
+            Assert.True(isValidPhase, $"Phase {result.EstimatedPhase} not close to any valid s/4 phase: {validPhases}")
             Assert.Equal(3, result.CountingQubits)
             Assert.Equal(13, result.TotalQubits)
 
@@ -143,25 +149,28 @@ module ModExpPhaseTests =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
         // QPE with non-exact binary fractions (1/3, 2/3 don't fit in 4 bits) is
         // inherently probabilistic. Retry up to 5 times — any single success suffices.
-        let validPhases = [| 0.0; 1.0/3.0; 2.0/3.0 |]
+        let validPhases = [| 0.0; 1.0 / 3.0; 2.0 / 3.0 |]
         let maxAttempts = 5
         let mutable succeeded = false
         let mutable lastPhase = 0.0
         let mutable lastError = ""
-        for _ in 1 .. maxAttempts do
+
+        for _ in 1..maxAttempts do
             if not succeeded then
                 match Shor.estimateModExpPhase 2 7 4 bknd with
-                | Error err ->
-                    lastError <- $"{err}"
+                | Error err -> lastError <- $"{err}"
                 | Ok result ->
                     lastPhase <- result.EstimatedPhase
+
                     let isNearValidPhase =
-                        validPhases |> Array.exists (fun expected ->
-                            abs (result.EstimatedPhase - expected) < 0.1)
+                        validPhases
+                        |> Array.exists (fun expected -> abs (result.EstimatedPhase - expected) < 0.1)
+
                     if isNearValidPhase then
                         succeeded <- true
                         Assert.Equal(4, result.CountingQubits)
                         Assert.Equal(14, result.TotalQubits)
+
         if not succeeded then
             if lastError <> "" then
                 Assert.Fail($"estimateModExpPhase failed after {maxAttempts} attempts: {lastError}")
@@ -176,7 +185,9 @@ module ModExpPhaseTests =
         | Error err -> Assert.Fail($"estimateModExpPhase failed: {err}")
         | Ok result ->
             // Verify phase = measurementOutcome / 2^countingQubits
-            let expectedPhase = float result.MeasurementOutcome / float (1 <<< result.CountingQubits)
+            let expectedPhase =
+                float result.MeasurementOutcome / float (1 <<< result.CountingQubits)
+
             Assert.Equal(expectedPhase, result.EstimatedPhase, 10)
             // Verify measurement outcome is in valid range [0, 2^c)
             Assert.True(result.MeasurementOutcome >= 0)
@@ -192,21 +203,24 @@ module ModExpPhaseTests =
     [<Fact>]
     let ``QPE plan rejects ModularExponentiation with descriptive error`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         let config: QPE.QPEConfig =
             {
                 CountingQubits = 4
                 TargetQubits = 3
-                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation (2, 7)
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
                 EigenVector = None
             }
+
         let intent: QPE.QpeExecutionIntent =
             {
                 ApplyBitReversalSwaps = false
                 Config = config
                 Exactness = QPE.Exact
             }
+
         match QPE.plan bknd intent with
-        | Error (QuantumError.OperationError ("QPE", msg)) ->
+        | Error(QuantumError.OperationError("QPE", msg)) ->
             Assert.Contains("ModularExponentiation", msg)
             Assert.Contains("Shor.estimateModExpPhase", msg)
         | Error err -> Assert.Fail($"Expected OperationError for QPE, got: {err}")
@@ -215,15 +229,17 @@ module ModExpPhaseTests =
     [<Fact>]
     let ``QPE executeWithExactness rejects ModularExponentiation`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         let config: QPE.QPEConfig =
             {
                 CountingQubits = 4
                 TargetQubits = 3
-                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation (2, 7)
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
                 EigenVector = None
             }
+
         match QPE.executeWithExactness config bknd false QPE.Exact with
-        | Error (QuantumError.OperationError ("QPE", msg)) ->
+        | Error(QuantumError.OperationError("QPE", msg)) ->
             Assert.Contains("ModularExponentiation", msg)
             Assert.Contains("Shor.estimateModExpPhase", msg)
         | Error err -> Assert.Fail($"Expected OperationError for QPE, got: {err}")
@@ -232,15 +248,16 @@ module ModExpPhaseTests =
     [<Fact>]
     let ``QPE execute rejects ModularExponentiation`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
         let config: QPE.QPEConfig =
             {
                 CountingQubits = 4
                 TargetQubits = 3
-                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation (2, 7)
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
                 EigenVector = None
             }
+
         match QPE.execute config bknd with
-        | Error (QuantumError.OperationError ("QPE", msg)) ->
-            Assert.Contains("ModularExponentiation", msg)
+        | Error(QuantumError.OperationError("QPE", msg)) -> Assert.Contains("ModularExponentiation", msg)
         | Error err -> Assert.Fail($"Expected OperationError for QPE, got: {err}")
         | Ok _ -> Assert.Fail("Expected QPE execute to reject ModularExponentiation")

@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum
+
 open FSharp.Azure.Quantum.Core
 
 open System
@@ -37,11 +38,13 @@ module QuantumAdvisor =
 
     /// Default conservative thresholds (bias toward classical)
     let defaultThresholds =
-        { SmallProblemThreshold = 10
-          MediumProblemThreshold = 20
-          LargeProblemThreshold = 50
-          MinQuantumSpeedupFactor = 2.0
-          HighConfidenceThreshold = 0.85 }
+        {
+            SmallProblemThreshold = 10
+            MediumProblemThreshold = 20
+            LargeProblemThreshold = 50
+            MinQuantumSpeedupFactor = 2.0
+            HighConfidenceThreshold = 0.85
+        }
 
     /// Quantum advisor recommendation with reasoning
     type Recommendation =
@@ -131,7 +134,9 @@ module QuantumAdvisor =
 
             // Get quantum advantage estimation for more informed decision
             let quantumAdvantage =
-                (ProblemAnalysis.estimateQuantumAdvantage input) |> Result.map (fun qa -> Some qa) |> Result.defaultValue None
+                (ProblemAnalysis.estimateQuantumAdvantage input)
+                |> Result.map (fun qa -> Some qa)
+                |> Result.defaultValue None
 
             // Determine recommendation type based on thresholds
             let recommendationType, confidence =
@@ -167,13 +172,15 @@ module QuantumAdvisor =
                 | None -> (None, None, None)
 
             Ok
-                { RecommendationType = recommendationType
-                  Reasoning = reasoning
-                  Confidence = confidence
-                  ProblemSize = n
-                  QuantumSpeedup = speedup
-                  EstimatedClassicalTimeMs = classicalTime
-                  EstimatedQuantumTimeMs = quantumTime }
+                {
+                    RecommendationType = recommendationType
+                    Reasoning = reasoning
+                    Confidence = confidence
+                    ProblemSize = n
+                    QuantumSpeedup = speedup
+                    EstimatedClassicalTimeMs = classicalTime
+                    EstimatedQuantumTimeMs = quantumTime
+                }
 
     /// Get recommendation with default conservative thresholds
     /// Returns Result with Recommendation or error message

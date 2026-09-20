@@ -41,25 +41,43 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "QuboVisualization.fsx"
     "Visualize the QUBO matrix behind a graph coloring problem (variable mapping, coefficients)."
-    [ { Cli.OptionSpec.Name = "colors"
-        Description = "Number of available colors"
-        Default = Some "2" }
-      { Cli.OptionSpec.Name = "penalty"
-        Description = "QUBO constraint penalty weight"
-        Default = Some "10.0" }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress console output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "colors"
+            Description = "Number of available colors"
+            Default = Some "2"
+        }
+        {
+            Cli.OptionSpec.Name = "penalty"
+            Description = "QUBO constraint penalty weight"
+            Default = Some "10.0"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let numColors = Cli.getIntOr "colors" 2 args
 let penaltyWeight = Cli.getFloatOr "penalty" 10.0 args
@@ -79,13 +97,14 @@ let quantumBackend = LocalBackend() :> IQuantumBackend
 
 let colorNames = [ for i in 0 .. numColors - 1 -> $"Color%d{i}" ]
 
-let coloringProblem = graphColoring {
-    node "A" ["B"; "C"]
-    node "B" ["A"]
-    node "C" ["A"]
-    colors colorNames
-    objective MinimizeColors
-}
+let coloringProblem =
+    graphColoring {
+        node "A" [ "B"; "C" ]
+        node "B" [ "A" ]
+        node "C" [ "A" ]
+        colors colorNames
+        objective MinimizeColors
+    }
 
 pr "=== QUBO Matrix Visualization ==="
 pr ""
@@ -99,35 +118,37 @@ pr "%s" (coloringProblem.ToASCII())
 // Build low-level quantum solver problem for QUBO conversion
 // ---------------------------------------------------------------------------
 
-let quantumProblem : Quantum.QuantumGraphColoringSolver.GraphColoringProblem = {
-    Vertices = ["A"; "B"; "C"]
-    Edges = [
-        GraphOptimization.edge "A" "B" 1.0 |> fun e -> { e with Value = Some () }
-        GraphOptimization.edge "A" "C" 1.0 |> fun e -> { e with Value = Some () }
-    ]
-    NumColors = numColors
-    FixedColors = Map.empty
-}
+let quantumProblem: Quantum.QuantumGraphColoringSolver.GraphColoringProblem =
+    {
+        Vertices = [ "A"; "B"; "C" ]
+        Edges =
+            [
+                GraphOptimization.edge "A" "B" 1.0 |> fun e -> { e with Value = Some() }
+                GraphOptimization.edge "A" "C" 1.0 |> fun e -> { e with Value = Some() }
+            ]
+        NumColors = numColors
+        FixedColors = Map.empty
+    }
 
 // ---------------------------------------------------------------------------
 // Generate and display QUBO matrix
 // ---------------------------------------------------------------------------
 
 match Quantum.QuantumGraphColoringSolver.toQubo quantumProblem penaltyWeight with
-| Error err ->
-    pr "[FAIL] Error generating QUBO: %A" err
+| Error err -> pr "[FAIL] Error generating QUBO: %A" err
 
-| Ok (quboMatrix, variableMap) ->
+| Ok(quboMatrix, variableMap) ->
     // Step 2: Variable mapping
     pr "Step 2: Variable Mapping"
     pr "------------------------"
     pr "QUBO uses binary variables to encode color assignments:"
     pr ""
+
     variableMap
     |> Map.toList
     |> List.sortBy fst
-    |> List.iter (fun (idx, (vertex, color)) ->
-        pr "  x_%d = 1  means  vertex '%s' has color %d" idx vertex color)
+    |> List.iter (fun (idx, (vertex, color)) -> pr "  x_%d = 1  means  vertex '%s' has color %d" idx vertex color)
+
     pr ""
 
     // Step 3: QUBO matrix ASCII
@@ -158,37 +179,46 @@ match Quantum.QuantumGraphColoringSolver.toQubo quantumProblem penaltyWeight wit
     pr ""
 
     // JSON output
-    outputPath |> Option.iter (fun path ->
+    outputPath
+    |> Option.iter (fun path ->
         let coefficients =
             quboMatrix.Q
             |> Map.toList
             |> List.map (fun ((i, j), v) -> $"(%d{i},%d{j})=%.4f{v}")
             |> String.concat ";"
+
         let variables =
             variableMap
             |> Map.toList
             |> List.sortBy fst
             |> List.map (fun (idx, (vertex, color)) -> $"x%d{idx}=%s{vertex}:%d{color}")
             |> String.concat ";"
+
         let payload =
-            {| numVariables = quboMatrix.NumVariables
-               numCoefficients = quboMatrix.Q.Count
-               penaltyWeight = penaltyWeight
-               numColors = numColors
-               variables = variables
-               coefficients = coefficients |}
+            {|
+                numVariables = quboMatrix.NumVariables
+                numCoefficients = quboMatrix.Q.Count
+                penaltyWeight = penaltyWeight
+                numColors = numColors
+                variables = variables
+                coefficients = coefficients
+            |}
+
         Reporting.writeJson path payload
         pr "JSON written to %s" path)
 
     // CSV output
-    csvPath |> Option.iter (fun path ->
+    csvPath
+    |> Option.iter (fun path ->
         let header = [ "row"; "col"; "coefficient"; "type" ]
+
         let rows =
             quboMatrix.Q
             |> Map.toList
             |> List.sortBy fst
             |> List.map (fun ((i, j), v) ->
                 [ string i; string j; $"%.4f{v}"; if i = j then "linear" else "quadratic" ])
+
         Reporting.writeCsv path header rows
         pr "CSV written to %s" path)
 

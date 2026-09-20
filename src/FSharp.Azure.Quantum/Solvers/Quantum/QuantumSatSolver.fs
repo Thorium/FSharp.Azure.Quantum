@@ -61,21 +61,23 @@ module QuantumSatSolver =
 
     /// A literal is a Boolean variable (by index) that may be negated.
     [<Struct>]
-    type Literal = {
-        /// Index of the Boolean variable (0-based)
-        Variable: int
-        /// True if the literal is negated (NOT x_i)
-        IsNegated: bool
-    }
+    type Literal =
+        {
+            /// Index of the Boolean variable (0-based)
+            Variable: int
+            /// True if the literal is negated (NOT x_i)
+            IsNegated: bool
+        }
 
     /// A clause is a disjunction (OR) of literals, with a weight for
     /// weighted MAX-SAT (default 1.0 = an ordinary, equally-weighted clause).
-    type Clause = {
-        /// The literals in this clause
-        Literals: Literal list
-        /// Clause weight for weighted MAX-SAT (use 1.0 for unweighted problems)
-        Weight: float
-    }
+    type Clause =
+        {
+            /// The literals in this clause
+            Literals: Literal list
+            /// Clause weight for weighted MAX-SAT (use 1.0 for unweighted problems)
+            Weight: float
+        }
 
     /// Create an unweighted clause (Weight = 1.0) — the common case.
     let clause (literals: Literal list) : Clause = { Literals = literals; Weight = 1.0 }
@@ -86,38 +88,40 @@ module QuantumSatSolver =
         { Literals = literals; Weight = weight }
 
     /// MAX-SAT problem in CNF form.
-    type Problem = {
-        /// Number of Boolean variables
-        NumVariables: int
-        /// List of clauses (each is a disjunction of literals)
-        Clauses: Clause list
-    }
+    type Problem =
+        {
+            /// Number of Boolean variables
+            NumVariables: int
+            /// List of clauses (each is a disjunction of literals)
+            Clauses: Clause list
+        }
 
     /// MAX-SAT solution.
-    type Solution = {
-        /// Variable assignments (true/false for each variable)
-        Assignment: bool[]
-        /// Number of satisfied clauses
-        SatisfiedClauses: int
-        /// Total number of clauses
-        TotalClauses: int
-        /// Total weight of satisfied clauses (= SatisfiedClauses for unweighted problems)
-        SatisfiedWeight: float
-        /// Total weight of all clauses (= TotalClauses for unweighted problems)
-        TotalWeight: float
-        /// Whether all clauses are satisfied
-        AllSatisfied: bool
-        /// Whether constraint repair was applied
-        WasRepaired: bool
-        /// Name of the quantum backend used
-        BackendName: string
-        /// Number of measurement shots
-        NumShots: int
-        /// Optimized QAOA (gamma, beta) parameters per layer
-        OptimizedParameters: (float * float)[] option
-        /// Whether Nelder-Mead converged
-        OptimizationConverged: bool option
-    }
+    type Solution =
+        {
+            /// Variable assignments (true/false for each variable)
+            Assignment: bool[]
+            /// Number of satisfied clauses
+            SatisfiedClauses: int
+            /// Total number of clauses
+            TotalClauses: int
+            /// Total weight of satisfied clauses (= SatisfiedClauses for unweighted problems)
+            SatisfiedWeight: float
+            /// Total weight of all clauses (= TotalClauses for unweighted problems)
+            TotalWeight: float
+            /// Whether all clauses are satisfied
+            AllSatisfied: bool
+            /// Whether constraint repair was applied
+            WasRepaired: bool
+            /// Name of the quantum backend used
+            BackendName: string
+            /// Number of measurement shots
+            NumShots: int
+            /// Optimized QAOA (gamma, beta) parameters per layer
+            OptimizedParameters: (float * float)[] option
+            /// Whether Nelder-Mead converged
+            OptimizationConverged: bool option
+        }
 
     // ========================================================================
     // CONFIGURATION (type alias for unified config)
@@ -125,9 +129,9 @@ module QuantumSatSolver =
 
     type Config = QaoaSolverConfig
 
-    let defaultConfig : Config = QaoaExecutionHelpers.defaultConfig
-    let fastConfig : Config = QaoaExecutionHelpers.fastConfig
-    let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
+    let defaultConfig: Config = QaoaExecutionHelpers.defaultConfig
+    let fastConfig: Config = QaoaExecutionHelpers.fastConfig
+    let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
     // QUBIT ESTIMATION (Decision 11)
@@ -140,6 +144,7 @@ module QuantumSatSolver =
         problem.Clauses
         |> List.sumBy (fun c ->
             let n = c.Literals.Length
+
             if n >= 4 then n - 2
             elif n = 3 then 1
             else 0)
@@ -172,8 +177,10 @@ module QuantumSatSolver =
 
     /// Add a single QUBO term to the accumulator map.
     let private addTerm (i: int) (j: int) (value: float) (qubo: Map<int * int, float>) =
-        if abs value < 1e-15 then qubo
-        else Qubo.combineTerms (i, j) value qubo
+        if abs value < 1e-15 then
+            qubo
+        else
+            Qubo.combineTerms (i, j) value qubo
 
     /// Build QUBO penalty for a 1-literal clause: penalty * (1 - a)
     /// where a is the effective literal value.
@@ -230,8 +237,7 @@ module QuantumSatSolver =
             qubo |> addTerm i i (penalty * ca * cb)
         else
             let halfQuad = penalty * ca * cb / 2.0
-            qubo |> addTerm i j halfQuad
-                 |> addTerm j i halfQuad
+            qubo |> addTerm i j halfQuad |> addTerm j i halfQuad
 
     /// Build Rosenberg penalty to enforce w = (1-a)(1-b), i.e., w = A*B.
     /// Penalty: M*(3w + AB - 2Aw - 2Bw) where A=(1-a), B=(1-b).
@@ -250,8 +256,8 @@ module QuantumSatSolver =
         let (ca, da) = literalLinear lit1
         let (cb, db) = literalLinear lit2
 
-        let a0 = 1.0 - da  // constant part of A = (1-a)
-        let a1 = -ca        // coefficient of x_i in A
+        let a0 = 1.0 - da // constant part of A = (1-a)
+        let a1 = -ca // coefficient of x_i in A
         let b0 = 1.0 - db
         let b1 = -cb
 
@@ -264,6 +270,7 @@ module QuantumSatSolver =
         //    = a0*b0 + a0*b1*x_j + a1*b0*x_i + a1*b1*x_i*x_j
         let qubo = qubo |> addTerm j j (penalty * m * a0 * b1)
         let qubo = qubo |> addTerm i i (penalty * m * a1 * b0)
+
         let qubo =
             if i = j then
                 qubo |> addTerm i i (penalty * m * a1 * b1)
@@ -273,6 +280,7 @@ module QuantumSatSolver =
 
         // -2Aw = -2*(a0 + a1*x_i)*w
         let qubo = qubo |> addTerm w w (penalty * m * (-2.0) * a0)
+
         let qubo =
             if i = w then
                 qubo |> addTerm w w (penalty * m * (-2.0) * a1)
@@ -282,6 +290,7 @@ module QuantumSatSolver =
 
         // -2Bw = -2*(b0 + b1*x_j)*w
         let qubo = qubo |> addTerm w w (penalty * m * (-2.0) * b0)
+
         let qubo =
             if j = w then
                 qubo |> addTerm w w (penalty * m * (-2.0) * b1)
@@ -323,6 +332,7 @@ module QuantumSatSolver =
 
         // --- Part 1: penalty * w * C = penalty * w * (c0 + c1*x_k) ---
         let qubo = qubo |> addTerm w w (penalty * c0)
+
         let qubo =
             if w = k then
                 qubo |> addTerm w w (penalty * c1)
@@ -344,84 +354,92 @@ module QuantumSatSolver =
         let mutable nextAux = problem.NumVariables
 
         problem.Clauses
-        |> List.fold (fun qubo clause ->
-            // Penalty per clause = its weight (1.0 for unweighted MAX-SAT).
-            // Each clause owns its auxiliary variables, so the Rosenberg multiplier
-            // scales with this same penalty and stays correctly enforced per clause.
-            let penalty = clause.Weight
-            match clause.Literals with
-            | [] -> qubo  // Empty clause: always false, skip
-            | [ a ] ->
-                build1LiteralPenalty penalty a qubo
-            | [ a; b ] ->
-                build2LiteralPenalty penalty a b qubo
-            | [ a; b; c ] ->
-                let auxIdx = nextAux
-                nextAux <- nextAux + 1
-                build3LiteralPenalty penalty a b c auxIdx qubo
-            | lits ->
-                // For 4+ literals: chain Rosenberg reductions.
-                // Group first two into an auxiliary, then recurse.
-                // (1-a1)(1-a2)...(1-an) → introduce w1 for (1-a1)(1-a2),
-                // then treat (w1, a3, ..., an) as a shorter clause.
-                // We reduce to 3-literal form iteratively.
-                let rec reduce (remainingLits: Literal list) (q: Map<int * int, float>) =
-                    match remainingLits with
-                    | [] -> q  // Should not happen
-                    | [ a ] -> build1LiteralPenalty penalty a q
-                    | [ a; b ] -> build2LiteralPenalty penalty a b q
-                    | [ a; b; c ] ->
-                        let auxIdx = nextAux
-                        nextAux <- nextAux + 1
-                        build3LiteralPenalty penalty a b c auxIdx q
-                    | a :: b :: rest ->
-                        // Introduce auxiliary w for product of (1-a)(1-b)
-                        let auxIdx = nextAux
-                        nextAux <- nextAux + 1
-                        // Add Rosenberg penalty to enforce w = (1-a)(1-b)
-                        let q = buildRosenbergPenalty penalty a b auxIdx q
-                        // Now w represents (1-a)(1-b): w=1 when both a,b are false.
-                        // literalLinear with IsNegated=true gives effective=(1-x_w),
-                        // so (1 - effective) = x_w. This is correct.
-                        let auxLit = { Variable = auxIdx; IsNegated = true }
-                        reduce (auxLit :: rest) q
-                reduce lits qubo
-        ) Map.empty
+        |> List.fold
+            (fun qubo clause ->
+                // Penalty per clause = its weight (1.0 for unweighted MAX-SAT).
+                // Each clause owns its auxiliary variables, so the Rosenberg multiplier
+                // scales with this same penalty and stays correctly enforced per clause.
+                let penalty = clause.Weight
+
+                match clause.Literals with
+                | [] -> qubo // Empty clause: always false, skip
+                | [ a ] -> build1LiteralPenalty penalty a qubo
+                | [ a; b ] -> build2LiteralPenalty penalty a b qubo
+                | [ a; b; c ] ->
+                    let auxIdx = nextAux
+                    nextAux <- nextAux + 1
+                    build3LiteralPenalty penalty a b c auxIdx qubo
+                | lits ->
+                    // For 4+ literals: chain Rosenberg reductions.
+                    // Group first two into an auxiliary, then recurse.
+                    // (1-a1)(1-a2)...(1-an) → introduce w1 for (1-a1)(1-a2),
+                    // then treat (w1, a3, ..., an) as a shorter clause.
+                    // We reduce to 3-literal form iteratively.
+                    let rec reduce (remainingLits: Literal list) (q: Map<int * int, float>) =
+                        match remainingLits with
+                        | [] -> q // Should not happen
+                        | [ a ] -> build1LiteralPenalty penalty a q
+                        | [ a; b ] -> build2LiteralPenalty penalty a b q
+                        | [ a; b; c ] ->
+                            let auxIdx = nextAux
+                            nextAux <- nextAux + 1
+                            build3LiteralPenalty penalty a b c auxIdx q
+                        | a :: b :: rest ->
+                            // Introduce auxiliary w for product of (1-a)(1-b)
+                            let auxIdx = nextAux
+                            nextAux <- nextAux + 1
+                            // Add Rosenberg penalty to enforce w = (1-a)(1-b)
+                            let q = buildRosenbergPenalty penalty a b auxIdx q
+                            // Now w represents (1-a)(1-b): w=1 when both a,b are false.
+                            // literalLinear with IsNegated=true gives effective=(1-x_w),
+                            // so (1 - effective) = x_w. This is correct.
+                            let auxLit = { Variable = auxIdx; IsNegated = true }
+                            reduce (auxLit :: rest) q
+
+                    reduce lits qubo)
+            Map.empty
 
     /// Compute the actual total number of QUBO variables (original + auxiliaries).
     /// Delegates to estimateQubits which now correctly counts auxiliaries.
-    let private computeTotalQubits (problem: Problem) : int =
-        estimateQubits problem
+    let private computeTotalQubits (problem: Problem) : int = estimateQubits problem
 
     /// Validate a SAT problem, returning Error if invalid.
     let private validateProblem (problem: Problem) : Result<unit, QuantumError> =
         if problem.Clauses.IsEmpty then
-            Error (QuantumError.ValidationError ("clauses", "Problem has no clauses"))
+            Error(QuantumError.ValidationError("clauses", "Problem has no clauses"))
         elif problem.NumVariables <= 0 then
-            Error (QuantumError.ValidationError ("numVariables", "Number of variables must be positive"))
+            Error(QuantumError.ValidationError("numVariables", "Number of variables must be positive"))
         elif problem.Clauses |> List.exists (fun c -> c.Literals.IsEmpty) then
-            Error (QuantumError.ValidationError ("clause", "Empty clause found"))
-        elif problem.Clauses |> List.exists (fun c ->
-                c.Literals |> List.exists (fun l ->
-                    l.Variable < 0 || l.Variable >= problem.NumVariables)) then
-            Error (QuantumError.ValidationError ("variable", "Variable index out of range"))
+            Error(QuantumError.ValidationError("clause", "Empty clause found"))
+        elif
+            problem.Clauses
+            |> List.exists (fun c ->
+                c.Literals
+                |> List.exists (fun l -> l.Variable < 0 || l.Variable >= problem.NumVariables))
+        then
+            Error(QuantumError.ValidationError("variable", "Variable index out of range"))
         elif problem.Clauses |> List.exists (fun c -> not (c.Weight > 0.0)) then
             // Clause weights feed directly into the QUBO penalty: a zero weight silently drops the
             // clause and a negative weight rewards violating it, corrupting the encoding. (not (> 0)
             // also rejects NaN.)
-            Error (QuantumError.ValidationError ("weight", "Clause weight must be positive; use weightedClause with a value > 0"))
+            Error(
+                QuantumError.ValidationError(
+                    "weight",
+                    "Clause weight must be positive; use weightedClause with a value > 0"
+                )
+            )
         else
-            Ok ()
+            Ok()
 
     /// Convert problem to dense QUBO matrix.
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         match validateProblem problem with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             let n = computeTotalQubits problem
             let quboMap = buildQuboMap problem
-            Ok (Qubo.toDenseArray n quboMap)
+            Ok(Qubo.toDenseArray n quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -436,9 +454,7 @@ module QuantumSatSolver =
 
     /// Count how many clauses are satisfied by the given assignment.
     let private countSatisfied (problem: Problem) (assignment: bool[]) : int =
-        problem.Clauses
-        |> List.filter (evaluateClause assignment)
-        |> List.length
+        problem.Clauses |> List.filter (evaluateClause assignment) |> List.length
 
     /// Total weight of clauses satisfied by the assignment (the weighted MAX-SAT objective).
     let private satisfiedWeight (problem: Problem) (assignment: bool[]) : float =
@@ -459,10 +475,10 @@ module QuantumSatSolver =
     /// the remaining bits are auxiliary variables from Rosenberg reduction.
     let private decodeSolution (problem: Problem) (bits: int[]) : Solution =
         let assignment =
-            Array.init problem.NumVariables (fun i ->
-                if i < bits.Length then bits.[i] = 1 else false)
+            Array.init problem.NumVariables (fun i -> if i < bits.Length then bits.[i] = 1 else false)
 
         let satisfied = countSatisfied problem assignment
+
         {
             Assignment = assignment
             SatisfiedClauses = satisfied
@@ -493,8 +509,7 @@ module QuantumSatSolver =
     /// satisfied clauses. Iterates until no single flip improves the count.
     let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
         let assignment =
-            Array.init problem.NumVariables (fun i ->
-                if i < bits.Length then bits.[i] = 1 else false)
+            Array.init problem.NumVariables (fun i -> if i < bits.Length then bits.[i] = 1 else false)
 
         let rec improve (current: bool[]) =
             let gains =
@@ -504,7 +519,7 @@ module QuantumSatSolver =
                 |> List.sortByDescending snd
 
             match gains with
-            | [] -> current  // No beneficial flip
+            | [] -> current // No beneficial flip
             | (bestVar, _) :: _ ->
                 let updated = Array.copy current
                 updated.[bestVar] <- not updated.[bestVar]
@@ -514,11 +529,7 @@ module QuantumSatSolver =
 
         // Rebuild full bitstring (original vars + aux set to 0)
         let totalQubits = computeTotalQubits problem
-        Array.init totalQubits (fun i ->
-            if i < problem.NumVariables && repaired.[i] then
-                1
-            else
-                0)  // Auxiliary variables reset to 0 after repair
+        Array.init totalQubits (fun i -> if i < problem.NumVariables && repaired.[i] then 1 else 0) // Auxiliary variables reset to 0 after repair
 
     // ========================================================================
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
@@ -565,7 +576,7 @@ module QuantumSatSolver =
 
         match validateProblem problem with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             let solveSingle (subProblem: Problem) =
                 match toQubo subProblem with
                 | Error err -> Error err
@@ -573,20 +584,19 @@ module QuantumSatSolver =
                     let result =
                         if config.EnableOptimization then
                             executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) ->
-                                (bits, Some optParams, Some converged))
+                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
                             executeQaoaWithGridSearch backend qubo config
-                            |> Result.map (fun (bits, optParams) ->
-                                (bits, Some optParams, None))
+                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
                     | Error err -> Error err
-                    | Ok (bits, optParams, converged) ->
+                    | Ok(bits, optParams, converged) ->
                         let needsRepair =
                             let assignment =
                                 Array.init subProblem.NumVariables (fun i ->
                                     if i < bits.Length then bits.[i] = 1 else false)
+
                             countSatisfied subProblem assignment < subProblem.Clauses.Length
 
                         let finalBits, wasRepaired =
@@ -596,15 +606,17 @@ module QuantumSatSolver =
                                 (bits, false)
 
                         let solution = decodeSolution subProblem finalBits
-                        Ok { solution with
+
+                        Ok
+                            { solution with
                                 BackendName = backend.Name
                                 NumShots = config.FinalShots
                                 WasRepaired = wasRepaired
                                 OptimizedParameters = optParams
-                                OptimizationConverged = converged }
+                                OptimizationConverged = converged
+                            }
 
-            ProblemDecomposition.solveWithDecomposition
-                backend problem estimateQubits decompose recombine solveSingle
+            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve MAX-SAT using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
@@ -614,10 +626,11 @@ module QuantumSatSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Task<Result<Solution, QuantumError>> = task {
-        cancellationToken.ThrowIfCancellationRequested()
-        return solveWithConfig backend problem config
-    }
+        : Task<Result<Solution, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
 
     /// Solve MAX-SAT using QAOA with default configuration.
     [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -627,7 +640,11 @@ module QuantumSatSolver =
         (shots: int)
         : Result<Solution, QuantumError> =
 
-        let config = { defaultConfig with FinalShots = shots }
+        let config =
+            { defaultConfig with
+                FinalShots = shots
+            }
+
         solveWithConfigAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -674,6 +691,7 @@ module QuantumSatSolver =
 
             let optimized = improve initial
             let satisfied = countSatisfied problem optimized
+
             {
                 Assignment = optimized
                 SatisfiedClauses = satisfied

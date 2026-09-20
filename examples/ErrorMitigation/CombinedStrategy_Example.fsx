@@ -57,17 +57,61 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "CombinedStrategy_Example.fsx" "Combined error mitigation: REM + ZNE + PEC for maximum accuracy"
-    [ { Cli.OptionSpec.Name = "strategy"; Description = "Strategy: rem|zne|pec|rem-zne|rem-pec|rem-zne-pec|all"; Default = Some "rem-zne" }
-      { Cli.OptionSpec.Name = "readout-error"; Description = "Readout bit-flip probability per qubit"; Default = Some "0.02" }
-      { Cli.OptionSpec.Name = "single-qubit-error"; Description = "Single-qubit gate depolarizing error rate"; Default = Some "0.001" }
-      { Cli.OptionSpec.Name = "two-qubit-error"; Description = "Two-qubit gate depolarizing error rate"; Default = Some "0.01" }
-      { Cli.OptionSpec.Name = "pec-samples"; Description = "PEC Monte Carlo sample count"; Default = Some "50" }
-      { Cli.OptionSpec.Name = "zne-noise-levels"; Description = "Comma-separated ZNE noise scale factors"; Default = Some "1.0,1.5,2.0" }
-      { Cli.OptionSpec.Name = "theta"; Description = "VQE ansatz angle (radians, or 'pi/4')"; Default = Some "pi/4" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write JSON results to file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write CSV results to file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+Cli.exitIfHelp
+    "CombinedStrategy_Example.fsx"
+    "Combined error mitigation: REM + ZNE + PEC for maximum accuracy"
+    [
+        {
+            Cli.OptionSpec.Name = "strategy"
+            Description = "Strategy: rem|zne|pec|rem-zne|rem-pec|rem-zne-pec|all"
+            Default = Some "rem-zne"
+        }
+        {
+            Cli.OptionSpec.Name = "readout-error"
+            Description = "Readout bit-flip probability per qubit"
+            Default = Some "0.02"
+        }
+        {
+            Cli.OptionSpec.Name = "single-qubit-error"
+            Description = "Single-qubit gate depolarizing error rate"
+            Default = Some "0.001"
+        }
+        {
+            Cli.OptionSpec.Name = "two-qubit-error"
+            Description = "Two-qubit gate depolarizing error rate"
+            Default = Some "0.01"
+        }
+        {
+            Cli.OptionSpec.Name = "pec-samples"
+            Description = "PEC Monte Carlo sample count"
+            Default = Some "50"
+        }
+        {
+            Cli.OptionSpec.Name = "zne-noise-levels"
+            Description = "Comma-separated ZNE noise scale factors"
+            Default = Some "1.0,1.5,2.0"
+        }
+        {
+            Cli.OptionSpec.Name = "theta"
+            Description = "VQE ansatz angle (radians, or 'pi/4')"
+            Default = Some "pi/4"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write JSON results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write CSV results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -80,11 +124,13 @@ let pecSamples = Cli.getIntOr "pec-samples" 50 args
 /// Parse theta value, supporting "pi/N" notation.
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
+
     if s.StartsWith "pi/" then
         match Double.TryParse(s.AsSpan 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
-    elif s = "pi" then Math.PI
+    elif s = "pi" then
+        Math.PI
     else
         match Double.TryParse(s) with
         | true, v -> v
@@ -101,7 +147,8 @@ let parseNoiseLevels (s: string) : float list =
         | _ -> None)
     |> Array.toList
 
-let zneNoiseLevels = parseNoiseLevels (Cli.getOr "zne-noise-levels" "1.0,1.5,2.0" args)
+let zneNoiseLevels =
+    parseNoiseLevels (Cli.getOr "zne-noise-levels" "1.0,1.5,2.0" args)
 
 // ============================================================================
 // Shared Setup
@@ -112,11 +159,12 @@ let zneNoiseLevels = parseNoiseLevels (Cli.getOr "zne-noise-levels" "1.0,1.5,2.0
 let trueEnergy = -1.137
 
 /// Noise model based on CLI parameters.
-let noiseModel: NoiseModel = {
-    SingleQubitDepolarizing = singleQubitError
-    TwoQubitDepolarizing = twoQubitError
-    ReadoutError = readoutError
-}
+let noiseModel: NoiseModel =
+    {
+        SingleQubitDepolarizing = singleQubitError
+        TwoQubitDepolarizing = twoQubitError
+        ReadoutError = readoutError
+    }
 
 /// Create a VQE-like circuit for H2: RY(theta) - CNOT - RY(theta).
 let createVQECircuit (angle: float) : Circuit =
@@ -131,10 +179,7 @@ let vqeCircuit = createVQECircuit theta
 
 /// Mock executor combining gate errors and readout errors.
 /// In production, this would call a real backend (IonQ, Rigetti, etc.).
-let fullNoisyExecutor
-    (circuit: Circuit)
-    (shots: int)
-    : Async<Result<Map<string, int>, string>> =
+let fullNoisyExecutor (circuit: Circuit) (shots: int) : Async<Result<Map<string, int>, string>> =
     async {
         let gateCount = List.length circuit.Gates |> float
         let gateNoise = gateCount * 0.005
@@ -149,7 +194,7 @@ let fullNoisyExecutor
         // Add readout noise (shot-by-shot simulation)
         let mutable results = Map.empty
 
-        for _ in 1 .. shots do
+        for _ in 1..shots do
             let measured =
                 outcome.ToCharArray()
                 |> Array.map (fun bit ->
@@ -162,7 +207,7 @@ let fullNoisyExecutor
             results <-
                 results
                 |> Map.change measured (function
-                    | Some count -> Some (count + 1)
+                    | Some count -> Some(count + 1)
                     | None -> Some 1)
 
         return Ok results
@@ -175,7 +220,7 @@ let noisyExpectationExecutor (circuit: Circuit) : Async<Result<float, string>> =
         let noiseLevel = circuitDepth * 0.02
         let random = Random()
         let noise = (random.NextDouble() - 0.5) * noiseLevel
-        return Ok (trueEnergy + noise)
+        return Ok(trueEnergy + noise)
     }
 
 let allResults = System.Collections.Generic.List<Map<string, string>>()
@@ -251,9 +296,10 @@ if runRemZne then
         printfn "-----------------------"
         printfn ""
 
-    match Async.RunSynchronously (measureCalibrationMatrix "ionq" 2 remConfig fullNoisyExecutor) with
+    match Async.RunSynchronously(measureCalibrationMatrix "ionq" 2 remConfig fullNoisyExecutor) with
     | Error err ->
-        if not quiet then printfn "[ERROR] REM calibration failed: %s" err
+        if not quiet then
+            printfn "[ERROR] REM calibration failed: %s" err
     | Ok remCalibration ->
         if not quiet then
             printfn "[OK] REM Calibration Complete!"
@@ -263,13 +309,9 @@ if runRemZne then
             printfn "---------------------------"
             printfn ""
 
-        let zneScalings =
-            zneNoiseLevels
-            |> List.map (fun nl -> IdentityInsertion (nl - 1.0))
+        let zneScalings = zneNoiseLevels |> List.map (fun nl -> IdentityInsertion(nl - 1.0))
 
-        let zneConfig =
-            defaultIonQConfig
-            |> withNoiseScalings zneScalings
+        let zneConfig = defaultIonQConfig |> withNoiseScalings zneScalings
 
         if not quiet then
             printfn "ZNE Configuration:"
@@ -296,6 +338,7 @@ if runRemZne then
                                 let prob = count / float shots
                                 let energy = if bitstring = "00" then -1.2 else -1.0
                                 prob * energy)
+
                         return Ok expectation
             }
 
@@ -303,9 +346,10 @@ if runRemZne then
             printfn "Running ZNE with REM-corrected measurements..."
             printfn ""
 
-        match Async.RunSynchronously (ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig combinedExecutor) with
+        match Async.RunSynchronously(ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig combinedExecutor) with
         | Error err ->
-            if not quiet then printfn "[ERROR] ZNE failed: %s" err
+            if not quiet then
+                printfn "[ERROR] ZNE failed: %s" err
         | Ok zneResult ->
             let error = abs (zneResult.ZeroNoiseValue - trueEnergy)
 
@@ -329,17 +373,20 @@ if runRemZne then
                 printfn ""
 
             allResults.Add(
-                [ "example", "1_rem_zne"
-                  "strategy", "REM + ZNE"
-                  "readout_error", $"%.4f{readoutError}"
-                  "single_qubit_error", $"%.4f{singleQubitError}"
-                  "two_qubit_error", $"%.4f{twoQubitError}"
-                  "zero_noise_energy_Ha", $"%.6f{zneResult.ZeroNoiseValue}"
-                  "error_Ha", $"%.6f{error}"
-                  "r_squared", $"%.4f{zneResult.GoodnessOfFit}"
-                  "overhead_x", sprintf "%d" (List.length zneNoiseLevels)
-                  "pec_samples", "" ]
-                |> Map.ofList)
+                [
+                    "example", "1_rem_zne"
+                    "strategy", "REM + ZNE"
+                    "readout_error", $"%.4f{readoutError}"
+                    "single_qubit_error", $"%.4f{singleQubitError}"
+                    "two_qubit_error", $"%.4f{twoQubitError}"
+                    "zero_noise_energy_Ha", $"%.6f{zneResult.ZeroNoiseValue}"
+                    "error_Ha", $"%.6f{error}"
+                    "r_squared", $"%.4f{zneResult.GoodnessOfFit}"
+                    "overhead_x", sprintf "%d" (List.length zneNoiseLevels)
+                    "pec_samples", ""
+                ]
+                |> Map.ofList
+            )
 
     if not quiet then
         printfn "============================================================"
@@ -364,30 +411,43 @@ if runRemZnePec then
         printfn ""
 
     // PEC configuration
-    let pecConfig: PECConfig = {
-        NoiseModel = noiseModel
-        Samples = pecSamples
-        Seed = Some 42
-    }
+    let pecConfig: PECConfig =
+        {
+            NoiseModel = noiseModel
+            Samples = pecSamples
+            Seed = Some 42
+        }
 
     if not quiet then
         printfn "PEC Configuration:"
         printfn "  Samples: %d (%dx overhead)" pecSamples pecSamples
-        printfn "  Noise model: %.1f%% single-qubit, %.0f%% two-qubit" (singleQubitError * 100.0) (twoQubitError * 100.0)
+
+        printfn
+            "  Noise model: %.1f%% single-qubit, %.0f%% two-qubit"
+            (singleQubitError * 100.0)
+            (twoQubitError * 100.0)
+
         printfn ""
         printfn "ZNE Noise Levels: %s" (zneNoiseLevels |> List.map (sprintf "%.2fx") |> String.concat ", ")
         printfn ""
-        printfn "Total overhead: REM (free) + PEC (%dx) + ZNE (%dx) = ~%dx"
-            pecSamples (List.length zneNoiseLevels)
+
+        printfn
+            "Total overhead: REM (free) + PEC (%dx) + ZNE (%dx) = ~%dx"
+            pecSamples
+            (List.length zneNoiseLevels)
             (pecSamples * List.length zneNoiseLevels)
+
         printfn ""
         printfn "Running combined REM + ZNE + PEC..."
         printfn ""
 
     // Run PEC on the circuit
-    match Async.RunSynchronously (ProbabilisticErrorCancellation.mitigate vqeCircuit pecConfig noisyExpectationExecutor) with
+    match
+        Async.RunSynchronously(ProbabilisticErrorCancellation.mitigate vqeCircuit pecConfig noisyExpectationExecutor)
+    with
     | Error err ->
-        if not quiet then printfn "[ERROR] PEC failed: %s" err
+        if not quiet then
+            printfn "[ERROR] PEC failed: %s" err
     | Ok pecResult ->
         let pecError = abs (pecResult.CorrectedExpectation - trueEnergy)
 
@@ -399,17 +459,14 @@ if runRemZnePec then
             printfn ""
 
         // Run ZNE on top
-        let zneScalings =
-            zneNoiseLevels
-            |> List.map (fun nl -> IdentityInsertion (nl - 1.0))
+        let zneScalings = zneNoiseLevels |> List.map (fun nl -> IdentityInsertion(nl - 1.0))
 
-        let zneConfig =
-            defaultIonQConfig
-            |> withNoiseScalings zneScalings
+        let zneConfig = defaultIonQConfig |> withNoiseScalings zneScalings
 
-        match Async.RunSynchronously (ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig noisyExpectationExecutor) with
+        match Async.RunSynchronously(ZeroNoiseExtrapolation.mitigate vqeCircuit zneConfig noisyExpectationExecutor) with
         | Error err ->
-            if not quiet then printfn "[ERROR] ZNE failed: %s" err
+            if not quiet then
+                printfn "[ERROR] ZNE failed: %s" err
         | Ok zneResult ->
             let combinedError = min pecError (abs (zneResult.ZeroNoiseValue - trueEnergy))
             let errorKcalMol = combinedError * 627.5
@@ -422,24 +479,29 @@ if runRemZnePec then
                 printfn "Combined Results (best of PEC + ZNE):"
                 printfn "  Best error: %.6f Hartree (%.3f kcal/mol)" combinedError errorKcalMol
                 printfn ""
+
                 if combinedError < 0.001 then
                     printfn "[OK] Chemical accuracy achieved! (Error < 1 kcal/mol)"
                 else
                     printfn "[NOTE] May need more PEC samples for chemical accuracy"
+
                 printfn ""
 
             allResults.Add(
-                [ "example", "2_rem_zne_pec"
-                  "strategy", "REM + ZNE + PEC"
-                  "readout_error", $"%.4f{readoutError}"
-                  "single_qubit_error", $"%.4f{singleQubitError}"
-                  "two_qubit_error", $"%.4f{twoQubitError}"
-                  "zero_noise_energy_Ha", $"%.6f{zneResult.ZeroNoiseValue}"
-                  "error_Ha", $"%.6f{combinedError}"
-                  "r_squared", $"%.4f{zneResult.GoodnessOfFit}"
-                  "overhead_x", sprintf "%d" (pecSamples * List.length zneNoiseLevels)
-                  "pec_samples", string pecSamples ]
-                |> Map.ofList)
+                [
+                    "example", "2_rem_zne_pec"
+                    "strategy", "REM + ZNE + PEC"
+                    "readout_error", $"%.4f{readoutError}"
+                    "single_qubit_error", $"%.4f{singleQubitError}"
+                    "two_qubit_error", $"%.4f{twoQubitError}"
+                    "zero_noise_energy_Ha", $"%.6f{zneResult.ZeroNoiseValue}"
+                    "error_Ha", $"%.6f{combinedError}"
+                    "r_squared", $"%.4f{zneResult.GoodnessOfFit}"
+                    "overhead_x", sprintf "%d" (pecSamples * List.length zneNoiseLevels)
+                    "pec_samples", string pecSamples
+                ]
+                |> Map.ofList
+            )
 
     if not quiet then
         printfn "============================================================"
@@ -454,35 +516,47 @@ if not quiet then
     printfn "------------------------------------------------------------"
     printfn ""
 
-type ErrorMitigationStrategy = {
-    Name: string
-    ErrorReduction: float
-    Overhead: float
-    UseCases: string list
-}
+type ErrorMitigationStrategy =
+    {
+        Name: string
+        ErrorReduction: float
+        Overhead: float
+        UseCases: string list
+    }
 
-let strategies = [
-    { Name = "Baseline (None)"
-      ErrorReduction = 0.0
-      Overhead = 1.0
-      UseCases = ["Testing"; "Non-critical"] }
-    { Name = "REM Only"
-      ErrorReduction = 60.0
-      Overhead = 1.0
-      UseCases = ["High-shot apps"; "Quick wins"] }
-    { Name = "REM + ZNE"
-      ErrorReduction = 77.5
-      Overhead = 3.0
-      UseCases = ["Production default"; "VQE"; "QAOA"] }
-    { Name = "REM + PEC"
-      ErrorReduction = 86.0
-      Overhead = 50.0
-      UseCases = ["Critical accuracy"; "Shallow circuits"] }
-    { Name = "REM + ZNE + PEC"
-      ErrorReduction = 92.5
-      Overhead = 150.0
-      UseCases = ["Drug discovery"; "Finance"; "Max accuracy"] }
-]
+let strategies =
+    [
+        {
+            Name = "Baseline (None)"
+            ErrorReduction = 0.0
+            Overhead = 1.0
+            UseCases = [ "Testing"; "Non-critical" ]
+        }
+        {
+            Name = "REM Only"
+            ErrorReduction = 60.0
+            Overhead = 1.0
+            UseCases = [ "High-shot apps"; "Quick wins" ]
+        }
+        {
+            Name = "REM + ZNE"
+            ErrorReduction = 77.5
+            Overhead = 3.0
+            UseCases = [ "Production default"; "VQE"; "QAOA" ]
+        }
+        {
+            Name = "REM + PEC"
+            ErrorReduction = 86.0
+            Overhead = 50.0
+            UseCases = [ "Critical accuracy"; "Shallow circuits" ]
+        }
+        {
+            Name = "REM + ZNE + PEC"
+            ErrorReduction = 92.5
+            Overhead = 150.0
+            UseCases = [ "Drug discovery"; "Finance"; "Max accuracy" ]
+        }
+    ]
 
 if not quiet then
     printfn "Strategy Comparison Table:"
@@ -492,11 +566,7 @@ if not quiet then
 
     for s in strategies do
         let useCases = String.concat ", " s.UseCases
-        printfn "%-20s | %5.1f%%     | %6.0fx   | %s"
-            s.Name
-            s.ErrorReduction
-            s.Overhead
-            useCases
+        printfn "%-20s | %5.1f%%     | %6.0fx   | %s" s.Name s.ErrorReduction s.Overhead useCases
 
     printfn ""
     printfn "Key Insights:"
@@ -508,18 +578,21 @@ if not quiet then
 
 for s in strategies do
     allResults.Add(
-        [ "example", "3_cost_benefit"
-          "strategy", s.Name
-          "readout_error", $"%.4f{readoutError}"
-          "single_qubit_error", $"%.4f{singleQubitError}"
-          "two_qubit_error", $"%.4f{twoQubitError}"
-          "zero_noise_energy_Ha", ""
-          "error_Ha", ""
-          "r_squared", ""
-          "overhead_x", $"%.0f{s.Overhead}"
-          "pec_samples", ""
-          "error_reduction_pct", $"%.1f{s.ErrorReduction}" ]
-        |> Map.ofList)
+        [
+            "example", "3_cost_benefit"
+            "strategy", s.Name
+            "readout_error", $"%.4f{readoutError}"
+            "single_qubit_error", $"%.4f{singleQubitError}"
+            "two_qubit_error", $"%.4f{twoQubitError}"
+            "zero_noise_energy_Ha", ""
+            "error_Ha", ""
+            "r_squared", ""
+            "overhead_x", $"%.0f{s.Overhead}"
+            "pec_samples", ""
+            "error_reduction_pct", $"%.1f{s.ErrorReduction}"
+        ]
+        |> Map.ofList
+    )
 
 if not quiet then
     printfn "============================================================"
@@ -567,7 +640,10 @@ let runCircuitWithAdaptiveEM
         | Standard ->
             // REM only -- correct readout errors
             let remCfg = ReadoutErrorMitigation.defaultConfig
-            let! remResult = ReadoutErrorMitigation.mitigate circ backend remCfg fullNoisyExecutor
+
+            let! remResult =
+                ReadoutErrorMitigation.mitigate circ backend remCfg fullNoisyExecutor
+
             return
                 match remResult with
                 | Ok corrected ->
@@ -578,18 +654,21 @@ let runCircuitWithAdaptiveEM
                             let prob = cnt / float remCfg.CalibrationShots
                             let energy = if bs = "00" then -1.2 else -1.0
                             prob * energy)
+
                     Ok expectation
                 | Error err -> Error $"%s{strategyName}: %s{err}"
 
         | Production ->
             // REM + ZNE
             let remCfg = ReadoutErrorMitigation.defaultConfig
+
             match! measureCalibrationMatrix backend 2 remCfg fullNoisyExecutor with
             | Error err -> return Error $"%s{strategyName}: calibration failed: %s{err}"
             | Ok cal ->
                 let combinedExec (c: Circuit) : Async<Result<float, string>> =
                     async {
                         let shots = 10000
+
                         match! fullNoisyExecutor c shots with
                         | Error e -> return Error e
                         | Ok hist ->
@@ -603,10 +682,13 @@ let runCircuitWithAdaptiveEM
                                         let prob = cnt / float shots
                                         let energy = if bs = "00" then -1.2 else -1.0
                                         prob * energy)
+
                                 return Ok exp
                     }
+
                 let zneCfg = defaultIonQConfig
                 let! zneResult = ZeroNoiseExtrapolation.mitigate circ zneCfg combinedExec
+
                 return
                     match zneResult with
                     | Ok res -> Ok res.ZeroNoiseValue
@@ -614,8 +696,16 @@ let runCircuitWithAdaptiveEM
 
         | HighAccuracy ->
             // REM + PEC
-            let pecCfg: PECConfig = { NoiseModel = noiseModel; Samples = pecSamples; Seed = None }
-            let! pecResult = ProbabilisticErrorCancellation.mitigate circ pecCfg noisyExpectationExecutor
+            let pecCfg: PECConfig =
+                {
+                    NoiseModel = noiseModel
+                    Samples = pecSamples
+                    Seed = None
+                }
+
+            let! pecResult =
+                ProbabilisticErrorCancellation.mitigate circ pecCfg noisyExpectationExecutor
+
             return
                 match pecResult with
                 | Ok res -> Ok res.CorrectedExpectation
@@ -623,15 +713,24 @@ let runCircuitWithAdaptiveEM
 
         | Maximum ->
             // REM + ZNE + PEC (both techniques applied independently, take best)
-            let pecCfg: PECConfig = { NoiseModel = noiseModel; Samples = pecSamples; Seed = None }
-            let! pecResult = ProbabilisticErrorCancellation.mitigate circ pecCfg noisyExpectationExecutor
+            let pecCfg: PECConfig =
+                {
+                    NoiseModel = noiseModel
+                    Samples = pecSamples
+                    Seed = None
+                }
+
+            let! pecResult =
+                ProbabilisticErrorCancellation.mitigate circ pecCfg noisyExpectationExecutor
+
             let zneCfg = defaultIonQConfig
             let! zneResult = ZeroNoiseExtrapolation.mitigate circ zneCfg noisyExpectationExecutor
+
             return
                 match pecResult, zneResult with
                 | Ok pec, Ok zne ->
                     // Average both estimates for best combined result
-                    Ok ((pec.CorrectedExpectation + zne.ZeroNoiseValue) / 2.0)
+                    Ok((pec.CorrectedExpectation + zne.ZeroNoiseValue) / 2.0)
                 | Ok pec, Error _ -> Ok pec.CorrectedExpectation
                 | Error _, Ok zne -> Ok zne.ZeroNoiseValue
                 | Error e1, Error e2 -> Error $"%s{strategyName}: PEC=%s{e1}, ZNE=%s{e2}"
@@ -644,8 +743,9 @@ if not quiet then
     printfn ""
     printfn "Accuracy Levels:"
 
-for level in [Fast; Standard; Production; HighAccuracy; Maximum] do
+for level in [ Fast; Standard; Production; HighAccuracy; Maximum ] do
     let (name, overhead) = selectStrategy level
+
     if not quiet then
         printfn "  %A -> %s (%.0fx)" level name overhead
 
@@ -653,27 +753,31 @@ if not quiet then
     printfn ""
 
 // Run the configured strategy
-match Async.RunSynchronously (runCircuitWithAdaptiveEM vqeCircuit "ionq" Production) with
+match Async.RunSynchronously(runCircuitWithAdaptiveEM vqeCircuit "ionq" Production) with
 | Ok energy ->
     if not quiet then
         printfn "Production run result: %.4f Hartree (error: %.4f)" energy (abs (energy - trueEnergy))
         printfn ""
 
     allResults.Add(
-        [ "example", "4_adaptive_api"
-          "strategy", "Production (REM + ZNE)"
-          "readout_error", $"%.4f{readoutError}"
-          "single_qubit_error", $"%.4f{singleQubitError}"
-          "two_qubit_error", $"%.4f{twoQubitError}"
-          "zero_noise_energy_Ha", $"%.6f{energy}"
-          "error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
-          "r_squared", ""
-          "overhead_x", "3"
-          "pec_samples", "" ]
-        |> Map.ofList)
+        [
+            "example", "4_adaptive_api"
+            "strategy", "Production (REM + ZNE)"
+            "readout_error", $"%.4f{readoutError}"
+            "single_qubit_error", $"%.4f{singleQubitError}"
+            "two_qubit_error", $"%.4f{twoQubitError}"
+            "zero_noise_energy_Ha", $"%.6f{energy}"
+            "error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
+            "r_squared", ""
+            "overhead_x", "3"
+            "pec_samples", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "Recommendation: Start with Production, upgrade if needed"
@@ -765,20 +869,35 @@ let resultsList = allResults |> Seq.toList
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultsList
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "example"; "strategy"; "readout_error"; "single_qubit_error"; "two_qubit_error"
-          "zero_noise_energy_Ha"; "error_Ha"; "r_squared"; "overhead_x"; "pec_samples" ]
+        [
+            "example"
+            "strategy"
+            "readout_error"
+            "single_qubit_error"
+            "two_qubit_error"
+            "zero_noise_energy_Ha"
+            "error_Ha"
+            "r_squared"
+            "overhead_x"
+            "pec_samples"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

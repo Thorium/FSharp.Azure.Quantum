@@ -15,7 +15,7 @@
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System.Numerics
-open FSharp.Azure.Quantum                       // CircuitBuilder
+open FSharp.Azure.Quantum // CircuitBuilder
 open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
 
 // --- 1. Build a Pauli Hamiltonian from a diagonal (eigenvalues on Z-basis) ---
@@ -24,10 +24,18 @@ printfn "Hamiltonian: %d Pauli term(s), %d qubit(s)" hamiltonian.Terms.Length ha
 
 // --- 2. Synthesize the time-evolution circuit e^(-iHt) ---
 // Use 2nd-order Trotter with 5 steps over t = 1.0.
-let config = { defaultConfig with NumSteps = 5; Time = 1.0; Order = 2 }
+let config =
+    { defaultConfig with
+        NumSteps = 5
+        Time = 1.0
+        Order = 2
+    }
+
 let qubits = [| 0 .. hamiltonian.NumQubits - 1 |]
+
 let circuit =
     synthesizeHamiltonianEvolution hamiltonian config qubits (CircuitBuilder.empty hamiltonian.NumQubits)
+
 printfn "Evolution circuit (%d steps, order %d): %d gates" config.NumSteps config.Order circuit.Gates.Length
 
 // --- 3. Pick a Trotter step count for a target accuracy ---
@@ -37,6 +45,13 @@ printfn "Recommended Trotter steps (‖H‖=2, t=1, tol=1e-3, order 2): %d" step
 
 // --- 4. Decompose an arbitrary Hermitian matrix into Pauli terms ---
 // Here the Pauli-Z matrix diag(1, -1).
-let m = array2D [ [ Complex(1.0, 0.0); Complex(0.0, 0.0) ]
-                  [ Complex(0.0, 0.0); Complex(-1.0, 0.0) ] ]
-(decomposeMatrixToPauli m) |> Result.map (fun h -> printfn "Decomposed 2x2 Hermitian matrix into %d Pauli term(s)" h.Terms.Length) |> Result.defaultWith (fun e -> printfn "Decomposition error: %A" e)
+let m =
+    array2D
+        [
+            [ Complex(1.0, 0.0); Complex(0.0, 0.0) ]
+            [ Complex(0.0, 0.0); Complex(-1.0, 0.0) ]
+        ]
+
+(decomposeMatrixToPauli m)
+|> Result.map (fun h -> printfn "Decomposed 2x2 Hermitian matrix into %d Pauli term(s)" h.Terms.Length)
+|> Result.defaultWith (fun e -> printfn "Decomposition error: %A" e)

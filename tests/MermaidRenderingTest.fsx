@@ -1,5 +1,5 @@
 /// Test script for Mermaid rendering of quantum circuits
-/// 
+///
 /// Tests the updated MermaidRenderer with SWAP, CCX, and MCZ gates
 
 #load "../src/FSharp.Azure.Quantum/Core/QuantumError.fs"
@@ -20,11 +20,12 @@ printfn ""
 printfn "Test 1: SWAP Gate"
 printfn "-----------------"
 
-let swapGates = [
-    CircuitGate (H 0)
-    CircuitGate (CNOT (0, 1))
-    CircuitGate (SWAP (1, 2))  // Test SWAP
-]
+let swapGates =
+    [
+        CircuitGate(H 0)
+        CircuitGate(CNOT(0, 1))
+        CircuitGate(SWAP(1, 2)) // Test SWAP
+    ]
 
 let swapMermaid = MermaidRenderer.Flowchart.render 3 swapGates
 
@@ -37,11 +38,12 @@ printfn ""
 printfn "Test 2: CCX (Toffoli) Gate"
 printfn "----------------------------"
 
-let toffoliGates = [
-    CircuitGate (H 0)
-    CircuitGate (H 1)
-    CircuitGate (CCX (0, 1, 2))  // Test Toffoli
-]
+let toffoliGates =
+    [
+        CircuitGate(H 0)
+        CircuitGate(H 1)
+        CircuitGate(CCX(0, 1, 2)) // Test Toffoli
+    ]
 
 let toffoliMermaid = MermaidRenderer.Flowchart.render 3 toffoliGates
 
@@ -54,12 +56,13 @@ printfn ""
 printfn "Test 3: MCZ (Multi-Controlled Z) Gate"
 printfn "---------------------------------------"
 
-let mczGates = [
-    CircuitGate (H 0)
-    CircuitGate (H 1)
-    CircuitGate (H 2)
-    CircuitGate (MCZ ([0; 1; 2], 3))  // Test MCZ
-]
+let mczGates =
+    [
+        CircuitGate(H 0)
+        CircuitGate(H 1)
+        CircuitGate(H 2)
+        CircuitGate(MCZ([ 0; 1; 2 ], 3)) // Test MCZ
+    ]
 
 let mczMermaid = MermaidRenderer.Flowchart.render 4 mczGates
 
@@ -72,14 +75,15 @@ printfn ""
 printfn "Test 4: Complex Circuit (All Gate Types)"
 printfn "-----------------------------------------"
 
-let complexGates = [
-    CircuitGate (H 0)
-    CircuitGate (CNOT (0, 1))
-    CircuitGate (SWAP (1, 2))
-    CircuitGate (CCX (0, 1, 3))
-    CircuitGate (MCZ ([0; 1], 2))
-    CircuitGate (Measure 3)
-]
+let complexGates =
+    [
+        CircuitGate(H 0)
+        CircuitGate(CNOT(0, 1))
+        CircuitGate(SWAP(1, 2))
+        CircuitGate(CCX(0, 1, 3))
+        CircuitGate(MCZ([ 0; 1 ], 2))
+        CircuitGate(Measure 3)
+    ]
 
 let complexMermaid = MermaidRenderer.Flowchart.render 4 complexGates
 

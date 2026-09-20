@@ -102,15 +102,51 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "ZNE_Example.fsx" "Zero-Noise Extrapolation (ZNE) error mitigation for quantum circuits"
-    [ { Cli.OptionSpec.Name = "backend"; Description = "Backend type: ionq or rigetti"; Default = Some "ionq" }
-      { Cli.OptionSpec.Name = "noise-levels"; Description = "Comma-separated noise scale factors"; Default = Some "1.0,1.5,2.0" }
-      { Cli.OptionSpec.Name = "poly-degree"; Description = "Polynomial degree for extrapolation"; Default = Some "2" }
-      { Cli.OptionSpec.Name = "samples"; Description = "Min samples per noise level"; Default = Some "1024" }
-      { Cli.OptionSpec.Name = "theta"; Description = "VQE ansatz angle (radians, or 'pi/4')"; Default = Some "pi/4" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write JSON results to file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write CSV results to file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+Cli.exitIfHelp
+    "ZNE_Example.fsx"
+    "Zero-Noise Extrapolation (ZNE) error mitigation for quantum circuits"
+    [
+        {
+            Cli.OptionSpec.Name = "backend"
+            Description = "Backend type: ionq or rigetti"
+            Default = Some "ionq"
+        }
+        {
+            Cli.OptionSpec.Name = "noise-levels"
+            Description = "Comma-separated noise scale factors"
+            Default = Some "1.0,1.5,2.0"
+        }
+        {
+            Cli.OptionSpec.Name = "poly-degree"
+            Description = "Polynomial degree for extrapolation"
+            Default = Some "2"
+        }
+        {
+            Cli.OptionSpec.Name = "samples"
+            Description = "Min samples per noise level"
+            Default = Some "1024"
+        }
+        {
+            Cli.OptionSpec.Name = "theta"
+            Description = "VQE ansatz angle (radians, or 'pi/4')"
+            Default = Some "pi/4"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write JSON results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write CSV results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -121,11 +157,13 @@ let samples = Cli.getIntOr "samples" 1024 args
 /// Parse theta value, supporting "pi/N" notation.
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
+
     if s.StartsWith "pi/" then
         match Double.TryParse(s.AsSpan 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
-    elif s = "pi" then Math.PI
+    elif s = "pi" then
+        Math.PI
     else
         match Double.TryParse(s) with
         | true, v -> v
@@ -161,12 +199,12 @@ let createVQECircuit (angle: float) : Circuit =
 /// In production, this would call a real backend (IonQ, Rigetti, etc.).
 let noisyExecutor (circuit: Circuit) : Async<Result<float, string>> =
     async {
-        let trueValue = -1.137  // True H2 ground state energy (Hartree)
+        let trueValue = -1.137 // True H2 ground state energy (Hartree)
         let circuitDepth = float (gateCount circuit)
-        let noiseLevel = circuitDepth * 0.02  // 2% error per gate
+        let noiseLevel = circuitDepth * 0.02 // 2% error per gate
         let random = Random()
         let noise = (random.NextDouble() - 0.5) * noiseLevel
-        return Ok (trueValue + noise)
+        return Ok(trueValue + noise)
     }
 
 [<Literal>]
@@ -202,7 +240,7 @@ let scalings =
     |> List.map (fun nl ->
         match backend with
         | "rigetti" -> PulseStretching nl
-        | _ -> IdentityInsertion (nl - 1.0))  // IdentityInsertion takes the *extra* fraction
+        | _ -> IdentityInsertion(nl - 1.0)) // IdentityInsertion takes the *extra* fraction
 
 let config1 =
     baseConfig
@@ -211,7 +249,12 @@ let config1 =
     |> withMinSamples samples
 
 if not quiet then
-    let methodName = if backend = "rigetti" then "Pulse Stretching" else "Identity Insertion"
+    let methodName =
+        if backend = "rigetti" then
+            "Pulse Stretching"
+        else
+            "Identity Insertion"
+
     printfn "ZNE Configuration:"
     printfn "  Method: %s" methodName
     printfn "  Noise levels: %s" (noiseLevels |> List.map (sprintf "%.2fx") |> String.concat ", ")
@@ -223,7 +266,7 @@ if not quiet then
 
 let allResults = System.Collections.Generic.List<Map<string, string>>()
 
-match Async.RunSynchronously (mitigate vqeCircuit config1 noisyExecutor) with
+match Async.RunSynchronously(mitigate vqeCircuit config1 noisyExecutor) with
 | Ok result ->
     if not quiet then
         printfn "[OK] ZNE Complete!"
@@ -233,17 +276,21 @@ match Async.RunSynchronously (mitigate vqeCircuit config1 noisyExecutor) with
         printfn "  R^2 goodness-of-fit: %.4f (1.0 = perfect)" result.GoodnessOfFit
         printfn ""
         printfn "Measurements at each noise level:"
+
         result.MeasuredValues
-        |> List.iter (fun (nl, energy) ->
-            printfn "    %.2fx noise -> %.4f Hartree" nl energy)
+        |> List.iter (fun (nl, energy) -> printfn "    %.2fx noise -> %.4f Hartree" nl energy)
+
         printfn ""
 
     let baselineEnergy = result.MeasuredValues |> List.head |> snd
     let baselineError = abs (baselineEnergy - trueEnergy)
     let mitigatedError = abs (result.ZeroNoiseValue - trueEnergy)
+
     let errorReduction =
-        if baselineError > 0.0 then ((baselineError - mitigatedError) / baselineError) * 100.0
-        else 0.0
+        if baselineError > 0.0 then
+            ((baselineError - mitigatedError) / baselineError) * 100.0
+        else
+            0.0
 
     if not quiet then
         printfn "Error Analysis:"
@@ -251,29 +298,35 @@ match Async.RunSynchronously (mitigate vqeCircuit config1 noisyExecutor) with
         printfn "  Mitigated error: %.4f Hartree" mitigatedError
         printfn "  Error reduction: %.1f%%" errorReduction
         printfn ""
+
         if errorReduction > 30.0 then
             printfn "[OK] Achieved > 30%% error reduction!"
         else
             printfn "[NOTE] Lower than expected error reduction (stochastic variation)"
+
         printfn ""
 
     allResults.Add(
-        [ "example", "1_basic_zne"
-          "backend", backend
-          "theta_rad", $"%.4f{theta}"
-          "noise_levels", (noiseLevels |> List.map (sprintf "%.2f") |> String.concat ";")
-          "poly_degree", string polyDegree
-          "samples", string samples
-          "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
-          "r_squared", $"%.4f{result.GoodnessOfFit}"
-          "baseline_energy_Ha", $"%.6f{baselineEnergy}"
-          "baseline_error_Ha", $"%.6f{baselineError}"
-          "mitigated_error_Ha", $"%.6f{mitigatedError}"
-          "error_reduction_pct", $"%.1f{errorReduction}" ]
-        |> Map.ofList)
+        [
+            "example", "1_basic_zne"
+            "backend", backend
+            "theta_rad", $"%.4f{theta}"
+            "noise_levels", (noiseLevels |> List.map (sprintf "%.2f") |> String.concat ";")
+            "poly_degree", string polyDegree
+            "samples", string samples
+            "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
+            "r_squared", $"%.4f{result.GoodnessOfFit}"
+            "baseline_energy_Ha", $"%.6f{baselineEnergy}"
+            "baseline_error_Ha", $"%.6f{baselineError}"
+            "mitigated_error_Ha", $"%.6f{mitigatedError}"
+            "error_reduction_pct", $"%.1f{errorReduction}"
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -288,7 +341,7 @@ if not quiet then
     printfn "------------------------------------------------------------"
     printfn ""
 
-let customNoiseLevels = [0.0; 0.25; 0.5; 0.75; 1.0]
+let customNoiseLevels = [ 0.0; 0.25; 0.5; 0.75; 1.0 ]
 
 let customConfig =
     defaultIonQConfig
@@ -298,13 +351,16 @@ let customConfig =
 
 if not quiet then
     printfn "Custom Configuration:"
-    let displayLevels = customNoiseLevels |> List.map (fun x -> sprintf "%.2fx" (x + 1.0))
+
+    let displayLevels =
+        customNoiseLevels |> List.map (fun x -> sprintf "%.2fx" (x + 1.0))
+
     printfn "  Noise levels: %s" (String.concat ", " displayLevels)
     printfn "  Polynomial degree: 3 (cubic extrapolation)"
     printfn "  Samples: %d (higher precision)" (samples * 2)
     printfn ""
 
-match Async.RunSynchronously (mitigate vqeCircuit customConfig noisyExecutor) with
+match Async.RunSynchronously(mitigate vqeCircuit customConfig noisyExecutor) with
 | Ok result ->
     if not quiet then
         printfn "[OK] Custom ZNE Complete!"
@@ -312,33 +368,45 @@ match Async.RunSynchronously (mitigate vqeCircuit customConfig noisyExecutor) wi
         printfn "Zero-noise energy: %.4f Hartree" result.ZeroNoiseValue
         printfn "R^2 goodness-of-fit: %.4f" result.GoodnessOfFit
         printfn ""
+
         if result.PolynomialCoefficients.Length >= 4 then
             printfn "Polynomial coefficients: [a0, a1, a2, a3]"
-            printfn "  E(lambda) = %.4f + %.4f*lambda + %.4f*lambda^2 + %.4f*lambda^3"
+
+            printfn
+                "  E(lambda) = %.4f + %.4f*lambda + %.4f*lambda^2 + %.4f*lambda^3"
                 result.PolynomialCoefficients.[0]
                 result.PolynomialCoefficients.[1]
                 result.PolynomialCoefficients.[2]
                 result.PolynomialCoefficients.[3]
+
             printfn ""
             printfn "Note: Zero-noise value = a0 (constant term)"
+
         printfn ""
 
     allResults.Add(
-        [ "example", "2_custom_config"
-          "backend", "ionq"
-          "theta_rad", $"%.4f{theta}"
-          "noise_levels", (customNoiseLevels |> List.map (fun x -> sprintf "%.2f" (x + 1.0)) |> String.concat ";")
-          "poly_degree", "3"
-          "samples", string (samples * 2)
-          "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
-          "r_squared", $"%.4f{result.GoodnessOfFit}"
-          "baseline_error_Ha", ""
-          "mitigated_error_Ha", sprintf "%.6f" (abs (result.ZeroNoiseValue - trueEnergy))
-          "error_reduction_pct", "" ]
-        |> Map.ofList)
+        [
+            "example", "2_custom_config"
+            "backend", "ionq"
+            "theta_rad", $"%.4f{theta}"
+            "noise_levels",
+            (customNoiseLevels
+             |> List.map (fun x -> sprintf "%.2f" (x + 1.0))
+             |> String.concat ";")
+            "poly_degree", "3"
+            "samples", string (samples * 2)
+            "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
+            "r_squared", $"%.4f{result.GoodnessOfFit}"
+            "baseline_error_Ha", ""
+            "mitigated_error_Ha", sprintf "%.6f" (abs (result.ZeroNoiseValue - trueEnergy))
+            "error_reduction_pct", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -363,7 +431,7 @@ if not quiet then
 
 let rigettiConfig = defaultRigettiConfig
 
-match Async.RunSynchronously (mitigate vqeCircuit rigettiConfig noisyExecutor) with
+match Async.RunSynchronously(mitigate vqeCircuit rigettiConfig noisyExecutor) with
 | Ok result ->
     if not quiet then
         printfn "[OK] Rigetti ZNE Complete!"
@@ -373,21 +441,25 @@ match Async.RunSynchronously (mitigate vqeCircuit rigettiConfig noisyExecutor) w
         printfn ""
 
     allResults.Add(
-        [ "example", "3_rigetti_pulse_stretch"
-          "backend", "rigetti"
-          "theta_rad", $"%.4f{theta}"
-          "noise_levels", "1.00;1.50;2.00"
-          "poly_degree", "2"
-          "samples", string samples
-          "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
-          "r_squared", $"%.4f{result.GoodnessOfFit}"
-          "baseline_error_Ha", ""
-          "mitigated_error_Ha", sprintf "%.6f" (abs (result.ZeroNoiseValue - trueEnergy))
-          "error_reduction_pct", "" ]
-        |> Map.ofList)
+        [
+            "example", "3_rigetti_pulse_stretch"
+            "backend", "rigetti"
+            "theta_rad", $"%.4f{theta}"
+            "noise_levels", "1.00;1.50;2.00"
+            "poly_degree", "2"
+            "samples", string samples
+            "zero_noise_energy_Ha", $"%.6f{result.ZeroNoiseValue}"
+            "r_squared", $"%.4f{result.GoodnessOfFit}"
+            "baseline_error_Ha", ""
+            "mitigated_error_Ha", sprintf "%.6f" (abs (result.ZeroNoiseValue - trueEnergy))
+            "error_reduction_pct", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -409,9 +481,9 @@ let runVQEWithZNE (circ: Circuit) (backendName: string) : Async<Result<float, st
             match backendName with
             | "rigetti" -> defaultRigettiConfig
             | _ -> defaultIonQConfig
+
         let! result = mitigate circ cfg noisyExecutor
-        return
-            result |> Result.map (fun res -> res.ZeroNoiseValue)
+        return result |> Result.map (fun res -> res.ZeroNoiseValue)
     }
 
 if not quiet then
@@ -419,7 +491,7 @@ if not quiet then
     printfn "  runVQEWithZNE circuit backend -> Async<Result<float, string>>"
     printfn ""
 
-match Async.RunSynchronously (runVQEWithZNE vqeCircuit backend) with
+match Async.RunSynchronously(runVQEWithZNE vqeCircuit backend) with
 | Ok energy ->
     if not quiet then
         printfn "[OK] Production VQE Energy: %.4f Hartree" energy
@@ -428,21 +500,25 @@ match Async.RunSynchronously (runVQEWithZNE vqeCircuit backend) with
         printfn ""
 
     allResults.Add(
-        [ "example", "4_production_pattern"
-          "backend", backend
-          "theta_rad", $"%.4f{theta}"
-          "noise_levels", ""
-          "poly_degree", ""
-          "samples", ""
-          "zero_noise_energy_Ha", $"%.6f{energy}"
-          "r_squared", ""
-          "baseline_error_Ha", ""
-          "mitigated_error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
-          "error_reduction_pct", "" ]
-        |> Map.ofList)
+        [
+            "example", "4_production_pattern"
+            "backend", backend
+            "theta_rad", $"%.4f{theta}"
+            "noise_levels", ""
+            "poly_degree", ""
+            "samples", ""
+            "zero_noise_energy_Ha", $"%.6f{energy}"
+            "r_squared", ""
+            "baseline_error_Ha", ""
+            "mitigated_error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
+            "error_reduction_pct", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -488,21 +564,36 @@ let resultsList = allResults |> Seq.toList
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultsList
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "example"; "backend"; "theta_rad"; "noise_levels"; "poly_degree"; "samples"
-          "zero_noise_energy_Ha"; "r_squared"; "baseline_error_Ha"
-          "mitigated_error_Ha"; "error_reduction_pct" ]
+        [
+            "example"
+            "backend"
+            "theta_rad"
+            "noise_levels"
+            "poly_degree"
+            "samples"
+            "zero_noise_energy_Ha"
+            "r_squared"
+            "baseline_error_Ha"
+            "mitigated_error_Ha"
+            "error_reduction_pct"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

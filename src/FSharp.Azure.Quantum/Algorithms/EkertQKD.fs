@@ -7,41 +7,41 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Ekert E91 Quantum Key Distribution Protocol
-/// 
+///
 /// E91 is an entanglement-based quantum key distribution protocol proposed by
 /// Artur Ekert in 1991. Unlike BB84 (prepare-and-measure), E91 derives security
 /// from the violation of Bell's inequality (CHSH inequality). If an eavesdropper
 /// intercepts the entangled pairs, the Bell inequality violation decreases,
 /// alerting Alice and Bob.
-/// 
+///
 /// **Production Use Cases**:
 /// - Quantum Networks: Entanglement-based secure key exchange
 /// - Device-Independent QKD: Security relies only on Bell violation, not device trust
 /// - Quantum Internet: Backbone protocol for entanglement distribution networks
 /// - Long-Distance QKD: Suitable for satellite-based quantum communication
-/// 
+///
 /// **Real-World Deployments**:
 /// - Micius satellite (China, 2017): Entanglement-based QKD over 1200km
 /// - European Quantum Internet Alliance: Entanglement distribution experiments
 /// - QuTech (Delft, Netherlands): Metropolitan quantum network tests
-/// 
+///
 /// **Security Guarantees**:
 /// - Device-independent security (relies only on Bell violation)
 /// - Eavesdropper detection via CHSH inequality violation
 /// - Information-theoretic security (not computational)
 /// - Cannot be broken by quantum computers
-/// 
+///
 /// **Textbook References**:
 /// - Ekert (1991) "Quantum Cryptography Based on Bell's Theorem"
 /// - Clauser, Horne, Shimony, Holt (1969) "Proposed Experiment to Test Local Hidden-Variable Theories"
 /// - Nielsen & Chuang "Quantum Computation and Quantum Information" - Chapter 12
-/// 
+///
 /// **Performance Characteristics**:
 /// - Key rate: ~2/9 (~22.2%) of total pairs (2 matching bases out of 9 combinations)
 /// - CHSH parameter (no Eve): |S| = 2*sqrt(2) ~ 2.828
 /// - CHSH parameter (classical/Eve): |S| <= 2.0
 /// - Detection threshold: S drops below quantum bound when Eve intercepts
-/// 
+///
 /// **Protocol Overview**:
 /// 1. Entanglement source generates Bell pairs |Phi+> = (|00>+|11>)/sqrt(2)
 /// 2. Alice measures her qubit in one of 3 bases: {0 deg, 45 deg, 90 deg}
@@ -57,7 +57,7 @@ module EkertQKD =
     // ========================================================================
 
     /// Alice's measurement basis choices for E91
-    /// 
+    ///
     /// Alice randomly chooses from 3 measurement angles:
     /// - 0 degrees (Z-basis measurement)
     /// - 45 degrees (pi/4 rotated basis)
@@ -72,7 +72,7 @@ module EkertQKD =
         | AliceDeg90
 
     /// Bob's measurement basis choices for E91
-    /// 
+    ///
     /// Bob randomly chooses from 3 measurement angles:
     /// - 0 degrees (Z-basis measurement)
     /// - 45 degrees (pi/4 rotated basis)
@@ -87,58 +87,61 @@ module EkertQKD =
         | BobDeg135
 
     /// Result of measuring a single entangled pair
-    type E91Pair = {
-        /// Alice's chosen basis
-        AliceBasis: AliceBasis
-        /// Bob's chosen basis
-        BobBasis: BobBasis
-        /// Alice's measurement result (0 or 1)
-        AliceResult: int
-        /// Bob's measurement result (0 or 1)
-        BobResult: int
-    }
+    type E91Pair =
+        {
+            /// Alice's chosen basis
+            AliceBasis: AliceBasis
+            /// Bob's chosen basis
+            BobBasis: BobBasis
+            /// Alice's measurement result (0 or 1)
+            AliceResult: int
+            /// Bob's measurement result (0 or 1)
+            BobResult: int
+        }
 
     /// CHSH inequality test result
-    /// 
+    ///
     /// The CHSH parameter S is computed from correlations between
     /// non-matching basis measurements:
     /// S = E(a1,b1) - E(a1,b3) + E(a3,b1) + E(a3,b3)
-    /// 
+    ///
     /// where a1=0 deg, a3=90 deg, b1=45 deg, b3=135 deg
-    type CHSHResult = {
-        /// CHSH parameter S value
-        S: float
-        /// Quantum mechanical bound: 2*sqrt(2) ~ 2.828
-        QuantumBound: float
-        /// Classical (local hidden variable) bound: 2.0
-        ClassicalBound: float
-        /// Is |S| above classical bound? (indicates genuine quantum correlations)
-        IsSecure: bool
-        /// Eavesdropper detected? (|S| significantly below quantum bound)
-        EavesdropperDetected: bool
-        /// Individual correlation values used to compute S
-        Correlations: (string * float) list
-    }
+    type CHSHResult =
+        {
+            /// CHSH parameter S value
+            S: float
+            /// Quantum mechanical bound: 2*sqrt(2) ~ 2.828
+            QuantumBound: float
+            /// Classical (local hidden variable) bound: 2.0
+            ClassicalBound: float
+            /// Is |S| above classical bound? (indicates genuine quantum correlations)
+            IsSecure: bool
+            /// Eavesdropper detected? (|S| significantly below quantum bound)
+            EavesdropperDetected: bool
+            /// Individual correlation values used to compute S
+            Correlations: (string * float) list
+        }
 
     /// Full E91 protocol result
-    type E91Result = {
-        /// Total number of entangled pairs generated
-        TotalPairs: int
-        /// All pair measurements
-        Pairs: E91Pair list
-        /// Sifted key bits (from matching-basis measurements)
-        KeyBits: int list
-        /// Length of sifted key
-        SiftedKeyLength: int
-        /// CHSH security test result
-        CHSHTest: CHSHResult
-        /// Key rate (sifted key length / total pairs)
-        KeyRate: float
-        /// Protocol security status
-        IsSecure: bool
-        /// Backend used
-        BackendName: string
-    }
+    type E91Result =
+        {
+            /// Total number of entangled pairs generated
+            TotalPairs: int
+            /// All pair measurements
+            Pairs: E91Pair list
+            /// Sifted key bits (from matching-basis measurements)
+            KeyBits: int list
+            /// Length of sifted key
+            SiftedKeyLength: int
+            /// CHSH security test result
+            CHSHTest: CHSHResult
+            /// Key rate (sifted key length / total pairs)
+            KeyRate: float
+            /// Protocol security status
+            IsSecure: bool
+            /// Backend used
+            BackendName: string
+        }
 
     // ========================================================================
     // CONSTANTS
@@ -170,50 +173,58 @@ module EkertQKD =
     // ========================================================================
 
     /// E91 protocol intent (captures all randomness upfront)
-    type private E91Intent = {
-        /// Number of entangled pairs to generate
-        NumPairs: int
-        /// Alice's qubit index
-        AliceQubit: int
-        /// Bob's qubit index
-        BobQubit: int
-        /// Random basis choices for Alice (one per pair)
-        AliceBases: AliceBasis[]
-        /// Random basis choices for Bob (one per pair)
-        BobBases: BobBasis[]
-        /// Whether Eve intercepts (for testing)
-        EveIntercepts: bool
-        /// Random seed used (for reproducibility)
-        Seed: int option
-    }
+    type private E91Intent =
+        {
+            /// Number of entangled pairs to generate
+            NumPairs: int
+            /// Alice's qubit index
+            AliceQubit: int
+            /// Bob's qubit index
+            BobQubit: int
+            /// Random basis choices for Alice (one per pair)
+            AliceBases: AliceBasis[]
+            /// Random basis choices for Bob (one per pair)
+            BobBases: BobBasis[]
+            /// Whether Eve intercepts (for testing)
+            EveIntercepts: bool
+            /// Random seed used (for reproducibility)
+            Seed: int option
+        }
 
     [<RequireQualifiedAccess>]
-    type private E91Plan =
-        | ExecuteViaOps of requiredOps: QuantumOperation list
+    type private E91Plan = ExecuteViaOps of requiredOps: QuantumOperation list
 
     /// All operations required by E91 (Bell pair creation + rotated measurements)
-    let private requiredOps : QuantumOperation list =
-        [ QuantumOperation.Gate (H 0)
-          QuantumOperation.Gate (CNOT (0, 1))
-          QuantumOperation.Gate (RY (0, 0.1)) ]  // RY with arbitrary angle as capability test
+    let private requiredOps: QuantumOperation list =
+        [
+            QuantumOperation.Gate(H 0)
+            QuantumOperation.Gate(CNOT(0, 1))
+            QuantumOperation.Gate(RY(0, 0.1))
+        ] // RY with arbitrary angle as capability test
 
     /// Plan the E91 protocol execution
     let private planE91 (backend: IQuantumBackend) : Result<E91Plan, QuantumError> =
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
-            Error (QuantumError.OperationError ("EkertQKD", $"Backend '{backend.Name}' does not support E91 QKD (native state type: {backend.NativeStateType})"))
+            Error(
+                QuantumError.OperationError(
+                    "EkertQKD",
+                    $"Backend '{backend.Name}' does not support E91 QKD (native state type: {backend.NativeStateType})"
+                )
+            )
         | _ ->
             if requiredOps |> List.forall backend.SupportsOperation then
-                Ok (E91Plan.ExecuteViaOps requiredOps)
+                Ok(E91Plan.ExecuteViaOps requiredOps)
             else
-                Error (QuantumError.OperationError ("EkertQKD", $"Backend '{backend.Name}' does not support required operations for E91 QKD"))
+                Error(
+                    QuantumError.OperationError(
+                        "EkertQKD",
+                        $"Backend '{backend.Name}' does not support required operations for E91 QKD"
+                    )
+                )
 
     /// Build the E91 intent with random basis choices
-    let private buildE91Intent
-        (numPairs: int)
-        (withEve: bool)
-        (seed: int option)
-        : E91Intent =
+    let private buildE91Intent (numPairs: int) (withEve: bool) (seed: int option) : E91Intent =
 
         let rng =
             match seed with
@@ -249,11 +260,11 @@ module EkertQKD =
     // ========================================================================
 
     /// Measure a qubit in a rotated basis defined by angle theta.
-    /// 
+    ///
     /// To measure in the basis defined by angle theta from the Z-axis:
     /// Apply Ry(-theta) to rotate the measurement basis back to Z,
     /// then measure in the computational (Z) basis.
-    /// 
+    ///
     /// Angles:
     ///   0 deg -> Z basis (no rotation needed)
     ///   45 deg (pi/4) -> diagonal basis
@@ -270,9 +281,9 @@ module EkertQKD =
             // Apply Ry(-angle) to rotate measurement basis to Z-axis
             let! rotatedState =
                 if abs angle < 1e-10 then
-                    Ok state  // 0 degrees = Z basis, no rotation needed
+                    Ok state // 0 degrees = Z basis, no rotation needed
                 else
-                    backend.ApplyOperation (QuantumOperation.Gate (RY (qubit, -angle))) state
+                    backend.ApplyOperation (QuantumOperation.Gate(RY(qubit, -angle))) state
 
             // Measure in computational (Z) basis using single-shot
             let measurements = QuantumState.measure rotatedState 1
@@ -286,7 +297,7 @@ module EkertQKD =
     // ========================================================================
 
     /// Execute the E91 protocol for a single entangled pair
-    /// 
+    ///
     /// Steps:
     /// 1. Create Bell pair |Phi+> = (|00> + |11>) / sqrt(2)
     /// 2. Apply basis rotations Ry(-angle) on both qubits
@@ -304,10 +315,12 @@ module EkertQKD =
             let! initialState = backend.InitializeState 2
 
             // Create Bell pair: H(0) -> CNOT(0,1) -> |Phi+>
-            let bellOps = [
-                QuantumOperation.Gate (H intent.AliceQubit)
-                QuantumOperation.Gate (CNOT (intent.AliceQubit, intent.BobQubit))
-            ]
+            let bellOps =
+                [
+                    QuantumOperation.Gate(H intent.AliceQubit)
+                    QuantumOperation.Gate(CNOT(intent.AliceQubit, intent.BobQubit))
+                ]
+
             let! bellState = UnifiedBackend.applySequence backend bellOps initialState
 
             // Get measurement angles
@@ -318,27 +331,32 @@ module EkertQKD =
             // then measure both simultaneously in the Z basis.
             // This correctly preserves entanglement correlations.
             let! afterAliceRot =
-                if abs aliceAngleRad < 1e-10 then Ok bellState
-                else backend.ApplyOperation (QuantumOperation.Gate (RY (intent.AliceQubit, -aliceAngleRad))) bellState
+                if abs aliceAngleRad < 1e-10 then
+                    Ok bellState
+                else
+                    backend.ApplyOperation (QuantumOperation.Gate(RY(intent.AliceQubit, -aliceAngleRad))) bellState
 
             let! afterBothRot =
-                if abs bobAngleRad < 1e-10 then Ok afterAliceRot
-                else backend.ApplyOperation (QuantumOperation.Gate (RY (intent.BobQubit, -bobAngleRad))) afterAliceRot
+                if abs bobAngleRad < 1e-10 then
+                    Ok afterAliceRot
+                else
+                    backend.ApplyOperation (QuantumOperation.Gate(RY(intent.BobQubit, -bobAngleRad))) afterAliceRot
 
             // Measure both qubits simultaneously in Z basis
             let measurements = QuantumState.measure afterBothRot 1
             let bits = measurements.[0]
 
-            return {
-                AliceBasis = aliceBasis
-                BobBasis = bobBasis
-                AliceResult = bits.[intent.AliceQubit]
-                BobResult = bits.[intent.BobQubit]
-            }
+            return
+                {
+                    AliceBasis = aliceBasis
+                    BobBasis = bobBasis
+                    AliceResult = bits.[intent.AliceQubit]
+                    BobResult = bits.[intent.BobQubit]
+                }
         }
 
     /// Execute a single pair with Eve performing intercept-resend attack
-    /// 
+    ///
     /// Eve intercepts the entangled pairs and measures them,
     /// destroying the entanglement. She then sends new (unentangled)
     /// qubits to Alice and Bob, which will not violate the CHSH inequality.
@@ -359,15 +377,20 @@ module EkertQKD =
             let! initialState = backend.InitializeState 2
 
             // Create Bell pair
-            let bellOps = [
-                QuantumOperation.Gate (H intent.AliceQubit)
-                QuantumOperation.Gate (CNOT (intent.AliceQubit, intent.BobQubit))
-            ]
+            let bellOps =
+                [
+                    QuantumOperation.Gate(H intent.AliceQubit)
+                    QuantumOperation.Gate(CNOT(intent.AliceQubit, intent.BobQubit))
+                ]
+
             let! bellState = UnifiedBackend.applySequence backend bellOps initialState
 
             // Eve measures both qubits in a random basis (destroying entanglement)
             let eveAngle = float (rng.Next 4) * Math.PI / 4.0
-            let! eveResultAlice = measureInRotatedBasis backend bellState intent.AliceQubit eveAngle
+
+            let! eveResultAlice =
+                measureInRotatedBasis backend bellState intent.AliceQubit eveAngle
+
             let! eveResultBob = measureInRotatedBasis backend bellState intent.BobQubit eveAngle
 
             // Eve prepares replacement qubits (unentangled) based on her measurements
@@ -376,14 +399,14 @@ module EkertQKD =
             // Set Alice's qubit based on Eve's measurement
             let! afterAlicePrep =
                 if eveResultAlice = 1 then
-                    backend.ApplyOperation (QuantumOperation.Gate (X intent.AliceQubit)) replacementState
+                    backend.ApplyOperation (QuantumOperation.Gate(X intent.AliceQubit)) replacementState
                 else
                     Ok replacementState
 
             // Set Bob's qubit based on Eve's measurement
             let! afterBothPrep =
                 if eveResultBob = 1 then
-                    backend.ApplyOperation (QuantumOperation.Gate (X intent.BobQubit)) afterAlicePrep
+                    backend.ApplyOperation (QuantumOperation.Gate(X intent.BobQubit)) afterAlicePrep
                 else
                     Ok afterAlicePrep
 
@@ -392,22 +415,27 @@ module EkertQKD =
             let bobAngleRad = bobAngle bobBasis
 
             let! afterAliceRot =
-                if abs aliceAngleRad < 1e-10 then Ok afterBothPrep
-                else backend.ApplyOperation (QuantumOperation.Gate (RY (intent.AliceQubit, -aliceAngleRad))) afterBothPrep
+                if abs aliceAngleRad < 1e-10 then
+                    Ok afterBothPrep
+                else
+                    backend.ApplyOperation (QuantumOperation.Gate(RY(intent.AliceQubit, -aliceAngleRad))) afterBothPrep
 
             let! afterBothRot =
-                if abs bobAngleRad < 1e-10 then Ok afterAliceRot
-                else backend.ApplyOperation (QuantumOperation.Gate (RY (intent.BobQubit, -bobAngleRad))) afterAliceRot
+                if abs bobAngleRad < 1e-10 then
+                    Ok afterAliceRot
+                else
+                    backend.ApplyOperation (QuantumOperation.Gate(RY(intent.BobQubit, -bobAngleRad))) afterAliceRot
 
             let measurements = QuantumState.measure afterBothRot 1
             let bits = measurements.[0]
 
-            return {
-                AliceBasis = aliceBasis
-                BobBasis = bobBasis
-                AliceResult = bits.[intent.AliceQubit]
-                BobResult = bits.[intent.BobQubit]
-            }
+            return
+                {
+                    AliceBasis = aliceBasis
+                    BobBasis = bobBasis
+                    AliceResult = bits.[intent.AliceQubit]
+                    BobResult = bits.[intent.BobQubit]
+                }
         }
 
     // ========================================================================
@@ -415,17 +443,13 @@ module EkertQKD =
     // ========================================================================
 
     /// Compute correlation E(a,b) for a specific pair of basis choices
-    /// 
+    ///
     /// E(a,b) = P(same outcomes) - P(different outcomes)
     ///        = (N_same - N_different) / N_total
-    /// 
+    ///
     /// For |Phi+> state measured in rotated bases:
     /// E(a,b) = -cos(a - b)  (theoretical prediction)
-    let private computeCorrelation
-        (pairs: E91Pair list)
-        (aliceBasis: AliceBasis)
-        (bobBasis: BobBasis)
-        : float option =
+    let private computeCorrelation (pairs: E91Pair list) (aliceBasis: AliceBasis) (bobBasis: BobBasis) : float option =
 
         let matching =
             pairs
@@ -435,29 +459,33 @@ module EkertQKD =
             None
         else
             let nSame =
-                matching
-                |> List.filter (fun p -> p.AliceResult = p.BobResult)
-                |> List.length
+                matching |> List.filter (fun p -> p.AliceResult = p.BobResult) |> List.length
 
             let nDiff = matching.Length - nSame
-            Some (float (nSame - nDiff) / float matching.Length)
+            Some(float (nSame - nDiff) / float matching.Length)
 
     /// Compute the CHSH parameter S from measured pairs
-    /// 
+    ///
     /// S = E(a1,b1) - E(a1,b3) + E(a3,b1) + E(a3,b3)
-    /// 
+    ///
     /// where:
     ///   a1 = Alice 0 deg, a3 = Alice 90 deg
     ///   b1 = Bob 45 deg, b3 = Bob 135 deg
-    /// 
+    ///
     /// Quantum prediction: |S| = 2*sqrt(2) ~ 2.828
     /// Classical bound: |S| <= 2.0
     let computeCHSH (pairs: E91Pair list) : CHSHResult =
         // Compute four correlations needed for CHSH
         let e_a1_b1 = computeCorrelation pairs AliceDeg0 BobDeg45 |> Option.defaultValue 0.0
-        let e_a1_b3 = computeCorrelation pairs AliceDeg0 BobDeg135 |> Option.defaultValue 0.0
-        let e_a3_b1 = computeCorrelation pairs AliceDeg90 BobDeg45 |> Option.defaultValue 0.0
-        let e_a3_b3 = computeCorrelation pairs AliceDeg90 BobDeg135 |> Option.defaultValue 0.0
+
+        let e_a1_b3 =
+            computeCorrelation pairs AliceDeg0 BobDeg135 |> Option.defaultValue 0.0
+
+        let e_a3_b1 =
+            computeCorrelation pairs AliceDeg90 BobDeg45 |> Option.defaultValue 0.0
+
+        let e_a3_b3 =
+            computeCorrelation pairs AliceDeg90 BobDeg135 |> Option.defaultValue 0.0
 
         // S = E(a1,b1) - E(a1,b3) + E(a3,b1) + E(a3,b3)
         let s = e_a1_b1 - e_a1_b3 + e_a3_b1 + e_a3_b3
@@ -472,12 +500,13 @@ module EkertQKD =
             ClassicalBound = classicalBound
             IsSecure = isSecure
             EavesdropperDetected = eavesdropperDetected
-            Correlations = [
-                ("E(a1=0,b1=45)", e_a1_b1)
-                ("E(a1=0,b3=135)", e_a1_b3)
-                ("E(a3=90,b1=45)", e_a3_b1)
-                ("E(a3=90,b3=135)", e_a3_b3)
-            ]
+            Correlations =
+                [
+                    ("E(a1=0,b1=45)", e_a1_b1)
+                    ("E(a1=0,b3=135)", e_a1_b3)
+                    ("E(a3=90,b1=45)", e_a3_b1)
+                    ("E(a3=90,b3=135)", e_a3_b3)
+                ]
         }
 
     // ========================================================================
@@ -485,11 +514,11 @@ module EkertQKD =
     // ========================================================================
 
     /// Check if Alice and Bob used matching bases (for key generation)
-    /// 
+    ///
     /// Matching bases in E91:
     /// - (Alice 0 deg, Bob 0 deg): both measure in Z basis
     /// - (Alice 45 deg, Bob 45 deg): both measure in pi/4 rotated basis
-    /// 
+    ///
     /// These 2 out of 9 combinations (~22.2%) produce perfectly correlated results
     /// that can be used as key bits.
     let private isMatchingBasis (aliceBasis: AliceBasis) (bobBasis: BobBasis) : bool =
@@ -499,7 +528,7 @@ module EkertQKD =
         | _ -> false
 
     /// Extract key bits from pairs with matching bases
-    /// 
+    ///
     /// When Alice and Bob measure in the same basis on |Phi+>,
     /// their results are perfectly correlated (both get same bit).
     /// Alice's result is used as the key bit.
@@ -513,10 +542,7 @@ module EkertQKD =
     // ========================================================================
 
     /// Execute the E91 protocol (deterministic, given intent)
-    let private executeE91
-        (backend: IQuantumBackend)
-        (intent: E91Intent)
-        : Result<E91Result, QuantumError> =
+    let private executeE91 (backend: IQuantumBackend) (intent: E91Intent) : Result<E91Result, QuantumError> =
 
         result {
             // Validate backend supports required operations
@@ -524,7 +550,7 @@ module EkertQKD =
 
             let rng =
                 match intent.Seed with
-                | Some s -> Random(s + 1)  // Offset seed to avoid correlation with basis choices
+                | Some s -> Random(s + 1) // Offset seed to avoid correlation with basis choices
                 | None -> Random()
 
             // Execute all pair measurements
@@ -545,20 +571,24 @@ module EkertQKD =
             let chshResult = computeCHSH pairList
 
             let siftedKeyLength = keyBits.Length
-            let keyRate =
-                if intent.NumPairs > 0 then float siftedKeyLength / float intent.NumPairs
-                else 0.0
 
-            return {
-                TotalPairs = intent.NumPairs
-                Pairs = pairList
-                KeyBits = keyBits
-                SiftedKeyLength = siftedKeyLength
-                CHSHTest = chshResult
-                KeyRate = keyRate
-                IsSecure = chshResult.IsSecure && siftedKeyLength > 0
-                BackendName = backend.Name
-            }
+            let keyRate =
+                if intent.NumPairs > 0 then
+                    float siftedKeyLength / float intent.NumPairs
+                else
+                    0.0
+
+            return
+                {
+                    TotalPairs = intent.NumPairs
+                    Pairs = pairList
+                    KeyBits = keyBits
+                    SiftedKeyLength = siftedKeyLength
+                    CHSHTest = chshResult
+                    KeyRate = keyRate
+                    IsSecure = chshResult.IsSecure && siftedKeyLength > 0
+                    BackendName = backend.Name
+                }
         }
 
     // ========================================================================
@@ -566,64 +596,56 @@ module EkertQKD =
     // ========================================================================
 
     /// Run the E91 QKD protocol
-    /// 
+    ///
     /// Generates entangled Bell pairs, Alice and Bob measure in random bases,
     /// extracts key from matching bases, and verifies security via CHSH test.
-    /// 
+    ///
     /// **Parameters**:
     ///   backend - Quantum backend to execute on
     ///   numPairs - Number of entangled pairs to generate (recommended: >= 100)
     ///   seed - Optional random seed for reproducibility
-    /// 
+    ///
     /// **Returns**:
     ///   E91Result with key bits, CHSH test, and security status
-    let run
-        (backend: IQuantumBackend)
-        (numPairs: int)
-        (seed: int option)
-        : Result<E91Result, QuantumError> =
+    let run (backend: IQuantumBackend) (numPairs: int) (seed: int option) : Result<E91Result, QuantumError> =
 
         result {
             do!
                 if numPairs < 1 then
-                    Error (QuantumError.ValidationError ("numPairs", "must be at least 1"))
+                    Error(QuantumError.ValidationError("numPairs", "must be at least 1"))
                 else
-                    Ok ()
+                    Ok()
 
             let intent = buildE91Intent numPairs false seed
             return! executeE91 backend intent
         }
 
     /// Run the E91 protocol with an eavesdropper (Eve)
-    /// 
+    ///
     /// Eve performs an intercept-resend attack on the entangled pairs,
     /// which destroys entanglement. This should cause the CHSH parameter
     /// to drop below the quantum bound, alerting Alice and Bob.
-    /// 
+    ///
     /// **Expected Behavior**:
     /// - Without Eve: |S| ~ 2*sqrt(2) ~ 2.828
     /// - With Eve (intercept-resend): |S| ~ 0 (no quantum correlations)
     /// - Security check: IsSecure = false when Eve present
-    /// 
+    ///
     /// **Parameters**:
     ///   backend - Quantum backend to execute on
     ///   numPairs - Number of entangled pairs (recommended: >= 100)
     ///   seed - Optional random seed
-    /// 
+    ///
     /// **Returns**:
     ///   E91Result showing reduced CHSH violation and eavesdropper detection
-    let runWithEve
-        (backend: IQuantumBackend)
-        (numPairs: int)
-        (seed: int option)
-        : Result<E91Result, QuantumError> =
+    let runWithEve (backend: IQuantumBackend) (numPairs: int) (seed: int option) : Result<E91Result, QuantumError> =
 
         result {
             do!
                 if numPairs < 1 then
-                    Error (QuantumError.ValidationError ("numPairs", "must be at least 1"))
+                    Error(QuantumError.ValidationError("numPairs", "must be at least 1"))
                 else
-                    Ok ()
+                    Ok()
 
             let intent = buildE91Intent numPairs true seed
             return! executeE91 backend intent
@@ -640,24 +662,31 @@ module EkertQKD =
         sb.AppendLine "CHSH Inequality Test" |> ignore
         sb.AppendLine "====================" |> ignore
         sb.AppendLine "" |> ignore
-        sb.AppendLine ($"S parameter: %.4f{chsh.S}") |> ignore
-        sb.AppendLine (sprintf "|S|:         %.4f" (abs chsh.S)) |> ignore
+        sb.AppendLine($"S parameter: %.4f{chsh.S}") |> ignore
+        sb.AppendLine(sprintf "|S|:         %.4f" (abs chsh.S)) |> ignore
         sb.AppendLine "" |> ignore
         sb.AppendLine "Bounds:" |> ignore
-        sb.AppendLine ($"  Classical (local hidden variables): |S| <= %.4f{chsh.ClassicalBound}") |> ignore
-        sb.AppendLine ($"  Quantum (Bell state):               |S| =  %.4f{chsh.QuantumBound}") |> ignore
+
+        sb.AppendLine($"  Classical (local hidden variables): |S| <= %.4f{chsh.ClassicalBound}")
+        |> ignore
+
+        sb.AppendLine($"  Quantum (Bell state):               |S| =  %.4f{chsh.QuantumBound}")
+        |> ignore
+
         sb.AppendLine "" |> ignore
         sb.AppendLine "Correlations:" |> ignore
 
         for (name, value) in chsh.Correlations do
-            sb.AppendLine ($"  %s{name} = %.4f{value}") |> ignore
+            sb.AppendLine($"  %s{name} = %.4f{value}") |> ignore
 
         sb.AppendLine "" |> ignore
 
         if chsh.IsSecure then
-            sb.AppendLine "Security: SECURE (Bell inequality violated - genuine quantum correlations)" |> ignore
+            sb.AppendLine "Security: SECURE (Bell inequality violated - genuine quantum correlations)"
+            |> ignore
         else
-            sb.AppendLine "Security: INSECURE (Bell inequality NOT violated - possible eavesdropper!)" |> ignore
+            sb.AppendLine "Security: INSECURE (Bell inequality NOT violated - possible eavesdropper!)"
+            |> ignore
 
         sb.ToString()
 
@@ -679,33 +708,39 @@ module EkertQKD =
             |> List.map (fun (basis, pairs) -> (basis, List.length pairs))
 
         sb.AppendLine "Basis Distribution (Alice, Bob):" |> ignore
+
         for ((aBasis, bBasis), count) in basisCounts do
             let aStr =
                 match aBasis with
                 | AliceDeg0 -> "0"
                 | AliceDeg45 -> "45"
                 | AliceDeg90 -> "90"
+
             let bStr =
                 match bBasis with
                 | BobDeg0 -> "0"
                 | BobDeg45 -> "45"
                 | BobDeg135 -> "135"
+
             let isKey = if isMatchingBasis aBasis bBasis then " [KEY]" else ""
-            sb.AppendLine ($"  (%s{aStr} deg, %s{bStr} deg): %d{count} pairs%s{isKey}") |> ignore
+
+            sb.AppendLine($"  (%s{aStr} deg, %s{bStr} deg): %d{count} pairs%s{isKey}")
+            |> ignore
 
         sb.AppendLine "" |> ignore
 
         sb.AppendLine "Key Sifting:" |> ignore
         sb.AppendLine $"  Sifted Key Length: {result.SiftedKeyLength} bits" |> ignore
-        sb.AppendLine (sprintf "  Key Rate: %.1f%%" (result.KeyRate * 100.0)) |> ignore
+        sb.AppendLine(sprintf "  Key Rate: %.1f%%" (result.KeyRate * 100.0)) |> ignore
         sb.AppendLine "" |> ignore
 
-        sb.AppendLine (formatCHSH result.CHSHTest) |> ignore
+        sb.AppendLine(formatCHSH result.CHSHTest) |> ignore
 
         if result.IsSecure then
             sb.AppendLine "Overall: SECURE - Key exchange successful!" |> ignore
         else
-            sb.AppendLine "Overall: INSECURE - Possible eavesdropper, abort protocol!" |> ignore
+            sb.AppendLine "Overall: INSECURE - Possible eavesdropper, abort protocol!"
+            |> ignore
 
         sb.AppendLine "" |> ignore
         sb.AppendLine $"Backend: {result.BackendName}" |> ignore
@@ -726,6 +761,8 @@ module EkertQKD =
         sb.AppendLine "   90 deg  |  CHSH   | CHSH(a3b1)| CHSH(a3b3)" |> ignore
         sb.AppendLine "" |> ignore
         sb.AppendLine "KEY = Used for key generation (matching bases)" |> ignore
-        sb.AppendLine "CHSH = Used for CHSH security test (non-matching bases)" |> ignore
+
+        sb.AppendLine "CHSH = Used for CHSH security test (non-matching bases)"
+        |> ignore
 
         sb.ToString()

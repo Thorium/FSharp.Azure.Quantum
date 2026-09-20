@@ -34,19 +34,48 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "TopologicalExample.fsx" "Layered topological quantum computing architecture demo"
-    [ { Name = "example"; Description = "Which example: 1-6|all"; Default = Some "all" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "TopologicalExample.fsx"
+    "Layered topological quantum computing architecture demo"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-6|all"
+            Default = Some "all"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
@@ -55,13 +84,15 @@ let separator () = pr "%s" (String.replicate 60 "-")
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 20
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // Fold a sequence of braid operations over a quantum state, short-circuiting on error
 let applyBraids indices state =
-    (Ok state, indices) ||> List.fold (fun acc idx ->
-        acc |> Result.bind (fun s ->
+    (Ok state, indices)
+    ||> List.fold (fun acc idx ->
+        acc
+        |> Result.bind (fun s ->
             quantumBackend.ApplyOperation (QuantumOperation.Braid idx) s
             |> Result.mapError (fun e -> $"Braid %d{idx} failed: %A{e}")))
 
@@ -74,17 +105,13 @@ if shouldRun 1 then
     separator ()
 
     let channels =
-        FusionRules.channels
-            AnyonSpecies.Particle.Sigma
-            AnyonSpecies.Particle.Sigma
-            AnyonSpecies.AnyonType.Ising
+        FusionRules.channels AnyonSpecies.Particle.Sigma AnyonSpecies.Particle.Sigma AnyonSpecies.AnyonType.Ising
 
     match channels with
     | Ok ch ->
         pr "  sigma x sigma fusion channels:"
         ch |> List.iter (fun c -> pr "    %A" c)
-    | Error err ->
-        pr "  Error: %s" err.Message
+    | Error err -> pr "  Error: %s" err.Message
 
     let sigmaDim = AnyonSpecies.quantumDimension AnyonSpecies.Particle.Sigma
     pr "  Quantum dimension of sigma: %.4f" sigmaDim
@@ -102,8 +129,8 @@ if shouldRun 2 then
 
     pr "  Name:            %s" quantumBackend.Name
     pr "  Native state:    %A" quantumBackend.NativeStateType
-    pr "  Supports braid:  %b" (quantumBackend.SupportsOperation (QuantumOperation.Braid 0))
-    pr "  Supports measure: %b" (quantumBackend.SupportsOperation (QuantumOperation.Measure 0))
+    pr "  Supports braid:  %b" (quantumBackend.SupportsOperation(QuantumOperation.Braid 0))
+    pr "  Supports measure: %b" (quantumBackend.SupportsOperation(QuantumOperation.Measure 0))
 
     jsonResults <- ("2_backend", box {| name = quantumBackend.Name |}) :: jsonResults
     csvRows <- [ "2_backend"; quantumBackend.Name ] :: csvRows
@@ -118,43 +145,53 @@ if shouldRun 3 then
 
     let circuitResult =
         pr "  Initializing 4-anyon qubit..."
+
         quantumBackend.InitializeState 4
         |> Result.mapError (fun e -> $"Init failed: %A{e}")
         |> Result.bind (fun qubit ->
             match qubit with
-            | QuantumState.FusionSuperposition fs ->
-                pr "  Initial state: %d logical qubits" fs.LogicalQubits
+            | QuantumState.FusionSuperposition fs -> pr "  Initial state: %d logical qubits" fs.LogicalQubits
             | _ -> pr "  State created (abstract)"
 
             pr "  Applying braiding sequence..."
             applyBraids [ 0; 2; 0 ] qubit)
         |> Result.bind (fun state ->
             match state with
-            | QuantumState.FusionSuperposition fs ->
-                pr "  After braiding: %d logical qubits" fs.LogicalQubits
+            | QuantumState.FusionSuperposition fs -> pr "  After braiding: %d logical qubits" fs.LogicalQubits
             | _ -> ()
 
             pr "  Measuring fusion..."
+
             match state with
             | QuantumState.FusionSuperposition fs ->
                 match TopologicalOperations.fromInterface fs with
                 | Some nativeState ->
                     let singleState = snd (List.head nativeState.Terms)
+
                     TopologicalOperations.measureFusion 0 singleState
                     |> Result.mapError (fun e -> $"Measure: %s{e.Message}")
                     |> Result.bind (fun outcomes ->
                         let (prob, result) = List.head outcomes
+
                         match result.ClassicalOutcome with
                         | Some outcome ->
                             pr "  Outcome: %A (prob: %.4f)" outcome prob
-                            Ok ($"%A{outcome}", prob)
-                        | None -> Ok ("collapsed", 0.0))
+                            Ok($"%A{outcome}", prob)
+                        | None -> Ok("collapsed", 0.0))
                 | None -> Error "Could not unwrap state"
             | _ -> Error "Invalid state type")
 
     match circuitResult with
-    | Ok (outcome, prob) ->
-        jsonResults <- ("3_circuit", box {| outcome = outcome; probability = prob |}) :: jsonResults
+    | Ok(outcome, prob) ->
+        jsonResults <-
+            ("3_circuit",
+             box
+                 {|
+                     outcome = outcome
+                     probability = prob
+                 |})
+            :: jsonResults
+
         csvRows <- [ "3_circuit"; outcome; $"%.4f{prob}" ] :: csvRows
     | Error msg ->
         pr "  Error: %s" msg
@@ -173,6 +210,7 @@ if shouldRun 4 then
 
     let knotResult =
         pr "  Braiding pattern (trefoil): %A" braidingPattern
+
         quantumBackend.InitializeState 6
         |> Result.mapError (fun e -> $"Init: %A{e}")
         |> Result.bind (applyBraids braidingPattern)
@@ -182,26 +220,35 @@ if shouldRun 4 then
                 match TopologicalOperations.fromInterface fs with
                 | Some nativeState ->
                     let singleState = snd (List.head nativeState.Terms)
+
                     TopologicalOperations.measureFusion 0 singleState
                     |> Result.mapError (fun e -> e.Message)
                     |> Result.bind (fun outcomes ->
                         let (prob, result) = List.head outcomes
+
                         match result.ClassicalOutcome with
                         | Some outcome ->
                             pr "  Fusion outcome: %A" outcome
                             pr "  Reannihilation probability: %.6f" prob
                             pr "  (Related to |Kauffman bracket|^2)"
-                            Ok ($"%A{outcome}", prob)
-                        | None -> Ok ("collapsed", 0.0))
+                            Ok($"%A{outcome}", prob)
+                        | None -> Ok("collapsed", 0.0))
                 | None -> Error "Invalid state"
             | _ -> Error "Invalid state type")
 
     match knotResult with
-    | Ok (outcome, prob) ->
-        jsonResults <- ("4_knot", box {| outcome = outcome; probability = prob |}) :: jsonResults
+    | Ok(outcome, prob) ->
+        jsonResults <-
+            ("4_knot",
+             box
+                 {|
+                     outcome = outcome
+                     probability = prob
+                 |})
+            :: jsonResults
+
         csvRows <- [ "4_knot"; outcome; $"%.6f{prob}" ] :: csvRows
-    | Error msg ->
-        pr "  Error: %s" msg
+    | Error msg -> pr "  Error: %s" msg
 
 // ---------------------------------------------------------------------------
 // Example 5 -- Builder Pattern (Layer 5)
@@ -211,28 +258,30 @@ if shouldRun 5 then
     pr "EXAMPLE 5: Builder Pattern (Layer 5 - Idiomatic F#)"
     separator ()
 
-    let program = topological quantumBackend {
-        do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-        do! TopologicalBuilder.braid 0
-        do! TopologicalBuilder.braid 2
-        do! TopologicalBuilder.braid 0
-        let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
-        return outcome
-    }
+    let program =
+        topological quantumBackend {
+            do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+            do! TopologicalBuilder.braid 0
+            do! TopologicalBuilder.braid 2
+            do! TopologicalBuilder.braid 0
+            let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
+            return outcome
+        }
 
     let builderResult =
         task {
             let! r = TopologicalBuilder.execute quantumBackend program
             return r
-        } |> Async.AwaitTask |> Async.RunSynchronously
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match builderResult with
     | Ok outcome ->
         pr "  Builder outcome: %A" outcome
         jsonResults <- ("5_builder", box {| outcome = $"%A{outcome}" |}) :: jsonResults
         csvRows <- [ "5_builder"; $"%A{outcome}" ] :: csvRows
-    | Error e ->
-        pr "  Builder failed: %A" e
+    | Error e -> pr "  Builder failed: %A" e
 
 // ---------------------------------------------------------------------------
 // Example 6 -- Business Application: Error Detection (Layer 6)
@@ -242,23 +291,28 @@ if shouldRun 6 then
     pr "EXAMPLE 6: Topological Error Detection (Layer 6 - Business)"
     separator ()
 
-    let errorProgram = topological quantumBackend {
-        do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-        do! TopologicalBuilder.braid 0
-        let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
-        let errorDetected =
-            match outcome with
-            | AnyonSpecies.Particle.Vacuum -> false
-            | AnyonSpecies.Particle.Psi -> true
-            | _ -> false
-        return errorDetected
-    }
+    let errorProgram =
+        topological quantumBackend {
+            do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+            do! TopologicalBuilder.braid 0
+            let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
+
+            let errorDetected =
+                match outcome with
+                | AnyonSpecies.Particle.Vacuum -> false
+                | AnyonSpecies.Particle.Psi -> true
+                | _ -> false
+
+            return errorDetected
+        }
 
     let errorResult =
         task {
             let! r = TopologicalBuilder.execute quantumBackend errorProgram
             return r
-        } |> Async.AwaitTask |> Async.RunSynchronously
+        }
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match errorResult with
     | Ok hasError ->
@@ -266,8 +320,7 @@ if shouldRun 6 then
         pr "  Error detection: %s" status
         jsonResults <- ("6_error_detect", box {| errorDetected = hasError |}) :: jsonResults
         csvRows <- [ "6_error_detect"; string hasError ] :: csvRows
-    | Error e ->
-        pr "  Error: %A" e
+    | Error e -> pr "  Error: %A" e
 
 // ---------------------------------------------------------------------------
 // Output
@@ -275,21 +328,22 @@ if shouldRun 6 then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "TopologicalExample.fsx"
-           backend   = quantumBackend.Name
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "TopologicalExample.fsx"
+            backend = quantumBackend.Name
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

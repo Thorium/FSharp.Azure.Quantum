@@ -16,109 +16,112 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 
 module ModelSerialization =
-    
+
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// Simple serializable VQC model (JSON-friendly)
-    type SerializableVQCModel = {
-        /// Model parameters (weights)
-        Parameters: float array
-        
-        /// Final training loss
-        FinalLoss: float
-        
-        /// Number of qubits
-        NumQubits: int
-        
-        /// Feature map type name
-        FeatureMapType: string
-        
-        /// Feature map depth
-        FeatureMapDepth: int
-        
-        /// Variational form type name
-        VariationalFormType: string
+    type SerializableVQCModel =
+        {
+            /// Model parameters (weights)
+            Parameters: float array
 
-        /// Variational form depth
-        VariationalFormDepth: int
+            /// Final training loss
+            FinalLoss: float
 
-        /// Pauli strings for PauliFeatureMap (lossless configuration).
-        /// None for other feature map types and for legacy files saved before this
-        /// field existed; legacy PauliFeatureMap files load with the historical
-        /// default ["Z"; "ZZ"].
-        FeatureMapPaulis: string list option
+            /// Number of qubits
+            NumQubits: int
 
-        /// Rotation gate name for TwoLocal variational form (lossless configuration).
-        /// None for other forms and for legacy files; legacy TwoLocal files load
-        /// with the historical default "RY".
-        VariationalFormRotation: string option
+            /// Feature map type name
+            FeatureMapType: string
 
-        /// Entanglement gate name for TwoLocal variational form (lossless configuration).
-        /// None for other forms and for legacy files; legacy TwoLocal files load
-        /// with the historical default "CX".
-        VariationalFormEntanglement: string option
+            /// Feature map depth
+            FeatureMapDepth: int
 
-        /// Regression output range (min, max) that predictRegression uses to map
-        /// the circuit output back to the target scale. Both None for
-        /// classification models and legacy regression files — a reloaded legacy
-        /// regression model cannot reproduce its training-time predictions.
-        /// (Stored as two floats: System.Text.Json cannot round-trip F# tuples.)
-        ValueRangeMin: float option
-        ValueRangeMax: float option
+            /// Variational form type name
+            VariationalFormType: string
 
-        /// Optional metadata
-        SavedAt: string
-        Note: string option
-    }
+            /// Variational form depth
+            VariationalFormDepth: int
+
+            /// Pauli strings for PauliFeatureMap (lossless configuration).
+            /// None for other feature map types and for legacy files saved before this
+            /// field existed; legacy PauliFeatureMap files load with the historical
+            /// default ["Z"; "ZZ"].
+            FeatureMapPaulis: string list option
+
+            /// Rotation gate name for TwoLocal variational form (lossless configuration).
+            /// None for other forms and for legacy files; legacy TwoLocal files load
+            /// with the historical default "RY".
+            VariationalFormRotation: string option
+
+            /// Entanglement gate name for TwoLocal variational form (lossless configuration).
+            /// None for other forms and for legacy files; legacy TwoLocal files load
+            /// with the historical default "CX".
+            VariationalFormEntanglement: string option
+
+            /// Regression output range (min, max) that predictRegression uses to map
+            /// the circuit output back to the target scale. Both None for
+            /// classification models and legacy regression files — a reloaded legacy
+            /// regression model cannot reproduce its training-time predictions.
+            /// (Stored as two floats: System.Text.Json cannot round-trip F# tuples.)
+            ValueRangeMin: float option
+            ValueRangeMax: float option
+
+            /// Optional metadata
+            SavedAt: string
+            Note: string option
+        }
 
     /// Serializable binary classifier (for multi-class OVR)
-    type SerializableBinaryClassifier = {
-        /// Classifier parameters
-        Parameters: float array
-        
-        /// Training accuracy for this classifier
-        TrainAccuracy: float
-        
-        /// Number of training iterations
-        NumIterations: int
-    }
-    
+    type SerializableBinaryClassifier =
+        {
+            /// Classifier parameters
+            Parameters: float array
+
+            /// Training accuracy for this classifier
+            TrainAccuracy: float
+
+            /// Number of training iterations
+            NumIterations: int
+        }
+
     /// Serializable multi-class VQC model (one-vs-rest)
-    type SerializableMultiClassVQCModel = {
-        /// Binary classifiers (one per class)
-        Classifiers: SerializableBinaryClassifier array
-        
-        /// Class labels
-        ClassLabels: int array
-        
-        /// Overall training accuracy
-        TrainAccuracy: float
-        
-        /// Number of classes
-        NumClasses: int
-        
-        /// Number of qubits
-        NumQubits: int
-        
-        /// Feature map type name
-        FeatureMapType: string
-        
-        /// Feature map depth
-        FeatureMapDepth: int
-        
-        /// Variational form type name
-        VariationalFormType: string
-        
-        /// Variational form depth
-        VariationalFormDepth: int
-        
-        /// Optional metadata
-        SavedAt: string
-        Note: string option
-    }
-    
+    type SerializableMultiClassVQCModel =
+        {
+            /// Binary classifiers (one per class)
+            Classifiers: SerializableBinaryClassifier array
+
+            /// Class labels
+            ClassLabels: int array
+
+            /// Overall training accuracy
+            TrainAccuracy: float
+
+            /// Number of classes
+            NumClasses: int
+
+            /// Number of qubits
+            NumQubits: int
+
+            /// Feature map type name
+            FeatureMapType: string
+
+            /// Feature map depth
+            FeatureMapDepth: int
+
+            /// Variational form type name
+            VariationalFormType: string
+
+            /// Variational form depth
+            VariationalFormDepth: int
+
+            /// Optional metadata
+            SavedAt: string
+            Note: string option
+        }
+
     /// Serializable SVM model (JSON-friendly)
     // NOTE: SVM model serialization lives in the dedicated SVMModelSerialization module,
     // which is the single canonical SVM schema (binary + multi-class, lossless feature maps).
@@ -126,7 +129,7 @@ module ModelSerialization =
     // ========================================================================
     // VQC SERIALIZATION
     // ========================================================================
-    
+
     /// Core writer shared by the string-based and configuration-based save functions.
     let private writeVQCModelAsync
         (filePath: string)
@@ -140,9 +143,9 @@ module ModelSerialization =
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
 
-                return Ok ()
+                return Ok()
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to save model: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to save model: {ex.Message}"))
         }
 
     /// Save VQC model to JSON file
@@ -215,7 +218,7 @@ module ModelSerialization =
         let (fmType, fmDepth, fmPaulis) =
             match featureMap with
             | FeatureMapType.ZZFeatureMap depth -> ("ZZFeatureMap", depth, None)
-            | FeatureMapType.PauliFeatureMap (paulis, depth) -> ("PauliFeatureMap", depth, Some paulis)
+            | FeatureMapType.PauliFeatureMap(paulis, depth) -> ("PauliFeatureMap", depth, Some paulis)
             | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0, None)
             | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0, None)
 
@@ -223,7 +226,7 @@ module ModelSerialization =
             match variationalForm with
             | VariationalForm.RealAmplitudes depth -> ("RealAmplitudes", depth, None, None)
             | VariationalForm.EfficientSU2 depth -> ("EfficientSU2", depth, None, None)
-            | VariationalForm.TwoLocal (rotation, entanglement, depth) ->
+            | VariationalForm.TwoLocal(rotation, entanglement, depth) ->
                 ("TwoLocal", depth, Some rotation, Some entanglement)
 
         writeVQCModelAsync
@@ -258,10 +261,20 @@ module ModelSerialization =
         (variationalFormDepth: int)
         (note: string option)
         : QuantumResult<unit> =
-        saveVQCModelAsync filePath parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note CancellationToken.None
+        saveVQCModelAsync
+            filePath
+            parameters
+            finalLoss
+            numQubits
+            featureMapType
+            featureMapDepth
+            variationalFormType
+            variationalFormDepth
+            note
+            CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    
+
     /// Save VQC training result with metadata (classification, async, task-based)
     ///
     /// Convenience function that takes VQC.TrainingResult directly
@@ -276,12 +289,12 @@ module ModelSerialization =
         (note: string option)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<unit>> =
-        
+
         let finalLoss =
             match result.LossHistory with
             | [] -> 0.0
             | losses -> List.last losses
-        
+
         saveVQCModelAsync
             filePath
             result.Parameters
@@ -293,7 +306,7 @@ module ModelSerialization =
             variationalFormDepth
             note
             cancellationToken
-    
+
     /// Save VQC training result with metadata (classification)
     ///
     /// Convenience function that takes VQC.TrainingResult directly
@@ -308,12 +321,12 @@ module ModelSerialization =
         (variationalFormDepth: int)
         (note: string option)
         : QuantumResult<unit> =
-        
+
         let finalLoss =
             match result.LossHistory with
             | [] -> 0.0
             | losses -> List.last losses
-        
+
         saveVQCModelAsync
             filePath
             result.Parameters
@@ -327,7 +340,7 @@ module ModelSerialization =
             CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    
+
     /// Save VQC regression training result with metadata (async, task-based)
     ///
     /// Convenience function that takes VQC.RegressionTrainingResult directly
@@ -370,7 +383,7 @@ module ModelSerialization =
                 Note = note
             }
             cancellationToken
-    
+
     /// Save VQC regression training result with metadata
     ///
     /// Convenience function that takes VQC.RegressionTrainingResult directly
@@ -398,7 +411,7 @@ module ModelSerialization =
             CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    
+
     /// Save VQC multi-class training result (one-vs-rest)
     ///
     /// Saves all binary classifiers with full architecture metadata
@@ -413,40 +426,42 @@ module ModelSerialization =
         (variationalFormDepth: int)
         (note: string option)
         : QuantumResult<unit> =
-        
+
         try
             // Convert all binary classifiers to serializable format
             let classifiers =
                 result.Classifiers
-                |> Array.map (fun classifier -> {
-                    Parameters = classifier.Parameters
-                    TrainAccuracy = classifier.TrainAccuracy
-                    NumIterations = classifier.LossHistory.Length
-                })
-            
-            let model = {
-                Classifiers = classifiers
-                ClassLabels = result.ClassLabels
-                TrainAccuracy = result.TrainAccuracy
-                NumClasses = result.NumClasses
-                NumQubits = numQubits
-                FeatureMapType = featureMapType
-                FeatureMapDepth = featureMapDepth
-                VariationalFormType = variationalFormType
-                VariationalFormDepth = variationalFormDepth
-                SavedAt = DateTime.UtcNow.ToString("o")
-                Note = note
-            }
-            
+                |> Array.map (fun classifier ->
+                    {
+                        Parameters = classifier.Parameters
+                        TrainAccuracy = classifier.TrainAccuracy
+                        NumIterations = classifier.LossHistory.Length
+                    })
+
+            let model =
+                {
+                    Classifiers = classifiers
+                    ClassLabels = result.ClassLabels
+                    TrainAccuracy = result.TrainAccuracy
+                    NumClasses = result.NumClasses
+                    NumQubits = numQubits
+                    FeatureMapType = featureMapType
+                    FeatureMapDepth = featureMapDepth
+                    VariationalFormType = variationalFormType
+                    VariationalFormDepth = variationalFormDepth
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+
             let options = JsonSerializerOptions(WriteIndented = true)
-            
+
             let json = JsonSerializer.Serialize(model, options)
             File.WriteAllText(filePath, json)
-            
-            Ok ()
+
+            Ok()
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to save multi-class model: {ex.Message}"))
-    
+            Error(QuantumError.ValidationError("Input", $"Failed to save multi-class model: {ex.Message}"))
+
     /// Save VQC multi-class training result asynchronously
     let saveVQCMultiClassTrainingResultAsync
         (filePath: string)
@@ -463,72 +478,92 @@ module ModelSerialization =
             try
                 let classifiers =
                     result.Classifiers
-                    |> Array.map (fun classifier -> {
-                        Parameters = classifier.Parameters
-                        TrainAccuracy = classifier.TrainAccuracy
-                        NumIterations = classifier.LossHistory.Length
-                    })
-                
-                let model = {
-                    Classifiers = classifiers
-                    ClassLabels = result.ClassLabels
-                    TrainAccuracy = result.TrainAccuracy
-                    NumClasses = result.NumClasses
-                    NumQubits = numQubits
-                    FeatureMapType = featureMapType
-                    FeatureMapDepth = featureMapDepth
-                    VariationalFormType = variationalFormType
-                    VariationalFormDepth = variationalFormDepth
-                    SavedAt = DateTime.UtcNow.ToString("o")
-                    Note = note
-                }
-                
+                    |> Array.map (fun classifier ->
+                        {
+                            Parameters = classifier.Parameters
+                            TrainAccuracy = classifier.TrainAccuracy
+                            NumIterations = classifier.LossHistory.Length
+                        })
+
+                let model =
+                    {
+                        Classifiers = classifiers
+                        ClassLabels = result.ClassLabels
+                        TrainAccuracy = result.TrainAccuracy
+                        NumClasses = result.NumClasses
+                        NumQubits = numQubits
+                        FeatureMapType = featureMapType
+                        FeatureMapDepth = featureMapDepth
+                        VariationalFormType = variationalFormType
+                        VariationalFormDepth = variationalFormDepth
+                        SavedAt = DateTime.UtcNow.ToString("o")
+                        Note = note
+                    }
+
                 let options = JsonSerializerOptions(WriteIndented = true)
-                
+
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
-                
-                return Ok ()
+
+                return Ok()
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to save multi-class model: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to save multi-class model: {ex.Message}"))
         }
-    
+
     /// Validate a deserialized VQC model. System.Text.Json fills members missing
     /// from the JSON with defaults (null/0), so a file of a different model kind
     /// "deserializes successfully" with null arrays — validate the discriminating
     /// required fields instead of trusting deserialization alone.
-    let private validateVQCModel (filePath: string) (model: SerializableVQCModel) : QuantumResult<SerializableVQCModel> =
+    let private validateVQCModel
+        (filePath: string)
+        (model: SerializableVQCModel)
+        : QuantumResult<SerializableVQCModel> =
         if isNull (box model) || isNull model.Parameters || model.Parameters.Length = 0 then
-            Error (QuantumError.ValidationError ("Input", $"File is not a VQC model (Parameters missing or empty): {filePath}"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"File is not a VQC model (Parameters missing or empty): {filePath}"
+                )
+            )
         else
             Ok model
 
     /// Validate a deserialized multi-class VQC model (see validateVQCModel).
-    let private validateMultiClassVQCModel (filePath: string) (model: SerializableMultiClassVQCModel) : QuantumResult<SerializableMultiClassVQCModel> =
-        if isNull (box model)
-           || isNull model.Classifiers || model.Classifiers.Length = 0
-           || isNull model.ClassLabels
-           || (model.Classifiers |> Array.exists (fun c -> isNull (box c) || isNull c.Parameters || c.Parameters.Length = 0)) then
-            Error (QuantumError.ValidationError ("Input", $"File is not a multi-class VQC model (Classifiers/ClassLabels missing or empty): {filePath}"))
+    let private validateMultiClassVQCModel
+        (filePath: string)
+        (model: SerializableMultiClassVQCModel)
+        : QuantumResult<SerializableMultiClassVQCModel> =
+        if
+            isNull (box model)
+            || isNull model.Classifiers
+            || model.Classifiers.Length = 0
+            || isNull model.ClassLabels
+            || (model.Classifiers
+                |> Array.exists (fun c -> isNull (box c) || isNull c.Parameters || c.Parameters.Length = 0))
+        then
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"File is not a multi-class VQC model (Classifiers/ClassLabels missing or empty): {filePath}"
+                )
+            )
         else
             Ok model
 
     /// Load VQC model from JSON file
     ///
     /// Returns: Serializable model with all metadata
-    let loadVQCModel
-        (filePath: string)
-        : QuantumResult<SerializableVQCModel> =
+    let loadVQCModel (filePath: string) : QuantumResult<SerializableVQCModel> =
 
         try
             if not (File.Exists filePath) then
-                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
                 validateVQCModel filePath model
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
+            Error(QuantumError.ValidationError("Input", $"Failed to load model: {ex.Message}"))
 
     /// Load VQC model from JSON file asynchronously
     let loadVQCModelAsync
@@ -538,31 +573,29 @@ module ModelSerialization =
         task {
             try
                 if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                    return Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
                 else
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
                     return validateVQCModel filePath model
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to load model: {ex.Message}"))
         }
 
     /// Load VQC multi-class model from JSON file
     ///
     /// Returns: Serializable multi-class model with all classifiers
-    let loadVQCMultiClassModel
-        (filePath: string)
-        : QuantumResult<SerializableMultiClassVQCModel> =
+    let loadVQCMultiClassModel (filePath: string) : QuantumResult<SerializableMultiClassVQCModel> =
 
         try
             if not (File.Exists filePath) then
-                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
                 validateMultiClassVQCModel filePath model
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
+            Error(QuantumError.ValidationError("Input", $"Failed to load multi-class model: {ex.Message}"))
 
     /// Load VQC multi-class model from JSON file asynchronously
     let loadVQCMultiClassModelAsync
@@ -572,49 +605,37 @@ module ModelSerialization =
         task {
             try
                 if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                    return Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
                 else
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
                     return validateMultiClassVQCModel filePath model
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to load multi-class model: {ex.Message}"))
         }
-    
+
     /// Load only the parameters from a saved model
     ///
     /// Convenience function when you only need the weights
-    let loadVQCParameters
-        (filePath: string)
-        : QuantumResult<float array> =
-        
-        loadVQCModel filePath
-        |> Result.map (fun model -> model.Parameters)
-    
+    let loadVQCParameters (filePath: string) : QuantumResult<float array> =
+
+        loadVQCModel filePath |> Result.map (fun model -> model.Parameters)
+
     // ========================================================================
     // MODEL INFORMATION
     // ========================================================================
-    
+
     /// Get model information without loading full model
     ///
     /// Returns: (num_qubits, num_parameters, final_loss, saved_at)
-    let getVQCModelInfo
-        (filePath: string)
-        : QuantumResult<int * int * float * string> =
-        
+    let getVQCModelInfo (filePath: string) : QuantumResult<int * int * float * string> =
+
         loadVQCModel filePath
-        |> Result.map (fun model ->
-            (model.NumQubits,
-             model.Parameters.Length,
-             model.FinalLoss,
-             model.SavedAt))
-    
+        |> Result.map (fun model -> (model.NumQubits, model.Parameters.Length, model.FinalLoss, model.SavedAt))
+
     /// Print model information via ILogger
-    let printVQCModelInfo
-        (filePath: string)
-        (logger: ILogger option)
-        : QuantumResult<unit> =
-        
+    let printVQCModelInfo (filePath: string) (logger: ILogger option) : QuantumResult<unit> =
+
         loadVQCModel filePath
         |> Result.map (fun model ->
             logInfo logger "=== VQC Model Information ==="
@@ -625,15 +646,17 @@ module ModelSerialization =
             logInfo logger ($"Final Loss: %.6f{model.FinalLoss}")
             logInfo logger ($"Feature Map: %s{model.FeatureMapType} (depth=%d{model.FeatureMapDepth})")
             logInfo logger ($"Variational Form: %s{model.VariationalFormType} (depth=%d{model.VariationalFormDepth})")
+
             match model.Note with
             | Some note -> logInfo logger ($"Note: %s{note}")
             | None -> ()
+
             logInfo logger "============================")
-    
+
     // ========================================================================
     // BATCH OPERATIONS
     // ========================================================================
-    
+
     /// Save multiple models with automatic naming (async, task-based)
     ///
     /// Files will be named: {baseFileName}_1.json, {baseFileName}_2.json, etc.
@@ -650,21 +673,34 @@ module ModelSerialization =
         task {
             let mutable results = Array.zeroCreate models.Length
             let mutable firstError = None
-            
+
             for i in 0 .. models.Length - 1 do
                 if firstError.IsNone then
                     let (parameters, finalLoss, note) = models.[i]
                     let fileName = $"{baseFileName}_{i + 1}.json"
-                    match! saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note cancellationToken with
-                    | Ok () -> results.[i] <- Some fileName
+
+                    match!
+                        saveVQCModelAsync
+                            fileName
+                            parameters
+                            finalLoss
+                            numQubits
+                            featureMapType
+                            featureMapDepth
+                            variationalFormType
+                            variationalFormDepth
+                            note
+                            cancellationToken
+                    with
+                    | Ok() -> results.[i] <- Some fileName
                     | Error e -> firstError <- Some e
-            
+
             return
                 match firstError with
                 | Some error -> Error error
-                | None -> Ok (results |> Array.choose id)
+                | None -> Ok(results |> Array.choose id)
         }
-    
+
     /// Save multiple models with automatic naming
     ///
     /// Files will be named: {baseFileName}_1.json, {baseFileName}_2.json, etc.
@@ -678,59 +714,69 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         : QuantumResult<string array> =
-        
-        saveVQCModelBatchAsync baseFileName models numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth CancellationToken.None
+
+        saveVQCModelBatchAsync
+            baseFileName
+            models
+            numQubits
+            featureMapType
+            featureMapDepth
+            variationalFormType
+            variationalFormDepth
+            CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    
+
     /// Load multiple models from directory
     ///
     /// Loads all .json files matching pattern in directory
-    let loadVQCModelBatch
-        (directory: string)
-        (pattern: string)
-        : QuantumResult<SerializableVQCModel array> =
-        
+    let loadVQCModelBatch (directory: string) (pattern: string) : QuantumResult<SerializableVQCModel array> =
+
         try
             if not (Directory.Exists directory) then
-                Error (QuantumError.ValidationError ("Input", $"Directory not found: {directory}"))
+                Error(QuantumError.ValidationError("Input", $"Directory not found: {directory}"))
             else
                 let files = Directory.GetFiles(directory, pattern)
-                
+
                 if files.Length = 0 then
-                    Error (QuantumError.ValidationError ("Input", $"No files matching pattern '{pattern}' found in {directory}"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "Input",
+                            $"No files matching pattern '{pattern}' found in {directory}"
+                        )
+                    )
                 else
-                    let results =
-                        files
-                        |> Array.map loadVQCModel
-                    
+                    let results = files |> Array.map loadVQCModel
+
                     // Check for errors
                     let firstError =
                         results
                         |> Array.tryPick (Result.map (fun _ -> None) >> Result.defaultWith (fun e -> Some e))
-                    
+
                     match firstError with
                     | Some error -> Error error
                     | None ->
                         let models =
                             results
                             |> Array.map (fun result ->
-                                result |> Result.defaultWith (fun _ -> failwith $"Unreachable, calling loadVQCModelBatch with directory: {directory}, pattern: {pattern}"))
+                                result
+                                |> Result.defaultWith (fun _ ->
+                                    failwith
+                                        $"Unreachable, calling loadVQCModelBatch with directory: {directory}, pattern: {pattern}"))
+
                         Ok models
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load batch: {ex.Message}"))
-    
+            Error(QuantumError.ValidationError("Input", $"Failed to load batch: {ex.Message}"))
+
     // ========================================================================
     // TRANSFER LEARNING SUPPORT
     // ========================================================================
-    
+
     /// Load pre-trained model for transfer learning
     ///
     /// Returns: (parameters, architecture_info) for initializing new VQC
-    let loadForTransferLearning
-        (filePath: string)
-        : QuantumResult<float array * (int * string * int * string * int)> =
-        
+    let loadForTransferLearning (filePath: string) : QuantumResult<float array * (int * string * int * string * int)> =
+
         loadVQCModel filePath
         |> Result.map (fun model ->
             (model.Parameters,
@@ -739,7 +785,7 @@ module ModelSerialization =
               model.FeatureMapDepth,
               model.VariationalFormType,
               model.VariationalFormDepth)))
-    
+
     /// Load trained VQC model parameters for transfer learning (async, task-based)
     let loadForTransferLearningAsync
         (filePath: string)
@@ -747,6 +793,7 @@ module ModelSerialization =
         : Task<QuantumResult<float array * (int * string * int * string * int)>> =
         task {
             let! result = loadVQCModelAsync filePath cancellationToken
+
             return
                 result
                 |> Result.map (fun model ->
@@ -757,7 +804,7 @@ module ModelSerialization =
                       model.VariationalFormType,
                       model.VariationalFormDepth)))
         }
-    
+
     /// Initialize parameters for fine-tuning with optional layer freezing
     ///
     /// Parameters:
@@ -772,23 +819,32 @@ module ModelSerialization =
         (numLayers: int)
         (freezeLayers: int)
         : QuantumResult<float array * int array> =
-        
+
         if freezeLayers < 0 then
-            Error (QuantumError.ValidationError ("Input", "freezeLayers must be non-negative"))
+            Error(QuantumError.ValidationError("Input", "freezeLayers must be non-negative"))
         elif freezeLayers > numLayers then
-            Error (QuantumError.ValidationError ("Input", $"freezeLayers ({freezeLayers}) cannot exceed numLayers ({numLayers})"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"freezeLayers ({freezeLayers}) cannot exceed numLayers ({numLayers})"
+                )
+            )
         else
             let paramsPerLayer = pretrainedParams.Length / numLayers
-            
+
             if pretrainedParams.Length % numLayers <> 0 then
-                Error (QuantumError.ValidationError ("Input", $"Parameters ({pretrainedParams.Length}) not evenly divisible by layers ({numLayers})"))
+                Error(
+                    QuantumError.ValidationError(
+                        "Input",
+                        $"Parameters ({pretrainedParams.Length}) not evenly divisible by layers ({numLayers})"
+                    )
+                )
             else
                 // Indices of frozen parameters (first freezeLayers * paramsPerLayer)
-                let frozenIndices =
-                    [| 0 .. (freezeLayers * paramsPerLayer - 1) |]
-                
-                Ok (pretrainedParams, frozenIndices)
-    
+                let frozenIndices = [| 0 .. (freezeLayers * paramsPerLayer - 1) |]
+
+                Ok(pretrainedParams, frozenIndices)
+
     /// Apply parameter update respecting frozen layers
     ///
     /// Only updates parameters not in frozenIndices
@@ -798,17 +854,17 @@ module ModelSerialization =
         (learningRate: float)
         (frozenIndices: int array)
         : float array =
-        
+
         let frozenSet = Set.ofArray frozenIndices
-        
+
         currentParams
         |> Array.mapi (fun i param ->
             if frozenSet.Contains i then
-                param  // Keep frozen parameter unchanged
+                param // Keep frozen parameter unchanged
             else
-                param - learningRate * gradients.[i]  // Apply gradient update
+                param - learningRate * gradients.[i] // Apply gradient update
         )
-    
+
     /// Parse FeatureMapType from saved string representation plus the lossless
     /// configuration stored in FeatureMapPaulis.
     ///
@@ -821,13 +877,13 @@ module ModelSerialization =
         (paulis: string list option)
         : QuantumResult<FeatureMapType> =
         match fmType with
-        | "ZZFeatureMap" -> Ok (FeatureMapType.ZZFeatureMap fmDepth)
+        | "ZZFeatureMap" -> Ok(FeatureMapType.ZZFeatureMap fmDepth)
         | "PauliFeatureMap" ->
-            let paulis = paulis |> Option.defaultValue ["Z"; "ZZ"]
-            Ok (FeatureMapType.PauliFeatureMap (paulis, fmDepth))
+            let paulis = paulis |> Option.defaultValue [ "Z"; "ZZ" ]
+            Ok(FeatureMapType.PauliFeatureMap(paulis, fmDepth))
         | "AngleEncoding" -> Ok FeatureMapType.AngleEncoding
         | "AmplitudeEncoding" -> Ok FeatureMapType.AmplitudeEncoding
-        | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown feature map type: {fmType}"))
+        | _ -> Error(QuantumError.ValidationError("Input", $"Unknown feature map type: {fmType}"))
 
     /// Parse FeatureMapType from saved string representation
     ///
@@ -850,13 +906,13 @@ module ModelSerialization =
         (entanglement: string option)
         : QuantumResult<VariationalForm> =
         match vfType with
-        | "RealAmplitudes" -> Ok (VariationalForm.RealAmplitudes vfDepth)
-        | "EfficientSU2" -> Ok (VariationalForm.EfficientSU2 vfDepth)
+        | "RealAmplitudes" -> Ok(VariationalForm.RealAmplitudes vfDepth)
+        | "EfficientSU2" -> Ok(VariationalForm.EfficientSU2 vfDepth)
         | "TwoLocal" ->
             let rotation = rotation |> Option.defaultValue "RY"
             let entanglement = entanglement |> Option.defaultValue "CX"
-            Ok (VariationalForm.TwoLocal (rotation, entanglement, vfDepth))
-        | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown variational form type: {vfType}"))
+            Ok(VariationalForm.TwoLocal(rotation, entanglement, vfDepth))
+        | _ -> Error(QuantumError.ValidationError("Input", $"Unknown variational form type: {vfType}"))
 
     /// Parse VariationalForm from saved string representation
     ///
@@ -874,158 +930,166 @@ module ModelSerialization =
     /// Reconstruct the VariationalForm from a loaded model, using the lossless
     /// configuration fields when present (legacy files fall back to defaults).
     let variationalFormFromModel (model: SerializableVQCModel) : QuantumResult<VariationalForm> =
-        parseVariationalFormWithConfig model.VariationalFormType model.VariationalFormDepth model.VariationalFormRotation model.VariationalFormEntanglement
-    
+        parseVariationalFormWithConfig
+            model.VariationalFormType
+            model.VariationalFormDepth
+            model.VariationalFormRotation
+            model.VariationalFormEntanglement
+
     // ========================================================================
     // TRANSFER LEARNING UTILITIES
     // ========================================================================
-    
+
     /// Check if two models have compatible architectures for transfer learning
     ///
     /// Returns: true if models can share parameters (same architecture)
-    let areModelsCompatible
-        (model1Path: string)
-        (model2Path: string)
-        : QuantumResult<bool> =
-        
+    let areModelsCompatible (model1Path: string) (model2Path: string) : QuantumResult<bool> =
+
         loadVQCModel model1Path
         |> Result.bind (fun m1 ->
             loadVQCModel model2Path
             |> Result.map (fun m2 ->
-                m1.NumQubits = m2.NumQubits &&
-                m1.FeatureMapType = m2.FeatureMapType &&
-                m1.FeatureMapDepth = m2.FeatureMapDepth &&
-                m1.VariationalFormType = m2.VariationalFormType &&
-                m1.VariationalFormDepth = m2.VariationalFormDepth &&
+                m1.NumQubits = m2.NumQubits
+                && m1.FeatureMapType = m2.FeatureMapType
+                && m1.FeatureMapDepth = m2.FeatureMapDepth
+                && m1.VariationalFormType = m2.VariationalFormType
+                && m1.VariationalFormDepth = m2.VariationalFormDepth
+                &&
                 // Lossless configuration fields (None on legacy files = default config)
-                m1.FeatureMapPaulis = m2.FeatureMapPaulis &&
-                m1.VariationalFormRotation = m2.VariationalFormRotation &&
-                m1.VariationalFormEntanglement = m2.VariationalFormEntanglement))
-    
+                m1.FeatureMapPaulis = m2.FeatureMapPaulis
+                && m1.VariationalFormRotation = m2.VariationalFormRotation
+                && m1.VariationalFormEntanglement = m2.VariationalFormEntanglement))
+
     /// Extract feature extractor (frozen layers) from pre-trained model
     ///
     /// Returns subset of parameters representing the feature extraction layers
-    let extractFeatureExtractor
-        (modelPath: string)
-        (numLayers: int)
-        (extractLayers: int)
-        : QuantumResult<float array> =
-        
+    let extractFeatureExtractor (modelPath: string) (numLayers: int) (extractLayers: int) : QuantumResult<float array> =
+
         if extractLayers > numLayers then
-            Error (QuantumError.ValidationError ("Input", $"extractLayers ({extractLayers}) cannot exceed numLayers ({numLayers})"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"extractLayers ({extractLayers}) cannot exceed numLayers ({numLayers})"
+                )
+            )
         else
             loadVQCParameters modelPath
             |> Result.bind (fun parameters ->
                 let paramsPerLayer = parameters.Length / numLayers
+
                 if parameters.Length % numLayers <> 0 then
-                    Error (QuantumError.ValidationError ("Input", $"Parameters ({parameters.Length}) not evenly divisible by layers ({numLayers})"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "Input",
+                            $"Parameters ({parameters.Length}) not evenly divisible by layers ({numLayers})"
+                        )
+                    )
                 else
                     let extractedParams = parameters.[0 .. (extractLayers * paramsPerLayer - 1)]
                     Ok extractedParams)
-    
+
     // ========================================================================
     // PORTFOLIO SOLUTION SERIALIZATION
     // ========================================================================
-    
+
     /// Serializable asset allocation for portfolio solutions
-    type SerializableAllocation = {
-        /// Asset symbol (e.g., "AAPL")
-        Symbol: string
-        
-        /// Number of shares allocated
-        Shares: float
-        
-        /// Dollar value of allocation
-        Value: float
-        
-        /// Percentage of total portfolio (0.0 to 1.0)
-        Percentage: float
-        
-        /// Original asset data
-        ExpectedReturn: float
-        Risk: float
-        Price: float
-    }
-    
+    type SerializableAllocation =
+        {
+            /// Asset symbol (e.g., "AAPL")
+            Symbol: string
+
+            /// Number of shares allocated
+            Shares: float
+
+            /// Dollar value of allocation
+            Value: float
+
+            /// Percentage of total portfolio (0.0 to 1.0)
+            Percentage: float
+
+            /// Original asset data
+            ExpectedReturn: float
+            Risk: float
+            Price: float
+        }
+
     /// Serializable QUBO matrix for portfolio optimization
-    type SerializableQuboMatrix = {
-        /// Number of variables (assets)
-        NumVariables: int
-        
-        /// QUBO coefficients as list of (row, col, value) tuples
-        /// Stored as list for JSON compatibility
-        Coefficients: (int * int * float) list
-    }
-    
+    type SerializableQuboMatrix =
+        {
+            /// Number of variables (assets)
+            NumVariables: int
+
+            /// QUBO coefficients as list of (row, col, value) tuples
+            /// Stored as list for JSON compatibility
+            Coefficients: (int * int * float) list
+        }
+
     /// Serializable quantum portfolio solution (JSON-friendly)
-    type SerializablePortfolioSolution = {
-        /// Asset allocations
-        Allocations: SerializableAllocation list
-        
-        /// Total portfolio value
-        TotalValue: float
-        
-        /// Expected portfolio return (weighted average)
-        ExpectedReturn: float
-        
-        /// Portfolio risk (standard deviation)
-        Risk: float
-        
-        /// Sharpe ratio (return / risk)
-        SharpeRatio: float
-        
-        /// Backend used for quantum execution
-        BackendName: string
-        
-        /// Number of measurement shots
-        NumShots: int
-        
-        /// Execution time in milliseconds
-        ElapsedMs: float
-        
-        /// QAOA parameters used (gamma, beta)
-        QaoaGamma: float
-        QaoaBeta: float
-        
-        /// QUBO objective value (energy)
-        BestEnergy: float
-        
-        /// Selected assets mapping (symbol -> selected)
-        SelectedAssets: (string * bool) list
-        
-        /// Risk aversion parameter used
-        RiskAversion: float
-        
-        /// Budget constraint
-        Budget: float
-        
-        /// QUBO matrix (optional, for reproducibility)
-        QuboMatrix: SerializableQuboMatrix option
-        
-        /// Timestamp when saved
-        SavedAt: string
-        
-        /// Optional note
-        Note: string option
-    }
-    
+    type SerializablePortfolioSolution =
+        {
+            /// Asset allocations
+            Allocations: SerializableAllocation list
+
+            /// Total portfolio value
+            TotalValue: float
+
+            /// Expected portfolio return (weighted average)
+            ExpectedReturn: float
+
+            /// Portfolio risk (standard deviation)
+            Risk: float
+
+            /// Sharpe ratio (return / risk)
+            SharpeRatio: float
+
+            /// Backend used for quantum execution
+            BackendName: string
+
+            /// Number of measurement shots
+            NumShots: int
+
+            /// Execution time in milliseconds
+            ElapsedMs: float
+
+            /// QAOA parameters used (gamma, beta)
+            QaoaGamma: float
+            QaoaBeta: float
+
+            /// QUBO objective value (energy)
+            BestEnergy: float
+
+            /// Selected assets mapping (symbol -> selected)
+            SelectedAssets: (string * bool) list
+
+            /// Risk aversion parameter used
+            RiskAversion: float
+
+            /// Budget constraint
+            Budget: float
+
+            /// QUBO matrix (optional, for reproducibility)
+            QuboMatrix: SerializableQuboMatrix option
+
+            /// Timestamp when saved
+            SavedAt: string
+
+            /// Optional note
+            Note: string option
+        }
+
     /// Convert QUBO matrix Map to serializable format
     let private quboToSerializable (numVars: int) (quboMap: Map<(int * int), float>) : SerializableQuboMatrix =
-        let coefficients =
-            quboMap
-            |> Map.toList
-            |> List.map (fun ((i, j), v) -> (i, j, v))
+        let coefficients = quboMap |> Map.toList |> List.map (fun ((i, j), v) -> (i, j, v))
+
         {
             NumVariables = numVars
             Coefficients = coefficients
         }
-    
+
     /// Convert serializable QUBO back to Map format
     let private serializableToQubo (serialized: SerializableQuboMatrix) : Map<(int * int), float> =
-        serialized.Coefficients
-        |> List.map (fun (i, j, v) -> ((i, j), v))
-        |> Map.ofList
-    
+        serialized.Coefficients |> List.map (fun (i, j, v) -> ((i, j), v)) |> Map.ofList
+
     /// Save quantum portfolio solution to JSON file
     ///
     /// This is a data-centric serialization that takes all values directly,
@@ -1072,47 +1136,44 @@ module ModelSerialization =
         task {
             try
                 let (gamma, beta) = qaoaParams
-                
+
                 // Convert selected assets to list for JSON
-                let selectedAssetsList =
-                    selectedAssets
-                    |> Map.toList
-                
+                let selectedAssetsList = selectedAssets |> Map.toList
+
                 // Convert QUBO matrix if provided
-                let serializableQubo =
-                    quboMatrix
-                    |> Option.map (quboToSerializable numVariables)
-                
-                let model = {
-                    Allocations = allocations
-                    TotalValue = totalValue
-                    ExpectedReturn = expectedReturn
-                    Risk = risk
-                    SharpeRatio = sharpeRatio
-                    BackendName = backendName
-                    NumShots = numShots
-                    ElapsedMs = elapsedMs
-                    QaoaGamma = gamma
-                    QaoaBeta = beta
-                    BestEnergy = bestEnergy
-                    SelectedAssets = selectedAssetsList
-                    RiskAversion = riskAversion
-                    Budget = budget
-                    QuboMatrix = serializableQubo
-                    SavedAt = DateTime.UtcNow.ToString("o")
-                    Note = note
-                }
-                
+                let serializableQubo = quboMatrix |> Option.map (quboToSerializable numVariables)
+
+                let model =
+                    {
+                        Allocations = allocations
+                        TotalValue = totalValue
+                        ExpectedReturn = expectedReturn
+                        Risk = risk
+                        SharpeRatio = sharpeRatio
+                        BackendName = backendName
+                        NumShots = numShots
+                        ElapsedMs = elapsedMs
+                        QaoaGamma = gamma
+                        QaoaBeta = beta
+                        BestEnergy = bestEnergy
+                        SelectedAssets = selectedAssetsList
+                        RiskAversion = riskAversion
+                        Budget = budget
+                        QuboMatrix = serializableQubo
+                        SavedAt = DateTime.UtcNow.ToString("o")
+                        Note = note
+                    }
+
                 let options = JsonSerializerOptions(WriteIndented = true)
-                
+
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
-                
-                return Ok ()
+
+                return Ok()
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to save portfolio solution: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to save portfolio solution: {ex.Message}"))
         }
-    
+
     /// Save portfolio solution synchronously
     [<System.Obsolete("Use savePortfolioSolutionAsync for better performance")>]
     let savePortfolioSolution
@@ -1134,28 +1195,43 @@ module ModelSerialization =
         (numVariables: int)
         (note: string option)
         : QuantumResult<unit> =
-        savePortfolioSolutionAsync filePath allocations totalValue expectedReturn risk sharpeRatio 
-            backendName numShots elapsedMs qaoaParams bestEnergy selectedAssets riskAversion budget quboMatrix numVariables note CancellationToken.None
+        savePortfolioSolutionAsync
+            filePath
+            allocations
+            totalValue
+            expectedReturn
+            risk
+            sharpeRatio
+            backendName
+            numShots
+            elapsedMs
+            qaoaParams
+            bestEnergy
+            selectedAssets
+            riskAversion
+            budget
+            quboMatrix
+            numVariables
+            note
+            CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    
+
     /// Load quantum portfolio solution from JSON file
     ///
     /// Returns: Serializable portfolio solution with all metadata
-    let loadPortfolioSolution
-        (filePath: string)
-        : QuantumResult<SerializablePortfolioSolution> =
-        
+    let loadPortfolioSolution (filePath: string) : QuantumResult<SerializablePortfolioSolution> =
+
         try
             if not (File.Exists filePath) then
-                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializablePortfolioSolution>(json)
                 Ok model
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load portfolio solution: {ex.Message}"))
-    
+            Error(QuantumError.ValidationError("Input", $"Failed to load portfolio solution: {ex.Message}"))
+
     /// Load quantum portfolio solution from JSON file asynchronously
     let loadPortfolioSolutionAsync
         (filePath: string)
@@ -1164,45 +1240,36 @@ module ModelSerialization =
         task {
             try
                 if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                    return Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
                 else
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializablePortfolioSolution>(json)
                     return Ok model
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to load portfolio solution: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to load portfolio solution: {ex.Message}"))
         }
-    
+
     /// Load QUBO matrix from saved portfolio solution
     ///
     /// Returns: QUBO matrix as Map if present in saved solution
-    let loadPortfolioQubo
-        (filePath: string)
-        : QuantumResult<Map<(int * int), float> option> =
-        
+    let loadPortfolioQubo (filePath: string) : QuantumResult<Map<(int * int), float> option> =
+
         loadPortfolioSolution filePath
-        |> Result.map (fun solution ->
-            solution.QuboMatrix
-            |> Option.map serializableToQubo)
-    
+        |> Result.map (fun solution -> solution.QuboMatrix |> Option.map serializableToQubo)
+
     /// Load QAOA parameters from saved portfolio solution
     ///
     /// Returns: (gamma, beta) tuple
-    let loadPortfolioQaoaParams
-        (filePath: string)
-        : QuantumResult<float * float> =
-        
+    let loadPortfolioQaoaParams (filePath: string) : QuantumResult<float * float> =
+
         loadPortfolioSolution filePath
-        |> Result.map (fun solution ->
-            (solution.QaoaGamma, solution.QaoaBeta))
-    
+        |> Result.map (fun solution -> (solution.QaoaGamma, solution.QaoaBeta))
+
     /// Get portfolio solution summary without loading full data
     ///
     /// Returns: (total_value, expected_return, risk, sharpe_ratio, backend_name, saved_at)
-    let getPortfolioSolutionInfo
-        (filePath: string)
-        : QuantumResult<float * float * float * float * string * string> =
-        
+    let getPortfolioSolutionInfo (filePath: string) : QuantumResult<float * float * float * float * string * string> =
+
         loadPortfolioSolution filePath
         |> Result.map (fun solution ->
             (solution.TotalValue,
@@ -1211,13 +1278,10 @@ module ModelSerialization =
              solution.SharpeRatio,
              solution.BackendName,
              solution.SavedAt))
-    
+
     /// Print portfolio solution information via ILogger
-    let printPortfolioSolutionInfo
-        (filePath: string)
-        (logger: ILogger option)
-        : QuantumResult<unit> =
-        
+    let printPortfolioSolutionInfo (filePath: string) (logger: ILogger option) : QuantumResult<unit> =
+
         loadPortfolioSolution filePath
         |> Result.map (fun solution ->
             logInfo logger "=== Portfolio Solution Information ==="
@@ -1236,11 +1300,21 @@ module ModelSerialization =
             logInfo logger ($"Elapsed: %.2f{solution.ElapsedMs}ms")
             logInfo logger ""
             logInfo logger ($"Allocations (%d{solution.Allocations.Length} assets):")
+
             solution.Allocations
             |> List.iter (fun alloc ->
-                logInfo logger (sprintf "  %s: %.2f shares @ $%.2f = $%.2f (%.1f%%)" 
-                    alloc.Symbol alloc.Shares alloc.Price alloc.Value (alloc.Percentage * 100.0)))
+                logInfo
+                    logger
+                    (sprintf
+                        "  %s: %.2f shares @ $%.2f = $%.2f (%.1f%%)"
+                        alloc.Symbol
+                        alloc.Shares
+                        alloc.Price
+                        alloc.Value
+                        (alloc.Percentage * 100.0)))
+
             match solution.Note with
             | Some note -> logInfo logger ($"Note: %s{note}")
             | None -> ()
+
             logInfo logger "======================================")

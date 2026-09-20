@@ -36,7 +36,7 @@ module QubitRoutingTests =
         let cm = QubitRouting.fromPairs 3 [ (0, 2); (1, 2) ]
         let c = empty 2 |> addGate (H 0) |> addGate (CNOT(0, 1))
         Assert.False(QubitRouting.respectsCoupling cm c)
-        let routed, mapping = QubitRouting.route cm c   // must not throw
+        let routed, mapping = QubitRouting.route cm c // must not throw
         Assert.True(QubitRouting.respectsCoupling cm routed)
         Assert.Equal(3, mapping.Length)
 
@@ -45,10 +45,14 @@ module QubitRoutingTests =
         let cm = QubitRouting.linear 3
         let c = empty 3 |> addGate (CNOT(0, 1)) |> addGate (CNOT(1, 2))
         let routed, _ = QubitRouting.route cm c
+
         let swaps =
             getGates routed
-            |> List.filter (function SWAP _ -> true | _ -> false)
+            |> List.filter (function
+                | SWAP _ -> true
+                | _ -> false)
             |> List.length
+
         Assert.Equal(0, swaps)
         Assert.True(QubitRouting.respectsCoupling cm routed)
 
@@ -59,6 +63,7 @@ module QubitRoutingTests =
         let n = 4
         let cm = QubitRouting.linear n
         let backend = LocalBackend() :> IQuantumBackend
+
         let runAmps (c: Circuit) =
             match backend.ExecuteToState(CircuitAbstraction.wrapCircuit c) with
             | Ok(QuantumState.StateVector sv) ->
@@ -82,14 +87,17 @@ module QubitRoutingTests =
         let ampsRouted = runAmps routed
 
         let invMap = Array.zeroCreate n
+
         for l in 0 .. n - 1 do
             invMap.[mapping.[l]] <- l
 
         let toLogical (idxP: int) =
             let mutable idxL = 0
+
             for p in 0 .. n - 1 do
                 let bit = (idxP >>> bitpos p) &&& 1
                 idxL <- idxL ||| (bit <<< bitpos invMap.[p])
+
             idxL
 
         let maxDiff =

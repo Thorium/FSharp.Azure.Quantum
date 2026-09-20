@@ -41,5 +41,6 @@ printfn ""
 // Discretize a distribution into (representative-value, probability-weight) bins —
 // handy for encoding a classical distribution into a quantum register.
 printfn "Discretized standard normal (8 bins) — (value, weight):"
+
 discretizeNormal 8
 |> Array.iter (fun (value, weight) -> printfn "  % .4f  ->  %.4f" value weight)

@@ -1,12 +1,12 @@
 /// Predictive Modeling Example: Customer Churn Prediction
-/// 
+///
 /// This example demonstrates how to use the PredictiveModelBuilder
 /// to predict when customers will leave (churn) without understanding quantum mechanics.
 ///
 /// BUSINESS PROBLEM:
 /// Predict which customers are likely to churn and WHEN they will churn
 /// so you can take proactive retention actions.
-/// 
+///
 /// APPROACH:
 /// Multi-class classification with 4 categories:
 /// - Class 0: Will stay (no churn risk)
@@ -46,12 +46,38 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "CustomerChurnPrediction.fsx"
     "Predictive modeling for customer churn using quantum multi-class classification."
-    [ { Cli.OptionSpec.Name = "example";  Description = "Example to run (1-4 or all)";       Default = Some "all" }
-      { Cli.OptionSpec.Name = "epochs";   Description = "Max training epochs";                Default = Some "60" }
-      { Cli.OptionSpec.Name = "lr";       Description = "Learning rate";                      Default = Some "0.01" }
-      { Cli.OptionSpec.Name = "output";   Description = "Write results to JSON file";         Default = None }
-      { Cli.OptionSpec.Name = "csv";      Description = "Write results to CSV file";          Default = None }
-      { Cli.OptionSpec.Name = "quiet";    Description = "Suppress informational output";      Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "example"
+            Description = "Example to run (1-4 or all)"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "epochs"
+            Description = "Max training epochs"
+            Default = Some "60"
+        }
+        {
+            Cli.OptionSpec.Name = "lr"
+            Description = "Learning rate"
+            Default = Some "0.01"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -68,7 +94,14 @@ let shouldRun ex =
 let quantumBackend = LocalBackend() :> IQuantumBackend
 
 // Accumulate results for JSON/CSV output
-let results = ResizeArray<{| Example: string; Status: string; Details: Map<string, obj> |}>()
+let results =
+    ResizeArray<
+        {|
+            Example: string
+            Status: string
+            Details: Map<string, obj>
+        |}
+     >()
 
 // ============================================================================
 // SAMPLE DATA - Customer Features
@@ -77,91 +110,103 @@ let results = ResizeArray<{| Example: string; Status: string; Details: Map<strin
 /// Generate synthetic customer data for demonstration
 /// In production, load from database or data warehouse
 let generateCustomerData () =
-    let random = Random(42)  // Fixed seed for reproducibility
-    
+    let random = Random(42) // Fixed seed for reproducibility
+
     // Feature engineering: Extract meaningful customer behavior features
     // Features: [tenure_months, monthly_spend, support_calls, usage_frequency, satisfaction_score]
-    
+
     // Customers who will stay (Class 0) - engaged, satisfied
     let stableCustomers =
-        [| for i in 1..30 ->
-            [| 
-                12.0 + random.NextDouble() * 24.0       // Long tenure (1-3 years)
-                100.0 + random.NextDouble() * 100.0     // Good spend
-                float (random.Next(0, 2))               // Few support calls
-                20.0 + random.NextDouble() * 10.0       // High usage
-                7.0 + random.NextDouble() * 3.0         // High satisfaction (7-10)
-            |]
+        [|
+            for i in 1..30 ->
+                [|
+                    12.0 + random.NextDouble() * 24.0 // Long tenure (1-3 years)
+                    100.0 + random.NextDouble() * 100.0 // Good spend
+                    float (random.Next(0, 2)) // Few support calls
+                    20.0 + random.NextDouble() * 10.0 // High usage
+                    7.0 + random.NextDouble() * 3.0 // High satisfaction (7-10)
+                |]
         |]
-    
+
     // Customers who will churn in 30 days (Class 1) - urgent warning signs
     let churn30DayCustomers =
-        [| for i in 1..15 ->
-            [| 
-                1.0 + random.NextDouble() * 6.0         // Short tenure (1-6 months)
-                20.0 + random.NextDouble() * 30.0       // Low spend
-                float (random.Next(5, 10))              // Many support calls
-                2.0 + random.NextDouble() * 5.0         // Low usage
-                1.0 + random.NextDouble() * 3.0         // Low satisfaction (1-4)
-            |]
+        [|
+            for i in 1..15 ->
+                [|
+                    1.0 + random.NextDouble() * 6.0 // Short tenure (1-6 months)
+                    20.0 + random.NextDouble() * 30.0 // Low spend
+                    float (random.Next(5, 10)) // Many support calls
+                    2.0 + random.NextDouble() * 5.0 // Low usage
+                    1.0 + random.NextDouble() * 3.0 // Low satisfaction (1-4)
+                |]
         |]
-    
+
     // Customers who will churn in 60 days (Class 2) - declining engagement
     let churn60DayCustomers =
-        [| for i in 1..15 ->
-            [| 
-                6.0 + random.NextDouble() * 12.0        // Medium tenure (6-18 months)
-                40.0 + random.NextDouble() * 40.0       // Declining spend
-                float (random.Next(3, 6))               // Moderate support calls
-                8.0 + random.NextDouble() * 7.0         // Declining usage
-                4.0 + random.NextDouble() * 2.0         // Medium satisfaction (4-6)
-            |]
+        [|
+            for i in 1..15 ->
+                [|
+                    6.0 + random.NextDouble() * 12.0 // Medium tenure (6-18 months)
+                    40.0 + random.NextDouble() * 40.0 // Declining spend
+                    float (random.Next(3, 6)) // Moderate support calls
+                    8.0 + random.NextDouble() * 7.0 // Declining usage
+                    4.0 + random.NextDouble() * 2.0 // Medium satisfaction (4-6)
+                |]
         |]
-    
+
     // Customers who will churn in 90 days (Class 3) - early warning
     let churn90DayCustomers =
-        [| for i in 1..10 ->
-            [| 
-                12.0 + random.NextDouble() * 12.0       // Established (1-2 years)
-                60.0 + random.NextDouble() * 40.0       // Medium-low spend
-                float (random.Next(2, 5))               // Some support calls
-                12.0 + random.NextDouble() * 8.0        // Medium usage
-                5.0 + random.NextDouble() * 2.0         // Medium-low satisfaction (5-7)
-            |]
+        [|
+            for i in 1..10 ->
+                [|
+                    12.0 + random.NextDouble() * 12.0 // Established (1-2 years)
+                    60.0 + random.NextDouble() * 40.0 // Medium-low spend
+                    float (random.Next(2, 5)) // Some support calls
+                    12.0 + random.NextDouble() * 8.0 // Medium usage
+                    5.0 + random.NextDouble() * 2.0 // Medium-low satisfaction (5-7)
+                |]
         |]
-    
+
     // Combine datasets
-    let allCustomers = 
-        Array.concat [stableCustomers; churn30DayCustomers; churn60DayCustomers; churn90DayCustomers]
-    
-    let allLabels = 
-        Array.concat [
-            Array.create 30 0.0  // Stable
-            Array.create 15 1.0  // Churn 30 days
-            Array.create 15 2.0  // Churn 60 days
-            Array.create 10 3.0  // Churn 90 days
-        ]
-    
+    let allCustomers =
+        Array.concat
+            [
+                stableCustomers
+                churn30DayCustomers
+                churn60DayCustomers
+                churn90DayCustomers
+            ]
+
+    let allLabels =
+        Array.concat
+            [
+                Array.create 30 0.0 // Stable
+                Array.create 15 1.0 // Churn 30 days
+                Array.create 15 2.0 // Churn 60 days
+                Array.create 10 3.0 // Churn 90 days
+            ]
+
     // Shuffle data
     let indices = [| 0 .. allCustomers.Length - 1 |]
-    let shuffled = 
-        indices 
+
+    let shuffled =
+        indices
         |> Array.sortBy (fun _ -> random.Next())
         |> Array.map (fun i -> allCustomers.[i], allLabels.[i])
-    
+
     let trainX = shuffled |> Array.map fst
     let trainY = shuffled |> Array.map snd
-    
+
     (trainX, trainY)
 
-let (trainX, trainY) = generateCustomerData()
+let (trainX, trainY) = generateCustomerData ()
 
 // ============================================================================
 // EXAMPLE 1: Multi-Class Churn Prediction (Minimal Configuration)
 // ============================================================================
 
 // Store result1 model at module level for Example 4
-let mutable example1Model : PredictiveModel.Model option = None
+let mutable example1Model: PredictiveModel.Model option = None
 
 if shouldRun 1 then
     if not quiet then
@@ -173,16 +218,25 @@ if shouldRun 1 then
         printfn "  - Churn in 90 days: %d\n" (trainY |> Array.filter ((=) 3.0) |> Array.length)
 
     // Train multi-class churn predictor
-    let result1 = predictiveModel {
-        trainWith trainX trainY
-        problemType (MultiClass 4)  // 4 categories
-        backend quantumBackend
-    }
+    let result1 =
+        predictiveModel {
+            trainWith trainX trainY
+            problemType (MultiClass 4) // 4 categories
+            backend quantumBackend
+        }
 
     match result1 with
     | Error err ->
-        if not quiet then printfn "Training failed: %A" err
-        results.Add({| Example = "1-multiclass"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
+        if not quiet then
+            printfn "Training failed: %A" err
+
+        results.Add(
+            {|
+                Example = "1-multiclass"
+                Status = "error"
+                Details = Map.ofList [ "error", box $"%A{err}" ]
+            |}
+        )
 
     | Ok model ->
         example1Model <- Some model
@@ -195,67 +249,99 @@ if shouldRun 1 then
             |> Array.countBy id
             |> Array.map (fun (_, n) -> float n / float trainY.Length)
             |> Array.max
+
         if not quiet then
             printfn "Training complete!"
             printfn "  - Problem type: %A" model.Metadata.ProblemType
             printfn "  - Architecture: %A" model.Metadata.Architecture
-            printfn "  - Training accuracy: %.2f%% (majority-class baseline: %.2f%%)"
-                (model.Metadata.TrainingScore * 100.0) (majorityBaseline * 100.0)
+
+            printfn
+                "  - Training accuracy: %.2f%% (majority-class baseline: %.2f%%)"
+                (model.Metadata.TrainingScore * 100.0)
+                (majorityBaseline * 100.0)
+
             printfn "  - Training time: %A\n" model.Metadata.TrainingTime
-        
+
         // Test on new customers
-        if not quiet then printfn "=== Predicting Churn Risk for New Customers ===\n"
-        
-        let testCustomers = [|
-            ("Customer 1 (high churn risk)", [| 2.0; 25.0; 8.0; 3.0; 2.0 |])
-            ("Customer 2 (stable)", [| 24.0; 150.0; 1.0; 25.0; 9.0 |])
-            ("Customer 3 (medium risk)", [| 10.0; 50.0; 4.0; 10.0; 5.0 |])
-        |]
-        
-        let predictions = ResizeArray<{| Name: string; Category: int; Confidence: float |}>()
-        
+        if not quiet then
+            printfn "=== Predicting Churn Risk for New Customers ===\n"
+
+        let testCustomers =
+            [|
+                ("Customer 1 (high churn risk)", [| 2.0; 25.0; 8.0; 3.0; 2.0 |])
+                ("Customer 2 (stable)", [| 24.0; 150.0; 1.0; 25.0; 9.0 |])
+                ("Customer 3 (medium risk)", [| 10.0; 50.0; 4.0; 10.0; 5.0 |])
+            |]
+
+        let predictions =
+            ResizeArray<
+                {|
+                    Name: string
+                    Category: int
+                    Confidence: float
+                |}
+             >()
+
         for (name, features) in testCustomers do
             match PredictiveModel.predictCategory features model None None with
             | Error err ->
-                if not quiet then printfn "%s: Prediction failed: %A" name err
+                if not quiet then
+                    printfn "%s: Prediction failed: %A" name err
             | Ok pred ->
-                predictions.Add({| Name = name; Category = pred.Category; Confidence = pred.Confidence |})
+                predictions.Add(
+                    {|
+                        Name = name
+                        Category = pred.Category
+                        Confidence = pred.Confidence
+                    |}
+                )
+
                 if not quiet then
                     printfn "%s:" name
                     printfn "  Predicted churn category: %d" pred.Category
                     printfn "  Confidence: %.2f%%" (pred.Confidence * 100.0)
+
                     match pred.Category with
                     | 0 -> printfn "  Status: Customer will stay - no action needed"
-                    | 1 -> printfn "  Status: HIGH RISK - Will churn in 30 days!"
-                           printfn "  Action: Immediate retention offer (discount, personal call)"
-                    | 2 -> printfn "  Status: MEDIUM RISK - Will churn in 60 days"
-                           printfn "  Action: Send satisfaction survey, address pain points"
-                    | 3 -> printfn "  Status: LOW RISK - Will churn in 90 days"
-                           printfn "  Action: Monitor engagement, proactive check-in"
+                    | 1 ->
+                        printfn "  Status: HIGH RISK - Will churn in 30 days!"
+                        printfn "  Action: Immediate retention offer (discount, personal call)"
+                    | 2 ->
+                        printfn "  Status: MEDIUM RISK - Will churn in 60 days"
+                        printfn "  Action: Send satisfaction survey, address pain points"
+                    | 3 ->
+                        printfn "  Status: LOW RISK - Will churn in 90 days"
+                        printfn "  Action: Monitor engagement, proactive check-in"
                     | _ -> ()
+
                     printfn ""
-        
-        results.Add({|
-            Example = "1-multiclass"
-            Status = "ok"
-            Details = Map.ofList [
-                "training_accuracy", box (model.Metadata.TrainingScore * 100.0)
-                "majority_baseline", box (majorityBaseline * 100.0)
-                "predictions", box (predictions |> Seq.toArray)
-            ]
-        |})
+
+        results.Add(
+            {|
+                Example = "1-multiclass"
+                Status = "ok"
+                Details =
+                    Map.ofList
+                        [
+                            "training_accuracy", box (model.Metadata.TrainingScore * 100.0)
+                            "majority_baseline", box (majorityBaseline * 100.0)
+                            "predictions", box (predictions |> Seq.toArray)
+                        ]
+            |}
+        )
 
 // ============================================================================
 // EXAMPLE 2: Advanced Configuration with Evaluation
 // ============================================================================
 
 if shouldRun 2 then
-    if not quiet then printfn "\n=== Example 2: Advanced Churn Prediction with Evaluation ===\n"
+    if not quiet then
+        printfn "\n=== Example 2: Advanced Churn Prediction with Evaluation ===\n"
 
     // Split data into train/test
     let splitIndex = int (float trainX.Length * 0.8)
-    let trainXFull = trainX.[..splitIndex-1]
-    let trainYFull = trainY.[..splitIndex-1]
+    let trainXFull = trainX.[.. splitIndex - 1]
+    let trainYFull = trainY.[.. splitIndex - 1]
     let testX = trainX.[splitIndex..]
     let testY = trainY.[splitIndex..]
 
@@ -263,186 +349,245 @@ if shouldRun 2 then
         printfn "Training set: %d customers" trainXFull.Length
         printfn "Test set: %d customers\n" testX.Length
 
-    let result2 = predictiveModel {
-        trainWith trainXFull trainYFull
-        problemType (MultiClass 4)
-        backend quantumBackend
-        
-        // Advanced configuration
-        architecture Quantum
-        learningRate cliLearningRate
-        maxEpochs cliEpochs
-        convergenceThreshold 0.005
-        
-        verbose false
-        
-        saveModelTo "churn_predictor.model"
-        note "Customer churn prediction model - Q2 2024"
-    }
+    let result2 =
+        predictiveModel {
+            trainWith trainXFull trainYFull
+            problemType (MultiClass 4)
+            backend quantumBackend
+
+            // Advanced configuration
+            architecture Quantum
+            learningRate cliLearningRate
+            maxEpochs cliEpochs
+            convergenceThreshold 0.005
+
+            verbose false
+
+            saveModelTo "churn_predictor.model"
+            note "Customer churn prediction model - Q2 2024"
+        }
 
     match result2 with
     | Error err ->
-        if not quiet then printfn "Training failed: %A" err
-        results.Add({| Example = "2-advanced"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
+        if not quiet then
+            printfn "Training failed: %A" err
+
+        results.Add(
+            {|
+                Example = "2-advanced"
+                Status = "error"
+                Details = Map.ofList [ "error", box $"%A{err}" ]
+            |}
+        )
 
     | Ok model ->
-        if not quiet then printfn "Advanced model trained!\n"
-        
+        if not quiet then
+            printfn "Advanced model trained!\n"
+
         // Evaluate on test set
         let testYInt = testY |> Array.map int
+
         match PredictiveModel.evaluateMultiClass testX testYInt model with
         | Error err ->
-            if not quiet then printfn "Evaluation failed: %A" err
+            if not quiet then
+                printfn "Evaluation failed: %A" err
         | Ok metrics ->
             // Majority-class baseline on the HELD-OUT test labels: a trivial
             // classifier predicting the most frequent test class scores this much.
             let majorityBaseline =
-                if testYInt.Length = 0 then 0.0
+                if testYInt.Length = 0 then
+                    0.0
                 else
                     testYInt
                     |> Array.countBy id
                     |> Array.map (fun (_, n) -> float n / float testYInt.Length)
                     |> Array.max
+
             if not quiet then
                 printfn "=== Model Performance ===\n"
-                printfn "Overall Accuracy: %.2f%% (majority-class baseline: %.2f%%)\n"
-                    (metrics.Accuracy * 100.0) (majorityBaseline * 100.0)
-                printfn "CAVEAT: the held-out test set has only %d rows across 4 classes."
-                    testX.Length
+
+                printfn
+                    "Overall Accuracy: %.2f%% (majority-class baseline: %.2f%%)\n"
+                    (metrics.Accuracy * 100.0)
+                    (majorityBaseline * 100.0)
+
+                printfn "CAVEAT: the held-out test set has only %d rows across 4 classes." testX.Length
                 printfn "Per-class precision/recall/F1 below are ILLUSTRATIVE and high-variance"
                 printfn "at this sample size (a single misclassification swings a class metric by"
                 printfn "tens of percent). In practice, use k-fold cross-validation on more data.\n"
 
                 for c in 0..3 do
-                    let label = match c with 0 -> "Will Stay" | 1 -> "Churn 30d" | 2 -> "Churn 60d" | _ -> "Churn 90d"
+                    let label =
+                        match c with
+                        | 0 -> "Will Stay"
+                        | 1 -> "Churn 30d"
+                        | 2 -> "Churn 60d"
+                        | _ -> "Churn 90d"
+
                     printfn "Class %d (%s):" c label
-                    printfn "  Precision: %.2f%%  Recall: %.2f%%  F1: %.2f%%"
+
+                    printfn
+                        "  Precision: %.2f%%  Recall: %.2f%%  F1: %.2f%%"
                         (metrics.Precision.[c] * 100.0)
                         (metrics.Recall.[c] * 100.0)
                         (metrics.F1Score.[c] * 100.0)
-                
+
                 printfn "\nConfusion Matrix:"
                 printfn "              Predicted"
                 printfn "           0    1    2    3"
+
                 for r in 0..3 do
-                    printfn "Actual %d: %3d  %3d  %3d  %3d" r
+                    printfn
+                        "Actual %d: %3d  %3d  %3d  %3d"
+                        r
                         metrics.ConfusionMatrix.[r].[0]
                         metrics.ConfusionMatrix.[r].[1]
                         metrics.ConfusionMatrix.[r].[2]
                         metrics.ConfusionMatrix.[r].[3]
+
                 printfn ""
-            
-            results.Add({|
-                Example = "2-advanced"
-                Status = "ok"
-                Details = Map.ofList [
-                    "accuracy", box (metrics.Accuracy * 100.0)
-                    "majority_baseline", box (majorityBaseline * 100.0)
-                    "test_set_size", box testX.Length
-                    "precision_class0", box (metrics.Precision.[0] * 100.0)
-                    "recall_class0", box (metrics.Recall.[0] * 100.0)
-                    "f1_class0", box (metrics.F1Score.[0] * 100.0)
-                ]
-            |})
+
+            results.Add(
+                {|
+                    Example = "2-advanced"
+                    Status = "ok"
+                    Details =
+                        Map.ofList
+                            [
+                                "accuracy", box (metrics.Accuracy * 100.0)
+                                "majority_baseline", box (majorityBaseline * 100.0)
+                                "test_set_size", box testX.Length
+                                "precision_class0", box (metrics.Precision.[0] * 100.0)
+                                "recall_class0", box (metrics.Recall.[0] * 100.0)
+                                "f1_class0", box (metrics.F1Score.[0] * 100.0)
+                            ]
+                |}
+            )
 
 // ============================================================================
 // EXAMPLE 3: Revenue Prediction (Regression)
 // ============================================================================
 
 if shouldRun 3 then
-    if not quiet then printfn "\n=== Example 3: Customer Lifetime Value Prediction (Regression) ===\n"
+    if not quiet then
+        printfn "\n=== Example 3: Customer Lifetime Value Prediction (Regression) ===\n"
 
     // Generate revenue data
     let generateRevenueData () =
         let random = Random(42)
-        
+
         // Features: [tenure_months, monthly_spend, usage_frequency, satisfaction_score]
         // Target: Predicted 12-month revenue
-        let customers = 
-            [| for i in 1..60 ->
-                let tenure = 1.0 + random.NextDouble() * 36.0
-                let spend = 50.0 + random.NextDouble() * 200.0
-                let usage = 5.0 + random.NextDouble() * 25.0
-                let satisfaction = 3.0 + random.NextDouble() * 7.0
-                
-                // Revenue model: tenure effect + spend baseline + usage multiplier + satisfaction bonus
-                let baseRevenue = spend * 12.0
-                let tenureBonus = tenure * 10.0
-                let usageMultiplier = usage / 30.0 * spend * 12.0
-                let satisfactionBonus = satisfaction * 100.0
-                
-                let ltv = baseRevenue + tenureBonus + usageMultiplier + satisfactionBonus
-                
-                ([| tenure; spend; usage; satisfaction |], ltv)
+        let customers =
+            [|
+                for i in 1..60 ->
+                    let tenure = 1.0 + random.NextDouble() * 36.0
+                    let spend = 50.0 + random.NextDouble() * 200.0
+                    let usage = 5.0 + random.NextDouble() * 25.0
+                    let satisfaction = 3.0 + random.NextDouble() * 7.0
+
+                    // Revenue model: tenure effect + spend baseline + usage multiplier + satisfaction bonus
+                    let baseRevenue = spend * 12.0
+                    let tenureBonus = tenure * 10.0
+                    let usageMultiplier = usage / 30.0 * spend * 12.0
+                    let satisfactionBonus = satisfaction * 100.0
+
+                    let ltv = baseRevenue + tenureBonus + usageMultiplier + satisfactionBonus
+
+                    ([| tenure; spend; usage; satisfaction |], ltv)
             |]
-        
+
         let features = customers |> Array.map fst
         let targets = customers |> Array.map snd
         (features, targets)
 
-    let (revenueX, revenueY) = generateRevenueData()
+    let (revenueX, revenueY) = generateRevenueData ()
 
-    if not quiet then printfn "Training revenue prediction model on %d customers...\n" revenueX.Length
+    if not quiet then
+        printfn "Training revenue prediction model on %d customers...\n" revenueX.Length
 
-    let result3 = predictiveModel {
-        trainWith revenueX revenueY
-        problemType Regression
-        backend quantumBackend
-        
-        learningRate cliLearningRate
-        maxEpochs 100
-        
-        verbose false
-    }
+    let result3 =
+        predictiveModel {
+            trainWith revenueX revenueY
+            problemType Regression
+            backend quantumBackend
+
+            learningRate cliLearningRate
+            maxEpochs 100
+
+            verbose false
+        }
 
     match result3 with
     | Error err ->
-        if not quiet then printfn "Training failed: %A" err
-        results.Add({| Example = "3-regression"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
+        if not quiet then
+            printfn "Training failed: %A" err
+
+        results.Add(
+            {|
+                Example = "3-regression"
+                Status = "error"
+                Details = Map.ofList [ "error", box $"%A{err}" ]
+            |}
+        )
 
     | Ok model ->
         if not quiet then
             printfn "Revenue model trained!"
             printfn "  - R^2 Score: %.4f" model.Metadata.TrainingScore
             printfn "  - Training time: %A\n" model.Metadata.TrainingTime
-        
+
         // Predict revenue for sample customers
-        if not quiet then printfn "=== Revenue Predictions ===\n"
-        
-        let testCases = [|
-            ("High-Value Customer", [| 24.0; 150.0; 20.0; 9.0 |], "VIP treatment, loyalty rewards")
-            ("Medium-Value Customer", [| 6.0; 60.0; 10.0; 5.0 |], "Upsell opportunities, engagement campaigns")
-            ("Low-Value At-Risk", [| 2.0; 30.0; 5.0; 3.0 |], "Onboarding improvement, satisfaction survey")
-        |]
-        
+        if not quiet then
+            printfn "=== Revenue Predictions ===\n"
+
+        let testCases =
+            [|
+                ("High-Value Customer", [| 24.0; 150.0; 20.0; 9.0 |], "VIP treatment, loyalty rewards")
+                ("Medium-Value Customer", [| 6.0; 60.0; 10.0; 5.0 |], "Upsell opportunities, engagement campaigns")
+                ("Low-Value At-Risk", [| 2.0; 30.0; 5.0; 3.0 |], "Onboarding improvement, satisfaction survey")
+            |]
+
         let revPredictions = ResizeArray<{| Name: string; PredictedLTV: float |}>()
-        
+
         for (name, features, action) in testCases do
             match PredictiveModel.predict features model None None with
             | Error err ->
-                if not quiet then printfn "%s: Prediction failed: %A" name err
+                if not quiet then
+                    printfn "%s: Prediction failed: %A" name err
             | Ok pred ->
-                revPredictions.Add({| Name = name; PredictedLTV = pred.Value |})
+                revPredictions.Add(
+                    {|
+                        Name = name
+                        PredictedLTV = pred.Value
+                    |}
+                )
+
                 if not quiet then
                     printfn "%s:" name
                     printfn "  Predicted 12-month LTV: $%.2f" pred.Value
                     printfn "  Action: %s\n" action
-        
-        results.Add({|
-            Example = "3-regression"
-            Status = "ok"
-            Details = Map.ofList [
-                "r2_score", box model.Metadata.TrainingScore
-                "predictions", box (revPredictions |> Seq.toArray)
-            ]
-        |})
+
+        results.Add(
+            {|
+                Example = "3-regression"
+                Status = "ok"
+                Details =
+                    Map.ofList
+                        [
+                            "r2_score", box model.Metadata.TrainingScore
+                            "predictions", box (revPredictions |> Seq.toArray)
+                        ]
+            |}
+        )
 
 // ============================================================================
 // EXAMPLE 4: Production Integration Pattern
 // ============================================================================
 
 if shouldRun 4 then
-    if not quiet then printfn "\n=== Example 4: Production Integration Pattern ===\n"
+    if not quiet then
+        printfn "\n=== Example 4: Production Integration Pattern ===\n"
 
     // Use model from Example 1 if available, otherwise train fresh
     let modelForProduction =
@@ -468,53 +613,66 @@ if shouldRun 4 then
                 | 2 -> ("High", "This Week", "Satisfaction survey, address issues, re-engagement campaign")
                 | 3 -> ("Medium", "This Month", "Proactive check-in, usage tips, value reminder")
                 | _ -> ("Unknown", "Review", "Manual review required")
-            
-            Some {|
-                ChurnRisk = riskLevel
-                ChurnCategory = prediction.Category
-                Confidence = prediction.Confidence
-                ActionPriority = actionPriority
-                RecommendedAction = recommendedAction
-            |}
+
+            Some
+                {|
+                    ChurnRisk = riskLevel
+                    ChurnCategory = prediction.Category
+                    Confidence = prediction.Confidence
+                    ActionPriority = actionPriority
+                    RecommendedAction = recommendedAction
+                |}
 
     match modelForProduction with
     | Error err ->
-        if not quiet then printfn "Model not available: %A" err
-        results.Add({| Example = "4-production"; Status = "error"; Details = Map.ofList ["error", box $"%A{err}"] |})
+        if not quiet then
+            printfn "Model not available: %A" err
+
+        results.Add(
+            {|
+                Example = "4-production"
+                Status = "error"
+                Details = Map.ofList [ "error", box $"%A{err}" ]
+            |}
+        )
     | Ok model ->
-        if not quiet then printfn "Processing batch of customers for churn assessment...\n"
-        
-        let batchCustomers = [|
-            [| 2.0; 25.0; 8.0; 3.0; 2.0 |]    // High risk
-            [| 24.0; 150.0; 1.0; 25.0; 9.0 |]  // Stable
-            [| 10.0; 50.0; 4.0; 10.0; 5.0 |]   // Medium risk
-        |]
-        
-        let assessments = 
-            batchCustomers 
+        if not quiet then
+            printfn "Processing batch of customers for churn assessment...\n"
+
+        let batchCustomers =
+            [|
+                [| 2.0; 25.0; 8.0; 3.0; 2.0 |] // High risk
+                [| 24.0; 150.0; 1.0; 25.0; 9.0 |] // Stable
+                [| 10.0; 50.0; 4.0; 10.0; 5.0 |] // Medium risk
+            |]
+
+        let assessments =
+            batchCustomers
             |> Array.choose (fun features -> assessCustomerChurn features model)
-        
+
         if not quiet then
             printfn "=== Churn Risk Assessment Report ===\n"
+
             assessments
-            |> Array.sortBy (fun a -> 
+            |> Array.sortBy (fun a ->
                 match a.ActionPriority with
-                | "Immediate" -> 1 | "This Week" -> 2 | "This Month" -> 3 | _ -> 4)
+                | "Immediate" -> 1
+                | "This Week" -> 2
+                | "This Month" -> 3
+                | _ -> 4)
             |> Array.iter (fun assessment ->
                 printfn "  Risk Level: %s (Category %d)" assessment.ChurnRisk assessment.ChurnCategory
                 printfn "  Confidence: %.1f%%" (assessment.Confidence * 100.0)
                 printfn "  Action Priority: %s" assessment.ActionPriority
-                printfn "  Recommended Action: %s\n" assessment.RecommendedAction
-            )
-        
-        results.Add({|
-            Example = "4-production"
-            Status = "ok"
-            Details = Map.ofList [
-                "assessments_count", box assessments.Length
-                "assessments", box assessments
-            ]
-        |})
+                printfn "  Recommended Action: %s\n" assessment.RecommendedAction)
+
+        results.Add(
+            {|
+                Example = "4-production"
+                Status = "ok"
+                Details = Map.ofList [ "assessments_count", box assessments.Length; "assessments", box assessments ]
+            |}
+        )
 
 // ============================================================================
 // OUTPUT
@@ -522,15 +680,23 @@ if shouldRun 4 then
 
 match outputPath with
 | Some v ->
-    let payload = {| script = "CustomerChurnPrediction.fsx"; timestamp = DateTime.UtcNow; results = results |> Seq.toArray |}
+    let payload =
+        {|
+            script = "CustomerChurnPrediction.fsx"
+            timestamp = DateTime.UtcNow
+            results = results |> Seq.toArray
+        |}
+
     Reporting.writeJson v payload
-    if not quiet then printfn "Results written to %s" v
-| None ->
-    ()
+
+    if not quiet then
+        printfn "Results written to %s" v
+| None -> ()
 
 match csvPath with
 | Some csvPathValue ->
-    let header = ["example"; "status"; "detail"]
+    let header = [ "example"; "status"; "detail" ]
+
     let rows =
         results
         |> Seq.map (fun r ->
@@ -539,12 +705,15 @@ match csvPath with
                 |> Map.toList
                 |> List.map (fun (k, v) -> $"%s{k}=%O{v}")
                 |> String.concat "; "
-            [r.Example; r.Status; detail])
+
+            [ r.Example; r.Status; detail ])
         |> Seq.toList
+
     Reporting.writeCsv csvPathValue header rows
-    if not quiet then printfn "CSV written to %s" csvPathValue
-| None ->
-    ()
+
+    if not quiet then
+        printfn "CSV written to %s" csvPathValue
+| None -> ()
 
 // ============================================================================
 // USAGE HINTS

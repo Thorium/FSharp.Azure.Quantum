@@ -58,16 +58,51 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "AntibodyBinding.fsx"
+Cli.exitIfHelp
+    "AntibodyBinding.fsx"
     "Compare CDR-epitope contact type binding energies via VQE (antibody FMO approach)"
-    [ { Cli.OptionSpec.Name = "input"; Description = "CSV file with custom contact systems"; Default = Some "built-in presets" }
-      { Cli.OptionSpec.Name = "contacts"; Description = "Comma-separated preset names to run (default: all)"; Default = Some "all" }
-      { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations"; Default = Some "50" }
-      { Cli.OptionSpec.Name = "tolerance"; Description = "Energy convergence tolerance (Hartree)"; Default = Some "1e-4" }
-      { Cli.OptionSpec.Name = "temperature"; Description = "Temperature for Kd estimation (Kelvin)"; Default = Some "300" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output (flag)"; Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with custom contact systems"
+            Default = Some "built-in presets"
+        }
+        {
+            Cli.OptionSpec.Name = "contacts"
+            Description = "Comma-separated preset names to run (default: all)"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "max-iterations"
+            Description = "Maximum VQE iterations"
+            Default = Some "50"
+        }
+        {
+            Cli.OptionSpec.Name = "tolerance"
+            Description = "Energy convergence tolerance (Hartree)"
+            Default = Some "1e-4"
+        }
+        {
+            Cli.OptionSpec.Name = "temperature"
+            Description = "Temperature for Kd estimation (Kelvin)"
+            Default = Some "300"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output (flag)"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -83,27 +118,31 @@ let temperature = Cli.getFloatOr "temperature" 300.0 args
 
 /// A CDR-epitope contact type modelled as antibody fragment + antigen fragment.
 type ContactSystem =
-    { Name: string
-      AntibodyFragment: Molecule
-      AntigenFragment: Molecule
-      ContactType: string
-      CdrRegion: string
-      Description: string }
+    {
+        Name: string
+        AntibodyFragment: Molecule
+        AntigenFragment: Molecule
+        ContactType: string
+        CdrRegion: string
+        Description: string
+    }
 
 /// Result of computing one contact's energy profile via VQE.
 type ContactResult =
-    { Contact: ContactSystem
-      AntibodyEnergy: float
-      AntigenEnergy: float
-      ComplexEnergy: float
-      BindingEnergyHartree: float
-      BindingEnergyKcal: float
-      BindingEnergyKJ: float
-      EstimatedKd: float
-      KdStr: string
-      Interpretation: string
-      ComputeTimeSeconds: float
-      HasVqeFailure: bool }
+    {
+        Contact: ContactSystem
+        AntibodyEnergy: float
+        AntigenEnergy: float
+        ComplexEnergy: float
+        BindingEnergyHartree: float
+        BindingEnergyKcal: float
+        BindingEnergyKJ: float
+        EstimatedKd: float
+        KdStr: string
+        Interpretation: string
+        ComputeTimeSeconds: float
+        HasVqeFailure: bool
+    }
 
 // ==============================================================================
 // PHYSICAL CONSTANTS
@@ -111,8 +150,10 @@ type ContactResult =
 
 [<Literal>]
 let hartreeToKcalMol = 627.509
+
 [<Literal>]
 let hartreeToKJMol = 2625.5
+
 /// Gas constant in kcal/(mol*K)
 [<Literal>]
 let gasR_kcal = 1.987e-3
@@ -128,122 +169,286 @@ let gasR_kcal = 1.987e-3
 /// LiH models the electropositive character of guanidinium (Arg sidechain).
 /// HF models the electronegative carboxylate (Asp/Glu sidechain).
 /// Salt bridges contribute ~3-5 kcal/mol at CDR3-epitope interfaces.
-let private saltBridgeContact : ContactSystem =
-    let antibody : Molecule =
-        { Name = "LiH (Arg+ model)"
-          Atoms =
-            [ { Element = "Li"; Position = (0.0, 0.0, 0.0) }
-              { Element = "H"; Position = (1.60, 0.0, 0.0) } ]  // Li-H bond ~1.60 A
-          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+let private saltBridgeContact: ContactSystem =
+    let antibody: Molecule =
+        {
+            Name = "LiH (Arg+ model)"
+            Atoms =
+                [
+                    {
+                        Element = "Li"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (1.60, 0.0, 0.0)
+                    }
+                ] // Li-H bond ~1.60 A
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    let antigen : Molecule =
-        { Name = "HF (Asp- model)"
-          Atoms =
-            [ { Element = "H"; Position = (3.40, 0.0, 0.0) }     // H...F gap ~1.8 A
-              { Element = "F"; Position = (4.32, 0.0, 0.0) } ]
-          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+    let antigen: Molecule =
+        {
+            Name = "HF (Asp- model)"
+            Atoms =
+                [
+                    {
+                        Element = "H"
+                        Position = (3.40, 0.0, 0.0)
+                    } // H...F gap ~1.8 A
+                    {
+                        Element = "F"
+                        Position = (4.32, 0.0, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    { Name = "Salt-Bridge"
-      AntibodyFragment = antibody
-      AntigenFragment = antigen
-      ContactType = "Salt bridge"
-      CdrRegion = "CDR3"
-      Description = "Arg-Asp ionic contact (LiH...HF model, CDR3-epitope)" }
+    {
+        Name = "Salt-Bridge"
+        AntibodyFragment = antibody
+        AntigenFragment = antigen
+        ContactType = "Salt bridge"
+        CdrRegion = "CDR3"
+        Description = "Arg-Asp ionic contact (LiH...HF model, CDR3-epitope)"
+    }
 
 /// Hydrogen bond model (Ser-OH...Asn-C=O): HF donor + H2O acceptor.
 /// HF models the strong H-bond donor (sidechain NH or OH).
 /// H2O models the acceptor oxygen (backbone C=O or Asn/Gln sidechain).
 /// H-bonds contribute ~1-3 kcal/mol per contact.
-let private hBondContact : ContactSystem =
-    let antibody : Molecule =
-        { Name = "HF (NH donor model)"
-          Atoms =
-            [ { Element = "H"; Position = (0.0, 0.0, 0.0) }
-              { Element = "F"; Position = (0.92, 0.0, 0.0) } ]
-          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+let private hBondContact: ContactSystem =
+    let antibody: Molecule =
+        {
+            Name = "HF (NH donor model)"
+            Atoms =
+                [
+                    {
+                        Element = "H"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "F"
+                        Position = (0.92, 0.0, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    let antigen : Molecule =
-        { Name = "H2O (C=O acceptor model)"
-          Atoms =
-            [ { Element = "O"; Position = (2.72, 0.0, 0.0) }       // F-H...O distance ~1.8 A
-              { Element = "H"; Position = (3.35, 0.76, 0.0) }
-              { Element = "H"; Position = (3.35, -0.76, 0.0) } ]
-          Bonds =
-            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+    let antigen: Molecule =
+        {
+            Name = "H2O (C=O acceptor model)"
+            Atoms =
+                [
+                    {
+                        Element = "O"
+                        Position = (2.72, 0.0, 0.0)
+                    } // F-H...O distance ~1.8 A
+                    {
+                        Element = "H"
+                        Position = (3.35, 0.76, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (3.35, -0.76, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 2
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    { Name = "H-Bond"
-      AntibodyFragment = antibody
-      AntigenFragment = antigen
-      ContactType = "Hydrogen bond"
-      CdrRegion = "CDR2"
-      Description = "Ser/Tyr-OH...Asn/Gln C=O (HF...H2O model, CDR2-epitope)" }
+    {
+        Name = "H-Bond"
+        AntibodyFragment = antibody
+        AntigenFragment = antigen
+        ContactType = "Hydrogen bond"
+        CdrRegion = "CDR2"
+        Description = "Ser/Tyr-OH...Asn/Gln C=O (HF...H2O model, CDR2-epitope)"
+    }
 
 /// Van der Waals / CH-pi dispersion model: LiH + H2.
 /// Models the weak dispersion interactions from hydrophobic CDR contacts
 /// (Leu, Ile, Val sidechains packed against epitope).
 /// Each contributes only ~0.5-2 kcal/mol but they accumulate.
-let private dispersionContact : ContactSystem =
-    let antibody : Molecule =
-        { Name = "LiH (CH model)"
-          Atoms =
-            [ { Element = "Li"; Position = (0.0, 0.0, 0.0) }
-              { Element = "H"; Position = (1.60, 0.0, 0.0) } ]
-          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+let private dispersionContact: ContactSystem =
+    let antibody: Molecule =
+        {
+            Name = "LiH (CH model)"
+            Atoms =
+                [
+                    {
+                        Element = "Li"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (1.60, 0.0, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    let antigen : Molecule =
-        { Name = "H2 (CH model)"
-          Atoms =
-            [ { Element = "H"; Position = (3.50, 0.0, 0.0) }     // ~1.9 A gap (van der Waals)
-              { Element = "H"; Position = (4.24, 0.0, 0.0) } ]   // H-H bond 0.74 A
-          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+    let antigen: Molecule =
+        {
+            Name = "H2 (CH model)"
+            Atoms =
+                [
+                    {
+                        Element = "H"
+                        Position = (3.50, 0.0, 0.0)
+                    } // ~1.9 A gap (van der Waals)
+                    {
+                        Element = "H"
+                        Position = (4.24, 0.0, 0.0)
+                    }
+                ] // H-H bond 0.74 A
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    { Name = "Dispersion"
-      AntibodyFragment = antibody
-      AntigenFragment = antigen
-      ContactType = "Van der Waals"
-      CdrRegion = "CDR1"
-      Description = "Leu/Ile hydrophobic packing (LiH...H2 dispersion model, CDR1)" }
+    {
+        Name = "Dispersion"
+        AntibodyFragment = antibody
+        AntigenFragment = antigen
+        ContactType = "Van der Waals"
+        CdrRegion = "CDR1"
+        Description = "Leu/Ile hydrophobic packing (LiH...H2 dispersion model, CDR1)"
+    }
 
 /// Halogen bond model: HCl + H2O.
 /// Models halogenated epitope residue interacting with CDR backbone.
 /// Relevant for synthetic antigens and drug-modified epitopes.
 /// Halogen bonds: ~1-4 kcal/mol depending on halogen.
-let private halogenContact : ContactSystem =
-    let antibody : Molecule =
-        { Name = "H2O (backbone model)"
-          Atoms =
-            [ { Element = "O"; Position = (0.0, 0.0, 0.0) }
-              { Element = "H"; Position = (0.59, 0.76, 0.0) }
-              { Element = "H"; Position = (0.59, -0.76, 0.0) } ]
-          Bonds =
-            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+let private halogenContact: ContactSystem =
+    let antibody: Molecule =
+        {
+            Name = "H2O (backbone model)"
+            Atoms =
+                [
+                    {
+                        Element = "O"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.59, 0.76, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.59, -0.76, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 2
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    let antigen : Molecule =
-        { Name = "HCl (halogen model)"
-          Atoms =
-            [ { Element = "Cl"; Position = (2.80, 0.0, 0.0) }     // O...Cl distance ~2.8 A
-              { Element = "H"; Position = (4.08, 0.0, 0.0) } ]    // H-Cl bond 1.28 A
-          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-          Charge = 0; Multiplicity = 1 }
+    let antigen: Molecule =
+        {
+            Name = "HCl (halogen model)"
+            Atoms =
+                [
+                    {
+                        Element = "Cl"
+                        Position = (2.80, 0.0, 0.0)
+                    } // O...Cl distance ~2.8 A
+                    {
+                        Element = "H"
+                        Position = (4.08, 0.0, 0.0)
+                    }
+                ] // H-Cl bond 1.28 A
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
+            Charge = 0
+            Multiplicity = 1
+        }
 
-    { Name = "Halogen-Bond"
-      AntibodyFragment = antibody
-      AntigenFragment = antigen
-      ContactType = "Halogen bond"
-      CdrRegion = "CDR3"
-      Description = "Backbone O...Cl-R halogen contact (H2O...HCl model, CDR3)" }
+    {
+        Name = "Halogen-Bond"
+        AntibodyFragment = antibody
+        AntigenFragment = antigen
+        ContactType = "Halogen bond"
+        CdrRegion = "CDR3"
+        Description = "Backbone O...Cl-R halogen contact (H2O...HCl model, CDR3)"
+    }
 
 /// All built-in presets keyed by lowercase name.
-let private builtinPresets : Map<string, ContactSystem> =
+let private builtinPresets: Map<string, ContactSystem> =
     [ saltBridgeContact; hBondContact; dispersionContact; halogenContact ]
     |> List.map (fun s -> s.Name.ToLowerInvariant(), s)
     |> Map.ofList
@@ -261,36 +466,54 @@ let private parseAtoms (s: string) : Atom list =
     s.Split '|'
     |> Array.choose (fun entry ->
         let parts = entry.Trim().Split ':'
+
         if parts.Length = 2 then
             let coords = parts.[1].Split ','
+
             if coords.Length = 3 then
                 match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
                 | (true, x), (true, y), (true, z) ->
-                    Some { Element = parts.[0].Trim(); Position = (x, y, z) }
+                    Some
+                        {
+                            Element = parts.[0].Trim()
+                            Position = (x, y, z)
+                        }
                 | _ -> None
-            else None
-        else None)
+            else
+                None
+        else
+            None)
     |> Array.toList
 
 /// Infer single bonds between adjacent atom pairs (simple fallback).
 let private inferBonds (atoms: Atom list) : Bond list =
-    [ for i in 0 .. atoms.Length - 2 do
-        { Atom1 = i; Atom2 = i + 1; BondOrder = 1.0 } ]
+    [
+        for i in 0 .. atoms.Length - 2 do
+            {
+                Atom1 = i
+                Atom2 = i + 1
+                BondOrder = 1.0
+            }
+    ]
 
 /// Build a Molecule from an atom string, inferring bonds.
 let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
     let atoms = parseAtoms atomStr
-    { Name = name
-      Atoms = atoms
-      Bonds = inferBonds atoms
-      Charge = 0
-      Multiplicity = 1 }
+
+    {
+        Name = name
+        Atoms = atoms
+        Bonds = inferBonds atoms
+        Charge = 0
+        Multiplicity = 1
+    }
 
 /// Load contact systems from a CSV file.
 /// Expected columns: name, contact_type, cdr_region, description, antibody_atoms, antigen_atoms
 /// OR: name, preset (to reference a built-in preset by name)
 let private loadContactsFromCsv (path: string) : ContactSystem list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
+
     if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
@@ -299,14 +522,17 @@ let private loadContactsFromCsv (path: string) : ContactSystem list =
     |> List.choose (fun row ->
         let get key = row.Values |> Map.tryFind key
         let name = get "name" |> Option.defaultValue "Unknown"
+
         match get "preset" with
         | Some presetKey ->
             let key = presetKey.Trim().ToLowerInvariant()
+
             match builtinPresets |> Map.tryFind key with
             | Some system -> Some { system with Name = name }
             | None ->
                 if not quiet then
                     eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
+
                 None
         | None ->
             match get "antibody_atoms", get "antigen_atoms" with
@@ -316,37 +542,43 @@ let private loadContactsFromCsv (path: string) : ContactSystem list =
                 let desc = get "description" |> Option.defaultValue ""
                 let antibody = moleculeFromAtomString (name + " antibody") abAtoms
                 let antigen = moleculeFromAtomString (name + " antigen") agAtoms
+
                 Some
-                    { Name = name
-                      AntibodyFragment = antibody
-                      AntigenFragment = antigen
-                      ContactType = contactType
-                      CdrRegion = cdr
-                      Description = desc }
+                    {
+                        Name = name
+                        AntibodyFragment = antibody
+                        AntigenFragment = antigen
+                        ContactType = contactType
+                        CdrRegion = cdr
+                        Description = desc
+                    }
             | _ ->
                 if not quiet then
                     eprintfn "  Warning: row '%s' missing required columns" name
+
                 None)
 
 // ==============================================================================
 // CONTACT SELECTION
 // ==============================================================================
 
-let contacts : ContactSystem list =
+let contacts: ContactSystem list =
     let allContacts =
         match inputFile with
         | Some path ->
             let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
+
             if not quiet then
                 printfn "Loading contact systems from: %s" resolved
+
             loadContactsFromCsv resolved
-        | None ->
-            builtinPresets |> Map.toList |> List.map snd
+        | None -> builtinPresets |> Map.toList |> List.map snd
 
     match contactFilter with
     | [] -> allContacts
     | filters ->
         let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+
         allContacts
         |> List.filter (fun s ->
             let key = s.Name.ToLowerInvariant()
@@ -360,7 +592,7 @@ if List.isEmpty contacts then
 // QUANTUM BACKEND (Rule 1: all VQE via IQuantumBackend)
 // ==============================================================================
 
-let backend : IQuantumBackend = LocalBackend() :> IQuantumBackend
+let backend: IQuantumBackend = LocalBackend() :> IQuantumBackend
 
 if not quiet then
     printfn ""
@@ -380,14 +612,16 @@ if not quiet then
 
 /// VQE solver configuration.
 let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) : SolverConfig =
-    { Method = GroundStateMethod.VQE
-      Backend = Some backend
-      MaxIterations = maxIter
-      Tolerance = tol
-      InitialParameters = None
-      ProgressReporter = None
-      ErrorMitigation = None
-      IntegralProvider = None }
+    {
+        Method = GroundStateMethod.VQE
+        Backend = Some backend
+        MaxIterations = maxIter
+        Tolerance = tol
+        InitialParameters = None
+        ProgressReporter = None
+        ErrorMitigation = None
+        IntegralProvider = None
+    }
 
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
 /// Returns (Ok energy | Error message, elapsed seconds).
@@ -399,7 +633,10 @@ let private computeEnergy
     : Result<float, string> * float =
     let startTime = DateTime.Now
     let config = solverConfig backend maxIter tol
-    let result = GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+
+    let result =
+        GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+
     let elapsed = (DateTime.Now - startTime).TotalSeconds
 
     match result with
@@ -407,6 +644,7 @@ let private computeEnergy
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+
         (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
 
 /// Build a complex molecule from antibody + antigen fragments.
@@ -416,12 +654,16 @@ let private buildComplex (contact: ContactSystem) : Molecule =
         |> List.map (fun b ->
             { b with
                 Atom1 = b.Atom1 + contact.AntibodyFragment.Atoms.Length
-                Atom2 = b.Atom2 + contact.AntibodyFragment.Atoms.Length })
-    { Name = $"%s{contact.Name} complex"
-      Atoms = contact.AntibodyFragment.Atoms @ contact.AntigenFragment.Atoms
-      Bonds = contact.AntibodyFragment.Bonds @ offsetBonds
-      Charge = 0
-      Multiplicity = 1 }
+                Atom2 = b.Atom2 + contact.AntibodyFragment.Atoms.Length
+            })
+
+    {
+        Name = $"%s{contact.Name} complex"
+        Atoms = contact.AntibodyFragment.Atoms @ contact.AntigenFragment.Atoms
+        Bonds = contact.AntibodyFragment.Bonds @ offsetBonds
+        Charge = 0
+        Multiplicity = 1
+    }
 
 /// Interpret binding energy for antibody interface context.
 let private interpretContact (dEKcal: float) : string =
@@ -434,14 +676,17 @@ let private interpretContact (dEKcal: float) : string =
 /// Estimate dissociation constant Kd from binding energy.
 /// dG ~ dE (neglecting entropy), Kd = exp(dG / RT).
 let private estimateKd (dEKcal: float) (tempK: float) : float * string =
-    let rt = gasR_kcal * tempK  // kcal/mol
+    let rt = gasR_kcal * tempK // kcal/mol
+
     if dEKcal < 0.0 then
-        let kd = exp(dEKcal / rt)  // dimensionless ratio; interpret as molar
+        let kd = exp (dEKcal / rt) // dimensionless ratio; interpret as molar
+
         let kdStr =
             if kd < 1e-9 then $"%.2e{kd} M (picomolar)"
             elif kd < 1e-6 then $"%.2e{kd} M (nanomolar)"
             elif kd < 1e-3 then $"%.2e{kd} M (micromolar)"
             else $"%.2e{kd} M (millimolar)"
+
         (kd, kdStr)
     else
         (infinity, "N/A (unfavorable)")
@@ -469,18 +714,29 @@ let private computeContact
         | Ok e ->
             if not quiet then
                 printfn "         %-10s %-22s  E = %10.6f Ha  (%.1fs)" label name e elapsed
+
             (e, elapsed)
         | Error _ ->
             anyFailure <- true
+
             if not quiet then
                 printfn "         %-10s %-22s  E = FAILED         (%.1fs)" label name elapsed
+
             (0.0, elapsed)
 
-    let (abEnergy, _) = unwrapEnergy "antibody" contact.AntibodyFragment.Name (computeEnergy backend maxIter tol contact.AntibodyFragment)
-    let (agEnergy, _) = unwrapEnergy "antigen" contact.AntigenFragment.Name (computeEnergy backend maxIter tol contact.AntigenFragment)
+    let (abEnergy, _) =
+        unwrapEnergy
+            "antibody"
+            contact.AntibodyFragment.Name
+            (computeEnergy backend maxIter tol contact.AntibodyFragment)
+
+    let (agEnergy, _) =
+        unwrapEnergy "antigen" contact.AntigenFragment.Name (computeEnergy backend maxIter tol contact.AntigenFragment)
 
     let complex = buildComplex contact
-    let (complexE, _) = unwrapEnergy "complex" complex.Name (computeEnergy backend maxIter tol complex)
+
+    let (complexE, _) =
+        unwrapEnergy "complex" complex.Name (computeEnergy backend maxIter tol complex)
 
     let totalTime = (DateTime.Now - startTime).TotalSeconds
 
@@ -490,27 +746,35 @@ let private computeContact
     let dEKJ = dEHartree * hartreeToKJMol
 
     let interp = if anyFailure then "VQE FAILED" else interpretContact dEKcal
-    let (kd, kdStr) = if anyFailure then (infinity, "N/A (VQE failed)") else estimateKd dEKcal temp
+
+    let (kd, kdStr) =
+        if anyFailure then
+            (infinity, "N/A (VQE failed)")
+        else
+            estimateKd dEKcal temp
 
     if not quiet then
         if anyFailure then
             printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
         else
             printfn "         => dE = %.2f kcal/mol  |  Kd ~ %s" dEKcal kdStr
+
         printfn ""
 
-    { Contact = contact
-      AntibodyEnergy = abEnergy
-      AntigenEnergy = agEnergy
-      ComplexEnergy = complexE
-      BindingEnergyHartree = dEHartree
-      BindingEnergyKcal = dEKcal
-      BindingEnergyKJ = dEKJ
-      EstimatedKd = kd
-      KdStr = kdStr
-      Interpretation = interp
-      ComputeTimeSeconds = totalTime
-      HasVqeFailure = anyFailure }
+    {
+        Contact = contact
+        AntibodyEnergy = abEnergy
+        AntigenEnergy = agEnergy
+        ComplexEnergy = complexE
+        BindingEnergyHartree = dEHartree
+        BindingEnergyKcal = dEKcal
+        BindingEnergyKJ = dEKJ
+        EstimatedKd = kd
+        KdStr = kdStr
+        Interpretation = interp
+        ComputeTimeSeconds = totalTime
+        HasVqeFailure = anyFailure
+    }
 
 // --- Run all contacts ---
 
@@ -527,9 +791,12 @@ let results =
 let ranked =
     results
     |> List.sortBy (fun r ->
-        if r.HasVqeFailure then (2, infinity)
-        elif r.BindingEnergyKcal >= 0.0 then (1, r.BindingEnergyKcal)
-        else (0, r.BindingEnergyKcal))
+        if r.HasVqeFailure then
+            (2, infinity)
+        elif r.BindingEnergyKcal >= 0.0 then
+            (1, r.BindingEnergyKcal)
+        else
+            (0, r.BindingEnergyKcal))
 
 // ==============================================================================
 // RANKED COMPARISON TABLE
@@ -540,13 +807,23 @@ let printTable () =
     printfn "  Ranked CDR-Epitope Contact Contributions (by binding energy)"
     printfn "=================================================================="
     printfn ""
-    printfn "  %-4s  %-16s  %-14s  %-5s  %13s  %13s  %s"
-        "#" "Contact" "Type" "CDR" "dE (kcal/mol)" "dE (kJ/mol)" "Interpretation"
+
+    printfn
+        "  %-4s  %-16s  %-14s  %-5s  %13s  %13s  %s"
+        "#"
+        "Contact"
+        "Type"
+        "CDR"
+        "dE (kcal/mol)"
+        "dE (kJ/mol)"
+        "Interpretation"
+
     printfn "  %s" (String('=', 105))
 
     ranked
     |> List.iteri (fun i r ->
-        printfn "  %-4d  %-16s  %-14s  %-5s  %13.2f  %13.2f  %s"
+        printfn
+            "  %-4d  %-16s  %-14s  %-5s  %13.2f  %13.2f  %s"
             (i + 1)
             r.Contact.Name
             r.Contact.ContactType
@@ -558,14 +835,18 @@ let printTable () =
     printfn ""
 
     // Dissociation constants
-    printfn "  %-4s  %-16s  %-14s  %20s  %10s"
-        "#" "Contact" "Type" "Estimated Kd" "Time (s)"
+    printfn "  %-4s  %-16s  %-14s  %20s  %10s" "#" "Contact" "Type" "Estimated Kd" "Time (s)"
     printfn "  %s" (String('-', 75))
 
     ranked
     |> List.iteri (fun i r ->
-        printfn "  %-4d  %-16s  %-14s  %20s  %10.1f"
-            (i + 1) r.Contact.Name r.Contact.ContactType r.KdStr r.ComputeTimeSeconds)
+        printfn
+            "  %-4d  %-16s  %-14s  %20s  %10.1f"
+            (i + 1)
+            r.Contact.Name
+            r.Contact.ContactType
+            r.KdStr
+            r.ComputeTimeSeconds)
 
     printfn ""
 
@@ -580,8 +861,14 @@ printTable ()
 if not quiet then
     let best = ranked |> List.head
     let totalTime = results |> List.sumBy (fun r -> r.ComputeTimeSeconds)
-    printfn "  Strongest contact: %s (%s, %s, dE = %.2f kcal/mol)"
-        best.Contact.Name best.Contact.ContactType best.Contact.CdrRegion best.BindingEnergyKcal
+
+    printfn
+        "  Strongest contact: %s (%s, %s, dE = %.2f kcal/mol)"
+        best.Contact.Name
+        best.Contact.ContactType
+        best.Contact.CdrRegion
+        best.BindingEnergyKcal
+
     printfn "  Total time:        %.1f seconds" totalTime
     printfn "  Quantum:           all VQE via IQuantumBackend [Rule 1 compliant]"
     printfn ""
@@ -593,43 +880,64 @@ if not quiet then
 let resultMaps =
     ranked
     |> List.mapi (fun i r ->
-        [ "rank", string (i + 1)
-          "contact", r.Contact.Name
-          "contact_type", r.Contact.ContactType
-          "cdr_region", r.Contact.CdrRegion
-          "description", r.Contact.Description
-          "binding_energy_hartree", $"%.6f{r.BindingEnergyHartree}"
-          "binding_energy_kcal_mol", $"%.2f{r.BindingEnergyKcal}"
-          "binding_energy_kj_mol", $"%.2f{r.BindingEnergyKJ}"
-          "estimated_kd", r.KdStr
-          "interpretation", r.Interpretation
-          "antibody_energy_ha", $"%.6f{r.AntibodyEnergy}"
-          "antigen_energy_ha", $"%.6f{r.AntigenEnergy}"
-          "complex_energy_ha", $"%.6f{r.ComplexEnergy}"
-          "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
-          "temperature_k", $"%.1f{temperature}"
-          "has_vqe_failure", string r.HasVqeFailure ]
+        [
+            "rank", string (i + 1)
+            "contact", r.Contact.Name
+            "contact_type", r.Contact.ContactType
+            "cdr_region", r.Contact.CdrRegion
+            "description", r.Contact.Description
+            "binding_energy_hartree", $"%.6f{r.BindingEnergyHartree}"
+            "binding_energy_kcal_mol", $"%.2f{r.BindingEnergyKcal}"
+            "binding_energy_kj_mol", $"%.2f{r.BindingEnergyKJ}"
+            "estimated_kd", r.KdStr
+            "interpretation", r.Interpretation
+            "antibody_energy_ha", $"%.6f{r.AntibodyEnergy}"
+            "antigen_energy_ha", $"%.6f{r.AntigenEnergy}"
+            "complex_energy_ha", $"%.6f{r.ComplexEnergy}"
+            "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
+            "temperature_k", $"%.1f{temperature}"
+            "has_vqe_failure", string r.HasVqeFailure
+        ]
         |> Map.ofList)
 
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultMaps
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "rank"; "contact"; "contact_type"; "cdr_region"; "description"
-          "binding_energy_hartree"; "binding_energy_kcal_mol"; "binding_energy_kj_mol"
-          "estimated_kd"; "interpretation"; "antibody_energy_ha"; "antigen_energy_ha"
-          "complex_energy_ha"; "compute_time_s"; "temperature_k"; "has_vqe_failure" ]
+        [
+            "rank"
+            "contact"
+            "contact_type"
+            "cdr_region"
+            "description"
+            "binding_energy_hartree"
+            "binding_energy_kcal_mol"
+            "binding_energy_kj_mol"
+            "estimated_kd"
+            "interpretation"
+            "antibody_energy_ha"
+            "antigen_energy_ha"
+            "complex_energy_ha"
+            "compute_time_s"
+            "temperature_k"
+            "has_vqe_failure"
+        ]
+
     let rows =
         resultMaps
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

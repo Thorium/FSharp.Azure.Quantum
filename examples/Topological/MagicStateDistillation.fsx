@@ -31,21 +31,54 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "MagicStateDistillation.fsx" "Magic state distillation for T-gate universality"
-    [ { Name = "example";    Description = "Which example: 1-4|all";          Default = Some "all" }
-      { Name = "error-rate"; Description = "Initial noisy state error rate";  Default = Some "0.05" }
-      { Name = "output";     Description = "Write results to JSON file";      Default = None }
-      { Name = "csv";        Description = "Write results to CSV file";       Default = None }
-      { Name = "quiet";      Description = "Suppress console output";         Default = None } ] args
+Cli.exitIfHelp
+    "MagicStateDistillation.fsx"
+    "Magic state distillation for T-gate universality"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-4|all"
+            Default = Some "all"
+        }
+        {
+            Name = "error-rate"
+            Description = "Initial noisy state error rate"
+            Default = Some "0.05"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
-let cliError   = Cli.getFloatOr "error-rate" 0.05 args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
+let cliError = Cli.getFloatOr "error-rate" 0.05 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 let fmt (x: float) = $"%.6f{x}"
 
@@ -57,8 +90,8 @@ let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 let random = Random()
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 â€” Single round 15-to-1 distillation
@@ -69,15 +102,20 @@ if shouldRun 1 then
     separator ()
 
     let noisyStates =
-        [1..15]
-        |> List.map (fun _ ->
-            MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
-        |> List.choose (function Ok s -> Some s | Error _ -> None)
+        [ 1..15 ]
+        |> List.map (fun _ -> MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
+        |> List.choose (function
+            | Ok s -> Some s
+            | Error _ -> None)
 
     match noisyStates with
     | states when states.Length = 15 ->
-        let avgFid = List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.Fidelity) states
-        let avgErr = List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.ErrorRate) states
+        let avgFid =
+            List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.Fidelity) states
+
+        let avgErr =
+            List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.ErrorRate) states
+
         pr "Input: 15 noisy states, avg fidelity %.6f (%.4f%% error)" avgFid (avgErr * 100.0)
 
         match MagicStateDistillation.distill15to1 random states with
@@ -88,16 +126,22 @@ if shouldRun 1 then
             pr "Error suppression:  %.1fx" suppression
             pr "Acceptance prob:    %s" (fmt distR.AcceptanceProbability)
 
-            jsonResults <- ("1_single_round", box {| inputError = cliError
-                                                     outputFidelity = p.Fidelity
-                                                     outputError = p.ErrorRate
-                                                     suppression = suppression |}) :: jsonResults
-            csvRows <- [ "1_single_round"; fmt p.Fidelity; $"%.8f{p.ErrorRate}";
-                          $"%.1f{suppression}" ] :: csvRows
-        | Error err ->
-            pr "Distillation failed: %s" err.Message
-    | states ->
-        pr "Insufficient states (%d/15)" states.Length
+            jsonResults <-
+                ("1_single_round",
+                 box
+                     {|
+                         inputError = cliError
+                         outputFidelity = p.Fidelity
+                         outputError = p.ErrorRate
+                         suppression = suppression
+                     |})
+                :: jsonResults
+
+            csvRows <-
+                [ "1_single_round"; fmt p.Fidelity; $"%.8f{p.ErrorRate}"; $"%.1f{suppression}" ]
+                :: csvRows
+        | Error err -> pr "Distillation failed: %s" err.Message
+    | states -> pr "Insufficient states (%d/15)" states.Length
 
 // ---------------------------------------------------------------------------
 // Example 2 â€” Iterative distillation (2 rounds)
@@ -108,13 +152,14 @@ if shouldRun 2 then
     separator ()
 
     let initErr = 0.10
-    let needed  = 225
+    let needed = 225
 
     let states =
-        [1..needed]
-        |> List.map (fun _ ->
-            MagicStateDistillation.prepareNoisyMagicState initErr AnyonSpecies.AnyonType.Ising)
-        |> List.choose (function Ok s -> Some s | Error _ -> None)
+        [ 1..needed ]
+        |> List.map (fun _ -> MagicStateDistillation.prepareNoisyMagicState initErr AnyonSpecies.AnyonType.Ising)
+        |> List.choose (function
+            | Ok s -> Some s
+            | Error _ -> None)
 
     match states with
     | s when s.Length = needed ->
@@ -128,16 +173,27 @@ if shouldRun 2 then
             let theoretical = 35.0 * 35.0 * (initErr ** 9.0)
             pr "Theoretical p_out:  %.8f  (35^2 * p^9)" theoretical
 
-            jsonResults <- ("2_iterative", box {| inputError = initErr
-                                                  rounds = 2
-                                                  outputError = finalState.ErrorRate
-                                                  theoretical = theoretical |}) :: jsonResults
-            csvRows <- [ "2_iterative"; $"%.8f{finalState.ErrorRate}";
-                          $"%.8f{theoretical}"; $"%.1f{suppression}" ] :: csvRows
-        | Error err ->
-            pr "Iterative distillation failed: %s" err.Message
-    | s ->
-        pr "Insufficient states (%d/%d)" s.Length needed
+            jsonResults <-
+                ("2_iterative",
+                 box
+                     {|
+                         inputError = initErr
+                         rounds = 2
+                         outputError = finalState.ErrorRate
+                         theoretical = theoretical
+                     |})
+                :: jsonResults
+
+            csvRows <-
+                [
+                    "2_iterative"
+                    $"%.8f{finalState.ErrorRate}"
+                    $"%.8f{theoretical}"
+                    $"%.1f{suppression}"
+                ]
+                :: csvRows
+        | Error err -> pr "Iterative distillation failed: %s" err.Message
+    | s -> pr "Insufficient states (%d/%d)" s.Length needed
 
 // ---------------------------------------------------------------------------
 // Example 3 â€” Resource estimation
@@ -148,15 +204,22 @@ if shouldRun 3 then
     separator ()
 
     let targetFid = 0.9999
-    let noisyFid  = 1.0 - cliError
+    let noisyFid = 1.0 - cliError
     pr "Target fidelity: %.2f%%   Noisy fidelity: %.2f%%" (targetFid * 100.0) (noisyFid * 100.0)
     pr ""
 
     let estimate = MagicStateDistillation.estimateResources targetFid noisyFid
     pr "%s" (MagicStateDistillation.displayResourceEstimate estimate)
 
-    jsonResults <- ("3_resources", box {| targetFidelity = targetFid
-                                          noisyFidelity = noisyFid |}) :: jsonResults
+    jsonResults <-
+        ("3_resources",
+         box
+             {|
+                 targetFidelity = targetFid
+                 noisyFidelity = noisyFid
+             |})
+        :: jsonResults
+
     csvRows <- [ "3_resources"; $"%.4f{targetFid}"; $"%.4f{noisyFid}" ] :: csvRows
 
 // ---------------------------------------------------------------------------
@@ -174,23 +237,22 @@ if shouldRun 4 then
         let tree =
             FusionTree.fuse
                 (FusionTree.fuse
-                    (FusionTree.fuse
-                        (FusionTree.leaf sigma')
-                        (FusionTree.leaf sigma')
-                        vacuum')
+                    (FusionTree.fuse (FusionTree.leaf sigma') (FusionTree.leaf sigma') vacuum')
                     (FusionTree.leaf sigma')
                     vacuum')
                 (FusionTree.leaf sigma')
                 vacuum'
+
         FusionTree.create tree AnyonSpecies.AnyonType.Ising
 
     pr "Data qubit: |0> (4 sigma anyons)"
 
     let magicStates =
-        [1..15]
-        |> List.map (fun _ ->
-            MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
-        |> List.choose (function Ok s -> Some s | Error _ -> None)
+        [ 1..15 ]
+        |> List.map (fun _ -> MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
+        |> List.choose (function
+            | Ok s -> Some s
+            | Error _ -> None)
 
     match magicStates with
     | ms when ms.Length = 15 ->
@@ -204,16 +266,21 @@ if shouldRun 4 then
                 pr ""
                 pr "Clifford + T-gate = universal quantum computation!"
 
-                jsonResults <- ("4_t_gate", box {| gateFidelity = tGateR.GateFidelity
-                                                   magicFidelity = distR.PurifiedState.Fidelity |}) :: jsonResults
-                csvRows <- [ "4_t_gate"; fmt tGateR.GateFidelity;
-                              fmt distR.PurifiedState.Fidelity ] :: csvRows
-            | Error err ->
-                pr "T-gate failed: %s" err.Message
-        | Error err ->
-            pr "Distillation failed: %s" err.Message
-    | ms ->
-        pr "Insufficient magic states (%d/15)" ms.Length
+                jsonResults <-
+                    ("4_t_gate",
+                     box
+                         {|
+                             gateFidelity = tGateR.GateFidelity
+                             magicFidelity = distR.PurifiedState.Fidelity
+                         |})
+                    :: jsonResults
+
+                csvRows <-
+                    [ "4_t_gate"; fmt tGateR.GateFidelity; fmt distR.PurifiedState.Fidelity ]
+                    :: csvRows
+            | Error err -> pr "T-gate failed: %s" err.Message
+        | Error err -> pr "Distillation failed: %s" err.Message
+    | ms -> pr "Insufficient magic states (%d/15)" ms.Length
 
 // ---------------------------------------------------------------------------
 // Output
@@ -221,22 +288,23 @@ if shouldRun 4 then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "MagicStateDistillation.fsx"
-           backend   = "Topological (Ising)"
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           errorRate = cliError
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "MagicStateDistillation.fsx"
+            backend = "Topological (Ising)"
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            errorRate = cliError
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "metric1"; "metric2"; "metric3" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

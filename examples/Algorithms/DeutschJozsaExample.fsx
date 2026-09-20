@@ -70,15 +70,47 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "DeutschJozsaExample.fsx" "Deutsch-Jozsa: determine constant vs balanced with 1 quantum query." [
-    { Name = "qubits"; Description = "Number of qubits"; Default = Some "3" }
-    { Name = "shots"; Description = "Measurement shots per oracle"; Default = Some "100" }
-    { Name = "backend"; Description = "Backend to use (local/topological/both)"; Default = Some "both" }
-    { Name = "oracle"; Description = "Oracle to test (zero/one/firstbit/parity/all)"; Default = Some "all" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "DeutschJozsaExample.fsx"
+    "Deutsch-Jozsa: determine constant vs balanced with 1 quantum query."
+    [
+        {
+            Name = "qubits"
+            Description = "Number of qubits"
+            Default = Some "3"
+        }
+        {
+            Name = "shots"
+            Description = "Measurement shots per oracle"
+            Default = Some "100"
+        }
+        {
+            Name = "backend"
+            Description = "Backend to use (local/topological/both)"
+            Default = Some "both"
+        }
+        {
+            Name = "oracle"
+            Description = "Oracle to test (zero/one/firstbit/parity/all)"
+            Default = Some "all"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let numQubits = Cli.getIntOr "qubits" 3 args
 let shots = Cli.getIntOr "shots" 100 args
@@ -98,7 +130,8 @@ let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
 let backendsToTest =
     match backendArg with
     | "local" -> [ ("local", localBackend) ]
-    | "topological" | "topo" -> [ ("topological", topoBackend) ]
+    | "topological"
+    | "topo" -> [ ("topological", topoBackend) ]
     | _ -> [ ("local", localBackend); ("topological", topoBackend) ]
 
 // ============================================================================
@@ -111,28 +144,46 @@ let results = System.Collections.Generic.List<Map<string, string>>()
 // Oracle Definitions
 // ============================================================================
 
-type OracleSpec = {
-    Name: string
-    Key: string
-    Expected: string
-    Description: string
-    Run: int -> IQuantumBackend -> int -> Result<DeutschJozsaResult, FSharp.Azure.Quantum.Core.QuantumError>
-}
+type OracleSpec =
+    {
+        Name: string
+        Key: string
+        Expected: string
+        Description: string
+        Run: int -> IQuantumBackend -> int -> Result<DeutschJozsaResult, FSharp.Azure.Quantum.Core.QuantumError>
+    }
 
-let allOracles = [
-    { Name = "Constant-Zero"; Key = "zero"; Expected = "Constant"
-      Description = "f(x) = 0 for all x"
-      Run = fun n b s -> runConstantZero n b s }
-    { Name = "Constant-One"; Key = "one"; Expected = "Constant"
-      Description = "f(x) = 1 for all x"
-      Run = fun n b s -> runConstantOne n b s }
-    { Name = "Balanced First-Bit"; Key = "firstbit"; Expected = "Balanced"
-      Description = "f(x) = first bit of x"
-      Run = fun n b s -> runBalancedFirstBit n b s }
-    { Name = "Balanced Parity"; Key = "parity"; Expected = "Balanced"
-      Description = "f(x) = XOR of all bits"
-      Run = fun n b s -> runBalancedParity n b s }
-]
+let allOracles =
+    [
+        {
+            Name = "Constant-Zero"
+            Key = "zero"
+            Expected = "Constant"
+            Description = "f(x) = 0 for all x"
+            Run = fun n b s -> runConstantZero n b s
+        }
+        {
+            Name = "Constant-One"
+            Key = "one"
+            Expected = "Constant"
+            Description = "f(x) = 1 for all x"
+            Run = fun n b s -> runConstantOne n b s
+        }
+        {
+            Name = "Balanced First-Bit"
+            Key = "firstbit"
+            Expected = "Balanced"
+            Description = "f(x) = first bit of x"
+            Run = fun n b s -> runBalancedFirstBit n b s
+        }
+        {
+            Name = "Balanced Parity"
+            Key = "parity"
+            Expected = "Balanced"
+            Description = "f(x) = XOR of all bits"
+            Run = fun n b s -> runBalancedParity n b s
+        }
+    ]
 
 let oraclesToTest =
     match oracleArg with
@@ -166,24 +217,32 @@ for (backendKey, backend) in backendsToTest do
 
             if not quiet then
                 printfn "  %-22s [%s]" oracle.Name oracle.Description
-                printfn "    Result: %A  (expected: %s)  P(|0>^n) = %.4f  [%s]"
-                    result.OracleType oracle.Expected result.ZeroProbability
+
+                printfn
+                    "    Result: %A  (expected: %s)  P(|0>^n) = %.4f  [%s]"
+                    result.OracleType
+                    oracle.Expected
+                    result.ZeroProbability
                     (if correct then "OK" else "MISMATCH")
+
                 printfn ""
 
             results.Add(
-                [ "backend", backendKey
-                  "backend_name", backend.Name
-                  "oracle", oracle.Key
-                  "oracle_name", oracle.Name
-                  "description", oracle.Description
-                  "expected", oracle.Expected
-                  "result", $"%A{result.OracleType}"
-                  "zero_probability", $"%.4f{result.ZeroProbability}"
-                  "qubits", string result.NumQubits
-                  "shots", string result.Shots
-                  "correct", string correct ]
-                |> Map.ofList)
+                [
+                    "backend", backendKey
+                    "backend_name", backend.Name
+                    "oracle", oracle.Key
+                    "oracle_name", oracle.Name
+                    "description", oracle.Description
+                    "expected", oracle.Expected
+                    "result", $"%A{result.OracleType}"
+                    "zero_probability", $"%.4f{result.ZeroProbability}"
+                    "qubits", string result.NumQubits
+                    "shots", string result.Shots
+                    "correct", string correct
+                ]
+                |> Map.ofList
+            )
 
         | Error err ->
             if not quiet then
@@ -191,11 +250,14 @@ for (backendKey, backend) in backendsToTest do
                 printfn ""
 
             results.Add(
-                [ "backend", backendKey
-                  "oracle", oracle.Key
-                  "oracle_name", oracle.Name
-                  "error", $"%A{err}" ]
-                |> Map.ofList)
+                [
+                    "backend", backendKey
+                    "oracle", oracle.Key
+                    "oracle_name", oracle.Name
+                    "error", $"%A{err}"
+                ]
+                |> Map.ofList
+            )
 
 // ============================================================================
 // Quantum Advantage Summary
@@ -240,12 +302,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

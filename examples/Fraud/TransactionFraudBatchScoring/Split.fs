@@ -10,7 +10,11 @@ module Split =
             arr.[i] <- arr.[j]
             arr.[j] <- tmp
 
-    let stratifiedHoldout (seed: int) (testFraction: float) (xs: Transaction array) : Transaction array * Transaction array =
+    let stratifiedHoldout
+        (seed: int)
+        (testFraction: float)
+        (xs: Transaction array)
+        : Transaction array * Transaction array =
         let rng = Random(seed)
 
         let byLabel =
@@ -19,7 +23,12 @@ module Split =
             |> Array.map (fun (_, group) ->
                 let copy = Array.copy group
                 shuffleInPlace rng copy
-                let testCount = int (Math.Round(testFraction * float copy.Length)) |> max 1 |> min (copy.Length - 1)
+
+                let testCount =
+                    int (Math.Round(testFraction * float copy.Length))
+                    |> max 1
+                    |> min (copy.Length - 1)
+
                 let test = copy |> Array.take testCount
                 let train = copy |> Array.skip testCount
                 (train, test))

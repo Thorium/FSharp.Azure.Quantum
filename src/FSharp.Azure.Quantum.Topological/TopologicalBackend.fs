@@ -11,7 +11,7 @@ open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.GroverSearch
 
 /// Topological quantum backend implementing unified quantum backend interface
-/// 
+///
 /// Features:
 /// - Anyon-based quantum simulation using fusion trees
 /// - Native FusionSuperposition representation (no gate compilation)
@@ -19,76 +19,86 @@ open FSharp.Azure.Quantum.GroverSearch
 /// - Can compile gate-based circuits to braiding operations
 /// - Efficient for topological codes and Clifford circuits (Ising) or Clifford+T (Fibonacci)
 /// - Implements IQuantumBackend
-/// 
+///
 /// Usage:
 ///   let backend = TopologicalUnifiedBackend(AnyonType.Ising, 20)
 ///   let! state = backend.ExecuteToState circuit  // Get quantum state
-///   
+///
 ///   // Braiding-based execution (no gate compilation)
 ///   let! initialState = backend.InitializeState 3
 ///   let! evolved = backend.ApplyOperation (QuantumOperation.Braid 0) initialState
 module TopologicalUnifiedBackend =
-    
+
     /// Topological quantum backend with unified interface
     type TopologicalUnifiedBackend(anyonType: AnyonSpecies.AnyonType, maxAnyons: int) =
-        
+
         // Helper to convert TopologicalResult to Result with error message extraction
         let toResult (topResult: TopologicalResult<'T>) : Result<'T, string> =
             topResult |> Result.mapError (fun err -> err.Message)
-        
+
         // ====================================================================
         // GATE COMPILATION VIA GateToBraid MODULE
         // ====================================================================
-        
+
         /// Gate-to-braiding compilation using production-ready GateToBraid module
-        /// 
+        ///
         /// The TopologicalBackend now supports gate-based circuits through automatic
         /// compilation to braiding operations. This enables:
         /// - Running standard quantum algorithms (Grover, QFT, etc.) on topological hardware
         /// - Backend-agnostic algorithm implementation (same code works on Local and Topological)
         /// - Transparent gate-to-braiding translation with error tracking
-        /// 
+        ///
         /// Supported gates:
         /// - Clifford gates: H, X, Y, Z, S, S†, CNOT, CZ
         /// - Non-Clifford: T, T†, Rz(θ) (via Solovay-Kitaev approximation)
         /// - Multi-qubit gates (decomposed to single/two-qubit gates first)
-        /// 
+        ///
         /// The GateToBraid module handles:
         /// - Solovay-Kitaev algorithm for arbitrary rotations
         /// - Optimal Clifford synthesis
         /// - Braiding sequence optimization
         /// - Approximation error tracking
-        /// 
+        ///
         /// For best performance, use native braiding operations directly via
         /// ApplyOperation (QuantumOperation.Braid, QuantumOperation.FMove).
-        
         /// Sample measurements from topological state (returns Result for proper error handling)
-        let sampleMeasurements (state: TopologicalOperations.Superposition) (numQubits: int) (numShots: int) : Result<int[][], string> =
+        let sampleMeasurements
+            (state: TopologicalOperations.Superposition)
+            (numQubits: int)
+            (numShots: int)
+            : Result<int[][], string> =
             // Convert to state vector for measurement sampling
             let stateInterface = TopologicalOperations.toInterface state
-            match QuantumStateConversion.convert QuantumStateType.GateBased (QuantumState.FusionSuperposition stateInterface) with
-            | Error e ->
-                Error $"Failed to convert FusionSuperposition to StateVector for measurement sampling: {e}"
+
+            match
+                QuantumStateConversion.convert
+                    QuantumStateType.GateBased
+                    (QuantumState.FusionSuperposition stateInterface)
+            with
+            | Error e -> Error $"Failed to convert FusionSuperposition to StateVector for measurement sampling: {e}"
             | Ok stateVector ->
-            
-            match stateVector with
-            | QuantumState.StateVector sv ->
-                Ok [| for _ in 1 .. numShots do
-                        yield LocalSimulator.Measurement.measureAll sv
-                    |]
-            | _ ->
-                // Conversion succeeded but returned unexpected type
-                Error $"Conversion returned unexpected state type instead of StateVector (got {stateVector.GetType().Name})"
-        
+
+                match stateVector with
+                | QuantumState.StateVector sv ->
+                    Ok
+                        [|
+                            for _ in 1..numShots do
+                                yield LocalSimulator.Measurement.measureAll sv
+                        |]
+                | _ ->
+                    // Conversion succeeded but returned unexpected type
+                    Error
+                        $"Conversion returned unexpected state type instead of StateVector (got {stateVector.GetType().Name})"
+
         /// Measure all qubits in FusionSuperposition state
-        /// 
+        ///
         /// Directly samples from topological superposition without conversion to StateVector.
         /// Uses TopologicalOperations.measureAll for native topological measurement.
-        /// 
+        ///
         /// Parameters:
         ///   state - QuantumState in FusionSuperposition form
         ///   shots - Number of measurement samples
-        /// 
+        ///
         /// Returns:
         ///   Array of bitstrings (int[][])
         let measureFusionState (state: QuantumState) (shots: int) : int[][] =
@@ -96,15 +106,14 @@ module TopologicalUnifiedBackend =
             | QuantumState.FusionSuperposition fs ->
                 // Use interface method directly (no cast needed)
                 fs.MeasureAll shots
-            | _ ->
-                failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
-        
+            | _ -> failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
+
         /// Calculate probability of measuring specific bitstring in FusionSuperposition state
-        /// 
+        ///
         /// Parameters:
         ///   bitstring - Target bitstring [|b0; b1; ...; bn-1|]
         ///   state - QuantumState in FusionSuperposition form
-        /// 
+        ///
         /// Returns:
         ///   Probability ∈ [0, 1]
         let probabilityFusionState (bitstring: int[]) (state: QuantumState) : float =
@@ -112,27 +121,28 @@ module TopologicalUnifiedBackend =
             | QuantumState.FusionSuperposition fs ->
                 // Use interface method directly (no cast needed)
                 fs.Probability bitstring
-            | _ ->
-                failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
-        
+            | _ -> failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
+
         // ====================================================================
         // Native Grover Primitives (no gate compilation)
         // ====================================================================
 
         let bitsToIntLsbFirst (bits: int[]) : int =
-            bits
-            |> Array.mapi (fun q b -> b <<< q)
-            |> Array.sum
+            bits |> Array.mapi (fun q b -> b <<< q) |> Array.sum
 
         let intToBitsLsbFirst (numQubits: int) (value: int) : int[] =
             [| for q in 0 .. numQubits - 1 -> (value >>> q) &&& 1 |]
 
-        let negateMarkedTerms (oracle: Oracle.CompiledOracle) (fusionState: TopologicalOperations.Superposition) : TopologicalOperations.Superposition =
+        let negateMarkedTerms
+            (oracle: Oracle.CompiledOracle)
+            (fusionState: TopologicalOperations.Superposition)
+            : TopologicalOperations.Superposition =
             let newTerms =
                 fusionState.Terms
                 |> List.map (fun (amp, st) ->
                     let bits = FusionTree.toComputationalBasis st.Tree |> List.toArray
                     let x = bitsToIntLsbFirst bits
+
                     if Oracle.isSolution oracle.Spec x then
                         (-amp, st)
                     else
@@ -140,7 +150,10 @@ module TopologicalUnifiedBackend =
 
             { fusionState with Terms = newTerms }
 
-        let applyDiffusionOnTerms (numQubits: int) (fusionState: TopologicalOperations.Superposition) : TopologicalOperations.Superposition =
+        let applyDiffusionOnTerms
+            (numQubits: int)
+            (fusionState: TopologicalOperations.Superposition)
+            : TopologicalOperations.Superposition =
             // Implement diffusion in the *computational basis* by mapping measurement outcomes
             // to amplitudes, applying: a_x' = (2*mean - a_x), and then re-encoding.
             //
@@ -152,22 +165,24 @@ module TopologicalUnifiedBackend =
             // Aggregate amplitudes by computational basis index.
             let ampByBasis =
                 combined.Terms
-                |> List.fold (fun acc (amp, st) ->
-                    let bits = FusionTree.toComputationalBasis st.Tree |> List.toArray
-                    let x = bitsToIntLsbFirst bits
-                    let existing = acc |> Map.tryFind x |> Option.defaultValue Complex.Zero
-                    acc |> Map.add x (existing + amp)
-                ) Map.empty
+                |> List.fold
+                    (fun acc (amp, st) ->
+                        let bits = FusionTree.toComputationalBasis st.Tree |> List.toArray
+                        let x = bitsToIntLsbFirst bits
+                        let existing = acc |> Map.tryFind x |> Option.defaultValue Complex.Zero
+                        acc |> Map.add x (existing + amp))
+                    Map.empty
 
             let dim = 1 <<< numQubits
 
             // Compute mean amplitude across all 2^n computational basis states.
             let sumAmp =
                 [ 0 .. dim - 1 ]
-                |> List.fold (fun acc x ->
-                    let a = ampByBasis |> Map.tryFind x |> Option.defaultValue Complex.Zero
-                    acc + a
-                ) Complex.Zero
+                |> List.fold
+                    (fun acc x ->
+                        let a = ampByBasis |> Map.tryFind x |> Option.defaultValue Complex.Zero
+                        acc + a)
+                    Complex.Zero
 
             let meanAmp = sumAmp / Complex(float dim, 0.0)
 
@@ -177,21 +192,25 @@ module TopologicalUnifiedBackend =
                 |> List.choose (fun x ->
                     let a = ampByBasis |> Map.tryFind x |> Option.defaultValue Complex.Zero
                     let reflected = (meanAmp * Complex(2.0, 0.0)) - a
+
                     if Complex.Abs reflected <= 1e-14 then
                         None
                     else
                         let bits = intToBitsLsbFirst numQubits x |> Array.toList
+
                         match FusionTree.fromComputationalBasis bits anyonType with
                         | Error _ -> None
                         | Ok tree ->
                             let state = FusionTree.create tree anyonType
-                            Some (reflected, state))
+                            Some(reflected, state))
 
-            let diffused : TopologicalOperations.Superposition =
-                { Terms = newTerms; AnyonType = fusionState.AnyonType }
+            let diffused: TopologicalOperations.Superposition =
+                {
+                    Terms = newTerms
+                    AnyonType = fusionState.AnyonType
+                }
 
-            diffused
-            |> TopologicalOperations.normalize
+            diffused |> TopologicalOperations.normalize
 
         // ====================================================================
         // Helper Functions for Operation Application
@@ -226,24 +245,35 @@ module TopologicalUnifiedBackend =
         ///
         /// **IMPORTANT**: This is the single source of truth for amplitude-intercepted gates.
         /// The match arms in ApplyGate MUST be kept in sync with this function.
-        member private _.IsAmplitudeIntercepted (gate: CircuitBuilder.Gate) : bool =
+        member private _.IsAmplitudeIntercepted(gate: CircuitBuilder.Gate) : bool =
             // Intercept gates that can't be braid-compiled by the executor
             // or where exact amplitude-level ops avoid S-K overhead.
             match gate with
-            | CircuitBuilder.T _ | CircuitBuilder.TDG _
-            | CircuitBuilder.H _ | CircuitBuilder.X _ | CircuitBuilder.Y _ | CircuitBuilder.Z _
-            | CircuitBuilder.RZ _ | CircuitBuilder.P _
-            | CircuitBuilder.RX _ | CircuitBuilder.RY _
-            | CircuitBuilder.CNOT _ | CircuitBuilder.SWAP _ -> true
+            | CircuitBuilder.T _
+            | CircuitBuilder.TDG _
+            | CircuitBuilder.H _
+            | CircuitBuilder.X _
+            | CircuitBuilder.Y _
+            | CircuitBuilder.Z _
+            | CircuitBuilder.RZ _
+            | CircuitBuilder.P _
+            | CircuitBuilder.RX _
+            | CircuitBuilder.RY _
+            | CircuitBuilder.CNOT _
+            | CircuitBuilder.SWAP _ -> true
             | _ -> false
-        
+
         /// Apply braiding operation to fusion superposition
-        member private this.ApplyBraid (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
+        member private this.ApplyBraid
+            (anyonIndex: int)
+            (fusionState: TopologicalOperations.Superposition)
+            : Result<QuantumState, QuantumError> =
             let result = TopologicalOperations.braidSuperposition anyonIndex fusionState
+
             match toResult result with
-            | Ok braided -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface braided))
-            | Error errMsg -> Error (QuantumError.OperationError ("TopologicalBackend", errMsg))
-        
+            | Ok braided -> Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface braided))
+            | Error errMsg -> Error(QuantumError.OperationError("TopologicalBackend", errMsg))
+
         /// Apply gate operation. Gates identified by IsAmplitudeIntercepted are handled
         /// via direct amplitude manipulation (simulator-only shortcut). Complex gates
         /// (CCX, CZ, CP, etc.) are first transpiled to elementary gates, then each
@@ -251,59 +281,56 @@ module TopologicalUnifiedBackend =
         /// like T/TDG are amplitude-intercepted on Ising rather than failing braid compilation.
         /// Only truly elementary non-intercepted gates reach the braid compilation path.
         /// For Fibonacci anyons, ALL gates go through braid compilation (no intercepts).
-        member private this.ApplyGate (gate: CircuitBuilder.Gate) (fusionState: TopologicalOperations.Superposition) (numQubits: int) : Result<QuantumState, QuantumError> =
+        member private this.ApplyGate
+            (gate: CircuitBuilder.Gate)
+            (fusionState: TopologicalOperations.Superposition)
+            (numQubits: int)
+            : Result<QuantumState, QuantumError> =
             // Helper to convert TopologicalResult directly to QuantumState Result
             let fromTopResult (tr: TopologicalResult<TopologicalOperations.Superposition>) =
                 match tr with
-                | Ok sup -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface sup))
-                | Error topErr -> Error (QuantumError.OperationError ("TopologicalBackend", topErr.Message))
+                | Ok sup -> Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface sup))
+                | Error topErr -> Error(QuantumError.OperationError("TopologicalBackend", topErr.Message))
 
             // Amplitude-level intercept path: exact operations bypassing braiding.
             // Gate routing is controlled by IsAmplitudeIntercepted (single source of truth).
             if this.IsAmplitudeIntercepted gate then
                 match gate with
                 | CircuitBuilder.Gate.T qubitIndex ->
-                    TopologicalOperations.tGate qubitIndex fusionState
-                    |> fromTopResult
+                    TopologicalOperations.tGate qubitIndex fusionState |> fromTopResult
                 | CircuitBuilder.Gate.TDG qubitIndex ->
-                    TopologicalOperations.tDaggerGate qubitIndex fusionState
-                    |> fromTopResult
+                    TopologicalOperations.tDaggerGate qubitIndex fusionState |> fromTopResult
                 | CircuitBuilder.Gate.H qubitIndex ->
-                    TopologicalOperations.hadamard qubitIndex fusionState
-                    |> fromTopResult
+                    TopologicalOperations.hadamard qubitIndex fusionState |> fromTopResult
                 | CircuitBuilder.Gate.X qubitIndex ->
-                    TopologicalOperations.pauliX qubitIndex fusionState
-                    |> fromTopResult
+                    TopologicalOperations.pauliX qubitIndex fusionState |> fromTopResult
                 | CircuitBuilder.Gate.Y qubitIndex ->
-                    TopologicalOperations.pauliY qubitIndex fusionState
-                    |> fromTopResult
+                    TopologicalOperations.pauliY qubitIndex fusionState |> fromTopResult
                 | CircuitBuilder.Gate.Z qubitIndex ->
-                    TopologicalOperations.pauliZ qubitIndex fusionState
-                    |> fromTopResult
-                | CircuitBuilder.Gate.RZ (qubitIndex, angle)
-                | CircuitBuilder.Gate.P (qubitIndex, angle) ->
+                    TopologicalOperations.pauliZ qubitIndex fusionState |> fromTopResult
+                | CircuitBuilder.Gate.RZ(qubitIndex, angle)
+                | CircuitBuilder.Gate.P(qubitIndex, angle) ->
                     // Exact diagonal phase diag(1, e^{iθ}) — same convention as the
                     // GateTranspiler CP/CRZ decompositions, so controlled-phase
                     // constructions built from RZ+CNOT are exact.
-                    TopologicalOperations.phaseGate qubitIndex angle fusionState
-                    |> fromTopResult
-                | CircuitBuilder.Gate.RX (qubitIndex, angle) ->
-                    TopologicalOperations.rxGate qubitIndex angle fusionState
-                    |> fromTopResult
-                | CircuitBuilder.Gate.RY (qubitIndex, angle) ->
-                    TopologicalOperations.ryGate qubitIndex angle fusionState
-                    |> fromTopResult
-                | CircuitBuilder.Gate.CNOT (controlIndex, targetIndex) ->
-                    TopologicalOperations.cnot controlIndex targetIndex fusionState
-                    |> fromTopResult
-                | CircuitBuilder.Gate.SWAP (qubitIndex1, qubitIndex2) ->
-                    TopologicalOperations.swap qubitIndex1 qubitIndex2 fusionState
-                    |> fromTopResult
+                    TopologicalOperations.phaseGate qubitIndex angle fusionState |> fromTopResult
+                | CircuitBuilder.Gate.RX(qubitIndex, angle) ->
+                    TopologicalOperations.rxGate qubitIndex angle fusionState |> fromTopResult
+                | CircuitBuilder.Gate.RY(qubitIndex, angle) ->
+                    TopologicalOperations.ryGate qubitIndex angle fusionState |> fromTopResult
+                | CircuitBuilder.Gate.CNOT(controlIndex, targetIndex) ->
+                    TopologicalOperations.cnot controlIndex targetIndex fusionState |> fromTopResult
+                | CircuitBuilder.Gate.SWAP(qubitIndex1, qubitIndex2) ->
+                    TopologicalOperations.swap qubitIndex1 qubitIndex2 fusionState |> fromTopResult
                 | _ ->
                     // Should not reach here — IsAmplitudeIntercepted returned true
                     // but no match arm exists. This is a programming error.
-                    Error (QuantumError.OperationError ("TopologicalBackend",
-                        $"Gate {gate} marked as amplitude-intercepted but no implementation found"))
+                    Error(
+                        QuantumError.OperationError(
+                            "TopologicalBackend",
+                            $"Gate {gate} marked as amplitude-intercepted but no implementation found"
+                        )
+                    )
             else
                 // Transpile-then-route path: decompose complex gates (CCX, CZ, CP, etc.)
                 // into elementary gates, then route each sub-gate back through ApplyGate.
@@ -313,37 +340,52 @@ module TopologicalUnifiedBackend =
                 // Without this, a gate like CCX on Ising would decompose to {H, T, TDG, CNOT}
                 // inside compileGateSequence, but TDG would fail braid compilation even though
                 // it should be amplitude-intercepted.
-                let circuit : CircuitBuilder.Circuit = {
-                    QubitCount = numQubits
-                    Gates = [ gate ]
-                }
+                let circuit: CircuitBuilder.Circuit =
+                    {
+                        QubitCount = numQubits
+                        Gates = [ gate ]
+                    }
+
                 let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
-                    if remaining <= 0 then current
+                    if remaining <= 0 then
+                        current
                     else
                         let next = GateTranspiler.transpileForBackend "topological" current
-                        if next.Gates = current.Gates then next
-                        else transpileToFixpoint (remaining - 1) next
+
+                        if next.Gates = current.Gates then
+                            next
+                        else
+                            transpileToFixpoint (remaining - 1) next
+
                 let transpiledCircuit = transpileToFixpoint 5 circuit
 
                 // If transpilation decomposed the gate into multiple sub-gates,
                 // route each one back through ApplyGate (which checks IsAmplitudeIntercepted).
                 if transpiledCircuit.Gates.Length > 1 || transpiledCircuit.Gates <> [ gate ] then
                     transpiledCircuit.Gates
-                    |> List.fold (fun stateResult subGate ->
-                        stateResult |> Result.bind (fun currentState ->
-                            match currentState with
-                            | QuantumState.FusionSuperposition fs ->
-                                match TopologicalOperations.fromInterface fs with
-                                | None ->
-                                    Error (QuantumError.OperationError ("TopologicalBackend",
-                                        "FusionSuperposition does not contain a valid Superposition during gate decomposition"))
-                                | Some sup ->
-                                    this.ApplyGate subGate sup numQubits
-                            | _ ->
-                                Error (QuantumError.OperationError ("TopologicalBackend",
-                                    "Expected FusionSuperposition state during gate decomposition"))
-                        )
-                    ) (Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface fusionState)))
+                    |> List.fold
+                        (fun stateResult subGate ->
+                            stateResult
+                            |> Result.bind (fun currentState ->
+                                match currentState with
+                                | QuantumState.FusionSuperposition fs ->
+                                    match TopologicalOperations.fromInterface fs with
+                                    | None ->
+                                        Error(
+                                            QuantumError.OperationError(
+                                                "TopologicalBackend",
+                                                "FusionSuperposition does not contain a valid Superposition during gate decomposition"
+                                            )
+                                        )
+                                    | Some sup -> this.ApplyGate subGate sup numQubits
+                                | _ ->
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "TopologicalBackend",
+                                            "Expected FusionSuperposition state during gate decomposition"
+                                        )
+                                    )))
+                        (Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface fusionState)))
                 else
                     // Gate did not decompose — it's already elementary.
                     // Compile directly to braid sequence via GateToBraid.
@@ -359,11 +401,13 @@ module TopologicalUnifiedBackend =
                     let tolerance = 1e-9
 
                     let gateSequence: BraidToGate.GateSequence =
-                        { NumQubits = numQubits
-                          Gates = [ gate ]
-                          TotalPhase = Complex.One
-                          Depth = 1
-                          TCount = 0 }
+                        {
+                            NumQubits = numQubits
+                            Gates = [ gate ]
+                            TotalPhase = Complex.One
+                            Depth = 1
+                            TCount = 0
+                        }
 
                     match GateToBraid.compileGateSequence gateSequence tolerance anyonType with
                     | Ok compilation ->
@@ -374,111 +418,150 @@ module TopologicalUnifiedBackend =
 
                         let finalResult =
                             braidSteps
-                            |> List.fold (fun stateResult (braidIdx, isClockwise) ->
-                                stateResult |> Result.bind (fun currentState ->
-                                    TopologicalOperations.braidSuperpositionDirected braidIdx isClockwise currentState
-                                    |> toResult
-                                    |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBackend", err))
-                                )
-                            ) (Ok fusionState)
+                            |> List.fold
+                                (fun stateResult (braidIdx, isClockwise) ->
+                                    stateResult
+                                    |> Result.bind (fun currentState ->
+                                        TopologicalOperations.braidSuperpositionDirected
+                                            braidIdx
+                                            isClockwise
+                                            currentState
+                                        |> toResult
+                                        |> Result.mapError (fun err ->
+                                            QuantumError.OperationError("TopologicalBackend", err))))
+                                (Ok fusionState)
 
-                        finalResult |> Result.map (TopologicalOperations.toInterface >> QuantumState.FusionSuperposition)
+                        finalResult
+                        |> Result.map (TopologicalOperations.toInterface >> QuantumState.FusionSuperposition)
 
                     | Error topErr ->
-                        Error (QuantumError.OperationError ("TopologicalBackend", $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
-        
+                        Error(
+                            QuantumError.OperationError(
+                                "TopologicalBackend",
+                                $"Failed to compile gate {gate} to braiding: {topErr.Message}"
+                            )
+                        )
+
         /// Apply F-move operation
-        member private this.ApplyFMove (direction: FMoveDirection) (depth: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
-            let fmoveDir = 
+        member private this.ApplyFMove
+            (direction: FMoveDirection)
+            (depth: int)
+            (fusionState: TopologicalOperations.Superposition)
+            : Result<QuantumState, QuantumError> =
+            let fmoveDir =
                 match direction with
                 | FMoveDirection.Forward -> TopologicalOperations.FMoveDirection.LeftToRight
                 | FMoveDirection.Backward -> TopologicalOperations.FMoveDirection.RightToLeft
-            
+
             let newTerms =
                 fusionState.Terms
                 |> List.collect (fun (amp, state) ->
                     let fmoveResult = TopologicalOperations.fMove fmoveDir depth state
-                    fmoveResult.Terms |> List.map (fun (amp2, state2) -> (amp * amp2, state2))
-                )
-            
-            let newSuperposition : TopologicalOperations.Superposition = {
-                Terms = newTerms
-                AnyonType = fusionState.AnyonType
-            }
-            
-            Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newSuperposition))
-        
+                    fmoveResult.Terms |> List.map (fun (amp2, state2) -> (amp * amp2, state2)))
+
+            let newSuperposition: TopologicalOperations.Superposition =
+                {
+                    Terms = newTerms
+                    AnyonType = fusionState.AnyonType
+                }
+
+            Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface newSuperposition))
+
         /// Apply measurement operation
-        member private this.ApplyMeasure (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
+        member private this.ApplyMeasure
+            (anyonIndex: int)
+            (fusionState: TopologicalOperations.Superposition)
+            : Result<QuantumState, QuantumError> =
             try
                 let termResults =
                     fusionState.Terms
                     |> List.map (fun (amp, state) ->
                         match TopologicalOperations.measureFusion anyonIndex state |> toResult with
                         | Ok outcomes ->
-                            Ok (outcomes |> List.map (fun (prob, opResult) ->
-                                let newAmp = amp * Complex(sqrt prob, 0.0)
-                                (newAmp, opResult.State)))
-                        | Error e -> Error (QuantumError.OperationError ("TopologicalMeasure", e)))
-                
-                let firstError = termResults |> List.tryPick (function Error e -> Some e | Ok _ -> None)
+                            Ok(
+                                outcomes
+                                |> List.map (fun (prob, opResult) ->
+                                    let newAmp = amp * Complex(sqrt prob, 0.0)
+                                    (newAmp, opResult.State))
+                            )
+                        | Error e -> Error(QuantumError.OperationError("TopologicalMeasure", e)))
+
+                let firstError =
+                    termResults
+                    |> List.tryPick (function
+                        | Error e -> Some e
+                        | Ok _ -> None)
+
                 match firstError with
                 | Some err -> Error err
                 | None ->
-                    let newTerms = termResults |> List.collect (function Ok terms -> terms | Error _ -> failwith "Unreachable: all errors were checked above")
-                    
-                    let newSuperposition : TopologicalOperations.Superposition = {
-                        Terms = newTerms
-                        AnyonType = fusionState.AnyonType
-                    }
-                    
-                    Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newSuperposition))
-            with
-            | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
-        
+                    let newTerms =
+                        termResults
+                        |> List.collect (function
+                            | Ok terms -> terms
+                            | Error _ -> failwith "Unreachable: all errors were checked above")
+
+                    let newSuperposition: TopologicalOperations.Superposition =
+                        {
+                            Terms = newTerms
+                            AnyonType = fusionState.AnyonType
+                        }
+
+                    Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface newSuperposition))
+            with ex ->
+                Error(QuantumError.OperationError("TopologicalBackend", ex.Message))
+
         // ====================================================================
         // IQuantumBackend Implementation
         // ====================================================================
 
         interface IQuantumBackend with
-            
-            member this.ApplyOperation (operation: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+
+            member this.ApplyOperation
+                (operation: QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 match state with
                 | QuantumState.FusionSuperposition fs ->
                     // Extract underlying Superposition from interface
                     match TopologicalOperations.fromInterface fs with
-                    | None -> 
-                        Error (QuantumError.ValidationError("state", "FusionSuperposition does not contain a valid Superposition"))
+                    | None ->
+                        Error(
+                            QuantumError.ValidationError(
+                                "state",
+                                "FusionSuperposition does not contain a valid Superposition"
+                            )
+                        )
                     | Some fusionState ->
                         let numQubits = fs.LogicalQubits
-                        
+
                         try
                             match operation with
-                            | QuantumOperation.Algorithm (AlgorithmOperation.QFT intent) ->
+                            | QuantumOperation.Algorithm(AlgorithmOperation.QFT intent) ->
                                 // QFT intent execution for the topological model.
                                 // Currently implemented as explicit lowering to gate operations.
                                 let qftOps =
                                     let applyQftStepOps targetQubit =
-                                        let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                                        let hOp = QuantumOperation.Gate(CircuitBuilder.H targetQubit)
+
                                         let phases =
-                                            [targetQubit + 1 .. intent.NumQubits - 1]
+                                            [ targetQubit + 1 .. intent.NumQubits - 1 ]
                                             |> List.map (fun k ->
                                                 let power = k - targetQubit
                                                 let angle = 2.0 * Math.PI / float (1 <<< power)
                                                 let angle = if intent.Inverse then -angle else angle
-                                                QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                                                QuantumOperation.Gate(CircuitBuilder.CP(k, targetQubit, angle)))
+
                                         hOp :: phases
 
-                                    let qftSequence =
-                                        [0 .. intent.NumQubits - 1]
-                                        |> List.collect applyQftStepOps
+                                    let qftSequence = [ 0 .. intent.NumQubits - 1 ] |> List.collect applyQftStepOps
 
                                     let swapSequence =
                                         if intent.ApplySwaps then
-                                            [0 .. intent.NumQubits / 2 - 1]
+                                            [ 0 .. intent.NumQubits / 2 - 1 ]
                                             |> List.map (fun i ->
                                                 let j = intent.NumQubits - 1 - i
-                                                QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+                                                QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
                                         else
                                             []
 
@@ -486,7 +569,7 @@ module TopologicalUnifiedBackend =
 
                                 (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence qftOps) state
 
-                            | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare numQubits) ->
+                            | QuantumOperation.Algorithm(AlgorithmOperation.GroverPrepare numQubits) ->
                                 // Build |s⟩ over computational basis.
                                 try
                                     let dim = 1 <<< numQubits
@@ -495,201 +578,252 @@ module TopologicalUnifiedBackend =
                                         [ 0 .. dim - 1 ]
                                         |> List.map (fun x ->
                                             let bits = intToBitsLsbFirst numQubits x |> Array.toList
+
                                             FusionTree.fromComputationalBasis bits anyonType
                                             |> Result.map (fun tree -> FusionTree.create tree anyonType))
 
                                     match stateResults |> List.tryFind Result.isError with
-                                    | Some (Error err) -> Error (QuantumError.OperationError ("TopologicalBackend", err.Message))
+                                    | Some(Error err) ->
+                                        Error(QuantumError.OperationError("TopologicalBackend", err.Message))
                                     | _ ->
-                                        let states = stateResults |> List.map (fun r -> r |> Result.defaultWith (fun _ -> failwith "unreachable"))
+                                        let states =
+                                            stateResults
+                                            |> List.map (fun r ->
+                                                r |> Result.defaultWith (fun _ -> failwith "unreachable"))
 
                                         let superposition =
                                             TopologicalOperations.uniform states anyonType
                                             |> TopologicalOperations.normalize
 
-                                        Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface superposition))
-                                with
-                                | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+                                        Ok(
+                                            QuantumState.FusionSuperposition(
+                                                TopologicalOperations.toInterface superposition
+                                            )
+                                        )
+                                with ex ->
+                                    Error(QuantumError.OperationError("TopologicalBackend", ex.Message))
 
-                            | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip groverIntent) ->
+                            | QuantumOperation.Algorithm(AlgorithmOperation.GroverOraclePhaseFlip groverIntent) ->
                                 // Negate marked computational basis terms.
-                                let compiledOracle : Oracle.CompiledOracle =
-                                    { Spec = Oracle.OracleSpec.Predicate groverIntent.IsMarked
-                                      NumQubits = groverIntent.NumQubits
-                                      LocalSimulation = id
-                                      ExpectedSolutions = None }
+                                let compiledOracle: Oracle.CompiledOracle =
+                                    {
+                                        Spec = Oracle.OracleSpec.Predicate groverIntent.IsMarked
+                                        NumQubits = groverIntent.NumQubits
+                                        LocalSimulation = id
+                                        ExpectedSolutions = None
+                                    }
 
                                 let newState = negateMarkedTerms compiledOracle fusionState
-                                Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newState))
+                                Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface newState))
 
-                            | QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion numQubits) ->
-                                 let diffused = applyDiffusionOnTerms numQubits fusionState
-                                 Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface diffused))
+                            | QuantumOperation.Algorithm(AlgorithmOperation.GroverDiffusion numQubits) ->
+                                let diffused = applyDiffusionOnTerms numQubits fusionState
+                                Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface diffused))
 
-                             | QuantumOperation.Algorithm (AlgorithmOperation.QPE intent) ->
-                                 // Execute QPE intent by lowering to gate operations.
-                                 //
-                                 // Note: `intent.ApplySwaps` controls whether the final bit-reversal SWAPs
-                                 // are applied. QPE can omit swaps and undo bit order classically.
-                                 if intent.CountingQubits <= 0 then
-                                     Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
-                                 elif intent.TargetQubits <> 1 then
-                                      Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
-                                  elif (match intent.Unitary with QpeUnitary.ModularExponentiation _ -> true | _ -> false) then
-                                      Error (QuantumError.OperationError (
-                                          "TopologicalBackend",
-                                          "ModularExponentiation QPE cannot be executed via TopologicalBackend's native QPE handler. " +
-                                          "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."))
-                                  elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
-                                     Error (QuantumError.ValidationError ("state", "state qubit count does not match QPE intent"))
-                                 else
-                                     let targetQubit = intent.CountingQubits
- 
-                                     let hadamardOps =
-                                         [0 .. intent.CountingQubits - 1]
-                                         |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
- 
-                                     let eigenPrepOps =
-                                         if intent.PrepareTargetOne then
-                                             [ QuantumOperation.Gate (CircuitBuilder.X targetQubit) ]
-                                         else
-                                             []
- 
-                                     let controlledOps =
-                                         [0 .. intent.CountingQubits - 1]
-                                         |> List.map (fun j ->
-                                             let applications = 1 <<< j
- 
-                                             match intent.Unitary with
-                                             | QpeUnitary.PhaseGate theta ->
-                                                 let totalTheta = float applications * theta
-                                                 QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                             | QpeUnitary.TGate ->
-                                                 let totalTheta = float applications * Math.PI / 4.0
-                                                 QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                             | QpeUnitary.SGate ->
-                                                 let totalTheta = float applications * Math.PI / 2.0
-                                                 QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                             | QpeUnitary.RotationZ theta ->
-                                                  let totalTheta = float applications * theta
-                                                  QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta))
-                                              | QpeUnitary.ModularExponentiation _ ->
-                                                  // Unreachable: guarded by elif check above.
-                                                  failwith "ModularExponentiation QPE cannot be executed via TopologicalBackend. Use Shor.estimateModExpPhase.")
- 
-                                     let inverseQftOps =
-                                         [(intent.CountingQubits - 1) .. -1 .. 0]
-                                         |> List.collect (fun tq ->
-                                             let phases =
-                                                 [tq + 1 .. intent.CountingQubits - 1]
-                                                 |> List.map (fun k ->
-                                                     let power = k - tq + 1
-                                                     let angle = -2.0 * Math.PI / float (1 <<< power)
-                                                     QuantumOperation.Gate (CircuitBuilder.CP (k, tq, angle)))
-                                             let h = QuantumOperation.Gate (CircuitBuilder.H tq)
-                                             phases @ [ h ])
- 
-                                     let swapOps =
-                                         if intent.ApplySwaps then
-                                             [0 .. intent.CountingQubits / 2 - 1]
-                                             |> List.map (fun i ->
-                                                 let j = intent.CountingQubits - 1 - i
-                                                 QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
-                                         else
-                                             []
- 
-                                     let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
-                                     (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
+                            | QuantumOperation.Algorithm(AlgorithmOperation.QPE intent) ->
+                                // Execute QPE intent by lowering to gate operations.
+                                //
+                                // Note: `intent.ApplySwaps` controls whether the final bit-reversal SWAPs
+                                // are applied. QPE can omit swaps and undo bit order classically.
+                                if intent.CountingQubits <= 0 then
+                                    Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
+                                elif intent.TargetQubits <> 1 then
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "TargetQubits",
+                                            "only TargetQubits = 1 is supported by QPE intent"
+                                        )
+                                    )
+                                elif
+                                    (match intent.Unitary with
+                                     | QpeUnitary.ModularExponentiation _ -> true
+                                     | _ -> false)
+                                then
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "TopologicalBackend",
+                                            "ModularExponentiation QPE cannot be executed via TopologicalBackend's native QPE handler. "
+                                            + "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."
+                                        )
+                                    )
+                                elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "state",
+                                            "state qubit count does not match QPE intent"
+                                        )
+                                    )
+                                else
+                                    let targetQubit = intent.CountingQubits
 
-                              | QuantumOperation.Algorithm (AlgorithmOperation.HHL intent) ->
-                                  // Diagonal HHL inversion via the shared multiplexed multi-controlled RY.
-                                  // The CRY/MCZ gates are realised as braids by GateToBraid, so HHL inverts
-                                  // identically and correctly (for any solution-register size) on gated and
-                                  // topological hardware.
-                                  applyHhlInversion (this :> IQuantumBackend) intent state
-                              
-                              | QuantumOperation.Braid anyonIndex ->
+                                    let hadamardOps =
+                                        [ 0 .. intent.CountingQubits - 1 ]
+                                        |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+
+                                    let eigenPrepOps =
+                                        if intent.PrepareTargetOne then
+                                            [ QuantumOperation.Gate(CircuitBuilder.X targetQubit) ]
+                                        else
+                                            []
+
+                                    let controlledOps =
+                                        [ 0 .. intent.CountingQubits - 1 ]
+                                        |> List.map (fun j ->
+                                            let applications = 1 <<< j
+
+                                            match intent.Unitary with
+                                            | QpeUnitary.PhaseGate theta ->
+                                                let totalTheta = float applications * theta
+                                                QuantumOperation.Gate(CircuitBuilder.CP(j, targetQubit, totalTheta))
+                                            | QpeUnitary.TGate ->
+                                                let totalTheta = float applications * Math.PI / 4.0
+                                                QuantumOperation.Gate(CircuitBuilder.CP(j, targetQubit, totalTheta))
+                                            | QpeUnitary.SGate ->
+                                                let totalTheta = float applications * Math.PI / 2.0
+                                                QuantumOperation.Gate(CircuitBuilder.CP(j, targetQubit, totalTheta))
+                                            | QpeUnitary.RotationZ theta ->
+                                                let totalTheta = float applications * theta
+                                                QuantumOperation.Gate(CircuitBuilder.CRZ(j, targetQubit, totalTheta))
+                                            | QpeUnitary.ModularExponentiation _ ->
+                                                // Unreachable: guarded by elif check above.
+                                                failwith
+                                                    "ModularExponentiation QPE cannot be executed via TopologicalBackend. Use Shor.estimateModExpPhase.")
+
+                                    let inverseQftOps =
+                                        [ (intent.CountingQubits - 1) .. -1 .. 0 ]
+                                        |> List.collect (fun tq ->
+                                            let phases =
+                                                [ tq + 1 .. intent.CountingQubits - 1 ]
+                                                |> List.map (fun k ->
+                                                    let power = k - tq + 1
+                                                    let angle = -2.0 * Math.PI / float (1 <<< power)
+                                                    QuantumOperation.Gate(CircuitBuilder.CP(k, tq, angle)))
+
+                                            let h = QuantumOperation.Gate(CircuitBuilder.H tq)
+                                            phases @ [ h ])
+
+                                    let swapOps =
+                                        if intent.ApplySwaps then
+                                            [ 0 .. intent.CountingQubits / 2 - 1 ]
+                                            |> List.map (fun i ->
+                                                let j = intent.CountingQubits - 1 - i
+                                                QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
+                                        else
+                                            []
+
+                                    let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
+                                    (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
+
+                            | QuantumOperation.Algorithm(AlgorithmOperation.HHL intent) ->
+                                // Diagonal HHL inversion via the shared multiplexed multi-controlled RY.
+                                // The CRY/MCZ gates are realised as braids by GateToBraid, so HHL inverts
+                                // identically and correctly (for any solution-register size) on gated and
+                                // topological hardware.
+                                applyHhlInversion (this :> IQuantumBackend) intent state
+
+                            | QuantumOperation.Braid anyonIndex ->
 
 
                                 this.ApplyBraid anyonIndex fusionState
-                            
-                            | QuantumOperation.Gate gate ->
-                                this.ApplyGate gate fusionState numQubits
+
+                            | QuantumOperation.Gate gate -> this.ApplyGate gate fusionState numQubits
 
                             | QuantumOperation.Extension ext ->
                                 match ext with
                                 | :? ILowerToOperationsExtension as lowerable ->
-                                    let ops =
-                                        lowerable.LowerToGates()
-                                        |> List.map QuantumOperation.Gate
+                                    let ops = lowerable.LowerToGates() |> List.map QuantumOperation.Gate
                                     (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
                                 | _ ->
-                                    Error (QuantumError.OperationError ("TopologicalBackend", $"Extension operation '{ext.Id}' is not supported"))
-                            
-                            | QuantumOperation.FMove (direction, depth) ->
-                                this.ApplyFMove direction depth fusionState
-                            
-                            | QuantumOperation.Measure anyonIndex ->
-                                this.ApplyMeasure anyonIndex fusionState
-                            
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "TopologicalBackend",
+                                            $"Extension operation '{ext.Id}' is not supported"
+                                        )
+                                    )
+
+                            | QuantumOperation.FMove(direction, depth) -> this.ApplyFMove direction depth fusionState
+
+                            | QuantumOperation.Measure anyonIndex -> this.ApplyMeasure anyonIndex fusionState
+
                             | QuantumOperation.Sequence ops ->
                                 ops
-                                |> List.fold (fun stateResult op ->
-                                    stateResult |> Result.bind (fun currentState -> (this :> IQuantumBackend).ApplyOperation op currentState)
-                                ) (Ok state)
-                        with
-                        | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
-                
+                                |> List.fold
+                                    (fun stateResult op ->
+                                        stateResult
+                                        |> Result.bind (fun currentState ->
+                                            (this :> IQuantumBackend).ApplyOperation op currentState))
+                                    (Ok state)
+                        with ex ->
+                            Error(QuantumError.OperationError("TopologicalBackend", ex.Message))
+
                 | QuantumState.StateVector sv ->
                     // Convert StateVector amplitudes directly to FusionSuperposition.
                     // This handles the case where algorithms (e.g. HHL.prepareInputState)
                     // produce a StateVector that must be applied on the topological backend.
                     let numQubits = LocalSimulator.StateVector.numQubits sv
                     let dim = 1 <<< numQubits
+
                     try
                         let terms =
-                            [ for i in 0 .. dim - 1 do
-                                let amp = LocalSimulator.StateVector.getAmplitude i sv
-                                if Complex.Abs amp > 1e-14 then
-                                    let bits = intToBitsLsbFirst numQubits i |> Array.toList
-                                    match FusionTree.fromComputationalBasis bits anyonType with
-                                    | Ok tree ->
-                                        let fusionState = FusionTree.create tree anyonType
-                                        yield (amp, fusionState)
-                                    | Error _ -> () ]
+                            [
+                                for i in 0 .. dim - 1 do
+                                    let amp = LocalSimulator.StateVector.getAmplitude i sv
+
+                                    if Complex.Abs amp > 1e-14 then
+                                        let bits = intToBitsLsbFirst numQubits i |> Array.toList
+
+                                        match FusionTree.fromComputationalBasis bits anyonType with
+                                        | Ok tree ->
+                                            let fusionState = FusionTree.create tree anyonType
+                                            yield (amp, fusionState)
+                                        | Error _ -> ()
+                            ]
 
                         let superposition =
-                            { TopologicalOperations.Superposition.Terms = terms
-                              TopologicalOperations.Superposition.AnyonType = anyonType }
+                            {
+                                TopologicalOperations.Superposition.Terms = terms
+                                TopologicalOperations.Superposition.AnyonType = anyonType
+                            }
                             |> TopologicalOperations.normalize
 
-                        let fusionState = QuantumState.FusionSuperposition (TopologicalOperations.toInterface superposition)
+                        let fusionState =
+                            QuantumState.FusionSuperposition(TopologicalOperations.toInterface superposition)
+
                         (this :> IQuantumBackend).ApplyOperation operation fusionState
-                    with
-                    | ex -> Error (QuantumError.OperationError ("TopologicalBackend", $"Failed to convert StateVector to FusionSuperposition: {ex.Message}"))
+                    with ex ->
+                        Error(
+                            QuantumError.OperationError(
+                                "TopologicalBackend",
+                                $"Failed to convert StateVector to FusionSuperposition: {ex.Message}"
+                            )
+                        )
 
                 | _ ->
                     // State is not in native format - try conversion
                     match QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state with
-                    | Ok (QuantumState.FusionSuperposition fs) ->
+                    | Ok(QuantumState.FusionSuperposition fs) ->
                         (this :> IQuantumBackend).ApplyOperation operation (QuantumState.FusionSuperposition fs)
                     | Ok _ ->
-                        Error (QuantumError.OperationError ("TopologicalBackend", "State conversion returned non-fusion state"))
-                    | Error e ->
-                        Error e
-            
-            member this.SupportsOperation (operation: QuantumOperation) : bool =
-                match operation with
-                | QuantumOperation.Algorithm (AlgorithmOperation.QFT _) -> true
-                | QuantumOperation.Algorithm (AlgorithmOperation.QPE _) -> true
-                | QuantumOperation.Algorithm (AlgorithmOperation.HHL _) -> true
-                | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare _)
-                | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip _)
-                | QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion _) -> true
+                        Error(
+                            QuantumError.OperationError(
+                                "TopologicalBackend",
+                                "State conversion returned non-fusion state"
+                            )
+                        )
+                    | Error e -> Error e
 
-                | QuantumOperation.Braid _ -> true      // Native topological operation
-                | QuantumOperation.FMove _ -> true      // Native topological operation
-                | QuantumOperation.Measure _ -> true    // Native topological measurement
+            member this.SupportsOperation(operation: QuantumOperation) : bool =
+                match operation with
+                | QuantumOperation.Algorithm(AlgorithmOperation.QFT _) -> true
+                | QuantumOperation.Algorithm(AlgorithmOperation.QPE _) -> true
+                | QuantumOperation.Algorithm(AlgorithmOperation.HHL _) -> true
+                | QuantumOperation.Algorithm(AlgorithmOperation.GroverPrepare _)
+                | QuantumOperation.Algorithm(AlgorithmOperation.GroverOraclePhaseFlip _)
+                | QuantumOperation.Algorithm(AlgorithmOperation.GroverDiffusion _) -> true
+
+                | QuantumOperation.Braid _ -> true // Native topological operation
+                | QuantumOperation.FMove _ -> true // Native topological operation
+                | QuantumOperation.Measure _ -> true // Native topological measurement
                 | QuantumOperation.Extension ext ->
                     match ext with
                     | :? ILowerToOperationsExtension -> true
@@ -697,7 +831,7 @@ module TopologicalUnifiedBackend =
                 | QuantumOperation.Sequence ops ->
                     // Sequence supported if all operations are supported
                     ops |> List.forall (fun op -> (this :> IQuantumBackend).SupportsOperation op)
-                | QuantumOperation.Gate gate ->         // Gate compilation via GateToBraid
+                | QuantumOperation.Gate gate -> // Gate compilation via GateToBraid
                     // Check if this specific gate can be compiled.
                     // Compilation expects the *logical qubit count* for the circuit that contains the gate,
                     // not the backend's anyon limit.
@@ -711,29 +845,26 @@ module TopologicalUnifiedBackend =
                         | CircuitBuilder.SDG q
                         | CircuitBuilder.T q
                         | CircuitBuilder.TDG q
-                        | CircuitBuilder.P (q, _)
-                        | CircuitBuilder.RX (q, _)
-                        | CircuitBuilder.RY (q, _)
-                        | CircuitBuilder.RZ (q, _)
+                        | CircuitBuilder.P(q, _)
+                        | CircuitBuilder.RX(q, _)
+                        | CircuitBuilder.RY(q, _)
+                        | CircuitBuilder.RZ(q, _)
                         | CircuitBuilder.Measure q -> q + 1
-                        | CircuitBuilder.U3 (q, _, _, _) -> q + 1
-                        | CircuitBuilder.CNOT (c, t)
-                        | CircuitBuilder.CZ (c, t)
-                        | CircuitBuilder.CP (c, t, _)
-                        | CircuitBuilder.CRX (c, t, _)
-                        | CircuitBuilder.CRY (c, t, _)
-                        | CircuitBuilder.CRZ (c, t, _)
-                        | CircuitBuilder.RXX (c, t, _)
-                        | CircuitBuilder.RYY (c, t, _)
-                        | CircuitBuilder.RZZ (c, t, _)
-                        | CircuitBuilder.SWAP (c, t) -> max c t + 1
-                        | CircuitBuilder.CCX (c1, c2, t) -> max c1 (max c2 t) + 1
-                        | CircuitBuilder.MCZ (controls, target) ->
-                            (target :: controls) |> List.max |> fun q -> q + 1
+                        | CircuitBuilder.U3(q, _, _, _) -> q + 1
+                        | CircuitBuilder.CNOT(c, t)
+                        | CircuitBuilder.CZ(c, t)
+                        | CircuitBuilder.CP(c, t, _)
+                        | CircuitBuilder.CRX(c, t, _)
+                        | CircuitBuilder.CRY(c, t, _)
+                        | CircuitBuilder.CRZ(c, t, _)
+                        | CircuitBuilder.RXX(c, t, _)
+                        | CircuitBuilder.RYY(c, t, _)
+                        | CircuitBuilder.RZZ(c, t, _)
+                        | CircuitBuilder.SWAP(c, t) -> max c t + 1
+                        | CircuitBuilder.CCX(c1, c2, t) -> max c1 (max c2 t) + 1
+                        | CircuitBuilder.MCZ(controls, target) -> (target :: controls) |> List.max |> fun q -> q + 1
                         | CircuitBuilder.Reset q -> q + 1
-                        | CircuitBuilder.Barrier qubits ->
-                            if List.isEmpty qubits then 0
-                            else (List.max qubits) + 1
+                        | CircuitBuilder.Barrier qubits -> if List.isEmpty qubits then 0 else (List.max qubits) + 1
                         | CircuitBuilder.Conditional _ ->
                             match BraidToGate.getAffectedQubits gate with
                             | [] -> 0
@@ -745,66 +876,79 @@ module TopologicalUnifiedBackend =
                     if this.IsAmplitudeIntercepted gate then
                         // Check only that we have enough anyons for the qubit requirement
                         let hasEnoughAnyons =
-                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType) |> Result.map (fun tree -> FusionTree.size tree <= maxAnyons) |> Result.defaultValue false
+                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType)
+                            |> Result.map (fun tree -> FusionTree.size tree <= maxAnyons)
+                            |> Result.defaultValue false
+
                         hasEnoughAnyons
                     else
 
-                    try
-                        let requiredAnyons =
-                            (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType) |> Result.map (fun tree -> FusionTree.size tree) |> Result.defaultWith (fun _ -> Int32.MaxValue)
+                        try
+                            let requiredAnyons =
+                                (FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType)
+                                |> Result.map (fun tree -> FusionTree.size tree)
+                                |> Result.defaultWith (fun _ -> Int32.MaxValue)
 
-                        if requiredAnyons > maxAnyons then
+                            if requiredAnyons > maxAnyons then
+                                false
+                            else
+                                // Use compileGateSequence (not compileGateToBraid) so that
+                                // complex gates like CZ, MCZ, SWAP, CCX are transpiled to
+                                // elementary gates before checking braid-compilability.
+                                // This matches the execution path in ApplyGate which also
+                                // transpiles first, then routes each sub-gate through
+                                // IsAmplitudeIntercepted before falling through to braiding.
+                                // After transpilation, check each elementary gate is either
+                                // amplitude-intercepted (Ising only) or braid-compilable.
+                                let circuit: CircuitBuilder.Circuit =
+                                    {
+                                        QubitCount = requiredQubits
+                                        Gates = [ gate ]
+                                    }
+                                // Transpile to elementary gates (same fixpoint logic as compileGateSequence
+                                // in GateToBraid.fs line ~930). Duplicated here because this code runs inside
+                                // the IQuantumBackend interface implementation and cannot call private module functions.
+                                let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
+                                    if remaining <= 0 then
+                                        current
+                                    else
+                                        let next = GateTranspiler.transpileForBackend "topological" current
+
+                                        if next.Gates = current.Gates then
+                                            next
+                                        else
+                                            transpileToFixpoint (remaining - 1) next
+
+                                let transpiledCircuit = transpileToFixpoint 5 circuit
+                                // Check each elementary gate: either amplitude-intercepted or braid-compilable
+                                transpiledCircuit.Gates
+                                |> List.forall (fun g ->
+                                    if this.IsAmplitudeIntercepted g then
+                                        true
+                                    else
+                                        let singleGateSeq: BraidToGate.GateSequence =
+                                            {
+                                                NumQubits = requiredQubits
+                                                Gates = [ g ]
+                                                TotalPhase = Complex.One
+                                                Depth = 1
+                                                TCount = 0
+                                            }
+                                        // Tight tolerance (must match ApplyGate): only exact
+                                        // π/2-multiple rotations are braid-compilable on Ising;
+                                        // anything else is honestly reported as unsupported.
+                                        (GateToBraid.compileGateSequence singleGateSeq 1e-9 anyonType) |> Result.isOk)
+                        with _ ->
                             false
-                        else
-                            // Use compileGateSequence (not compileGateToBraid) so that
-                            // complex gates like CZ, MCZ, SWAP, CCX are transpiled to
-                            // elementary gates before checking braid-compilability.
-                            // This matches the execution path in ApplyGate which also
-                            // transpiles first, then routes each sub-gate through
-                            // IsAmplitudeIntercepted before falling through to braiding.
-                            // After transpilation, check each elementary gate is either
-                            // amplitude-intercepted (Ising only) or braid-compilable.
-                            let circuit : CircuitBuilder.Circuit = {
-                                QubitCount = requiredQubits
-                                Gates = [ gate ]
-                            }
-                            // Transpile to elementary gates (same fixpoint logic as compileGateSequence
-                            // in GateToBraid.fs line ~930). Duplicated here because this code runs inside
-                            // the IQuantumBackend interface implementation and cannot call private module functions.
-                            let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
-                                if remaining <= 0 then current
-                                else
-                                    let next = GateTranspiler.transpileForBackend "topological" current
-                                    if next.Gates = current.Gates then next
-                                    else transpileToFixpoint (remaining - 1) next
-                            let transpiledCircuit = transpileToFixpoint 5 circuit
-                            // Check each elementary gate: either amplitude-intercepted or braid-compilable
-                            transpiledCircuit.Gates
-                            |> List.forall (fun g ->
-                                if this.IsAmplitudeIntercepted g then true
-                                else
-                                    let singleGateSeq: BraidToGate.GateSequence =
-                                        { NumQubits = requiredQubits
-                                          Gates = [ g ]
-                                          TotalPhase = Complex.One
-                                          Depth = 1
-                                          TCount = 0 }
-                                    // Tight tolerance (must match ApplyGate): only exact
-                                    // π/2-multiple rotations are braid-compilable on Ising;
-                                    // anything else is honestly reported as unsupported.
-                                    (GateToBraid.compileGateSequence singleGateSeq 1e-9 anyonType) |> Result.isOk
-                            )
-                    with
-                    | _ -> false
-            
+
             member _.Name = "Topological Quantum Backend"
-            
+
             member _.NativeStateType = QuantumStateType.TopologicalBraiding
-            
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Initialize state
                 let initialResult = (this :> IQuantumBackend).InitializeState circuit.NumQubits
-                
+
                 match initialResult with
                 | Error err -> Error err
                 | Ok initialState ->
@@ -815,59 +959,75 @@ module TopologicalUnifiedBackend =
                         match circuit with
                         | :? CircuitWrapper as wrapper ->
                             wrapper.Circuit.Gates |> List.rev |> List.map QuantumOperation.Gate
-                        | _ ->
-                            []  // Empty circuit if not a CircuitWrapper
-                    
+                        | _ -> [] // Empty circuit if not a CircuitWrapper
+
                     // Apply each operation in sequence
                     operations
-                    |> List.fold (fun stateResult operation ->
-                        stateResult |> Result.bind (fun currentState -> (this :> IQuantumBackend).ApplyOperation operation currentState)
-                    ) (Ok initialState)
-            
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
+                    |> List.fold
+                        (fun stateResult operation ->
+                            stateResult
+                            |> Result.bind (fun currentState ->
+                                (this :> IQuantumBackend).ApplyOperation operation currentState))
+                        (Ok initialState)
+
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
                 try
                     // Initialize to computational basis |0...0⟩ using FusionTree encoding.
                     // For Ising encoding we include an extra σ-pair parity ancilla.
                     match FusionTree.fromComputationalBasis (List.replicate numQubits 0) anyonType with
-                    | Error err ->
-                        Error (QuantumError.OperationError ("TopologicalBackend", err.Message))
+                    | Error err -> Error(QuantumError.OperationError("TopologicalBackend", err.Message))
                     | Ok initialTree ->
                         let requiredAnyons = FusionTree.size initialTree
 
                         if requiredAnyons > maxAnyons then
-                            Error (QuantumError.ValidationError ("numQubits", $"Requested {numQubits} logical qubits requires {requiredAnyons} anyons, but backend maxAnyons is {maxAnyons}"))
+                            Error(
+                                QuantumError.ValidationError(
+                                    "numQubits",
+                                    $"Requested {numQubits} logical qubits requires {requiredAnyons} anyons, but backend maxAnyons is {maxAnyons}"
+                                )
+                            )
                         else
                             let initialFusionState = FusionTree.create initialTree anyonType
                             let initialSuperposition = TopologicalOperations.pureState initialFusionState
-                            Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface initialSuperposition))
-                with
-                | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+                            Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface initialSuperposition))
+                with ex ->
+                    Error(QuantumError.OperationError("TopologicalBackend", ex.Message))
 
-            member this.ExecuteToStateAsync (circuit: ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member this.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (_ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task { return (this :> IQuantumBackend).ExecuteToState circuit }
 
-            member this.ApplyOperationAsync (operation: QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member this.ApplyOperationAsync
+                (operation: QuantumOperation)
+                (state: QuantumState)
+                (_ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
 /// Factory functions for creating topological backend instances
 module TopologicalUnifiedBackendFactory =
-    
+
     /// Create a new topological simulator backend
-    let create (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : TopologicalUnifiedBackend.TopologicalUnifiedBackend =
+    let create
+        (anyonType: AnyonSpecies.AnyonType)
+        (maxAnyons: int)
+        : TopologicalUnifiedBackend.TopologicalUnifiedBackend =
         TopologicalUnifiedBackend.TopologicalUnifiedBackend(anyonType, maxAnyons)
-    
+
     /// Create and cast to IQuantumBackend
     let createUnified (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : IQuantumBackend =
         create anyonType maxAnyons :> IQuantumBackend
-    
+
     /// Create and cast to IQuantumBackend (for backward compatibility)
     let createStandard (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : IQuantumBackend =
         create anyonType maxAnyons :> IQuantumBackend
-    
+
     /// Create Ising anyon backend (most common)
     let createIsing (maxAnyons: int) : IQuantumBackend =
         createUnified AnyonSpecies.AnyonType.Ising maxAnyons
-    
+
     /// Create Fibonacci anyon backend
     let createFibonacci (maxAnyons: int) : IQuantumBackend =
         createUnified AnyonSpecies.AnyonType.Fibonacci maxAnyons

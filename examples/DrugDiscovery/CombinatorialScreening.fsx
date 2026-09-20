@@ -53,16 +53,51 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "CombinatorialScreening.fsx"
+Cli.exitIfHelp
+    "CombinatorialScreening.fsx"
     "Quantum diverse compound selection from a screening library (QAOA)"
-    [ { Cli.OptionSpec.Name = "input"; Description = "CSV file with custom compound definitions"; Default = Some "built-in presets" }
-      { Cli.OptionSpec.Name = "compounds"; Description = "Comma-separated preset IDs to include (default: all)"; Default = Some "all" }
-      { Cli.OptionSpec.Name = "budget"; Description = "Follow-up testing budget ($)"; Default = Some "50000" }
-      { Cli.OptionSpec.Name = "diversity-weight"; Description = "Weight for diversity bonus (0-1)"; Default = Some "0.3" }
-      { Cli.OptionSpec.Name = "shots"; Description = "Number of QAOA measurement shots"; Default = Some "1000" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output (flag)"; Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with custom compound definitions"
+            Default = Some "built-in presets"
+        }
+        {
+            Cli.OptionSpec.Name = "compounds"
+            Description = "Comma-separated preset IDs to include (default: all)"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "budget"
+            Description = "Follow-up testing budget ($)"
+            Default = Some "50000"
+        }
+        {
+            Cli.OptionSpec.Name = "diversity-weight"
+            Description = "Weight for diversity bonus (0-1)"
+            Default = Some "0.3"
+        }
+        {
+            Cli.OptionSpec.Name = "shots"
+            Description = "Number of QAOA measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output (flag)"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -78,20 +113,24 @@ let shots = Cli.getIntOr "shots" 1000 args
 
 /// Compound from screening library.
 type Compound =
-    { Id: string
-      ChemicalClass: string
-      ActivityScore: float
-      FollowUpCost: float
-      Selectivity: float
-      DrugLikeness: float }
+    {
+        Id: string
+        ChemicalClass: string
+        ActivityScore: float
+        FollowUpCost: float
+        Selectivity: float
+        DrugLikeness: float
+    }
 
 /// Result for each compound after QAOA selection.
 type CompoundResult =
-    { Compound: Compound
-      Value: float
-      Selected: bool
-      Rank: int
-      HasVqeFailure: bool }
+    {
+        Compound: Compound
+        Value: float
+        Selected: bool
+        Rank: int
+        HasVqeFailure: bool
+    }
 
 // ==============================================================================
 // HELPER FUNCTIONS
@@ -110,10 +149,12 @@ let chemicalDiversity (c1: Compound) (c2: Compound) : float =
 let buildDiversityMatrix (compounds: Compound list) : float[,] =
     let n = compounds.Length
     let matrix = Array2D.zeroCreate n n
+
     for i in 0 .. n - 1 do
         for j in 0 .. n - 1 do
             if i <> j then
                 matrix.[i, j] <- chemicalDiversity compounds.[i] compounds.[j]
+
     matrix
 
 // ==============================================================================
@@ -121,39 +162,87 @@ let buildDiversityMatrix (compounds: Compound list) : float[,] =
 // ==============================================================================
 
 let private kin001 =
-    { Id = "KIN-001"; ChemicalClass = "Type I"; ActivityScore = 95.0
-      FollowUpCost = 15000.0; Selectivity = 0.8; DrugLikeness = 0.9 }
+    {
+        Id = "KIN-001"
+        ChemicalClass = "Type I"
+        ActivityScore = 95.0
+        FollowUpCost = 15000.0
+        Selectivity = 0.8
+        DrugLikeness = 0.9
+    }
 
 let private kin002 =
-    { Id = "KIN-002"; ChemicalClass = "Type II"; ActivityScore = 88.0
-      FollowUpCost = 12000.0; Selectivity = 0.95; DrugLikeness = 0.85 }
+    {
+        Id = "KIN-002"
+        ChemicalClass = "Type II"
+        ActivityScore = 88.0
+        FollowUpCost = 12000.0
+        Selectivity = 0.95
+        DrugLikeness = 0.85
+    }
 
 let private kin003 =
-    { Id = "KIN-003"; ChemicalClass = "Type I"; ActivityScore = 82.0
-      FollowUpCost = 10000.0; Selectivity = 0.7; DrugLikeness = 0.95 }
+    {
+        Id = "KIN-003"
+        ChemicalClass = "Type I"
+        ActivityScore = 82.0
+        FollowUpCost = 10000.0
+        Selectivity = 0.7
+        DrugLikeness = 0.95
+    }
 
 let private kin004 =
-    { Id = "KIN-004"; ChemicalClass = "Allosteric"; ActivityScore = 75.0
-      FollowUpCost = 20000.0; Selectivity = 0.99; DrugLikeness = 0.8 }
+    {
+        Id = "KIN-004"
+        ChemicalClass = "Allosteric"
+        ActivityScore = 75.0
+        FollowUpCost = 20000.0
+        Selectivity = 0.99
+        DrugLikeness = 0.8
+    }
 
 let private kin005 =
-    { Id = "KIN-005"; ChemicalClass = "Type I"; ActivityScore = 70.0
-      FollowUpCost = 8000.0; Selectivity = 0.6; DrugLikeness = 0.9 }
+    {
+        Id = "KIN-005"
+        ChemicalClass = "Type I"
+        ActivityScore = 70.0
+        FollowUpCost = 8000.0
+        Selectivity = 0.6
+        DrugLikeness = 0.9
+    }
 
 let private kin006 =
-    { Id = "KIN-006"; ChemicalClass = "Type II"; ActivityScore = 68.0
-      FollowUpCost = 9000.0; Selectivity = 0.85; DrugLikeness = 0.88 }
+    {
+        Id = "KIN-006"
+        ChemicalClass = "Type II"
+        ActivityScore = 68.0
+        FollowUpCost = 9000.0
+        Selectivity = 0.85
+        DrugLikeness = 0.88
+    }
 
 let private kin007 =
-    { Id = "KIN-007"; ChemicalClass = "Covalent"; ActivityScore = 55.0
-      FollowUpCost = 25000.0; Selectivity = 0.98; DrugLikeness = 0.7 }
+    {
+        Id = "KIN-007"
+        ChemicalClass = "Covalent"
+        ActivityScore = 55.0
+        FollowUpCost = 25000.0
+        Selectivity = 0.98
+        DrugLikeness = 0.7
+    }
 
 let private kin008 =
-    { Id = "KIN-008"; ChemicalClass = "Type I"; ActivityScore = 50.0
-      FollowUpCost = 6000.0; Selectivity = 0.5; DrugLikeness = 0.95 }
+    {
+        Id = "KIN-008"
+        ChemicalClass = "Type I"
+        ActivityScore = 50.0
+        FollowUpCost = 6000.0
+        Selectivity = 0.5
+        DrugLikeness = 0.95
+    }
 
 /// All built-in presets keyed by lowercase ID.
-let private builtinPresets : Map<string, Compound> =
+let private builtinPresets: Map<string, Compound> =
     [ kin001; kin002; kin003; kin004; kin005; kin006; kin007; kin008 ]
     |> List.map (fun c -> c.Id.ToLowerInvariant(), c)
     |> Map.ofList
@@ -170,6 +259,7 @@ let private presetNames =
 /// OR: id, preset (to reference a built-in preset by ID)
 let private loadCompoundsFromCsv (path: string) : Compound list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
+
     if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
@@ -178,60 +268,84 @@ let private loadCompoundsFromCsv (path: string) : Compound list =
     |> List.choose (fun row ->
         let get key = row.Values |> Map.tryFind key
         let id = get "id" |> Option.defaultValue "Unknown"
+
         match get "preset" with
         | Some presetKey ->
             let key = presetKey.Trim().ToLowerInvariant()
+
             match builtinPresets |> Map.tryFind key with
             | Some compound -> Some { compound with Id = id }
             | None ->
                 if not quiet then
                     eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
+
                 None
         | None ->
             let chemClass = get "chemical_class" |> Option.defaultValue "Unknown"
+
             let activity =
                 get "activity_score"
-                |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
                 |> Option.defaultValue 50.0
+
             let cost =
                 get "follow_up_cost"
-                |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
                 |> Option.defaultValue 10000.0
+
             let sel =
                 get "selectivity"
-                |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
                 |> Option.defaultValue 0.5
+
             let drugLik =
                 get "drug_likeness"
-                |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
                 |> Option.defaultValue 0.5
+
             Some
-                { Id = id
-                  ChemicalClass = chemClass
-                  ActivityScore = activity
-                  FollowUpCost = cost
-                  Selectivity = sel
-                  DrugLikeness = drugLik })
+                {
+                    Id = id
+                    ChemicalClass = chemClass
+                    ActivityScore = activity
+                    FollowUpCost = cost
+                    Selectivity = sel
+                    DrugLikeness = drugLik
+                })
 
 // ==============================================================================
 // COMPOUND SELECTION
 // ==============================================================================
 
-let compounds : Compound list =
+let compounds: Compound list =
     let allCompounds =
         match inputFile with
         | Some path ->
             let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
+
             if not quiet then
                 printfn "Loading compounds from: %s" resolved
+
             loadCompoundsFromCsv resolved
-        | None ->
-            builtinPresets |> Map.toList |> List.map snd
+        | None -> builtinPresets |> Map.toList |> List.map snd
 
     match compoundFilter with
     | [] -> allCompounds
     | filters ->
         let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+
         allCompounds
         |> List.filter (fun c ->
             let key = c.Id.ToLowerInvariant()
@@ -245,7 +359,7 @@ if List.isEmpty compounds then
 // QUANTUM BACKEND (Rule 1: all QAOA via IQuantumBackend)
 // ==============================================================================
 
-let backend : IQuantumBackend = LocalBackend() :> IQuantumBackend
+let backend: IQuantumBackend = LocalBackend() :> IQuantumBackend
 
 if not quiet then
     printfn ""
@@ -259,13 +373,20 @@ if not quiet then
     printfn "  Diversity wt:   %.2f" diversityWeight
     printfn "  QAOA shots:     %d" shots
     printfn ""
-    printfn "  %-8s  %-12s  %8s  %10s  %8s  %8s  %8s"
-        "ID" "Class" "Activity" "Cost ($)" "Select." "DrugLik" "Value"
+    printfn "  %-8s  %-12s  %8s  %10s  %8s  %8s  %8s" "ID" "Class" "Activity" "Cost ($)" "Select." "DrugLik" "Value"
     printfn "  %s" (String.replicate 70 "-")
+
     for c in compounds do
-        printfn "  %-8s  %-12s  %8.1f  %10.0f  %8.2f  %8.2f  %8.2f"
-            c.Id c.ChemicalClass c.ActivityScore c.FollowUpCost
-            c.Selectivity c.DrugLikeness (compoundValue c)
+        printfn
+            "  %-8s  %-12s  %8.1f  %10.0f  %8.2f  %8.2f  %8.2f"
+            c.Id
+            c.ChemicalClass
+            c.ActivityScore
+            c.FollowUpCost
+            c.Selectivity
+            c.DrugLikeness
+            (compoundValue c)
+
     printfn ""
 
 // ==============================================================================
@@ -281,16 +402,20 @@ let toDiverseSelectionProblem (compoundList: Compound list) (bgt: float) (divWei
     let items =
         compoundList
         |> List.map (fun c ->
-            { DiverseSelection.Item.Id = c.Id
-              DiverseSelection.Item.Value = compoundValue c
-              DiverseSelection.Item.Cost = c.FollowUpCost / 10000.0 })
+            {
+                DiverseSelection.Item.Id = c.Id
+                DiverseSelection.Item.Value = compoundValue c
+                DiverseSelection.Item.Cost = c.FollowUpCost / 10000.0
+            })
 
     let diversity = buildDiversityMatrix compoundList
 
-    { DiverseSelection.Problem.Items = items
-      DiverseSelection.Problem.Diversity = diversity
-      DiverseSelection.Problem.Budget = bgt / 10000.0
-      DiverseSelection.Problem.DiversityWeight = divWeight }
+    {
+        DiverseSelection.Problem.Items = items
+        DiverseSelection.Problem.Diversity = diversity
+        DiverseSelection.Problem.Budget = bgt / 10000.0
+        DiverseSelection.Problem.DiversityWeight = divWeight
+    }
 
 let problem = toDiverseSelectionProblem compounds budget diversityWeight
 
@@ -306,14 +431,16 @@ let selectedIds =
     | Ok solution -> solution.SelectedItems |> List.map (fun item -> item.Id) |> Set.ofList
     | Error _ -> Set.empty
 
-let compoundResults : CompoundResult list =
+let compoundResults: CompoundResult list =
     compounds
     |> List.map (fun c ->
-        { Compound = c
-          Value = compoundValue c
-          Selected = selectedIds |> Set.contains c.Id
-          Rank = 0  // assigned after sort
-          HasVqeFailure = hasFailure })
+        {
+            Compound = c
+            Value = compoundValue c
+            Selected = selectedIds |> Set.contains c.Id
+            Rank = 0 // assigned after sort
+            HasVqeFailure = hasFailure
+        })
 
 // Sort: selected first (by value descending), then unselected (by value descending).
 // Failed â†’ bottom.
@@ -338,11 +465,13 @@ let solutionStats =
             printfn "       Feasible: %b" solution.IsFeasible
             printfn "       Backend: %s" solution.BackendName
             printfn ""
+
         Some solution
     | Error err ->
         if not quiet then
             printfn "  [ERROR] QAOA failed: %s (%.1fs)" err.Message elapsed
             printfn ""
+
         None
 
 // ==============================================================================
@@ -354,23 +483,46 @@ let printTable () =
     printfn "  Compound Selection Results (QAOA Diverse Selection)"
     printfn "=================================================================="
     printfn ""
-    printfn "  %-4s  %-8s  %-12s  %8s  %10s  %8s  %8s  %8s  %8s"
-        "#" "ID" "Class" "Activity" "Cost ($)" "Select." "DrugLik" "Value" "Selected"
+
+    printfn
+        "  %-4s  %-8s  %-12s  %8s  %10s  %8s  %8s  %8s  %8s"
+        "#"
+        "ID"
+        "Class"
+        "Activity"
+        "Cost ($)"
+        "Select."
+        "DrugLik"
+        "Value"
+        "Selected"
+
     printfn "  %s" (String('=', 95))
 
     for r in ranked do
         if r.HasVqeFailure then
-            printfn "  %-4d  %-8s  %-12s  %8.1f  %10.0f  %8.2f  %8.2f  %8.2f  %8s"
-                r.Rank r.Compound.Id r.Compound.ChemicalClass
-                r.Compound.ActivityScore r.Compound.FollowUpCost
-                r.Compound.Selectivity r.Compound.DrugLikeness
-                r.Value "FAILED"
+            printfn
+                "  %-4d  %-8s  %-12s  %8.1f  %10.0f  %8.2f  %8.2f  %8.2f  %8s"
+                r.Rank
+                r.Compound.Id
+                r.Compound.ChemicalClass
+                r.Compound.ActivityScore
+                r.Compound.FollowUpCost
+                r.Compound.Selectivity
+                r.Compound.DrugLikeness
+                r.Value
+                "FAILED"
         else
-            printfn "  %-4d  %-8s  %-12s  %8.1f  %10.0f  %8.2f  %8.2f  %8.2f  %8s"
-                r.Rank r.Compound.Id r.Compound.ChemicalClass
-                r.Compound.ActivityScore r.Compound.FollowUpCost
-                r.Compound.Selectivity r.Compound.DrugLikeness
-                r.Value (if r.Selected then "YES" else "no")
+            printfn
+                "  %-4d  %-8s  %-12s  %8.1f  %10.0f  %8.2f  %8.2f  %8.2f  %8s"
+                r.Rank
+                r.Compound.Id
+                r.Compound.ChemicalClass
+                r.Compound.ActivityScore
+                r.Compound.FollowUpCost
+                r.Compound.Selectivity
+                r.Compound.DrugLikeness
+                r.Value
+                (if r.Selected then "YES" else "no")
 
     printfn ""
 
@@ -378,11 +530,21 @@ let printTable () =
     | Some solution ->
         let selectedCompounds =
             ranked |> List.filter (fun r -> r.Selected && not r.HasVqeFailure)
+
         if not selectedCompounds.IsEmpty then
             let totalCost = selectedCompounds |> List.sumBy (fun r -> r.Compound.FollowUpCost)
-            let avgActivity = selectedCompounds |> List.averageBy (fun r -> r.Compound.ActivityScore)
-            let avgSelectivity = selectedCompounds |> List.averageBy (fun r -> r.Compound.Selectivity)
-            let classes = selectedCompounds |> List.map (fun r -> r.Compound.ChemicalClass) |> List.distinct
+
+            let avgActivity =
+                selectedCompounds |> List.averageBy (fun r -> r.Compound.ActivityScore)
+
+            let avgSelectivity =
+                selectedCompounds |> List.averageBy (fun r -> r.Compound.Selectivity)
+
+            let classes =
+                selectedCompounds
+                |> List.map (fun r -> r.Compound.ChemicalClass)
+                |> List.distinct
+
             let budgetUtil = 100.0 * totalCost / budget
 
             printfn "  Selection Summary:"
@@ -392,9 +554,13 @@ let printTable () =
             printfn "    Avg activity:   %.1f" avgActivity
             printfn "    Avg selectivity:%.2f" avgSelectivity
             printfn "    Classes:        %d distinct (%s)" classes.Length (String.concat ", " classes)
-            printfn "    QAOA score:     %.2f (value) + %.2f (diversity) = %.2f"
-                solution.TotalValue solution.DiversityBonus
+
+            printfn
+                "    QAOA score:     %.2f (value) + %.2f (diversity) = %.2f"
+                solution.TotalValue
+                solution.DiversityBonus
                 (solution.TotalValue + solution.DiversityBonus)
+
             printfn "    Feasible:       %b" solution.IsFeasible
             printfn ""
     | None -> ()
@@ -424,62 +590,103 @@ let resultMaps =
     ranked
     |> List.map (fun r ->
         let totalValue =
-            match solutionStats with Some s -> $"%.2f{s.TotalValue}" | None -> "FAILED"
-        let diversityBonus =
-            match solutionStats with Some s -> $"%.2f{s.DiversityBonus}" | None -> "FAILED"
-        let combinedScore =
-            match solutionStats with Some s -> sprintf "%.2f" (s.TotalValue + s.DiversityBonus) | None -> "FAILED"
-        let isFeasible =
-            match solutionStats with Some s -> string s.IsFeasible | None -> "FAILED"
-        let backendName =
-            match solutionStats with Some s -> s.BackendName | None -> "N/A"
+            match solutionStats with
+            | Some s -> $"%.2f{s.TotalValue}"
+            | None -> "FAILED"
 
-        [ "rank", string r.Rank
-          "id", r.Compound.Id
-          "chemical_class", r.Compound.ChemicalClass
-          "activity_score", $"%.1f{r.Compound.ActivityScore}"
-          "follow_up_cost", $"%.0f{r.Compound.FollowUpCost}"
-          "selectivity", $"%.2f{r.Compound.Selectivity}"
-          "drug_likeness", $"%.2f{r.Compound.DrugLikeness}"
-          "value", $"%.2f{r.Value}"
-          "selected", string r.Selected
-          "total_value", totalValue
-          "diversity_bonus", diversityBonus
-          "combined_score", combinedScore
-          "is_feasible", isFeasible
-          "budget", $"%.0f{budget}"
-          "budget_utilization_pct",
+        let diversityBonus =
+            match solutionStats with
+            | Some s -> $"%.2f{s.DiversityBonus}"
+            | None -> "FAILED"
+
+        let combinedScore =
+            match solutionStats with
+            | Some s -> sprintf "%.2f" (s.TotalValue + s.DiversityBonus)
+            | None -> "FAILED"
+
+        let isFeasible =
+            match solutionStats with
+            | Some s -> string s.IsFeasible
+            | None -> "FAILED"
+
+        let backendName =
+            match solutionStats with
+            | Some s -> s.BackendName
+            | None -> "N/A"
+
+        [
+            "rank", string r.Rank
+            "id", r.Compound.Id
+            "chemical_class", r.Compound.ChemicalClass
+            "activity_score", $"%.1f{r.Compound.ActivityScore}"
+            "follow_up_cost", $"%.0f{r.Compound.FollowUpCost}"
+            "selectivity", $"%.2f{r.Compound.Selectivity}"
+            "drug_likeness", $"%.2f{r.Compound.DrugLikeness}"
+            "value", $"%.2f{r.Value}"
+            "selected", string r.Selected
+            "total_value", totalValue
+            "diversity_bonus", diversityBonus
+            "combined_score", combinedScore
+            "is_feasible", isFeasible
+            "budget", $"%.0f{budget}"
+            "budget_utilization_pct",
             (match solutionStats with
              | Some _ when r.Selected ->
-                 let selCost = ranked |> List.filter (fun x -> x.Selected) |> List.sumBy (fun x -> x.Compound.FollowUpCost)
+                 let selCost =
+                     ranked
+                     |> List.filter (fun x -> x.Selected)
+                     |> List.sumBy (fun x -> x.Compound.FollowUpCost)
+
                  sprintf "%.1f" (100.0 * selCost / budget)
              | _ -> "")
-          "backend", backendName
-          "shots", string shots
-          "compute_time_s", $"%.1f{elapsed}"
-          "has_vqe_failure", string r.HasVqeFailure ]
+            "backend", backendName
+            "shots", string shots
+            "compute_time_s", $"%.1f{elapsed}"
+            "has_vqe_failure", string r.HasVqeFailure
+        ]
         |> Map.ofList)
 
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultMaps
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "rank"; "id"; "chemical_class"; "activity_score"; "follow_up_cost"
-          "selectivity"; "drug_likeness"; "value"; "selected"
-          "total_value"; "diversity_bonus"; "combined_score"; "is_feasible"
-          "budget"; "budget_utilization_pct"; "backend"; "shots"
-          "compute_time_s"; "has_vqe_failure" ]
+        [
+            "rank"
+            "id"
+            "chemical_class"
+            "activity_score"
+            "follow_up_cost"
+            "selectivity"
+            "drug_likeness"
+            "value"
+            "selected"
+            "total_value"
+            "diversity_bonus"
+            "combined_score"
+            "is_feasible"
+            "budget"
+            "budget_utilization_pct"
+            "backend"
+            "shots"
+            "compute_time_s"
+            "has_vqe_failure"
+        ]
+
     let rows =
         resultMaps
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

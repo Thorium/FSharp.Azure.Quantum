@@ -17,7 +17,7 @@ namespace FSharp.Azure.Quantum.Backends
 ///   let backend = RealDWaveBackend.create config
 ///   let result = backend.Execute circuit 1000
 module RealDWaveBackend =
-    
+
     open System
     open System.Net.Http
     open System.Text
@@ -30,63 +30,71 @@ module RealDWaveBackend =
     open FSharp.Azure.Quantum.Algorithms.QuboExtraction
     open FSharp.Azure.Quantum.Algorithms.QuboToIsing
     open FSharp.Azure.Quantum.Backends.DWaveTypes
-    
+
     // ============================================================================
     // LOCAL TYPES
     // ============================================================================
-    
+
     /// Execution result for D-Wave annealing backends
-    type ExecutionResult = {
-        Measurements: int[][]
-        NumShots: int
-        BackendName: string
-        Metadata: Map<string, obj>
-    }
-    
+    type ExecutionResult =
+        {
+            Measurements: int[][]
+            NumShots: int
+            BackendName: string
+            Metadata: Map<string, obj>
+        }
+
     // ============================================================================
     // CONFIGURATION
     // ============================================================================
-    
+
     /// Configuration for D-Wave Leap Cloud API
-    type DWaveConfig = {
-        /// D-Wave API token (get from https://cloud.dwavesys.com/leap/)
-        ApiToken: string
-        
-        /// D-Wave SAPI endpoint
-        Endpoint: string
-        
-        /// Solver to use (e.g., "Advantage_system6.1")
-        Solver: string
-        
-        /// Request timeout in milliseconds
-        TimeoutMs: int option
-    }
-    
+    type DWaveConfig =
+        {
+            /// D-Wave API token (get from https://cloud.dwavesys.com/leap/)
+            ApiToken: string
+
+            /// D-Wave SAPI endpoint
+            Endpoint: string
+
+            /// Solver to use (e.g., "Advantage_system6.1")
+            Solver: string
+
+            /// Request timeout in milliseconds
+            TimeoutMs: int option
+        }
+
     /// Create default D-Wave configuration from environment variables
     let defaultConfig () : QuantumResult<DWaveConfig> =
         let apiToken = Environment.GetEnvironmentVariable("DWAVE_API_TOKEN")
-        let endpoint = 
+
+        let endpoint =
             let env = Environment.GetEnvironmentVariable("DWAVE_ENDPOINT")
-            if String.IsNullOrEmpty(env) then 
+
+            if String.IsNullOrEmpty(env) then
                 "https://cloud.dwavesys.com/sapi/v2/"
-            else env
-        
+            else
+                env
+
         let solver =
             let env = Environment.GetEnvironmentVariable("DWAVE_SOLVER")
+
             if String.IsNullOrEmpty(env) then
                 "Advantage_system6.1"
-            else env
-        
+            else
+                env
+
         if String.IsNullOrEmpty(apiToken) then
-            Error (QuantumError.ValidationError ("Configuration", "DWAVE_API_TOKEN environment variable not set"))
+            Error(QuantumError.ValidationError("Configuration", "DWAVE_API_TOKEN environment variable not set"))
         else
-            Ok {
-                ApiToken = apiToken
-                Endpoint = endpoint
-                Solver = solver
-                TimeoutMs = Some 300000  // 5 minutes
-            }
-    
+            Ok
+                {
+                    ApiToken = apiToken
+                    Endpoint = endpoint
+                    Solver = solver
+                    TimeoutMs = Some 300000 // 5 minutes
+                }
+
     // ============================================================================
     // D-WAVE SAPI "qp" WIRE FORMAT
     //
@@ -102,49 +110,68 @@ module RealDWaveBackend =
     // ============================================================================
 
     /// D-Wave solution result (decoded from SAPI "qp" answer)
-    type private DWaveSolution = {
-        solutions: int[][]
-        energies: float[]
-        num_occurrences: int[]
-        timing: Map<string, float> option
-    }
+    type private DWaveSolution =
+        {
+            solutions: int[][]
+            energies: float[]
+            num_occurrences: int[]
+            timing: Map<string, float> option
+        }
 
     /// QPU solver working graph, from GET solvers/remote/{id}/
     /// (properties.qubits and properties.couplers)
-    type private SolverTopology = {
-        /// Active qubit indices, in SAPI encoding order
-        Qubits: int[]
-        /// Active couplers (qubit pairs), in SAPI encoding order
-        Couplers: (int * int)[]
-        /// Qubits as a set, for validation
-        QubitSet: Set<int>
-        /// Couplers normalized to (min, max), for validation
-        CouplerSet: Set<int * int>
-    }
+    type private SolverTopology =
+        {
+            /// Active qubit indices, in SAPI encoding order
+            Qubits: int[]
+            /// Active couplers (qubit pairs), in SAPI encoding order
+            Couplers: (int * int)[]
+            /// Qubits as a set, for validation
+            QubitSet: Set<int>
+            /// Couplers normalized to (min, max), for validation
+            CouplerSet: Set<int * int>
+        }
 
     /// Encode a float array as base64 little-endian 64-bit doubles (SAPI "qp" encoding)
     let private encodeDoubles (values: float[]) : string =
-        let bytes = Array.zeroCreate<byte> (values.Length * 8)
-        values |> Array.iteri (fun i v ->
+        let bytes = Array.zeroCreate<byte>(values.Length * 8)
+
+        values
+        |> Array.iteri (fun i v ->
             let b = BitConverter.GetBytes(v)
             let b = if BitConverter.IsLittleEndian then b else Array.rev b
             Array.blit b 0 bytes (i * 8) 8)
+
         Convert.ToBase64String(bytes)
 
     /// Decode base64 little-endian 64-bit doubles (SAPI "qp" encoding)
     let private decodeDoubles (base64: string) : float[] =
         let bytes = Convert.FromBase64String(base64)
+
         Array.init (bytes.Length / 8) (fun i ->
             let slice = bytes.[i * 8 .. i * 8 + 7]
-            let slice = if BitConverter.IsLittleEndian then slice else Array.rev slice
+
+            let slice =
+                if BitConverter.IsLittleEndian then
+                    slice
+                else
+                    Array.rev slice
+
             BitConverter.ToDouble(slice, 0))
 
     /// Decode base64 little-endian 32-bit integers (SAPI "qp" encoding)
     let private decodeInts (base64: string) : int[] =
         let bytes = Convert.FromBase64String(base64)
+
         Array.init (bytes.Length / 4) (fun i ->
             let slice = bytes.[i * 4 .. i * 4 + 3]
-            let slice = if BitConverter.IsLittleEndian then slice else Array.rev slice
+
+            let slice =
+                if BitConverter.IsLittleEndian then
+                    slice
+                else
+                    Array.rev slice
+
             BitConverter.ToInt32(slice, 0))
 
     /// Encode an Ising problem in the SAPI "qp" data format for a given solver.
@@ -160,33 +187,47 @@ module RealDWaveBackend =
     /// every variable must be a physical qubit and every quadratic term a
     /// physical coupler. Otherwise an Error is returned (minor-embedding of
     /// logical problems is not performed here).
-    let private encodeProblemAsQp (topology: SolverTopology) (ising: IsingProblem) : Result<{| lin: string; quad: string |}, string> =
+    let private encodeProblemAsQp
+        (topology: SolverTopology)
+        (ising: IsingProblem)
+        : Result<{| lin: string; quad: string |}, string> =
         // Active qubits = all variables mentioned by the problem
         let activeQubits =
             let fromLinear = ising.LinearCoeffs |> Map.toSeq |> Seq.map fst
-            let fromQuadratic = ising.QuadraticCoeffs |> Map.toSeq |> Seq.collect (fun ((i, j), _) -> [i; j])
+
+            let fromQuadratic =
+                ising.QuadraticCoeffs |> Map.toSeq |> Seq.collect (fun ((i, j), _) -> [ i; j ])
+
             Set.ofSeq (Seq.append fromLinear fromQuadratic)
 
         // Validate against the hardware graph
         let invalidQubits =
             activeQubits |> Set.filter (fun q -> not (topology.QubitSet.Contains q))
+
         let invalidCouplers =
             ising.QuadraticCoeffs
             |> Map.toSeq
             |> Seq.map fst
-            |> Seq.filter (fun (i, j) -> not (topology.CouplerSet.Contains (min i j, max i j)))
+            |> Seq.filter (fun (i, j) -> not (topology.CouplerSet.Contains(min i j, max i j)))
             |> Seq.toList
 
         if not (Set.isEmpty invalidQubits) then
             let sample = invalidQubits |> Seq.truncate 5 |> Seq.map string |> String.concat ", "
-            Error ($"Problem uses {Set.count invalidQubits} variable(s) that are not working qubits on this solver (e.g. {sample}). " +
-                   "Direct QPU submission requires the problem to be expressed on the solver's working graph; " +
-                   "minor-embedding of logical problems is not implemented in this backend.")
+
+            Error(
+                $"Problem uses {Set.count invalidQubits} variable(s) that are not working qubits on this solver (e.g. {sample}). "
+                + "Direct QPU submission requires the problem to be expressed on the solver's working graph; "
+                + "minor-embedding of logical problems is not implemented in this backend."
+            )
         elif not (List.isEmpty invalidCouplers) then
-            let sample = invalidCouplers |> Seq.truncate 5 |> Seq.map string |> String.concat ", "
-            Error ($"Problem uses {List.length invalidCouplers} coupling(s) that are not physical couplers on this solver (e.g. {sample}). " +
-                   "Direct QPU submission requires the problem to be expressed on the solver's working graph; " +
-                   "minor-embedding of logical problems is not implemented in this backend.")
+            let sample =
+                invalidCouplers |> Seq.truncate 5 |> Seq.map string |> String.concat ", "
+
+            Error(
+                $"Problem uses {List.length invalidCouplers} coupling(s) that are not physical couplers on this solver (e.g. {sample}). "
+                + "Direct QPU submission requires the problem to be expressed on the solver's working graph; "
+                + "minor-embedding of logical problems is not implemented in this backend."
+            )
         else
             let lin =
                 topology.Qubits
@@ -202,11 +243,15 @@ module RealDWaveBackend =
                     if activeQubits.Contains q1 && activeQubits.Contains q2 then
                         let j12 = ising.QuadraticCoeffs |> Map.tryFind (q1, q2) |> Option.defaultValue 0.0
                         let j21 = ising.QuadraticCoeffs |> Map.tryFind (q2, q1) |> Option.defaultValue 0.0
-                        Some (j12 + j21)
+                        Some(j12 + j21)
                     else
                         None)
 
-            Ok {| lin = encodeDoubles lin; quad = encodeDoubles quad |}
+            Ok
+                {|
+                    lin = encodeDoubles lin
+                    quad = encodeDoubles quad
+                |}
 
     /// Decode a SAPI "qp"-format answer for an Ising problem.
     ///
@@ -228,31 +273,39 @@ module RealDWaveBackend =
                 Error $"Unsupported D-Wave answer format '{format}' (expected 'qp')"
             else
                 let energiesRaw = decodeDoubles (answer.GetProperty("energies").GetString())
+
                 let offset =
                     match answer.TryGetProperty "offset" with
                     | true, o when o.ValueKind = JsonValueKind.Number -> o.GetDouble()
                     | _ -> 0.0
+
                 let energies = energiesRaw |> Array.map (fun e -> e + offset)
 
-                let activeVariables = decodeInts (answer.GetProperty("active_variables").GetString())
+                let activeVariables =
+                    decodeInts (answer.GetProperty("active_variables").GetString())
 
                 let numOccurrences =
                     match answer.TryGetProperty "num_occurrences" with
                     | true, n when n.ValueKind = JsonValueKind.String -> decodeInts (n.GetString())
-                    | _ -> Array.create energies.Length 1  // answer_mode=raw: one occurrence each
+                    | _ -> Array.create energies.Length 1 // answer_mode=raw: one occurrence each
 
                 let numVariables = answer.GetProperty("num_variables").GetInt32()
-                let solutionBytes = Convert.FromBase64String(answer.GetProperty("solutions").GetString())
+
+                let solutionBytes =
+                    Convert.FromBase64String(answer.GetProperty("solutions").GetString())
+
                 let bytesPerSolution = (activeVariables.Length + 7) / 8
 
                 let solutions =
                     Array.init energies.Length (fun s ->
                         // Inactive variables default to 0 ("unused" spin)
                         let solution = Array.zeroCreate<int> numVariables
+
                         for k in 0 .. activeVariables.Length - 1 do
                             let b = int solutionBytes.[s * bytesPerSolution + (k / 8)]
                             let bit = (b >>> (7 - (k % 8))) &&& 1
                             solution.[activeVariables.[k]] <- if bit = 1 then 1 else -1
+
                         solution)
 
                 let timing =
@@ -261,18 +314,20 @@ module RealDWaveBackend =
                         t.EnumerateObject()
                         |> Seq.choose (fun p ->
                             if p.Value.ValueKind = JsonValueKind.Number then
-                                Some (p.Name, p.Value.GetDouble())
-                            else None)
+                                Some(p.Name, p.Value.GetDouble())
+                            else
+                                None)
                         |> Map.ofSeq
                         |> Some
                     | _ -> None
 
-                Ok {
-                    solutions = solutions
-                    energies = energies
-                    num_occurrences = numOccurrences
-                    timing = timing
-                }
+                Ok
+                    {
+                        solutions = solutions
+                        energies = energies
+                        num_occurrences = numOccurrences
+                        timing = timing
+                    }
         with ex ->
             Error $"Failed to decode D-Wave 'qp' answer: {ex.Message}"
 
@@ -282,19 +337,20 @@ module RealDWaveBackend =
 
     /// D-Wave SAPI client
     type private DWaveClient(config: DWaveConfig) =
-        
+
         let httpClient = new HttpClient()
-        do 
+
+        do
             httpClient.DefaultRequestHeaders.Add("X-Auth-Token", config.ApiToken)
-            config.TimeoutMs |> Option.iter (fun ms ->
-                httpClient.Timeout <- TimeSpan.FromMilliseconds(float ms)
-            )
-        
+
+            config.TimeoutMs
+            |> Option.iter (fun ms -> httpClient.Timeout <- TimeSpan.FromMilliseconds(float ms))
+
         let jsonOptions = JsonSerializerOptions()
         do jsonOptions.PropertyNamingPolicy <- JsonNamingPolicy.SnakeCaseLower
 
         /// Cached solver topology (fetched once per client)
-        let mutable topologyCache : SolverTopology option = None
+        let mutable topologyCache: SolverTopology option = None
 
         /// Fetch the solver's working graph (qubits/couplers) from SAPI.
         /// Required to build the "qp" problem encoding, whose coefficient
@@ -311,36 +367,44 @@ module RealDWaveBackend =
 
                         if not response.IsSuccessStatusCode then
                             let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                            return Error $"Failed to fetch solver '{config.Solver}' ({int response.StatusCode}): {errorBody}"
+
+                            return
+                                Error
+                                    $"Failed to fetch solver '{config.Solver}' ({int response.StatusCode}): {errorBody}"
                         else
                             let! responseBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
                             use doc = JsonDocument.Parse(responseBody)
 
                             match doc.RootElement.TryGetProperty "properties" with
-                            | false, _ ->
-                                return Error $"Solver '{config.Solver}' response has no 'properties' field"
+                            | false, _ -> return Error $"Solver '{config.Solver}' response has no 'properties' field"
                             | true, properties ->
                                 match properties.TryGetProperty("qubits"), properties.TryGetProperty("couplers") with
                                 | (true, qubitsEl), (true, couplersEl) ->
                                     let qubits =
-                                        qubitsEl.EnumerateArray()
-                                        |> Seq.map (fun q -> q.GetInt32())
-                                        |> Seq.toArray
+                                        qubitsEl.EnumerateArray() |> Seq.map (fun q -> q.GetInt32()) |> Seq.toArray
+
                                     let couplers =
                                         couplersEl.EnumerateArray()
                                         |> Seq.map (fun c -> (c.[0].GetInt32(), c.[1].GetInt32()))
                                         |> Seq.toArray
-                                    let topology = {
-                                        Qubits = qubits
-                                        Couplers = couplers
-                                        QubitSet = Set.ofArray qubits
-                                        CouplerSet = couplers |> Array.map (fun (a, b) -> (min a b, max a b)) |> Set.ofArray
-                                    }
+
+                                    let topology =
+                                        {
+                                            Qubits = qubits
+                                            Couplers = couplers
+                                            QubitSet = Set.ofArray qubits
+                                            CouplerSet =
+                                                couplers |> Array.map (fun (a, b) -> (min a b, max a b)) |> Set.ofArray
+                                        }
+
                                     topologyCache <- Some topology
                                     return Ok topology
                                 | _ ->
-                                    return Error ($"Solver '{config.Solver}' does not expose qubits/couplers properties. " +
-                                                  "Only structured QPU solvers are supported by this backend (not hybrid solvers).")
+                                    return
+                                        Error(
+                                            $"Solver '{config.Solver}' does not expose qubits/couplers properties. "
+                                            + "Only structured QPU solvers are supported by this backend (not hybrid solvers)."
+                                        )
                     with ex ->
                         return Error $"Failed to fetch solver topology: {ex.Message}"
             }
@@ -360,30 +424,31 @@ module RealDWaveBackend =
                         match encodeProblemAsQp topology ising with
                         | Error e -> return Error e
                         | Ok qp ->
-                            let problem = {|
-                                solver = config.Solver
-                                ``type`` = "ising"
-                                data = {|
-                                    format = "qp"
-                                    lin = qp.lin
-                                    quad = qp.quad
-                                    // Always submit 0: whether SAPI folds a problem offset into
-                                    // returned energies is version-dependent, so keeping the wire
-                                    // offset at 0 makes answer energies unambiguously the raw
-                                    // lin/quad Ising energies. The local ising.Offset is added
-                                    // exactly once in PollJobAsync.
-                                    offset = 0.0
+                            let problem =
+                                {|
+                                    solver = config.Solver
+                                    ``type`` = "ising"
+                                    data =
+                                        {|
+                                            format = "qp"
+                                            lin = qp.lin
+                                            quad = qp.quad
+                                            // Always submit 0: whether SAPI folds a problem offset into
+                                            // returned energies is version-dependent, so keeping the wire
+                                            // offset at 0 makes answer energies unambiguously the raw
+                                            // lin/quad Ising energies. The local ising.Offset is added
+                                            // exactly once in PollJobAsync.
+                                            offset = 0.0
+                                        |}
+                                    ``params`` = {| num_reads = numReads |}
                                 |}
-                                ``params`` = {| num_reads = numReads |}
-                            |}
 
                             // SAPI expects an array of problem messages
                             let json = JsonSerializer.Serialize([| problem |], jsonOptions)
                             let content = new StringContent(json, Encoding.UTF8, "application/json")
 
                             use! response =
-                                httpClient.PostAsync($"{config.Endpoint}problems/", content)
-                                |> Async.AwaitTask
+                                httpClient.PostAsync($"{config.Endpoint}problems/", content) |> Async.AwaitTask
 
                             if not response.IsSuccessStatusCode then
                                 let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
@@ -398,9 +463,10 @@ module RealDWaveBackend =
                                     return Error $"Unexpected D-Wave submit response: {responseBody}"
                                 else
                                     let status = root.[0]
+
                                     match status.TryGetProperty "id" with
                                     | true, idEl when idEl.ValueKind = JsonValueKind.String ->
-                                        return Ok (idEl.GetString())
+                                        return Ok(idEl.GetString())
                                     | _ ->
                                         // Per-problem submission error (e.g. invalid solver/params)
                                         let errorMsg =
@@ -410,12 +476,13 @@ module RealDWaveBackend =
                                                 match status.TryGetProperty "error_message" with
                                                 | true, e -> e.GetString()
                                                 | _ -> status.GetRawText()
+
                                         return Error $"D-Wave rejected problem submission: {errorMsg}"
 
                 with ex ->
                     return Error $"Failed to submit D-Wave problem: {ex.Message}"
             }
-        
+
         /// Poll for job completion.
         /// GET problems/{id}/ returns the problem status message; once the
         /// status is COMPLETED the same message carries the "answer" object
@@ -431,8 +498,7 @@ module RealDWaveBackend =
                         return Error $"D-Wave job {jobId} timed out after 300 seconds"
                     else
                         use! response =
-                            httpClient.GetAsync $"{config.Endpoint}problems/{jobId}/"
-                            |> Async.AwaitTask
+                            httpClient.GetAsync $"{config.Endpoint}problems/{jobId}/" |> Async.AwaitTask
 
                         if not response.IsSuccessStatusCode then
                             let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
@@ -455,54 +521,58 @@ module RealDWaveBackend =
                                     return
                                         decodeQpAnswer answer
                                         |> Result.map (fun sol ->
-                                            if problemOffset = 0.0 then sol
-                                            else { sol with energies = sol.energies |> Array.map (fun e -> e + problemOffset) })
+                                            if problemOffset = 0.0 then
+                                                sol
+                                            else
+                                                { sol with
+                                                    energies = sol.energies |> Array.map (fun e -> e + problemOffset)
+                                                })
                                 | _ -> return Error $"D-Wave job {jobId} completed but response contains no answer"
-                            | "FAILED" | "CANCELLED" ->
+                            | "FAILED"
+                            | "CANCELLED" ->
                                 let detail =
                                     match root.TryGetProperty "error_message" with
                                     | true, e when e.ValueKind = JsonValueKind.String -> $": {e.GetString()}"
                                     | _ -> ""
+
                                 return Error $"D-Wave job {jobId} failed with status: {status}{detail}"
                             | _ ->
                                 // PENDING / IN_PROGRESS - wait and retry
                                 do! Async.Sleep 5000
                                 return! pollLoop (attempts + 1)
                 }
-            
+
             async {
                 try
                     return! pollLoop 0
                 with ex ->
                     return Error $"Failed to poll D-Wave job: {ex.Message}"
             }
-        
+
         interface IDisposable with
             member _.Dispose() = httpClient.Dispose()
-    
+
     // ============================================================================
     // BACKEND IMPLEMENTATION
     // ============================================================================
-    
+
     /// Real D-Wave backend using Leap Cloud API
     type RealDWaveBackend(config: DWaveConfig) =
-        
+
         let client = new DWaveClient(config)
-        
+
         /// Convert a raw SAPI solution (Ising spins) to a DWaveSolution domain type.
         /// D-Wave SAPI returns Ising solutions as {-1, +1} natively.
         let convertSapiSolution (spins: int[]) (energy: float) (occurrences: int) : DWaveTypes.DWaveSolution =
-            let spinMap =
-                spins
-                |> Array.mapi (fun i s -> (i, s))
-                |> Map.ofArray
+            let spinMap = spins |> Array.mapi (fun i s -> (i, s)) |> Map.ofArray
+
             {
                 Spins = spinMap
                 Energy = energy
                 NumOccurrences = occurrences
                 ChainBreakFraction = 0.0
             }
-        
+
         /// Get max qubits for solver
         let getMaxQubits (solverName: string) : int =
             if solverName.Contains "system6" then 5640
@@ -510,111 +580,126 @@ module RealDWaveBackend =
             elif solverName.Contains "system1" then 5000
             elif solverName.Contains "prototype" then 1200
             elif solverName.Contains "2000q" then 2048
-            else 5000  // Default
-        
+            else 5000 // Default
+
         /// Execute circuit on D-Wave hardware
         member private _.ExecuteCore(circuit: ICircuit, numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 // Extract QUBO from QAOA circuit
                 match extractFromICircuit circuit with
                 | Error e ->
-                    return Error (QuantumError.ValidationError ("QUBO extraction", $"Failed to extract QUBO from circuit: {e}"))
-                
+                    return
+                        Error(
+                            QuantumError.ValidationError("QUBO extraction", $"Failed to extract QUBO from circuit: {e}")
+                        )
+
                 | Ok qubo ->
                     // Convert QUBO to Ising
                     let ising = quboToIsing qubo
-                    
+
                     // Validate qubit count
                     let numQubits = getNumVariables qubo
                     let maxQubits = getMaxQubits config.Solver
-                    
+
                     if numQubits > maxQubits then
-                        return Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"))
+                        return
+                            Error(
+                                QuantumError.ValidationError(
+                                    "qubit count",
+                                    $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
+                                )
+                            )
                     else
                         // Submit to D-Wave
-                        
+
                         match! client.SubmitProblemAsync(ising, numShots) with
-                        | Error e -> return Error (QuantumError.BackendError ("D-Wave Submit", e))
+                        | Error e -> return Error(QuantumError.BackendError("D-Wave Submit", e))
                         | Ok jobId ->
                             // Wait for completion
-                            
+
                             match! client.PollJobAsync(jobId, ising.Offset) with
-                            | Error e -> return Error (QuantumError.BackendError ("D-Wave Poll", e))
+                            | Error e -> return Error(QuantumError.BackendError("D-Wave Poll", e))
                             | Ok solution ->
                                 // Convert Ising spin solutions to binary measurements
                                 // D-Wave returns Ising spins {-1,+1}; convert to QUBO binary {0,1}
                                 let measurements =
                                     Array.zip solution.solutions solution.num_occurrences
                                     |> Array.collect (fun (spins, occurrences) ->
-                                        let spinMap =
-                                            spins
-                                            |> Array.mapi (fun i s -> (i, s))
-                                            |> Map.ofArray
+                                        let spinMap = spins |> Array.mapi (fun i s -> (i, s)) |> Map.ofArray
                                         let binary = isingToQubo spinMap
+
                                         let bitstring =
                                             [| 0 .. numQubits - 1 |]
                                             |> Array.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
-                                        Array.replicate occurrences bitstring
-                                    )
-                                
+
+                                        Array.replicate occurrences bitstring)
+
                                 let metadata =
-                                    Map.ofList [
-                                        ("job_id", box jobId)
-                                        ("solver", box config.Solver)
-                                        ("endpoint", box config.Endpoint)
-                                        ("timing", box solution.timing)
-                                    ]
-                                
-                                let result = {
-                                    Measurements = measurements
-                                    NumShots = numShots
-                                    BackendName = $"D-Wave {config.Solver}"
-                                    Metadata = metadata
-                                }
-                                
+                                    Map.ofList
+                                        [
+                                            ("job_id", box jobId)
+                                            ("solver", box config.Solver)
+                                            ("endpoint", box config.Endpoint)
+                                            ("timing", box solution.timing)
+                                        ]
+
+                                let result =
+                                    {
+                                        Measurements = measurements
+                                        NumShots = numShots
+                                        BackendName = $"D-Wave {config.Solver}"
+                                        Metadata = metadata
+                                    }
+
                                 return Ok result
             }
-        
+
         /// Execute circuit and return full result with measurements
         [<System.Obsolete("Use ExecuteCore (async) instead. This synchronous wrapper blocks the calling thread.")>]
         member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
             if numShots <= 0 then
-                Error (QuantumError.ValidationError ("numShots", $"must be > 0, got {numShots}"))
+                Error(QuantumError.ValidationError("numShots", $"must be > 0, got {numShots}"))
             else
                 this.ExecuteCore(circuit, numShots) |> Async.RunSynchronously
-        
+
         // ================================================================
         // IQuantumBackend IMPLEMENTATION
         // D-Wave annealing backends extract QUBO from circuits, convert
         // to Ising, and submit to real hardware via Leap Cloud API.
         // ================================================================
-        
+
         interface BackendAbstraction.IQuantumBackend with
             member _.Name = $"D-Wave {config.Solver}"
-            
+
             member _.NativeStateType = QuantumStateType.Annealing
-            
-            member _.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+
+            member _.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 match extractFromICircuit circuit with
                 | Error e ->
-                    Error (QuantumError.ValidationError ("QUBO extraction", $"Failed to extract QUBO from circuit: {e}"))
+                    Error(QuantumError.ValidationError("QUBO extraction", $"Failed to extract QUBO from circuit: {e}"))
                 | Ok qubo ->
                     let ising = quboToIsing qubo
                     let numQubits = getNumVariables qubo
                     let maxQubits = getMaxQubits config.Solver
+
                     if numQubits > maxQubits then
-                        Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"))
+                        Error(
+                            QuantumError.ValidationError(
+                                "qubit count",
+                                $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
+                            )
+                        )
                     else
                         // Submit to D-Wave and poll for result synchronously
                         let submitResult = client.SubmitProblemAsync(ising, 1) |> Async.RunSynchronously
+
                         match submitResult with
-                        | Error e ->
-                            Error (QuantumError.BackendError ("D-Wave Submit", e))
+                        | Error e -> Error(QuantumError.BackendError("D-Wave Submit", e))
                         | Ok jobId ->
                             let pollResult = client.PollJobAsync(jobId, ising.Offset) |> Async.RunSynchronously
+
                             match pollResult with
-                            | Error e ->
-                                Error (QuantumError.BackendError ("D-Wave Poll", e))
+                            | Error e -> Error(QuantumError.BackendError("D-Wave Poll", e))
                             | Ok solution ->
                                 // Convert D-Wave SAPI solutions to DWaveSolution format
                                 let dwaveSolutions =
@@ -622,26 +707,35 @@ module RealDWaveBackend =
                                     |> Array.map (fun (spins, energy, occurrences) ->
                                         convertSapiSolution spins energy occurrences)
                                     |> Array.toList
-                                Ok (QuantumState.IsingSamples (box ising, box dwaveSolutions))
-            
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                let emptyIsing : IsingProblem = {
-                    LinearCoeffs = Map.empty
-                    QuadraticCoeffs = Map.empty
-                    Offset = 0.0
-                }
-                Ok (QuantumState.IsingSamples (box emptyIsing, box []))
-            
-            member this.ApplyOperation (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+
+                                Ok(QuantumState.IsingSamples(box ising, box dwaveSolutions))
+
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                let emptyIsing: IsingProblem =
+                    {
+                        LinearCoeffs = Map.empty
+                        QuadraticCoeffs = Map.empty
+                        Offset = 0.0
+                    }
+
+                Ok(QuantumState.IsingSamples(box emptyIsing, box []))
+
+            member this.ApplyOperation
+                (operation: BackendAbstraction.QuantumOperation)
+                (state: QuantumState)
+                : Result<QuantumState, QuantumError> =
                 match operation with
                 | BackendAbstraction.QuantumOperation.Sequence ops ->
                     ops
-                    |> List.fold (fun stateResult op ->
-                        stateResult |> Result.bind (fun currentState -> (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState)
-                    ) (Ok state)
-                | BackendAbstraction.QuantumOperation.Extension (:? DWaveBackend.AnnealIsingOperation as annealOp) ->
+                    |> List.fold
+                        (fun stateResult op ->
+                            stateResult
+                            |> Result.bind (fun currentState ->
+                                (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState))
+                        (Ok state)
+                | BackendAbstraction.QuantumOperation.Extension(:? DWaveBackend.AnnealIsingOperation as annealOp) ->
                     if annealOp.NumReads <= 0 then
-                        Error (QuantumError.ValidationError ("numReads", $"must be > 0, got {annealOp.NumReads}"))
+                        Error(QuantumError.ValidationError("numReads", $"must be > 0, got {annealOp.NumReads}"))
                     else
                         match state with
                         | QuantumState.IsingSamples _ ->
@@ -649,121 +743,192 @@ module RealDWaveBackend =
                             let submitResult =
                                 client.SubmitProblemAsync(annealOp.Problem, annealOp.NumReads)
                                 |> Async.RunSynchronously
+
                             match submitResult with
-                            | Error e ->
-                                Error (QuantumError.BackendError ("D-Wave Submit", e))
+                            | Error e -> Error(QuantumError.BackendError("D-Wave Submit", e))
                             | Ok jobId ->
-                                let pollResult = client.PollJobAsync(jobId, annealOp.Problem.Offset) |> Async.RunSynchronously
+                                let pollResult =
+                                    client.PollJobAsync(jobId, annealOp.Problem.Offset) |> Async.RunSynchronously
+
                                 match pollResult with
-                                | Error e ->
-                                    Error (QuantumError.BackendError ("D-Wave Poll", e))
+                                | Error e -> Error(QuantumError.BackendError("D-Wave Poll", e))
                                 | Ok solution ->
                                     let dwaveSolutions =
                                         Array.zip3 solution.solutions solution.energies solution.num_occurrences
                                         |> Array.map (fun (spins, energy, occurrences) ->
                                             convertSapiSolution spins energy occurrences)
                                         |> Array.toList
-                                    Ok (QuantumState.IsingSamples (box annealOp.Problem, box dwaveSolutions))
+
+                                    Ok(QuantumState.IsingSamples(box annealOp.Problem, box dwaveSolutions))
                         | _ ->
-                            Error (QuantumError.OperationError ("ApplyOperation", $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}"))
+                            Error(
+                                QuantumError.OperationError(
+                                    "ApplyOperation",
+                                    $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}"
+                                )
+                            )
                 | BackendAbstraction.QuantumOperation.Extension ext ->
-                    Error (QuantumError.OperationError ("ApplyOperation", $"Extension operation '{ext.Id}' is not supported by D-Wave backend"))
+                    Error(
+                        QuantumError.OperationError(
+                            "ApplyOperation",
+                            $"Extension operation '{ext.Id}' is not supported by D-Wave backend"
+                        )
+                    )
                 | _ ->
-                    Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports annealing intent operations"))
-            
-            member this.SupportsOperation (operation: BackendAbstraction.QuantumOperation) : bool =
+                    Error(
+                        QuantumError.OperationError(
+                            "ApplyOperation",
+                            "D-Wave annealing backend only supports annealing intent operations"
+                        )
+                    )
+
+            member this.SupportsOperation(operation: BackendAbstraction.QuantumOperation) : bool =
                 match operation with
-                | BackendAbstraction.QuantumOperation.Extension (:? DWaveBackend.AnnealIsingOperation) -> true
+                | BackendAbstraction.QuantumOperation.Extension(:? DWaveBackend.AnnealIsingOperation) -> true
                 | BackendAbstraction.QuantumOperation.Sequence ops ->
-                    ops |> List.forall (fun op -> (this :> BackendAbstraction.IQuantumBackend).SupportsOperation op)
+                    ops
+                    |> List.forall (fun op -> (this :> BackendAbstraction.IQuantumBackend).SupportsOperation op)
                 | _ -> false
 
-            member this.ExecuteToStateAsync (circuit: ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member this.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (_ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 // RealDWaveBackend has true async I/O (client.SubmitProblemAsync / client.PollJobAsync).
                 // ExecuteToState already uses these internally via Async.RunSynchronously.
                 // Here we bridge the Async pipeline to Task without blocking.
                 match extractFromICircuit circuit with
                 | Error e ->
-                    Task.FromResult(Error (QuantumError.ValidationError ("QUBO extraction", $"Failed to extract QUBO from circuit: {e}")))
+                    Task.FromResult(
+                        Error(
+                            QuantumError.ValidationError("QUBO extraction", $"Failed to extract QUBO from circuit: {e}")
+                        )
+                    )
                 | Ok qubo ->
                     let ising = quboToIsing qubo
                     let numQubits = getNumVariables qubo
                     let maxQubits = getMaxQubits config.Solver
-                    if numQubits > maxQubits then
-                        Task.FromResult(Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}")))
-                    else
-                        let asyncWork = async {
-                            match! client.SubmitProblemAsync(ising, 1) with
-                            | Error e ->
-                                return Error (QuantumError.BackendError ("D-Wave Submit", e))
-                            | Ok jobId ->
-                                match! client.PollJobAsync(jobId, ising.Offset) with
-                                | Error e ->
-                                    return Error (QuantumError.BackendError ("D-Wave Poll", e))
-                                | Ok solution ->
-                                    let dwaveSolutions =
-                                        Array.zip3 solution.solutions solution.energies solution.num_occurrences
-                                        |> Array.map (fun (spins, energy, occurrences) ->
-                                            convertSapiSolution spins energy occurrences)
-                                        |> Array.toList
-                                    return Ok (QuantumState.IsingSamples (box ising, box dwaveSolutions))
-                        }
-                        Async.StartAsTask(asyncWork)
 
-            member this.ApplyOperationAsync (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
-                match operation with
-                | BackendAbstraction.QuantumOperation.Sequence ops ->
-                    // Apply sequence by folding async over operations
-                    let asyncWork = async {
-                        let mutable current = Ok state
-                        for op in ops do
-                            match current with
-                            | Error _ -> ()
-                            | Ok currentState ->
-                                let! next =
-                                    (this :> BackendAbstraction.IQuantumBackend).ApplyOperationAsync op currentState _ct
-                                    |> Async.AwaitTask
-                                current <- next
-                        return current
-                    }
-                    Async.StartAsTask(asyncWork)
-                | BackendAbstraction.QuantumOperation.Extension (:? DWaveBackend.AnnealIsingOperation as annealOp) ->
-                    if annealOp.NumReads <= 0 then
-                        Task.FromResult(Error (QuantumError.ValidationError ("numReads", $"must be > 0, got {annealOp.NumReads}")))
+                    if numQubits > maxQubits then
+                        Task.FromResult(
+                            Error(
+                                QuantumError.ValidationError(
+                                    "qubit count",
+                                    $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
+                                )
+                            )
+                        )
                     else
-                        match state with
-                        | QuantumState.IsingSamples _ ->
-                            let asyncWork = async {
-                                match! client.SubmitProblemAsync(annealOp.Problem, annealOp.NumReads) with
-                                | Error e ->
-                                    return Error (QuantumError.BackendError ("D-Wave Submit", e))
+                        let asyncWork =
+                            async {
+                                match! client.SubmitProblemAsync(ising, 1) with
+                                | Error e -> return Error(QuantumError.BackendError("D-Wave Submit", e))
                                 | Ok jobId ->
-                                    match! client.PollJobAsync(jobId, annealOp.Problem.Offset) with
-                                    | Error e ->
-                                        return Error (QuantumError.BackendError ("D-Wave Poll", e))
+                                    match! client.PollJobAsync(jobId, ising.Offset) with
+                                    | Error e -> return Error(QuantumError.BackendError("D-Wave Poll", e))
                                     | Ok solution ->
                                         let dwaveSolutions =
                                             Array.zip3 solution.solutions solution.energies solution.num_occurrences
                                             |> Array.map (fun (spins, energy, occurrences) ->
                                                 convertSapiSolution spins energy occurrences)
                                             |> Array.toList
-                                        return Ok (QuantumState.IsingSamples (box annealOp.Problem, box dwaveSolutions))
+
+                                        return Ok(QuantumState.IsingSamples(box ising, box dwaveSolutions))
                             }
+
+                        Async.StartAsTask(asyncWork)
+
+            member this.ApplyOperationAsync
+                (operation: BackendAbstraction.QuantumOperation)
+                (state: QuantumState)
+                (_ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
+                match operation with
+                | BackendAbstraction.QuantumOperation.Sequence ops ->
+                    // Apply sequence by folding async over operations
+                    let asyncWork =
+                        async {
+                            let mutable current = Ok state
+
+                            for op in ops do
+                                match current with
+                                | Error _ -> ()
+                                | Ok currentState ->
+                                    let! next =
+                                        (this :> BackendAbstraction.IQuantumBackend).ApplyOperationAsync
+                                            op
+                                            currentState
+                                            _ct
+                                        |> Async.AwaitTask
+
+                                    current <- next
+
+                            return current
+                        }
+
+                    Async.StartAsTask(asyncWork)
+                | BackendAbstraction.QuantumOperation.Extension(:? DWaveBackend.AnnealIsingOperation as annealOp) ->
+                    if annealOp.NumReads <= 0 then
+                        Task.FromResult(
+                            Error(QuantumError.ValidationError("numReads", $"must be > 0, got {annealOp.NumReads}"))
+                        )
+                    else
+                        match state with
+                        | QuantumState.IsingSamples _ ->
+                            let asyncWork =
+                                async {
+                                    match! client.SubmitProblemAsync(annealOp.Problem, annealOp.NumReads) with
+                                    | Error e -> return Error(QuantumError.BackendError("D-Wave Submit", e))
+                                    | Ok jobId ->
+                                        match! client.PollJobAsync(jobId, annealOp.Problem.Offset) with
+                                        | Error e -> return Error(QuantumError.BackendError("D-Wave Poll", e))
+                                        | Ok solution ->
+                                            let dwaveSolutions =
+                                                Array.zip3 solution.solutions solution.energies solution.num_occurrences
+                                                |> Array.map (fun (spins, energy, occurrences) ->
+                                                    convertSapiSolution spins energy occurrences)
+                                                |> Array.toList
+
+                                            return
+                                                Ok(QuantumState.IsingSamples(box annealOp.Problem, box dwaveSolutions))
+                                }
+
                             Async.StartAsTask(asyncWork)
                         | _ ->
-                            Task.FromResult(Error (QuantumError.OperationError ("ApplyOperation", $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}")))
+                            Task.FromResult(
+                                Error(
+                                    QuantumError.OperationError(
+                                        "ApplyOperation",
+                                        $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}"
+                                    )
+                                )
+                            )
                 | BackendAbstraction.QuantumOperation.Extension ext ->
-                    Task.FromResult(Error (QuantumError.OperationError ("ApplyOperation", $"Extension operation '{ext.Id}' is not supported by D-Wave backend")))
+                    Task.FromResult(
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                $"Extension operation '{ext.Id}' is not supported by D-Wave backend"
+                            )
+                        )
+                    )
                 | _ ->
-                    Task.FromResult(Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports annealing intent operations")))
-        
+                    Task.FromResult(
+                        Error(
+                            QuantumError.OperationError(
+                                "ApplyOperation",
+                                "D-Wave annealing backend only supports annealing intent operations"
+                            )
+                        )
+                    )
+
         interface IDisposable with
             member _.Dispose() = (client :> IDisposable).Dispose()
-    
+
     // ============================================================================
     // FACTORY FUNCTIONS
     // ============================================================================
-    
+
     /// Create real D-Wave backend with configuration
     ///
     /// Parameters:
@@ -772,16 +937,15 @@ module RealDWaveBackend =
     /// Returns: RealDWaveBackend for D-Wave hardware
     ///
     /// Example:
-    ///   let config = { 
+    ///   let config = {
     ///       ApiToken = "DEV-xxxxx"
     ///       Endpoint = "https://cloud.dwavesys.com/sapi/v2/"
     ///       Solver = "Advantage_system6.1"
     ///       TimeoutMs = Some 300000
     ///   }
     ///   let backend = create config
-    let create (config: DWaveConfig) : RealDWaveBackend =
-        new RealDWaveBackend(config)
-    
+    let create (config: DWaveConfig) : RealDWaveBackend = new RealDWaveBackend(config)
+
     /// Create real D-Wave backend from environment variables
     ///
     /// Requires:
@@ -795,6 +959,4 @@ module RealDWaveBackend =
     ///   match createFromEnv() with
     ///   | Ok backend -> backend.Execute circuit 1000
     ///   | Error msg -> printfn $"Error: {msg}"
-    let createFromEnv () : QuantumResult<RealDWaveBackend> =
-        defaultConfig()
-        |> Result.map create
+    let createFromEnv () : QuantumResult<RealDWaveBackend> = defaultConfig () |> Result.map create

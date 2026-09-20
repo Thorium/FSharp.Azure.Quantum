@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+
 open System
 open FSharp.Azure.Quantum.Core
 
@@ -24,10 +25,9 @@ module Builders =
                 Priority = 0.0
                 Properties = Map.empty
             }
-        
-        member _.YieldFrom(task: ScheduledTask<'T>) : ScheduledTask<'T> =
-            task
-        
+
+        member _.YieldFrom(task: ScheduledTask<'T>) : ScheduledTask<'T> = task
+
         member _.Zero() : ScheduledTask<'T> =
             {
                 Id = ""
@@ -39,38 +39,59 @@ module Builders =
                 Priority = 0.0
                 Properties = Map.empty
             }
-        
+
         member _.Combine(task1: ScheduledTask<'T>, task2: ScheduledTask<'T>) : ScheduledTask<'T> =
             // For tasks, combine by taking non-default values from task2
             {
                 Id = if String.IsNullOrEmpty task2.Id then task1.Id else task2.Id
-                Value = match task2.Value with | Some _ -> task2.Value | None -> task1.Value
-                Duration = if task2.Duration = TimeSpan.Zero then task1.Duration else task2.Duration
-                EarliestStart = match task2.EarliestStart with | Some _ -> task2.EarliestStart | None -> task1.EarliestStart
-                Deadline = match task2.Deadline with | Some _ -> task2.Deadline | None -> task1.Deadline
-                ResourceRequirements = Map.fold (fun acc k v -> Map.add k v acc) task1.ResourceRequirements task2.ResourceRequirements
-                Priority = if task2.Priority = 0.0 then task1.Priority else task2.Priority
+                Value =
+                    match task2.Value with
+                    | Some _ -> task2.Value
+                    | None -> task1.Value
+                Duration =
+                    if task2.Duration = TimeSpan.Zero then
+                        task1.Duration
+                    else
+                        task2.Duration
+                EarliestStart =
+                    match task2.EarliestStart with
+                    | Some _ -> task2.EarliestStart
+                    | None -> task1.EarliestStart
+                Deadline =
+                    match task2.Deadline with
+                    | Some _ -> task2.Deadline
+                    | None -> task1.Deadline
+                ResourceRequirements =
+                    Map.fold (fun acc k v -> Map.add k v acc) task1.ResourceRequirements task2.ResourceRequirements
+                Priority =
+                    if task2.Priority = 0.0 then
+                        task1.Priority
+                    else
+                        task2.Priority
                 Properties = Map.fold (fun acc k v -> Map.add k v acc) task1.Properties task2.Properties
             }
-        
-        member inline _.Delay([<InlineIfLambda>] f: unit -> ScheduledTask<'T>) : ScheduledTask<'T> = f()
-        
-        member inline this.For(task: ScheduledTask<'T>, [<InlineIfLambda>] f: unit -> ScheduledTask<'T>) : ScheduledTask<'T> =
-            this.Combine(task, f())
-        
+
+        member inline _.Delay([<InlineIfLambda>] f: unit -> ScheduledTask<'T>) : ScheduledTask<'T> = f ()
+
+        member inline this.For
+            (task: ScheduledTask<'T>, [<InlineIfLambda>] f: unit -> ScheduledTask<'T>)
+            : ScheduledTask<'T> =
+            this.Combine(task, f ())
+
         member this.For(sequence: seq<'U>, body: 'U -> ScheduledTask<'T>) : ScheduledTask<'T> =
-            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
+            let state =
+                sequence
+                |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
+
             state
 
         /// Set task identifier (required)
         [<CustomOperation("taskId")>]
-        member _.TaskId(task: ScheduledTask<'T>, id: string) =
-            { task with Id = id }
+        member _.TaskId(task: ScheduledTask<'T>, id: string) = { task with Id = id }
 
         /// Set task duration (required). Build with minutes/hours/days, e.g. duration (hours 1.0).
         [<CustomOperation("duration")>]
-        member _.Duration(task: ScheduledTask<'T>, duration: TimeSpan) =
-            { task with Duration = duration }
+        member _.Duration(task: ScheduledTask<'T>, duration: TimeSpan) = { task with Duration = duration }
 
         /// Add single dependency (task must start after specified task completes)
         [<CustomOperation("after")>]
@@ -81,9 +102,12 @@ module Builders =
                 | Some value ->
                     match value with
                     | :? (string list) as existing -> predecessorId :: existing
-                    | _ -> [predecessorId]
-                | None -> [predecessorId]
-            { task with Properties = Map.add "__dependencies" (box deps) task.Properties }
+                    | _ -> [ predecessorId ]
+                | None -> [ predecessorId ]
+
+            { task with
+                Properties = Map.add "__dependencies" (box deps) task.Properties
+            }
 
         /// Add multiple dependencies
         [<CustomOperation("afterMultiple")>]
@@ -95,27 +119,32 @@ module Builders =
                     | :? (string list) as existing -> predecessorIds @ existing
                     | _ -> predecessorIds
                 | None -> predecessorIds
-            { task with Properties = Map.add "__dependencies" (box deps) task.Properties }
+
+            { task with
+                Properties = Map.add "__dependencies" (box deps) task.Properties
+            }
 
         /// Add resource requirement
         [<CustomOperation("requires")>]
         member _.Requires(task: ScheduledTask<'T>, resourceId: string, quantity: float) =
-            { task with ResourceRequirements = Map.add resourceId quantity task.ResourceRequirements }
+            { task with
+                ResourceRequirements = Map.add resourceId quantity task.ResourceRequirements
+            }
 
         /// Set priority for tie-breaking
         [<CustomOperation("priority")>]
-        member _.Priority(task: ScheduledTask<'T>, priority: float) =
-            { task with Priority = priority }
+        member _.Priority(task: ScheduledTask<'T>, priority: float) = { task with Priority = priority }
 
         /// Set deadline (latest completion time, as an offset; build with minutes/hours/days)
         [<CustomOperation("deadline")>]
-        member _.Deadline(task: ScheduledTask<'T>, deadline: TimeSpan) =
-            { task with Deadline = Some deadline }
+        member _.Deadline(task: ScheduledTask<'T>, deadline: TimeSpan) = { task with Deadline = Some deadline }
 
         /// Set earliest start time (offset; build with minutes/hours/days)
         [<CustomOperation("earliestStart")>]
         member _.EarliestStart(task: ScheduledTask<'T>, earliestStart: TimeSpan) =
-            { task with EarliestStart = Some earliestStart }
+            { task with
+                EarliestStart = Some earliestStart
+            }
 
     /// Computation expression builder instance for scheduled tasks
     let scheduledTask<'T> = ScheduledTaskBuilder<'T>()
@@ -131,63 +160,75 @@ module Builders =
                 Id = ""
                 Value = None
                 Capacity = 0.0
-                AvailableWindows = [(0.0, Double.MaxValue)]
+                AvailableWindows = [ (0.0, Double.MaxValue) ]
                 CostPerUnit = 0.0
                 Properties = Map.empty
             }
-        
-        member _.YieldFrom(resource: Resource<'T>) : Resource<'T> =
-            resource
-        
+
+        member _.YieldFrom(resource: Resource<'T>) : Resource<'T> = resource
+
         member _.Zero() : Resource<'T> =
             {
                 Id = ""
                 Value = None
                 Capacity = 0.0
-                AvailableWindows = [(0.0, Double.MaxValue)]
+                AvailableWindows = [ (0.0, Double.MaxValue) ]
                 CostPerUnit = 0.0
                 Properties = Map.empty
             }
-        
+
         member _.Combine(res1: Resource<'T>, res2: Resource<'T>) : Resource<'T> =
             // For resources, combine by taking non-default values from res2
             {
                 Id = if String.IsNullOrEmpty res2.Id then res1.Id else res2.Id
-                Value = match res2.Value with | Some _ -> res2.Value | None -> res1.Value
+                Value =
+                    match res2.Value with
+                    | Some _ -> res2.Value
+                    | None -> res1.Value
                 Capacity = if res2.Capacity = 0.0 then res1.Capacity else res2.Capacity
-                AvailableWindows = if res2.AvailableWindows = [(0.0, Double.MaxValue)] then res1.AvailableWindows else res2.AvailableWindows
-                CostPerUnit = if res2.CostPerUnit = 0.0 then res1.CostPerUnit else res2.CostPerUnit
+                AvailableWindows =
+                    if res2.AvailableWindows = [ (0.0, Double.MaxValue) ] then
+                        res1.AvailableWindows
+                    else
+                        res2.AvailableWindows
+                CostPerUnit =
+                    if res2.CostPerUnit = 0.0 then
+                        res1.CostPerUnit
+                    else
+                        res2.CostPerUnit
                 Properties = Map.fold (fun acc k v -> Map.add k v acc) res1.Properties res2.Properties
             }
-        
-        member inline _.Delay([<InlineIfLambda>] f: unit -> Resource<'T>) : Resource<'T> = f()
-        
+
+        member inline _.Delay([<InlineIfLambda>] f: unit -> Resource<'T>) : Resource<'T> = f ()
+
         member inline this.For(resource: Resource<'T>, [<InlineIfLambda>] f: unit -> Resource<'T>) : Resource<'T> =
-            this.Combine(resource, f())
-        
+            this.Combine(resource, f ())
+
         member this.For(sequence: seq<'U>, body: 'U -> Resource<'T>) : Resource<'T> =
-            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
+            let state =
+                sequence
+                |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
+
             state
 
         /// Set resource identifier (required)
         [<CustomOperation("resourceId")>]
-        member _.ResourceId(resource: Resource<'T>, id: string) =
-            { resource with Id = id }
+        member _.ResourceId(resource: Resource<'T>, id: string) = { resource with Id = id }
 
         /// Set resource capacity (required)
         [<CustomOperation("capacity")>]
-        member _.Capacity(resource: Resource<'T>, capacity: float) =
-            { resource with Capacity = capacity }
+        member _.Capacity(resource: Resource<'T>, capacity: float) = { resource with Capacity = capacity }
 
         /// Set cost per unit per time unit
         [<CustomOperation("costPerUnit")>]
-        member _.CostPerUnit(resource: Resource<'T>, cost: float) =
-            { resource with CostPerUnit = cost }
+        member _.CostPerUnit(resource: Resource<'T>, cost: float) = { resource with CostPerUnit = cost }
 
         /// Set availability window
         [<CustomOperation("availableWindow")>]
         member _.AvailableWindow(resource: Resource<'T>, startTime: float, endTime: float) =
-            { resource with AvailableWindows = [(startTime, endTime)] }
+            { resource with
+                AvailableWindows = [ (startTime, endTime) ]
+            }
 
     /// Computation expression builder instance for resources
     let resource<'T> = ResourceBuilder<'T>()
@@ -198,7 +239,7 @@ module Builders =
             Id = id
             Value = Some id
             Capacity = capacity
-            AvailableWindows = [(0.0, Double.MaxValue)]
+            AvailableWindows = [ (0.0, Double.MaxValue) ]
             CostPerUnit = costPerUnit
             Properties = Map.empty
         }
@@ -217,10 +258,10 @@ module Builders =
                 Objective = MinimizeMakespan
                 TimeHorizon = TimeSpan.FromMinutes 1000.0
             }
-        
+
         member _.YieldFrom(problem: SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
             problem
-        
+
         member _.Zero() : SchedulingProblem<'TTask, 'TResource> =
             {
                 Tasks = []
@@ -229,23 +270,41 @@ module Builders =
                 Objective = MinimizeMakespan
                 TimeHorizon = TimeSpan.FromMinutes 1000.0
             }
-        
-        member _.Combine(prob1: SchedulingProblem<'TTask, 'TResource>, prob2: SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
+
+        member _.Combine
+            (prob1: SchedulingProblem<'TTask, 'TResource>, prob2: SchedulingProblem<'TTask, 'TResource>)
+            : SchedulingProblem<'TTask, 'TResource> =
             {
                 Tasks = prob1.Tasks @ prob2.Tasks
                 Resources = prob1.Resources @ prob2.Resources
                 Dependencies = prob1.Dependencies @ prob2.Dependencies
-                Objective = prob2.Objective  // Take second if set
-                TimeHorizon = if prob2.TimeHorizon = TimeSpan.FromMinutes 1000.0 then prob1.TimeHorizon else prob2.TimeHorizon
+                Objective = prob2.Objective // Take second if set
+                TimeHorizon =
+                    if prob2.TimeHorizon = TimeSpan.FromMinutes 1000.0 then
+                        prob1.TimeHorizon
+                    else
+                        prob2.TimeHorizon
             }
-        
-        member inline _.Delay([<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> = f()
-        
-        member inline this.For(problem: SchedulingProblem<'TTask, 'TResource>, [<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
-            this.Combine(problem, f())
-        
-        member this.For(sequence: seq<'U>, body: 'U -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
-            let state = sequence |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
+
+        member inline _.Delay
+            ([<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>)
+            : SchedulingProblem<'TTask, 'TResource> =
+            f ()
+
+        member inline this.For
+            (
+                problem: SchedulingProblem<'TTask, 'TResource>,
+                [<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>
+            ) : SchedulingProblem<'TTask, 'TResource> =
+            this.Combine(problem, f ())
+
+        member this.For
+            (sequence: seq<'U>, body: 'U -> SchedulingProblem<'TTask, 'TResource>)
+            : SchedulingProblem<'TTask, 'TResource> =
+            let state =
+                sequence
+                |> Seq.fold (fun state item -> this.Combine(state, body item)) (this.Zero())
+
             state
 
         /// Set tasks to schedule (required)
@@ -261,9 +320,12 @@ module Builders =
                         | :? (string list) as deps ->
                             deps |> List.map (fun predId -> FinishToStart(predId, task.Id, TimeSpan.Zero))
                         | _ -> []
-                    | None -> []
-                )
-            { problem with Tasks = tasks; Dependencies = dependencies }
+                    | None -> [])
+
+            { problem with
+                Tasks = tasks
+                Dependencies = dependencies
+            }
 
         /// Set available resources
         [<CustomOperation("resources")>]

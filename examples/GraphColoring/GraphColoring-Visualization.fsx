@@ -33,25 +33,43 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "GraphColoring-Visualization.fsx"
     "Visualize graph coloring solutions (register allocation) in ASCII and Mermaid."
-    [ { Cli.OptionSpec.Name = "colors"
-        Description = "Number of available colors/registers"
-        Default = Some "4" }
-      { Cli.OptionSpec.Name = "mermaid-file"
-        Description = "Write Mermaid markdown to file"
-        Default = None }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress console output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "colors"
+            Description = "Number of available colors/registers"
+            Default = Some "4"
+        }
+        {
+            Cli.OptionSpec.Name = "mermaid-file"
+            Description = "Write Mermaid markdown to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let numColors = Cli.getIntOr "colors" 4 args
 let mermaidFile = Cli.tryGet "mermaid-file" args
@@ -68,14 +86,15 @@ let quantumBackend = LocalBackend() :> IQuantumBackend
 // Problem definition: Register Allocation
 // ---------------------------------------------------------------------------
 
-let registerAllocation = graphColoring {
-    node "x" ["y"; "z"]
-    node "y" ["x"; "w"]
-    node "z" ["x"; "w"]
-    node "w" ["y"; "z"]
-    colors [ for i in 0 .. numColors - 1 -> $"R%d{i}" ]
-    objective MinimizeColors
-}
+let registerAllocation =
+    graphColoring {
+        node "x" [ "y"; "z" ]
+        node "y" [ "x"; "w" ]
+        node "z" [ "x"; "w" ]
+        node "w" [ "y"; "z" ]
+        colors [ for i in 0 .. numColors - 1 -> $"R%d{i}" ]
+        objective MinimizeColors
+    }
 
 pr "=== Graph Coloring Visualization ==="
 pr "Use Case: Register Allocation"
@@ -86,8 +105,7 @@ pr ""
 // ---------------------------------------------------------------------------
 
 match GraphColoring.solve registerAllocation numColors (Some quantumBackend) with
-| Error err ->
-    pr "[FAIL] %s" err.Message
+| Error err -> pr "[FAIL] %s" err.Message
 
 | Ok solution ->
     pr "Solution found!"
@@ -105,7 +123,8 @@ match GraphColoring.solve registerAllocation numColors (Some quantumBackend) wit
     pr ""
 
     // Write Mermaid file if requested
-    mermaidFile |> Option.iter (fun path ->
+    mermaidFile
+    |> Option.iter (fun path ->
         let assignmentsText =
             solution.Assignments
             |> Map.toList
@@ -113,32 +132,44 @@ match GraphColoring.solve registerAllocation numColors (Some quantumBackend) wit
             |> String.concat "\n"
 
         let markdown =
-            sprintf "# Register Allocation Solution\n\n## Mermaid Diagram\n\n%s\n\n## Assignments\n%s\n\n## Analysis\n- Registers Used: %d / %d\n- Valid: %b\n- Cost: %.2f\n"
-                mermaidOutput assignmentsText solution.ColorsUsed numColors solution.IsValid solution.Cost
+            sprintf
+                "# Register Allocation Solution\n\n## Mermaid Diagram\n\n%s\n\n## Assignments\n%s\n\n## Analysis\n- Registers Used: %d / %d\n- Valid: %b\n- Cost: %.2f\n"
+                mermaidOutput
+                assignmentsText
+                solution.ColorsUsed
+                numColors
+                solution.IsValid
+                solution.Cost
 
         File.WriteAllText(path, markdown)
         pr "Mermaid markdown written to %s" path)
 
     // JSON output
-    outputPath |> Option.iter (fun path ->
+    outputPath
+    |> Option.iter (fun path ->
         let assignments =
-            solution.Assignments |> Map.toList |> List.map (fun (v, c) -> $"%s{v}=%s{c}") |> String.concat ";"
+            solution.Assignments
+            |> Map.toList
+            |> List.map (fun (v, c) -> $"%s{v}=%s{c}")
+            |> String.concat ";"
+
         let payload =
-            {| colorsUsed = solution.ColorsUsed
-               colorsAvailable = numColors
-               isValid = solution.IsValid
-               cost = solution.Cost
-               assignments = assignments |}
+            {|
+                colorsUsed = solution.ColorsUsed
+                colorsAvailable = numColors
+                isValid = solution.IsValid
+                cost = solution.Cost
+                assignments = assignments
+            |}
+
         Reporting.writeJson path payload
         pr "JSON written to %s" path)
 
     // CSV output
-    csvPath |> Option.iter (fun path ->
+    csvPath
+    |> Option.iter (fun path ->
         let header = [ "variable"; "register" ]
-        let rows =
-            solution.Assignments
-            |> Map.toList
-            |> List.map (fun (v, c) -> [ v; c ])
+        let rows = solution.Assignments |> Map.toList |> List.map (fun (v, c) -> [ v; c ])
         Reporting.writeCsv path header rows
         pr "CSV written to %s" path)
 

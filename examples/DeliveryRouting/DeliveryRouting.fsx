@@ -107,10 +107,28 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "DeliveryRouting.fsx"
     "Quantum-ready delivery route optimization (TSP) using HybridSolver."
-    [ { Cli.OptionSpec.Name = "input";   Description = "CSV file with locations (name,latitude,longitude)"; Default = None }
-      { Cli.OptionSpec.Name = "output";  Description = "Write results to JSON file";                        Default = None }
-      { Cli.OptionSpec.Name = "csv";     Description = "Write results to CSV file";                         Default = None }
-      { Cli.OptionSpec.Name = "quiet";   Description = "Suppress informational output";                     Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with locations (name,latitude,longitude)"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -123,73 +141,145 @@ let csvPath = Cli.tryGet "csv" args
 // ============================================================================
 
 /// Geographic location with name and coordinates
-type Location = {
-    Name: string
-    Latitude: float
-    Longitude: float
-}
+type Location =
+    {
+        Name: string
+        Latitude: float
+        Longitude: float
+    }
 
 /// Route solution with distance and path
-type Route = {
-    Path: Location list
-    TotalDistance: float
-    TotalTime: TimeSpan
-}
+type Route =
+    {
+        Path: Location list
+        TotalDistance: float
+        TotalTime: TimeSpan
+    }
 
 /// Performance metrics for comparison
-type Performance = {
-    SolutionTime: TimeSpan
-    TotalDistance: float
-    Improvement: float option  // % improvement vs naive
-}
+type Performance =
+    {
+        SolutionTime: TimeSpan
+        TotalDistance: float
+        Improvement: float option // % improvement vs naive
+    }
 
 // ============================================================================
 // Real NYC Delivery Data (or load from file)
 // ============================================================================
 
-let builtInWarehouse = {
-    Name = "QuickShip Warehouse - Manhattan"
-    Latitude = 40.7589
-    Longitude = -73.9851
-}
+let builtInWarehouse =
+    {
+        Name = "QuickShip Warehouse - Manhattan"
+        Latitude = 40.7589
+        Longitude = -73.9851
+    }
 
-let builtInCustomers = [
-    { Name = "Brooklyn Tech Hub"; Latitude = 40.6782; Longitude = -73.9442 }
-    { Name = "Queens Distribution"; Latitude = 40.7282; Longitude = -73.7949 }
-    { Name = "Bronx Medical Supply"; Latitude = 40.8448; Longitude = -73.8648 }
-    { Name = "Upper East Side Boutique"; Latitude = 40.7739; Longitude = -73.9568 }
-    { Name = "Staten Island Warehouse"; Latitude = 40.5795; Longitude = -74.1502 }
-    { Name = "Jersey City Office"; Latitude = 40.7178; Longitude = -74.0431 }
-    { Name = "Newark Distribution"; Latitude = 40.7357; Longitude = -74.1724 }
-    { Name = "Yonkers Retail"; Latitude = 40.9312; Longitude = -73.8987 }
-    { Name = "New Rochelle Store"; Latitude = 40.9115; Longitude = -73.7823 }
-    { Name = "Paterson Industrial"; Latitude = 40.9168; Longitude = -74.1718 }
-    { Name = "Elizabeth Port"; Latitude = 40.6640; Longitude = -74.2107 }
-    { Name = "Edison Tech Center"; Latitude = 40.5187; Longitude = -74.4121 }
-    { Name = "Woodbridge Logistics"; Latitude = 40.5576; Longitude = -74.2846 }
-    { Name = "Lakewood Retail"; Latitude = 40.0979; Longitude = -74.2179 }
-    { Name = "Toms River Distribution"; Latitude = 39.9537; Longitude = -74.1979 }
-]
+let builtInCustomers =
+    [
+        {
+            Name = "Brooklyn Tech Hub"
+            Latitude = 40.6782
+            Longitude = -73.9442
+        }
+        {
+            Name = "Queens Distribution"
+            Latitude = 40.7282
+            Longitude = -73.7949
+        }
+        {
+            Name = "Bronx Medical Supply"
+            Latitude = 40.8448
+            Longitude = -73.8648
+        }
+        {
+            Name = "Upper East Side Boutique"
+            Latitude = 40.7739
+            Longitude = -73.9568
+        }
+        {
+            Name = "Staten Island Warehouse"
+            Latitude = 40.5795
+            Longitude = -74.1502
+        }
+        {
+            Name = "Jersey City Office"
+            Latitude = 40.7178
+            Longitude = -74.0431
+        }
+        {
+            Name = "Newark Distribution"
+            Latitude = 40.7357
+            Longitude = -74.1724
+        }
+        {
+            Name = "Yonkers Retail"
+            Latitude = 40.9312
+            Longitude = -73.8987
+        }
+        {
+            Name = "New Rochelle Store"
+            Latitude = 40.9115
+            Longitude = -73.7823
+        }
+        {
+            Name = "Paterson Industrial"
+            Latitude = 40.9168
+            Longitude = -74.1718
+        }
+        {
+            Name = "Elizabeth Port"
+            Latitude = 40.6640
+            Longitude = -74.2107
+        }
+        {
+            Name = "Edison Tech Center"
+            Latitude = 40.5187
+            Longitude = -74.4121
+        }
+        {
+            Name = "Woodbridge Logistics"
+            Latitude = 40.5576
+            Longitude = -74.2846
+        }
+        {
+            Name = "Lakewood Retail"
+            Latitude = 40.0979
+            Longitude = -74.2179
+        }
+        {
+            Name = "Toms River Distribution"
+            Latitude = 39.9537
+            Longitude = -74.1979
+        }
+    ]
 
 /// Load locations from a CSV file with columns: name, latitude, longitude
 /// First row is treated as the warehouse/depot; remaining rows are customers.
 let loadLocationsFromCsv (path: string) : Location * Location list =
     let rows = Data.readCsvWithHeader path
+
     let toLocation (row: Data.CsvRow) : Location =
-        { Name =
-            row.Values
-            |> Map.tryFind "name"
-            |> Option.defaultValue "Unknown"
-          Latitude =
-            row.Values
-            |> Map.tryFind "latitude"
-            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
-            |> Option.defaultValue 0.0
-          Longitude =
-            row.Values
-            |> Map.tryFind "longitude"
-            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
-            |> Option.defaultValue 0.0 }
+        {
+            Name = row.Values |> Map.tryFind "name" |> Option.defaultValue "Unknown"
+            Latitude =
+                row.Values
+                |> Map.tryFind "latitude"
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
+                |> Option.defaultValue 0.0
+            Longitude =
+                row.Values
+                |> Map.tryFind "longitude"
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
+                |> Option.defaultValue 0.0
+        }
+
     match rows with
     | [] -> failwith $"Input CSV is empty, calling loadLocationsFromCsv with path: {path}"
     | depot :: rest -> (toLocation depot, rest |> List.map toLocation)
@@ -198,10 +288,12 @@ let warehouse, customers =
     match inputPath with
     | Some path ->
         let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
-        if not quiet then printfn "Loading locations from: %s" resolved
+
+        if not quiet then
+            printfn "Loading locations from: %s" resolved
+
         loadLocationsFromCsv resolved
-    | None ->
-        builtInWarehouse, builtInCustomers
+    | None -> builtInWarehouse, builtInCustomers
 
 let allStops = warehouse :: customers
 
@@ -211,21 +303,21 @@ let allStops = warehouse :: customers
 
 /// Calculate Haversine distance between two locations (in km)
 let haversineDistance (loc1: Location) (loc2: Location) : float =
-    let earthRadius = 6371.0  // Earth's radius in km
+    let earthRadius = 6371.0 // Earth's radius in km
     let toRadians deg = deg * Math.PI / 180.0
-    
+
     let lat1, lon1 = toRadians loc1.Latitude, toRadians loc1.Longitude
     let lat2, lon2 = toRadians loc2.Latitude, toRadians loc2.Longitude
-    
+
     let dLat = lat2 - lat1
     let dLon = lon2 - lon1
-    
-    let a = 
-        Math.Sin(dLat / 2.0) ** 2.0 + 
-        Math.Cos(lat1) * Math.Cos(lat2) * Math.Sin(dLon / 2.0) ** 2.0
-    
+
+    let a =
+        Math.Sin(dLat / 2.0) ** 2.0
+        + Math.Cos(lat1) * Math.Cos(lat2) * Math.Sin(dLon / 2.0) ** 2.0
+
     let c = 2.0 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1.0 - a))
-    
+
     earthRadius * c
 
 /// Calculate total distance for a route
@@ -246,12 +338,9 @@ let estimateDrivingTime (distanceKm: float) : TimeSpan =
 
 /// Format distance with appropriate precision
 let formatDistance (distance: float) : string =
-    if distance < 50.0 then 
-        $"%.1f{distance} km"
-    elif distance < 150.0 then 
-        $"%.0f{distance} km"
-    else 
-        $"%.0f{distance} km"
+    if distance < 50.0 then $"%.1f{distance} km"
+    elif distance < 150.0 then $"%.0f{distance} km"
+    else $"%.0f{distance} km"
 
 /// Format time in readable format
 let formatTime (time: TimeSpan) : string =
@@ -267,21 +356,17 @@ let printRoute (label: string) (route: Route) (perf: Performance) (method: strin
         printfn "  Distance: %s" (formatDistance route.TotalDistance)
         printfn "  Est. Time: %s" (formatTime route.TotalTime)
         printfn "  Solution Time: %.0fms" perf.SolutionTime.TotalMilliseconds
-        
+
         match method with
         | Some m -> printfn "  Solver: %s" m
         | None -> ()
-        
+
         match perf.Improvement with
-        | Some improvement -> 
-            printfn "  Improvement: %.1f%% better than naive route" improvement
+        | Some improvement -> printfn "  Improvement: %.1f%% better than naive route" improvement
         | None -> ()
-        
+
         printfn "\n  Route:"
-        route.Path 
-        |> List.iteri (fun i loc -> 
-            printfn "    %2d. %s" (i + 1) loc.Name
-        )
+        route.Path |> List.iteri (fun i loc -> printfn "    %2d. %s" (i + 1) loc.Name)
 
 // ============================================================================
 // Solver Integration (Using HybridSolver for Quantum-Ready Optimization)
@@ -290,63 +375,83 @@ let printRoute (label: string) (route: Route) (perf: Performance) (method: strin
 /// Build distance matrix from locations using Haversine distance
 let buildDistanceMatrix (locations: Location list) : float[,] =
     let n = List.length locations
+
     Array2D.init n n (fun i j ->
-        if i = j then 0.0
-        else haversineDistance locations.[i] locations.[j]
-    )
+        if i = j then
+            0.0
+        else
+            haversineDistance locations.[i] locations.[j])
 
 /// Convert TSP solution to Route domain type
-let solutionToRoute (locations: Location list) (solution: HybridSolver.Solution<TspSolver.TspSolution>) : Route * Performance =
+let solutionToRoute
+    (locations: Location list)
+    (solution: HybridSolver.Solution<TspSolver.TspSolution>)
+    : Route * Performance =
     // Extract tour from TSP solution (Tour is int array)
     let tourArray = solution.Result.Tour
-    
+
     // Build path from tour indices
-    let path = 
-        tourArray 
-        |> Array.map (fun cityIdx -> locations.[cityIdx])
-        |> Array.toList
-    
+    let path =
+        tourArray |> Array.map (fun cityIdx -> locations.[cityIdx]) |> Array.toList
+
     // Add return to start for complete tour
-    let completePath = path @ [List.head path]
-    
+    let completePath = path @ [ List.head path ]
+
     let distance = calculateRouteDistance completePath
     let time = estimateDrivingTime distance
-    
-    let route = { Path = completePath; TotalDistance = distance; TotalTime = time }
-    let perf = {
-        SolutionTime = TimeSpan.FromMilliseconds(solution.ElapsedMs)
-        TotalDistance = distance
-        Improvement = None  // Will be calculated later vs naive
-    }
-    
+
+    let route =
+        {
+            Path = completePath
+            TotalDistance = distance
+            TotalTime = time
+        }
+
+    let perf =
+        {
+            SolutionTime = TimeSpan.FromMilliseconds(solution.ElapsedMs)
+            TotalDistance = distance
+            Improvement = None // Will be calculated later vs naive
+        }
+
     (route, perf)
 
 /// Solve TSP using HybridSolver (automatic classical/quantum routing)
 let solveWithHybridSolver (locations: Location list) : Result<(Route * Performance * string), string> =
     let distances = buildDistanceMatrix locations
-    
+
     // HybridSolver automatically decides classical vs quantum based on problem size
     match HybridSolver.solveTsp distances None None None with
     | Ok solution ->
         let (route, perf) = solutionToRoute locations solution
         // Return route, performance, and solver reasoning
-        Ok (route, perf, solution.Reasoning)
+        Ok(route, perf, solution.Reasoning)
     | Error err -> Error $"HybridSolver failed: %s{err.Message}"
 
 /// Calculate naive route (just visit in given order) for baseline
 let calculateNaiveRoute (locations: Location list) : Route =
     let distance = calculateRouteDistance locations
     let time = estimateDrivingTime distance
-    { Path = locations; TotalDistance = distance; TotalTime = time }
+
+    {
+        Path = locations
+        TotalDistance = distance
+        TotalTime = time
+    }
 
 // ============================================================================
 // Main Execution (Side effects isolated at top level)
 // ============================================================================
 
 if not quiet then
-    printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn
+        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
     printfn "â•‘     QuickShip Logistics - Delivery Route Optimization        â•‘"
-    printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+    printfn
+        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
     printfn ""
     printfn "Business Problem:"
     printfn "  Optimize daily delivery route for 15 customers in NYC area"
@@ -356,6 +461,7 @@ if not quiet then
 
 // Calculate baseline (naive route)
 let naiveRoute = calculateNaiveRoute allStops
+
 if not quiet then
     printfn "ðŸ“Š Baseline Analysis:"
     printfn "  Naive route (visit in given order):"
@@ -370,11 +476,16 @@ let solverResult = solveWithHybridSolver allStops
 
 let resultRoute, resultPerf, resultSolver =
     match solverResult with
-    | Ok (optimizedRoute, perf, reasoning) ->
+    | Ok(optimizedRoute, perf, reasoning) ->
         let improvement =
-            (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) / naiveRoute.TotalDistance * 100.0
+            (naiveRoute.TotalDistance - optimizedRoute.TotalDistance)
+            / naiveRoute.TotalDistance
+            * 100.0
 
-        let perfWithImprovement = { perf with Improvement = Some improvement }
+        let perfWithImprovement =
+            { perf with
+                Improvement = Some improvement
+            }
 
         if not quiet then
             printfn "\nðŸ’¡ Solver Decision: %s" reasoning
@@ -385,11 +496,16 @@ let resultRoute, resultPerf, resultSolver =
             let fuelSavings = improvement
             let timeSavings = naiveRoute.TotalTime - optimizedRoute.TotalTime
 
-            printfn "  â€¢ %.1f km shorter route (%.1f%% reduction)"
-                (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) improvement
+            printfn
+                "  â€¢ %.1f km shorter route (%.1f%% reduction)"
+                (naiveRoute.TotalDistance - optimizedRoute.TotalDistance)
+                improvement
+
             printfn "  â€¢ %s faster delivery" (formatTime timeSavings)
             printfn "  â€¢ Estimated fuel savings: %.1f%% per day" fuelSavings
-            printfn "  â€¢ Annual impact (250 work days): ~%.0f km saved"
+
+            printfn
+                "  â€¢ Annual impact (250 work days): ~%.0f km saved"
                 ((naiveRoute.TotalDistance - optimizedRoute.TotalDistance) * 250.0)
 
         (optimizedRoute, perfWithImprovement, "HybridSolver")
@@ -399,11 +515,12 @@ let resultRoute, resultPerf, resultSolver =
             printfn "âŒ Optimization failed: %s" msg
             printfn "\nUsing baseline naive route"
 
-        let perf = {
-            SolutionTime = TimeSpan.Zero
-            TotalDistance = naiveRoute.TotalDistance
-            Improvement = None
-        }
+        let perf =
+            {
+                SolutionTime = TimeSpan.Zero
+                TotalDistance = naiveRoute.TotalDistance
+                Improvement = None
+            }
 
         if not quiet then
             printRoute "Naive Route" naiveRoute perf None
@@ -414,8 +531,7 @@ let resultRoute, resultPerf, resultSolver =
 if not quiet then
     printfn "\nðŸ“ˆ Route Statistics:"
     printfn "  Total stops: %d" allStops.Length
-    printfn "  Average distance between stops: %.1f km"
-        (naiveRoute.TotalDistance / float allStops.Length)
+    printfn "  Average distance between stops: %.1f km" (naiveRoute.TotalDistance / float allStops.Length)
 
     printfn "\nâœ¨ Note: This example uses HybridSolver with automatic classical/quantum routing."
     printfn "   Current problem size (16 cities) â†’ Classical solver (fast, optimal for <50 cities)"
@@ -427,40 +543,56 @@ if not quiet then
 // ==============================================================================
 
 let routeStops =
-    resultRoute.Path
-    |> List.map (fun loc -> loc.Name)
-    |> String.concat " â†’ "
+    resultRoute.Path |> List.map (fun loc -> loc.Name) |> String.concat " â†’ "
 
-let resultRows : Map<string, string> list =
-    [ Map.ofList
-        [ "method", resultSolver
-          "total_distance_km", $"%.2f{resultRoute.TotalDistance}"
-          "estimated_time_hours", $"%.2f{resultRoute.TotalTime.TotalHours}"
-          "num_stops", $"%d{allStops.Length}"
-          "improvement_pct",
-              match resultPerf.Improvement with
-              | Some pct -> $"%.1f{pct}"
-              | None -> "N/A"
-          "solution_time_ms", $"%.0f{resultPerf.SolutionTime.TotalMilliseconds}"
-          "naive_distance_km", $"%.2f{naiveRoute.TotalDistance}"
-          "route", routeStops ] ]
+let resultRows: Map<string, string> list =
+    [
+        Map.ofList
+            [
+                "method", resultSolver
+                "total_distance_km", $"%.2f{resultRoute.TotalDistance}"
+                "estimated_time_hours", $"%.2f{resultRoute.TotalTime.TotalHours}"
+                "num_stops", $"%d{allStops.Length}"
+                "improvement_pct",
+                match resultPerf.Improvement with
+                | Some pct -> $"%.1f{pct}"
+                | None -> "N/A"
+                "solution_time_ms", $"%.0f{resultPerf.SolutionTime.TotalMilliseconds}"
+                "naive_distance_km", $"%.2f{naiveRoute.TotalDistance}"
+                "route", routeStops
+            ]
+    ]
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultRows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
-    let header = [ "method"; "total_distance_km"; "estimated_time_hours"; "num_stops";
-                   "improvement_pct"; "solution_time_ms"; "naive_distance_km"; "route" ]
+    let header =
+        [
+            "method"
+            "total_distance_km"
+            "estimated_time_hours"
+            "num_stops"
+            "improvement_pct"
+            "solution_time_ms"
+            "naive_distance_km"
+            "route"
+        ]
+
     let rows =
         resultRows
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

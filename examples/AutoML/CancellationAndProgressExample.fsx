@@ -37,13 +37,43 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "CancellationAndProgressExample.fsx"
     "AutoML cancellation and progress: console, events, timeout, custom UI, production"
-    [ { Name = "example"; Description = "Which example (all|console|events|timeout|custom-ui|production)"; Default = Some "all" }
-      { Name = "max-trials"; Description = "Max trials per search"; Default = Some "1" }
-      { Name = "timeout-sec"; Description = "Timeout in seconds for timeout example"; Default = Some "30" }
-      { Name = "seed"; Description = "Random seed"; Default = Some "42" }
-      { Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    [
+        {
+            Name = "example"
+            Description = "Which example (all|console|events|timeout|custom-ui|production)"
+            Default = Some "all"
+        }
+        {
+            Name = "max-trials"
+            Description = "Max trials per search"
+            Default = Some "1"
+        }
+        {
+            Name = "timeout-sec"
+            Description = "Timeout in seconds for timeout example"
+            Default = Some "30"
+        }
+        {
+            Name = "seed"
+            Description = "Random seed"
+            Default = Some "42"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -54,43 +84,72 @@ let cliMaxTrials = Cli.getIntOr "max-trials" 1 args
 let cliTimeoutSec = Cli.getIntOr "timeout-sec" 30 args
 let seed = Cli.getIntOr "seed" 42 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
 let shouldRun key = exampleArg = "all" || exampleArg = key
 
 // --- Result Tracking ---
 
 type ExampleResult =
-    { Name: string
-      Label: string
-      BestModel: string
-      Score: float
-      Trials: int
-      Cancelled: bool
-      SearchTimeSec: float }
+    {
+        Name: string
+        Label: string
+        BestModel: string
+        Score: float
+        Trials: int
+        Cancelled: bool
+        SearchTimeSec: float
+    }
 
-let mutable jsonResults : ExampleResult list = []
-let mutable csvRows : string list list = []
+let mutable jsonResults: ExampleResult list = []
+let mutable csvRows: string list list = []
 
 let record (r: ExampleResult) =
     jsonResults <- jsonResults @ [ r ]
-    csvRows <- csvRows @ [
-        [ r.Name; r.Label; r.BestModel
-          $"%.4f{r.Score}"; string r.Trials; string r.Cancelled
-          $"%.1f{r.SearchTimeSec}" ] ]
+
+    csvRows <-
+        csvRows
+        @ [
+            [
+                r.Name
+                r.Label
+                r.BestModel
+                $"%.4f{r.Score}"
+                string r.Trials
+                string r.Cancelled
+                $"%.1f{r.SearchTimeSec}"
+            ]
+        ]
 
 // --- Sample Data ---
 
 let generateChurnData (rng: Random) =
-    let features = [|
-        for _ in 1..30 ->
-            [| rng.NextDouble() * 36.0; 50.0 + rng.NextDouble() * 150.0
-               float (rng.Next(0, 10)); rng.NextDouble() * 30.0; rng.NextDouble() * 10.0 |]
-    |]
-    let labels = [|
-        for i in 0..29 ->
-            if features.[i].[1] < 100.0 && features.[i].[4] < 5.0 && features.[i].[2] > 5.0 then 1.0
-            else 0.0
-    |]
+    let features =
+        [|
+            for _ in 1..30 ->
+                [|
+                    rng.NextDouble() * 36.0
+                    50.0 + rng.NextDouble() * 150.0
+                    float (rng.Next(0, 10))
+                    rng.NextDouble() * 30.0
+                    rng.NextDouble() * 10.0
+                |]
+        |]
+
+    let labels =
+        [|
+            for i in 0..29 ->
+                if features.[i].[1] < 100.0 && features.[i].[4] < 5.0 && features.[i].[2] > 5.0 then
+                    1.0
+                else
+                    0.0
+        |]
+
     (features, labels)
 
 let (sampleFeatures, sampleLabels) = generateChurnData (Random(seed))
@@ -120,28 +179,39 @@ if shouldRun "console" then
 
     let consoleReporter = createConsoleReporter (Some true) None
 
-    let result = autoML {
-        trainWith sampleFeatures sampleLabels
-        backend quantumBackend
-        maxTrials cliMaxTrials
-        tryArchitectures [Quantum; Hybrid]
-        progressReporter consoleReporter
-        verbose false
-        randomSeed seed
-    }
+    let result =
+        autoML {
+            trainWith sampleFeatures sampleLabels
+            backend quantumBackend
+            maxTrials cliMaxTrials
+            tryArchitectures [ Quantum; Hybrid ]
+            progressReporter consoleReporter
+            verbose false
+            randomSeed seed
+        }
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
     | Ok r ->
-        pr "  [OK] Best: %s, Score: %.2f%%, Time: %.1fs"
-            r.BestModelType (r.Score * 100.0) r.TotalSearchTime.TotalSeconds
+        pr
+            "  [OK] Best: %s, Score: %.2f%%, Time: %.1fs"
+            r.BestModelType
+            (r.Score * 100.0)
+            r.TotalSearchTime.TotalSeconds
+
         pr "  Trials: %d successful, %d failed" r.SuccessfulTrials r.FailedTrials
 
         record
-            { Name = "console"; Label = "Console Reporter"
-              BestModel = r.BestModelType; Score = r.Score
-              Trials = r.SuccessfulTrials; Cancelled = false
-              SearchTimeSec = r.TotalSearchTime.TotalSeconds }
+            {
+                Name = "console"
+                Label = "Console Reporter"
+                BestModel = r.BestModelType
+                Score = r.Score
+                Trials = r.SuccessfulTrials
+                Cancelled = false
+                SearchTimeSec = r.TotalSearchTime.TotalSeconds
+            }
+
     pr ""
 
 // ============================================================================
@@ -153,44 +223,45 @@ if shouldRun "events" then
     pr ""
 
     let cts = new CancellationTokenSource()
-    let eventReporter = createEventReporter()
+    let eventReporter = createEventReporter ()
     eventReporter.SetCancellationToken cts.Token
 
     let mutable bestScoreSeen = 0.0
 
     eventReporter.ProgressChanged.Add(fun event ->
         match event with
-        | TrialStarted (id, total, modelType) ->
-            pr "  [%d/%d] Starting: %s" id total modelType
+        | TrialStarted(id, total, modelType) -> pr "  [%d/%d] Starting: %s" id total modelType
 
-        | TrialCompleted (id, score, elapsed) ->
+        | TrialCompleted(id, score, elapsed) ->
             pr "  [%d] OK Score: %.2f%% (%.1fs)" id (score * 100.0) elapsed
+
             if score > bestScoreSeen then
                 bestScoreSeen <- score
+
                 if score > 0.90 then
                     pr "  Excellent score (%.1f%%)! Cancelling remaining trials..." (score * 100.0)
                     cts.Cancel()
 
-        | TrialFailed (id, error) ->
-            pr "  [%d] FAILED: %s" id error
+        | TrialFailed(id, error) -> pr "  [%d] FAILED: %s" id error
 
-        | PhaseChanged (phase, msgOpt) ->
+        | PhaseChanged(phase, msgOpt) ->
             match msgOpt with
             | Some msg -> pr "  ==> %s: %s" phase msg
             | None -> pr "  ==> %s" phase
 
         | _ -> ())
 
-    let result = autoML {
-        trainWith sampleFeatures sampleLabels
-        backend quantumBackend
-        maxTrials cliMaxTrials
-        tryArchitectures [Quantum; Hybrid]
-        progressReporter (eventReporter :> IProgressReporter)
-        cancellationToken cts.Token
-        verbose false
-        randomSeed seed
-    }
+    let result =
+        autoML {
+            trainWith sampleFeatures sampleLabels
+            backend quantumBackend
+            maxTrials cliMaxTrials
+            tryArchitectures [ Quantum; Hybrid ]
+            progressReporter (eventReporter :> IProgressReporter)
+            cancellationToken cts.Token
+            verbose false
+            randomSeed seed
+        }
 
     let wasCancelled = cts.IsCancellationRequested
 
@@ -198,15 +269,23 @@ if shouldRun "events" then
     | Error err -> pr "  [ERROR] %A" err
     | Ok r ->
         pr "  [OK] Best: %s, Score: %.2f%%" r.BestModelType (r.Score * 100.0)
-        pr "  Trials: %d/%d completed%s"
-            r.SuccessfulTrials (r.SuccessfulTrials + r.FailedTrials)
+
+        pr
+            "  Trials: %d/%d completed%s"
+            r.SuccessfulTrials
+            (r.SuccessfulTrials + r.FailedTrials)
             (if wasCancelled then " (early exit)" else "")
 
         record
-            { Name = "events"; Label = "Event-Based + Cancel"
-              BestModel = r.BestModelType; Score = r.Score
-              Trials = r.SuccessfulTrials; Cancelled = wasCancelled
-              SearchTimeSec = r.TotalSearchTime.TotalSeconds }
+            {
+                Name = "events"
+                Label = "Event-Based + Cancel"
+                BestModel = r.BestModelType
+                Score = r.Score
+                Trials = r.SuccessfulTrials
+                Cancelled = wasCancelled
+                SearchTimeSec = r.TotalSearchTime.TotalSeconds
+            }
 
     cts.Dispose()
     pr ""
@@ -222,41 +301,47 @@ if shouldRun "timeout" then
     let ctsTimeout = new CancellationTokenSource()
     ctsTimeout.CancelAfter(TimeSpan.FromSeconds(float cliTimeoutSec))
 
-    let timeoutReporter = createConsoleReporter (Some (not quiet)) (Some ctsTimeout.Token)
+    let timeoutReporter =
+        createConsoleReporter (Some(not quiet)) (Some ctsTimeout.Token)
 
     pr "  Starting search with %d-second timeout..." cliTimeoutSec
 
-    let result = autoML {
-        trainWith sampleFeatures sampleLabels
-        backend quantumBackend
-        maxTrials cliMaxTrials
-        tryArchitectures [Quantum; Hybrid]
-        progressReporter timeoutReporter
-        cancellationToken ctsTimeout.Token
-        verbose false
-        randomSeed seed
-    }
+    let result =
+        autoML {
+            trainWith sampleFeatures sampleLabels
+            backend quantumBackend
+            maxTrials cliMaxTrials
+            tryArchitectures [ Quantum; Hybrid ]
+            progressReporter timeoutReporter
+            cancellationToken ctsTimeout.Token
+            verbose false
+            randomSeed seed
+        }
 
     let timedOut = ctsTimeout.IsCancellationRequested
 
     match result with
     | Error err ->
         let errMsg = $"%A{err}"
+
         if errMsg.Contains("cancelled") || errMsg.Contains("Cancellation") then
             pr "  [TIMEOUT] Search timed out - returning best result found"
         else
             pr "  [ERROR] %A" err
     | Ok r ->
         pr "  [OK] Best: %s, Score: %.2f%%" r.BestModelType (r.Score * 100.0)
-        pr "  Completed: %d trials%s"
-            (r.SuccessfulTrials + r.FailedTrials)
-            (if timedOut then " (timed out)" else "")
+        pr "  Completed: %d trials%s" (r.SuccessfulTrials + r.FailedTrials) (if timedOut then " (timed out)" else "")
 
         record
-            { Name = "timeout"; Label = "Timeout Cancellation"
-              BestModel = r.BestModelType; Score = r.Score
-              Trials = r.SuccessfulTrials; Cancelled = timedOut
-              SearchTimeSec = r.TotalSearchTime.TotalSeconds }
+            {
+                Name = "timeout"
+                Label = "Timeout Cancellation"
+                BestModel = r.BestModelType
+                Score = r.Score
+                Trials = r.SuccessfulTrials
+                Cancelled = timedOut
+                SearchTimeSec = r.TotalSearchTime.TotalSeconds
+            }
 
     ctsTimeout.Dispose()
     pr ""
@@ -271,42 +356,43 @@ if shouldRun "custom-ui" then
 
     let uiTracker = UIProgressTracker()
 
-    let customReporter = {
-        new IProgressReporter with
+    let customReporter =
+        { new IProgressReporter with
             member _.Report event =
                 match event with
-                | TrialStarted (id, total, modelType) ->
+                | TrialStarted(id, total, modelType) ->
                     let percent = float id / float (max total 1) * 100.0
                     uiTracker.UpdateProgress(percent, $"Trial %d{id}/%d{total}: %s{modelType}")
                     pr "  [UI] Progress: %.0f%% - Trial %d/%d: %s" percent id total modelType
 
-                | TrialCompleted (id, score, _) ->
+                | TrialCompleted(id, score, _) ->
                     let percent = float id / float cliMaxTrials * 100.0
                     uiTracker.UpdateProgress(percent, sprintf "Completed with %.1f%% accuracy" (score * 100.0))
                     pr "  [UI] Progress: %.0f%% - Score: %.1f%%" percent (score * 100.0)
 
-                | PhaseChanged (phase, _) ->
+                | PhaseChanged(phase, _) ->
                     uiTracker.UpdateProgress(0.0, $"Phase: %s{phase}")
                     pr "  [UI] Phase: %s" phase
 
-                | ProgressUpdate (percent, msg) ->
+                | ProgressUpdate(percent, msg) ->
                     uiTracker.UpdateProgress(percent, msg)
                     pr "  [UI] Progress: %.0f%% - %s" percent msg
 
                 | _ -> ()
 
             member _.IsCancellationRequested = false
-    }
+        }
 
-    let result = autoML {
-        trainWith sampleFeatures sampleLabels
-        backend quantumBackend
-        maxTrials cliMaxTrials
-        tryArchitectures [Hybrid]
-        progressReporter customReporter
-        verbose false
-        randomSeed seed
-    }
+    let result =
+        autoML {
+            trainWith sampleFeatures sampleLabels
+            backend quantumBackend
+            maxTrials cliMaxTrials
+            tryArchitectures [ Hybrid ]
+            progressReporter customReporter
+            verbose false
+            randomSeed seed
+        }
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -316,10 +402,16 @@ if shouldRun "custom-ui" then
         pr "  Best: %s, Score: %.2f%%" r.BestModelType (r.Score * 100.0)
 
         record
-            { Name = "custom-ui"; Label = "Custom UI Reporter"
-              BestModel = r.BestModelType; Score = r.Score
-              Trials = r.SuccessfulTrials; Cancelled = false
-              SearchTimeSec = r.TotalSearchTime.TotalSeconds }
+            {
+                Name = "custom-ui"
+                Label = "Custom UI Reporter"
+                BestModel = r.BestModelType
+                Score = r.Score
+                Trials = r.SuccessfulTrials
+                Cancelled = false
+                SearchTimeSec = r.TotalSearchTime.TotalSeconds
+            }
+
     pr ""
 
 // ============================================================================
@@ -330,20 +422,27 @@ if shouldRun "production" then
     pr "=== Example 5: Production (Console + Logging) ==="
     pr ""
 
-    let consoleLog = createConsoleReporter (Some (not quiet)) None
+    let consoleLog = createConsoleReporter (Some(not quiet)) None
 
-    let mutable logEntries : string list = []
+    let mutable logEntries: string list = []
 
-    let loggingReporter = {
-        new IProgressReporter with
+    let loggingReporter =
+        { new IProgressReporter with
             member _.Report event =
                 match event with
-                | TrialCompleted (id, score, elapsed) ->
-                    let entry = sprintf "[LOG] Trial %d: score=%.4f, elapsed=%.2fs, ts=%s" id score elapsed (DateTime.UtcNow.ToString("o"))
+                | TrialCompleted(id, score, elapsed) ->
+                    let entry =
+                        sprintf
+                            "[LOG] Trial %d: score=%.4f, elapsed=%.2fs, ts=%s"
+                            id
+                            score
+                            elapsed
+                            (DateTime.UtcNow.ToString("o"))
+
                     logEntries <- logEntries @ [ entry ]
                     pr "  %s" entry
 
-                | TrialFailed (id, error) ->
+                | TrialFailed(id, error) ->
                     let entry = $"[LOG] ERROR Trial %d{id}: %s{error}"
                     logEntries <- logEntries @ [ entry ]
                     pr "  %s" entry
@@ -351,19 +450,20 @@ if shouldRun "production" then
                 | _ -> ()
 
             member _.IsCancellationRequested = false
-    }
+        }
 
-    let multiReporter = createAggregatingReporter [consoleLog; loggingReporter]
+    let multiReporter = createAggregatingReporter [ consoleLog; loggingReporter ]
 
-    let result = autoML {
-        trainWith sampleFeatures sampleLabels
-        backend quantumBackend
-        maxTrials cliMaxTrials
-        tryArchitectures [Quantum; Hybrid]
-        progressReporter multiReporter
-        verbose false
-        randomSeed seed
-    }
+    let result =
+        autoML {
+            trainWith sampleFeatures sampleLabels
+            backend quantumBackend
+            maxTrials cliMaxTrials
+            tryArchitectures [ Quantum; Hybrid ]
+            progressReporter multiReporter
+            verbose false
+            randomSeed seed
+        }
 
     match result with
     | Error err -> pr "  [ERROR] %A" err
@@ -372,10 +472,16 @@ if shouldRun "production" then
         pr "  Log entries: %d" logEntries.Length
 
         record
-            { Name = "production"; Label = "Production Multi-Reporter"
-              BestModel = r.BestModelType; Score = r.Score
-              Trials = r.SuccessfulTrials; Cancelled = false
-              SearchTimeSec = r.TotalSearchTime.TotalSeconds }
+            {
+                Name = "production"
+                Label = "Production Multi-Reporter"
+                BestModel = r.BestModelType
+                Score = r.Score
+                Trials = r.SuccessfulTrials
+                Cancelled = false
+                SearchTimeSec = r.TotalSearchTime.TotalSeconds
+            }
+
     pr ""
 
 // --- JSON output ---
@@ -385,21 +491,34 @@ outputPath
     let payload =
         jsonResults
         |> List.map (fun r ->
-            dict [
-                "name", box r.Name
-                "label", box r.Label
-                "bestModel", box r.BestModel
-                "score", box r.Score
-                "trials", box r.Trials
-                "cancelled", box r.Cancelled
-                "searchTimeSec", box r.SearchTimeSec ])
+            dict
+                [
+                    "name", box r.Name
+                    "label", box r.Label
+                    "bestModel", box r.BestModel
+                    "score", box r.Score
+                    "trials", box r.Trials
+                    "cancelled", box r.Cancelled
+                    "searchTimeSec", box r.SearchTimeSec
+                ])
+
     Reporting.writeJson path payload)
 
 // --- CSV output ---
 
 csvPath
 |> Option.iter (fun path ->
-    let header = [ "name"; "label"; "bestModel"; "score"; "trials"; "cancelled"; "searchTimeSec" ]
+    let header =
+        [
+            "name"
+            "label"
+            "bestModel"
+            "score"
+            "trials"
+            "cancelled"
+            "searchTimeSec"
+        ]
+
     Reporting.writeCsv path header csvRows)
 
 // --- Summary ---
@@ -407,11 +526,16 @@ csvPath
 if not quiet then
     pr ""
     pr "=== Summary ==="
+
     jsonResults
     |> List.iter (fun r ->
-        pr "  [OK] %-25s %s score=%.2f%%%s"
-            r.Label r.BestModel (r.Score * 100.0)
+        pr
+            "  [OK] %-25s %s score=%.2f%%%s"
+            r.Label
+            r.BestModel
+            (r.Score * 100.0)
             (if r.Cancelled then " (cancelled)" else ""))
+
     pr ""
     pr "Features demonstrated:"
     pr "  - Console progress reporter (built-in CLI feedback)"

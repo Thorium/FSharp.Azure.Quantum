@@ -19,7 +19,9 @@ module DWaveAnnealingIntentTests =
                 Offset = 0.0
             }
 
-        let intent = AnnealIsingOperation(ising, 25, seed = 42) :> IQuantumOperationExtension
+        let intent =
+            AnnealIsingOperation(ising, 25, seed = 42) :> IQuantumOperationExtension
+
         let op = QuantumOperation.Extension intent
 
         Assert.True(backend.SupportsOperation op)
@@ -29,7 +31,7 @@ module DWaveAnnealingIntentTests =
         | Ok initialState ->
             match backend.ApplyOperation op initialState with
             | Error err -> Assert.Fail(err.Message)
-            | Ok (QuantumState.IsingSamples (_, solutionsObj)) ->
+            | Ok(QuantumState.IsingSamples(_, solutionsObj)) ->
                 let solutions = solutionsObj :?> DWaveSolution list
                 Assert.NotEmpty(solutions)
             | Ok other -> Assert.Fail($"Expected IsingSamples state, got {QuantumState.stateType other}")
@@ -53,5 +55,5 @@ module DWaveAnnealingIntentTests =
         | Ok initialState ->
             match backend.ApplyOperation op initialState with
             | Error err -> Assert.Fail(err.Message)
-            | Ok (QuantumState.IsingSamples _) -> Assert.True(true)
+            | Ok(QuantumState.IsingSamples _) -> Assert.True(true)
             | Ok other -> Assert.Fail($"Expected IsingSamples state, got {QuantumState.stateType other}")

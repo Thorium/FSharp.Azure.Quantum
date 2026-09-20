@@ -35,47 +35,49 @@ namespace FSharp.Azure.Quantum.Topological
 /// - Kitaev, "Anyons in an exactly solved model" (2006)
 [<RequireQualifiedAccess>]
 module RMatrix =
-    
+
     open System
     open System.Numerics
-    
+
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// R-matrix index: R[a,b;c] where a × b → c
-    type RMatrixIndex = {
-        A: AnyonSpecies.Particle  // First anyon
-        B: AnyonSpecies.Particle  // Second anyon
-        C: AnyonSpecies.Particle  // Fusion channel
-    }
-    
+    type RMatrixIndex =
+        {
+            A: AnyonSpecies.Particle // First anyon
+            B: AnyonSpecies.Particle // Second anyon
+            C: AnyonSpecies.Particle // Fusion channel
+        }
+
     /// R-matrix data structure for a specific anyon type
-    type RMatrixData = {
-        AnyonType: AnyonSpecies.AnyonType
-        RSymbols: Map<RMatrixIndex, Complex>
-        IsValidated: bool  // True if hexagon equation has been verified
-    }
-    
+    type RMatrixData =
+        {
+            AnyonType: AnyonSpecies.AnyonType
+            RSymbols: Map<RMatrixIndex, Complex>
+            IsValidated: bool // True if hexagon equation has been verified
+        }
+
     // ========================================================================
     // COMPLEX NUMBER HELPERS (from TopologicalHelpers)
     // ========================================================================
-    
+
     let inline private polar r theta = TopologicalHelpers.polar r theta
     let inline private expI theta = TopologicalHelpers.expI theta
     let private π = TopologicalHelpers.π
-    
+
     // ========================================================================
     // ISING R-MATRICES (SU(2)_2 / Majorana Zero Modes)
     // ========================================================================
-    
+
     /// Compute Ising R-matrices
-    /// 
+    ///
     /// Ising anyons: {1, σ, ψ} with fusion rules:
     /// - σ × σ = 1 + ψ (split into vacuum or fermion)
     /// - σ × ψ = σ
     /// - ψ × ψ = 1 (fermion statistics)
-    /// 
+    ///
     /// R-matrix values from conformal field theory (Kitaev 2006):
     /// Using the conformal weight formula R^{ab}_c = exp(πi(h_c - h_a - h_b))
     /// with h_1 = 0, h_σ = 1/16, h_ψ = 1/2:
@@ -87,89 +89,164 @@ module RMatrix =
         let rSymbols =
             [
                 // Vacuum braiding is trivial (always phase 1)
-                { A = AnyonSpecies.Particle.Vacuum; B = AnyonSpecies.Particle.Vacuum; C = AnyonSpecies.Particle.Vacuum }, Complex.One
-                { A = AnyonSpecies.Particle.Vacuum; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Sigma }, Complex.One
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Vacuum; C = AnyonSpecies.Particle.Sigma }, Complex.One
-                { A = AnyonSpecies.Particle.Vacuum; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Psi }, Complex.One
-                { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Vacuum; C = AnyonSpecies.Particle.Psi }, Complex.One
-                
+                {
+                    A = AnyonSpecies.Particle.Vacuum
+                    B = AnyonSpecies.Particle.Vacuum
+                    C = AnyonSpecies.Particle.Vacuum
+                },
+                Complex.One
+                {
+                    A = AnyonSpecies.Particle.Vacuum
+                    B = AnyonSpecies.Particle.Sigma
+                    C = AnyonSpecies.Particle.Sigma
+                },
+                Complex.One
+                {
+                    A = AnyonSpecies.Particle.Sigma
+                    B = AnyonSpecies.Particle.Vacuum
+                    C = AnyonSpecies.Particle.Sigma
+                },
+                Complex.One
+                {
+                    A = AnyonSpecies.Particle.Vacuum
+                    B = AnyonSpecies.Particle.Psi
+                    C = AnyonSpecies.Particle.Psi
+                },
+                Complex.One
+                {
+                    A = AnyonSpecies.Particle.Psi
+                    B = AnyonSpecies.Particle.Vacuum
+                    C = AnyonSpecies.Particle.Psi
+                },
+                Complex.One
+
                 // σ × σ → 1: R[σ,σ;1] = e^(-iπ/8) (Majorana Berry phase, Kitaev convention)
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Vacuum }, expI (-π / 8.0)
-                
+                {
+                    A = AnyonSpecies.Particle.Sigma
+                    B = AnyonSpecies.Particle.Sigma
+                    C = AnyonSpecies.Particle.Vacuum
+                },
+                expI (-π / 8.0)
+
                 // σ × σ → ψ: R[σ,σ;ψ] = e^(3iπ/8)
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Psi }, expI (3.0 * π / 8.0)
-                
+                {
+                    A = AnyonSpecies.Particle.Sigma
+                    B = AnyonSpecies.Particle.Sigma
+                    C = AnyonSpecies.Particle.Psi
+                },
+                expI (3.0 * π / 8.0)
+
                 // σ × ψ → σ: R[σ,ψ;σ] = e^(-iπ/2) = -i
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Sigma }, expI (-π / 2.0)
-                
+                {
+                    A = AnyonSpecies.Particle.Sigma
+                    B = AnyonSpecies.Particle.Psi
+                    C = AnyonSpecies.Particle.Sigma
+                },
+                expI (-π / 2.0)
+
                 // ψ × σ → σ: R[ψ,σ;σ] = e^(-iπ/2) = -i (symmetric with above)
-                { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Sigma }, expI (-π / 2.0)
-                
+                {
+                    A = AnyonSpecies.Particle.Psi
+                    B = AnyonSpecies.Particle.Sigma
+                    C = AnyonSpecies.Particle.Sigma
+                },
+                expI (-π / 2.0)
+
                 // ψ × ψ → 1: R[ψ,ψ;1] = -1 (fermion exchange statistics!)
-                { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Vacuum }, Complex(-1.0, 0.0)
+                {
+                    A = AnyonSpecies.Particle.Psi
+                    B = AnyonSpecies.Particle.Psi
+                    C = AnyonSpecies.Particle.Vacuum
+                },
+                Complex(-1.0, 0.0)
             ]
             |> Map.ofList
-        
+
         {
             AnyonType = AnyonSpecies.AnyonType.Ising
             RSymbols = rSymbols
-            IsValidated = false  // Validated via verifyHexagonEquation (lines 342-415)
+            IsValidated = false // Validated via verifyHexagonEquation (lines 342-415)
         }
-    
+
     // ========================================================================
     // FIBONACCI R-MATRICES
     // ========================================================================
-    
+
     /// Compute Fibonacci R-matrices
-    /// 
+    ///
     /// Fibonacci anyons: {1, τ} with fusion rule:
     /// - τ × τ = 1 + τ (Fibonacci recurrence!)
-    /// 
+    ///
     /// R-matrix values:
     /// - R[τ,τ;1] = exp(4πi/5)
     /// - R[τ,τ;τ] = exp(-3πi/5)
-    /// 
+    ///
     /// These phases enable universal topological quantum computation.
     let private computeFibonacciRMatrices () : RMatrixData =
         let rSymbols =
             [
                 // Vacuum braiding
-                { A = AnyonSpecies.Particle.Vacuum; B = AnyonSpecies.Particle.Vacuum; C = AnyonSpecies.Particle.Vacuum }, Complex.One
-                { A = AnyonSpecies.Particle.Vacuum; B = AnyonSpecies.Particle.Tau; C = AnyonSpecies.Particle.Tau }, Complex.One
-                { A = AnyonSpecies.Particle.Tau; B = AnyonSpecies.Particle.Vacuum; C = AnyonSpecies.Particle.Tau }, Complex.One
-                
+                {
+                    A = AnyonSpecies.Particle.Vacuum
+                    B = AnyonSpecies.Particle.Vacuum
+                    C = AnyonSpecies.Particle.Vacuum
+                },
+                Complex.One
+                {
+                    A = AnyonSpecies.Particle.Vacuum
+                    B = AnyonSpecies.Particle.Tau
+                    C = AnyonSpecies.Particle.Tau
+                },
+                Complex.One
+                {
+                    A = AnyonSpecies.Particle.Tau
+                    B = AnyonSpecies.Particle.Vacuum
+                    C = AnyonSpecies.Particle.Tau
+                },
+                Complex.One
+
                 // τ × τ → 1: R[τ,τ;1] = e^(4πi/5)
-                { A = AnyonSpecies.Particle.Tau; B = AnyonSpecies.Particle.Tau; C = AnyonSpecies.Particle.Vacuum }, expI (4.0 * π / 5.0)
-                
+                {
+                    A = AnyonSpecies.Particle.Tau
+                    B = AnyonSpecies.Particle.Tau
+                    C = AnyonSpecies.Particle.Vacuum
+                },
+                expI (4.0 * π / 5.0)
+
                 // τ × τ → τ: R[τ,τ;τ] = e^(-3πi/5)
-                { A = AnyonSpecies.Particle.Tau; B = AnyonSpecies.Particle.Tau; C = AnyonSpecies.Particle.Tau }, expI (-3.0 * π / 5.0)
+                {
+                    A = AnyonSpecies.Particle.Tau
+                    B = AnyonSpecies.Particle.Tau
+                    C = AnyonSpecies.Particle.Tau
+                },
+                expI (-3.0 * π / 5.0)
             ]
             |> Map.ofList
-        
+
         {
             AnyonType = AnyonSpecies.AnyonType.Fibonacci
             RSymbols = rSymbols
             IsValidated = false
         }
-    
+
     // ========================================================================
     // SU(2)_k R-MATRICES (GENERAL CASE - CONFORMAL FIELD THEORY)
     // ========================================================================
-    
+
     /// Compute conformal weight (topological spin) for SU(2)_k
-    /// 
+    ///
     /// Formula from Conformal Field Theory:
     ///   h_j = j(j+1)/(k+2)
-    /// 
+    ///
     /// where:
     ///   - j is the spin quantum number (half-integer or integer)
     ///   - k is the level of the SU(2) Chern-Simons theory
     ///   - h_j is the conformal dimension (scaling dimension) of the primary field
-    /// 
+    ///
     /// Physical Meaning:
     ///   The conformal weight determines how the particle transforms under
     ///   rotations and is directly related to its statistical phase.
-    /// 
+    ///
     /// Examples (k=3):
     ///   h_0 = 0*(0+1)/5 = 0         (vacuum)
     ///   h_{1/2} = (1/2)*(3/2)/5 = 3/20
@@ -178,9 +255,8 @@ module RMatrix =
     ///
     /// The R-matrix phase is then:
     ///   R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h_j1 + h_j2 - h_j3))
-    let private conformalWeight (j: float) (k: int) : float =
-        j * (j + 1.0) / float (k + 2)
-    
+    let private conformalWeight (j: float) (k: int) : float = j * (j + 1.0) / float (k + 2)
+
     /// Compute SU(2)_k R-matrices using conformal field theory formula
     ///
     /// Theory: SU(2)_k Chern-Simons Theory / Wess-Zumino-Witten (WZW) Model
@@ -210,17 +286,17 @@ module RMatrix =
     ///
     /// Fusion Rules:
     ///   j1 × j2 → j3 where |j1-j2| ≤ j3 ≤ min(j1+j2, k-j1-j2) in steps of 1
-    /// 
+    ///
     /// Physical Systems:
     ///   - SU(2)_2 ≅ Ising: Majorana fermions, ν=5/2 fractional quantum Hall
     ///   - SU(2)_3: ν=12/5 fractional quantum Hall (Read-Rezayi state)
     ///   - SU(2)_4: ν=2+2/3 fractional quantum Hall (conjectured)
-    /// 
+    ///
     /// Mathematical Properties:
     ///   - All R-matrix elements have unit magnitude (unitary braiding)
     ///   - Satisfy hexagon equation (consistency with fusion)
     ///   - Form representation of braid group B_n
-    /// 
+    ///
     /// References:
     ///   - Simon, "Topological Quantum", Chapter 17 (S-matrix), Ch 21-22 (SU(2)_k)
     ///   - Witten, "Quantum Field Theory and the Jones Polynomial", Comm. Math. Phys. 121, 351 (1989)
@@ -229,69 +305,79 @@ module RMatrix =
         match AnyonSpecies.particles (AnyonSpecies.AnyonType.SU2Level k) with
         | Error err -> Error err
         | Ok particleList ->
-        
-        // Helper to extract spin value from particle
-        let spinValue = function
-            | AnyonSpecies.Particle.SpinJ (j_doubled, _) -> float j_doubled / 2.0
-            | AnyonSpecies.Particle.Vacuum -> 0.0
-            | other -> invalidOp $"SU(2)_k R-matrix: particle {other} is not valid for SU(2) theory (expected Vacuum or SpinJ)"
-        
-        // Generate all R-symbols for valid fusion channels
-        let rSymbolResults =
-            particleList
-            |> List.collect (fun a ->
-                particleList
-                |> List.map (fun b ->
-                    match FusionRules.fuse a b (AnyonSpecies.AnyonType.SU2Level k) with
-                    | Ok fusionOutcomes ->
-                        fusionOutcomes
-                        |> List.map (fun outcome ->
-                            let c = outcome.Result
-                            
-                            // Extract spin values and compute conformal weights
-                            let j1, j2, j3 = spinValue a, spinValue b, spinValue c
-                            let h1, h2, h3 = conformalWeight j1 k, conformalWeight j2 k, conformalWeight j3 k
 
-                            // Exchange braid eigenvalue (see doc comment above):
-                            // R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h1 + h2 - h3))
-                            // j1+j2-j3 is an integer for allowed fusion channels.
-                            let parity =
-                                if (int (round (j1 + j2 - j3))) % 2 = 0 then 1.0 else -1.0
-                            let theta = h1 + h2 - h3
-                            let rValue = Complex(parity, 0.0) * expI (π * theta)
-                            
-                            { A = a; B = b; C = c }, rValue)
-                        |> Ok
-                    | Error err -> Error err))
-        
-        match rSymbolResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
-        | Some err -> Error err
-        | None ->
-            let rSymbols =
+            // Helper to extract spin value from particle
+            let spinValue =
+                function
+                | AnyonSpecies.Particle.SpinJ(j_doubled, _) -> float j_doubled / 2.0
+                | AnyonSpecies.Particle.Vacuum -> 0.0
+                | other ->
+                    invalidOp
+                        $"SU(2)_k R-matrix: particle {other} is not valid for SU(2) theory (expected Vacuum or SpinJ)"
+
+            // Generate all R-symbols for valid fusion channels
+            let rSymbolResults =
+                particleList
+                |> List.collect (fun a ->
+                    particleList
+                    |> List.map (fun b ->
+                        match FusionRules.fuse a b (AnyonSpecies.AnyonType.SU2Level k) with
+                        | Ok fusionOutcomes ->
+                            fusionOutcomes
+                            |> List.map (fun outcome ->
+                                let c = outcome.Result
+
+                                // Extract spin values and compute conformal weights
+                                let j1, j2, j3 = spinValue a, spinValue b, spinValue c
+                                let h1, h2, h3 = conformalWeight j1 k, conformalWeight j2 k, conformalWeight j3 k
+
+                                // Exchange braid eigenvalue (see doc comment above):
+                                // R[j1,j2;j3] = (-1)^(j1+j2-j3) · exp(iπ (h1 + h2 - h3))
+                                // j1+j2-j3 is an integer for allowed fusion channels.
+                                let parity = if (int (round (j1 + j2 - j3))) % 2 = 0 then 1.0 else -1.0
+                                let theta = h1 + h2 - h3
+                                let rValue = Complex(parity, 0.0) * expI (π * theta)
+
+                                { A = a; B = b; C = c }, rValue)
+                            |> Ok
+                        | Error err -> Error err))
+
+            match
                 rSymbolResults
-                |> List.collect (function Ok pairs -> pairs | Error _ -> [])
-                |> Map.ofList
-            
-            Ok {
-                AnyonType = AnyonSpecies.AnyonType.SU2Level k
-                RSymbols = rSymbols
-                IsValidated = false
-            }
-    
+                |> List.tryPick (function
+                    | Error e -> Some e
+                    | Ok _ -> None)
+            with
+            | Some err -> Error err
+            | None ->
+                let rSymbols =
+                    rSymbolResults
+                    |> List.collect (function
+                        | Ok pairs -> pairs
+                        | Error _ -> [])
+                    |> Map.ofList
+
+                Ok
+                    {
+                        AnyonType = AnyonSpecies.AnyonType.SU2Level k
+                        RSymbols = rSymbols
+                        IsValidated = false
+                    }
+
     // ========================================================================
     // PUBLIC API
     // ========================================================================
-    
+
     /// Compute R-matrix data for a given anyon type
     let computeRMatrix (anyonType: AnyonSpecies.AnyonType) : TopologicalResult<RMatrixData> =
         match anyonType with
-        | AnyonSpecies.AnyonType.Ising -> Ok (computeIsingRMatrices ())
-        | AnyonSpecies.AnyonType.Fibonacci -> Ok (computeFibonacciRMatrices ())
-        | AnyonSpecies.AnyonType.SU2Level 2 -> Ok (computeIsingRMatrices ())  // SU(2)_2 ≅ Ising
-        | AnyonSpecies.AnyonType.SU2Level k -> computeSU2KRMatrices k  // General SU(2)_k
-    
+        | AnyonSpecies.AnyonType.Ising -> Ok(computeIsingRMatrices ())
+        | AnyonSpecies.AnyonType.Fibonacci -> Ok(computeFibonacciRMatrices ())
+        | AnyonSpecies.AnyonType.SU2Level 2 -> Ok(computeIsingRMatrices ()) // SU(2)_2 ≅ Ising
+        | AnyonSpecies.AnyonType.SU2Level k -> computeSU2KRMatrices k // General SU(2)_k
+
     /// Get R-matrix element R[a,b;c]
-    /// 
+    ///
     /// Returns the complex phase for braiding anyons a and b with fusion channel c.
     /// Returns Error if:
     /// - Fusion a × b → c is not allowed
@@ -300,17 +386,19 @@ module RMatrix =
         // Validate fusion is possible
         match FusionRules.isPossible index.A index.B index.C data.AnyonType with
         | Error err -> Error err
-        | Ok false -> 
-            TopologicalResult.logicError "operation" $"Cannot fuse {index.A} × {index.B} → {index.C} in {data.AnyonType} theory"
+        | Ok false ->
+            TopologicalResult.logicError
+                "operation"
+                $"Cannot fuse {index.A} × {index.B} → {index.C} in {data.AnyonType} theory"
         | Ok true ->
-        
-        // Look up R-symbol
-        match Map.tryFind index data.RSymbols with
-        | Some value -> Ok value
-        | None -> 
-            // For valid fusion channels not explicitly stored, R = 1 (trivial braiding)
-            Ok Complex.One
-    
+
+            // Look up R-symbol
+            match Map.tryFind index data.RSymbols with
+            | Some value -> Ok value
+            | None ->
+                // For valid fusion channels not explicitly stored, R = 1 (trivial braiding)
+                Ok Complex.One
+
     // ========================================================================
     // HEXAGON EQUATION HELPERS
     // ========================================================================
@@ -324,11 +412,19 @@ module RMatrix =
         (FusionRules.channels a b anyonType) |> Result.defaultValue []
 
     /// Try to look up an F-symbol value, returning None if fusion constraints are violated.
-    let private tryGetFLocal
-        (fData: FMatrix.FMatrixData)
-        (a, b, c, d, e, f)
-        : Complex option =
-        (FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f }) |> Result.map (fun value -> Some value) |> Result.defaultValue None
+    let private tryGetFLocal (fData: FMatrix.FMatrixData) (a, b, c, d, e, f) : Complex option =
+        (FMatrix.getFSymbol
+            fData
+            {
+                FMatrix.A = a
+                FMatrix.B = b
+                FMatrix.C = c
+                FMatrix.D = d
+                FMatrix.E = e
+                FMatrix.F = f
+            })
+        |> Result.map (fun value -> Some value)
+        |> Result.defaultValue None
 
     /// Get all particles in a theory
     let private getParticlesLocal (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle list =
@@ -357,91 +453,106 @@ module RMatrix =
     ///   - Simon, "Topological Quantum" (2023), Section 13.3
     let verifyHexagonEquation (rData: RMatrixData) (fData: FMatrix.FMatrixData) : TopologicalResult<RMatrixData> =
         if fData.AnyonType <> rData.AnyonType then
-            TopologicalResult.logicError "operation"
+            TopologicalResult.logicError
+                "operation"
                 $"F-matrix type {fData.AnyonType} ≠ R-matrix type {rData.AnyonType}"
         else
 
-        let anyonType = rData.AnyonType
-        let tolerance = 1e-10
-        let particles = getParticlesLocal anyonType
+            let anyonType = rData.AnyonType
+            let tolerance = 1e-10
+            let particles = getParticlesLocal anyonType
 
-        // Verify hexagon for all 4-tuples (a,b,c,d)
-        let allDeviations =
-            [ for a in particles do
-              for b in particles do
-              for c in particles do
-              for d in particles do
-                let channelsAB = fusionChannelsLocal a b anyonType
-                let channelsBC = fusionChannelsLocal b c anyonType
-                let channelsCA = fusionChannelsLocal c a anyonType
+            // Verify hexagon for all 4-tuples (a,b,c,d)
+            let allDeviations =
+                [
+                    for a in particles do
+                        for b in particles do
+                            for c in particles do
+                                for d in particles do
+                                    let channelsAB = fusionChannelsLocal a b anyonType
+                                    let channelsBC = fusionChannelsLocal b c anyonType
+                                    let channelsCA = fusionChannelsLocal c a anyonType
 
-                // Valid e: e ∈ channels(a×b) with e×c→d
-                let validE = channelsAB |> List.filter (fun e ->
-                    match FusionRules.isPossible e c d anyonType with
-                    | Ok true -> true
-                    | _ -> false)
+                                    // Valid e: e ∈ channels(a×b) with e×c→d
+                                    let validE =
+                                        channelsAB
+                                        |> List.filter (fun e ->
+                                            match FusionRules.isPossible e c d anyonType with
+                                            | Ok true -> true
+                                            | _ -> false)
 
-                // Valid g: g ∈ channels(c×a) with b×g→d
-                let validG = channelsCA |> List.filter (fun g ->
-                    match FusionRules.isPossible b g d anyonType with
-                    | Ok true -> true
-                    | _ -> false)
+                                    // Valid g: g ∈ channels(c×a) with b×g→d
+                                    let validG =
+                                        channelsCA
+                                        |> List.filter (fun g ->
+                                            match FusionRules.isPossible b g d anyonType with
+                                            | Ok true -> true
+                                            | _ -> false)
 
-                // Valid f (for sum): f ∈ channels(b×c) with a×f→d
-                let validF = channelsBC |> List.filter (fun f ->
-                    match FusionRules.isPossible a f d anyonType with
-                    | Ok true -> true
-                    | _ -> false)
+                                    // Valid f (for sum): f ∈ channels(b×c) with a×f→d
+                                    let validF =
+                                        channelsBC
+                                        |> List.filter (fun f ->
+                                            match FusionRules.isPossible a f d anyonType with
+                                            | Ok true -> true
+                                            | _ -> false)
 
-                if not (validE.IsEmpty || validG.IsEmpty) then
-                    for e in validE do
-                    for g in validG do
-                        // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
-                        let lhsTerms =
-                            validF
-                            |> List.choose (fun f ->
-                                match tryGetFLocal fData (b,c,a,d,f,g),
-                                      tryGetFLocal fData (a,b,c,d,e,f) with
-                                | Some fBCA, Some fABC ->
-                                    (getRSymbol rData { A = a; B = f; C = d }) |> Result.map (fun r -> Some (fBCA * r * fABC)) |> Result.defaultValue None
-                                | _ -> None)
+                                    if not (validE.IsEmpty || validG.IsEmpty) then
+                                        for e in validE do
+                                            for g in validG do
+                                                // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
+                                                let lhsTerms =
+                                                    validF
+                                                    |> List.choose (fun f ->
+                                                        match
+                                                            tryGetFLocal fData (b, c, a, d, f, g),
+                                                            tryGetFLocal fData (a, b, c, d, e, f)
+                                                        with
+                                                        | Some fBCA, Some fABC ->
+                                                            (getRSymbol rData { A = a; B = f; C = d })
+                                                            |> Result.map (fun r -> Some(fBCA * r * fABC))
+                                                            |> Result.defaultValue None
+                                                        | _ -> None)
 
-                        let lhs = lhsTerms |> List.fold (+) Complex.Zero
+                                                let lhs = lhsTerms |> List.fold (+) Complex.Zero
 
-                        // RHS: R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
-                        match tryGetFLocal fData (b,a,c,d,e,g) with
-                        | Some fBAC ->
-                            match getRSymbol rData { A = a; B = c; C = g },
-                                  getRSymbol rData { A = a; B = b; C = e } with
-                            | Ok r1, Ok r2 ->
-                                yield (lhs - (r1 * fBAC * r2)).Magnitude
-                            | _ -> ()
-                        | None -> () ]
+                                                // RHS: R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
+                                                match tryGetFLocal fData (b, a, c, d, e, g) with
+                                                | Some fBAC ->
+                                                    match
+                                                        getRSymbol rData { A = a; B = c; C = g },
+                                                        getRSymbol rData { A = a; B = b; C = e }
+                                                    with
+                                                    | Ok r1, Ok r2 -> yield (lhs - (r1 * fBAC * r2)).Magnitude
+                                                    | _ -> ()
+                                                | None -> ()
+                ]
 
-        match allDeviations with
-        | [] -> Ok { rData with IsValidated = true }  // No valid paths — trivially satisfied
-        | _ ->
-            let maxDev = List.max allDeviations
-            if allDeviations |> List.forall (fun d -> d < tolerance) then
-                Ok { rData with IsValidated = true }
-            else
-                TopologicalResult.computationError "operation"
-                    $"Hexagon equation violated: max deviation {maxDev:E3} exceeds tolerance {tolerance:E3} ({allDeviations.Length} checks, {allDeviations |> List.filter (fun d -> d >= tolerance) |> List.length} failed)"
-    
+            match allDeviations with
+            | [] -> Ok { rData with IsValidated = true } // No valid paths — trivially satisfied
+            | _ ->
+                let maxDev = List.max allDeviations
+
+                if allDeviations |> List.forall (fun d -> d < tolerance) then
+                    Ok { rData with IsValidated = true }
+                else
+                    TopologicalResult.computationError
+                        "operation"
+                        $"Hexagon equation violated: max deviation {maxDev:E3} exceeds tolerance {tolerance:E3} ({allDeviations.Length} checks, {allDeviations |> List.filter (fun d -> d >= tolerance) |> List.length} failed)"
+
     /// Validate R-matrix consistency
-    /// 
+    ///
     /// Checks:
     /// 1. All R-matrix elements lie on unit circle (|R| = 1)
     /// 2. Hexagon equation holds (relates R to F-matrices)
     let validateRMatrix (data: RMatrixData) : TopologicalResult<RMatrixData> =
         // Check unitarity: all R-matrix elements must be on unit circle
-        let allUnitary = 
-            data.RSymbols 
-            |> Map.forall (fun _ value -> 
+        let allUnitary =
+            data.RSymbols
+            |> Map.forall (fun _ value ->
                 let magnitude = value.Magnitude
-                abs (magnitude - 1.0) < 1e-10
-            )
-        
+                abs (magnitude - 1.0) < 1e-10)
+
         if not allUnitary then
             TopologicalResult.computationError "operation" "R-matrix elements not on unit circle (|R| ≠ 1)"
         else
@@ -451,56 +562,63 @@ module RMatrix =
                 // F-matrix not available (e.g., unsupported SU(2)_k)
                 // Can only validate unitarity, not hexagon
                 Ok { data with IsValidated = true }
-            | Ok fData ->
-                verifyHexagonEquation data fData
-    
+            | Ok fData -> verifyHexagonEquation data fData
+
     /// Get full R-matrix as a diagonal matrix for fusion a × b
-    /// 
+    ///
     /// For multiplicity-free theories (Ising, Fibonacci), R-matrices are diagonal.
     /// Matrix element R[i,j] = δ_ij * R[a,b;c_i] where c_i is the i-th fusion channel.
-    /// 
+    ///
     /// Returns a 2D array where:
     /// - Dimension = number of fusion channels for a × b
     /// - Diagonal elements = R-matrix phases
     /// - Off-diagonal elements = 0
-    let computeRMatrixArray 
-        (a: AnyonSpecies.Particle) 
-        (b: AnyonSpecies.Particle) 
-        (anyonType: AnyonSpecies.AnyonType) 
+    let computeRMatrixArray
+        (a: AnyonSpecies.Particle)
+        (b: AnyonSpecies.Particle)
+        (anyonType: AnyonSpecies.AnyonType)
         : TopologicalResult<Complex[,]> =
-        
+
         match computeRMatrix anyonType with
         | Error err -> Error err
         | Ok rData ->
-        
-        match FusionRules.fuse a b anyonType with
-        | Error err -> Error err
-        | Ok fusionOutcomes ->
-        
-        let n = fusionOutcomes.Length
-        let matrix = Array2D.create n n Complex.Zero
-        
-        // Fill diagonal with R-matrix elements
-        fusionOutcomes
-        |> List.iteri (fun i outcome ->
-            let index = { A = a; B = b; C = outcome.Result }
-            (getRSymbol rData index) |> Result.map (fun rValue -> matrix.[i, i] <- rValue) |> Result.defaultWith (fun _ -> matrix.[i, i] <- Complex.Zero)  // Should not happen for valid fusion
-        )
-        
-        Ok matrix
-    
+
+            match FusionRules.fuse a b anyonType with
+            | Error err -> Error err
+            | Ok fusionOutcomes ->
+
+                let n = fusionOutcomes.Length
+                let matrix = Array2D.create n n Complex.Zero
+
+                // Fill diagonal with R-matrix elements
+                fusionOutcomes
+                |> List.iteri (fun i outcome ->
+                    let index = { A = a; B = b; C = outcome.Result }
+
+                    (getRSymbol rData index)
+                    |> Result.map (fun rValue -> matrix.[i, i] <- rValue)
+                    |> Result.defaultWith (fun _ -> matrix.[i, i] <- Complex.Zero) // Should not happen for valid fusion
+                )
+
+                Ok matrix
+
     // ========================================================================
     // DISPLAY UTILITIES
     // ========================================================================
-    
+
     let private formatParticle p = TopologicalHelpers.formatParticle p
     let private formatComplex z = TopologicalHelpers.formatComplex z
-    
+
     /// Display all R-symbols for an anyon type
     let displayAllRSymbols (data: RMatrixData) : string =
         let header = $"R-Matrix for {data.AnyonType} anyons:\n"
-        let validated = if data.IsValidated then " (hexagon verified)" else " (hexagon not verified)"
-        
+
+        let validated =
+            if data.IsValidated then
+                " (hexagon verified)"
+            else
+                " (hexagon not verified)"
+
         let symbols =
             data.RSymbols
             |> Map.toList
@@ -509,8 +627,7 @@ module RMatrix =
                 let b = formatParticle idx.B
                 let c = formatParticle idx.C
                 let v = formatComplex value
-                $"  R[%s{a},%s{b};%s{c}] = %s{v}"
-            )
+                $"  R[%s{a},%s{b};%s{c}] = %s{v}")
             |> String.concat "\n"
-        
+
         header + validated + "\n" + symbols

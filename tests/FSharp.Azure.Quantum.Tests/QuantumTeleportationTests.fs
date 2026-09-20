@@ -18,25 +18,33 @@ let private assertHighFidelity (minFidelity: float) (result: QuantumTeleportatio
 let ``QuantumTeleportation.teleportZero returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    (QuantumTeleportation.teleportZero backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
+    (QuantumTeleportation.teleportZero backend)
+    |> Result.map (fun result -> assertHighFidelity 0.999999 result)
+    |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.teleportOne returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    (QuantumTeleportation.teleportOne backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
+    (QuantumTeleportation.teleportOne backend)
+    |> Result.map (fun result -> assertHighFidelity 0.999999 result)
+    |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.teleportPlus returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    (QuantumTeleportation.teleportPlus backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
+    (QuantumTeleportation.teleportPlus backend)
+    |> Result.map (fun result -> assertHighFidelity 0.999999 result)
+    |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.teleportMinus returns near-perfect fidelity`` () =
     let backend = createLocalBackend ()
 
-    (QuantumTeleportation.teleportMinus backend) |> Result.map (fun result -> assertHighFidelity 0.999999 result) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
+    (QuantumTeleportation.teleportMinus backend)
+    |> Result.map (fun result -> assertHighFidelity 0.999999 result)
+    |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok, got Error: {err}"))
 
 [<Fact>]
 let ``QuantumTeleportation.runStatistics returns all successful results`` () =
@@ -44,7 +52,7 @@ let ``QuantumTeleportation.runStatistics returns all successful results`` () =
 
     let prepareInput (b: IQuantumBackend) =
         b.InitializeState 3
-        |> Result.bind (fun s -> b.ApplyOperation (QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.H 0)) s)
+        |> Result.bind (fun s -> b.ApplyOperation (QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.H 0)) s)
 
     match QuantumTeleportation.runStatistics prepareInput backend 25 with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")

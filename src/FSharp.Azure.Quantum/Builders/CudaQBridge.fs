@@ -20,13 +20,15 @@ open FSharp.Azure.Quantum.Core
 /// generated program is a faithful gate-by-gate translation, not an endianness contract.
 module CudaQBridge =
 
-    let private inv (x: float) = x.ToString("R", CultureInfo.InvariantCulture)
+    let private inv (x: float) =
+        x.ToString("R", CultureInfo.InvariantCulture)
 
     /// Translate one gate to its CUDA-Q Python call (`Some line`), skip it (`None`, e.g. a
     /// mid-circuit measurement — all qubits are measured at the end), or fail with a reason.
     let private gateLine (g: CircuitBuilder.Gate) : Result<string option, string> =
         let q i = $"q[%d{i}]"
-        let line s = Ok (Some ("    " + s))
+        let line s = Ok(Some("    " + s))
+
         match g with
         | CircuitBuilder.X i -> line (sprintf "x(%s)" (q i))
         | CircuitBuilder.Y i -> line (sprintf "y(%s)" (q i))
@@ -36,28 +38,31 @@ module CudaQBridge =
         | CircuitBuilder.SDG i -> line (sprintf "s.adj(%s)" (q i))
         | CircuitBuilder.T i -> line (sprintf "t(%s)" (q i))
         | CircuitBuilder.TDG i -> line (sprintf "t.adj(%s)" (q i))
-        | CircuitBuilder.P (i, theta) -> line (sprintf "r1(%s, %s)" (inv theta) (q i))
-        | CircuitBuilder.RX (i, theta) -> line (sprintf "rx(%s, %s)" (inv theta) (q i))
-        | CircuitBuilder.RY (i, theta) -> line (sprintf "ry(%s, %s)" (inv theta) (q i))
-        | CircuitBuilder.RZ (i, theta) -> line (sprintf "rz(%s, %s)" (inv theta) (q i))
-        | CircuitBuilder.U3 (i, th, ph, la) -> line (sprintf "u3(%s, %s, %s, %s)" (inv th) (inv ph) (inv la) (q i))
-        | CircuitBuilder.CNOT (c, t) -> line (sprintf "x.ctrl(%s, %s)" (q c) (q t))
-        | CircuitBuilder.CZ (c, t) -> line (sprintf "z.ctrl(%s, %s)" (q c) (q t))
-        | CircuitBuilder.CP (c, t, theta) -> line (sprintf "r1.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
-        | CircuitBuilder.CRX (c, t, theta) -> line (sprintf "rx.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
-        | CircuitBuilder.CRY (c, t, theta) -> line (sprintf "ry.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
-        | CircuitBuilder.CRZ (c, t, theta) -> line (sprintf "rz.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
-        | CircuitBuilder.SWAP (a, b) -> line (sprintf "swap(%s, %s)" (q a) (q b))
-        | CircuitBuilder.CCX (a, b, t) -> line (sprintf "x.ctrl(%s, %s, %s)" (q a) (q b) (q t))
-        | CircuitBuilder.MCZ (controls, t) ->
+        | CircuitBuilder.P(i, theta) -> line (sprintf "r1(%s, %s)" (inv theta) (q i))
+        | CircuitBuilder.RX(i, theta) -> line (sprintf "rx(%s, %s)" (inv theta) (q i))
+        | CircuitBuilder.RY(i, theta) -> line (sprintf "ry(%s, %s)" (inv theta) (q i))
+        | CircuitBuilder.RZ(i, theta) -> line (sprintf "rz(%s, %s)" (inv theta) (q i))
+        | CircuitBuilder.U3(i, th, ph, la) -> line (sprintf "u3(%s, %s, %s, %s)" (inv th) (inv ph) (inv la) (q i))
+        | CircuitBuilder.CNOT(c, t) -> line (sprintf "x.ctrl(%s, %s)" (q c) (q t))
+        | CircuitBuilder.CZ(c, t) -> line (sprintf "z.ctrl(%s, %s)" (q c) (q t))
+        | CircuitBuilder.CP(c, t, theta) -> line (sprintf "r1.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
+        | CircuitBuilder.CRX(c, t, theta) -> line (sprintf "rx.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
+        | CircuitBuilder.CRY(c, t, theta) -> line (sprintf "ry.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
+        | CircuitBuilder.CRZ(c, t, theta) -> line (sprintf "rz.ctrl(%s, %s, %s)" (inv theta) (q c) (q t))
+        | CircuitBuilder.SWAP(a, b) -> line (sprintf "swap(%s, %s)" (q a) (q b))
+        | CircuitBuilder.CCX(a, b, t) -> line (sprintf "x.ctrl(%s, %s, %s)" (q a) (q b) (q t))
+        | CircuitBuilder.MCZ(controls, t) ->
             let args = (controls @ [ t ]) |> List.map q |> String.concat ", "
             line $"z.ctrl(%s{args})"
-        | CircuitBuilder.Measure _ -> Ok None   // all qubits are measured with mz(q) at the end
+        | CircuitBuilder.Measure _ -> Ok None // all qubits are measured with mz(q) at the end
         | CircuitBuilder.Reset i -> line (sprintf "reset(%s)" (q i))
-        | CircuitBuilder.Barrier _ -> Ok None   // scheduling hint only — no effect on simulation, safe to skip
+        | CircuitBuilder.Barrier _ -> Ok None // scheduling hint only — no effect on simulation, safe to skip
         | CircuitBuilder.Conditional _ ->
-            Error "Conditional (classically controlled) gates are not supported — this translation skips mid-circuit measurements and measures all qubits once at the end"
-        | CircuitBuilder.RXX _ | CircuitBuilder.RYY _ | CircuitBuilder.RZZ _ ->
+            Error
+                "Conditional (classically controlled) gates are not supported — this translation skips mid-circuit measurements and measures all qubits once at the end"
+        | CircuitBuilder.RXX _
+        | CircuitBuilder.RYY _
+        | CircuitBuilder.RZZ _ ->
             Error "RXX/RYY/RZZ have no direct CUDA-Q builtin — transpile to elementary gates first"
 
     /// Generate a runnable CUDA-Q Python program that samples the circuit on `target`.
@@ -65,31 +70,39 @@ module CudaQBridge =
     let toKernelSource (target: string) (shots: int) (circuit: CircuitBuilder.Circuit) : QuantumResult<string> =
         let rec build acc gates =
             match gates with
-            | [] -> Ok (List.rev acc)
+            | [] -> Ok(List.rev acc)
             | g :: rest ->
                 match gateLine g with
-                | Error reason -> Error (QuantumError.OperationError ("CudaQBridge", $"Unsupported gate for CUDA-Q export: {reason}"))
+                | Error reason ->
+                    Error(QuantumError.OperationError("CudaQBridge", $"Unsupported gate for CUDA-Q export: {reason}"))
                 | Ok None -> build acc rest
-                | Ok (Some ln) -> build (ln :: acc) rest
+                | Ok(Some ln) -> build (ln :: acc) rest
         // circuit.Gates is stored most-recent-first; reverse to program order.
         build [] (List.rev circuit.Gates)
         |> Result.map (fun body ->
-            let gateBlock = if List.isEmpty body then "    pass" else String.concat "\n" body
-            String.concat "\n" [
-                "# Auto-generated by FSharp.Azure.Quantum — CUDA-Q hand-off."
-                "# Requires NVIDIA CUDA-Q:  pip install cudaq"
-                "import cudaq, json"
-                ""
-                "@cudaq.kernel"
-                "def program():"
-                $"    q = cudaq.qvector(%d{circuit.QubitCount})"
-                gateBlock
-                "    mz(q)"
-                ""
-                $"cudaq.set_target(\"%s{target}\")"
-                $"result = cudaq.sample(program, shots_count=%d{shots})"
-                "print(json.dumps({ b: result.count(b) for b in result }))"
-            ])
+            let gateBlock =
+                if List.isEmpty body then
+                    "    pass"
+                else
+                    String.concat "\n" body
+
+            String.concat
+                "\n"
+                [
+                    "# Auto-generated by FSharp.Azure.Quantum — CUDA-Q hand-off."
+                    "# Requires NVIDIA CUDA-Q:  pip install cudaq"
+                    "import cudaq, json"
+                    ""
+                    "@cudaq.kernel"
+                    "def program():"
+                    $"    q = cudaq.qvector(%d{circuit.QubitCount})"
+                    gateBlock
+                    "    mz(q)"
+                    ""
+                    $"cudaq.set_target(\"%s{target}\")"
+                    $"result = cudaq.sample(program, shots_count=%d{shots})"
+                    "print(json.dumps({ b: result.count(b) for b in result }))"
+                ])
 
     // ========================================================================
     // Optional subprocess runner (best-effort; requires python + cudaq installed)
@@ -97,9 +110,17 @@ module CudaQBridge =
 
     let private runPython (args: string list) (cancellationToken: CancellationToken) : Task<Result<string, string>> =
         task {
-            let psi = System.Diagnostics.ProcessStartInfo(FileName = "python", RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false)
+            let psi =
+                System.Diagnostics.ProcessStartInfo(
+                    FileName = "python",
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                )
+
             args |> List.iter psi.ArgumentList.Add
             use proc = new System.Diagnostics.Process(StartInfo = psi)
+
             try
                 if not (proc.Start()) then
                     return Error "failed to start python"
@@ -111,11 +132,26 @@ module CudaQBridge =
                     do! proc.WaitForExitAsync cancellationToken
                     let! stdout = stdoutTask
                     let! stderr = stderrTask
-                    if proc.ExitCode = 0 then return Ok stdout
-                    else return Error (if System.String.IsNullOrWhiteSpace stderr then $"python exited with code {proc.ExitCode}" else stderr)
+
+                    if proc.ExitCode = 0 then
+                        return Ok stdout
+                    else
+                        return
+                            Error(
+                                if System.String.IsNullOrWhiteSpace stderr then
+                                    $"python exited with code {proc.ExitCode}"
+                                else
+                                    stderr
+                            )
             with ex ->
                 // Don't leak the child process on cancellation or a failed read.
-                let _ = try (if not proc.HasExited then proc.Kill true) with _ -> ()
+                let _ =
+                    try
+                        (if not proc.HasExited then
+                             proc.Kill true)
+                    with _ ->
+                        ()
+
                 match ex with
                 | :? System.OperationCanceledException -> return Error "python run was cancelled"
                 | _ -> return Error $"could not launch python (is it on PATH?): {ex.Message}"
@@ -130,17 +166,34 @@ module CudaQBridge =
 
     /// Generate the CUDA-Q program, run it via a local `python`+`cudaq`, and parse the counts.
     /// Returns `Error` (not an exception) if CUDA-Q is unavailable or the run fails.
-    let runAsync (target: string) (shots: int) (circuit: CircuitBuilder.Circuit) (cancellationToken: CancellationToken) : Task<QuantumResult<Map<string, int>>> =
+    let runAsync
+        (target: string)
+        (shots: int)
+        (circuit: CircuitBuilder.Circuit)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Map<string, int>>> =
         task {
             match toKernelSource target shots circuit with
             | Error e -> return Error e
             | Ok source ->
                 let scriptPath =
-                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), sprintf "faq_cudaq_%s.py" (System.Guid.NewGuid().ToString "N"))
+                    System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(),
+                        sprintf "faq_cudaq_%s.py" (System.Guid.NewGuid().ToString "N")
+                    )
+
                 try
                     do! System.IO.File.WriteAllTextAsync(scriptPath, source, cancellationToken)
+
                     match! runPython [ scriptPath ] cancellationToken with
-                    | Error msg -> return Error (QuantumError.OperationError ("CudaQBridge", $"CUDA-Q run failed (is cudaq installed?): {msg}"))
+                    | Error msg ->
+                        return
+                            Error(
+                                QuantumError.OperationError(
+                                    "CudaQBridge",
+                                    $"CUDA-Q run failed (is cudaq installed?): {msg}"
+                                )
+                            )
                     | Ok stdout ->
                         try
                             let jsonLine =
@@ -148,14 +201,37 @@ module CudaQBridge =
                                 |> Array.map (fun s -> s.Trim())
                                 |> Array.filter (fun s -> s.StartsWith "{")
                                 |> Array.tryLast
+
                             match jsonLine with
-                            | None -> return Error (QuantumError.OperationError ("CudaQBridge", $"no counts JSON in CUDA-Q output: {stdout}"))
+                            | None ->
+                                return
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "CudaQBridge",
+                                            $"no counts JSON in CUDA-Q output: {stdout}"
+                                        )
+                                    )
                             | Some line ->
                                 use doc = System.Text.Json.JsonDocument.Parse(line)
-                                let counts = doc.RootElement.EnumerateObject() |> Seq.map (fun p -> p.Name, p.Value.GetInt32()) |> Map.ofSeq
+
+                                let counts =
+                                    doc.RootElement.EnumerateObject()
+                                    |> Seq.map (fun p -> p.Name, p.Value.GetInt32())
+                                    |> Map.ofSeq
+
                                 return Ok counts
                         with ex ->
-                            return Error (QuantumError.OperationError ("CudaQBridge", $"failed to parse CUDA-Q output: {ex.Message}"))
+                            return
+                                Error(
+                                    QuantumError.OperationError(
+                                        "CudaQBridge",
+                                        $"failed to parse CUDA-Q output: {ex.Message}"
+                                    )
+                                )
                 finally
-                    try System.IO.File.Delete scriptPath with :? System.IO.IOException | :? System.UnauthorizedAccessException -> ()
+                    try
+                        System.IO.File.Delete scriptPath
+                    with
+                    | :? System.IO.IOException
+                    | :? System.UnauthorizedAccessException -> ()
         }

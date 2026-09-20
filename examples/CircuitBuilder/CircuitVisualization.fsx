@@ -34,12 +34,38 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "CircuitVisualization.fsx"
     "Quantum circuit visualization with ASCII and Mermaid output"
-    [ { Name = "example"; Description = "Which example (all|bell|qft|rotations)"; Default = Some "all" }
-      { Name = "format"; Description = "Output format (all|ascii|mermaid)"; Default = Some "all" }
-      { Name = "mermaid-file"; Description = "Write Mermaid diagram to file"; Default = None }
-      { Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    [
+        {
+            Name = "example"
+            Description = "Which example (all|bell|qft|rotations)"
+            Default = Some "all"
+        }
+        {
+            Name = "format"
+            Description = "Output format (all|ascii|mermaid)"
+            Default = Some "all"
+        }
+        {
+            Name = "mermaid-file"
+            Description = "Write Mermaid diagram to file"
+            Default = None
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -49,67 +75,83 @@ let mermaidFile = Cli.tryGet "mermaid-file" args
 let example = Cli.getOr "example" "all" args
 let format = Cli.getOr "format" "all" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 // --- Circuit Definitions ---
 
-let bellCircuit = circuit {
-    qubits 2
-    H 0
-    CNOT (0, 1)
-}
+let bellCircuit =
+    circuit {
+        qubits 2
+        H 0
+        CNOT(0, 1)
+    }
 
-let qft3Circuit = circuit {
-    qubits 3
-    H 0
-    CP (1, 0, Math.PI / 2.0)
-    CP (2, 0, Math.PI / 4.0)
-    H 1
-    CP (2, 1, Math.PI / 2.0)
-    H 2
-    SWAP (0, 2)
-}
+let qft3Circuit =
+    circuit {
+        qubits 3
+        H 0
+        CP(1, 0, Math.PI / 2.0)
+        CP(2, 0, Math.PI / 4.0)
+        H 1
+        CP(2, 1, Math.PI / 2.0)
+        H 2
+        SWAP(0, 2)
+    }
 
-let rotationsCircuit = circuit {
-    qubits 3
-    RX (0, Math.PI / 4.0)
-    RY (1, Math.PI / 3.0)
-    RZ (2, Math.PI / 2.0)
-    CRX (0, 1, Math.PI / 6.0)
-    CRY (1, 2, Math.PI / 8.0)
-    Measure 0
-    Measure 1
-    Measure 2
-}
+let rotationsCircuit =
+    circuit {
+        qubits 3
+        RX(0, Math.PI / 4.0)
+        RY(1, Math.PI / 3.0)
+        RZ(2, Math.PI / 2.0)
+        CRX(0, 1, Math.PI / 6.0)
+        CRY(1, 2, Math.PI / 8.0)
+        Measure 0
+        Measure 1
+        Measure 2
+    }
 
 // --- Example Runner ---
 
 type CircuitInfo =
-    { Name: string
-      Label: string
-      Circuit: Circuit
-      Qubits: int
-      Gates: int
-      AsciiDiagram: string
-      MermaidDiagram: string }
+    {
+        Name: string
+        Label: string
+        Circuit: Circuit
+        Qubits: int
+        Gates: int
+        AsciiDiagram: string
+        MermaidDiagram: string
+    }
 
 let buildInfo (name: string) (label: string) (c: Circuit) =
-    { Name = name
-      Label = label
-      Circuit = c
-      Qubits = c.QubitCount
-      Gates = List.length c.Gates
-      AsciiDiagram = c.ToASCII()
-      MermaidDiagram = c.ToMermaid() }
+    {
+        Name = name
+        Label = label
+        Circuit = c
+        Qubits = c.QubitCount
+        Gates = List.length c.Gates
+        AsciiDiagram = c.ToASCII()
+        MermaidDiagram = c.ToMermaid()
+    }
 
 let allExamples =
-    [ ("bell", "Bell State (Entanglement)", bellCircuit)
-      ("qft", "QFT-3 (Quantum Fourier Transform)", qft3Circuit)
-      ("rotations", "Rotation Gates + Controlled Ops", rotationsCircuit) ]
+    [
+        ("bell", "Bell State (Entanglement)", bellCircuit)
+        ("qft", "QFT-3 (Quantum Fourier Transform)", qft3Circuit)
+        ("rotations", "Rotation Gates + Controlled Ops", rotationsCircuit)
+    ]
 
 let selected =
-    if example = "all" then allExamples
-    else allExamples |> List.filter (fun (key, _, _) -> key = example)
+    if example = "all" then
+        allExamples
+    else
+        allExamples |> List.filter (fun (key, _, _) -> key = example)
 
 let results =
     selected
@@ -142,6 +184,7 @@ mermaidFile
         results
         |> List.map (fun r -> $"%% %s{r.Label}\n%s{r.MermaidDiagram}")
         |> String.concat "\n\n"
+
     IO.File.WriteAllText(path, content)
     pr "Mermaid diagrams written to %s" path)
 
@@ -152,13 +195,16 @@ outputPath
     let payload =
         results
         |> List.map (fun r ->
-            dict [
-                "name", box r.Name
-                "label", box r.Label
-                "qubits", box r.Qubits
-                "gates", box r.Gates
-                "ascii", box r.AsciiDiagram
-                "mermaid", box r.MermaidDiagram ])
+            dict
+                [
+                    "name", box r.Name
+                    "label", box r.Label
+                    "qubits", box r.Qubits
+                    "gates", box r.Gates
+                    "ascii", box r.AsciiDiagram
+                    "mermaid", box r.MermaidDiagram
+                ])
+
     Reporting.writeJson path payload)
 
 // --- CSV output ---
@@ -166,10 +212,11 @@ outputPath
 csvPath
 |> Option.iter (fun path ->
     let header = [ "name"; "label"; "qubits"; "gates" ]
+
     let rows =
         results
-        |> List.map (fun r ->
-            [ r.Name; r.Label; string r.Qubits; string r.Gates ])
+        |> List.map (fun r -> [ r.Name; r.Label; string r.Qubits; string r.Gates ])
+
     Reporting.writeCsv path header rows)
 
 // --- Usage hint ---

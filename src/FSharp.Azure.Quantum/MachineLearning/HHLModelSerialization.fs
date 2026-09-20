@@ -15,46 +15,47 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 
 module HHLModelSerialization =
-    
+
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// Simple serializable HHL regression model (JSON-friendly)
-    type SerializableHHLModel = {
-        /// Learned weights (including intercept if fitted)
-        Weights: float array
-        
-        /// R² score on training data
-        RSquared: float
-        
-        /// Mean Squared Error on training data
-        MSE: float
-        
-        /// HHL success probability
-        SuccessProbability: float
-        
-        /// Number of features (excluding intercept)
-        NumFeatures: int
-        
-        /// Number of samples used for training
-        NumSamples: int
-        
-        /// Whether intercept was included
-        HasIntercept: bool
-        
-        /// Condition number of Gram matrix (if available)
-        ConditionNumber: float option
-        
-        /// Optional metadata
-        SavedAt: string
-        Note: string option
-    }
-    
+    type SerializableHHLModel =
+        {
+            /// Learned weights (including intercept if fitted)
+            Weights: float array
+
+            /// R² score on training data
+            RSquared: float
+
+            /// Mean Squared Error on training data
+            MSE: float
+
+            /// HHL success probability
+            SuccessProbability: float
+
+            /// Number of features (excluding intercept)
+            NumFeatures: int
+
+            /// Number of samples used for training
+            NumSamples: int
+
+            /// Whether intercept was included
+            HasIntercept: bool
+
+            /// Condition number of Gram matrix (if available)
+            ConditionNumber: float option
+
+            /// Optional metadata
+            SavedAt: string
+            Note: string option
+        }
+
     // ========================================================================
     // HHL SERIALIZATION
     // ========================================================================
-    
+
     /// Save HHL regression model to JSON file
     let saveHHLModel
         (filePath: string)
@@ -68,30 +69,31 @@ module HHLModelSerialization =
         (conditionNumber: float option)
         (note: string option)
         : QuantumResult<unit> =
-        
+
         try
-            let model = {
-                Weights = weights
-                RSquared = rSquared
-                MSE = mse
-                SuccessProbability = successProbability
-                NumFeatures = numFeatures
-                NumSamples = numSamples
-                HasIntercept = hasIntercept
-                ConditionNumber = conditionNumber
-                SavedAt = DateTime.UtcNow.ToString("o")
-                Note = note
-            }
-            
+            let model =
+                {
+                    Weights = weights
+                    RSquared = rSquared
+                    MSE = mse
+                    SuccessProbability = successProbability
+                    NumFeatures = numFeatures
+                    NumSamples = numSamples
+                    HasIntercept = hasIntercept
+                    ConditionNumber = conditionNumber
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+
             let options = JsonSerializerOptions(WriteIndented = true)
-            
+
             let json = JsonSerializer.Serialize(model, options)
             File.WriteAllText(filePath, json)
-            
-            Ok ()
+
+            Ok()
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to save HHL model: {ex.Message}"))
-    
+            Error(QuantumError.ValidationError("Input", $"Failed to save HHL model: {ex.Message}"))
+
     /// Save HHL regression model to JSON file asynchronously
     let saveHHLModelAsync
         (filePath: string)
@@ -108,29 +110,30 @@ module HHLModelSerialization =
         : Task<QuantumResult<unit>> =
         task {
             try
-                let model = {
-                    Weights = weights
-                    RSquared = rSquared
-                    MSE = mse
-                    SuccessProbability = successProbability
-                    NumFeatures = numFeatures
-                    NumSamples = numSamples
-                    HasIntercept = hasIntercept
-                    ConditionNumber = conditionNumber
-                    SavedAt = DateTime.UtcNow.ToString("o")
-                    Note = note
-                }
-                
+                let model =
+                    {
+                        Weights = weights
+                        RSquared = rSquared
+                        MSE = mse
+                        SuccessProbability = successProbability
+                        NumFeatures = numFeatures
+                        NumSamples = numSamples
+                        HasIntercept = hasIntercept
+                        ConditionNumber = conditionNumber
+                        SavedAt = DateTime.UtcNow.ToString("o")
+                        Note = note
+                    }
+
                 let options = JsonSerializerOptions(WriteIndented = true)
-                
+
                 let json = JsonSerializer.Serialize(model, options)
                 do! File.WriteAllTextAsync(filePath, json, cancellationToken)
-                
-                return Ok ()
+
+                return Ok()
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to save HHL model: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to save HHL model: {ex.Message}"))
         }
-    
+
     /// Save HHL regression result with metadata (async, task-based)
     ///
     /// Convenience function that takes QuantumRegressionHHL.RegressionResult directly
@@ -140,7 +143,7 @@ module HHLModelSerialization =
         (note: string option)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<unit>> =
-        
+
         saveHHLModelAsync
             filePath
             result.Weights
@@ -153,7 +156,7 @@ module HHLModelSerialization =
             result.ConditionNumber
             note
             cancellationToken
-    
+
     /// Save HHL regression result with metadata
     ///
     /// Convenience function that takes QuantumRegressionHHL.RegressionResult directly
@@ -163,7 +166,7 @@ module HHLModelSerialization =
         (result: QuantumRegressionHHL.RegressionResult)
         (note: string option)
         : QuantumResult<unit> =
-        
+
         saveHHLModelAsync
             filePath
             result.Weights
@@ -178,24 +181,22 @@ module HHLModelSerialization =
             CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
-    
+
     /// Load HHL regression model from JSON file
     ///
     /// Returns: Serializable HHL model with all metadata
-    let loadHHLModel
-        (filePath: string)
-        : QuantumResult<SerializableHHLModel> =
-        
+    let loadHHLModel (filePath: string) : QuantumResult<SerializableHHLModel> =
+
         try
             if not (File.Exists filePath) then
-                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableHHLModel>(json)
                 Ok model
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load HHL model: {ex.Message}"))
-    
+            Error(QuantumError.ValidationError("Input", $"Failed to load HHL model: {ex.Message}"))
+
     /// Load HHL regression model from JSON file asynchronously
     let loadHHLModelAsync
         (filePath: string)
@@ -204,22 +205,20 @@ module HHLModelSerialization =
         task {
             try
                 if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                    return Error(QuantumError.ValidationError("Input", $"File not found: {filePath}"))
                 else
                     let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let model = JsonSerializer.Deserialize<SerializableHHLModel>(json)
                     return Ok model
             with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to load HHL model: {ex.Message}"))
+                return Error(QuantumError.ValidationError("Input", $"Failed to load HHL model: {ex.Message}"))
         }
-    
+
     /// Load HHL model and reconstruct RegressionResult
     ///
     /// Convenience function for full deserialization
-    let loadHHLRegressionResult
-        (filePath: string)
-        : QuantumResult<QuantumRegressionHHL.RegressionResult> =
-        
+    let loadHHLRegressionResult (filePath: string) : QuantumResult<QuantumRegressionHHL.RegressionResult> =
+
         loadHHLModel filePath
         |> Result.map (fun model ->
             {
@@ -232,7 +231,7 @@ module HHLModelSerialization =
                 HasIntercept = model.HasIntercept
                 ConditionNumber = model.ConditionNumber
             })
-    
+
     /// Load HHL model and reconstruct RegressionResult (async, task-based)
     ///
     /// Convenience function for full deserialization
@@ -242,6 +241,7 @@ module HHLModelSerialization =
         : Task<QuantumResult<QuantumRegressionHHL.RegressionResult>> =
         task {
             let! result = loadHHLModelAsync filePath cancellationToken
+
             return
                 result
                 |> Result.map (fun model ->
@@ -254,15 +254,13 @@ module HHLModelSerialization =
                         NumSamples = model.NumSamples
                         HasIntercept = model.HasIntercept
                         ConditionNumber = model.ConditionNumber
-                    } : QuantumRegressionHHL.RegressionResult)
+                    }
+                    : QuantumRegressionHHL.RegressionResult)
         }
-    
+
     /// Print HHL model information via ILogger
-    let printHHLModelInfo
-        (filePath: string)
-        (logger: ILogger option)
-        : QuantumResult<unit> =
-        
+    let printHHLModelInfo (filePath: string) (logger: ILogger option) : QuantumResult<unit> =
+
         loadHHLModel filePath
         |> Result.map (fun model ->
             logInfo logger "=== HHL Regression Model Information ==="
@@ -274,10 +272,13 @@ module HHLModelSerialization =
             logInfo logger ($"R2 Score: %.6f{model.RSquared}")
             logInfo logger ($"MSE: %.6f{model.MSE}")
             logInfo logger ($"Success Probability: %.6f{model.SuccessProbability}")
+
             match model.ConditionNumber with
             | Some cn -> logInfo logger ($"Condition Number: %.6f{cn}")
             | None -> logInfo logger "Condition Number: N/A"
+
             match model.Note with
             | Some note -> logInfo logger ($"Note: %s{note}")
             | None -> ()
+
             logInfo logger "========================================")

@@ -7,52 +7,54 @@ open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 
 /// Unified quantum backend interface supporting both gate-based and state-based execution
-/// 
+///
 /// Design rationale:
 /// - Extends IQuantumBackend with state access (backward compatible)
 /// - Enables algorithms to work with intermediate quantum states
 /// - Supports pure topological execution (no gate compilation)
 /// - Type-safe operation dispatch based on backend capabilities
-/// 
+///
 /// Architecture:
 /// - Level 1: IQuantumBackend (measurements only) - existing 85% of users
 /// - Level 2: IQuantumBackend (state access) - new advanced users
-/// 
+///
 /// Migration path:
 /// - Existing backends: Optionally implement new methods
 /// - Existing algorithms: Continue using IQuantumBackend
 /// - New algorithms: Can use IQuantumBackend for more control
 module BackendAbstraction =
-    
+
     /// Algorithm-level intent for backends that are not gate-native.
     ///
     /// This is a DU-first way to express *meaning* without forcing a gate circuit
     /// as the canonical representation.
     [<Struct>]
-    type QftIntent = {
-        /// Number of logical qubits the QFT applies to.
-        NumQubits: int
+    type QftIntent =
+        {
+            /// Number of logical qubits the QFT applies to.
+            NumQubits: int
 
-        /// Whether to compute inverse QFT (QFT†).
-        Inverse: bool
+            /// Whether to compute inverse QFT (QFT†).
+            Inverse: bool
 
-        /// Whether to apply bit-reversal swaps.
-        ///
-        /// `true` corresponds to the standard mathematical QFT.
-        /// `false` returns the bit-reversed output ordering (useful for some algorithms).
-        ApplySwaps: bool
-    }
+            /// Whether to apply bit-reversal swaps.
+            ///
+            /// `true` corresponds to the standard mathematical QFT.
+            /// `false` returns the bit-reversed output ordering (useful for some algorithms).
+            ApplySwaps: bool
+        }
 
-    type GroverIntent = {
-        /// Number of logical qubits in the search space.
-        NumQubits: int
+    type GroverIntent =
+        {
+            /// Number of logical qubits in the search space.
+            NumQubits: int
 
-        /// A function that decides whether a basis index is marked.
-        ///
-        /// This keeps the intent backend-agnostic while allowing backends to apply
-        /// the oracle phase flip using their native state model.
-        IsMarked: int -> bool
-    }
+            /// A function that decides whether a basis index is marked.
+            ///
+            /// This keeps the intent backend-agnostic while allowing backends to apply
+            /// the oracle phase flip using their native state model.
+            IsMarked: int -> bool
+        }
 
     /// Minimal unitary family supported by QPE intent.
     ///
@@ -86,28 +88,29 @@ module BackendAbstraction =
         /// is handled by the Shor algorithm module (which compiles after Arithmetic).
         | ModularExponentiation of baseNum: int * modulus: int
 
-    type QpeIntent = {
-        /// Number of counting (precision) qubits.
-        CountingQubits: int
- 
-        /// Number of target qubits.
-        ///
-        /// For single-qubit unitaries (PhaseGate, TGate, SGate, RotationZ): use 1.
-        /// For ModularExponentiation: use ceil(log₂(N)) bits for the target register.
-        TargetQubits: int
- 
-        /// Unitary whose phase is estimated.
-        Unitary: QpeUnitary
- 
-        /// If true, prepares the target in |1⟩ via X on the first target qubit.
-        PrepareTargetOne: bool
- 
-        /// Whether to apply bit-reversal swaps after inverse QFT.
-        ///
-        /// QPE does not fundamentally require these swaps: omitting them yields a bit-reversed
-        /// counting register that can be classically un-reversed during post-processing.
-        ApplySwaps: bool
-    }
+    type QpeIntent =
+        {
+            /// Number of counting (precision) qubits.
+            CountingQubits: int
+
+            /// Number of target qubits.
+            ///
+            /// For single-qubit unitaries (PhaseGate, TGate, SGate, RotationZ): use 1.
+            /// For ModularExponentiation: use ceil(log₂(N)) bits for the target register.
+            TargetQubits: int
+
+            /// Unitary whose phase is estimated.
+            Unitary: QpeUnitary
+
+            /// If true, prepares the target in |1⟩ via X on the first target qubit.
+            PrepareTargetOne: bool
+
+            /// Whether to apply bit-reversal swaps after inverse QFT.
+            ///
+            /// QPE does not fundamentally require these swaps: omitting them yields a bit-reversed
+            /// counting register that can be classically un-reversed during post-processing.
+            ApplySwaps: bool
+        }
 
     /// Inversion method family for HHL intent.
     ///
@@ -123,28 +126,29 @@ module BackendAbstraction =
     /// Important: this intent currently assumes the matrix is diagonal and provided via its
     /// diagonal eigenvalues. The input |b⟩ is expected to already be encoded in the *solution*
     /// register of the provided quantum state.
-    type HhlIntent = {
-        /// Number of qubits used for eigenvalue estimation (reserved for future full QPE).
-        EigenvalueQubits: int
+    type HhlIntent =
+        {
+            /// Number of qubits used for eigenvalue estimation (reserved for future full QPE).
+            EigenvalueQubits: int
 
-        /// Number of logical qubits for the solution register.
-        SolutionQubits: int
+            /// Number of logical qubits for the solution register.
+            SolutionQubits: int
 
-        /// Diagonal eigenvalues of A (length must match the solution space dimension).
-        DiagonalEigenvalues: float[]
+            /// Diagonal eigenvalues of A (length must match the solution space dimension).
+            DiagonalEigenvalues: float[]
 
-        /// Eigenvalue inversion method.
-        InversionMethod: HhlEigenvalueInversionMethod
+            /// Eigenvalue inversion method.
+            InversionMethod: HhlEigenvalueInversionMethod
 
-        /// Minimum eigenvalue threshold for numerical stability.
-        MinEigenvalue: float
-    }
- 
+            /// Minimum eigenvalue threshold for numerical stability.
+            MinEigenvalue: float
+        }
+
     [<RequireQualifiedAccess>]
     type AlgorithmOperation =
         /// Quantum Fourier Transform intent.
         | QFT of QftIntent
- 
+
         /// Quantum Phase Estimation intent.
         ///
         /// Transforms `|0⟩^(CountingQubits+TargetQubits)` to the standard QPE state,
@@ -153,13 +157,13 @@ module BackendAbstraction =
 
         /// HHL (Harrow-Hassidim-Lloyd) intent.
         | HHL of HhlIntent
- 
+
         /// Prepare the uniform superposition |s⟩.
         | GroverPrepare of numQubits: int
- 
+
         /// Apply the oracle phase flip to marked states.
         | GroverOraclePhaseFlip of GroverIntent
- 
+
         /// Apply Grover diffusion (inversion about mean).
         | GroverDiffusion of numQubits: int
 
@@ -189,7 +193,9 @@ module BackendAbstraction =
     /// to know about the extension type.
     type IApplyToStateVectorExtension =
         inherit IQuantumOperationExtension
-        abstract member ApplyToStateVector: LocalSimulator.StateVector.StateVector -> LocalSimulator.StateVector.StateVector
+
+        abstract member ApplyToStateVector:
+            LocalSimulator.StateVector.StateVector -> LocalSimulator.StateVector.StateVector
 
     /// Direction of an F-move (basis change in fusion tree)
     type FMoveDirection =
@@ -213,7 +219,7 @@ module BackendAbstraction =
         /// Applied by gate-based backends directly.
         /// Some non-gate backends may choose to compile gates to their native model.
         | Gate of CircuitBuilder.Gate
-        
+
         /// Braiding operation (topological quantum computing)
         ///
         /// Parameters:
@@ -222,7 +228,7 @@ module BackendAbstraction =
         /// Applied by topological backends directly.
         /// Gate-based backends cannot execute (return error).
         | Braid of anyonIndex: int
-        
+
         /// Measurement operation
         ///
         /// Parameters:
@@ -230,7 +236,7 @@ module BackendAbstraction =
         ///
         /// Returns measurement outcome and collapsed state.
         | Measure of qubitIndex: int
-        
+
         /// F-move operation (basis change in fusion tree)
         ///
         /// Parameters:
@@ -239,50 +245,50 @@ module BackendAbstraction =
         ///
         /// Only applicable to topological backends.
         | FMove of direction: FMoveDirection * depth: int
-        
+
         /// Sequence of operations (batch execution)
         ///
         /// More efficient than individual operations (reduces overhead).
         | Sequence of QuantumOperation list
-    
+
     /// Unified quantum backend interface
-    /// 
+    ///
     /// Extends IQuantumBackend with state-based execution capabilities.
     /// All existing IQuantumBackend methods remain (backward compatible).
-    /// 
+    ///
     /// New methods:
     /// - ExecuteToState: Get quantum state instead of just measurements
     /// - ApplyOperation: Apply operation to existing state
     /// - NativeStateType: Query backend's preferred representation
-    /// 
+    ///
     /// Usage:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let! state = backend.ExecuteToState circuit
     ///   let! evolved = backend.ApplyOperation (Gate H(0)) state
     type IQuantumBackend =
         /// Execute circuit and return quantum state (not just measurements)
-        /// 
+        ///
         /// This is the key method enabling algorithm implementations that work
         /// with quantum states directly.
-        /// 
+        ///
         /// Parameters:
         ///   circuit - Quantum circuit to execute
-        /// 
+        ///
         /// Returns:
         ///   QuantumState - Final quantum state after circuit execution
         ///   Backend returns state in its native representation (no conversion)
-        /// 
+        ///
         /// Use cases:
         /// - Quantum state tomography (inspect amplitudes)
         /// - Intermediate state inspection for debugging
         /// - Multi-stage algorithms (QFT → QPE → Shor)
         /// - Backend switching mid-computation
         /// - Variational algorithms (VQE, QAOA) with classical feedback
-        /// 
+        ///
         /// Performance:
         /// - Same cost as Execute, but returns state instead of measuring
         /// - No additional overhead for state extraction
-        /// 
+        ///
         /// Example:
         ///   let circuit = CircuitBuilder.create 3 |> addGate (H 0) |> addGate (CNOT (0,1))
         ///   let! state = backend.ExecuteToState circuit
@@ -292,20 +298,20 @@ module BackendAbstraction =
         ///       printfn "Amplitude of |000⟩: %A" amp
         ///   | _ -> ()
         abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
-        
+
         /// Get backend's native state representation type
-        /// 
+        ///
         /// Indicates which QuantumState variant the backend uses natively.
         /// Helps algorithms make intelligent decisions about conversions.
-        /// 
+        ///
         /// Returns:
         ///   QuantumStateType - GateBased, TopologicalBraiding, Sparse, or Mixed
-        /// 
+        ///
         /// Examples:
         ///   LocalBackend().NativeStateType = GateBased
         ///   TopologicalBackend().NativeStateType = TopologicalBraiding
         ///   StabilizerBackend().NativeStateType = Sparse
-        /// 
+        ///
         /// Usage:
         ///   // Optimize: Avoid conversion if state already matches backend
         ///   if QuantumState.stateType state = backend.NativeStateType then
@@ -313,19 +319,19 @@ module BackendAbstraction =
         ///   else
         ///       (* convert first *)
         abstract member NativeStateType: QuantumStateType
-        
+
         /// Apply quantum operation to existing state
-        /// 
+        ///
         /// More efficient than building full circuit for single operations.
         /// Enables iterative algorithms (VQE, QAOA) and hybrid classical-quantum loops.
-        /// 
+        ///
         /// Parameters:
         ///   operation - Gate, braid, or other quantum operation
         ///   state - Current quantum state
-        /// 
+        ///
         /// Returns:
         ///   Evolved quantum state after applying operation
-        /// 
+        ///
         /// Behavior:
         /// - If operation matches backend type: Apply natively (fast)
         /// - If operation doesn't match: Convert or error
@@ -333,30 +339,30 @@ module BackendAbstraction =
         ///   * LocalBackend + Braid → error ✗
         ///   * TopologicalBackend + Braid → apply directly ✓
         ///   * TopologicalBackend + Gate → compile to braid first, then apply ✓
-        /// 
+        ///
         /// Example:
         ///   let mutable state = QuantumState.StateVector (StateVector.init 3)
-        ///   
+        ///
         ///   // Iterative algorithm (VQE optimization loop)
         ///   for iteration in 0 .. 100 do
         ///       let! evolved = backend.ApplyOperation (Gate (RY (0, params.[0]))) state
         ///       let! final = backend.ApplyOperation (Gate (CNOT (0,1))) evolved
-        ///       
+        ///
         ///       let energy = measureEnergy final hamiltonian
         ///       params <- optimizeParams params energy  // Classical optimization
-        ///       
+        ///
         ///       state <- final
         abstract member ApplyOperation: QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
-        
+
         /// Check if backend supports a specific operation type
-        /// 
+        ///
         /// Parameters:
         ///   operation - Operation to check
-        /// 
+        ///
         /// Returns:
         ///   true if backend can execute this operation natively or through compilation
         ///   false if operation is unsupported
-        /// 
+        ///
         /// Example:
         ///   let canBraid = backend.SupportsOperation (Braid 0)
         ///   if canBraid then
@@ -364,28 +370,28 @@ module BackendAbstraction =
         ///   else
         ///       (* fall back to gates *)
         abstract member SupportsOperation: QuantumOperation -> bool
-        
+
         /// Backend name (for logging and diagnostics)
-        /// 
+        ///
         /// Returns:
         ///   Human-readable name of the backend (e.g. "Local Simulator", "IonQ", "Rigetti")
-        /// 
+        ///
         /// Example:
         ///   let backend = LocalBackend()
         ///   printfn "Using backend: %s" backend.Name
         abstract member Name: string
-        
+
         /// Initialize quantum state without running a circuit
-        /// 
+        ///
         /// Creates initial state |0⟩^⊗n in backend's native representation.
         /// Faster than ExecuteToState with empty circuit.
-        /// 
+        ///
         /// Parameters:
         ///   numQubits - Number of qubits
-        /// 
+        ///
         /// Returns:
         ///   QuantumState initialized to |000...0⟩
-        /// 
+        ///
         /// Example:
         ///   let! state = backend.InitializeState 5
         ///   // state = |00000⟩ in backend's native representation
@@ -423,7 +429,8 @@ module BackendAbstraction =
         ///
         /// Returns:
         ///   Task<Result<QuantumState, QuantumError>> - Task completing with the evolved state
-        abstract member ApplyOperationAsync: QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+        abstract member ApplyOperationAsync:
+            QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
 
     /// Optional interface for backends that can report qubit limits.
     ///
@@ -438,39 +445,40 @@ module BackendAbstraction =
         inherit IQuantumBackend
         /// Maximum number of qubits supported (None = unlimited/unknown).
         abstract member MaxQubits: int option
-    
+
     /// Backend capabilities descriptor
-    /// 
+    ///
     /// Describes what features a backend supports.
     /// Helps algorithms make intelligent decisions.
-    type BackendCapabilities = {
-        /// Maximum number of qubits supported
-        MaxQubits: int option
-        
-        /// Native state representation
-        NativeStateType: QuantumStateType
-        
-        /// Supported gate types (if gate-based backend)
-        SupportedGates: Set<string> option
-        
-        /// Supports braiding operations (if topological backend)
-        SupportsBraiding: bool
-        
-        /// Supports arbitrary unitaries (vs restricted gate set)
-        SupportsArbitraryUnitaries: bool
-        
-        /// Supports mid-circuit measurement
-        SupportsMidCircuitMeasurement: bool
-        
-        /// Supports reset operations
-        SupportsReset: bool
-        
-        /// Estimated noise level (0.0 = noiseless, 1.0 = maximum noise)
-        NoiseLevel: float option
-        
-        /// Backend is simulator (true) or hardware (false)
-        IsSimulator: bool
-    }
+    type BackendCapabilities =
+        {
+            /// Maximum number of qubits supported
+            MaxQubits: int option
+
+            /// Native state representation
+            NativeStateType: QuantumStateType
+
+            /// Supported gate types (if gate-based backend)
+            SupportedGates: Set<string> option
+
+            /// Supports braiding operations (if topological backend)
+            SupportsBraiding: bool
+
+            /// Supports arbitrary unitaries (vs restricted gate set)
+            SupportsArbitraryUnitaries: bool
+
+            /// Supports mid-circuit measurement
+            SupportsMidCircuitMeasurement: bool
+
+            /// Supports reset operations
+            SupportsReset: bool
+
+            /// Estimated noise level (0.0 = noiseless, 1.0 = maximum noise)
+            NoiseLevel: float option
+
+            /// Backend is simulator (true) or hardware (false)
+            IsSimulator: bool
+        }
 
     /// Apply the HHL eigenvalue-inversion step for a diagonal-matrix HHL intent.
     ///
@@ -481,27 +489,49 @@ module BackendAbstraction =
     /// Shared by every backend that implements the AlgorithmOperation.HHL intent (the gate-based
     /// LocalBackend and the TopologicalBackend) so HHL behaves identically — and correctly for any
     /// solution-register size — on both gated and topological hardware.
-    let applyHhlInversion (backend: IQuantumBackend) (intent: HhlIntent) (state: QuantumState) : Result<QuantumState, QuantumError> =
+    let applyHhlInversion
+        (backend: IQuantumBackend)
+        (intent: HhlIntent)
+        (state: QuantumState)
+        : Result<QuantumState, QuantumError> =
         let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+
         if QuantumState.numQubits state <> totalQubits then
-            Error (QuantumError.ValidationError ("state", $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"))
+            Error(
+                QuantumError.ValidationError(
+                    "state",
+                    $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"
+                )
+            )
         elif intent.DiagonalEigenvalues.Length <> (1 <<< intent.SolutionQubits) then
-            Error (QuantumError.ValidationError ("DiagonalEigenvalues", $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"))
+            Error(
+                QuantumError.ValidationError(
+                    "DiagonalEigenvalues",
+                    $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"
+                )
+            )
         else
-            let clampToUnit x = if x > 1.0 then 1.0 elif x < -1.0 then -1.0 else x
+            let clampToUnit x =
+                if x > 1.0 then 1.0
+                elif x < -1.0 then -1.0
+                else x
+
             let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
             let solutionStart = intent.EigenvalueQubits
             let solutionQubits = [ solutionStart .. solutionStart + intent.SolutionQubits - 1 ]
 
             let applyOps ops st =
-                (Ok st, ops) ||> List.fold (fun acc op -> acc |> Result.bind (fun s -> backend.ApplyOperation op s))
+                (Ok st, ops)
+                ||> List.fold (fun acc op -> acc |> Result.bind (fun s -> backend.ApplyOperation op s))
 
             (Ok state, [ 0 .. intent.DiagonalEigenvalues.Length - 1 ])
             ||> List.fold (fun acc k ->
-                acc |> Result.bind (fun st ->
+                acc
+                |> Result.bind (fun st ->
                     let eigenvalue = intent.DiagonalEigenvalues.[k]
+
                     if abs eigenvalue < intent.MinEigenvalue then
-                        Ok st  // eigenvalue below threshold → leave the ancilla |0⟩ for this basis state
+                        Ok st // eigenvalue below threshold → leave the ancilla |0⟩ for this basis state
                     else
                         let invLambda =
                             match intent.InversionMethod with
@@ -509,39 +539,53 @@ module BackendAbstraction =
                             | HhlEigenvalueInversionMethod.LinearApproximation c -> c / eigenvalue
                             | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
                                 let absLambda = abs eigenvalue
+
                                 let constant =
                                     segments
                                     |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
                                     |> Option.map (fun (_, _, c) -> c)
                                     |> Option.defaultValue 1.0
+
                                 constant / eigenvalue
+
                         let theta = 2.0 * System.Math.Asin(clampToUnit invLambda)
 
                         // X-flip the solution qubits where bit k is 0, so |k⟩ maps to |1...1⟩.
                         let setupOps =
                             [ 0 .. intent.SolutionQubits - 1 ]
                             |> List.choose (fun bit ->
-                                if (k >>> bit) &&& 1 = 0 then Some (QuantumOperation.Gate (CircuitBuilder.X (solutionStart + bit))) else None)
+                                if (k >>> bit) &&& 1 = 0 then
+                                    Some(QuantumOperation.Gate(CircuitBuilder.X(solutionStart + bit)))
+                                else
+                                    None)
 
                         // Multi-controlled RY(theta) on the ancilla, controlled by all solution qubits.
                         // CRY decomposition generalised by replacing CNOT with a multi-controlled X
                         // (MCX = H · MCZ · H):  RY(θ/2); MCX; RY(-θ/2); MCX.
                         let rotationOps =
                             if intent.SolutionQubits = 1 then
-                                [ QuantumOperation.Gate (CircuitBuilder.CRY (solutionQubits.[0], ancillaQubit, theta)) ]
+                                [
+                                    QuantumOperation.Gate(CircuitBuilder.CRY(solutionQubits.[0], ancillaQubit, theta))
+                                ]
                             else
                                 let mcx =
-                                    [ CircuitBuilder.H ancillaQubit
-                                      CircuitBuilder.MCZ (solutionQubits, ancillaQubit)
-                                      CircuitBuilder.H ancillaQubit ]
-                                ([ CircuitBuilder.RY (ancillaQubit, theta / 2.0) ] @ mcx @ [ CircuitBuilder.RY (ancillaQubit, -(theta / 2.0)) ] @ mcx)
+                                    [
+                                        CircuitBuilder.H ancillaQubit
+                                        CircuitBuilder.MCZ(solutionQubits, ancillaQubit)
+                                        CircuitBuilder.H ancillaQubit
+                                    ]
+
+                                ([ CircuitBuilder.RY(ancillaQubit, theta / 2.0) ]
+                                 @ mcx
+                                 @ [ CircuitBuilder.RY(ancillaQubit, -(theta / 2.0)) ]
+                                 @ mcx)
                                 |> List.map QuantumOperation.Gate
 
                         applyOps (setupOps @ rotationOps @ List.rev setupOps) st))
 
     /// Helper functions for working with unified backends
     module UnifiedBackend =
-        
+
         /// Create backend capabilities from IQuantumBackend
         let getCapabilities (backend: IQuantumBackend) : BackendCapabilities =
             {
@@ -550,13 +594,13 @@ module BackendAbstraction =
                     | :? IQubitLimitedBackend as lb -> lb.MaxQubits
                     | _ -> None
                 NativeStateType = backend.NativeStateType
-                SupportedGates = None  // Query from IQuantumBackend.SupportedGates
-                SupportsBraiding = backend.SupportsOperation (QuantumOperation.Braid 0)
-                SupportsArbitraryUnitaries = true  // Default assumption
-                SupportsMidCircuitMeasurement = false  // Conservative default
-                SupportsReset = false  // Conservative default
-                NoiseLevel = Some 0.0  // Assume noiseless unless specified
-                IsSimulator = true  // Conservative default - assume simulator
+                SupportedGates = None // Query from IQuantumBackend.SupportedGates
+                SupportsBraiding = backend.SupportsOperation(QuantumOperation.Braid 0)
+                SupportsArbitraryUnitaries = true // Default assumption
+                SupportsMidCircuitMeasurement = false // Conservative default
+                SupportsReset = false // Conservative default
+                NoiseLevel = Some 0.0 // Assume noiseless unless specified
+                IsSimulator = true // Conservative default - assume simulator
             }
 
         /// Get maximum qubits supported by backend (None if unlimited/unknown).
@@ -565,28 +609,28 @@ module BackendAbstraction =
             match backend with
             | :? IQubitLimitedBackend as lb -> lb.MaxQubits
             | _ -> None
-        
+
         /// Execute operation with automatic state conversion if needed
-        /// 
+        ///
         /// Handles conversion between state types transparently.
         /// For batch operations, prefer applySequence which converts once.
-        /// 
+        ///
         /// Parameters:
         ///   backend - Unified quantum backend
         ///   operation - Operation to apply
         ///   state - Current quantum state
-        /// 
+        ///
         /// Returns:
         ///   Evolved state (possibly converted to backend's native type)
-        let applyWithConversion 
-            (backend: IQuantumBackend) 
-            (operation: QuantumOperation) 
+        let applyWithConversion
+            (backend: IQuantumBackend)
+            (operation: QuantumOperation)
             (state: QuantumState)
             : Result<QuantumState, QuantumError> =
-            
+
             let stateType = QuantumState.stateType state
             let nativeType = backend.NativeStateType
-            
+
             if stateType = nativeType then
                 // Optimal: No conversion needed
                 backend.ApplyOperation operation state
@@ -594,17 +638,17 @@ module BackendAbstraction =
                 // Convert to backend's native type, then apply
                 QuantumStateConversion.convert nativeType state
                 |> Result.bind (fun converted -> backend.ApplyOperation operation converted)
-        
+
         /// Apply sequence of operations efficiently
-        /// 
+        ///
         /// Batches operations to minimize overhead.
         /// Converts state once if needed (not per operation).
-        /// 
+        ///
         /// Parameters:
         ///   backend - Unified quantum backend
         ///   operations - List of operations to apply
         ///   initialState - Starting quantum state
-        /// 
+        ///
         /// Returns:
         ///   Final quantum state after all operations
         let applySequence
@@ -612,25 +656,25 @@ module BackendAbstraction =
             (operations: QuantumOperation list)
             (initialState: QuantumState)
             : Result<QuantumState, QuantumError> =
-            
+
             if List.isEmpty operations then
                 Ok initialState
             else
                 // Convert to native type once (not per operation)
                 let nativeType = backend.NativeStateType
                 let stateType = QuantumState.stateType initialState
-                
+
                 let convertedResult =
                     if stateType <> nativeType then
                         QuantumStateConversion.convert nativeType initialState
                     else
                         Ok initialState
-                
+
                 // Apply operations sequentially (fold with short-circuit on error)
                 operations
-                |> List.fold (fun stateResult op ->
-                    stateResult |> Result.bind (fun s -> backend.ApplyOperation op s)
-                ) convertedResult
+                |> List.fold
+                    (fun stateResult op -> stateResult |> Result.bind (fun s -> backend.ApplyOperation op s))
+                    convertedResult
 
         // ====================================================================
         // Whole-circuit submission (cloud hardware path)
@@ -647,19 +691,36 @@ module BackendAbstraction =
         /// no direct gate representation (algorithm intent, braid, F-move).
         let rec private opToGates (op: QuantumOperation) : Result<CircuitBuilder.Gate list, QuantumError> =
             match op with
-            | QuantumOperation.Gate g -> Ok [g]
+            | QuantumOperation.Gate g -> Ok [ g ]
             | QuantumOperation.Sequence ops ->
                 (Ok [], ops)
                 ||> List.fold (fun acc o -> acc |> Result.bind (fun gs -> opToGates o |> Result.map (fun g -> gs @ g)))
-            | QuantumOperation.Measure _ -> Ok []  // terminal measurement is implicit in ExecuteToState
+            | QuantumOperation.Measure _ -> Ok [] // terminal measurement is implicit in ExecuteToState
             | QuantumOperation.Extension ext ->
                 match ext with
-                | :? ILowerToOperationsExtension as lowerable -> Ok (lowerable.LowerToGates())
-                | _ -> Error (QuantumError.OperationError ("submitAsCircuit", "Extension operation cannot be lowered to a gate circuit."))
+                | :? ILowerToOperationsExtension as lowerable -> Ok(lowerable.LowerToGates())
+                | _ ->
+                    Error(
+                        QuantumError.OperationError(
+                            "submitAsCircuit",
+                            "Extension operation cannot be lowered to a gate circuit."
+                        )
+                    )
             | QuantumOperation.Algorithm _ ->
-                Error (QuantumError.OperationError ("submitAsCircuit", "Algorithm-intent operations cannot be lowered to a gate circuit; provide gate-level operations for whole-circuit submission."))
-            | QuantumOperation.Braid _ | QuantumOperation.FMove _ ->
-                Error (QuantumError.OperationError ("submitAsCircuit", "Operation cannot be lowered to a gate circuit for whole-circuit submission."))
+                Error(
+                    QuantumError.OperationError(
+                        "submitAsCircuit",
+                        "Algorithm-intent operations cannot be lowered to a gate circuit; provide gate-level operations for whole-circuit submission."
+                    )
+                )
+            | QuantumOperation.Braid _
+            | QuantumOperation.FMove _ ->
+                Error(
+                    QuantumError.OperationError(
+                        "submitAsCircuit",
+                        "Operation cannot be lowered to a gate circuit for whole-circuit submission."
+                    )
+                )
 
         /// Flatten gate-level operations into a single gate list.
         let lowerOpsToGates (operations: QuantumOperation list) : Result<CircuitBuilder.Gate list, QuantumError> =
@@ -668,20 +729,29 @@ module BackendAbstraction =
 
         /// Build a complete gate circuit from gate-level operations and execute it via
         /// ExecuteToState (whole-circuit submission). Works on every backend type.
-        let submitAsCircuit (backend: IQuantumBackend) (numQubits: int) (operations: QuantumOperation list) : Result<QuantumState, QuantumError> =
+        let submitAsCircuit
+            (backend: IQuantumBackend)
+            (numQubits: int)
+            (operations: QuantumOperation list)
+            : Result<QuantumState, QuantumError> =
             lowerOpsToGates operations
             // lowerOpsToGates returns gates in program order (head = first applied), but
             // CircuitBuilder.Circuit stores Gates most-recent-first (reversed) — executors List.rev
             // before running — so we must reverse here, or the circuit would execute backwards.
-            |> Result.map (fun gates -> ({ QubitCount = numQubits; Gates = List.rev gates } : CircuitBuilder.Circuit))
-            |> Result.bind (fun circuit -> backend.ExecuteToState (CircuitWrapper(circuit) :> ICircuit))
+            |> Result.map (fun gates ->
+                ({
+                    QubitCount = numQubits
+                    Gates = List.rev gates
+                }
+                : CircuitBuilder.Circuit))
+            |> Result.bind (fun circuit -> backend.ExecuteToState(CircuitWrapper(circuit) :> ICircuit))
 
         /// Whether an error is a backend reporting that it cannot apply operations incrementally
         /// (real cloud hardware requiring whole-circuit submission). Algorithms use this to fall
         /// back from an ApplyOperation loop to submitAsCircuit.
         let isIncrementalUnsupported (error: QuantumError) : bool =
             match error with
-            | QuantumError.OperationError ("ApplyOperation", msg) -> msg.Contains "incremental"
+            | QuantumError.OperationError("ApplyOperation", msg) -> msg.Contains "incremental"
             | _ -> false
 
         /// Whether a state is the computational |0...0> basis state (all amplitude on index 0).
@@ -695,17 +765,16 @@ module BackendAbstraction =
             | _ -> false
 
         /// Measure state and return classical outcomes
-        /// 
+        ///
         /// Convenience wrapper around QuantumState.measure.
-        /// 
+        ///
         /// Parameters:
         ///   state - Quantum state to measure
         ///   shots - Number of measurement samples
-        /// 
+        ///
         /// Returns:
         ///   Array of bitstrings (measurement outcomes)
-        let measureState (state: QuantumState) (shots: int) : int[][] =
-            QuantumState.measure state shots
+        let measureState (state: QuantumState) (shots: int) : int[][] = QuantumState.measure state shots
 
         /// Execute operation with automatic state conversion if needed (task-based).
         ///
@@ -733,7 +802,9 @@ module BackendAbstraction =
             if stateType = nativeType then
                 backend.ApplyOperationAsync operation state ct
             else
-                (QuantumStateConversion.convert nativeType state) |> Result.map (fun converted -> backend.ApplyOperationAsync operation converted ct) |> Result.defaultWith (fun err -> Task.FromResult(Error err))
+                (QuantumStateConversion.convert nativeType state)
+                |> Result.map (fun converted -> backend.ApplyOperationAsync operation converted ct)
+                |> Result.defaultWith (fun err -> Task.FromResult(Error err))
 
         /// Apply sequence of operations efficiently (task-based).
         ///
@@ -753,25 +824,28 @@ module BackendAbstraction =
             (operations: QuantumOperation list)
             (initialState: QuantumState)
             (ct: CancellationToken)
-            : Task<Result<QuantumState, QuantumError>> = task {
-            if List.isEmpty operations then
-                return Ok initialState
-            else
-                let nativeType = backend.NativeStateType
-                let stateType = QuantumState.stateType initialState
+            : Task<Result<QuantumState, QuantumError>> =
+            task {
+                if List.isEmpty operations then
+                    return Ok initialState
+                else
+                    let nativeType = backend.NativeStateType
+                    let stateType = QuantumState.stateType initialState
 
-                let initialResult =
-                    if stateType <> nativeType then
-                        QuantumStateConversion.convert nativeType initialState
-                    else
-                        Ok initialState
+                    let initialResult =
+                        if stateType <> nativeType then
+                            QuantumStateConversion.convert nativeType initialState
+                        else
+                            Ok initialState
 
-                let mutable current = initialResult
-                for op in operations do
-                    match current with
-                    | Error _ -> ()
-                    | Ok s ->
-                        let! next = backend.ApplyOperationAsync op s ct
-                        current <- next
-                return current
-        }
+                    let mutable current = initialResult
+
+                    for op in operations do
+                        match current with
+                        | Error _ -> ()
+                        | Ok s ->
+                            let! next = backend.ApplyOperationAsync op s ct
+                            current <- next
+
+                    return current
+            }

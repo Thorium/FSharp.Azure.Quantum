@@ -34,34 +34,76 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "VQCExample.fsx" "End-to-end Variational Quantum Classifier (train, predict, evaluate)"
-    [ { Name = "example";       Description = "Which example: 1-8|all";          Default = Some "all" }
-      { Name = "epochs";        Description = "Max training epochs";             Default = Some "5" }
-      { Name = "learning-rate"; Description = "Optimiser learning rate";         Default = Some "0.1" }
-      { Name = "shots";         Description = "Shots per circuit evaluation";    Default = Some "1000" }
-      { Name = "ansatz-depth";  Description = "Variational form depth";          Default = Some "2" }
-      { Name = "output";        Description = "Write results to JSON file";      Default = None }
-      { Name = "csv";           Description = "Write results to CSV file";       Default = None }
-      { Name = "quiet";         Description = "Suppress console output";         Default = None } ] args
+Cli.exitIfHelp
+    "VQCExample.fsx"
+    "End-to-end Variational Quantum Classifier (train, predict, evaluate)"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-8|all"
+            Default = Some "all"
+        }
+        {
+            Name = "epochs"
+            Description = "Max training epochs"
+            Default = Some "5"
+        }
+        {
+            Name = "learning-rate"
+            Description = "Optimiser learning rate"
+            Default = Some "0.1"
+        }
+        {
+            Name = "shots"
+            Description = "Shots per circuit evaluation"
+            Default = Some "1000"
+        }
+        {
+            Name = "ansatz-depth"
+            Description = "Variational form depth"
+            Default = Some "2"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
-let cliEpochs  = Cli.getIntOr "epochs" 5 args
-let cliLR      = Cli.getFloatOr "learning-rate" 0.1 args
-let cliShots   = Cli.getIntOr "shots" 1000 args
-let cliDepth   = Cli.getIntOr "ansatz-depth" 2 args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
+let cliEpochs = Cli.getIntOr "epochs" 5 args
+let cliLR = Cli.getFloatOr "learning-rate" 0.1 args
+let cliShots = Cli.getIntOr "shots" 1000 args
+let cliDepth = Cli.getIntOr "ansatz-depth" 2 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let shouldRun ex =
     exChoice = "all" || exChoice = string ex
 
-let separator () =
-    pr "%s" (String.replicate 60 "-")
+let separator () = pr "%s" (String.replicate 60 "-")
 
 let fmt (x: float) = $"%.4f{x}"
+
 let fmtArr (xs: float array) =
     xs |> Array.map fmt |> String.concat ", " |> sprintf "[%s]"
 
@@ -73,36 +115,58 @@ let quantumBackend = LocalBackend() :> IQuantumBackend
 // ---------------------------------------------------------------------------
 // Shared configuration
 // ---------------------------------------------------------------------------
-let featureMap       = AngleEncoding
-let variationalForm  = RealAmplitudes cliDepth
+let featureMap = AngleEncoding
+let variationalForm = RealAmplitudes cliDepth
 
-let config : VQC.TrainingConfig =
-    { LearningRate          = cliLR
-      MaxEpochs             = cliEpochs
-      ConvergenceThreshold  = 0.001
-      Shots                 = cliShots
-      Verbose               = false
-      Optimizer             = VQC.Adam { LearningRate = cliLR; Beta1 = 0.9; Beta2 = 0.999; Epsilon = 1e-8 }
-      ProgressReporter      = None
-      Logger                = None }
+let config: VQC.TrainingConfig =
+    {
+        LearningRate = cliLR
+        MaxEpochs = cliEpochs
+        ConvergenceThreshold = 0.001
+        Shots = cliShots
+        Verbose = false
+        Optimizer =
+            VQC.Adam
+                {
+                    LearningRate = cliLR
+                    Beta1 = 0.9
+                    Beta2 = 0.999
+                    Epsilon = 1e-8
+                }
+        ProgressReporter = None
+        Logger = None
+    }
 
 // XOR-like dataset
-let trainData = [|
-    [| 0.1; 0.1 |]; [| 0.2; 0.1 |]; [| 0.1; 0.2 |]   // class 0
-    [| 0.9; 0.9 |]; [| 0.8; 0.9 |]; [| 0.9; 0.8 |]
-    [| 0.1; 0.9 |]; [| 0.2; 0.8 |]; [| 0.1; 0.8 |]   // class 1
-    [| 0.9; 0.1 |]; [| 0.8; 0.2 |]; [| 0.9; 0.2 |] |]
-let trainLabels = [| 0;0;0; 0;0;0; 1;1;1; 1;1;1 |]
+let trainData =
+    [|
+        [| 0.1; 0.1 |]
+        [| 0.2; 0.1 |]
+        [| 0.1; 0.2 |] // class 0
+        [| 0.9; 0.9 |]
+        [| 0.8; 0.9 |]
+        [| 0.9; 0.8 |]
+        [| 0.1; 0.9 |]
+        [| 0.2; 0.8 |]
+        [| 0.1; 0.8 |] // class 1
+        [| 0.9; 0.1 |]
+        [| 0.8; 0.2 |]
+        [| 0.9; 0.2 |]
+    |]
 
-let testData   = [| [|0.15;0.15|]; [|0.85;0.85|]; [|0.15;0.85|]; [|0.85;0.15|] |]
+let trainLabels = [| 0; 0; 0; 0; 0; 0; 1; 1; 1; 1; 1; 1 |]
+
+let testData =
+    [| [| 0.15; 0.15 |]; [| 0.85; 0.85 |]; [| 0.15; 0.85 |]; [| 0.85; 0.15 |] |]
+
 let testLabels = [| 0; 0; 1; 1 |]
 
-let numQubits     = trainData.[0].Length
+let numQubits = trainData.[0].Length
 let initialParams = Array.init (numQubits * 2) (fun _ -> 0.1)
 
 // Mutable results accumulator
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 — Setup & Architecture
@@ -119,12 +183,18 @@ if shouldRun 1 then
     pr "Shots per Circuit: %d" config.Shots
     pr "Optimiser:        Adam"
 
-    jsonResults <- ("1_setup", box {| backend = "LocalBackend"
-                                      featureMap = "AngleEncoding"
-                                      ansatz = $"RealAmplitudes(depth=%d{cliDepth})"
-                                      learningRate = config.LearningRate
-                                      maxEpochs = config.MaxEpochs
-                                      shots = config.Shots |}) :: jsonResults
+    jsonResults <-
+        ("1_setup",
+         box
+             {|
+                 backend = "LocalBackend"
+                 featureMap = "AngleEncoding"
+                 ansatz = $"RealAmplitudes(depth=%d{cliDepth})"
+                 learningRate = config.LearningRate
+                 maxEpochs = config.MaxEpochs
+                 shots = config.Shots
+             |})
+        :: jsonResults
 
 // ---------------------------------------------------------------------------
 // Example 2 — Dataset
@@ -145,10 +215,17 @@ if shouldRun 2 then
     pr "  Class 1: %s" (fmtArr trainData.[6])
     pr "  Class 1: %s" (fmtArr trainData.[11])
 
-    jsonResults <- ("2_dataset", box {| trainSamples = trainData.Length
-                                        testSamples = testData.Length
-                                        features = numQubits
-                                        class0 = c0; class1 = c1 |}) :: jsonResults
+    jsonResults <-
+        ("2_dataset",
+         box
+             {|
+                 trainSamples = trainData.Length
+                 testSamples = testData.Length
+                 features = numQubits
+                 class0 = c0
+                 class1 = c1
+             |})
+        :: jsonResults
 
 // ---------------------------------------------------------------------------
 // Example 3 — Training
@@ -156,15 +233,17 @@ if shouldRun 2 then
 // Train once and share result across examples 3-6
 let trainResult =
     if shouldRun 3 || shouldRun 4 || shouldRun 5 || shouldRun 6 then
-        Some (VQC.train quantumBackend featureMap variationalForm initialParams trainData trainLabels config)
-    else None
+        Some(VQC.train quantumBackend featureMap variationalForm initialParams trainData trainLabels config)
+    else
+        None
 
 if shouldRun 3 then
     separator ()
     pr "EXAMPLE 3: Training (parameter shift rule)"
     separator ()
+
     match trainResult with
-    | Some (Ok result) ->
+    | Some(Ok result) ->
         pr "Training completed"
         pr "  Final params:    %s" (fmtArr result.Parameters)
         pr "  Train accuracy:  %s" (fmt result.TrainAccuracy)
@@ -172,22 +251,37 @@ if shouldRun 3 then
         pr "  Converged:       %s" (if result.Converged then "yes" else "no (max epochs)")
         pr ""
         pr "Loss history:"
+
         result.LossHistory
         |> List.take (min 10 result.LossHistory.Length)
-        |> List.iteri (fun i l -> pr "  Epoch %2d: %s" (i+1) (fmt l))
+        |> List.iteri (fun i l -> pr "  Epoch %2d: %s" (i + 1) (fmt l))
+
         if result.LossHistory.Length > 10 then
             pr "  ..."
             pr "  Epoch %2d: %s" result.LossHistory.Length (fmt (List.last result.LossHistory))
 
-        jsonResults <- ("3_training", box {| accuracy = result.TrainAccuracy
-                                             epochs = result.Epochs
-                                             converged = result.Converged
-                                             finalParams = result.Parameters |}) :: jsonResults
-        csvRows <- [ "3_training"; fmt result.TrainAccuracy; string result.Epochs;
-                      string result.Converged; fmtArr result.Parameters ] :: csvRows
+        jsonResults <-
+            ("3_training",
+             box
+                 {|
+                     accuracy = result.TrainAccuracy
+                     epochs = result.Epochs
+                     converged = result.Converged
+                     finalParams = result.Parameters
+                 |})
+            :: jsonResults
 
-    | Some (Error err) ->
-        pr "Training failed: %s" err.Message
+        csvRows <-
+            [
+                "3_training"
+                fmt result.TrainAccuracy
+                string result.Epochs
+                string result.Converged
+                fmtArr result.Parameters
+            ]
+            :: csvRows
+
+    | Some(Error err) -> pr "Training failed: %s" err.Message
     | None -> ()
 
 // ---------------------------------------------------------------------------
@@ -197,20 +291,35 @@ if shouldRun 4 then
     separator ()
     pr "EXAMPLE 4: Predictions on test set"
     separator ()
+
     match trainResult with
-    | Some (Ok result) ->
-        testData |> Array.iteri (fun i sample ->
+    | Some(Ok result) ->
+        testData
+        |> Array.iteri (fun i sample ->
             match VQC.predict quantumBackend featureMap variationalForm result.Parameters sample config.Shots with
             | Ok pred ->
                 let mark = if pred.Label = testLabels.[i] then "correct" else "wrong"
-                pr "Sample %d: %s  -> predicted %d (prob %s)  actual %d  [%s]"
-                    (i+1) (fmtArr sample) pred.Label (fmt pred.Probability) testLabels.[i] mark
 
-                csvRows <- [ sprintf "4_predict_%d" (i+1); string pred.Label;
-                             fmt pred.Probability; string testLabels.[i]; mark ] :: csvRows
-            | Error err ->
-                pr "Sample %d: prediction failed — %s" (i+1) err.Message)
-    | Some (Error _) -> pr "(skipped — training failed)"
+                pr
+                    "Sample %d: %s  -> predicted %d (prob %s)  actual %d  [%s]"
+                    (i + 1)
+                    (fmtArr sample)
+                    pred.Label
+                    (fmt pred.Probability)
+                    testLabels.[i]
+                    mark
+
+                csvRows <-
+                    [
+                        sprintf "4_predict_%d" (i + 1)
+                        string pred.Label
+                        fmt pred.Probability
+                        string testLabels.[i]
+                        mark
+                    ]
+                    :: csvRows
+            | Error err -> pr "Sample %d: prediction failed — %s" (i + 1) err.Message)
+    | Some(Error _) -> pr "(skipped — training failed)"
     | None -> ()
 
 // ---------------------------------------------------------------------------
@@ -220,8 +329,9 @@ if shouldRun 5 then
     separator ()
     pr "EXAMPLE 5: Model evaluation"
     separator ()
+
     match trainResult with
-    | Some (Ok result) ->
+    | Some(Ok result) ->
         let showEval label data labels =
             match VQC.evaluate quantumBackend featureMap variationalForm result.Parameters data labels config.Shots with
             | Ok acc ->
@@ -230,14 +340,22 @@ if shouldRun 5 then
             | Error err ->
                 pr "%s evaluation failed: %s" label err.Message
                 0.0
-        let trainAcc = showEval "Training set" trainData trainLabels
-        let testAcc  = showEval "Test set"     testData  testLabels
 
-        jsonResults <- ("5_evaluation", box {| trainAccuracy = trainAcc
-                                               testAccuracy = testAcc |}) :: jsonResults
+        let trainAcc = showEval "Training set" trainData trainLabels
+        let testAcc = showEval "Test set" testData testLabels
+
+        jsonResults <-
+            ("5_evaluation",
+             box
+                 {|
+                     trainAccuracy = trainAcc
+                     testAccuracy = testAcc
+                 |})
+            :: jsonResults
+
         csvRows <- [ "5_evaluation"; fmt trainAcc; fmt testAcc; ""; "" ] :: csvRows
 
-    | Some (Error _) -> pr "(skipped — training failed)"
+    | Some(Error _) -> pr "(skipped — training failed)"
     | None -> ()
 
 // ---------------------------------------------------------------------------
@@ -247,9 +365,19 @@ if shouldRun 6 then
     separator ()
     pr "EXAMPLE 6: Confusion matrix (test set)"
     separator ()
+
     match trainResult with
-    | Some (Ok result) ->
-        match VQC.confusionMatrix quantumBackend featureMap variationalForm result.Parameters testData testLabels config.Shots with
+    | Some(Ok result) ->
+        match
+            VQC.confusionMatrix
+                quantumBackend
+                featureMap
+                variationalForm
+                result.Parameters
+                testData
+                testLabels
+                config.Shots
+        with
         | Ok cm ->
             pr "                 Predicted"
             pr "              Class 0  Class 1"
@@ -258,19 +386,29 @@ if shouldRun 6 then
             pr ""
             let prec = VQC.precision cm
             let rec' = VQC.recall cm
-            let f1   = VQC.f1Score cm
-            let acc  = float (cm.TruePositives + cm.TrueNegatives) / float testData.Length
-            pr "Accuracy:  %s  Precision: %s  Recall: %s  F1: %s"
-                (fmt acc) (fmt prec) (fmt rec') (fmt f1)
+            let f1 = VQC.f1Score cm
+            let acc = float (cm.TruePositives + cm.TrueNegatives) / float testData.Length
+            pr "Accuracy:  %s  Precision: %s  Recall: %s  F1: %s" (fmt acc) (fmt prec) (fmt rec') (fmt f1)
 
-            jsonResults <- ("6_confusion", box {| tp = cm.TruePositives; tn = cm.TrueNegatives
-                                                  fp = cm.FalsePositives; fn = cm.FalseNegatives
-                                                  accuracy = acc; precision = prec
-                                                  recall = rec'; f1 = f1 |}) :: jsonResults
+            jsonResults <-
+                ("6_confusion",
+                 box
+                     {|
+                         tp = cm.TruePositives
+                         tn = cm.TrueNegatives
+                         fp = cm.FalsePositives
+                         fn = cm.FalseNegatives
+                         accuracy = acc
+                         precision = prec
+                         recall = rec'
+                         f1 = f1
+                     |})
+                :: jsonResults
+
             csvRows <- [ "6_confusion"; fmt acc; fmt prec; fmt rec'; fmt f1 ] :: csvRows
 
         | Error err -> pr "Confusion matrix failed: %s" err.Message
-    | Some (Error _) -> pr "(skipped — training failed)"
+    | Some(Error _) -> pr "(skipped — training failed)"
     | None -> ()
 
 // ---------------------------------------------------------------------------
@@ -282,7 +420,7 @@ if shouldRun 7 then
     separator ()
     let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
     let fmCircuit = FeatureMap.angleEncoding trainData.[0]
-    let fmGates   = fmCircuit.Gates.Length
+    let fmGates = fmCircuit.Gates.Length
 
     pr "Qubits:           %d" numQubits
     pr "Parameters:       %d" numParams
@@ -294,18 +432,35 @@ if shouldRun 7 then
         pr "Ansatz gates:      %d" aGates
         pr "Total gates:       %d" (fmGates + aGates)
         pr ""
-        let gradsPerEpoch   = numParams * 2
-        let circPerEpoch    = trainData.Length + gradsPerEpoch * trainData.Length
+        let gradsPerEpoch = numParams * 2
+        let circPerEpoch = trainData.Length + gradsPerEpoch * trainData.Length
         pr "Circuits/epoch:    %d  (forward + %d gradient evals)" circPerEpoch gradsPerEpoch
+
         match trainResult with
-        | Some (Ok r) -> pr "Total circuits:    %d  (%d epochs)" (circPerEpoch * r.Epochs) r.Epochs
+        | Some(Ok r) -> pr "Total circuits:    %d  (%d epochs)" (circPerEpoch * r.Epochs) r.Epochs
         | _ -> ()
 
-        jsonResults <- ("7_circuit", box {| qubits = numQubits; vParams = numParams
-                                            featureMapGates = fmGates; ansatzGates = aGates
-                                            totalGates = fmGates + aGates |}) :: jsonResults
-        csvRows <- [ "7_circuit"; string numQubits; string numParams; string fmGates;
-                      string aGates ] :: csvRows
+        jsonResults <-
+            ("7_circuit",
+             box
+                 {|
+                     qubits = numQubits
+                     vParams = numParams
+                     featureMapGates = fmGates
+                     ansatzGates = aGates
+                     totalGates = fmGates + aGates
+                 |})
+            :: jsonResults
+
+        csvRows <-
+            [
+                "7_circuit"
+                string numQubits
+                string numParams
+                string fmGates
+                string aGates
+            ]
+            :: csvRows
 
     | Error err -> pr "Error building ansatz: %s" err.Message
 
@@ -337,25 +492,26 @@ if shouldRun 8 then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "VQCExample.fsx"
-           backend   = "Local Simulator"
-           timestamp = DateTime.UtcNow.ToString("o")
-           epochs    = cliEpochs
-           learningRate = cliLR
-           shots     = cliShots
-           ansatzDepth = cliDepth
-           example   = exChoice
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "VQCExample.fsx"
+            backend = "Local Simulator"
+            timestamp = DateTime.UtcNow.ToString("o")
+            epochs = cliEpochs
+            learningRate = cliLR
+            shots = cliShots
+            ansatzDepth = cliDepth
+            example = exChoice
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "metric1"; "metric2"; "metric3"; "metric4" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

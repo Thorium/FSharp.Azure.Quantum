@@ -20,26 +20,33 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``isSolution with Solutions returns true for values in list`` () =
-        let spec = Oracle.OracleSpec.Solutions [2; 5; 7]
+        let spec = Oracle.OracleSpec.Solutions [ 2; 5; 7 ]
         Assert.True(Oracle.isSolution spec 5)
         Assert.False(Oracle.isSolution spec 4)
 
     [<Fact>]
     let ``isSolution with Predicate delegates correctly`` () =
-        let spec = Oracle.OracleSpec.Predicate (fun x -> x % 2 = 0)
+        let spec = Oracle.OracleSpec.Predicate(fun x -> x % 2 = 0)
         Assert.True(Oracle.isSolution spec 4)
         Assert.False(Oracle.isSolution spec 3)
 
     [<Fact>]
     let ``isSolution with And requires both conditions`` () =
-        let spec = Oracle.OracleSpec.And(Oracle.OracleSpec.Predicate (fun x -> x > 2), Oracle.OracleSpec.Predicate (fun x -> x < 6))
+        let spec =
+            Oracle.OracleSpec.And(
+                Oracle.OracleSpec.Predicate(fun x -> x > 2),
+                Oracle.OracleSpec.Predicate(fun x -> x < 6)
+            )
+
         Assert.True(Oracle.isSolution spec 4)
         Assert.False(Oracle.isSolution spec 1)
         Assert.False(Oracle.isSolution spec 7)
 
     [<Fact>]
     let ``isSolution with Or requires either condition`` () =
-        let spec = Oracle.OracleSpec.Or(Oracle.OracleSpec.SingleTarget 3, Oracle.OracleSpec.SingleTarget 5)
+        let spec =
+            Oracle.OracleSpec.Or(Oracle.OracleSpec.SingleTarget 3, Oracle.OracleSpec.SingleTarget 5)
+
         Assert.True(Oracle.isSolution spec 3)
         Assert.True(Oracle.isSolution spec 5)
         Assert.False(Oracle.isSolution spec 4)
@@ -67,12 +74,18 @@ module GroverOracleTests =
     [<Fact>]
     let ``compile succeeds for numQubits = 1`` () =
         let result = Oracle.compile (Oracle.OracleSpec.SingleTarget 0) 1
-        result |> Result.map (fun oracle -> Assert.Equal(1, oracle.NumQubits)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        result
+        |> Result.map (fun oracle -> Assert.Equal(1, oracle.NumQubits))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``compile succeeds for numQubits = 20`` () =
         let result = Oracle.compile (Oracle.OracleSpec.SingleTarget 0) 20
-        result |> Result.map (fun oracle -> Assert.Equal(20, oracle.NumQubits)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        result
+        |> Result.map (fun oracle -> Assert.Equal(20, oracle.NumQubits))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // FORVALUE / FORVALUES VALIDATION
@@ -85,13 +98,16 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``forValue rejects target >= 2^n`` () =
-        let result = Oracle.forValue 8 3  // 2^3 = 8, so 8 is out of range
+        let result = Oracle.forValue 8 3 // 2^3 = 8, so 8 is out of range
         result |> Result.iter (fun _ -> failwith "Expected Error for target >= 2^n")
 
     [<Fact>]
     let ``forValue succeeds for valid target`` () =
-        let result = Oracle.forValue 5 3  // 5 < 2^3 = 8
-        result |> Result.map (fun oracle -> Assert.Equal(3, oracle.NumQubits)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        let result = Oracle.forValue 5 3 // 5 < 2^3 = 8
+
+        result
+        |> Result.map (fun oracle -> Assert.Equal(3, oracle.NumQubits))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``forValues rejects empty list`` () =
@@ -100,8 +116,10 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``forValues rejects out-of-range values`` () =
-        let result = Oracle.forValues [1; 8] 3  // 8 >= 2^3
-        result |> Result.iter (fun _ -> failwith "Expected Error for out-of-range value")
+        let result = Oracle.forValues [ 1; 8 ] 3 // 8 >= 2^3
+
+        result
+        |> Result.iter (fun _ -> failwith "Expected Error for out-of-range value")
 
     // ========================================================================
     // CONVENIENCE ORACLES
@@ -170,14 +188,16 @@ module GroverOracleTests =
     let ``andOracle rejects mismatched qubit counts`` () =
         match Oracle.forValue 0 2, Oracle.forValue 0 3 with
         | Ok o1, Ok o2 ->
-            (Oracle.andOracle o1 o2) |> Result.iter (fun _ -> failwith "Expected Error for mismatched qubit counts")
+            (Oracle.andOracle o1 o2)
+            |> Result.iter (fun _ -> failwith "Expected Error for mismatched qubit counts")
         | _ -> failwith "Setup failed"
 
     [<Fact>]
     let ``orOracle rejects mismatched qubit counts`` () =
         match Oracle.forValue 0 2, Oracle.forValue 0 3 with
         | Ok o1, Ok o2 ->
-            (Oracle.orOracle o1 o2) |> Result.iter (fun _ -> failwith "Expected Error for mismatched qubit counts")
+            (Oracle.orOracle o1 o2)
+            |> Result.iter (fun _ -> failwith "Expected Error for mismatched qubit counts")
         | _ -> failwith "Setup failed"
 
     [<Fact>]
@@ -197,7 +217,9 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``verify confirms correct solutions`` () =
-        (Oracle.forValues [2; 5] 3) |> Result.map (fun oracle -> Assert.True(Oracle.verify oracle [2; 5])) |> Result.defaultWith (fun e -> failwith $"Setup failed: {e}")
+        (Oracle.forValues [ 2; 5 ] 3)
+        |> Result.map (fun oracle -> Assert.True(Oracle.verify oracle [ 2; 5 ]))
+        |> Result.defaultWith (fun e -> failwith $"Setup failed: {e}")
 
     [<Fact>]
     let ``countSolutions returns correct count`` () =
@@ -209,10 +231,10 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``listSolutions returns all solutions`` () =
-        match Oracle.forValues [1; 3; 5] 3 with
+        match Oracle.forValues [ 1; 3; 5 ] 3 with
         | Ok oracle ->
             let solutions = Oracle.listSolutions oracle |> List.sort
-            Assert.Equal<int list>([1; 3; 5], solutions)
+            Assert.Equal<int list>([ 1; 3; 5 ], solutions)
         | Error e -> failwith $"Setup failed: {e}"
 
     // ========================================================================
@@ -221,18 +243,31 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``satOracle rejects empty clauses`` () =
-        let formula : Oracle.SatFormula = { NumVariables = 2; Clauses = [] }
-        (Oracle.satOracle formula) |> Result.iter (fun _ -> failwith "Expected Error for empty clauses")
+        let formula: Oracle.SatFormula = { NumVariables = 2; Clauses = [] }
+
+        (Oracle.satOracle formula)
+        |> Result.iter (fun _ -> failwith "Expected Error for empty clauses")
 
     [<Fact>]
     let ``satOracle rejects too many variables`` () =
-        let formula : Oracle.SatFormula = { NumVariables = 21; Clauses = [Oracle.clause [Oracle.var 0]] }
-        (Oracle.satOracle formula) |> Result.iter (fun _ -> failwith "Expected Error for NumVariables > 20")
+        let formula: Oracle.SatFormula =
+            {
+                NumVariables = 21
+                Clauses = [ Oracle.clause [ Oracle.var 0 ] ]
+            }
+
+        (Oracle.satOracle formula)
+        |> Result.iter (fun _ -> failwith "Expected Error for NumVariables > 20")
 
     [<Fact>]
     let ``satOracle works for simple formula`` () =
         // (x0 OR x1) - satisfiable by 01, 10, 11
-        let formula : Oracle.SatFormula = { NumVariables = 2; Clauses = [Oracle.clause [Oracle.var 0; Oracle.var 1]] }
+        let formula: Oracle.SatFormula =
+            {
+                NumVariables = 2
+                Clauses = [ Oracle.clause [ Oracle.var 0; Oracle.var 1 ] ]
+            }
+
         match Oracle.satOracle formula with
         | Ok oracle ->
             let count = Oracle.countSolutions oracle
@@ -245,26 +280,34 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``graphColoringOracle rejects 0 vertices`` () =
-        let config : Oracle.GraphColoringConfig = {
-            Graph = Oracle.graph 0 []
-            NumColors = 2
-        }
-        (Oracle.graphColoringOracle config) |> Result.iter (fun _ -> failwith "Expected Error for 0 vertices")
+        let config: Oracle.GraphColoringConfig =
+            {
+                Graph = Oracle.graph 0 []
+                NumColors = 2
+            }
+
+        (Oracle.graphColoringOracle config)
+        |> Result.iter (fun _ -> failwith "Expected Error for 0 vertices")
 
     [<Fact>]
     let ``graphColoringOracle rejects too few colors`` () =
-        let config : Oracle.GraphColoringConfig = {
-            Graph = Oracle.graph 3 [(0,1); (1,2)]
-            NumColors = 1
-        }
-        (Oracle.graphColoringOracle config) |> Result.iter (fun _ -> failwith "Expected Error for NumColors < 2")
+        let config: Oracle.GraphColoringConfig =
+            {
+                Graph = Oracle.graph 3 [ (0, 1); (1, 2) ]
+                NumColors = 1
+            }
+
+        (Oracle.graphColoringOracle config)
+        |> Result.iter (fun _ -> failwith "Expected Error for NumColors < 2")
 
     [<Fact>]
     let ``graphColoringOracle succeeds for valid config`` () =
-        let config : Oracle.GraphColoringConfig = {
-            Graph = Oracle.graph 3 [(0,1); (1,2)]
-            NumColors = 2
-        }
+        let config: Oracle.GraphColoringConfig =
+            {
+                Graph = Oracle.graph 3 [ (0, 1); (1, 2) ]
+                NumColors = 2
+            }
+
         match Oracle.graphColoringOracle config with
         | Ok oracle ->
             let count = Oracle.countSolutions oracle
@@ -277,16 +320,22 @@ module GroverOracleTests =
 
     [<Fact>]
     let ``cliqueOracle rejects cliqueSize < 2`` () =
-        let config : Oracle.CliqueConfig = {
-            Graph = Oracle.graph 4 [(0,1); (1,2); (2,3)]
-            CliqueSize = 1
-        }
-        (Oracle.cliqueOracle config) |> Result.iter (fun _ -> failwith "Expected Error for CliqueSize < 2")
+        let config: Oracle.CliqueConfig =
+            {
+                Graph = Oracle.graph 4 [ (0, 1); (1, 2); (2, 3) ]
+                CliqueSize = 1
+            }
+
+        (Oracle.cliqueOracle config)
+        |> Result.iter (fun _ -> failwith "Expected Error for CliqueSize < 2")
 
     [<Fact>]
     let ``cliqueOracle rejects cliqueSize > numVertices`` () =
-        let config : Oracle.CliqueConfig = {
-            Graph = Oracle.graph 3 [(0,1); (1,2)]
-            CliqueSize = 4
-        }
-        (Oracle.cliqueOracle config) |> Result.iter (fun _ -> failwith "Expected Error for CliqueSize > numVertices")
+        let config: Oracle.CliqueConfig =
+            {
+                Graph = Oracle.graph 3 [ (0, 1); (1, 2) ]
+                CliqueSize = 4
+            }
+
+        (Oracle.cliqueOracle config)
+        |> Result.iter (fun _ -> failwith "Expected Error for CliqueSize > numVertices")

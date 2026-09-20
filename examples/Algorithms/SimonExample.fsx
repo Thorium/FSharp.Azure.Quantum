@@ -61,14 +61,42 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "SimonExample.fsx" "Simon: find the hidden XOR period of a two-to-one function." [
-    { Name = "secret"; Description = "Hidden XOR period (e.g. 110; all zeros = one-to-one)"; Default = Some "110" }
-    { Name = "shots"; Description = "Measurement shots"; Default = Some "100" }
-    { Name = "backend"; Description = "Backend to use (local/topological/both)"; Default = Some "both" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "SimonExample.fsx"
+    "Simon: find the hidden XOR period of a two-to-one function."
+    [
+        {
+            Name = "secret"
+            Description = "Hidden XOR period (e.g. 110; all zeros = one-to-one)"
+            Default = Some "110"
+        }
+        {
+            Name = "shots"
+            Description = "Measurement shots"
+            Default = Some "100"
+        }
+        {
+            Name = "backend"
+            Description = "Backend to use (local/topological/both)"
+            Default = Some "both"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let secretArg = Cli.getOr "secret" "110" args
 let shots = Cli.getIntOr "shots" 100 args
@@ -98,7 +126,8 @@ let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
 let backendsToTest =
     match backendArg with
     | "local" -> [ ("local", localBackend) ]
-    | "topological" | "topo" -> [ ("topological", topoBackend) ]
+    | "topological"
+    | "topo" -> [ ("topological", topoBackend) ]
     | _ -> [ ("local", localBackend); ("topological", topoBackend) ]
 
 // ============================================================================
@@ -114,8 +143,14 @@ if not quiet then
     printfn "Find the hidden XOR period of a two-to-one black-box function"
     printfn "in O(n) queries (classical requires ~2^(n/2) queries)."
     printfn ""
-    printfn "Configuration: secret = %s (%d input qubits, %d circuit qubits), %d shots"
-        secretArg numInputQubits (2 * numInputQubits) shots
+
+    printfn
+        "Configuration: secret = %s (%d input qubits, %d circuit qubits), %d shots"
+        secretArg
+        numInputQubits
+        (2 * numInputQubits)
+        shots
+
     printfn ""
 
 for (backendKey, backend) in backendsToTest do
@@ -131,24 +166,33 @@ for (backendKey, backend) in backendsToTest do
 
         if not quiet then
             printfn "  Hidden period:    %s" secretArg
-            printfn "  Recovered period: %s  (%s)  [%s]"
+
+            printfn
+                "  Recovered period: %s  (%s)  [%s]"
                 recoveredStr
-                (if result.IsOneToOne then "one-to-one, s = 0" else "two-to-one")
+                (if result.IsOneToOne then
+                     "one-to-one, s = 0"
+                 else
+                     "two-to-one")
                 (if correct then "OK" else "MISMATCH")
+
             printfn "  Distinct GF(2) equations collected: %d" result.Equations.Length
             printfn ""
 
         results.Add(
-            [ "backend", backendKey
-              "backend_name", backend.Name
-              "secret", secretArg
-              "recovered", recoveredStr
-              "one_to_one", string result.IsOneToOne
-              "equations", string result.Equations.Length
-              "input_qubits", string result.NumInputQubits
-              "shots", string result.Shots
-              "correct", string correct ]
-            |> Map.ofList)
+            [
+                "backend", backendKey
+                "backend_name", backend.Name
+                "secret", secretArg
+                "recovered", recoveredStr
+                "one_to_one", string result.IsOneToOne
+                "equations", string result.Equations.Length
+                "input_qubits", string result.NumInputQubits
+                "shots", string result.Shots
+                "correct", string correct
+            ]
+            |> Map.ofList
+        )
 
     | Error err ->
         if not quiet then
@@ -156,10 +200,9 @@ for (backendKey, backend) in backendsToTest do
             printfn ""
 
         results.Add(
-            [ "backend", backendKey
-              "secret", secretArg
-              "error", $"%A{err}" ]
-            |> Map.ofList)
+            [ "backend", backendKey; "secret", secretArg; "error", $"%A{err}" ]
+            |> Map.ofList
+        )
 
 // ============================================================================
 // Quantum Advantage Summary
@@ -191,12 +234,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

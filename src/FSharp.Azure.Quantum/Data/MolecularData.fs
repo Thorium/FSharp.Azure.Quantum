@@ -18,136 +18,144 @@ open FSharp.Azure.Quantum.Core
 module MolecularData =
 
     type private SmilesParseState =
-        { LastAtomIndex: int
-          CurrentBondOrder: int
-          ErrorsRev: string list
-          /// Structural error that makes the molecule invalid (e.g. ring closure
-          /// before any atom). Causes parseSmiles to return Error instead of Ok.
-          FatalError: string option }
-    
+        {
+            LastAtomIndex: int
+            CurrentBondOrder: int
+            ErrorsRev: string list
+            /// Structural error that makes the molecule invalid (e.g. ring closure
+            /// before any atom). Causes parseSmiles to return Error instead of Ok.
+            FatalError: string option
+        }
+
     // ========================================================================
     // CORE TYPES
     // ========================================================================
-    
+
     /// Represents an atom in a molecule
-    type Atom = {
-        /// Element symbol (e.g., "C", "N", "O", "S")
-        Element: string
-        
-        /// Atom index in the molecule (0-based)
-        Index: int
-        
-        /// Formal charge (e.g., -1, 0, +1)
-        Charge: int
-        
-        /// Is aromatic (lowercase in SMILES)
-        IsAromatic: bool
-        
-        /// Number of explicit hydrogens
-        ExplicitHydrogens: int
-        
-        /// Atomic mass (if specified, for isotopes)
-        Mass: int option
-    }
-    
+    type Atom =
+        {
+            /// Element symbol (e.g., "C", "N", "O", "S")
+            Element: string
+
+            /// Atom index in the molecule (0-based)
+            Index: int
+
+            /// Formal charge (e.g., -1, 0, +1)
+            Charge: int
+
+            /// Is aromatic (lowercase in SMILES)
+            IsAromatic: bool
+
+            /// Number of explicit hydrogens
+            ExplicitHydrogens: int
+
+            /// Atomic mass (if specified, for isotopes)
+            Mass: int option
+        }
+
     /// Represents a bond between atoms
     [<Struct>]
-    type Bond = {
-        /// Index of first atom
-        Atom1: int
-        
-        /// Index of second atom
-        Atom2: int
-        
-        /// Bond order (1=single, 2=double, 3=triple, 4=aromatic)
-        Order: int
-    }
-    
+    type Bond =
+        {
+            /// Index of first atom
+            Atom1: int
+
+            /// Index of second atom
+            Atom2: int
+
+            /// Bond order (1=single, 2=double, 3=triple, 4=aromatic)
+            Order: int
+        }
+
     /// Parsed molecular structure
-    type Molecule = {
-        /// Original SMILES string
-        Smiles: string
-        
-        /// Atoms in the molecule
-        Atoms: Atom array
-        
-        /// Bonds in the molecule
-        Bonds: Bond array
-        
-        /// Molecular formula (calculated)
-        Formula: string
-        
-        /// Parse errors (if any)
-        ParseErrors: string list
-    }
-    
+    type Molecule =
+        {
+            /// Original SMILES string
+            Smiles: string
+
+            /// Atoms in the molecule
+            Atoms: Atom array
+
+            /// Bonds in the molecule
+            Bonds: Bond array
+
+            /// Molecular formula (calculated)
+            Formula: string
+
+            /// Parse errors (if any)
+            ParseErrors: string list
+        }
+
     /// Molecular descriptors for ML features
-    type MolecularDescriptors = {
-        /// Molecular weight (sum of atomic masses)
-        MolecularWeight: float
-        
-        /// Partition coefficient (lipophilicity estimate)
-        LogP: float
-        
-        /// Number of hydrogen bond donors
-        HydrogenBondDonors: int
-        
-        /// Number of hydrogen bond acceptors
-        HydrogenBondAcceptors: int
-        
-        /// Number of rotatable bonds
-        RotatableBonds: int
-        
-        /// Topological polar surface area (estimate)
-        TPSA: float
-        
-        /// Number of heavy atoms (non-hydrogen)
-        HeavyAtomCount: int
-        
-        /// Number of aromatic rings
-        AromaticRingCount: int
-        
-        /// Number of rings total
-        RingCount: int
-        
-        /// Fraction of sp3 carbons
-        FractionCsp3: float
-    }
-    
+    type MolecularDescriptors =
+        {
+            /// Molecular weight (sum of atomic masses)
+            MolecularWeight: float
+
+            /// Partition coefficient (lipophilicity estimate)
+            LogP: float
+
+            /// Number of hydrogen bond donors
+            HydrogenBondDonors: int
+
+            /// Number of hydrogen bond acceptors
+            HydrogenBondAcceptors: int
+
+            /// Number of rotatable bonds
+            RotatableBonds: int
+
+            /// Topological polar surface area (estimate)
+            TPSA: float
+
+            /// Number of heavy atoms (non-hydrogen)
+            HeavyAtomCount: int
+
+            /// Number of aromatic rings
+            AromaticRingCount: int
+
+            /// Number of rings total
+            RingCount: int
+
+            /// Fraction of sp3 carbons
+            FractionCsp3: float
+        }
+
     /// Binary fingerprint for similarity calculations
-    type MolecularFingerprint = {
-        /// Fingerprint type identifier
-        Type: string
-        
-        /// Bit vector (true = bit set)
-        Bits: bool array
-        
-        /// Number of set bits
-        BitCount: int
-    }
-    
+    type MolecularFingerprint =
+        {
+            /// Fingerprint type identifier
+            Type: string
+
+            /// Bit vector (true = bit set)
+            Bits: bool array
+
+            /// Number of set bits
+            BitCount: int
+        }
+
     /// Result of molecular data loading
-    type MolecularDataset = {
-        /// Parsed molecules
-        Molecules: Molecule array
-        
-        /// Computed descriptors (parallel to Molecules)
-        Descriptors: MolecularDescriptors array option
-        
-        /// Computed fingerprints (parallel to Molecules)
-        Fingerprints: MolecularFingerprint array option
-        
-        /// Labels (if provided)
-        Labels: int array option
-        
-        /// Label column name (if applicable)
-        LabelColumn: string option
-    }
-    
+    type MolecularDataset =
+        {
+            /// Parsed molecules
+            Molecules: Molecule array
+
+            /// Computed descriptors (parallel to Molecules)
+            Descriptors: MolecularDescriptors array option
+
+            /// Computed fingerprints (parallel to Molecules)
+            Fingerprints: MolecularFingerprint array option
+
+            /// Labels (if provided)
+            Labels: int array option
+
+            /// Label column name (if applicable)
+            LabelColumn: string option
+        }
+
     // ========================================================================
     // ATOMIC DATA (Reference: IUPAC via PeriodicTable)
     // ========================================================================
-    
+
     /// Get atomic mass for an element symbol.
     /// Falls back to 0.0 for unknown elements (maintains backward compatibility).
     /// NOTE: Now delegates to PeriodicTable for complete element coverage.
@@ -155,38 +163,40 @@ module MolecularData =
         match PeriodicTable.tryBySymbol symbol with
         | Some element -> element.AtomicMass
         | None -> 0.0
-    
+
     /// LogP contributions (Wildman-Crippen)
     let private logPContributions =
-        Map.ofList [
-            ("C", 0.1441)
-            ("N", -0.7566)
-            ("O", -0.2893)
-            ("S", 0.6482)
-            ("F", 0.4118)
-            ("Cl", 0.6895)
-            ("Br", 0.8456)
-            ("I", 1.1410)
-            ("H", 0.1230)
-            ("P", 0.8740)
-        ]
-    
+        Map.ofList
+            [
+                ("C", 0.1441)
+                ("N", -0.7566)
+                ("O", -0.2893)
+                ("S", 0.6482)
+                ("F", 0.4118)
+                ("Cl", 0.6895)
+                ("Br", 0.8456)
+                ("I", 1.1410)
+                ("H", 0.1230)
+                ("P", 0.8740)
+            ]
+
     /// TPSA contributions (Ertl)
     let private tpsaContributions =
-        Map.ofList [
-            ("N", 26.02)   // Primary amine
-            ("NH", 26.02)  // Secondary amine  
-            ("NH2", 26.02) // Primary amine
-            ("O", 9.23)    // Ether oxygen
-            ("OH", 20.23)  // Hydroxyl
-            ("S", 25.30)   // Thioether
-            ("SH", 28.24)  // Thiol
-        ]
-    
+        Map.ofList
+            [
+                ("N", 26.02) // Primary amine
+                ("NH", 26.02) // Secondary amine
+                ("NH2", 26.02) // Primary amine
+                ("O", 9.23) // Ether oxygen
+                ("OH", 20.23) // Hydroxyl
+                ("S", 25.30) // Thioether
+                ("SH", 28.24) // Thiol
+            ]
+
     // ========================================================================
     // SMILES PARSER
     // ========================================================================
-    
+
     /// Parse atom from SMILES notation
     let private parseAtom (smilesFragment: string) (index: int) : Atom option =
         if String.IsNullOrEmpty(smilesFragment) then
@@ -196,48 +206,65 @@ module MolecularData =
             // Lowercase = aromatic: b, c, n, o, p, s
             let organicSubset = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
             let bracketAtom = Regex(@"^\[(\d*)([A-Z][a-z]?)([H]?)(\d*)([+-]?\d*)\]")
-            
+
             let matchOrganic = organicSubset.Match smilesFragment
+
             if matchOrganic.Success then
                 let element = matchOrganic.Value.ToUpper()
                 let isAromatic = Char.IsLower(smilesFragment.[0])
-                Some {
-                    Element = element
-                    Index = index
-                    Charge = 0
-                    IsAromatic = isAromatic
-                    ExplicitHydrogens = 0
-                    Mass = None
-                }
-            else
-                let matchBracket = bracketAtom.Match smilesFragment
-                if matchBracket.Success then
-                    let mass = 
-                        if String.IsNullOrEmpty(matchBracket.Groups.[1].Value) then None
-                        else Some (Int32.Parse(matchBracket.Groups.[1].Value))
-                    let element = matchBracket.Groups.[2].Value
-                    let hasH = not (String.IsNullOrEmpty(matchBracket.Groups.[3].Value))
-                    let hCount = 
-                        if hasH && String.IsNullOrEmpty(matchBracket.Groups.[4].Value) then 1
-                        elif hasH then Int32.Parse(matchBracket.Groups.[4].Value)
-                        else 0
-                    let charge = 
-                        if String.IsNullOrEmpty(matchBracket.Groups.[5].Value) then 0
-                        elif matchBracket.Groups.[5].Value = "+" then 1
-                        elif matchBracket.Groups.[5].Value = "-" then -1
-                        else Int32.Parse(matchBracket.Groups.[5].Value)
-                    
-                    Some {
+
+                Some
+                    {
                         Element = element
                         Index = index
-                        Charge = charge
-                        IsAromatic = Char.IsLower(element.[0])
-                        ExplicitHydrogens = hCount
-                        Mass = mass
+                        Charge = 0
+                        IsAromatic = isAromatic
+                        ExplicitHydrogens = 0
+                        Mass = None
                     }
+            else
+                let matchBracket = bracketAtom.Match smilesFragment
+
+                if matchBracket.Success then
+                    let mass =
+                        if String.IsNullOrEmpty(matchBracket.Groups.[1].Value) then
+                            None
+                        else
+                            Some(Int32.Parse(matchBracket.Groups.[1].Value))
+
+                    let element = matchBracket.Groups.[2].Value
+                    let hasH = not (String.IsNullOrEmpty(matchBracket.Groups.[3].Value))
+
+                    let hCount =
+                        if hasH && String.IsNullOrEmpty(matchBracket.Groups.[4].Value) then
+                            1
+                        elif hasH then
+                            Int32.Parse(matchBracket.Groups.[4].Value)
+                        else
+                            0
+
+                    let charge =
+                        if String.IsNullOrEmpty(matchBracket.Groups.[5].Value) then
+                            0
+                        elif matchBracket.Groups.[5].Value = "+" then
+                            1
+                        elif matchBracket.Groups.[5].Value = "-" then
+                            -1
+                        else
+                            Int32.Parse(matchBracket.Groups.[5].Value)
+
+                    Some
+                        {
+                            Element = element
+                            Index = index
+                            Charge = charge
+                            IsAromatic = Char.IsLower(element.[0])
+                            ExplicitHydrogens = hCount
+                            Mass = mass
+                        }
                 else
                     None
-    
+
     /// Simple SMILES tokenizer
     let private tokenizeSmiles (smiles: string) : string list =
         let organic = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
@@ -246,7 +273,7 @@ module MolecularData =
         let ring = Regex(@"^%?\d+")
         let branch = Regex(@"^[()]")
         let dot = Regex(@"^\.")
-        
+
         let rec tokenize (remaining: string) (acc: string list) =
             if String.IsNullOrEmpty(remaining) then
                 List.rev acc
@@ -255,7 +282,7 @@ module MolecularData =
                 let tryMatch (pattern: Regex) =
                     let m = pattern.Match remaining
                     if m.Success then Some m.Value else None
-                
+
                 match tryMatch bracket with
                 | Some token -> tokenize (remaining.Substring token.Length) (token :: acc)
                 | None ->
@@ -276,13 +303,13 @@ module MolecularData =
                                     | None ->
                                         // Unknown character, skip with warning
                                         tokenize (remaining.Substring 1) acc
-        
+
         tokenize smiles []
-    
+
     /// Parse SMILES string into a Molecule
     let parseSmiles (smiles: string) : QuantumResult<Molecule> =
         if String.IsNullOrWhiteSpace(smiles) then
-            Error (QuantumError.ValidationError ("smiles", "SMILES string cannot be empty"))
+            Error(QuantumError.ValidationError("smiles", "SMILES string cannot be empty"))
         else
             try
                 let tokens = tokenizeSmiles smiles
@@ -291,7 +318,13 @@ module MolecularData =
                 let ringClosures = System.Collections.Generic.Dictionary<int, int>()
                 let branchStack = System.Collections.Generic.Stack<int>()
 
-                let initialState: SmilesParseState = { LastAtomIndex = -1; CurrentBondOrder = 1; ErrorsRev = []; FatalError = None }
+                let initialState: SmilesParseState =
+                    {
+                        LastAtomIndex = -1
+                        CurrentBondOrder = 1
+                        ErrorsRev = []
+                        FatalError = None
+                    }
 
                 let step state token =
                     match token with
@@ -305,12 +338,15 @@ module MolecularData =
                     | "(" ->
                         if state.LastAtomIndex >= 0 then
                             branchStack.Push state.LastAtomIndex
+
                         state
 
                     // Branch end
                     | ")" ->
                         if branchStack.Count > 0 then
-                            { state with LastAtomIndex = branchStack.Pop() }
+                            { state with
+                                LastAtomIndex = branchStack.Pop()
+                            }
                         else
                             state
 
@@ -325,15 +361,28 @@ module MolecularData =
                             // Recording it would create a bond with index -1 that crashes
                             // fingerprint/descriptor calculation later — fail the parse.
                             let msg = $"Ring closure '%s{token}' must follow an atom"
-                            { state with FatalError = state.FatalError |> Option.orElse (Some msg) }
+
+                            { state with
+                                FatalError = state.FatalError |> Option.orElse (Some msg)
+                            }
                         else
                             let ringNum =
-                                if token.StartsWith "%" then Int32.Parse(token.AsSpan 1)
-                                else Int32.Parse(token)
+                                if token.StartsWith "%" then
+                                    Int32.Parse(token.AsSpan 1)
+                                else
+                                    Int32.Parse(token)
 
                             if ringClosures.ContainsKey ringNum then
                                 let startAtom = ringClosures.[ringNum]
-                                bonds.Add({ Atom1 = startAtom; Atom2 = state.LastAtomIndex; Order = state.CurrentBondOrder })
+
+                                bonds.Add(
+                                    {
+                                        Atom1 = startAtom
+                                        Atom2 = state.LastAtomIndex
+                                        Order = state.CurrentBondOrder
+                                    }
+                                )
+
                                 ringClosures.Remove(ringNum) |> ignore
                             else
                                 ringClosures.[ringNum] <- state.LastAtomIndex
@@ -346,20 +395,27 @@ module MolecularData =
                             atoms.Add atom
 
                             if state.LastAtomIndex >= 0 then
-                                bonds.Add({ Atom1 = state.LastAtomIndex; Atom2 = atom.Index; Order = state.CurrentBondOrder })
+                                bonds.Add(
+                                    {
+                                        Atom1 = state.LastAtomIndex
+                                        Atom2 = atom.Index
+                                        Order = state.CurrentBondOrder
+                                    }
+                                )
 
                             { state with
                                 LastAtomIndex = atom.Index
-                                CurrentBondOrder = 1 }
+                                CurrentBondOrder = 1
+                            }
                         | None ->
-                            { state with ErrorsRev = $"Unknown token: %s{token}" :: state.ErrorsRev }
+                            { state with
+                                ErrorsRev = $"Unknown token: %s{token}" :: state.ErrorsRev
+                            }
 
-                let finalState =
-                    tokens |> List.fold step initialState
+                let finalState = tokens |> List.fold step initialState
 
                 match finalState.FatalError with
-                | Some msg ->
-                    Error (QuantumError.ValidationError ("smiles", $"Invalid SMILES '%s{smiles}': %s{msg}"))
+                | Some msg -> Error(QuantumError.ValidationError("smiles", $"Invalid SMILES '%s{smiles}': %s{msg}"))
                 | None ->
                     // Calculate molecular formula
                     let formula =
@@ -373,36 +429,36 @@ module MolecularData =
                             | _ -> "2" + elem)
                         |> Seq.map (fun (elem, group) ->
                             let count = Seq.length group
-                            if count = 1 then elem
-                            else $"%s{elem}%d{count}")
+                            if count = 1 then elem else $"%s{elem}%d{count}")
                         |> String.concat ""
 
-                    Ok {
-                        Smiles = smiles
-                        Atoms = atoms.ToArray()
-                        Bonds = bonds.ToArray()
-                        Formula = formula
-                        ParseErrors = List.rev finalState.ErrorsRev
-                    }
+                    Ok
+                        {
+                            Smiles = smiles
+                            Atoms = atoms.ToArray()
+                            Bonds = bonds.ToArray()
+                            Formula = formula
+                            ParseErrors = List.rev finalState.ErrorsRev
+                        }
             with ex ->
-                Error (QuantumError.Other ($"SMILES parse error: %s{ex.Message}"))
-    
+                Error(QuantumError.Other($"SMILES parse error: %s{ex.Message}"))
+
     // ========================================================================
     // MOLECULAR DESCRIPTORS
     // ========================================================================
-    
+
     /// Calculate molecular descriptors from parsed molecule
     let calculateDescriptors (molecule: Molecule) : MolecularDescriptors =
         let atoms = molecule.Atoms
         let bonds = molecule.Bonds
-        
+
         // Molecular weight (using element provider)
-        let mw = 
+        let mw =
             atoms
             |> Array.sumBy (fun a ->
                 let baseMass = getAtomicMass a.Element
                 baseMass + float a.ExplicitHydrogens * getAtomicMass "H")
-        
+
         // LogP (Wildman-Crippen estimate)
         let logP =
             atoms
@@ -410,55 +466,48 @@ module MolecularData =
                 match logPContributions.TryFind a.Element with
                 | Some contrib -> contrib
                 | None -> 0.0)
-        
+
         // Hydrogen bond donors (N-H, O-H)
         let hbdCount =
             atoms
-            |> Array.filter (fun a ->
-                (a.Element = "N" || a.Element = "O") && a.ExplicitHydrogens > 0)
+            |> Array.filter (fun a -> (a.Element = "N" || a.Element = "O") && a.ExplicitHydrogens > 0)
             |> Array.length
-        
+
         // Hydrogen bond acceptors (N, O)
         let hbaCount =
             atoms
             |> Array.filter (fun a -> a.Element = "N" || a.Element = "O")
             |> Array.length
-        
+
         // Heavy atom count (non-hydrogen)
-        let heavyCount = 
-            atoms
-            |> Array.filter (fun a -> a.Element <> "H")
-            |> Array.length
-        
+        let heavyCount = atoms |> Array.filter (fun a -> a.Element <> "H") |> Array.length
+
         // Rotatable bonds (single bonds between non-terminal heavy atoms)
         let rotatableBonds =
             bonds
-            |> Array.filter (fun b ->
-                b.Order = 1 &&
-                atoms.[b.Atom1].Element <> "H" &&
-                atoms.[b.Atom2].Element <> "H")
+            |> Array.filter (fun b -> b.Order = 1 && atoms.[b.Atom1].Element <> "H" && atoms.[b.Atom2].Element <> "H")
             |> Array.length
-        
+
         // Aromatic atoms count
-        let aromaticCount =
-            atoms
-            |> Array.filter (fun a -> a.IsAromatic)
-            |> Array.length
-        
+        let aromaticCount = atoms |> Array.filter (fun a -> a.IsAromatic) |> Array.length
+
         // Estimate aromatic rings (simple heuristic: aromatic atoms / 6)
         let aromaticRingCount = aromaticCount / 6
-        
+
         // Count sp3 carbons (4 single bonds)
         let carbonCount = atoms |> Array.filter (fun a -> a.Element = "C") |> Array.length
-        let sp3Carbons = 
+
+        let sp3Carbons =
             atoms
-            |> Array.filter (fun a -> 
-                a.Element = "C" && not a.IsAromatic)
+            |> Array.filter (fun a -> a.Element = "C" && not a.IsAromatic)
             |> Array.length
-        let fractionCsp3 = 
-            if carbonCount = 0 then 0.0
-            else float sp3Carbons / float carbonCount
-        
+
+        let fractionCsp3 =
+            if carbonCount = 0 then
+                0.0
+            else
+                float sp3Carbons / float carbonCount
+
         // TPSA (simplified estimate)
         let tpsa =
             atoms
@@ -468,10 +517,10 @@ module MolecularData =
                 | "O" -> 9.23 + (if a.ExplicitHydrogens > 0 then 11.0 else 0.0)
                 | "S" -> 25.30
                 | _ -> 0.0)
-        
+
         // Ring count (Euler formula approximation: rings = edges - vertices + 1)
         let ringCount = max 0 (bonds.Length - atoms.Length + 1)
-        
+
         {
             MolecularWeight = mw
             LogP = logP
@@ -484,11 +533,11 @@ module MolecularData =
             RingCount = ringCount
             FractionCsp3 = fractionCsp3
         }
-    
+
     // ========================================================================
     // MOLECULAR FINGERPRINTS
     // ========================================================================
-    
+
     /// Deterministic string hash (FNV-1a). System.String.GetHashCode is randomised per process
     /// in .NET, which would make fingerprints — and the Tanimoto/Dice similarities derived from
     /// them — non-reproducible across runs and processes.
@@ -500,7 +549,7 @@ module MolecularData =
     /// This is a simplified implementation for educational/prototyping purposes.
     /// Production use should integrate with RDKit or similar.
     let generateFingerprint (molecule: Molecule) (nBits: int) : MolecularFingerprint =
-        let setBitIndices : Set<int> =
+        let setBitIndices: Set<int> =
             seq {
                 // Hash atom types
                 for atom in molecule.Atoms do
@@ -511,7 +560,10 @@ module MolecularData =
                 for bond in molecule.Bonds do
                     let atom1 = molecule.Atoms.[bond.Atom1]
                     let atom2 = molecule.Atoms.[bond.Atom2]
-                    let hash = stableHash atom1.Element ^^^ (bond.Order * 0x5678) ^^^ stableHash atom2.Element
+
+                    let hash =
+                        stableHash atom1.Element ^^^ (bond.Order * 0x5678) ^^^ stableHash atom2.Element
+
                     yield abs hash % nBits
 
                 // Hash 2-bond paths
@@ -521,12 +573,14 @@ module MolecularData =
                             let a1 = molecule.Atoms.[bond1.Atom1]
                             let a2 = molecule.Atoms.[bond1.Atom2]
                             let a3 = molecule.Atoms.[bond2.Atom2]
+
                             let hash =
-                                stableHash a1.Element ^^^
-                                (bond1.Order * 0x1111) ^^^
-                                stableHash a2.Element ^^^
-                                (bond2.Order * 0x2222) ^^^
-                                stableHash a3.Element
+                                stableHash a1.Element
+                                ^^^ (bond1.Order * 0x1111)
+                                ^^^ stableHash a2.Element
+                                ^^^ (bond2.Order * 0x2222)
+                                ^^^ stableHash a3.Element
+
                             yield abs hash % nBits
             }
             |> Seq.fold (fun s i -> Set.add i s) Set.empty
@@ -534,99 +588,112 @@ module MolecularData =
         let bits = Array.init nBits (fun i -> setBitIndices |> Set.contains i)
         let bitCount = setBitIndices.Count
 
-        { Type = "PathFingerprint"
-          Bits = bits
-          BitCount = bitCount }
-    
+        {
+            Type = "PathFingerprint"
+            Bits = bits
+            BitCount = bitCount
+        }
+
     // ========================================================================
     // SIMILARITY CALCULATIONS
     // ========================================================================
-    
+
     /// Calculate Tanimoto similarity between two fingerprints
     let tanimotoSimilarity (fp1: MolecularFingerprint) (fp2: MolecularFingerprint) : float =
         if fp1.Bits.Length <> fp2.Bits.Length then
             failwith $"Fingerprints must have same length, calling tanimotoSimilarity with fp1: {fp1}, fp2: {fp2}"
-        
-        let intersection = 
+
+        let intersection =
             Array.zip fp1.Bits fp2.Bits
             |> Array.filter (fun (a, b) -> a && b)
             |> Array.length
-        
+
         let union =
             Array.zip fp1.Bits fp2.Bits
             |> Array.filter (fun (a, b) -> a || b)
             |> Array.length
-        
-        if union = 0 then 0.0
-        else float intersection / float union
-    
+
+        if union = 0 then 0.0 else float intersection / float union
+
     /// Calculate Dice similarity between two fingerprints
     let diceSimilarity (fp1: MolecularFingerprint) (fp2: MolecularFingerprint) : float =
         if fp1.Bits.Length <> fp2.Bits.Length then
             failwith $"Fingerprints must have same length, calling diceSimilarity with fp1: {fp1}, fp2: {fp2}"
-        
-        let intersection = 
+
+        let intersection =
             Array.zip fp1.Bits fp2.Bits
             |> Array.filter (fun (a, b) -> a && b)
             |> Array.length
-        
-        if fp1.BitCount + fp2.BitCount = 0 then 0.0
-        else 2.0 * float intersection / float (fp1.BitCount + fp2.BitCount)
-    
+
+        if fp1.BitCount + fp2.BitCount = 0 then
+            0.0
+        else
+            2.0 * float intersection / float (fp1.BitCount + fp2.BitCount)
+
     // ========================================================================
     // DATA LOADING
     // ========================================================================
-    
+
     /// Load molecules from a list of SMILES strings
     let loadFromSmilesList (smilesList: string list) : QuantumResult<MolecularDataset> =
         let results = smilesList |> List.map parseSmiles
-        
-        let molecules = 
-            results 
-            |> List.choose (function Ok m -> Some m | Error _ -> None)
+
+        let molecules =
+            results
+            |> List.choose (function
+                | Ok m -> Some m
+                | Error _ -> None)
             |> List.toArray
-        
+
         let errors =
             results
-            |> List.choose (function Error e -> Some e | Ok _ -> None)
-        
+            |> List.choose (function
+                | Error e -> Some e
+                | Ok _ -> None)
+
         if errors.Length > 0 && molecules.Length = 0 then
-            Error (QuantumError.ValidationError ("smiles", $"All SMILES failed to parse: %A{errors}"))
+            Error(QuantumError.ValidationError("smiles", $"All SMILES failed to parse: %A{errors}"))
         else
-            Ok {
-                Molecules = molecules
-                Descriptors = None
-                Fingerprints = None
-                Labels = None
-                LabelColumn = None
-            }
-    
+            Ok
+                {
+                    Molecules = molecules
+                    Descriptors = None
+                    Fingerprints = None
+                    Labels = None
+                    LabelColumn = None
+                }
+
     /// Load molecules from CSV file with SMILES column
-    let loadFromCsv 
-        (filePath: string) 
-        (smilesColumn: string) 
+    let loadFromCsv
+        (filePath: string)
+        (smilesColumn: string)
         (labelColumn: string option)
         : QuantumResult<MolecularDataset> =
-        
+
         try
             let lines = System.IO.File.ReadAllLines(filePath)
+
             if lines.Length < 2 then
-                Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
+                Error(QuantumError.ValidationError("file", "CSV must have header and at least one data row"))
             else
                 let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
-                
+
                 let smilesIdx = headers |> Array.tryFindIndex (fun h -> h = smilesColumn)
-                let labelIdx = labelColumn |> Option.bind (fun col -> headers |> Array.tryFindIndex (fun h -> h = col))
-                
+
+                let labelIdx =
+                    labelColumn
+                    |> Option.bind (fun col -> headers |> Array.tryFindIndex (fun h -> h = col))
+
                 match smilesIdx with
-                | None -> Error (QuantumError.ValidationError ("smilesColumn", $"Column '%s{smilesColumn}' not found"))
+                | None -> Error(QuantumError.ValidationError("smilesColumn", $"Column '%s{smilesColumn}' not found"))
                 | Some sIdx ->
                     let dataLines = lines.[1..]
-                    
+
                     let parsed =
                         dataLines
                         |> Array.choose (fun line ->
                             let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
+
                             if fields.Length > sIdx then
                                 match parseSmiles fields.[sIdx] with
                                 | Ok mol ->
@@ -641,33 +708,41 @@ module MolecularData =
                                                 match Int32.TryParse(fields.[lIdx]) with
                                                 | true, v -> v
                                                 | false, _ -> 0
-                                            Some (mol, Some label)
-                                        else None
-                                    | None -> Some (mol, None)
+
+                                            Some(mol, Some label)
+                                        else
+                                            None
+                                    | None -> Some(mol, None)
                                 | Error _ -> None
-                            else None)
-                    
+                            else
+                                None)
+
                     if parsed.Length = 0 then
-                        Error (QuantumError.ValidationError (
-                            "csv",
-                            $"All %d{dataLines.Length} data rows failed to parse (no valid SMILES found in column '%s{smilesColumn}')"))
+                        Error(
+                            QuantumError.ValidationError(
+                                "csv",
+                                $"All %d{dataLines.Length} data rows failed to parse (no valid SMILES found in column '%s{smilesColumn}')"
+                            )
+                        )
                     else
                         let molecules = parsed |> Array.map fst
                         let labels = parsed |> Array.choose snd
-                        Ok {
-                            Molecules = molecules
-                            Descriptors = None
-                            Fingerprints = None
-                            Labels = if labels.Length > 0 then Some labels else None
-                            LabelColumn = labelColumn
-                        }
+
+                        Ok
+                            {
+                                Molecules = molecules
+                                Descriptors = None
+                                Fingerprints = None
+                                Labels = if labels.Length > 0 then Some labels else None
+                                LabelColumn = labelColumn
+                            }
         with ex ->
-            Error (QuantumError.Other ($"Failed to read CSV: %s{ex.Message}"))
-    
+            Error(QuantumError.Other($"Failed to read CSV: %s{ex.Message}"))
+
     // ========================================================================
     // FEATURE EXTRACTION (for ML)
     // ========================================================================
-    
+
     /// Convert descriptors to feature array
     let descriptorsToFeatures (desc: MolecularDescriptors) : float array =
         [|
@@ -682,42 +757,52 @@ module MolecularData =
             float desc.RingCount
             desc.FractionCsp3
         |]
-    
+
     /// Convert fingerprint to feature array (0.0/1.0 encoding)
     let fingerprintToFeatures (fp: MolecularFingerprint) : float array =
         fp.Bits |> Array.map (fun b -> if b then 1.0 else 0.0)
-    
+
     /// Add computed descriptors to dataset
     let withDescriptors (dataset: MolecularDataset) : MolecularDataset =
         let descriptors = dataset.Molecules |> Array.map calculateDescriptors
-        { dataset with Descriptors = Some descriptors }
-    
+
+        { dataset with
+            Descriptors = Some descriptors
+        }
+
     /// Add computed fingerprints to dataset (default 1024 bits)
     let withFingerprints (nBits: int) (dataset: MolecularDataset) : MolecularDataset =
-        let fingerprints = dataset.Molecules |> Array.map (fun m -> generateFingerprint m nBits)
-        { dataset with Fingerprints = Some fingerprints }
-    
+        let fingerprints =
+            dataset.Molecules |> Array.map (fun m -> generateFingerprint m nBits)
+
+        { dataset with
+            Fingerprints = Some fingerprints
+        }
+
     /// Convert dataset to feature matrix for ML training
-    let toFeatureMatrix (useDescriptors: bool) (useFingerprints: bool) (dataset: MolecularDataset) 
+    let toFeatureMatrix
+        (useDescriptors: bool)
+        (useFingerprints: bool)
+        (dataset: MolecularDataset)
         : QuantumResult<float array array * int array option> =
-        
+
         if not (useDescriptors || useFingerprints) then
-            Error (QuantumError.ValidationError ("features", "Must enable descriptors and/or fingerprints"))
+            Error(QuantumError.ValidationError("features", "Must enable descriptors and/or fingerprints"))
         else
             let nMolecules = dataset.Molecules.Length
-            
+
             // Get descriptor features
             let descFeatures =
                 if useDescriptors then
                     match dataset.Descriptors with
                     | Some descs -> descs |> Array.map descriptorsToFeatures
-                    | None -> 
+                    | None ->
                         // Calculate on the fly
-                        dataset.Molecules 
+                        dataset.Molecules
                         |> Array.map (fun m -> calculateDescriptors m |> descriptorsToFeatures)
                 else
                     Array.init nMolecules (fun _ -> [||])
-            
+
             // Get fingerprint features
             let fpFeatures =
                 if useFingerprints then
@@ -729,10 +814,10 @@ module MolecularData =
                         |> Array.map (fun m -> generateFingerprint m 1024 |> fingerprintToFeatures)
                 else
                     Array.init nMolecules (fun _ -> [||])
-            
+
             // Concatenate features
             let features =
                 Array.zip descFeatures fpFeatures
-                |> Array.map (fun (d, f) -> Array.concat [d; f])
-            
-            Ok (features, dataset.Labels)
+                |> Array.map (fun (d, f) -> Array.concat [ d; f ])
+
+            Ok(features, dataset.Labels)

@@ -24,21 +24,22 @@ open System.Numerics
 /// - Pham & Svore (2013): Improved bounds O(log^2.71(1/ε))
 /// - Bravyi & Kitaev (2005): Universal quantum computation with Ising anyons
 module SolovayKitaev =
-    
+
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// SU(2) matrix representation (2×2 complex unitary with det = 1)
-    type SU2Matrix = {
-        /// Matrix elements: [[a, b], [c, d]]
-        /// Constraint: a*d - b*c = 1, |a|² + |b|² = 1
-        A: Complex
-        B: Complex
-        C: Complex
-        D: Complex
-    }
-    
+    type SU2Matrix =
+        {
+            /// Matrix elements: [[a, b], [c, d]]
+            /// Constraint: a*d - b*c = 1, |a|² + |b|² = 1
+            A: Complex
+            B: Complex
+            C: Complex
+            D: Complex
+        }
+
     /// Basic gate in the generating set
     type BasicGate =
         /// exp(iπ/4) phase on |1⟩
@@ -59,54 +60,58 @@ module SolovayKitaev =
         | Z
         /// Identity
         | I
-    
+
     /// Gate sequence for approximation
     type GateSequence = BasicGate list
-    
+
     /// Approximation result from Solovay-Kitaev
-    type ApproximationResult = {
-        /// Gate sequence that approximates target
-        Gates: GateSequence
-        
-        /// Final SU(2) matrix achieved
-        Matrix: SU2Matrix
-        
-        /// Operator norm distance from target
-        Error: float
-        
-        /// Recursion depth used
-        Depth: int
-        
-        /// Total gate count
-        GateCount: int
-    }
-    
+    type ApproximationResult =
+        {
+            /// Gate sequence that approximates target
+            Gates: GateSequence
+
+            /// Final SU(2) matrix achieved
+            Matrix: SU2Matrix
+
+            /// Operator norm distance from target
+            Error: float
+
+            /// Recursion depth used
+            Depth: int
+
+            /// Total gate count
+            GateCount: int
+        }
+
     // ========================================================================
     // SU(2) MATRIX OPERATIONS
     // ========================================================================
-    
+
     /// Create SU(2) matrix from elements
     /// Note: We actually work in PSU(2) = SU(2)/±I, so we allow det = ±1
     /// This accommodates conventional gate definitions (Pauli gates have det = -1)
     let createSU2 (a: Complex) (b: Complex) (c: Complex) (d: Complex) : SU2Matrix =
         // Compute determinant
         let det = a * d - b * c
-        
+
         // Verify det = ±1 within tolerance (allows both SU(2) and Pauli gates)
         let detMag = det.Magnitude
+
         if abs (detMag - 1.0) > 1e-8 then
             failwithf "Invalid matrix: |det| = %f (expected ±1 for unitary matrix)" detMag
-        
+
         // No normalization needed - we work in PSU(2) which allows global phase
         { A = a; B = b; C = c; D = d }
-    
+
     /// Identity matrix
     let identity =
-        { A = Complex.One
-          B = Complex.Zero
-          C = Complex.Zero
-          D = Complex.One }
-    
+        {
+            A = Complex.One
+            B = Complex.Zero
+            C = Complex.Zero
+            D = Complex.One
+        }
+
     /// Multiply two SU(2) matrices
     let multiply (m1: SU2Matrix) (m2: SU2Matrix) : SU2Matrix =
         let a = m1.A * m2.A + m1.B * m2.C
@@ -114,25 +119,24 @@ module SolovayKitaev =
         let c = m1.C * m2.A + m1.D * m2.C
         let d = m1.C * m2.B + m1.D * m2.D
         createSU2 a b c d
-    
+
     /// Hermitian conjugate (dagger) of SU(2) matrix
     let dagger (m: SU2Matrix) : SU2Matrix =
         // For matrix [[a, b], [c, d]], dagger is [[a*, c*], [b*, d*]] (transpose + conjugate)
-        createSU2 (Complex.Conjugate m.A) (Complex.Conjugate m.C)
-                  (Complex.Conjugate m.B) (Complex.Conjugate m.D)
-    
+        createSU2 (Complex.Conjugate m.A) (Complex.Conjugate m.C) (Complex.Conjugate m.B) (Complex.Conjugate m.D)
+
     /// Group commutator: [A,B] = A·B·A†·B†
     let commutator (a: SU2Matrix) (b: SU2Matrix) : SU2Matrix =
         let aDag = dagger a
         let bDag = dagger b
         multiply (multiply (multiply a b) aDag) bDag
-    
+
     /// Operator norm distance between two SU(2) matrices in PSU(2)
-    /// 
+    ///
     /// Since we work in PSU(2) = SU(2)/±I, two matrices U and V are equivalent
     /// if U = ±V. The distance must account for this global phase ambiguity:
     ///   d_PSU2(U,V) = min(||U - V||_F, ||U + V||_F)
-    /// 
+    ///
     /// Without this, the Solovay-Kitaev algorithm wastes gates trying to match
     /// an unmatchable global phase (e.g., Pauli gates have det = -1).
     let operatorDistance (u: SU2Matrix) (v: SU2Matrix) : float =
@@ -141,176 +145,183 @@ module SolovayKitaev =
         let db = u.B - v.B
         let dc = u.C - v.C
         let dd = u.D - v.D
-        
+
         // Frobenius norm of (U - V): sqrt(|a|² + |b|² + |c|² + |d|²)
         let normMinus =
-            (da * Complex.Conjugate da).Real +
-            (db * Complex.Conjugate db).Real +
-            (dc * Complex.Conjugate dc).Real +
-            (dd * Complex.Conjugate dd).Real
-        
+            (da * Complex.Conjugate da).Real
+            + (db * Complex.Conjugate db).Real
+            + (dc * Complex.Conjugate dc).Real
+            + (dd * Complex.Conjugate dd).Real
+
         // Compute sum matrix elements (U + V) for PSU(2) equivalence
         let sa = u.A + v.A
         let sb = u.B + v.B
         let sc = u.C + v.C
         let sd = u.D + v.D
-        
+
         // Frobenius norm of (U + V)
         let normPlus =
-            (sa * Complex.Conjugate sa).Real +
-            (sb * Complex.Conjugate sb).Real +
-            (sc * Complex.Conjugate sc).Real +
-            (sd * Complex.Conjugate sd).Real
-        
+            (sa * Complex.Conjugate sa).Real
+            + (sb * Complex.Conjugate sb).Real
+            + (sc * Complex.Conjugate sc).Real
+            + (sd * Complex.Conjugate sd).Real
+
         // PSU(2) distance: min of both (U ≡ -U in PSU(2))
         sqrt (min normMinus normPlus)
-    
+
     /// Check if two matrices are approximately equal (within tolerance)
-    let approxEqual (tolerance: float) (u: SU2Matrix) (v: SU2Matrix) : bool =
-        operatorDistance u v < tolerance
-    
+    let approxEqual (tolerance: float) (u: SU2Matrix) (v: SU2Matrix) : bool = operatorDistance u v < tolerance
+
     // ========================================================================
     // BASIC GATE MATRICES
     // ========================================================================
-    
+
     /// Convert basic gate to SU(2) matrix
     let gateToMatrix (gate: BasicGate) : SU2Matrix =
         let i = Complex.ImaginaryOne
         let sqrt2 = sqrt 2.0
         let one = Complex.One
         let zero = Complex.Zero
-        
+
         match gate with
         | I -> identity
-        
+
         | T ->
             // T = diag(1, exp(iπ/4))
-            let t = Complex.Exp(i * Math.PI / 4.0)      // exp(iπ/4)
+            let t = Complex.Exp(i * Math.PI / 4.0) // exp(iπ/4)
             createSU2 one zero zero t
-        
+
         | TDagger ->
             // T† = diag(1, exp(-iπ/4))
             let t = Complex.Exp(-i * Math.PI / 4.0)
             createSU2 one zero zero t
-        
+
         | S ->
             // S = T² = diag(1, exp(iπ/2)) = diag(1, i)
             let s = Complex.Exp(i * Math.PI / 2.0)
             createSU2 one zero zero s
-        
+
         | SDagger ->
             // S† = diag(1, exp(-iπ/2)) = diag(1, -i)
             let s = Complex.Exp(-i * Math.PI / 2.0)
             createSU2 one zero zero s
-        
+
         | H ->
             // H = (1/√2)[[1, 1], [1, -1]]
             let inv_sqrt2 = Complex(1.0 / sqrt2, 0.0)
             createSU2 inv_sqrt2 inv_sqrt2 inv_sqrt2 (-inv_sqrt2)
-        
+
         | X ->
             // X = [[0, 1], [1, 0]]
             createSU2 zero one one zero
-        
+
         | Y ->
             // Y = [[0, -i], [i, 0]]
             createSU2 zero (-i) i zero
-        
+
         | Z ->
             // Z = [[1, 0], [0, -1]]
             createSU2 one zero zero (-one)
-    
+
     /// Convert gate sequence to matrix (left-to-right multiplication)
     let sequenceToMatrix (gates: GateSequence) : SU2Matrix =
-        gates
-        |> List.map gateToMatrix
-        |> List.fold multiply identity
-    
+        gates |> List.map gateToMatrix |> List.fold multiply identity
+
     // ========================================================================
     // BASE SET CONSTRUCTION (with memoization)
     // ========================================================================
-    
+
     /// Memoization cache for base sets
     /// Key: (length, isTopological) → Value: base set
-    let private baseSetCache = System.Collections.Concurrent.ConcurrentDictionary<int * bool, (GateSequence * SU2Matrix) list>()
-    
+    let private baseSetCache =
+        System.Collections.Concurrent.ConcurrentDictionary<int * bool, (GateSequence * SU2Matrix) list>()
+
     /// Generate all gate sequences up to given length
     let rec generateSequences (maxLength: int) (baseGates: BasicGate list) : GateSequence list =
         if maxLength = 0 then
-            [[]]  // Empty sequence
+            [ [] ] // Empty sequence
         else
             let shorter = generateSequences (maxLength - 1) baseGates
+
             let extended =
                 shorter
-                |> List.collect (fun seq ->
-                    baseGates |> List.map (fun gate -> gate :: seq))
-            List.append [[]] (List.append shorter extended)
-    
+                |> List.collect (fun seq -> baseGates |> List.map (fun gate -> gate :: seq))
+
+            List.append [ [] ] (List.append shorter extended)
+
     /// Build base set of gate sequences up to length n
     /// Returns: (sequence, matrix, original_sequence) tuples
     /// We track original_sequence because we may normalize matrices
-    /// 
+    ///
     /// **Performance Optimization:** Memoized - base sets are cached and reused
     let buildBaseSet (n: int) : (GateSequence * SU2Matrix) list =
-        baseSetCache.GetOrAdd((n, false), fun _ ->
-            let baseGates = [T; TDagger; H; S; SDagger; X; Y; Z]
-            
-            generateSequences n baseGates
-            |> List.filter (fun seq -> seq.Length > 0)  // Exclude empty
-            |> List.map (fun seq -> (seq, sequenceToMatrix seq))
-            |> List.distinctBy (fun (_, matrix) ->
-                // Use matrix elements rounded to 10 digits for deduplication
-                // This handles global phase differences
-                let round (c: Complex) =
-                    (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
-                (round matrix.A, round matrix.B, round matrix.C, round matrix.D)))
-    
+        baseSetCache.GetOrAdd(
+            (n, false),
+            fun _ ->
+                let baseGates = [ T; TDagger; H; S; SDagger; X; Y; Z ]
+
+                generateSequences n baseGates
+                |> List.filter (fun seq -> seq.Length > 0) // Exclude empty
+                |> List.map (fun seq -> (seq, sequenceToMatrix seq))
+                |> List.distinctBy (fun (_, matrix) ->
+                    // Use matrix elements rounded to 10 digits for deduplication
+                    // This handles global phase differences
+                    let round (c: Complex) =
+                        (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
+
+                    (round matrix.A, round matrix.B, round matrix.C, round matrix.D))
+        )
+
     /// Find closest gate sequence to target in base set
-    let findClosestInBaseSet (target: SU2Matrix) (baseSet: (GateSequence * SU2Matrix) list) : (GateSequence * SU2Matrix * float) =
+    let findClosestInBaseSet
+        (target: SU2Matrix)
+        (baseSet: (GateSequence * SU2Matrix) list)
+        : (GateSequence * SU2Matrix * float) =
         baseSet
         |> List.map (fun (seq, matrix) ->
             let dist = operatorDistance target matrix
             (seq, matrix, dist))
         |> List.minBy (fun (_, _, dist) -> dist)
-    
+
     // ========================================================================
     // GROUP COMMUTATOR FACTORIZATION
     // ========================================================================
-    
+
     /// Find V and W such that [V,W] ≈ target
     /// Uses brute-force search over base set
     let findCommutatorFactorization
         (target: SU2Matrix)
         (baseSet: (GateSequence * SU2Matrix) list)
         : (GateSequence * SU2Matrix * GateSequence * SU2Matrix * float) option =
-        
+
         // Brute force: try all pairs (V, W) from base set
         let candidates =
             baseSet
             |> List.collect (fun (vSeq, vMatrix) ->
-                baseSet |> List.map (fun (wSeq, wMatrix) ->
+                baseSet
+                |> List.map (fun (wSeq, wMatrix) ->
                     let comm = commutator vMatrix wMatrix
                     let dist = operatorDistance target comm
                     (vSeq, vMatrix, wSeq, wMatrix, dist)))
-        
+
         if List.isEmpty candidates then
             None
         else
             let best = candidates |> List.minBy (fun (_, _, _, _, dist) -> dist)
             Some best
-    
+
     // ========================================================================
     // RECURSIVE SOLOVAY-KITAEV ALGORITHM
     // ========================================================================
-    
+
     /// Approximate target gate using Solovay-Kitaev algorithm
-    /// 
+    ///
     /// Parameters:
     /// - target: SU(2) matrix to approximate
     /// - epsilon: Target precision (operator norm distance)
     /// - baseSet: Precomputed base set of short gate sequences
     /// - maxDepth: Maximum recursion depth (safety limit)
-    /// 
+    ///
     /// Returns: ApproximationResult with gate sequence and error
     let rec approximate
         (target: SU2Matrix)
@@ -319,89 +330,95 @@ module SolovayKitaev =
         (maxDepth: int)
         (currentDepth: int)
         : ApproximationResult =
-        
+
         // Base case 1: Find closest gate in base set
         let (baseSeq, baseMatrix, baseDist) = findClosestInBaseSet target baseSet
-        
+
         // Base case 2: If close enough or max depth reached, return base approximation
         if baseDist < epsilon || currentDepth >= maxDepth then
-            { Gates = baseSeq
-              Matrix = baseMatrix
-              Error = baseDist
-              Depth = currentDepth
-              GateCount = List.length baseSeq }
+            {
+                Gates = baseSeq
+                Matrix = baseMatrix
+                Error = baseDist
+                Depth = currentDepth
+                GateCount = List.length baseSeq
+            }
         else
             // Recursive case: Use group commutator decomposition
-            
+
             // Step 1: Get approximation at half precision
             let epsilon' = sqrt epsilon
             let u0 = approximate target epsilon' baseSet maxDepth (currentDepth + 1)
-            
+
             // Step 2: Compute delta = target · u0†
             let u0Dag = dagger u0.Matrix
             let delta = multiply target u0Dag
-            
+
             // Step 3: Find V, W such that [V,W] ≈ delta
             match findCommutatorFactorization delta baseSet with
             | None ->
                 // Fallback: return base approximation if factorization fails
-                { Gates = baseSeq
-                  Matrix = baseMatrix
-                  Error = baseDist
-                  Depth = currentDepth
-                  GateCount = List.length baseSeq }
-            
-            | Some (vSeq0, vMatrix0, wSeq0, wMatrix0, _) ->
+                {
+                    Gates = baseSeq
+                    Matrix = baseMatrix
+                    Error = baseDist
+                    Depth = currentDepth
+                    GateCount = List.length baseSeq
+                }
+
+            | Some(vSeq0, vMatrix0, wSeq0, wMatrix0, _) ->
                 // Step 4: Recursively approximate V and W to precision ε'
                 let v = approximate vMatrix0 epsilon' baseSet maxDepth (currentDepth + 1)
                 let w = approximate wMatrix0 epsilon' baseSet maxDepth (currentDepth + 1)
-                
+
                 // Step 5: Compute final sequence: V·W·V†·W†·U₀
                 let vDag = dagger v.Matrix
                 let wDag = dagger w.Matrix
-                
+
                 let finalMatrix =
                     multiply (multiply (multiply (multiply v.Matrix w.Matrix) vDag) wDag) u0.Matrix
-                
+
                 let finalError = operatorDistance target finalMatrix
-                
+
                 // Construct gate sequence
                 // Note: Dagger gates constructed by reversing sequence and inverting each gate
-                let invertGate = function
+                let invertGate =
+                    function
                     | T -> TDagger
                     | TDagger -> T
                     | S -> SDagger
                     | SDagger -> S
-                    | H -> H  // Self-inverse
-                    | X -> X  // Self-inverse
-                    | Y -> Y  // Self-inverse
-                    | Z -> Z  // Self-inverse
+                    | H -> H // Self-inverse
+                    | X -> X // Self-inverse
+                    | Y -> Y // Self-inverse
+                    | Z -> Z // Self-inverse
                     | I -> I
-                
+
                 let vDagSeq = v.Gates |> List.rev |> List.map invertGate
                 let wDagSeq = w.Gates |> List.rev |> List.map invertGate
-                
-                let finalSeq =
-                    List.concat [v.Gates; w.Gates; vDagSeq; wDagSeq; u0.Gates]
-                
-                { Gates = finalSeq
-                  Matrix = finalMatrix
-                  Error = finalError
-                  Depth = currentDepth
-                  GateCount = List.length finalSeq }
-    
+
+                let finalSeq = List.concat [ v.Gates; w.Gates; vDagSeq; wDagSeq; u0.Gates ]
+
+                {
+                    Gates = finalSeq
+                    Matrix = finalMatrix
+                    Error = finalError
+                    Depth = currentDepth
+                    GateCount = List.length finalSeq
+                }
+
     // ========================================================================
     // PUBLIC API
     // ========================================================================
-    
+
     /// Approximate arbitrary SU(2) gate using Solovay-Kitaev algorithm
-    /// 
+    ///
     /// Parameters:
     /// - target: Target SU(2) matrix
     /// - epsilon: Target precision (default: 1e-10)
     /// - baseSetLength: Length of sequences in base set (default: 3)
     /// - maxDepth: Maximum recursion depth (default: 10)
-    /// 
+    ///
     /// Returns: ApproximationResult with gate sequence achieving error < epsilon
     let approximateGate
         (target: SU2Matrix)
@@ -409,21 +426,20 @@ module SolovayKitaev =
         (baseSetLength: int)
         (maxDepth: int)
         : ApproximationResult =
-        
+
         // Build base set (cached in real implementation)
         let baseSet = buildBaseSet baseSetLength
-        
+
         // Run recursive approximation
         approximate target epsilon baseSet maxDepth 0
-    
+
     /// Approximate arbitrary SU(2) gate with default parameters
-    let approximateGateDefault (target: SU2Matrix) : ApproximationResult =
-        approximateGate target 1e-10 3 10
-    
+    let approximateGateDefault (target: SU2Matrix) : ApproximationResult = approximateGate target 1e-10 3 10
+
     // ========================================================================
     // TOPOLOGICAL-SPECIFIC SOLOVAY-KITAEV
     // ========================================================================
-    
+
     /// Build topological base set using only {S, S†, Z, I} gates
     ///
     /// **Why Restricted Base Set?**
@@ -444,21 +460,25 @@ module SolovayKitaev =
     ///
     /// **Performance Optimization:** Memoized - topological base sets are cached separately
     let buildTopologicalBaseSet (n: int) : (GateSequence * SU2Matrix) list =
-        baseSetCache.GetOrAdd((n, true), fun _ ->
-            // Only use gates that are exact in Ising anyon braiding.
-            // T/T† are NOT exact (one braid = S, not T) — see Simon §11.2.4.
-            // The exact braid gates are: S (1 braid), S† (1 CCW braid), Z (2 braids), I.
-            let topologicalGates = [S; SDagger; Z; I]
-            
-            generateSequences n topologicalGates
-            |> List.filter (fun seq -> seq.Length > 0)  // Exclude empty
-            |> List.map (fun seq -> (seq, sequenceToMatrix seq))
-            |> List.distinctBy (fun (_, matrix) ->
-                // Use matrix elements rounded to 10 digits for deduplication
-                let round (c: Complex) =
-                    (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
-                (round matrix.A, round matrix.B, round matrix.C, round matrix.D)))
-    
+        baseSetCache.GetOrAdd(
+            (n, true),
+            fun _ ->
+                // Only use gates that are exact in Ising anyon braiding.
+                // T/T† are NOT exact (one braid = S, not T) — see Simon §11.2.4.
+                // The exact braid gates are: S (1 braid), S† (1 CCW braid), Z (2 braids), I.
+                let topologicalGates = [ S; SDagger; Z; I ]
+
+                generateSequences n topologicalGates
+                |> List.filter (fun seq -> seq.Length > 0) // Exclude empty
+                |> List.map (fun seq -> (seq, sequenceToMatrix seq))
+                |> List.distinctBy (fun (_, matrix) ->
+                    // Use matrix elements rounded to 10 digits for deduplication
+                    let round (c: Complex) =
+                        (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
+
+                    (round matrix.A, round matrix.B, round matrix.C, round matrix.D))
+        )
+
     /// Approximate an SU(2) gate using the topological-compatible base set {S, S†, Z, I}.
     ///
     /// **Use Case:** Diagonal targets only (phase gates that are π/2 multiples).
@@ -474,13 +494,13 @@ module SolovayKitaev =
         (baseSetLength: int)
         (maxDepth: int)
         : ApproximationResult =
-        
+
         // Build topological base set (only T, S, Z gates)
         let baseSet = buildTopologicalBaseSet baseSetLength
-        
+
         // Run recursive approximation with restricted base set
         approximate target epsilon baseSet maxDepth 0
-    
+
     /// Attempt to approximate H with the diagonal Ising braid gate set.
     /// **⚠️ CANNOT CONVERGE**: H is off-diagonal, the base set is diagonal —
     /// the returned Error is always ≥ ~1. Kept for diagnostics only; callers
@@ -501,11 +521,11 @@ module SolovayKitaev =
     let approximatePauliYTopological (epsilon: float) : ApproximationResult =
         let yMatrix = gateToMatrix Y
         approximateGateTopological yMatrix epsilon 4 12
-    
+
     // ========================================================================
     // FIBONACCI ANYON BRAID COMPILATION
     // ========================================================================
-    
+
     // For Fibonacci anyons, braiding of τ anyons is dense in SU(2).
     // A single qubit is encoded in a τ-pair: τ × τ → {1, τ}.
     // The computational space is 2D with basis {|1⟩, |τ⟩}.
@@ -525,9 +545,9 @@ module SolovayKitaev =
     //
     // Mathematical formulas:
     //   φ = (1 + √5) / 2 (golden ratio)
-    //   
+    //
     //   σ₁ in qubit basis = diag(e^{4πi/5}, e^{-3πi/5})
-    //   
+    //
     //   σ₂ in qubit basis = F⁻¹ · R · F where:
     //     R = diag(e^{4πi/5}, e^{-3πi/5})
     //     F = F^{τττ}_τ = [[φ⁻¹, φ⁻¹/²], [φ⁻¹/², -φ⁻¹]]
@@ -536,62 +556,68 @@ module SolovayKitaev =
     //   - Bonesteel, Hormozi, Zikos, Simon (2005): "Braid topologies for quantum computation"
     //   - Hormozi, Zikos, Bonesteel, Simon (2007): "Topological quantum compiling"
     //   - Nayak, Simon, Stern, Freedman, Das Sarma (2008): "Non-Abelian anyons and TQC" Rev. Mod. Phys.
-    
+
     /// SU(2) matrix for Fibonacci braid generator σ₁ (exchange within first τ-pair).
     /// Acts diagonally in the qubit basis {|1⟩, |τ⟩}:
     ///   σ₁ = diag(R^1_ττ, R^τ_ττ) = diag(e^{4πi/5}, e^{-3πi/5})
-    let fibonacciSigma1 : SU2Matrix =
+    let fibonacciSigma1: SU2Matrix =
         let i = Complex.ImaginaryOne
-        let r1 = Complex.Exp(i * 4.0 * Math.PI / 5.0)    // R^1_ττ = e^{4πi/5}
-        let rTau = Complex.Exp(-i * 3.0 * Math.PI / 5.0)  // R^τ_ττ = e^{-3πi/5}
-        { A = r1; B = Complex.Zero; C = Complex.Zero; D = rTau }
-    
+        let r1 = Complex.Exp(i * 4.0 * Math.PI / 5.0) // R^1_ττ = e^{4πi/5}
+        let rTau = Complex.Exp(-i * 3.0 * Math.PI / 5.0) // R^τ_ττ = e^{-3πi/5}
+
+        {
+            A = r1
+            B = Complex.Zero
+            C = Complex.Zero
+            D = rTau
+        }
+
     /// SU(2) matrix for Fibonacci braid generator σ₂ (exchange across τ-pair boundary).
     /// Involves F-matrix basis change:
     ///   σ₂ = F⁻¹ · R · F
     /// where F = F^{τττ}_τ and R = diag(R^1_ττ, R^τ_ττ)
-    let fibonacciSigma2 : SU2Matrix =
-        let phi = (1.0 + sqrt 5.0) / 2.0   // Golden ratio φ ≈ 1.618
+    let fibonacciSigma2: SU2Matrix =
+        let phi = (1.0 + sqrt 5.0) / 2.0 // Golden ratio φ ≈ 1.618
         let sqrtPhi = sqrt phi
-        
+
         // F-matrix: F^{τττ}_τ = [[φ⁻¹, φ⁻¹/²], [φ⁻¹/², -φ⁻¹]]
         let f11 = 1.0 / phi
         let f12 = 1.0 / sqrtPhi
         let f21 = 1.0 / sqrtPhi
         let f22 = -1.0 / phi
-        
+
         // R-matrix eigenvalues
         let i = Complex.ImaginaryOne
         let r1 = Complex.Exp(i * 4.0 * Math.PI / 5.0)
         let rTau = Complex.Exp(-i * 3.0 * Math.PI / 5.0)
-        
+
         // Compute F⁻¹ · R · F
         // First: R · F (diagonal R times F)
         let rf11 = r1 * Complex(f11, 0.0)
         let rf12 = r1 * Complex(f12, 0.0)
         let rf21 = rTau * Complex(f21, 0.0)
         let rf22 = rTau * Complex(f22, 0.0)
-        
+
         // F⁻¹ = adj(F) / det(F) where adj(F) = [[f22, -f12], [-f21, f11]]
         // det(F) = f11*f22 - f12*f21 = (1/φ)(-1/φ) - (1/√φ)(1/√φ) = -1/φ² - 1/φ = -(1/φ² + 1/φ) = -1
         // So F⁻¹ = [[-1/φ, -1/√φ], [-1/√φ, 1/φ]] / (-1) = [[1/φ, 1/√φ], [1/√φ, -1/φ]] = F
         // F is an involution (F² = I) for the Fibonacci F-matrix.
-        
+
         // F⁻¹ · (R · F)  (since F⁻¹ = F, we use F directly)
         let a = Complex(f11, 0.0) * rf11 + Complex(f12, 0.0) * rf21
         let b = Complex(f11, 0.0) * rf12 + Complex(f12, 0.0) * rf22
         let c = Complex(f21, 0.0) * rf11 + Complex(f22, 0.0) * rf21
         let d = Complex(f21, 0.0) * rf12 + Complex(f22, 0.0) * rf22
-        
+
         // The result should be in SU(2) (or PSU(2))
         { A = a; B = b; C = c; D = d }
-    
+
     /// SU(2) matrix for inverse Fibonacci braid generator σ₁⁻¹
-    let fibonacciSigma1Inv : SU2Matrix = dagger fibonacciSigma1
-    
+    let fibonacciSigma1Inv: SU2Matrix = dagger fibonacciSigma1
+
     /// SU(2) matrix for inverse Fibonacci braid generator σ₂⁻¹
-    let fibonacciSigma2Inv : SU2Matrix = dagger fibonacciSigma2
-    
+    let fibonacciSigma2Inv: SU2Matrix = dagger fibonacciSigma2
+
     /// Elementary Fibonacci braid operations for base set construction.
     /// These are the building blocks: {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}
     type FibonacciBraidOp =
@@ -603,7 +629,7 @@ module SolovayKitaev =
         | Sigma2
         /// σ₂⁻¹: counter-clockwise
         | Sigma2Inv
-    
+
     /// Get SU(2) matrix for a Fibonacci braid operation
     let fibonacciBraidMatrix (op: FibonacciBraidOp) : SU2Matrix =
         match op with
@@ -611,43 +637,46 @@ module SolovayKitaev =
         | Sigma1Inv -> fibonacciSigma1Inv
         | Sigma2 -> fibonacciSigma2
         | Sigma2Inv -> fibonacciSigma2Inv
-    
+
     /// Compute SU(2) matrix for a sequence of Fibonacci braid operations
     let fibonacciBraidSequenceMatrix (ops: FibonacciBraidOp list) : SU2Matrix =
-        ops
-        |> List.map fibonacciBraidMatrix
-        |> List.fold multiply identity
-    
+        ops |> List.map fibonacciBraidMatrix |> List.fold multiply identity
+
     /// Memoization cache for Fibonacci braid base sets
-    let private fibBaseSetCache = System.Collections.Concurrent.ConcurrentDictionary<int, (FibonacciBraidOp list * SU2Matrix) list>()
-    
+    let private fibBaseSetCache =
+        System.Collections.Concurrent.ConcurrentDictionary<int, (FibonacciBraidOp list * SU2Matrix) list>()
+
     /// Build Fibonacci braid base set: all braid words up to given length
     /// using generators {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}.
     ///
     /// Since Fibonacci braiding is dense in SU(2), longer words fill out
     /// SU(2) more densely, enabling better approximations via Solovay-Kitaev.
     let buildFibonacciBaseSet (maxLength: int) : (FibonacciBraidOp list * SU2Matrix) list =
-        fibBaseSetCache.GetOrAdd(maxLength, fun _ ->
-            let generators = [Sigma1; Sigma1Inv; Sigma2; Sigma2Inv]
-            
-            let rec generate (length: int) : FibonacciBraidOp list list =
-                if length = 0 then
-                    [[]]
-                else
-                    let shorter = generate (length - 1)
-                    shorter
-                    |> List.collect (fun seq ->
-                        generators |> List.map (fun g -> g :: seq))
-            
-            // Generate all sequences from length 1 to maxLength
-            [ for len in 1 .. maxLength do
-                yield! generate len ]
-            |> List.map (fun seq -> (seq, fibonacciBraidSequenceMatrix seq))
-            |> List.distinctBy (fun (_, matrix) ->
-                let round (c: Complex) =
-                    (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
-                (round matrix.A, round matrix.B, round matrix.C, round matrix.D)))
-    
+        fibBaseSetCache.GetOrAdd(
+            maxLength,
+            fun _ ->
+                let generators = [ Sigma1; Sigma1Inv; Sigma2; Sigma2Inv ]
+
+                let rec generate (length: int) : FibonacciBraidOp list list =
+                    if length = 0 then
+                        [ [] ]
+                    else
+                        let shorter = generate (length - 1)
+                        shorter |> List.collect (fun seq -> generators |> List.map (fun g -> g :: seq))
+
+                // Generate all sequences from length 1 to maxLength
+                [
+                    for len in 1..maxLength do
+                        yield! generate len
+                ]
+                |> List.map (fun seq -> (seq, fibonacciBraidSequenceMatrix seq))
+                |> List.distinctBy (fun (_, matrix) ->
+                    let round (c: Complex) =
+                        (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
+
+                    (round matrix.A, round matrix.B, round matrix.C, round matrix.D))
+        )
+
     /// Approximate arbitrary SU(2) gate for Fibonacci anyon compilation.
     ///
     /// Unlike Ising anyons (where T is exact and H needs S-K approximation),
@@ -669,10 +698,10 @@ module SolovayKitaev =
         (baseSetLength: int)
         (maxDepth: int)
         : FibonacciBraidOp list * float =
-        
+
         // Build the Fibonacci braid base set
         let fibBaseSet = buildFibonacciBaseSet baseSetLength
-        
+
         // Find closest braid word in base set to a given target
         let findClosest (tgt: SU2Matrix) : FibonacciBraidOp list * SU2Matrix * float =
             fibBaseSet
@@ -680,30 +709,35 @@ module SolovayKitaev =
                 let dist = operatorDistance tgt matrix
                 (ops, matrix, dist))
             |> List.minBy (fun (_, _, dist) -> dist)
-        
+
         // Iterative refinement: keep prepending correction braid words
-        let rec refine (currentOps: FibonacciBraidOp list) (currentMatrix: SU2Matrix) (currentError: float) (depth: int) =
+        let rec refine
+            (currentOps: FibonacciBraidOp list)
+            (currentMatrix: SU2Matrix)
+            (currentError: float)
+            (depth: int)
+            =
             if currentError < epsilon || depth >= maxDepth then
                 (currentOps, currentError)
             else
                 // Compute residual: Δ = target · current†
                 let currentDag = dagger currentMatrix
                 let residual = multiply target currentDag
-                
+
                 // Find best correction for the residual
                 let (corrOps, corrMatrix, _) = findClosest residual
-                
+
                 // New approximation: correction · current
                 let newMatrix = multiply corrMatrix currentMatrix
                 let newError = operatorDistance target newMatrix
                 let newOps = corrOps @ currentOps
-                
+
                 // Only continue if we made progress
                 if newError >= currentError then
                     (currentOps, currentError)
                 else
                     refine newOps newMatrix newError (depth + 1)
-        
+
         // Start with best single braid word
         let (initOps, initMatrix, initError) = findClosest target
         refine initOps initMatrix initError 0
@@ -755,81 +789,99 @@ module SolovayKitaev =
                 $"k={k} is too small for qubit encoding. Need k ≥ 3 for 2D fusion space of j=1/2 anyons."
         else
 
-        // j=1/2 particle and fusion channels j=0 and j=1
-        let halfSpin = AnyonSpecies.Particle.SpinJ(1, k)
-        let j0 = AnyonSpecies.Particle.SpinJ(0, k)  // j=0 (vacuum channel)
-        let j1 = AnyonSpecies.Particle.SpinJ(2, k)  // j=1
+            // j=1/2 particle and fusion channels j=0 and j=1
+            let halfSpin = AnyonSpecies.Particle.SpinJ(1, k)
+            let j0 = AnyonSpecies.Particle.SpinJ(0, k) // j=0 (vacuum channel)
+            let j1 = AnyonSpecies.Particle.SpinJ(2, k) // j=1
 
-        topologicalResult {
-            // Compute R-matrix data
-            let! rData = RMatrix.computeRMatrix (AnyonSpecies.AnyonType.SU2Level k)
+            topologicalResult {
+                // Compute R-matrix data
+                let! rData = RMatrix.computeRMatrix (AnyonSpecies.AnyonType.SU2Level k)
 
-            // Get R[1/2, 1/2; 0] and R[1/2, 1/2; 1]
-            let rIdx0 : RMatrix.RMatrixIndex = { RMatrix.RMatrixIndex.A = halfSpin; RMatrix.RMatrixIndex.B = halfSpin; RMatrix.RMatrixIndex.C = j0 }
-            let rIdx1 : RMatrix.RMatrixIndex = { RMatrix.RMatrixIndex.A = halfSpin; RMatrix.RMatrixIndex.B = halfSpin; RMatrix.RMatrixIndex.C = j1 }
+                // Get R[1/2, 1/2; 0] and R[1/2, 1/2; 1]
+                let rIdx0: RMatrix.RMatrixIndex =
+                    {
+                        RMatrix.RMatrixIndex.A = halfSpin
+                        RMatrix.RMatrixIndex.B = halfSpin
+                        RMatrix.RMatrixIndex.C = j0
+                    }
 
-            let! r0 = RMatrix.getRSymbol rData rIdx0
-            let! r1 = RMatrix.getRSymbol rData rIdx1
+                let rIdx1: RMatrix.RMatrixIndex =
+                    {
+                        RMatrix.RMatrixIndex.A = halfSpin
+                        RMatrix.RMatrixIndex.B = halfSpin
+                        RMatrix.RMatrixIndex.C = j1
+                    }
 
-            // σ₁ = diag(R[1/2,1/2;0], R[1/2,1/2;1])
-            let sigma1 = { A = r0; B = Complex.Zero; C = Complex.Zero; D = r1 }
+                let! r0 = RMatrix.getRSymbol rData rIdx0
+                let! r1 = RMatrix.getRSymbol rData rIdx1
 
-            // Compute F-matrix data for σ₂ = F⁻¹ · R · F
-            // F = F^{1/2, 1/2, 1/2}_{1/2} — the 2×2 matrix in {j=0, j=1} basis
-            let! fData = FMatrix.computeFMatrix (AnyonSpecies.AnyonType.SU2Level k)
+                // σ₁ = diag(R[1/2,1/2;0], R[1/2,1/2;1])
+                let sigma1 =
+                    {
+                        A = r0
+                        B = Complex.Zero
+                        C = Complex.Zero
+                        D = r1
+                    }
 
-            // Get the 4 F-symbol entries for the 2×2 F-matrix
-            // F[a,b,c,d; e,f] where a=b=c=1/2, d=1/2, and e,f ∈ {j=0, j=1}
-            let fIdx e f : FMatrix.FSymbolIndex = {
-                FMatrix.FSymbolIndex.A = halfSpin
-                FMatrix.FSymbolIndex.B = halfSpin
-                FMatrix.FSymbolIndex.C = halfSpin
-                FMatrix.FSymbolIndex.D = halfSpin
-                FMatrix.FSymbolIndex.E = e
-                FMatrix.FSymbolIndex.F = f
+                // Compute F-matrix data for σ₂ = F⁻¹ · R · F
+                // F = F^{1/2, 1/2, 1/2}_{1/2} — the 2×2 matrix in {j=0, j=1} basis
+                let! fData = FMatrix.computeFMatrix (AnyonSpecies.AnyonType.SU2Level k)
+
+                // Get the 4 F-symbol entries for the 2×2 F-matrix
+                // F[a,b,c,d; e,f] where a=b=c=1/2, d=1/2, and e,f ∈ {j=0, j=1}
+                let fIdx e f : FMatrix.FSymbolIndex =
+                    {
+                        FMatrix.FSymbolIndex.A = halfSpin
+                        FMatrix.FSymbolIndex.B = halfSpin
+                        FMatrix.FSymbolIndex.C = halfSpin
+                        FMatrix.FSymbolIndex.D = halfSpin
+                        FMatrix.FSymbolIndex.E = e
+                        FMatrix.FSymbolIndex.F = f
+                    }
+
+                let! f00 = FMatrix.getFSymbol fData (fIdx j0 j0)
+                let! f01 = FMatrix.getFSymbol fData (fIdx j0 j1)
+                let! f10 = FMatrix.getFSymbol fData (fIdx j1 j0)
+                let! f11 = FMatrix.getFSymbol fData (fIdx j1 j1)
+
+                // F = [[f00, f01], [f10, f11]]
+                // R_diag = diag(r0, r1)
+                //
+                // Compute R · F (diagonal R times F):
+                let rf00 = r0 * f00
+                let rf01 = r0 * f01
+                let rf10 = r1 * f10
+                let rf11 = r1 * f11
+
+                // Compute F⁻¹ via the standard 2×2 inverse:
+                // F⁻¹ = (1/det) * [[f11, -f01], [-f10, f00]]
+                let det = f00 * f11 - f01 * f10
+
+                if det.Magnitude < 1e-15 then
+                    return!
+                        TopologicalResult.logicError
+                            "SU(2)_k braid generators"
+                            $"F-matrix for k={k} has zero determinant — cannot compute F⁻¹"
+                else
+
+                    let detInv = Complex.One / det
+                    let fi00 = detInv * f11
+                    let fi01 = detInv * (-f01)
+                    let fi10 = detInv * (-f10)
+                    let fi11 = detInv * f00
+
+                    // σ₂ = F⁻¹ · (R · F)
+                    let s2a = fi00 * rf00 + fi01 * rf10
+                    let s2b = fi00 * rf01 + fi01 * rf11
+                    let s2c = fi10 * rf00 + fi11 * rf10
+                    let s2d = fi10 * rf01 + fi11 * rf11
+
+                    let sigma2 = createSU2 s2a s2b s2c s2d
+
+                    return (sigma1, sigma2)
             }
-
-            let! f00 = FMatrix.getFSymbol fData (fIdx j0 j0)
-            let! f01 = FMatrix.getFSymbol fData (fIdx j0 j1)
-            let! f10 = FMatrix.getFSymbol fData (fIdx j1 j0)
-            let! f11 = FMatrix.getFSymbol fData (fIdx j1 j1)
-
-            // F = [[f00, f01], [f10, f11]]
-            // R_diag = diag(r0, r1)
-            //
-            // Compute R · F (diagonal R times F):
-            let rf00 = r0 * f00
-            let rf01 = r0 * f01
-            let rf10 = r1 * f10
-            let rf11 = r1 * f11
-
-            // Compute F⁻¹ via the standard 2×2 inverse:
-            // F⁻¹ = (1/det) * [[f11, -f01], [-f10, f00]]
-            let det = f00 * f11 - f01 * f10
-
-            if det.Magnitude < 1e-15 then
-                return!
-                    TopologicalResult.logicError
-                        "SU(2)_k braid generators"
-                        $"F-matrix for k={k} has zero determinant — cannot compute F⁻¹"
-            else
-
-            let detInv = Complex.One / det
-            let fi00 = detInv * f11
-            let fi01 = detInv * (-f01)
-            let fi10 = detInv * (-f10)
-            let fi11 = detInv * f00
-
-            // σ₂ = F⁻¹ · (R · F)
-            let s2a = fi00 * rf00 + fi01 * rf10
-            let s2b = fi00 * rf01 + fi01 * rf11
-            let s2c = fi10 * rf00 + fi11 * rf10
-            let s2d = fi10 * rf01 + fi11 * rf11
-
-            let sigma2 = createSU2 s2a s2b s2c s2d
-
-            return (sigma1, sigma2)
-        }
 
     /// Elementary SU(2)_k braid operations (same structure as Fibonacci).
     /// These are the building blocks: {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}
@@ -864,78 +916,82 @@ module SolovayKitaev =
         // Compute sigma matrices for this k
         match computeSU2kSigmaMatrices k with
         | Error err -> Error err
-        | Ok (sigma1, sigma2) ->
+        | Ok(sigma1, sigma2) ->
 
-        let sigma1Inv = dagger sigma1
-        let sigma2Inv = dagger sigma2
+            let sigma1Inv = dagger sigma1
+            let sigma2Inv = dagger sigma2
 
-        /// Get SU(2) matrix for an SU(2)_k braid operation
-        let su2kBraidMatrix (op: SU2kBraidOp) : SU2Matrix =
-            match op with
-            | SKSigma1 -> sigma1
-            | SKSigma1Inv -> sigma1Inv
-            | SKSigma2 -> sigma2
-            | SKSigma2Inv -> sigma2Inv
+            /// Get SU(2) matrix for an SU(2)_k braid operation
+            let su2kBraidMatrix (op: SU2kBraidOp) : SU2Matrix =
+                match op with
+                | SKSigma1 -> sigma1
+                | SKSigma1Inv -> sigma1Inv
+                | SKSigma2 -> sigma2
+                | SKSigma2Inv -> sigma2Inv
 
-        /// Compute SU(2) matrix for a sequence of SU(2)_k braid operations
-        let su2kBraidSequenceMatrix (ops: SU2kBraidOp list) : SU2Matrix =
-            ops
-            |> List.map su2kBraidMatrix
-            |> List.fold multiply identity
+            /// Compute SU(2) matrix for a sequence of SU(2)_k braid operations
+            let su2kBraidSequenceMatrix (ops: SU2kBraidOp list) : SU2Matrix =
+                ops |> List.map su2kBraidMatrix |> List.fold multiply identity
 
-        // Build base set: all braid words up to given length
-        let generators = [SKSigma1; SKSigma1Inv; SKSigma2; SKSigma2Inv]
+            // Build base set: all braid words up to given length
+            let generators = [ SKSigma1; SKSigma1Inv; SKSigma2; SKSigma2Inv ]
 
-        let rec generate (length: int) : SU2kBraidOp list list =
-            if length = 0 then
-                [[]]
-            else
-                let shorter = generate (length - 1)
-                shorter
-                |> List.collect (fun seq ->
-                    generators |> List.map (fun g -> g :: seq))
+            let rec generate (length: int) : SU2kBraidOp list list =
+                if length = 0 then
+                    [ [] ]
+                else
+                    let shorter = generate (length - 1)
+                    shorter |> List.collect (fun seq -> generators |> List.map (fun g -> g :: seq))
 
-        let baseSet =
-            [ for len in 1 .. baseSetLength do
-                yield! generate len ]
-            |> List.map (fun seq -> (seq, su2kBraidSequenceMatrix seq))
-            |> List.distinctBy (fun (_, matrix) ->
-                let round (c: Complex) =
-                    (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
-                (round matrix.A, round matrix.B, round matrix.C, round matrix.D))
+            let baseSet =
+                [
+                    for len in 1..baseSetLength do
+                        yield! generate len
+                ]
+                |> List.map (fun seq -> (seq, su2kBraidSequenceMatrix seq))
+                |> List.distinctBy (fun (_, matrix) ->
+                    let round (c: Complex) =
+                        (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
 
-        // Find closest braid word in base set to a given target
-        let findClosest (tgt: SU2Matrix) : SU2kBraidOp list * SU2Matrix * float =
-            baseSet
-            |> List.map (fun (ops, matrix) ->
-                let dist = operatorDistance tgt matrix
-                (ops, matrix, dist))
-            |> List.minBy (fun (_, _, dist) -> dist)
+                    (round matrix.A, round matrix.B, round matrix.C, round matrix.D))
 
-        // Iterative refinement: keep prepending correction braid words
-        let rec refine (currentOps: SU2kBraidOp list) (currentMatrix: SU2Matrix) (currentError: float) (depth: int) =
-            if currentError < epsilon || depth >= maxDepth then
-                (currentOps, currentError)
-            else
-                // Compute residual: Δ = target · current†
-                let currentDag = dagger currentMatrix
-                let residual = multiply target currentDag
+            // Find closest braid word in base set to a given target
+            let findClosest (tgt: SU2Matrix) : SU2kBraidOp list * SU2Matrix * float =
+                baseSet
+                |> List.map (fun (ops, matrix) ->
+                    let dist = operatorDistance tgt matrix
+                    (ops, matrix, dist))
+                |> List.minBy (fun (_, _, dist) -> dist)
 
-                // Find best correction for the residual
-                let (corrOps, corrMatrix, _) = findClosest residual
-
-                // New approximation: correction · current
-                let newMatrix = multiply corrMatrix currentMatrix
-                let newError = operatorDistance target newMatrix
-                let newOps = corrOps @ currentOps
-
-                // Only continue if we made progress
-                if newError >= currentError then
+            // Iterative refinement: keep prepending correction braid words
+            let rec refine
+                (currentOps: SU2kBraidOp list)
+                (currentMatrix: SU2Matrix)
+                (currentError: float)
+                (depth: int)
+                =
+                if currentError < epsilon || depth >= maxDepth then
                     (currentOps, currentError)
                 else
-                    refine newOps newMatrix newError (depth + 1)
+                    // Compute residual: Δ = target · current†
+                    let currentDag = dagger currentMatrix
+                    let residual = multiply target currentDag
 
-        // Start with best single braid word
-        let (initOps, initMatrix, initError) = findClosest target
-        let (finalOps, finalError) = refine initOps initMatrix initError 0
-        Ok (finalOps, finalError)
+                    // Find best correction for the residual
+                    let (corrOps, corrMatrix, _) = findClosest residual
+
+                    // New approximation: correction · current
+                    let newMatrix = multiply corrMatrix currentMatrix
+                    let newError = operatorDistance target newMatrix
+                    let newOps = corrOps @ currentOps
+
+                    // Only continue if we made progress
+                    if newError >= currentError then
+                        (currentOps, currentError)
+                    else
+                        refine newOps newMatrix newError (depth + 1)
+
+            // Start with best single braid word
+            let (initOps, initMatrix, initError) = findClosest target
+            let (finalOps, finalError) = refine initOps initMatrix initError 0
+            Ok(finalOps, finalError)

@@ -70,13 +70,37 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "SuperdenseCodingExample.fsx" "Superdense coding: send 2 classical bits via 1 qubit + entanglement." [
-    { Name = "message"; Description = "2-bit message to send (00, 01, 10, 11)"; Default = Some "all" }
-    { Name = "trials"; Description = "Statistical verification trials"; Default = Some "100" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "SuperdenseCodingExample.fsx"
+    "Superdense coding: send 2 classical bits via 1 qubit + entanglement."
+    [
+        {
+            Name = "message"
+            Description = "2-bit message to send (00, 01, 10, 11)"
+            Default = Some "all"
+        }
+        {
+            Name = "trials"
+            Description = "Statistical verification trials"
+            Default = Some "100"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let messageArg = Cli.getOr "message" "all" args
 let trials = Cli.getIntOr "trials" 100 args
@@ -100,12 +124,13 @@ let results = System.Collections.Generic.List<Map<string, string>>()
 // Scenario 1: Send All 4 Message Encodings
 // ============================================================================
 
-let allMessages : ClassicalMessage list = [
-    { Bit1 = 0; Bit2 = 0 }
-    { Bit1 = 0; Bit2 = 1 }
-    { Bit1 = 1; Bit2 = 0 }
-    { Bit1 = 1; Bit2 = 1 }
-]
+let allMessages: ClassicalMessage list =
+    [
+        { Bit1 = 0; Bit2 = 0 }
+        { Bit1 = 0; Bit2 = 1 }
+        { Bit1 = 1; Bit2 = 0 }
+        { Bit1 = 1; Bit2 = 1 }
+    ]
 
 let messagesToTest =
     match messageArg with
@@ -143,34 +168,46 @@ for msg in messagesToTest do
             printfn "  ERROR sending %d%d: %A" msg.Bit1 msg.Bit2 err
 
         results.Add(
-            [ "scenario", "send"
-              "sent", $"%d{msg.Bit1}%d{msg.Bit2}"
-              "encoding", encoding
-              "received", ""
-              "success", "false"
-              "error", $"%A{err}" ]
-            |> Map.ofList)
+            [
+                "scenario", "send"
+                "sent", $"%d{msg.Bit1}%d{msg.Bit2}"
+                "encoding", encoding
+                "received", ""
+                "success", "false"
+                "error", $"%A{err}"
+            ]
+            |> Map.ofList
+        )
 
     | Ok result ->
         let success = result.Success
 
         if not quiet then
             let status = if success then "OK" else "FAIL"
-            printfn "  Send %d%d [%-15s] -> Received %d%d  [%s]"
-                msg.Bit1 msg.Bit2 encoding
-                result.ReceivedMessage.Bit1 result.ReceivedMessage.Bit2
+
+            printfn
+                "  Send %d%d [%-15s] -> Received %d%d  [%s]"
+                msg.Bit1
+                msg.Bit2
+                encoding
+                result.ReceivedMessage.Bit1
+                result.ReceivedMessage.Bit2
                 status
 
         results.Add(
-            [ "scenario", "send"
-              "sent", $"%d{msg.Bit1}%d{msg.Bit2}"
-              "encoding", encoding
-              "received", $"%d{result.ReceivedMessage.Bit1}%d{result.ReceivedMessage.Bit2}"
-              "success", string success
-              "error", "" ]
-            |> Map.ofList)
+            [
+                "scenario", "send"
+                "sent", $"%d{msg.Bit1}%d{msg.Bit2}"
+                "encoding", encoding
+                "received", $"%d{result.ReceivedMessage.Bit1}%d{result.ReceivedMessage.Bit2}"
+                "success", string success
+                "error", ""
+            ]
+            |> Map.ofList
+        )
 
-if not quiet then printfn ""
+if not quiet then
+    printfn ""
 
 // ============================================================================
 // Scenario 2: Statistical Verification
@@ -188,19 +225,25 @@ for msg in messagesToTest do
 
     | Ok stats ->
         if not quiet then
-            printfn "  Message %d%d: %d/%d correct (%.1f%% accuracy)"
-                msg.Bit1 msg.Bit2
-                stats.SuccessCount stats.TotalTrials
+            printfn
+                "  Message %d%d: %d/%d correct (%.1f%% accuracy)"
+                msg.Bit1
+                msg.Bit2
+                stats.SuccessCount
+                stats.TotalTrials
                 (float stats.SuccessCount / float stats.TotalTrials * 100.0)
 
         results.Add(
-            [ "scenario", "statistics"
-              "message", $"%d{msg.Bit1}%d{msg.Bit2}"
-              "trials", string stats.TotalTrials
-              "correct", string stats.SuccessCount
-              "accuracy", sprintf "%.4f" (float stats.SuccessCount / float stats.TotalTrials)
-              "success", string (stats.SuccessCount = stats.TotalTrials) ]
-            |> Map.ofList)
+            [
+                "scenario", "statistics"
+                "message", $"%d{msg.Bit1}%d{msg.Bit2}"
+                "trials", string stats.TotalTrials
+                "correct", string stats.SuccessCount
+                "accuracy", sprintf "%.4f" (float stats.SuccessCount / float stats.TotalTrials)
+                "success", string (stats.SuccessCount = stats.TotalTrials)
+            ]
+            |> Map.ofList
+        )
 
 if not quiet then
     printfn ""
@@ -231,12 +274,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

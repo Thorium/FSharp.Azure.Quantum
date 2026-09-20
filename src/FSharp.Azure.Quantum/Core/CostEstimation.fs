@@ -7,165 +7,187 @@ open Microsoft.Extensions.Logging
 /// ALL cost estimation code consolidated in this single file for AI context optimization
 /// Supports: IonQ, Quantinuum, Rigetti backends with per-gate and per-shot cost calculations
 module CostEstimation =
-    
+
     // ============================================================================
     // UNITS OF MEASURE
     // ============================================================================
-    
+
     /// United States Dollar
-    [<Measure>] type USD
-    
+    [<Measure>]
+    type USD
+
     /// Quantinuum Hardware Credits
-    [<Measure>] type HQC
-    
+    [<Measure>]
+    type HQC
+
     /// Number of shots (circuit executions)
-    [<Measure>] type shot
-    
+    [<Measure>]
+    type shot
+
     /// Number of quantum gates
-    [<Measure>] type gate
-    
+    [<Measure>]
+    type gate
+
     /// Number of qubits
-    [<Measure>] type qubit
-    
+    [<Measure>]
+    type qubit
+
     /// Milliseconds
-    [<Measure>] type ms
-    
-    /// Microseconds  
-    [<Measure>] type us
-    
+    [<Measure>]
+    type ms
+
+    /// Microseconds
+    [<Measure>]
+    type us
+
     // ============================================================================
     // CIRCUIT COST PROFILE (Simplified for cost estimation)
     // ============================================================================
-    
+
     /// Quantum circuit cost profile with gate counts for cost estimation
     /// Note: This is a simplified representation used only for cost calculation.
     /// For full circuit representation, see CircuitBuilder.Circuit
-    type CircuitCostProfile = {
-        /// Number of single-qubit gates (H, X, Y, Z, etc.)
-        SingleQubitGates: int<gate>
-        
-        /// Number of two-qubit gates (CNOT, CZ, etc.)
-        TwoQubitGates: int<gate>
-        
-        /// Number of measurement operations
-        Measurements: int<gate>
-        
-        /// Total number of qubits used
-        QubitCount: int<qubit>
-    }
-    
+    type CircuitCostProfile =
+        {
+            /// Number of single-qubit gates (H, X, Y, Z, etc.)
+            SingleQubitGates: int<gate>
+
+            /// Number of two-qubit gates (CNOT, CZ, etc.)
+            TwoQubitGates: int<gate>
+
+            /// Number of measurement operations
+            Measurements: int<gate>
+
+            /// Total number of qubits used
+            QubitCount: int<qubit>
+        }
+
     module CircuitCostProfile =
         /// Create empty circuit cost profile
-        let empty = {
-            SingleQubitGates = 0<gate>
-            TwoQubitGates = 0<gate>
-            Measurements = 0<gate>
-            QubitCount = 0<qubit>
-        }
-        
+        let empty =
+            {
+                SingleQubitGates = 0<gate>
+                TwoQubitGates = 0<gate>
+                Measurements = 0<gate>
+                QubitCount = 0<qubit>
+            }
+
         /// Calculate total gate count
         let totalGates (circuit: CircuitCostProfile) : int<gate> =
             circuit.SingleQubitGates + circuit.TwoQubitGates + circuit.Measurements
-        
+
         /// Calculate circuit depth (simplified - actual depth requires gate scheduling)
-        let depth (circuit: CircuitCostProfile) : int<gate> =
-            totalGates circuit  // Conservative estimate: assume no parallelism
-    
+        let depth (circuit: CircuitCostProfile) : int<gate> = totalGates circuit // Conservative estimate: assume no parallelism
+
     // ============================================================================
     // BACKEND PRICING MODELS
     // ============================================================================
-    
+
     /// IonQ backend pricing configuration
-    type IonQPricing = {
-        /// Minimum cost with error mitigation enabled (USD)
-        MinimumCostWithErrorMitigation: decimal<USD>
-        
-        /// Minimum cost without error mitigation (USD)
-        MinimumCostWithoutErrorMitigation: decimal<USD>
-        
-        /// Cost per single-qubit gate operation
-        SingleQubitGateCost: decimal
-        
-        /// Cost per two-qubit gate operation
-        TwoQubitGateCost: decimal
-    }
-    
+    type IonQPricing =
+        {
+            /// Minimum cost with error mitigation enabled (USD)
+            MinimumCostWithErrorMitigation: decimal<USD>
+
+            /// Minimum cost without error mitigation (USD)
+            MinimumCostWithoutErrorMitigation: decimal<USD>
+
+            /// Cost per single-qubit gate operation
+            SingleQubitGateCost: decimal
+
+            /// Cost per two-qubit gate operation
+            TwoQubitGateCost: decimal
+        }
+
     module IonQPricing =
         /// Default IonQ pricing (as of 2025-11)
         /// Source: Azure Quantum pricing documentation
-        let Default = {
-            MinimumCostWithErrorMitigation = 97.50M<USD>
-            MinimumCostWithoutErrorMitigation = 12.42M<USD>
-            SingleQubitGateCost = 0.000220M
-            TwoQubitGateCost = 0.000975M
-        }
-    
+        let Default =
+            {
+                MinimumCostWithErrorMitigation = 97.50M<USD>
+                MinimumCostWithoutErrorMitigation = 12.42M<USD>
+                SingleQubitGateCost = 0.000220M
+                TwoQubitGateCost = 0.000975M
+            }
+
     /// Quantinuum backend pricing configuration (HQC-based subscription model)
-    type QuantinuumPricing = {
-        /// Minimum HQC cost per job
-        MinimumCostHQC: int<HQC>
-        
-        /// Weight factor for single-qubit gates
-        SingleQubitGateWeight: float
-        
-        /// Weight factor for two-qubit gates  
-        TwoQubitGateWeight: float
-        
-        /// Weight factor for measurement operations
-        MeasurementWeight: float
-        
-        /// Shot divisor for HQC calculation
-        ShotDivisor: int
-    }
-    
+    type QuantinuumPricing =
+        {
+            /// Minimum HQC cost per job
+            MinimumCostHQC: int<HQC>
+
+            /// Weight factor for single-qubit gates
+            SingleQubitGateWeight: float
+
+            /// Weight factor for two-qubit gates
+            TwoQubitGateWeight: float
+
+            /// Weight factor for measurement operations
+            MeasurementWeight: float
+
+            /// Shot divisor for HQC calculation
+            ShotDivisor: int
+        }
+
     module QuantinuumPricing =
         /// Default Quantinuum pricing (HQC model)
         /// Source: Azure Quantum pricing documentation
-        let Default = {
-            MinimumCostHQC = 5<HQC>
-            SingleQubitGateWeight = 1.0
-            TwoQubitGateWeight = 10.0
-            MeasurementWeight = 5.0
-            ShotDivisor = 5000
-        }
-        
+        let Default =
+            {
+                MinimumCostHQC = 5<HQC>
+                SingleQubitGateWeight = 1.0
+                TwoQubitGateWeight = 10.0
+                MeasurementWeight = 5.0
+                ShotDivisor = 5000
+            }
+
         /// Subscription plans (for reference)
-        let StandardPlan = {| MonthlyCost = 135000.0M<USD>; MonthlyQuota = 10000<HQC> |}
-        let PremiumPlan = {| MonthlyCost = 185000.0M<USD>; MonthlyQuota = 17000<HQC> |}
-    
+        let StandardPlan =
+            {|
+                MonthlyCost = 135000.0M<USD>
+                MonthlyQuota = 10000<HQC>
+            |}
+
+        let PremiumPlan =
+            {|
+                MonthlyCost = 185000.0M<USD>
+                MonthlyQuota = 17000<HQC>
+            |}
+
     /// Rigetti backend pricing configuration (time-based)
-    type RigettiPricing = {
-        /// Cost per 10 milliseconds of execution time
-        CostPerTenMs: decimal<USD>
-    }
-    
+    type RigettiPricing =
+        {
+            /// Cost per 10 milliseconds of execution time
+            CostPerTenMs: decimal<USD>
+        }
+
     module RigettiPricing =
         /// Default Rigetti pricing
-        /// Source: Azure Quantum pricing documentation  
-        let Default = {
-            CostPerTenMs = 0.02M<USD>
-        }
-    
+        /// Source: Azure Quantum pricing documentation
+        let Default = { CostPerTenMs = 0.02M<USD> }
+
     /// Gate timing estimates for execution time calculation
-    type GateTiming = {
-        /// Single-qubit gate execution time
-        SingleQubitGateTime: float<us>
-        
-        /// Two-qubit gate execution time
-        TwoQubitGateTime: float<us>
-    }
-    
+    type GateTiming =
+        {
+            /// Single-qubit gate execution time
+            SingleQubitGateTime: float<us>
+
+            /// Two-qubit gate execution time
+            TwoQubitGateTime: float<us>
+        }
+
     module GateTiming =
         /// Default Rigetti gate timing estimates
-        let RigettiDefault = {
-            SingleQubitGateTime = 0.05<us>    // ~50 ns
-            TwoQubitGateTime = 0.20<us>       // ~200 ns
-        }
-    
+        let RigettiDefault =
+            {
+                SingleQubitGateTime = 0.05<us> // ~50 ns
+                TwoQubitGateTime = 0.20<us> // ~200 ns
+            }
+
     // ============================================================================
     // COST BACKEND TYPES (for cost calculation)
     // ============================================================================
-    
+
     /// Supported quantum backends for cost estimation
     /// Note: This is a simplified backend model used only for pricing.
     /// For full backend representation, see Types.Backend
@@ -174,262 +196,276 @@ module CostEstimation =
         | IonQ of useErrorMitigation: bool
         | Quantinuum
         | Rigetti
-    
+
     module CostBackend =
         /// Get backend display name
-        let name = function
+        let name =
+            function
             | IonQ true -> "IonQ (with error mitigation)"
             | IonQ false -> "IonQ (without error mitigation)"
             | Quantinuum -> "Quantinuum"
             | Rigetti -> "Rigetti"
-    
+
     /// Detailed cost breakdown
-    type CostBreakdown = {
-        /// Base cost (minimum charge)
-        BaseCost: decimal<USD>
-        
-        /// Cost from single-qubit gates
-        SingleQubitGateCost: decimal<USD>
-        
-        /// Cost from two-qubit gates
-        TwoQubitGateCost: decimal<USD>
-        
-        /// Cost from shots/measurements
-        ShotCost: decimal<USD>
-        
-        /// Total estimated cost
-        TotalCost: decimal<USD>
-    }
-    
+    type CostBreakdown =
+        {
+            /// Base cost (minimum charge)
+            BaseCost: decimal<USD>
+
+            /// Cost from single-qubit gates
+            SingleQubitGateCost: decimal<USD>
+
+            /// Cost from two-qubit gates
+            TwoQubitGateCost: decimal<USD>
+
+            /// Cost from shots/measurements
+            ShotCost: decimal<USD>
+
+            /// Total estimated cost
+            TotalCost: decimal<USD>
+        }
+
     /// Complete cost estimate with range and warnings
-    type CostEstimate = {
-        /// Target backend
-        Backend: CostBackend
-        
-        /// Minimum possible cost
-        MinimumCost: decimal<USD>
-        
-        /// Maximum possible cost
-        MaximumCost: decimal<USD>
-        
-        /// Expected cost (conservative estimate)
-        ExpectedCost: decimal<USD>
-        
-        /// Currency code
-        Currency: string
-        
-        /// Detailed cost breakdown
-        Breakdown: CostBreakdown option
-        
-        /// Warning messages
-        Warnings: string list
-    }
-    
+    type CostEstimate =
+        {
+            /// Target backend
+            Backend: CostBackend
+
+            /// Minimum possible cost
+            MinimumCost: decimal<USD>
+
+            /// Maximum possible cost
+            MaximumCost: decimal<USD>
+
+            /// Expected cost (conservative estimate)
+            ExpectedCost: decimal<USD>
+
+            /// Currency code
+            Currency: string
+
+            /// Detailed cost breakdown
+            Breakdown: CostBreakdown option
+
+            /// Warning messages
+            Warnings: string list
+        }
+
     // ============================================================================
     // COST CALCULATION FUNCTIONS
     // ============================================================================
-    
+
     /// Calculate IonQ cost based on gate counts and shots
-    let calculateIonQCost 
-        (pricing: IonQPricing) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
-        (useErrorMitigation: bool) 
+    let calculateIonQCost
+        (pricing: IonQPricing)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
+        (useErrorMitigation: bool)
         : CostEstimate =
-        
-        let baseCost = 
-            if useErrorMitigation then 
-                pricing.MinimumCostWithErrorMitigation 
-            else 
+
+        let baseCost =
+            if useErrorMitigation then
+                pricing.MinimumCostWithErrorMitigation
+            else
                 pricing.MinimumCostWithoutErrorMitigation
-        
-        let singleQubitCost = 
-            decimal (int circuit.SingleQubitGates) * pricing.SingleQubitGateCost * decimal (int shots) * 1.0M<USD>
-        
-        let twoQubitCost = 
-            decimal (int circuit.TwoQubitGates) * pricing.TwoQubitGateCost * decimal (int shots) * 1.0M<USD>
-        
+
+        let singleQubitCost =
+            decimal (int circuit.SingleQubitGates)
+            * pricing.SingleQubitGateCost
+            * decimal (int shots)
+            * 1.0M<USD>
+
+        let twoQubitCost =
+            decimal (int circuit.TwoQubitGates)
+            * pricing.TwoQubitGateCost
+            * decimal (int shots)
+            * 1.0M<USD>
+
         let totalCost = baseCost + singleQubitCost + twoQubitCost
-        
-        let warnings = 
+
+        let warnings =
             if totalCost > 200.0M<USD> then
-                [sprintf "Estimated cost $%.2f exceeds $200. Consider using simulator first." (float (totalCost / 1.0M<USD>))]
+                [
+                    sprintf
+                        "Estimated cost $%.2f exceeds $200. Consider using simulator first."
+                        (float (totalCost / 1.0M<USD>))
+                ]
             else
                 []
-        
+
         {
             Backend = IonQ useErrorMitigation
             MinimumCost = baseCost
             MaximumCost = totalCost
-            ExpectedCost = totalCost  // Conservative: use maximum
+            ExpectedCost = totalCost // Conservative: use maximum
             Currency = "USD"
-            Breakdown = Some {
-                BaseCost = baseCost
-                SingleQubitGateCost = singleQubitCost
-                TwoQubitGateCost = twoQubitCost
-                ShotCost = 0.0M<USD>  // Included in gate costs
-                TotalCost = totalCost
-            }
+            Breakdown =
+                Some
+                    {
+                        BaseCost = baseCost
+                        SingleQubitGateCost = singleQubitCost
+                        TwoQubitGateCost = twoQubitCost
+                        ShotCost = 0.0M<USD> // Included in gate costs
+                        TotalCost = totalCost
+                    }
             Warnings = warnings
         }
-    
+
     /// Calculate Quantinuum cost in HQC (Hardware Quantum Credits)
-    let calculateQuantinuumHQC 
-        (pricing: QuantinuumPricing) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
+    let calculateQuantinuumHQC
+        (pricing: QuantinuumPricing)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
         : int<HQC> =
-        
+
         let gateCount1Q = float (int circuit.SingleQubitGates)
         let gateCount2Q = float (int circuit.TwoQubitGates)
         let measurementCount = float (int circuit.Measurements)
         let shotCount = int shots
-        
-        let operationCost = 
-            (gateCount1Q * pricing.SingleQubitGateWeight) +
-            (gateCount2Q * pricing.TwoQubitGateWeight) +
-            (measurementCount * pricing.MeasurementWeight)
-        
-        let totalHQC = 
-            pricing.MinimumCostHQC + 
-            int ((operationCost * float shotCount) / float pricing.ShotDivisor) * 1<HQC>
-        
+
+        let operationCost =
+            (gateCount1Q * pricing.SingleQubitGateWeight)
+            + (gateCount2Q * pricing.TwoQubitGateWeight)
+            + (measurementCount * pricing.MeasurementWeight)
+
+        let totalHQC =
+            pricing.MinimumCostHQC
+            + int ((operationCost * float shotCount) / float pricing.ShotDivisor) * 1<HQC>
+
         totalHQC
-    
+
     /// Calculate Quantinuum cost estimate
-    let calculateQuantinuumCost 
-        (pricing: QuantinuumPricing) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
+    let calculateQuantinuumCost
+        (pricing: QuantinuumPricing)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
         : CostEstimate =
-        
+
         let hqc = calculateQuantinuumHQC pricing circuit shots
-        
-        let warnings = [
-            sprintf "Will consume %d HQC from subscription quota" (int hqc)
-            "Quantinuum uses subscription model: Standard ($135k/mo, 10k HQC) or Premium ($185k/mo, 17k HQC)"
-        ]
-        
+
+        let warnings =
+            [
+                sprintf "Will consume %d HQC from subscription quota" (int hqc)
+                "Quantinuum uses subscription model: Standard ($135k/mo, 10k HQC) or Premium ($185k/mo, 17k HQC)"
+            ]
+
         {
             Backend = Quantinuum
-            MinimumCost = 0.0M<USD>  // Subscription model
-            MaximumCost = 0.0M<USD>  // Subscription model
-            ExpectedCost = 0.0M<USD>  // Charged via HQC quota
+            MinimumCost = 0.0M<USD> // Subscription model
+            MaximumCost = 0.0M<USD> // Subscription model
+            ExpectedCost = 0.0M<USD> // Charged via HQC quota
             Currency = "HQC"
-            Breakdown = None  // HQC model doesn't use USD breakdown
+            Breakdown = None // HQC model doesn't use USD breakdown
             Warnings = warnings
         }
-    
+
     /// Estimate circuit execution time on Rigetti hardware
-    let estimateRigettiExecutionTime 
-        (timing: GateTiming) 
-        (circuit: CircuitCostProfile) 
-        : float<ms> =
-        
+    let estimateRigettiExecutionTime (timing: GateTiming) (circuit: CircuitCostProfile) : float<ms> =
+
         let gateCount1Q = float (int circuit.SingleQubitGates)
         let gateCount2Q = float (int circuit.TwoQubitGates)
-        
-        let totalTimeUs = 
-            (gateCount1Q * timing.SingleQubitGateTime) +
-            (gateCount2Q * timing.TwoQubitGateTime)
-        
-        totalTimeUs / 1000.0<us/ms>
-    
+
+        let totalTimeUs =
+            (gateCount1Q * timing.SingleQubitGateTime)
+            + (gateCount2Q * timing.TwoQubitGateTime)
+
+        totalTimeUs / 1000.0<us / ms>
+
     /// Calculate Rigetti cost based on execution time
-    let calculateRigettiCost 
-        (pricing: RigettiPricing) 
-        (timing: GateTiming) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
+    let calculateRigettiCost
+        (pricing: RigettiPricing)
+        (timing: GateTiming)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
         : CostEstimate =
-        
+
         let execTime = estimateRigettiExecutionTime timing circuit
         let totalExecTime = execTime * float (int shots)
         let tensOfMs = ceil (totalExecTime / 10.0<ms>)
         let cost = decimal tensOfMs * pricing.CostPerTenMs
-        
-        let warnings = 
+
+        let warnings =
             if cost > 200.0M<USD> then
-                [sprintf "Estimated cost $%.2f exceeds $200. Consider reducing shots or using simulator." (float (cost / 1.0M<USD>))]
+                [
+                    sprintf
+                        "Estimated cost $%.2f exceeds $200. Consider reducing shots or using simulator."
+                        (float (cost / 1.0M<USD>))
+                ]
             else
                 []
-        
+
         {
             Backend = Rigetti
             MinimumCost = cost
             MaximumCost = cost
             ExpectedCost = cost
             Currency = "USD"
-            Breakdown = Some {
-                BaseCost = 0.0M<USD>
-                SingleQubitGateCost = 0.0M<USD>  // Time-based pricing
-                TwoQubitGateCost = 0.0M<USD>     // Time-based pricing
-                ShotCost = cost                   // All cost is execution time
-                TotalCost = cost
-            }
+            Breakdown =
+                Some
+                    {
+                        BaseCost = 0.0M<USD>
+                        SingleQubitGateCost = 0.0M<USD> // Time-based pricing
+                        TwoQubitGateCost = 0.0M<USD> // Time-based pricing
+                        ShotCost = cost // All cost is execution time
+                        TotalCost = cost
+                    }
             Warnings = warnings
         }
-    
+
     // ============================================================================
     // UNIFIED COST ESTIMATION API
     // ============================================================================
-    
+
     /// Estimate cost for a circuit on specified backend
-    let estimateCost 
-        (backend: CostBackend) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
+    let estimateCost
+        (backend: CostBackend)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
         : Result<CostEstimate, QuantumError> =
-        
+
         if int shots < 1 then
-            Error (QuantumError.ValidationError("shots", "Shot count must be at least 1"))
+            Error(QuantumError.ValidationError("shots", "Shot count must be at least 1"))
         elif int circuit.QubitCount < 1 then
-            Error (QuantumError.ValidationError("circuit.QubitCount", "Circuit must have at least 1 qubit"))
+            Error(QuantumError.ValidationError("circuit.QubitCount", "Circuit must have at least 1 qubit"))
         else
             try
-                let estimate = 
+                let estimate =
                     match backend with
-                    | IonQ useErrorMitigation ->
-                        calculateIonQCost IonQPricing.Default circuit shots useErrorMitigation
-                    
-                    | Quantinuum ->
-                        calculateQuantinuumCost QuantinuumPricing.Default circuit shots
-                    
-                    | Rigetti ->
-                        calculateRigettiCost 
-                            RigettiPricing.Default 
-                            GateTiming.RigettiDefault 
-                            circuit 
-                            shots
-                
+                    | IonQ useErrorMitigation -> calculateIonQCost IonQPricing.Default circuit shots useErrorMitigation
+
+                    | Quantinuum -> calculateQuantinuumCost QuantinuumPricing.Default circuit shots
+
+                    | Rigetti -> calculateRigettiCost RigettiPricing.Default GateTiming.RigettiDefault circuit shots
+
                 Ok estimate
-            with
-            | ex -> Error (QuantumError.OperationError("Cost estimation", ex.Message))
-    
+            with ex ->
+                Error(QuantumError.OperationError("Cost estimation", ex.Message))
+
     /// Compare costs across multiple backends
-    let compareCosts 
-        (backends: CostBackend list) 
-        (circuit: CircuitCostProfile) 
-        (shots: int<shot>) 
+    let compareCosts
+        (backends: CostBackend list)
+        (circuit: CircuitCostProfile)
+        (shots: int<shot>)
         : Result<CostEstimate list, QuantumError> =
-        
+
         backends
         |> List.map (fun backend -> estimateCost backend circuit shots)
-        |> List.fold (fun acc result ->
-            match acc, result with
-            | Ok estimates, Ok estimate -> Ok (estimate :: estimates)
-            | Error msg, _ -> Error msg
-            | _, Error msg -> Error msg
-        ) (Ok [])
+        |> List.fold
+            (fun acc result ->
+                match acc, result with
+                | Ok estimates, Ok estimate -> Ok(estimate :: estimates)
+                | Error msg, _ -> Error msg
+                | _, Error msg -> Error msg)
+            (Ok [])
         |> Result.map List.rev
-    
+
     /// Backends priced via subscription quota (e.g. Quantinuum HQC) report
     /// ExpectedCost = 0 USD, so their estimates cannot be compared with
     /// per-job USD pricing.
     let isSubscriptionPriced (backend: CostBackend) : bool =
         match backend with
         | Quantinuum -> true
-        | IonQ _ | Rigetti -> false
+        | IonQ _
+        | Rigetti -> false
 
     /// Find the cheapest backend from a list of options.
     /// Subscription-priced backends (e.g. Quantinuum) are excluded from the
@@ -441,42 +477,49 @@ module CostEstimation =
         : Result<CostBackend * CostEstimate, QuantumError> =
 
         if backends.IsEmpty then
-            Error (QuantumError.ValidationError("backends", "No backends provided - at least one backend is required"))
+            Error(QuantumError.ValidationError("backends", "No backends provided - at least one backend is required"))
         else
             match backends |> List.filter (isSubscriptionPriced >> not) with
             | [] ->
-                Error (QuantumError.ValidationError(
-                    "backends",
-                    "No backends with per-job pricing available - subscription-priced backends (e.g. Quantinuum HQC) cannot be compared by expected cost"))
+                Error(
+                    QuantumError.ValidationError(
+                        "backends",
+                        "No backends with per-job pricing available - subscription-priced backends (e.g. Quantinuum HQC) cannot be compared by expected cost"
+                    )
+                )
             | comparableBackends ->
                 compareCosts comparableBackends circuit shots
-                |> Result.map (List.minBy (fun est -> est.ExpectedCost) >> (fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate)))
-    
+                |> Result.map (
+                    List.minBy (fun est -> est.ExpectedCost)
+                    >> (fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate))
+                )
+
     // ============================================================================
     // COST OPTIMIZATION RECOMMENDATIONS
     // ============================================================================
-    
+
     /// Cost optimization recommendation
-    type CostRecommendation = {
-        /// Current backend being used
-        CurrentBackend: CostBackend
-        
-        /// Recommended cheaper backend
-        RecommendedBackend: CostBackend
-        
-        /// Potential cost savings (USD)
-        PotentialSavings: decimal<USD>
-        
-        /// Human-readable reasoning
-        Reasoning: string
-        
-        /// Current backend cost estimate
-        CurrentCost: CostEstimate
-        
-        /// Recommended backend cost estimate
-        RecommendedCost: CostEstimate
-    }
-    
+    type CostRecommendation =
+        {
+            /// Current backend being used
+            CurrentBackend: CostBackend
+
+            /// Recommended cheaper backend
+            RecommendedBackend: CostBackend
+
+            /// Potential cost savings (USD)
+            PotentialSavings: decimal<USD>
+
+            /// Human-readable reasoning
+            Reasoning: string
+
+            /// Current backend cost estimate
+            CurrentCost: CostEstimate
+
+            /// Recommended backend cost estimate
+            RecommendedCost: CostEstimate
+        }
+
     /// Format backend name for display
     let private formatBackendName (backend: CostBackend) : string =
         match backend with
@@ -484,7 +527,7 @@ module CostEstimation =
         | IonQ false -> "IonQ (without error mitigation)"
         | Quantinuum -> "Quantinuum"
         | Rigetti -> "Rigetti"
-    
+
     /// Generate cost optimization recommendation
     /// Returns Some recommendation if savings >= 20%, None if current is optimal
     let recommendCostOptimization
@@ -493,13 +536,15 @@ module CostEstimation =
         (circuit: CircuitCostProfile)
         (shots: int<shot>)
         : Result<CostRecommendation option, QuantumError> =
-        
+
         match estimateCost currentBackend circuit shots with
         | Error msg -> Error msg
         | Ok currentEstimate ->
             // Subscription-priced backends (e.g. Quantinuum HQC) report ExpectedCost = 0 USD,
             // so they cannot participate in a per-job savings comparison.
-            let comparableBackends = availableBackends |> List.filter (isSubscriptionPriced >> not)
+            let comparableBackends =
+                availableBackends |> List.filter (isSubscriptionPriced >> not)
+
             let subscriptionExcluded = availableBackends |> List.exists isSubscriptionPriced
 
             match comparableBackends with
@@ -509,210 +554,244 @@ module CostEstimation =
             | _ ->
                 match findCheapestBackend comparableBackends circuit shots with
                 | Error msg -> Error msg
-                | Ok (cheapest, cheapestEstimate) ->
+                | Ok(cheapest, cheapestEstimate) ->
                     let savings = currentEstimate.ExpectedCost - cheapestEstimate.ExpectedCost
+
                     let savingsPercent =
                         // Subscription-based backends (e.g. Quantinuum HQC) can have ExpectedCost = 0
-                        if currentEstimate.ExpectedCost = 0.0M<USD> then 0.0
-                        else (float (savings / currentEstimate.ExpectedCost)) * 100.0
+                        if currentEstimate.ExpectedCost = 0.0M<USD> then
+                            0.0
+                        else
+                            (float (savings / currentEstimate.ExpectedCost)) * 100.0
 
                     // Only recommend if savings >= 20%
                     if savings > 0.0M<USD> && savingsPercent >= 20.0 && cheapest <> currentBackend then
                         let baseReasoning =
-                            sprintf "Save $%.2f (%.0f%% reduction) by switching from %s to %s"
+                            sprintf
+                                "Save $%.2f (%.0f%% reduction) by switching from %s to %s"
                                 (float (savings / 1.0M<USD>))
                                 savingsPercent
                                 (formatBackendName currentBackend)
                                 (formatBackendName cheapest)
+
                         let reasoning =
                             if subscriptionExcluded then
-                                baseReasoning + ". Note: subscription-priced backends (e.g. Quantinuum HQC) were excluded from the comparison because they have no per-job USD price."
+                                baseReasoning
+                                + ". Note: subscription-priced backends (e.g. Quantinuum HQC) were excluded from the comparison because they have no per-job USD price."
                             else
                                 baseReasoning
-                        let recommendation = {
-                            CurrentBackend = currentBackend
-                            RecommendedBackend = cheapest
-                            PotentialSavings = savings
-                            Reasoning = reasoning
-                            CurrentCost = currentEstimate
-                            RecommendedCost = cheapestEstimate
-                        }
-                        Ok (Some recommendation)
+
+                        let recommendation =
+                            {
+                                CurrentBackend = currentBackend
+                                RecommendedBackend = cheapest
+                                PotentialSavings = savings
+                                Reasoning = reasoning
+                                CurrentCost = currentEstimate
+                                RecommendedCost = cheapestEstimate
+                            }
+
+                        Ok(Some recommendation)
                     else
                         Ok None
-    
+
     // ============================================================================
     // BUDGET ENFORCEMENT
     // ============================================================================
-    
+
     /// Budget policy configuration
-    type BudgetPolicy = {
-        /// Daily spending limit (USD)
-        DailyLimit: decimal<USD> option
-        
-        /// Monthly spending limit (USD)
-        MonthlyLimit: decimal<USD> option
-        
-        /// Per-job spending limit (USD)
-        PerJobLimit: decimal<USD> option
-        
-        /// Warn when reaching this percentage of budget
-        WarnAtPercent: float
-    }
-    
+    type BudgetPolicy =
+        {
+            /// Daily spending limit (USD)
+            DailyLimit: decimal<USD> option
+
+            /// Monthly spending limit (USD)
+            MonthlyLimit: decimal<USD> option
+
+            /// Per-job spending limit (USD)
+            PerJobLimit: decimal<USD> option
+
+            /// Warn when reaching this percentage of budget
+            WarnAtPercent: float
+        }
+
     module BudgetPolicy =
         /// Default budget policy for development environment
-        let Development = {
-            DailyLimit = Some 50.0M<USD>
-            MonthlyLimit = Some 500.0M<USD>
-            PerJobLimit = Some 20.0M<USD>
-            WarnAtPercent = 80.0
-        }
-        
+        let Development =
+            {
+                DailyLimit = Some 50.0M<USD>
+                MonthlyLimit = Some 500.0M<USD>
+                PerJobLimit = Some 20.0M<USD>
+                WarnAtPercent = 80.0
+            }
+
         /// Default budget policy for production environment
-        let Production = {
-            DailyLimit = Some 500.0M<USD>
-            MonthlyLimit = Some 10000.0M<USD>
-            PerJobLimit = Some 200.0M<USD>
-            WarnAtPercent = 80.0
-        }
-    
+        let Production =
+            {
+                DailyLimit = Some 500.0M<USD>
+                MonthlyLimit = Some 10000.0M<USD>
+                PerJobLimit = Some 200.0M<USD>
+                WarnAtPercent = 80.0
+            }
+
     /// Budget check result
     type BudgetCheckResult =
         | Approved
         | Warning of message: string
         | Denied of reason: string
-    
+
     /// Check if job cost is within budget limits
-    let checkBudget 
-        (policy: BudgetPolicy) 
-        (cost: CostEstimate) 
-        (dailySpent: decimal<USD>) 
-        (monthlySpent: decimal<USD>) 
+    let checkBudget
+        (policy: BudgetPolicy)
+        (cost: CostEstimate)
+        (dailySpent: decimal<USD>)
+        (monthlySpent: decimal<USD>)
         : BudgetCheckResult =
-        
+
         // Check all Denied conditions first so a Warning on one dimension
         // never masks a Denial on another.
         match policy.PerJobLimit with
         | Some limit when cost.ExpectedCost > limit ->
-            Denied (sprintf "Job cost $%.2f exceeds per-job limit $%.2f"
-                (float (cost.ExpectedCost / 1.0M<USD>)) (float (limit / 1.0M<USD>)))
+            Denied(
+                sprintf
+                    "Job cost $%.2f exceeds per-job limit $%.2f"
+                    (float (cost.ExpectedCost / 1.0M<USD>))
+                    (float (limit / 1.0M<USD>))
+            )
         | _ ->
             match policy.DailyLimit with
             | Some limit when dailySpent + cost.ExpectedCost > limit ->
                 let remaining = limit - dailySpent
-                Denied (sprintf "Job cost $%.2f would exceed daily limit (remaining: $%.2f)"
-                    (float (cost.ExpectedCost / 1.0M<USD>)) (float (remaining / 1.0M<USD>)))
+
+                Denied(
+                    sprintf
+                        "Job cost $%.2f would exceed daily limit (remaining: $%.2f)"
+                        (float (cost.ExpectedCost / 1.0M<USD>))
+                        (float (remaining / 1.0M<USD>))
+                )
             | _ ->
                 match policy.MonthlyLimit with
                 | Some limit when monthlySpent + cost.ExpectedCost > limit ->
                     let remaining = limit - monthlySpent
-                    Denied (sprintf "Job cost $%.2f would exceed monthly limit (remaining: $%.2f)"
-                        (float (cost.ExpectedCost / 1.0M<USD>)) (float (remaining / 1.0M<USD>)))
+
+                    Denied(
+                        sprintf
+                            "Job cost $%.2f would exceed monthly limit (remaining: $%.2f)"
+                            (float (cost.ExpectedCost / 1.0M<USD>))
+                            (float (remaining / 1.0M<USD>))
+                    )
                 | _ ->
                     // No limits exceeded — check warning thresholds
                     match policy.DailyLimit with
                     | Some limit when (dailySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
                         let percentUsed = (dailySpent + cost.ExpectedCost) / limit * 100.0M
-                        Warning (sprintf "Job will use %.1f%% of daily budget" (float percentUsed))
+                        Warning(sprintf "Job will use %.1f%% of daily budget" (float percentUsed))
                     | _ ->
                         match policy.MonthlyLimit with
-                        | Some limit when (monthlySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
+                        | Some limit when
+                            (monthlySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent
+                            ->
                             let percentUsed = (monthlySpent + cost.ExpectedCost) / limit * 100.0M
-                            Warning (sprintf "Job will use %.1f%% of monthly budget" (float percentUsed))
-                        | _ ->
-                            Approved
-    
+                            Warning(sprintf "Job will use %.1f%% of monthly budget" (float percentUsed))
+                        | _ -> Approved
+
     // ============================================================================
     // COST TRACKING
     // ============================================================================
-    
+
     /// Cost tracking record for completed jobs
-    type CostTrackingRecord = {
-        /// Job ID
-        JobId: string
-        
-        /// Backend used
-        Backend: CostBackend
-        
-        /// Estimated cost before execution
-        EstimatedCost: decimal<USD>
-        
-        /// Actual cost charged (if available)
-        ActualCost: decimal<USD> option
-        
-        /// Timestamp of job completion
-        Timestamp: DateTimeOffset
-        
-        /// Circuit characteristics
-        Circuit: CircuitCostProfile
-        
-        /// Shots executed
-        Shots: int<shot>
-    }
-    
+    type CostTrackingRecord =
+        {
+            /// Job ID
+            JobId: string
+
+            /// Backend used
+            Backend: CostBackend
+
+            /// Estimated cost before execution
+            EstimatedCost: decimal<USD>
+
+            /// Actual cost charged (if available)
+            ActualCost: decimal<USD> option
+
+            /// Timestamp of job completion
+            Timestamp: DateTimeOffset
+
+            /// Circuit characteristics
+            Circuit: CircuitCostProfile
+
+            /// Shots executed
+            Shots: int<shot>
+        }
+
     /// Cost tracker state
-    type CostTracker = {
-        /// All tracked cost records
-        Records: CostTrackingRecord list
-        
-        /// Daily spending total (USD)
-        DailySpent: decimal<USD>
-        
-        /// Monthly spending total (USD)
-        MonthlySpent: decimal<USD>
-        
-        /// Last reset timestamp for daily tracking
-        LastDailyReset: DateTimeOffset
-        
-        /// Last reset timestamp for monthly tracking
-        LastMonthlyReset: DateTimeOffset
-    }
-    
+    type CostTracker =
+        {
+            /// All tracked cost records
+            Records: CostTrackingRecord list
+
+            /// Daily spending total (USD)
+            DailySpent: decimal<USD>
+
+            /// Monthly spending total (USD)
+            MonthlySpent: decimal<USD>
+
+            /// Last reset timestamp for daily tracking
+            LastDailyReset: DateTimeOffset
+
+            /// Last reset timestamp for monthly tracking
+            LastMonthlyReset: DateTimeOffset
+        }
+
     module CostTracker =
         /// Create new cost tracker
-        let create () : CostTracker = {
-            Records = []
-            DailySpent = 0.0M<USD>
-            MonthlySpent = 0.0M<USD>
-            LastDailyReset = DateTimeOffset.UtcNow
-            LastMonthlyReset = DateTimeOffset.UtcNow
-        }
-        
+        let create () : CostTracker =
+            {
+                Records = []
+                DailySpent = 0.0M<USD>
+                MonthlySpent = 0.0M<USD>
+                LastDailyReset = DateTimeOffset.UtcNow
+                LastMonthlyReset = DateTimeOffset.UtcNow
+            }
+
         /// Check if daily reset is needed
         let needsDailyReset (tracker: CostTracker) : bool =
             let now = DateTimeOffset.UtcNow
             now.Date > tracker.LastDailyReset.Date
-        
+
         /// Check if monthly reset is needed
         let needsMonthlyReset (tracker: CostTracker) : bool =
             let now = DateTimeOffset.UtcNow
-            now.Month <> tracker.LastMonthlyReset.Month || now.Year <> tracker.LastMonthlyReset.Year
-        
+
+            now.Month <> tracker.LastMonthlyReset.Month
+            || now.Year <> tracker.LastMonthlyReset.Year
+
         /// Reset daily spending if needed
         let resetDaily (tracker: CostTracker) : CostTracker =
             if needsDailyReset tracker then
-                { tracker with 
+                { tracker with
                     DailySpent = 0.0M<USD>
-                    LastDailyReset = DateTimeOffset.UtcNow }
+                    LastDailyReset = DateTimeOffset.UtcNow
+                }
             else
                 tracker
-        
+
         /// Reset monthly spending if needed
         let resetMonthly (tracker: CostTracker) : CostTracker =
             if needsMonthlyReset tracker then
-                { tracker with 
+                { tracker with
                     MonthlySpent = 0.0M<USD>
-                    LastMonthlyReset = DateTimeOffset.UtcNow }
+                    LastMonthlyReset = DateTimeOffset.UtcNow
+                }
             else
                 tracker
-        
+
         /// Add cost tracking record
         let addRecord (record: CostTrackingRecord) (tracker: CostTracker) : CostTracker =
             let tracker = tracker |> resetDaily |> resetMonthly
-            
+
             let cost = record.ActualCost |> Option.defaultValue record.EstimatedCost
-            
+
             {
                 Records = record :: tracker.Records
                 DailySpent = tracker.DailySpent + cost
@@ -720,80 +799,89 @@ module CostEstimation =
                 LastDailyReset = tracker.LastDailyReset
                 LastMonthlyReset = tracker.LastMonthlyReset
             }
-        
+
         /// Get total spending for a time period
         let getTotalSpending (since: DateTimeOffset) (tracker: CostTracker) : decimal<USD> =
             tracker.Records
             |> List.filter (fun r -> r.Timestamp >= since)
             |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
-        
+
         /// Get spending by backend
         let getSpendingByBackend (tracker: CostTracker) : Map<CostBackend, decimal<USD>> =
             tracker.Records
             |> List.groupBy (fun r -> r.Backend)
             |> List.map (fun (backend, records) ->
-                let total = 
-                    records 
+                let total =
+                    records
                     |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+
                 backend, total)
             |> Map.ofList
-    
+
     // ============================================================================
     // CLI COST DASHBOARD
     // ============================================================================
-    
+
     /// Format cost dashboard as a string for display or logging
     let formatCostDashboard (records: CostTrackingRecord list) : string =
         let sb = System.Text.StringBuilder()
         sb.AppendLine("\n=== Cost Dashboard ===") |> ignore
-        
+
         if records.IsEmpty then
             sb.AppendLine("\nNo cost records to display.") |> ignore
         else
             // Helper to convert USD to float for display
             let usdFloat (cost: decimal<USD>) = float (cost / 1.0M<USD>)
-            
+
             // Today's spending
             let today = DateTimeOffset.UtcNow.Date
-            let todayRecords = 
-                records 
-                |> List.filter (fun r -> r.Timestamp.Date = today)
-            
-            let todaySpend = 
+            let todayRecords = records |> List.filter (fun r -> r.Timestamp.Date = today)
+
+            let todaySpend =
                 todayRecords
                 |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
-            
-            sb.AppendLine(sprintf "\n[Today] $%.2f (%d jobs)" (usdFloat todaySpend) todayRecords.Length) |> ignore
-            
+
+            sb.AppendLine(sprintf "\n[Today] $%.2f (%d jobs)" (usdFloat todaySpend) todayRecords.Length)
+            |> ignore
+
             // This month's spending
             let thisMonth = DateTimeOffset.UtcNow.Year, DateTimeOffset.UtcNow.Month
+
             let monthlyRecords =
                 records
                 |> List.filter (fun r -> (r.Timestamp.Year, r.Timestamp.Month) = thisMonth)
-            
+
             let monthlySpend =
                 monthlyRecords
                 |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
-            
-            sb.AppendLine(sprintf "[This Month] $%.2f (%d jobs)" (usdFloat monthlySpend) monthlyRecords.Length) |> ignore
-            
+
+            sb.AppendLine(sprintf "[This Month] $%.2f (%d jobs)" (usdFloat monthlySpend) monthlyRecords.Length)
+            |> ignore
+
             // Total spending
-            let totalSpend = 
-                records 
+            let totalSpend =
+                records
                 |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
-            
-            sb.AppendLine(sprintf "[Total] $%.2f (%d jobs)" (usdFloat totalSpend) records.Length) |> ignore
-            
+
+            sb.AppendLine(sprintf "[Total] $%.2f (%d jobs)" (usdFloat totalSpend) records.Length)
+            |> ignore
+
             // Breakdown by backend
             sb.AppendLine("\n[Spending by Backend]") |> ignore
+
             records
             |> List.groupBy (fun r -> r.Backend)
-            |> List.sortByDescending (fun (_, recs) -> 
-                recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost))
+            |> List.sortByDescending (fun (_, recs) ->
+                recs
+                |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost))
             |> List.iter (fun (backend, recs) ->
-                let total = recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
-                sb.AppendLine(sprintf "  %s: $%.2f (%d jobs)" (formatBackendName backend) (usdFloat total) recs.Length) |> ignore)
-            
+                let total =
+                    recs
+                    |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+
+                sb.AppendLine(sprintf "  %s: $%.2f (%d jobs)" (formatBackendName backend) (usdFloat total) recs.Length)
+                |> ignore)
+
             // Estimate accuracy (relative error is undefined for zero-cost jobs, so skip them)
             let recordsWithActual =
                 records
@@ -808,106 +896,113 @@ module CostEstimation =
                     |> List.map (fun r ->
                         let actual = r.ActualCost.Value
                         let estimated = r.EstimatedCost
-                        abs(float ((actual - estimated) / actual)))
-                
+                        abs (float ((actual - estimated) / actual)))
+
                 let avgError = (List.average accuracyErrors) * 100.0
                 sb.AppendLine($"\n[Estimate Accuracy] %.1f{avgError}%% average error") |> ignore
-        
+
         sb.ToString()
 
     /// Display cost dashboard, directing output to ILogger if provided
     let displayCostDashboard (records: CostTrackingRecord list) (logger: ILogger option) : unit =
         let dashboard = formatCostDashboard records
         logInfo logger dashboard
-    
+
     // ============================================================================
     // AZURE QUANTUM METADATA PARSING (for Azure job cost info)
     // ============================================================================
-    
+
     /// Actual cost information from Azure Quantum job metadata
-    type CostInfo = {
-        /// Job ID
-        JobId: string
-        
-        /// Actual cost charged
-        ActualCost: decimal<USD> option
-        
-        /// Currency code
-        Currency: string
-        
-        /// Billing status
-        BillingStatus: string option
-    }
-    
+    type CostInfo =
+        {
+            /// Job ID
+            JobId: string
+
+            /// Actual cost charged
+            ActualCost: decimal<USD> option
+
+            /// Currency code
+            Currency: string
+
+            /// Billing status
+            BillingStatus: string option
+        }
+
     // ============================================================================
     // SIMPLIFIED LEGACY API (for backward compatibility with Client.fs)
     // ============================================================================
-    
+
     /// Simplified cost estimate (compatible with old Cost.fs API)
-    type SimpleCostEstimate = {
-        /// Target backend ID
-        Target: string
-        
-        /// Minimum estimated cost
-        MinimumCost: decimal<USD>
-        
-        /// Maximum estimated cost
-        MaximumCost: decimal<USD>
-        
-        /// Expected cost (conservative estimate)
-        ExpectedCost: decimal<USD>
-        
-        /// Currency code
-        Currency: string
-        
-        /// Warning messages
-        Warnings: string list
-    }
-    
+    type SimpleCostEstimate =
+        {
+            /// Target backend ID
+            Target: string
+
+            /// Minimum estimated cost
+            MinimumCost: decimal<USD>
+
+            /// Maximum estimated cost
+            MaximumCost: decimal<USD>
+
+            /// Expected cost (conservative estimate)
+            ExpectedCost: decimal<USD>
+
+            /// Currency code
+            Currency: string
+
+            /// Warning messages
+            Warnings: string list
+        }
+
     /// Simplified cost estimation based on target string and shot count
     /// This is a compatibility wrapper for Client.fs (legacy Cost.fs API)
     let estimateCostSimple (target: string) (shots: int) : Result<SimpleCostEstimate, QuantumError> =
         if shots < 1 then
-            Error (QuantumError.ValidationError("shots", "Shot count must be at least 1"))
+            Error(QuantumError.ValidationError("shots", "Shot count must be at least 1"))
         elif String.IsNullOrWhiteSpace(target) then
-            Error (QuantumError.ValidationError("target", "Target backend cannot be empty"))
+            Error(QuantumError.ValidationError("target", "Target backend cannot be empty"))
         else
             // Detect backend type from target string
             let isSimulator = target.Contains("simulator", StringComparison.OrdinalIgnoreCase)
-            
+
             if isSimulator then
                 // Simulators are free
-                Ok {
-                    Target = target
-                    MinimumCost = 0.0M<USD>
-                    MaximumCost = 0.0M<USD>
-                    ExpectedCost = 0.0M<USD>
-                    Currency = "USD"
-                    Warnings = []
-                }
+                Ok
+                    {
+                        Target = target
+                        MinimumCost = 0.0M<USD>
+                        MaximumCost = 0.0M<USD>
+                        ExpectedCost = 0.0M<USD>
+                        Currency = "USD"
+                        Warnings = []
+                    }
             else
                 // QPU - use simple heuristic (conservative estimate)
                 let baseCost = 100.0M<USD>
                 let perShotCost = 0.01M<USD>
                 let minCost = baseCost
                 let maxCost = baseCost + (decimal shots * perShotCost)
-                
+
                 let warnings =
                     if maxCost > 200.0M<USD> then
-                        [ sprintf "Estimated cost $%.2f exceeds $200. Consider using simulator first."
-                              (float (maxCost / 1.0M<USD>)) ]
+                        [
+                            sprintf
+                                "Estimated cost $%.2f exceeds $200. Consider using simulator first."
+                                (float (maxCost / 1.0M<USD>))
+                        ]
                     else
                         []
-                
-                Ok {
-                    Target = target
-                    MinimumCost = minCost
-                    MaximumCost = maxCost
-                    ExpectedCost = maxCost  // Conservative: use max
-                    Currency = "USD"
-                    Warnings = warnings
-                }
-    
+
+                Ok
+                    {
+                        Target = target
+                        MinimumCost = minCost
+                        MaximumCost = maxCost
+                        ExpectedCost = maxCost // Conservative: use max
+                        Currency = "USD"
+                        Warnings = warnings
+                    }
+
     /// Parse cost information from Azure Quantum job metadata JSON
     /// Returns cost information extracted from Azure's costData field
     let parseCostFromMetadata (costDataJson: string option) : CostInfo option =
@@ -920,7 +1015,7 @@ module CostEstimation =
                 // Example: {"estimated": 135.50, "currency": "USD"}
                 use doc = System.Text.Json.JsonDocument.Parse(json)
                 let root = doc.RootElement
-                
+
                 let cost =
                     match tryGetJsonDouble "estimated" root with
                     | Some v -> Some(decimal v * 1.0M<USD>)
@@ -928,31 +1023,37 @@ module CostEstimation =
                         match tryGetJsonDouble "actual" root with
                         | Some v -> Some(decimal v * 1.0M<USD>)
                         | None -> None
-                
+
                 let currency = getJsonStringOrDefault "currency" "USD" root
                 let billingStatus = tryGetJsonString "billingStatus" root
-                
-                Some {
-                    JobId = ""  // Will be set by caller
-                    ActualCost = cost
-                    Currency = currency
-                    BillingStatus = billingStatus
-                }
+
+                Some
+                    {
+                        JobId = "" // Will be set by caller
+                        ActualCost = cost
+                        Currency = currency
+                        BillingStatus = billingStatus
+                    }
             with _ ->
                 None
-    
+
     // ============================================================================
     // CSV PERSISTENCE (TKT-48)
     // ============================================================================
-    
+
     /// CSV field escaping - handles commas, quotes, and newlines in field values
     let private escapeCsvField (field: string) : string =
-        if field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r') then
+        if
+            field.Contains(',')
+            || field.Contains('"')
+            || field.Contains('\n')
+            || field.Contains('\r')
+        then
             // Escape quotes by doubling them, then wrap in quotes
             "\"" + field.Replace("\"", "\"\"") + "\""
         else
             field
-    
+
     /// Convert backend to CSV-friendly string representation
     let private backendToCsvString (backend: CostBackend) : string =
         match backend with
@@ -960,32 +1061,38 @@ module CostEstimation =
         | IonQ false -> "IonQ-NoEM"
         | Quantinuum -> "Quantinuum"
         | Rigetti -> "Rigetti"
-    
+
     /// Parse backend from CSV string representation
     let private backendFromCsvString (str: string) : Result<CostBackend, QuantumError> =
         match str with
-        | "IonQ-EM" -> Ok (IonQ true)
-        | "IonQ-NoEM" -> Ok (IonQ false)
+        | "IonQ-EM" -> Ok(IonQ true)
+        | "IonQ-NoEM" -> Ok(IonQ false)
         | "Quantinuum" -> Ok Quantinuum
         | "Rigetti" -> Ok Rigetti
-        | _ -> Error (QuantumError.ValidationError("backend", $"Unknown backend string: '{str}' - expected IonQ-EM, IonQ-NoEM, Quantinuum, or Rigetti"))
-    
+        | _ ->
+            Error(
+                QuantumError.ValidationError(
+                    "backend",
+                    $"Unknown backend string: '{str}' - expected IonQ-EM, IonQ-NoEM, Quantinuum, or Rigetti"
+                )
+            )
+
     /// Save cost tracking record to CSV file (appends if file exists)
     let saveCostRecordToCsv (filePath: string) (record: CostTrackingRecord) : Result<unit, QuantumError> =
         try
             // CSV format: JobId,Backend,EstimatedCost,ActualCost,Timestamp,SingleQubitGates,TwoQubitGates,Measurements,QubitCount,Shots
-            let actualCostStr = 
+            let actualCostStr =
                 match record.ActualCost with
                 | Some cost -> string (cost / 1.0M<USD>)
                 | None -> ""
-            
-            let csvLine = 
+
+            let csvLine =
                 [
                     escapeCsvField record.JobId
                     backendToCsvString record.Backend
                     string (record.EstimatedCost / 1.0M<USD>)
                     actualCostStr
-                    record.Timestamp.ToString "o"  // ISO 8601 format
+                    record.Timestamp.ToString "o" // ISO 8601 format
                     string (int record.Circuit.SingleQubitGates)
                     string (int record.Circuit.TwoQubitGates)
                     string (int record.Circuit.Measurements)
@@ -993,13 +1100,13 @@ module CostEstimation =
                     string (int record.Shots)
                 ]
                 |> String.concat ","
-            
+
             // Append to file (create if doesn't exist)
-            System.IO.File.AppendAllLines(filePath, [csvLine])
-            Ok ()
+            System.IO.File.AppendAllLines(filePath, [ csvLine ])
+            Ok()
         with ex ->
-            Error (QuantumError.IOError("CSV write", filePath, ex.Message))
-    
+            Error(QuantumError.IOError("CSV write", filePath, ex.Message))
+
     /// Load cost history from CSV file
     let loadCostHistoryFromCsv (filePath: string) : Result<CostTrackingRecord list, QuantumError> =
         try
@@ -1008,7 +1115,7 @@ module CostEstimation =
                 Ok []
             else
                 let lines = System.IO.File.ReadAllLines(filePath)
-                
+
                 let records =
                     lines
                     |> Array.toList
@@ -1018,15 +1125,16 @@ module CostEstimation =
                         else
                             try
                                 // Parse CSV line (handle quoted fields with commas)
-                                let fields = 
+                                let fields =
                                     let rec parseFields pos inQuotes currentField fields =
                                         if pos >= line.Length then
                                             // Add final field
                                             List.rev (currentField :: fields)
                                         else
                                             let c = line.[pos]
+
                                             match c with
-                                            | '"' -> 
+                                            | '"' ->
                                                 if inQuotes && pos + 1 < line.Length && line.[pos + 1] = '"' then
                                                     // Escaped quote - add single quote and skip next char
                                                     parseFields (pos + 2) inQuotes (currentField + "\"") fields
@@ -1036,41 +1144,46 @@ module CostEstimation =
                                             | ',' when not inQuotes ->
                                                 // Field delimiter
                                                 parseFields (pos + 1) inQuotes "" (currentField :: fields)
-                                            | _ ->
-                                                parseFields (pos + 1) inQuotes (currentField + string c) fields
-                                    
+                                            | _ -> parseFields (pos + 1) inQuotes (currentField + string c) fields
+
                                     parseFields 0 false "" []
-                                
+
                                 if fields.Length <> 10 then
                                     None
                                 else
                                     match backendFromCsvString fields.[1] with
                                     | Error _ -> None
                                     | Ok backend ->
-                                        let actualCost = 
-                                            if String.IsNullOrWhiteSpace(fields.[3]) then 
-                                                None 
-                                            else 
-                                                Some (decimal fields.[3] * 1.0M<USD>)
-                                        
-                                        Some {
-                                            JobId = fields.[0]
-                                            Backend = backend
-                                            EstimatedCost = decimal fields.[2] * 1.0M<USD>
-                                            ActualCost = actualCost
-                                            Timestamp = DateTimeOffset.Parse(fields.[4], System.Globalization.CultureInfo.InvariantCulture)
-                                            Circuit = {
-                                                SingleQubitGates = int fields.[5] * 1<gate>
-                                                TwoQubitGates = int fields.[6] * 1<gate>
-                                                Measurements = int fields.[7] * 1<gate>
-                                                QubitCount = int fields.[8] * 1<qubit>
+                                        let actualCost =
+                                            if String.IsNullOrWhiteSpace(fields.[3]) then
+                                                None
+                                            else
+                                                Some(decimal fields.[3] * 1.0M<USD>)
+
+                                        Some
+                                            {
+                                                JobId = fields.[0]
+                                                Backend = backend
+                                                EstimatedCost = decimal fields.[2] * 1.0M<USD>
+                                                ActualCost = actualCost
+                                                Timestamp =
+                                                    DateTimeOffset.Parse(
+                                                        fields.[4],
+                                                        System.Globalization.CultureInfo.InvariantCulture
+                                                    )
+                                                Circuit =
+                                                    {
+                                                        SingleQubitGates = int fields.[5] * 1<gate>
+                                                        TwoQubitGates = int fields.[6] * 1<gate>
+                                                        Measurements = int fields.[7] * 1<gate>
+                                                        QubitCount = int fields.[8] * 1<qubit>
+                                                    }
+                                                Shots = int fields.[9] * 1<shot>
                                             }
-                                            Shots = int fields.[9] * 1<shot>
-                                        }
                             with _ ->
-                                None  // Skip malformed lines
+                                None // Skip malformed lines
                     )
-                
+
                 Ok records
         with ex ->
-            Error (QuantumError.IOError("CSV read", filePath, ex.Message))
+            Error(QuantumError.IOError("CSV read", filePath, ex.Message))

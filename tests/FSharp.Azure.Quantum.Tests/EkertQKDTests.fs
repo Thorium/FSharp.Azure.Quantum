@@ -55,9 +55,11 @@ let ``EkertQKD.run NoEavesdropper key bits correlated`` () =
         // With quantum simulation, matching bases should yield >80% correlation
         // (ideally 100% for perfect Bell pairs, but simulation noise may lower it)
         let correlationRate = float correlatedCount / float matchingPairs.Length
+
         Assert.True(
             correlationRate > 0.75,
-            $"Expected high correlation on matching bases, got {correlationRate:F3} ({correlatedCount}/{matchingPairs.Length})")
+            $"Expected high correlation on matching bases, got {correlationRate:F3} ({correlatedCount}/{matchingPairs.Length})"
+        )
 
 // ========================================================================
 // Eavesdropper detection
@@ -78,9 +80,11 @@ let ``EkertQKD.runWithEve CHSH reduced by eavesdropper`` () =
             // With Eve, |S| should be lower than without Eve
             let absSWithEve = abs eveResult.CHSHTest.S
             let absSNoEve = abs noEveResult.CHSHTest.S
+
             Assert.True(
                 absSWithEve < absSNoEve,
-                $"Expected |S| with Eve ({absSWithEve:F4}) < |S| without Eve ({absSNoEve:F4})")
+                $"Expected |S| with Eve ({absSWithEve:F4}) < |S| without Eve ({absSNoEve:F4})"
+            )
 
 // ========================================================================
 // Key rate test
@@ -97,7 +101,8 @@ let ``EkertQKD.run sifted key rate approximately correct`` () =
         // With random basis selection, allow generous tolerance
         Assert.True(
             result.KeyRate > 0.10 && result.KeyRate < 0.40,
-            $"Expected key rate ~22%% (0.10-0.40), got {result.KeyRate:F4} ({result.SiftedKeyLength} of {result.TotalPairs})")
+            $"Expected key rate ~22%% (0.10-0.40), got {result.KeyRate:F4} ({result.SiftedKeyLength} of {result.TotalPairs})"
+        )
 
 // ========================================================================
 // Security detection
@@ -113,9 +118,7 @@ let ``EkertQKD.runWithEve detects eavesdropper via CHSH`` () =
         // Eve's intercept-resend should break entanglement
         // |S| should drop near or below classical bound 2.0
         let absS = abs result.CHSHTest.S
-        Assert.True(
-            absS < 2.5,
-            $"Expected |S| < 2.5 with Eve (intercept-resend should reduce), got |S| = {absS:F4}")
+        Assert.True(absS < 2.5, $"Expected |S| < 2.5 with Eve (intercept-resend should reduce), got |S| = {absS:F4}")
 
 // ========================================================================
 // All basis combinations used
@@ -130,9 +133,7 @@ let ``EkertQKD.run uses all 9 basis combinations`` () =
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
         let basisCombinations =
-            result.Pairs
-            |> List.map (fun p -> (p.AliceBasis, p.BobBasis))
-            |> List.distinct
+            result.Pairs |> List.map (fun p -> (p.AliceBasis, p.BobBasis)) |> List.distinct
 
         Assert.Equal(9, basisCombinations.Length)
 
@@ -144,13 +145,15 @@ let ``EkertQKD.run uses all 9 basis combinations`` () =
 let ``EkertQKD.run rejects zero pairs`` () =
     let backend = createLocalBackend ()
 
-    (EkertQKD.run backend 0 None) |> Result.iter (fun _ -> Assert.Fail("Expected Error for zero pairs")) // Expected: validation error
+    (EkertQKD.run backend 0 None)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for zero pairs")) // Expected: validation error
 
 [<Fact>]
 let ``EkertQKD.run rejects negative pairs`` () =
     let backend = createLocalBackend ()
 
-    (EkertQKD.run backend -5 None) |> Result.iter (fun _ -> Assert.Fail("Expected Error for negative pairs")) // Expected: validation error
+    (EkertQKD.run backend -5 None)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for negative pairs")) // Expected: validation error
 
 // ========================================================================
 // Formatting tests (smoke tests)

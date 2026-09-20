@@ -31,25 +31,43 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "BB84_Issue_Fix_Verification.fsx"
     "Verify BB84 implementation correctness: sample indices, error correction, consistency."
-    [ { Cli.OptionSpec.Name = "keylength"
-        Description = "Key length for BB84 runs"
-        Default = Some "256" }
-      { Cli.OptionSpec.Name = "runs"
-        Description = "Number of consistency runs"
-        Default = Some "10" }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress console output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "keylength"
+            Description = "Key length for BB84 runs"
+            Default = Some "256"
+        }
+        {
+            Cli.OptionSpec.Name = "runs"
+            Description = "Number of consistency runs"
+            Default = Some "10"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let keyLength = Cli.getIntOr "keylength" 256 args
 let numRuns = Cli.getIntOr "runs" 10 args
@@ -82,31 +100,44 @@ let test1Pass =
 
         let sampleIndices = result.EavesdropCheck.SampleIndices
         pr "  Sample indices:    %d returned" sampleIndices.Length
+
         let preview =
             sampleIndices
             |> Array.take (min 10 sampleIndices.Length)
             |> Array.map string
             |> String.concat ", "
+
         pr "  First indices:     [%s]" preview
 
         // Check 1a: Final key length = sifted - sample
         let expectedFinal = result.SiftedKey.Length - result.EavesdropCheck.SampleSize
         let check1a = result.FinalKeyLength = expectedFinal
-        pr "  %s Final key length correct (%d = %d - %d)"
+
+        pr
+            "  %s Final key length correct (%d = %d - %d)"
             (if check1a then "[OK]" else "[FAIL]")
-            result.FinalKeyLength result.SiftedKey.Length result.EavesdropCheck.SampleSize
+            result.FinalKeyLength
+            result.SiftedKey.Length
+            result.EavesdropCheck.SampleSize
 
         // Check 1b: All indices in valid range
         let check1b =
             sampleIndices |> Array.forall (fun i -> i >= 0 && i < result.SiftedKey.Length)
-        pr "  %s All sample indices in valid range (0..%d)"
-            (if check1b then "[OK]" else "[FAIL]") (result.SiftedKey.Length - 1)
+
+        pr
+            "  %s All sample indices in valid range (0..%d)"
+            (if check1b then "[OK]" else "[FAIL]")
+            (result.SiftedKey.Length - 1)
 
         // Check 1c: No duplicate indices
         let uniqueCount = (Set.ofArray sampleIndices).Count
         let check1c = uniqueCount = sampleIndices.Length
-        pr "  %s All sample indices unique (%d unique of %d)"
-            (if check1c then "[OK]" else "[FAIL]") uniqueCount sampleIndices.Length
+
+        pr
+            "  %s All sample indices unique (%d unique of %d)"
+            (if check1c then "[OK]" else "[FAIL]")
+            uniqueCount
+            sampleIndices.Length
 
         check1a && check1b && check1c
 
@@ -141,20 +172,26 @@ let test2Pass =
 
             // Check 2a: EC operated on final key, not sifted key
             let check2a = ec.OriginalKey.Length = result.BB84Result.FinalKeyLength
-            pr "  %s EC operated on Final Key (%d bits, not Sifted Key %d bits)"
+
+            pr
+                "  %s EC operated on Final Key (%d bits, not Sifted Key %d bits)"
                 (if check2a then "[OK]" else "[FAIL]")
-                ec.OriginalKey.Length result.BB84Result.SiftedKey.Length
+                ec.OriginalKey.Length
+                result.BB84Result.SiftedKey.Length
 
             // Check 2b: Corrected key length matches original
             let check2b = ec.CorrectedKey.Length = ec.OriginalKey.Length
-            pr "  %s Corrected key length matches original (%d bits)"
-                (if check2b then "[OK]" else "[FAIL]") ec.CorrectedKey.Length
+
+            pr
+                "  %s Corrected key length matches original (%d bits)"
+                (if check2b then "[OK]" else "[FAIL]")
+                ec.CorrectedKey.Length
 
             check2a && check2b
 
         | None ->
             pr "  Warning: Error correction was skipped"
-            true  // Not a failure, just skipped
+            true // Not a failure, just skipped
 
     | Error err ->
         pr "  [FAIL] Complete QKD pipeline failed: %A" err
@@ -171,19 +208,25 @@ pr "------------------------------------"
 pr ""
 
 let consistencyResults =
-    [ 1 .. numRuns ]
+    [ 1..numRuns ]
     |> List.map (fun i ->
         match runBB84 (keyLength / 2) quantumBackend 0.15 0.11 (Some i) with
         | Ok result ->
             let expectedFinal = result.SiftedKey.Length - result.EavesdropCheck.SampleSize
+
             if result.FinalKeyLength = expectedFinal then
-                Ok (i, result.FinalKeyLength, result.SiftedKey.Length)
+                Ok(i, result.FinalKeyLength, result.SiftedKey.Length)
             else
                 Error $"Run %d{i}: key length mismatch (expected %d{expectedFinal}, got %d{result.FinalKeyLength})"
-        | Error err ->
-            Error $"Run %d{i}: protocol error: %A{err}")
+        | Error err -> Error $"Run %d{i}: protocol error: %A{err}")
 
-let test3Failures = consistencyResults |> List.choose (fun r -> match r with Error e -> Some e | Ok _ -> None)
+let test3Failures =
+    consistencyResults
+    |> List.choose (fun r ->
+        match r with
+        | Error e -> Some e
+        | Ok _ -> None)
+
 let test3Pass = test3Failures.IsEmpty
 
 if test3Pass then
@@ -197,13 +240,21 @@ pr ""
 // Summary
 // ---------------------------------------------------------------------------
 
-let allTests = [ ("Sample Index Consistency", test1Pass); ("Error Correction Target", test2Pass); ("Multi-run Consistency", test3Pass) ]
+let allTests =
+    [
+        ("Sample Index Consistency", test1Pass)
+        ("Error Correction Target", test2Pass)
+        ("Multi-run Consistency", test3Pass)
+    ]
+
 let passCount = allTests |> List.filter snd |> List.length
 let totalCount = allTests.Length
 
 pr "=== VERIFICATION SUMMARY ==="
-allTests |> List.iter (fun (name, passed) ->
-    pr "  %s %s" (if passed then "[OK]  " else "[FAIL]") name)
+
+allTests
+|> List.iter (fun (name, passed) -> pr "  %s %s" (if passed then "[OK]  " else "[FAIL]") name)
+
 pr ""
 pr "Result: %d/%d tests passed" passCount totalCount
 pr ""
@@ -212,15 +263,19 @@ pr ""
 // JSON output
 // ---------------------------------------------------------------------------
 
-outputPath |> Option.iter (fun path ->
+outputPath
+|> Option.iter (fun path ->
     let payload =
-        {| test1_sampleIndexConsistency = test1Pass
-           test2_errorCorrectionTarget = test2Pass
-           test3_multiRunConsistency = test3Pass
-           totalPassed = passCount
-           totalTests = totalCount
-           keyLength = keyLength
-           consistencyRuns = numRuns |}
+        {|
+            test1_sampleIndexConsistency = test1Pass
+            test2_errorCorrectionTarget = test2Pass
+            test3_multiRunConsistency = test3Pass
+            totalPassed = passCount
+            totalTests = totalCount
+            keyLength = keyLength
+            consistencyRuns = numRuns
+        |}
+
     Reporting.writeJson path payload
     pr "JSON written to %s" path)
 
@@ -228,11 +283,14 @@ outputPath |> Option.iter (fun path ->
 // CSV output
 // ---------------------------------------------------------------------------
 
-csvPath |> Option.iter (fun path ->
+csvPath
+|> Option.iter (fun path ->
     let header = [ "test"; "result" ]
+
     let rows =
         allTests
         |> List.map (fun (name, passed) -> [ name; if passed then "PASS" else "FAIL" ])
+
     Reporting.writeCsv path header rows
     pr "CSV written to %s" path)
 

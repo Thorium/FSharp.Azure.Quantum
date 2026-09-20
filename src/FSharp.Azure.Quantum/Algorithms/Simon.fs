@@ -39,34 +39,32 @@ module Simon =
     // ========================================================================
 
     /// Simon's algorithm result
-    type SimonResult = {
-        /// Recovered secret, indexed by qubit (bit i = s_i).
-        /// All zeros means f is one-to-one (s = 0).
-        RecoveredSecret: int[]
+    type SimonResult =
+        {
+            /// Recovered secret, indexed by qubit (bit i = s_i).
+            /// All zeros means f is one-to-one (s = 0).
+            RecoveredSecret: int[]
 
-        /// True when the function was determined to be one-to-one (s = 0)
-        IsOneToOne: bool
+            /// True when the function was determined to be one-to-one (s = 0)
+            IsOneToOne: bool
 
-        /// Distinct nonzero measurement vectors used as GF(2) equations y·s = 0
-        Equations: int[][]
+            /// Distinct nonzero measurement vectors used as GF(2) equations y·s = 0
+            Equations: int[][]
 
-        /// Number of input qubits (total circuit uses 2n)
-        NumInputQubits: int
+            /// Number of input qubits (total circuit uses 2n)
+            NumInputQubits: int
 
-        /// Number of shots performed
-        Shots: int
+            /// Number of shots performed
+            Shots: int
 
-        /// Backend used
-        BackendName: string
-    }
+            /// Backend used
+            BackendName: string
+        }
 
     /// Oracle function type - XOR oracle over 2n qubits: |x⟩|y⟩ → |x⟩|y ⊕ f(x)⟩
     type Oracle = QuantumState -> Result<QuantumState, QuantumError>
 
-    type private SimonIntent = {
-        NumInputQubits: int
-        Oracle: Oracle
-    }
+    type private SimonIntent = { NumInputQubits: int; Oracle: Oracle }
 
     [<RequireQualifiedAccess>]
     type private SimonPlan =
@@ -77,8 +75,7 @@ module Simon =
     // ========================================================================
 
     let private hadamardsOnInputRegister (numInputQubits: int) : QuantumOperation list =
-        [ 0 .. numInputQubits - 1 ]
-        |> List.map (H >> QuantumOperation.Gate)
+        [ 0 .. numInputQubits - 1 ] |> List.map (H >> QuantumOperation.Gate)
 
     // ========================================================================
     // GF(2) LINEAR ALGEBRA (classical post-processing)
@@ -90,25 +87,36 @@ module Simon =
         let highestSetBit (v: int) =
             let mutable bit = 0
             let mutable x = v
+
             while x > 1 do
                 x <- x >>> 1
                 bit <- bit + 1
+
             bit
 
-        let mutable pivots : (int * int) list = []
+        let mutable pivots: (int * int) list = []
+
         for row in rows do
             // Reduce the incoming row against existing pivots
             let mutable r = row
+
             for (pb, pr) in pivots do
-                if (r >>> pb) &&& 1 = 1 then r <- r ^^^ pr
+                if (r >>> pb) &&& 1 = 1 then
+                    r <- r ^^^ pr
+
             if r <> 0 then
                 let pb = highestSetBit r
                 // Eliminate the new pivot bit from existing rows (full RREF)
                 pivots <-
                     pivots
                     |> List.map (fun (opb, opr) ->
-                        if (opr >>> pb) &&& 1 = 1 then (opb, opr ^^^ r) else (opb, opr))
+                        if (opr >>> pb) &&& 1 = 1 then
+                            (opb, opr ^^^ r)
+                        else
+                            (opb, opr))
+
                 pivots <- (pb, r) :: pivots
+
         pivots
 
     /// Solve for the secret from equation masks (each satisfying mask·s = 0).
@@ -123,6 +131,7 @@ module Simon =
             Ok 0
         elif rank = numInputQubits - 1 then
             let pivotBits = pivots |> List.map fst |> Set.ofList
+
             let freeBit =
                 [ 0 .. numInputQubits - 1 ]
                 |> List.find (fun b -> not (Set.contains b pivotBits))
@@ -130,14 +139,22 @@ module Simon =
             // coefficient at the free bit (so that row·s = 0).
             let secret =
                 pivots
-                |> List.fold (fun acc (pb, pr) ->
-                    if (pr >>> freeBit) &&& 1 = 1 then acc ||| (1 <<< pb) else acc)
+                |> List.fold
+                    (fun acc (pb, pr) ->
+                        if (pr >>> freeBit) &&& 1 = 1 then
+                            acc ||| (1 <<< pb)
+                        else
+                            acc)
                     (1 <<< freeBit)
+
             Ok secret
         else
-            Error (QuantumError.OperationError (
-                "Simon",
-                $"Only {rank} independent equations for {numInputQubits} unknowns - increase shots to determine the secret"))
+            Error(
+                QuantumError.OperationError(
+                    "Simon",
+                    $"Only {rank} independent equations for {numInputQubits} unknowns - increase shots to determine the secret"
+                )
+            )
 
     // ========================================================================
     // ORACLE CONSTRUCTORS
@@ -152,16 +169,18 @@ module Simon =
     /// The secret is indexed by qubit: secret.[i] ∈ {0, 1} corresponds to qubit i.
     let xorOracleForSecret (secret: int[]) (backend: IQuantumBackend) : Oracle =
         let n = secret.Length
+
         let copyOps =
-            [ 0 .. n - 1 ]
-            |> List.map (fun i -> QuantumOperation.Gate (CNOT (i, n + i)))
+            [ 0 .. n - 1 ] |> List.map (fun i -> QuantumOperation.Gate(CNOT(i, n + i)))
+
         let maskOps =
             match secret |> Array.tryFindIndex ((=) 1) with
             | Some j ->
                 [ 0 .. n - 1 ]
                 |> List.filter (fun i -> secret.[i] = 1)
-                |> List.map (fun i -> QuantumOperation.Gate (CNOT (j, n + i)))
+                |> List.map (fun i -> QuantumOperation.Gate(CNOT(j, n + i)))
             | None -> []
+
         fun state -> UnifiedBackend.applySequence backend (copyOps @ maskOps) state
 
     // ========================================================================
@@ -171,13 +190,24 @@ module Simon =
     let private plan (backend: IQuantumBackend) (intent: SimonIntent) : Result<SimonPlan, QuantumError> =
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
-            Error (QuantumError.OperationError ("Simon", $"Backend '{backend.Name}' does not support Simon's algorithm (native state type: {backend.NativeStateType})"))
+            Error(
+                QuantumError.OperationError(
+                    "Simon",
+                    $"Backend '{backend.Name}' does not support Simon's algorithm (native state type: {backend.NativeStateType})"
+                )
+            )
         | _ ->
             let hadamards = hadamardsOnInputRegister intent.NumInputQubits
+
             if hadamards |> List.forall backend.SupportsOperation then
-                Ok (SimonPlan.ExecuteViaOpsAndOracle (hadamards, intent.Oracle, hadamards))
+                Ok(SimonPlan.ExecuteViaOpsAndOracle(hadamards, intent.Oracle, hadamards))
             else
-                Error (QuantumError.OperationError ("Simon", $"Backend '{backend.Name}' does not support required operations for Simon's algorithm"))
+                Error(
+                    QuantumError.OperationError(
+                        "Simon",
+                        $"Backend '{backend.Name}' does not support required operations for Simon's algorithm"
+                    )
+                )
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -186,7 +216,7 @@ module Simon =
         : Result<QuantumState, QuantumError> =
 
         match plan with
-        | SimonPlan.ExecuteViaOpsAndOracle (preOps, oracle, postOps) ->
+        | SimonPlan.ExecuteViaOpsAndOracle(preOps, oracle, postOps) ->
             result {
                 let! afterPre = UnifiedBackend.applySequence backend preOps state
                 let! afterOracle = oracle afterPre
@@ -223,17 +253,26 @@ module Simon =
         : Result<SimonResult, QuantumError> =
 
         if numInputQubits < 1 then
-            Error (QuantumError.ValidationError ("numInputQubits", "Simon's algorithm requires at least 1 input qubit"))
+            Error(QuantumError.ValidationError("numInputQubits", "Simon's algorithm requires at least 1 input qubit"))
         elif numInputQubits > 10 then
-            Error (QuantumError.ValidationError ("numInputQubits", "Simon's algorithm uses 2n qubits; >10 input qubits not practical on NISQ hardware"))
+            Error(
+                QuantumError.ValidationError(
+                    "numInputQubits",
+                    "Simon's algorithm uses 2n qubits; >10 input qubits not practical on NISQ hardware"
+                )
+            )
         elif shots < 1 then
-            Error (QuantumError.ValidationError ("shots", "Simon's algorithm requires at least 1 shot"))
+            Error(QuantumError.ValidationError("shots", "Simon's algorithm requires at least 1 shot"))
         else
             result {
-                let intent = { NumInputQubits = numInputQubits; Oracle = oracle }
+                let intent =
+                    {
+                        NumInputQubits = numInputQubits
+                        Oracle = oracle
+                    }
 
                 // Step 1: Initialize |0⟩^⊗2n state
-                let! initialState = backend.InitializeState (2 * numInputQubits)
+                let! initialState = backend.InitializeState(2 * numInputQubits)
 
                 // Step 2: Plan and execute
                 let! simonPlan = plan backend intent
@@ -243,8 +282,7 @@ module Simon =
                 let measurements = UnifiedBackend.measureState finalState shots
 
                 let inputBits =
-                    measurements
-                    |> Array.map (fun bits -> Array.sub bits 0 numInputQubits)
+                    measurements |> Array.map (fun bits -> Array.sub bits 0 numInputQubits)
 
                 let equationMasks =
                     inputBits
@@ -256,22 +294,22 @@ module Simon =
                 // Step 4: Classical post-processing over GF(2)
                 let! secretMask = solveSecret numInputQubits equationMasks
 
-                let secretBits =
-                    Array.init numInputQubits (fun i -> (secretMask >>> i) &&& 1)
+                let secretBits = Array.init numInputQubits (fun i -> (secretMask >>> i) &&& 1)
 
                 let equations =
                     equationMasks
                     |> List.map (fun m -> Array.init numInputQubits (fun i -> (m >>> i) &&& 1))
                     |> List.toArray
 
-                return {
-                    RecoveredSecret = secretBits
-                    IsOneToOne = (secretMask = 0)
-                    Equations = equations
-                    NumInputQubits = numInputQubits
-                    Shots = shots
-                    BackendName = backend.Name
-                }
+                return
+                    {
+                        RecoveredSecret = secretBits
+                        IsOneToOne = (secretMask = 0)
+                        Equations = equations
+                        NumInputQubits = numInputQubits
+                        Shots = shots
+                        BackendName = backend.Name
+                    }
             }
 
     // ========================================================================
@@ -280,10 +318,9 @@ module Simon =
 
     /// Run Simon's algorithm for a known secret (builds the XOR oracle internally).
     /// Useful for testing and demonstrations: the result should recover `secret`.
-    let runWithSecret (secret: int[]) (backend: IQuantumBackend) (shots: int)
-        : Result<SimonResult, QuantumError> =
+    let runWithSecret (secret: int[]) (backend: IQuantumBackend) (shots: int) : Result<SimonResult, QuantumError> =
         if secret |> Array.exists (fun b -> b <> 0 && b <> 1) then
-            Error (QuantumError.ValidationError ("secret", "Secret must contain only bits (0 or 1)"))
+            Error(QuantumError.ValidationError("secret", "Secret must contain only bits (0 or 1)"))
         else
             run (xorOracleForSecret secret backend) secret.Length backend shots
 
@@ -294,8 +331,15 @@ module Simon =
     /// Format Simon result for display
     let formatResult (result: SimonResult) : string =
         let secretStr = result.RecoveredSecret |> Array.map string |> String.concat ""
-        let kindStr = if result.IsOneToOne then "One-to-one (s = 0)" else "Two-to-one"
-        sprintf "Simon Result:\n  Recovered Secret: %s\n  Function: %s\n  Distinct Equations: %d\n  Input Qubits: %d (circuit: %d)\n  Shots: %d\n  Backend: %s"
+
+        let kindStr =
+            if result.IsOneToOne then
+                "One-to-one (s = 0)"
+            else
+                "Two-to-one"
+
+        sprintf
+            "Simon Result:\n  Recovered Secret: %s\n  Function: %s\n  Distinct Equations: %d\n  Input Qubits: %d (circuit: %d)\n  Shots: %d\n  Backend: %s"
             secretStr
             kindStr
             result.Equations.Length

@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Core
+
 open FSharp.Azure.Quantum.Core
 
 open System
@@ -33,7 +34,7 @@ module IqmBackend =
             Target = target
             Name = Some $"IQM-%s{target}"
             InputData = qasmCode :> obj
-            InputDataFormat = CircuitFormat.Custom "qasm.v2"  // OpenQASM 2.0
+            InputDataFormat = CircuitFormat.Custom "qasm.v2" // OpenQASM 2.0
             InputParams = Map [ ("shots", shots :> obj) ]
             Tags = Map.empty
         }
@@ -58,7 +59,7 @@ module IqmBackend =
             | (false, _) ->
                 match root.TryGetProperty "measurements" with
                 | (true, element) -> element
-                | (false, _) -> root  // Fallback: root is the histogram itself
+                | (false, _) -> root // Fallback: root is the histogram itself
 
         results.EnumerateObject()
         |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
@@ -71,13 +72,10 @@ module IqmBackend =
     /// Map IQM error codes to QuantumError types.
     let mapIqmError (errorCode: string) (errorMessage: string) : QuantumError =
         match errorCode with
-        | "InvalidCircuit" ->
-            QuantumError.ValidationError("circuit", errorMessage)
-        | "TooManyQubits" ->
-            QuantumError.ValidationError("circuit", $"Circuit too large: %s{errorMessage}")
-        | "QuotaExceeded" ->
-            QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
+        | "InvalidCircuit" -> QuantumError.ValidationError("circuit", errorMessage)
+        | "TooManyQubits" -> QuantumError.ValidationError("circuit", $"Circuit too large: %s{errorMessage}")
+        | "QuotaExceeded" -> QuantumError.AzureError(AzureQuantumError.QuotaExceeded errorMessage)
         | "BackendUnavailable" ->
-            QuantumError.AzureError (AzureQuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes(5.0))))
+            QuantumError.AzureError(AzureQuantumError.ServiceUnavailable(Some(TimeSpan.FromMinutes(5.0))))
         | _ ->
-            QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"IQM error: %s{errorCode} - %s{errorMessage}"))
+            QuantumError.AzureError(AzureQuantumError.UnknownError(0, $"IQM error: %s{errorCode} - %s{errorMessage}"))

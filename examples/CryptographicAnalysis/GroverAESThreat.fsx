@@ -46,15 +46,46 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "GroverAESThreat.fsx"
+Cli.exitIfHelp
+    "GroverAESThreat.fsx"
     "Grover's algorithm threat analysis for symmetric ciphers (AES, ChaCha20, DES, etc.)."
-    [ { Cli.OptionSpec.Name = "input"; Description = "CSV file with custom cipher definitions"; Default = Some "built-in presets" }
-      { Cli.OptionSpec.Name = "ciphers"; Description = "Comma-separated cipher names to analyse (default: all)"; Default = Some "all" }
-      { Cli.OptionSpec.Name = "target"; Description = "Target value for Grover demo search"; Default = Some "3" }
-      { Cli.OptionSpec.Name = "qubits"; Description = "Number of qubits for Grover demo search"; Default = Some "2" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output (flag)"; Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with custom cipher definitions"
+            Default = Some "built-in presets"
+        }
+        {
+            Cli.OptionSpec.Name = "ciphers"
+            Description = "Comma-separated cipher names to analyse (default: all)"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "target"
+            Description = "Target value for Grover demo search"
+            Default = Some "3"
+        }
+        {
+            Cli.OptionSpec.Name = "qubits"
+            Description = "Number of qubits for Grover demo search"
+            Default = Some "2"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output (flag)"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -69,21 +100,25 @@ let numQubits = Cli.getIntOr "qubits" 2 args
 
 /// Symmetric cipher configuration.
 type CipherInfo =
-    { Name: string
-      KeyBits: int
-      BlockBits: int }
+    {
+        Name: string
+        KeyBits: int
+        BlockBits: int
+    }
 
 /// Security analysis result for one cipher.
 type CipherResult =
-    { Cipher: CipherInfo
-      ClassicalSecurityBits: float
-      QuantumSecurityBits: float
-      QuantumSafe: bool
-      GroverIterationsLog2: float
-      ResourceEstimate: string
-      TimeYears: float
-      Recommendation: string
-      HasQuantumFailure: bool }
+    {
+        Cipher: CipherInfo
+        ClassicalSecurityBits: float
+        QuantumSecurityBits: float
+        QuantumSafe: bool
+        GroverIterationsLog2: float
+        ResourceEstimate: string
+        TimeYears: float
+        Recommendation: string
+        HasQuantumFailure: bool
+    }
 
 // ==============================================================================
 // PHYSICAL CONSTANTS
@@ -98,8 +133,7 @@ let opsPerSecond = 1e9
 // ==============================================================================
 
 /// Quantum security bits = classical / 2  (Grover's quadratic speedup).
-let quantumSecurityBits (classicalBits: int) : float =
-    float classicalBits / 2.0
+let quantumSecurityBits (classicalBits: int) : float = float classicalBits / 2.0
 
 /// Estimate Grover iterations (log2) for a key space of keyBits.
 let groverIterationsLog2 (keyBits: int) : float =
@@ -111,12 +145,12 @@ let groverIterationsLog2 (keyBits: int) : float =
 /// Estimate quantum resources based on Grassl et al. (2016).
 let estimateResources (keyBits: int) : string =
     match keyBits with
-    | 56  -> "~1000 qubits, 2^48 T-gates"
+    | 56 -> "~1000 qubits, 2^48 T-gates"
     | 112 -> "~2200 qubits, 2^76 T-gates"
     | 128 -> "2953 qubits, 2^86 T-gates"
     | 192 -> "4449 qubits, 2^118 T-gates"
     | 256 -> "6681 qubits, 2^151 T-gates"
-    | _   -> sprintf "~%d qubits, 2^%d T-gates" (keyBits * 20) (keyBits / 2 + 20)
+    | _ -> sprintf "~%d qubits, 2^%d T-gates" (keyBits * 20) (keyBits / 2 + 20)
 
 /// Estimate attack time in years at opsPerSecond.
 let estimateTimeYears (keyBits: int) : float =
@@ -130,38 +164,69 @@ let recommend (cipher: CipherInfo) (qSafe: bool) (qBits: float) : string =
     if qSafe then
         $"%s{cipher.Name} is quantum-safe (%.0f{qBits}-bit quantum security)"
     elif qBits >= 64.0 then
-        sprintf "%s has reduced security (%.0f-bit quantum). Consider %d-bit keys."
-            cipher.Name qBits (cipher.KeyBits * 2)
+        sprintf
+            "%s has reduced security (%.0f-bit quantum). Consider %d-bit keys."
+            cipher.Name
+            qBits
+            (cipher.KeyBits * 2)
     else
-        sprintf "%s is NOT quantum-safe (%.0f-bit quantum). UPGRADE IMMEDIATELY."
-            cipher.Name qBits
+        sprintf "%s is NOT quantum-safe (%.0f-bit quantum). UPGRADE IMMEDIATELY." cipher.Name qBits
 
 /// Analyse one cipher.
 let analyseCipher (cipher: CipherInfo) : CipherResult =
     let classical = float cipher.KeyBits
     let quantum = quantumSecurityBits cipher.KeyBits
     let safe = quantum >= 128.0
-    { Cipher = cipher
-      ClassicalSecurityBits = classical
-      QuantumSecurityBits = quantum
-      QuantumSafe = safe
-      GroverIterationsLog2 = groverIterationsLog2 cipher.KeyBits
-      ResourceEstimate = estimateResources cipher.KeyBits
-      TimeYears = estimateTimeYears cipher.KeyBits
-      Recommendation = recommend cipher safe quantum
-      HasQuantumFailure = false }
+
+    {
+        Cipher = cipher
+        ClassicalSecurityBits = classical
+        QuantumSecurityBits = quantum
+        QuantumSafe = safe
+        GroverIterationsLog2 = groverIterationsLog2 cipher.KeyBits
+        ResourceEstimate = estimateResources cipher.KeyBits
+        TimeYears = estimateTimeYears cipher.KeyBits
+        Recommendation = recommend cipher safe quantum
+        HasQuantumFailure = false
+    }
 
 // ==============================================================================
 // BUILT-IN CIPHER PRESETS
 // ==============================================================================
 
-let private builtinPresets : Map<string, CipherInfo> =
-    [ { Name = "DES";      KeyBits = 56;  BlockBits = 64 }
-      { Name = "3DES";     KeyBits = 112; BlockBits = 64 }
-      { Name = "AES-128";  KeyBits = 128; BlockBits = 128 }
-      { Name = "AES-192";  KeyBits = 192; BlockBits = 128 }
-      { Name = "AES-256";  KeyBits = 256; BlockBits = 128 }
-      { Name = "ChaCha20"; KeyBits = 256; BlockBits = 512 } ]
+let private builtinPresets: Map<string, CipherInfo> =
+    [
+        {
+            Name = "DES"
+            KeyBits = 56
+            BlockBits = 64
+        }
+        {
+            Name = "3DES"
+            KeyBits = 112
+            BlockBits = 64
+        }
+        {
+            Name = "AES-128"
+            KeyBits = 128
+            BlockBits = 128
+        }
+        {
+            Name = "AES-192"
+            KeyBits = 192
+            BlockBits = 128
+        }
+        {
+            Name = "AES-256"
+            KeyBits = 256
+            BlockBits = 128
+        }
+        {
+            Name = "ChaCha20"
+            KeyBits = 256
+            BlockBits = 512
+        }
+    ]
     |> List.map (fun c -> c.Name.ToLowerInvariant(), c)
     |> Map.ofList
 
@@ -177,6 +242,7 @@ let private presetNames =
 /// OR: name, preset (to reference a built-in preset)
 let private loadCiphersFromCsv (path: string) : CipherInfo list =
     let rows, errors = Data.readCsvWithHeaderWithErrors path
+
     if not ((List.isEmpty errors) || quiet) then
         for err in errors do
             eprintfn "  Warning (CSV): %s" err
@@ -185,14 +251,17 @@ let private loadCiphersFromCsv (path: string) : CipherInfo list =
     |> List.choose (fun row ->
         let get key = row.Values |> Map.tryFind key
         let name = get "name" |> Option.defaultValue "Unknown"
+
         match get "preset" with
         | Some presetKey ->
             let key = presetKey.Trim().ToLowerInvariant()
+
             match builtinPresets |> Map.tryFind key with
             | Some c -> Some { c with Name = name }
             | None ->
                 if not quiet then
                     eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
+
                 None
         | None ->
             match get "key_bits" with
@@ -201,34 +270,50 @@ let private loadCiphersFromCsv (path: string) : CipherInfo list =
                 | true, kb ->
                     let bb =
                         get "block_bits"
-                        |> Option.bind (fun s -> match Int32.TryParse s with true, v -> Some v | _ -> None)
+                        |> Option.bind (fun s ->
+                            match Int32.TryParse s with
+                            | true, v -> Some v
+                            | _ -> None)
                         |> Option.defaultValue 128
-                    Some { Name = name; KeyBits = kb; BlockBits = bb }
+
+                    Some
+                        {
+                            Name = name
+                            KeyBits = kb
+                            BlockBits = bb
+                        }
                 | _ ->
-                    if not quiet then eprintfn "  Warning: invalid key_bits '%s' for '%s'" kbStr name
+                    if not quiet then
+                        eprintfn "  Warning: invalid key_bits '%s' for '%s'" kbStr name
+
                     None
             | None ->
-                if not quiet then eprintfn "  Warning: row '%s' missing 'key_bits' or 'preset'" name
+                if not quiet then
+                    eprintfn "  Warning: row '%s' missing 'key_bits' or 'preset'" name
+
                 None)
 
 // ==============================================================================
 // CIPHER SELECTION
 // ==============================================================================
 
-let ciphers : CipherInfo list =
+let ciphers: CipherInfo list =
     let allCiphers =
         match inputFile with
         | Some path ->
             let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
-            if not quiet then printfn "Loading ciphers from: %s" resolved
+
+            if not quiet then
+                printfn "Loading ciphers from: %s" resolved
+
             loadCiphersFromCsv resolved
-        | None ->
-            builtinPresets |> Map.toList |> List.map snd
+        | None -> builtinPresets |> Map.toList |> List.map snd
 
     match cipherFilter with
     | [] -> allCiphers
     | filters ->
         let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+
         allCiphers
         |> List.filter (fun c ->
             let key = c.Name.ToLowerInvariant()
@@ -242,7 +327,7 @@ if List.isEmpty ciphers then
 // QUANTUM BACKEND (Rule 1)
 // ==============================================================================
 
-let backend : IQuantumBackend = LocalBackend() :> IQuantumBackend
+let backend: IQuantumBackend = LocalBackend() :> IQuantumBackend
 
 if not quiet then
     printfn ""
@@ -261,9 +346,7 @@ if not quiet then
 let results = ciphers |> List.map analyseCipher
 
 // Sort: least quantum-safe first (lowest quantum security bits).
-let ranked =
-    results
-    |> List.sortBy (fun r -> r.QuantumSecurityBits)
+let ranked = results |> List.sortBy (fun r -> r.QuantumSecurityBits)
 
 // ==============================================================================
 // GROVER DEMO
@@ -273,24 +356,37 @@ let ranked =
 /// Returns (target, found, iterations, successProb, qubitsUsed, hasFailure).
 let runGroverDemo (target: int) (qubits: int) : int * string * int * float * int * bool =
     let searchSpace = 1 <<< qubits
+
     if target >= searchSpace then
         (target, "out_of_range", 0, 0.0, qubits, false)
     else
         match Oracle.forValue target qubits with
         | Error err ->
-            if not quiet then eprintfn "  Grover oracle error: %s" err.Message
+            if not quiet then
+                eprintfn "  Grover oracle error: %s" err.Message
+
             (target, "oracle_error", 0, 0.0, qubits, true)
         | Ok oracle ->
             let optIters = int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace)))
-            let config = { Grover.defaultConfig with Iterations = Some (max 1 optIters) }
+
+            let config =
+                { Grover.defaultConfig with
+                    Iterations = Some(max 1 optIters)
+                }
+
             match Grover.search oracle backend config with
             | Error err ->
-                if not quiet then eprintfn "  Grover search error: %s" err.Message
+                if not quiet then
+                    eprintfn "  Grover search error: %s" err.Message
+
                 (target, "search_error", 0, 0.0, qubits, true)
             | Ok result ->
                 let foundStr =
-                    if result.Solutions.IsEmpty then "(none)"
-                    else result.Solutions |> List.map string |> String.concat ","
+                    if result.Solutions.IsEmpty then
+                        "(none)"
+                    else
+                        result.Solutions |> List.map string |> String.concat ","
+
                 (target, foundStr, result.Iterations, result.SuccessProbability, qubits, false)
 
 let (demoTarget, demoFound, demoIters, demoProb, demoQubits, demoFailed) =
@@ -298,8 +394,7 @@ let (demoTarget, demoFound, demoIters, demoProb, demoQubits, demoFailed) =
 
 if not quiet then
     let searchSpace = 1 <<< numQubits
-    printfn "Grover Demo: search %d-item space (%d qubits) for target=%d"
-        searchSpace numQubits targetValue
+    printfn "Grover Demo: search %d-item space (%d qubits) for target=%d" searchSpace numQubits targetValue
     printfn "  Found:       %s" demoFound
     printfn "  Iterations:  %d" demoIters
     printfn "  Success:     %.1f%%" (demoProb * 100.0)
@@ -314,22 +409,44 @@ let printTable () =
     printfn "  Ranked Symmetric Ciphers (by quantum security)"
     printfn "=================================================================="
     printfn ""
-    printfn "  %-4s  %-12s  %4s  %8s  %8s  %8s  %-6s  %s"
-        "#" "Cipher" "Key" "Classic" "Quantum" "Time(yr)" "Safe?" "Resource Estimate"
+
+    printfn
+        "  %-4s  %-12s  %4s  %8s  %8s  %8s  %-6s  %s"
+        "#"
+        "Cipher"
+        "Key"
+        "Classic"
+        "Quantum"
+        "Time(yr)"
+        "Safe?"
+        "Resource Estimate"
+
     printfn "  %s" (String('=', 95))
 
     ranked
     |> List.iteri (fun i r ->
         let safeStr = if r.QuantumSafe then "Yes" else "No"
+
         let timeStr =
-            if r.TimeYears > 1e15 then $"%.0e{r.TimeYears}"
-            elif r.TimeYears > 1e9 then sprintf "%.0fB" (r.TimeYears / 1e9)
-            elif r.TimeYears > 1e6 then sprintf "%.0fM" (r.TimeYears / 1e6)
-            else $"%.1f{r.TimeYears}"
-        printfn "  %-4d  %-12s  %4d  %8.0f  %8.0f  %8s  %-6s  %s"
-            (i + 1) r.Cipher.Name r.Cipher.KeyBits
-            r.ClassicalSecurityBits r.QuantumSecurityBits
-            timeStr safeStr r.ResourceEstimate)
+            if r.TimeYears > 1e15 then
+                $"%.0e{r.TimeYears}"
+            elif r.TimeYears > 1e9 then
+                sprintf "%.0fB" (r.TimeYears / 1e9)
+            elif r.TimeYears > 1e6 then
+                sprintf "%.0fM" (r.TimeYears / 1e6)
+            else
+                $"%.1f{r.TimeYears}"
+
+        printfn
+            "  %-4d  %-12s  %4d  %8.0f  %8.0f  %8s  %-6s  %s"
+            (i + 1)
+            r.Cipher.Name
+            r.Cipher.KeyBits
+            r.ClassicalSecurityBits
+            r.QuantumSecurityBits
+            timeStr
+            safeStr
+            r.ResourceEstimate)
 
     printfn ""
 
@@ -343,14 +460,23 @@ printTable ()
 if not quiet then
     let safe = ranked |> List.filter (fun r -> r.QuantumSafe)
     let unsafe = ranked |> List.filter (fun r -> not r.QuantumSafe)
-    printfn "  Quantum-safe ciphers:   %d  (%s)"
+
+    printfn
+        "  Quantum-safe ciphers:   %d  (%s)"
         safe.Length
-        (safe |> List.map (fun r -> r.Cipher.Name) |> String.concat ", "
+        (safe
+         |> List.map (fun r -> r.Cipher.Name)
+         |> String.concat ", "
          |> fun s -> if s = "" then "none" else s)
-    printfn "  Vulnerable ciphers:     %d  (%s)"
+
+    printfn
+        "  Vulnerable ciphers:     %d  (%s)"
         unsafe.Length
-        (unsafe |> List.map (fun r -> r.Cipher.Name) |> String.concat ", "
+        (unsafe
+         |> List.map (fun r -> r.Cipher.Name)
+         |> String.concat ", "
          |> fun s -> if s = "" then "none" else s)
+
     printfn "  128-bit quantum security is the post-quantum minimum."
     printfn ""
 
@@ -361,44 +487,64 @@ if not quiet then
 let resultMaps =
     ranked
     |> List.mapi (fun i r ->
-        [ "rank", string (i + 1)
-          "cipher", r.Cipher.Name
-          "key_bits", string r.Cipher.KeyBits
-          "block_bits", string r.Cipher.BlockBits
-          "classical_security_bits", $"%.0f{r.ClassicalSecurityBits}"
-          "quantum_security_bits", $"%.0f{r.QuantumSecurityBits}"
-          "quantum_safe", string r.QuantumSafe
-          "grover_iterations_log2", $"%.1f{r.GroverIterationsLog2}"
-          "resource_estimate", r.ResourceEstimate
-          "attack_time_years", $"%.2e{r.TimeYears}"
-          "recommendation", r.Recommendation
-          "grover_demo_target", string demoTarget
-          "grover_demo_found", demoFound
-          "grover_demo_iterations", string demoIters
-          "grover_demo_success_prob", $"%.4f{demoProb}"
-          "has_quantum_failure", string (r.HasQuantumFailure || demoFailed) ]
+        [
+            "rank", string (i + 1)
+            "cipher", r.Cipher.Name
+            "key_bits", string r.Cipher.KeyBits
+            "block_bits", string r.Cipher.BlockBits
+            "classical_security_bits", $"%.0f{r.ClassicalSecurityBits}"
+            "quantum_security_bits", $"%.0f{r.QuantumSecurityBits}"
+            "quantum_safe", string r.QuantumSafe
+            "grover_iterations_log2", $"%.1f{r.GroverIterationsLog2}"
+            "resource_estimate", r.ResourceEstimate
+            "attack_time_years", $"%.2e{r.TimeYears}"
+            "recommendation", r.Recommendation
+            "grover_demo_target", string demoTarget
+            "grover_demo_found", demoFound
+            "grover_demo_iterations", string demoIters
+            "grover_demo_success_prob", $"%.4f{demoProb}"
+            "has_quantum_failure", string (r.HasQuantumFailure || demoFailed)
+        ]
         |> Map.ofList)
 
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultMaps
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "rank"; "cipher"; "key_bits"; "block_bits"
-          "classical_security_bits"; "quantum_security_bits"; "quantum_safe"
-          "grover_iterations_log2"; "resource_estimate"; "attack_time_years"
-          "recommendation"; "grover_demo_target"; "grover_demo_found"
-          "grover_demo_iterations"; "grover_demo_success_prob"; "has_quantum_failure" ]
+        [
+            "rank"
+            "cipher"
+            "key_bits"
+            "block_bits"
+            "classical_security_bits"
+            "quantum_security_bits"
+            "quantum_safe"
+            "grover_iterations_log2"
+            "resource_estimate"
+            "attack_time_years"
+            "recommendation"
+            "grover_demo_target"
+            "grover_demo_found"
+            "grover_demo_iterations"
+            "grover_demo_success_prob"
+            "has_quantum_failure"
+        ]
+
     let rows =
         resultMaps
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

@@ -27,16 +27,20 @@ open FSharp.Azure.Quantum.Backends
 
 [<Literal>]
 let numQubits = 3
+
 /// |101⟩
 [<Literal>]
 let markedValue = 5
+
 let searchSpace = 1 <<< numQubits
+
 [<Literal>]
 let shots = 4000
 
 // State preparation A = H^⊗n (uniform superposition) as a gate circuit.
 let uniformPrep =
     let empty = CircuitBuilder.empty numQubits
+
     [ 0 .. numQubits - 1 ]
     |> List.map CircuitBuilder.H
     |> List.fold (fun c g -> CircuitBuilder.addGate g c) empty
@@ -46,29 +50,42 @@ let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 printfn "Amplitude Amplification — boosting the marked state |101⟩ (value %d)\n" markedValue
 
 match Oracle.forValue markedValue numQubits with
-| Error err -> eprintfn "Oracle build failed: %s" err.Message; exit 1
+| Error err ->
+    eprintfn "Oracle build failed: %s" err.Message
+    exit 1
 | Ok oracle ->
     // Optimal number of amplification rounds for one marked item in 8 states.
-    let iterations = AmplitudeAmplification.optimalIterations searchSpace 1 (1.0 / float searchSpace)
+    let iterations =
+        AmplitudeAmplification.optimalIterations searchSpace 1 (1.0 / float searchSpace)
+
     printfn "Search space: %d states, marked: 1, optimal iterations: %d\n" searchSpace iterations
 
-    let intent : AmplitudeAmplification.Unified.AmplitudeAmplificationIntent =
-        { NumQubits = numQubits
-          StatePreparation = uniformPrep
-          Oracle = oracle
-          Iterations = iterations
-          Exactness = AmplitudeAmplification.Unified.Exact }
+    let intent: AmplitudeAmplification.Unified.AmplitudeAmplificationIntent =
+        {
+            NumQubits = numQubits
+            StatePreparation = uniformPrep
+            Oracle = oracle
+            Iterations = iterations
+            Exactness = AmplitudeAmplification.Unified.Exact
+        }
 
     match AmplitudeAmplification.Unified.execute backend intent with
-    | Error err -> eprintfn "Amplification failed: %s" err.Message; exit 1
+    | Error err ->
+        eprintfn "Amplification failed: %s" err.Message
+        exit 1
     | Ok finalState ->
         let hist =
             UnifiedBackend.measureState finalState shots
             |> Array.map (Array.map string >> String.concat "")
             |> Array.countBy id
             |> Array.sortByDescending snd
+
         printfn "Measured distribution after amplification:"
+
         for (bitstring, count) in hist do
             printfn "  |%s⟩ : %5.1f%%" bitstring (100.0 * float count / float shots)
-        printfn "\nStarting probability of the marked state was 1/%d = %.1f%%; amplification concentrates it."
-            searchSpace (100.0 / float searchSpace)
+
+        printfn
+            "\nStarting probability of the marked state was 1/%d = %.1f%%; amplification concentrates it."
+            searchSpace
+            (100.0 / float searchSpace)

@@ -4,8 +4,10 @@ open System
 
 module Cli =
     type ParsedArgs =
-        { Flags: Set<string>
-          Values: Map<string, string list> }
+        {
+            Flags: Set<string>
+            Values: Map<string, string list>
+        }
 
     let parse (argv: string array) : ParsedArgs =
         let rec loop i (flags: Set<string>) (values: Map<string, string list>) =
@@ -13,19 +15,23 @@ module Cli =
                 { Flags = flags; Values = values }
             else
                 let token = argv.[i]
+
                 if token.StartsWith("--", StringComparison.Ordinal) then
                     let key = token.Substring 2
+
                     let nextIsValue =
-                        i + 1 < argv.Length && not (argv.[i + 1].StartsWith("--", StringComparison.Ordinal))
+                        i + 1 < argv.Length
+                        && not (argv.[i + 1].StartsWith("--", StringComparison.Ordinal))
 
                     if nextIsValue then
                         let v = argv.[i + 1]
+
                         let updated =
                             values
                             |> Map.change key (fun existing ->
                                 match existing with
                                 | None -> Some [ v ]
-                                | Some xs -> Some (xs @ [ v ]))
+                                | Some xs -> Some(xs @ [ v ]))
 
                         loop (i + 2) flags updated
                     else
@@ -36,8 +42,7 @@ module Cli =
 
         loop 0 Set.empty Map.empty
 
-    let hasFlag (name: string) (args: ParsedArgs) =
-        args.Flags.Contains name
+    let hasFlag (name: string) (args: ParsedArgs) = args.Flags.Contains name
 
     let tryGet (name: string) (args: ParsedArgs) : string option =
         args.Values |> Map.tryFind name |> Option.bind List.tryLast
@@ -71,9 +76,11 @@ module Cli =
         | Some s -> s.Split(',') |> Array.map (fun x -> x.Trim()) |> Array.toList
 
     type OptionSpec =
-        { Name: string
-          Description: string
-          Default: string option }
+        {
+            Name: string
+            Description: string
+            Default: string option
+        }
 
     /// Print a usage banner and exit if --help is present.
     let exitIfHelp (scriptName: string) (description: string) (options: OptionSpec list) (args: ParsedArgs) =
@@ -85,12 +92,15 @@ module Cli =
             printfn "  Usage: dotnet fsi %s -- [OPTIONS]" scriptName
             printfn ""
             printfn "  Options:"
+
             for opt in options do
                 let defaultStr =
                     match opt.Default with
                     | Some d -> $" (default: %s{d})"
                     | None -> ""
+
                 printfn "    --%-20s %s%s" opt.Name opt.Description defaultStr
+
             printfn "    --%-20s %s" "help" "Show this help message"
             printfn ""
             printfn "  Examples:"

@@ -1,13 +1,13 @@
 // ==============================================================================
 // Q-QSAR Virtual Screening
 // ==============================================================================
-// Demonstrates the use of the QuantumDrugDiscovery DSL for QSAR (Quantitative 
+// Demonstrates the use of the QuantumDrugDiscovery DSL for QSAR (Quantitative
 // Structure-Activity Relationship) modeling.
 //
 // Business Context:
 // Pharmaceutical companies need to screen large libraries of molecules to identify
-// potential drug candidates. "Q-QSAR" (Quantum QSAR) uses quantum kernels to 
-// capture complex, non-linear relationships between molecular structure and 
+// potential drug candidates. "Q-QSAR" (Quantum QSAR) uses quantum kernels to
+// capture complex, non-linear relationships between molecular structure and
 // biological activity that classical linear models might miss.
 //
 // This example uses the high-level 'drugDiscovery' builder to:
@@ -35,25 +35,58 @@ open FSharp.Azure.Quantum.Examples.Common
 
 let args = Cli.parse (fsi.CommandLineArgs |> Array.skip 1)
 
-args |> Cli.exitIfHelp "DrugDiscovery/QQSARScreening.fsx"
+args
+|> Cli.exitIfHelp
+    "DrugDiscovery/QQSARScreening.fsx"
     "Run Q-QSAR (Quantum QSAR) screening using the drugDiscovery builder"
-    [ { Name = "input";   Description = "CSV file with SMILES and labels"; Default = Some "_data/actives_tiny_labeled.csv" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "method";  Description = "Screening method: kernel, vqc"; Default = Some "kernel" }
-      { Name = "batch";   Description = "Batch size for processing"; Default = Some "50" }
-      { Name = "quiet";   Description = "Suppress detailed output (flag)"; Default = None } ]
+    [
+        {
+            Name = "input"
+            Description = "CSV file with SMILES and labels"
+            Default = Some "_data/actives_tiny_labeled.csv"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "method"
+            Description = "Screening method: kernel, vqc"
+            Default = Some "kernel"
+        }
+        {
+            Name = "batch"
+            Description = "Batch size for processing"
+            Default = Some "50"
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress detailed output (flag)"
+            Default = None
+        }
+    ]
 
 let scriptDir = __SOURCE_DIRECTORY__
-let inputFile = args |> Cli.getOr "input" (Path.Combine(scriptDir, "_data", "actives_tiny_labeled.csv"))
+
+let inputFile =
+    args
+    |> Cli.getOr "input" (Path.Combine(scriptDir, "_data", "actives_tiny_labeled.csv"))
+
 let outputFile = args |> Cli.tryGet "output"
-let methodChoice = args |> Cli.getOr "method" "kernel" |> fun s -> s.ToLowerInvariant()
+
+let methodChoice =
+    args |> Cli.getOr "method" "kernel" |> fun s -> s.ToLowerInvariant()
+
 let batchSize = args |> Cli.getIntOr "batch" 50
 let quiet = args |> Cli.hasFlag "quiet"
 
 // Resolve input path
 let resolvedInput =
-    if Path.IsPathRooted inputFile then inputFile
-    else Data.resolveRelative scriptDir inputFile
+    if Path.IsPathRooted inputFile then
+        inputFile
+    else
+        Data.resolveRelative scriptDir inputFile
 
 if not (File.Exists resolvedInput) then
     eprintfn "Error: Input file not found: %s" resolvedInput
@@ -62,8 +95,10 @@ if not (File.Exists resolvedInput) then
 // Select screening method
 let screeningMethod =
     match methodChoice with
-    | "kernel" | "svm" -> ScreeningMethod.QuantumKernelSVM
-    | "vqc" | "classifier" -> ScreeningMethod.VQCClassifier
+    | "kernel"
+    | "svm" -> ScreeningMethod.QuantumKernelSVM
+    | "vqc"
+    | "classifier" -> ScreeningMethod.VQCClassifier
     | other ->
         eprintfn "Error: Unknown method '%s'. Use: kernel, vqc" other
         exit 1
@@ -104,11 +139,11 @@ match screeningResult with
 | Ok result ->
     if not quiet then
         printfn "%s" result.Message
+
     printfn ""
     printfn "Molecules processed: %d" result.MoleculesProcessed
     printfn "Method: %A" result.Method
-| Error e ->
-    eprintfn "Screening failed: %A" e
+| Error e -> eprintfn "Screening failed: %A" e
 
 printfn ""
 
@@ -125,24 +160,29 @@ if not quiet then
 
 match outputFile, screeningResult with
 | Some path, Ok result ->
-    let resultMap = Map.ofList [
-        "Method", $"%A{result.Method}"
-        "MoleculesProcessed", string result.MoleculesProcessed
-        "InputFile", resolvedInput
-        "BatchSize", string batchSize
-        "Message", result.Message
-    ]
+    let resultMap =
+        Map.ofList
+            [
+                "Method", $"%A{result.Method}"
+                "MoleculesProcessed", string result.MoleculesProcessed
+                "InputFile", resolvedInput
+                "BatchSize", string batchSize
+                "Message", result.Message
+            ]
+
     Reporting.writeJson path resultMap
     printfn "Results written to: %s" path
-| Some _, Error _ ->
-    eprintfn "Cannot write output: screening failed"
+| Some _, Error _ -> eprintfn "Cannot write output: screening failed"
 | None, _ -> ()
 
 // ==============================================================================
 // USAGE HINTS
 // ==============================================================================
 
-if outputFile.IsNone && inputFile = (Path.Combine(scriptDir, "_data", "actives_tiny_labeled.csv")) then
+if
+    outputFile.IsNone
+    && inputFile = (Path.Combine(scriptDir, "_data", "actives_tiny_labeled.csv"))
+then
     printfn "================================================================"
     printfn " Try with your own data"
     printfn "================================================================"
@@ -159,4 +199,6 @@ if outputFile.IsNone && inputFile = (Path.Combine(scriptDir, "_data", "actives_t
     printfn ""
 
 // Exit with appropriate code
-screeningResult |> Result.map (fun _ -> exit 0) |> Result.defaultWith (fun _ -> exit 1)
+screeningResult
+|> Result.map (fun _ -> exit 0)
+|> Result.defaultWith (fun _ -> exit 1)

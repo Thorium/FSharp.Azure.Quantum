@@ -18,7 +18,7 @@ module ValidationTests =
 
     [<Fact>]
     let ``failure creates invalid result with messages`` () =
-        let r = Validation.failure ["err1"; "err2"]
+        let r = Validation.failure [ "err1"; "err2" ]
         Assert.False(r.IsValid)
         Assert.Equal(2, r.Messages.Length)
         Assert.Contains("err1", r.Messages)
@@ -43,24 +43,27 @@ module ValidationTests =
 
     [<Fact>]
     let ``combine with all successes returns success`` () =
-        let r = Validation.combine [Validation.success; Validation.success]
+        let r = Validation.combine [ Validation.success; Validation.success ]
         Assert.True(r.IsValid)
         Assert.Empty(r.Messages)
 
     [<Fact>]
     let ``combine with one failure returns failure`` () =
-        let r = Validation.combine [Validation.success; Validation.failWith "bad"]
+        let r = Validation.combine [ Validation.success; Validation.failWith "bad" ]
         Assert.False(r.IsValid)
         Assert.Equal(1, r.Messages.Length)
         Assert.Equal("bad", r.Messages.[0])
 
     [<Fact>]
     let ``combine collects all error messages`` () =
-        let r = Validation.combine [
-            Validation.failWith "err1"
-            Validation.success
-            Validation.failure ["err2"; "err3"]
-        ]
+        let r =
+            Validation.combine
+                [
+                    Validation.failWith "err1"
+                    Validation.success
+                    Validation.failure [ "err2"; "err3" ]
+                ]
+
         Assert.False(r.IsValid)
         Assert.Equal(3, r.Messages.Length)
 
@@ -82,8 +85,9 @@ module ValidationTests =
     [<Fact>]
     let ``toResult converts failure to Error with ValidationError`` () =
         let r = Validation.toResult "myField" 42 (Validation.failWith "invalid value")
+
         match r with
-        | Error (QuantumError.ValidationError (field, reason)) ->
+        | Error(QuantumError.ValidationError(field, reason)) ->
             Assert.Equal("myField", field)
             Assert.Contains("invalid value", reason)
         | Ok _ -> failwith "Expected Error"
@@ -91,10 +95,11 @@ module ValidationTests =
 
     [<Fact>]
     let ``toResult combines multiple error messages`` () =
-        let v = Validation.failure ["err1"; "err2"]
+        let v = Validation.failure [ "err1"; "err2" ]
         let r = Validation.toResult "f" 0 v
+
         match r with
-        | Error (QuantumError.ValidationError (_, reason)) ->
+        | Error(QuantumError.ValidationError(_, reason)) ->
             Assert.Contains("err1", reason)
             Assert.Contains("err2", reason)
         | _ -> failwith "Expected ValidationError"
@@ -110,7 +115,7 @@ module ValidationTests =
 
     [<Fact>]
     let ``formatErrors for failure includes error count and messages`` () =
-        let s = Validation.formatErrors (Validation.failure ["a"; "b"])
+        let s = Validation.formatErrors (Validation.failure [ "a"; "b" ])
         Assert.Contains("2 error(s)", s)
         Assert.Contains("1. a", s)
         Assert.Contains("2. b", s)

@@ -2124,7 +2124,17 @@ match imported with
 4. **Education** - Students learn quantum with type-safe F#, export to standard format
 5. **Validation** - Cross-check results between F# LocalBackend and IBM simulators
 
-**See:** `tests/OpenQasmIntegrationTests.fs` for comprehensive examples
+**See:** `tests/OpenQasmIntegrationTests.fs` for comprehensive examples.
+`tests/FSharp.Azure.Quantum.PropertyTests` is an FsCheck suite over random
+circuits: a circuit survives export and import in every OpenQASM version,
+the exported text is a fixed point of import-then-export, comments never
+change a parse, a circuit that fails validation is refused by the importer,
+angle expressions (`3*pi/4`, `-pi/2`, decimals) mean what they say, and
+damaged text gets an `Error`, never an exception. The same suite holds
+`GateTranspiler` to its promise: a random circuit transpiled for every backend
+it knows (and under every constraint set) runs on the local simulator to the
+same state up to a global phase, holds only the target's native gates, and
+transpiles to itself a second time.
 
 ---
 

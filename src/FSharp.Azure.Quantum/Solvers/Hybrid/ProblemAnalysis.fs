@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum
+
 open FSharp.Azure.Quantum.Core
 
 open System
@@ -43,7 +44,7 @@ module ProblemAnalysis =
     /// Validate that a 2D array is not null
     let private validateNotNull (matrix: float[,]) : QuantumResult<unit> =
         if isNull (box matrix) then
-            Error (QuantumError.ValidationError ("Matrix", "Distance matrix cannot be null"))
+            Error(QuantumError.ValidationError("Matrix", "Distance matrix cannot be null"))
         else
             Ok()
 
@@ -53,7 +54,7 @@ module ProblemAnalysis =
         let cols = Array2D.length2 matrix
 
         if rows = 0 || cols = 0 then
-            Error (QuantumError.ValidationError ("Matrix", "Distance matrix cannot be empty"))
+            Error(QuantumError.ValidationError("Matrix", "Distance matrix cannot be empty"))
         else
             Ok()
 
@@ -63,7 +64,9 @@ module ProblemAnalysis =
         let cols = Array2D.length2 matrix
 
         if rows <> cols then
-            Error (QuantumError.ValidationError ("Matrix", $"Distance matrix must be square (got {rows}x{cols} dimensions)"))
+            Error(
+                QuantumError.ValidationError("Matrix", $"Distance matrix must be square (got {rows}x{cols} dimensions)")
+            )
         else
             Ok()
 
@@ -76,12 +79,19 @@ module ProblemAnalysis =
             for i in 0 .. rows - 1 do
                 for j in 0 .. cols - 1 do
                     let value = matrix.[i, j]
+
                     if Double.IsNaN(value) then
-                        yield Error (QuantumError.ValidationError ("Values", "Distance matrix contains NaN values"))
+                        yield Error(QuantumError.ValidationError("Values", "Distance matrix contains NaN values"))
                     elif Double.IsInfinity(value) then
-                        yield Error (QuantumError.ValidationError ("Values", "Distance matrix contains infinity values"))
+                        yield Error(QuantumError.ValidationError("Values", "Distance matrix contains infinity values"))
                     elif value < 0.0 then
-                        yield Error (QuantumError.ValidationError ("Values", $"Distance matrix contains negative values (found {value} at position [{i},{j}])"))
+                        yield
+                            Error(
+                                QuantumError.ValidationError(
+                                    "Values",
+                                    $"Distance matrix contains negative values (found {value} at position [{i},{j}])"
+                                )
+                            )
         }
         |> Seq.tryHead
         |> Option.defaultValue (Ok())
@@ -89,7 +99,7 @@ module ProblemAnalysis =
     /// Check if a matrix is symmetric
     let private isMatrixSymmetric (matrix: float[,]) : bool =
         let n = Array2D.length1 matrix
-        
+
         seq {
             for i in 0 .. n - 1 do
                 for j in i + 1 .. n - 1 do
@@ -101,12 +111,13 @@ module ProblemAnalysis =
     let private calculateDensity (matrix: float[,]) : float =
         let rows = Array2D.length1 matrix
         let cols = Array2D.length2 matrix
-        
+
         let nonZeroCount =
             seq {
                 for i in 0 .. rows - 1 do
                     for j in 0 .. cols - 1 do
-                        if abs (matrix.[i, j]) > 1e-9 then yield 1
+                        if abs (matrix.[i, j]) > 1e-9 then
+                            yield 1
             }
             |> Seq.sum
 
@@ -114,13 +125,9 @@ module ProblemAnalysis =
 
     /// Calculate factorial for search space estimation
     let private factorial (n: int) : float =
-        if n <= 0 then
-            1.0
-        elif n > 170 then
-            Double.PositiveInfinity // Overflow protection
-        else
-            [2..n]
-            |> List.fold (fun acc i -> acc * float i) 1.0
+        if n <= 0 then 1.0
+        elif n > 170 then Double.PositiveInfinity // Overflow protection
+        else [ 2..n ] |> List.fold (fun acc i -> acc * float i) 1.0
 
     /// Classify a distance matrix problem
     let private classifyDistanceMatrix (matrix: float[,]) : QuantumResult<ProblemInfo> =
@@ -146,12 +153,14 @@ module ProblemAnalysis =
                         let searchSpaceSize = factorial n
 
                         Ok
-                            { ProblemType = TSP
-                              Size = n
-                              Complexity = "O(n!)"
-                              SearchSpaceSize = searchSpaceSize
-                              IsSymmetric = isSymmetric
-                              Density = density }
+                            {
+                                ProblemType = TSP
+                                Size = n
+                                Complexity = "O(n!)"
+                                SearchSpaceSize = searchSpaceSize
+                                IsSymmetric = isSymmetric
+                                Density = density
+                            }
 
     /// Classify a problem from its input representation
     /// Returns Result with ProblemInfo or error message
@@ -160,11 +169,11 @@ module ProblemAnalysis =
         let boxed = box input
 
         if isNull boxed then
-            Error (QuantumError.ValidationError ("Input", "Input cannot be null"))
+            Error(QuantumError.ValidationError("Input", "Input cannot be null"))
         else
             match boxed with
             | :? (float[,]) as matrix -> classifyDistanceMatrix matrix
-            | _ -> Error (QuantumError.ValidationError ("InputType", $"Cannot classify input of type { typeof<'T>.Name}"))
+            | _ -> Error(QuantumError.ValidationError("InputType", $"Cannot classify input of type {typeof<'T>.Name}"))
 
     /// Quantum advantage estimation result
     type QuantumAdvantage =
@@ -274,9 +283,11 @@ module ProblemAnalysis =
                      $"Significant quantum advantage ({speedup:F2}x speedup). Strong recommendation for quantum.")
 
             Ok
-                { ProblemSize = n
-                  EstimatedClassicalTimeMs = classicalTimeMs
-                  EstimatedQuantumTimeMs = quantumTimeMs
-                  QuantumSpeedup = speedup
-                  Recommendation = recommendation
-                  Reasoning = reasoning }
+                {
+                    ProblemSize = n
+                    EstimatedClassicalTimeMs = classicalTimeMs
+                    EstimatedQuantumTimeMs = quantumTimeMs
+                    QuantumSpeedup = speedup
+                    Recommendation = recommendation
+                    Reasoning = reasoning
+                }

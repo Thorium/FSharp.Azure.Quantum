@@ -10,22 +10,33 @@ let private backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
 /// Helper: Create simple 3-class dataset
 let createThreeClassDataset () =
-    let trainData = [|
-        [| 0.0; 0.0 |]; [| 0.1; 0.1 |]  // Class 0
-        [| 1.0; 0.0 |]; [| 0.9; 0.1 |]  // Class 1
-        [| 0.0; 1.0 |]; [| 0.1; 0.9 |]  // Class 2
-    |]
+    let trainData =
+        [|
+            [| 0.0; 0.0 |]
+            [| 0.1; 0.1 |] // Class 0
+            [| 1.0; 0.0 |]
+            [| 0.9; 0.1 |] // Class 1
+            [| 0.0; 1.0 |]
+            [| 0.1; 0.9 |] // Class 2
+        |]
+
     let trainLabels = [| 0; 0; 1; 1; 2; 2 |]
     (trainData, trainLabels)
 
 /// Helper: Create 4-class dataset
 let createFourClassDataset () =
-    let trainData = [|
-        [| 0.0; 0.0 |]; [| 0.1; 0.0 |]  // Class 0
-        [| 1.0; 0.0 |]; [| 0.9; 0.0 |]  // Class 1
-        [| 0.0; 1.0 |]; [| 0.0; 0.9 |]  // Class 2
-        [| 1.0; 1.0 |]; [| 0.9; 0.9 |]  // Class 3
-    |]
+    let trainData =
+        [|
+            [| 0.0; 0.0 |]
+            [| 0.1; 0.0 |] // Class 0
+            [| 1.0; 0.0 |]
+            [| 0.9; 0.0 |] // Class 1
+            [| 0.0; 1.0 |]
+            [| 0.0; 0.9 |] // Class 2
+            [| 1.0; 1.0 |]
+            [| 0.9; 0.9 |] // Class 3
+        |]
+
     let trainLabels = [| 0; 0; 1; 1; 2; 2; 3; 3 |]
     (trainData, trainLabels)
 
@@ -35,7 +46,7 @@ let ``MultiClassSVM train should succeed with 3 classes`` () =
     let (trainData, trainLabels) = createThreeClassDataset ()
     let config = QuantumKernelSVM.defaultConfig
     let shots = 1000
-    
+
     match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
     | Error e -> Assert.Fail($"Training failed: {e}")
     | Ok model ->
@@ -49,7 +60,7 @@ let ``MultiClassSVM train should succeed with 4 classes`` () =
     let (trainData, trainLabels) = createFourClassDataset ()
     let config = QuantumKernelSVM.defaultConfig
     let shots = 1000
-    
+
     match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
     | Error e -> Assert.Fail($"Training failed: {e}")
     | Ok model ->
@@ -63,7 +74,7 @@ let ``MultiClassSVM predict should classify training samples`` () =
     let (trainData, trainLabels) = createThreeClassDataset ()
     let config = QuantumKernelSVM.defaultConfig
     let shots = 1000
-    
+
     match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
     | Error e -> Assert.Fail($"Training failed: {e}")
     | Ok model ->
@@ -79,7 +90,7 @@ let ``MultiClassSVM evaluate should compute accuracy`` () =
     let (trainData, trainLabels) = createThreeClassDataset ()
     let config = QuantumKernelSVM.defaultConfig
     let shots = 1000
-    
+
     match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
     | Error e -> Assert.Fail($"Training failed: {e}")
     | Ok model ->
@@ -87,7 +98,7 @@ let ``MultiClassSVM evaluate should compute accuracy`` () =
         | Error e -> Assert.Fail($"Evaluation failed: {e}")
         | Ok accuracy ->
             Assert.True(accuracy >= 0.0 && accuracy <= 1.0)
-            Assert.True(accuracy >= 0.4)  // Reasonable threshold
+            Assert.True(accuracy >= 0.4) // Reasonable threshold
 
 [<Fact>]
 let ``MultiClassSVM confusionMatrix should have correct dimensions`` () =
@@ -95,7 +106,7 @@ let ``MultiClassSVM confusionMatrix should have correct dimensions`` () =
     let (trainData, trainLabels) = createThreeClassDataset ()
     let config = QuantumKernelSVM.defaultConfig
     let shots = 1000
-    
+
     match MultiClassSVM.train backend featureMap trainData trainLabels config shots with
     | Error e -> Assert.Fail($"Training failed: {e}")
     | Ok model ->
@@ -107,9 +118,10 @@ let ``MultiClassSVM confusionMatrix should have correct dimensions`` () =
 
 [<Fact>]
 let ``MultiClassSVM perClassMetrics should return valid metrics`` () =
-    let confMatrix = array2D [[ 10; 0; 0 ]; [ 0; 20; 0 ]; [ 0; 0; 15 ]]
+    let confMatrix = array2D [ [ 10; 0; 0 ]; [ 0; 20; 0 ]; [ 0; 0; 15 ] ]
     let metrics = MultiClassSVM.perClassMetrics confMatrix
     Assert.Equal(3, metrics.Length)
+
     for (precision, recall, f1) in metrics do
         Assert.Equal(1.0, precision)
         Assert.Equal(1.0, recall)
@@ -118,7 +130,10 @@ let ``MultiClassSVM perClassMetrics should return valid metrics`` () =
 [<Fact>]
 let ``MultiClassSVM macroAverageMetrics should average correctly`` () =
     let perClassMetrics = [| (1.0, 0.8, 0.9); (0.9, 0.9, 0.9); (0.8, 1.0, 0.9) |]
-    let (macroPrecision, macroRecall, macroF1) = MultiClassSVM.macroAverageMetrics perClassMetrics
+
+    let (macroPrecision, macroRecall, macroF1) =
+        MultiClassSVM.macroAverageMetrics perClassMetrics
+
     Assert.Equal(0.9, macroPrecision, 3)
     Assert.Equal(0.9, macroRecall, 3)
     Assert.Equal(0.9, macroF1, 3)

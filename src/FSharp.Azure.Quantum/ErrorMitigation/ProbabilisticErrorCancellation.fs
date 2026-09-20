@@ -1,84 +1,88 @@
 namespace FSharp.Azure.Quantum
 
 /// Probabilistic Error Cancellation (PEC) error mitigation module.
-/// 
+///
 /// Implements quasi-probability decomposition to achieve 2-3x accuracy improvement.
 /// Uses importance sampling with negative probabilities to invert noise channels.
 module ProbabilisticErrorCancellation =
-    
+
     // ============================================================================
     // Types - Error Mitigation Domain (Quasi-Probability)
     // ============================================================================
-    
+
     /// Noise model for depolarizing channels.
-    /// 
+    ///
     /// Characterizes error rates for different gate types.
     /// Typical values: single-qubit ~0.001, two-qubit ~0.01, readout ~0.02
     [<Struct>]
-    type NoiseModel = {
-        /// Error rate per single-qubit gate (depolarizing probability p)
-        SingleQubitDepolarizing: float
-        
-        /// Error rate per two-qubit gate (depolarizing probability p)
-        TwoQubitDepolarizing: float
-        
-        /// Measurement error rate (readout fidelity)
-        ReadoutError: float
-    }
-    
+    type NoiseModel =
+        {
+            /// Error rate per single-qubit gate (depolarizing probability p)
+            SingleQubitDepolarizing: float
+
+            /// Error rate per two-qubit gate (depolarizing probability p)
+            TwoQubitDepolarizing: float
+
+            /// Measurement error rate (readout fidelity)
+            ReadoutError: float
+        }
+
     /// Quasi-probability decomposition of a noisy gate.
-    /// 
+    ///
     /// Key insight: Noisy_Gate = Σᵢ pᵢ × Clean_Gate_i
     /// where some pᵢ < 0 (quasi-probability, not true probability!)
-    type QuasiProbDecomposition = {
-        /// List of (gate-sequence, quasi_probability) pairs. Each term is the sequence of
-        /// gates run IN PLACE OF the ideal gate: the original (noisy) gate followed by a
-        /// Pauli correction. A list (rather than a single gate) is required so a term can
-        /// express a Pauli tensor product on a two-qubit gate — e.g. X⊗X = [X control; X target]
-        /// — and so the identity correction is simply the original gate on its own.
-        /// Note: Some probabilities can be NEGATIVE!
-        Terms: (CircuitBuilder.Gate list * float) list
+    type QuasiProbDecomposition =
+        {
+            /// List of (gate-sequence, quasi_probability) pairs. Each term is the sequence of
+            /// gates run IN PLACE OF the ideal gate: the original (noisy) gate followed by a
+            /// Pauli correction. A list (rather than a single gate) is required so a term can
+            /// express a Pauli tensor product on a two-qubit gate — e.g. X⊗X = [X control; X target]
+            /// — and so the identity correction is simply the original gate on its own.
+            /// Note: Some probabilities can be NEGATIVE!
+            Terms: (CircuitBuilder.Gate list * float) list
 
-        /// Normalization factor = Σ|pᵢ| (sum of absolute values)
-        /// Used for importance sampling from quasi-probability distribution
-        Normalization: float
-    }
-    
+            /// Normalization factor = Σ|pᵢ| (sum of absolute values)
+            /// Used for importance sampling from quasi-probability distribution
+            Normalization: float
+        }
+
     /// Configuration for Probabilistic Error Cancellation.
-    type PECConfig = {
-        /// Noise model for the quantum backend
-        NoiseModel: NoiseModel
-        
-        /// Number of Monte Carlo samples (10-100x overhead)
-        /// More samples = lower variance but higher cost
-        Samples: int
-        
-        /// Random seed for reproducibility
-        Seed: int option
-    }
-    
+    type PECConfig =
+        {
+            /// Noise model for the quantum backend
+            NoiseModel: NoiseModel
+
+            /// Number of Monte Carlo samples (10-100x overhead)
+            /// More samples = lower variance but higher cost
+            Samples: int
+
+            /// Random seed for reproducibility
+            Seed: int option
+        }
+
     /// Result of PEC error mitigation.
-    type PECResult = {
-        /// Corrected expectation value (after PEC)
-        CorrectedExpectation: float
-        
-        /// Uncorrected expectation value (before PEC, noisy)
-        UncorrectedExpectation: float
-        
-        /// Error reduction percentage (0-1 scale)
-        ErrorReduction: float
-        
-        /// Number of samples used in Monte Carlo
-        SamplesUsed: int
-        
-        /// Actual overhead ratio (circuit executions / baseline)
-        Overhead: float
-    }
-    
+    type PECResult =
+        {
+            /// Corrected expectation value (after PEC)
+            CorrectedExpectation: float
+
+            /// Uncorrected expectation value (before PEC, noisy)
+            UncorrectedExpectation: float
+
+            /// Error reduction percentage (0-1 scale)
+            ErrorReduction: float
+
+            /// Number of samples used in Monte Carlo
+            SamplesUsed: int
+
+            /// Actual overhead ratio (circuit executions / baseline)
+            Overhead: float
+        }
+
     // ============================================================================
     // Quasi-Probability Decomposition - Inverting Noise Channels
     // ============================================================================
-    
+
     /// Decompose noisy single-qubit gate into quasi-probability distribution.
     ///
     /// Mathematical foundation:
@@ -98,7 +102,7 @@ module ProbabilisticErrorCancellation =
         // Clamp into [0, 1): the inverse channel is singular at p = 1 (fully depolarizing is
         // non-invertible), where denom below would be 0 and produce NaN quasi-probabilities.
         let p = noiseModel.SingleQubitDepolarizing |> max 0.0 |> min (1.0 - 1e-12)
-        
+
         // Helper: Extract qubit index from single-qubit gate
         let getQubit gate =
             match gate with
@@ -110,11 +114,11 @@ module ProbabilisticErrorCancellation =
             | CircuitBuilder.Gate.SDG q -> q
             | CircuitBuilder.Gate.T q -> q
             | CircuitBuilder.Gate.TDG q -> q
-            | CircuitBuilder.Gate.RX (q, _) -> q
-            | CircuitBuilder.Gate.RY (q, _) -> q
-            | CircuitBuilder.Gate.RZ (q, _) -> q
-            | _ -> 0  // Default for multi-qubit gates
-        
+            | CircuitBuilder.Gate.RX(q, _) -> q
+            | CircuitBuilder.Gate.RY(q, _) -> q
+            | CircuitBuilder.Gate.RZ(q, _) -> q
+            | _ -> 0 // Default for multi-qubit gates
+
         let qubit = getQubit gate
 
         // Exact inverse single-qubit depolarizing quasi-probabilities.
@@ -128,12 +132,13 @@ module ProbabilisticErrorCancellation =
 
         // 4-term decomposition. Each term runs the original (noisy) gate, then a Pauli
         // correction; the identity correction is just the gate on its own.
-        let terms = [
-            ([gate], qI)                                   // U   (≡ U then I)
-            ([gate; CircuitBuilder.Gate.X qubit], qP)      // U then X
-            ([gate; CircuitBuilder.Gate.Y qubit], qP)      // U then Y
-            ([gate; CircuitBuilder.Gate.Z qubit], qP)      // U then Z
-        ]
+        let terms =
+            [
+                ([ gate ], qI) // U   (≡ U then I)
+                ([ gate; CircuitBuilder.Gate.X qubit ], qP) // U then X
+                ([ gate; CircuitBuilder.Gate.Y qubit ], qP) // U then Y
+                ([ gate; CircuitBuilder.Gate.Z qubit ], qP) // U then Z
+            ]
 
         // Normalization = Σ|pᵢ| = |q_I| + 3|q| = 1 + 3p/(2(1−p))
         let normalization = abs qI + 3.0 * abs qP
@@ -142,7 +147,7 @@ module ProbabilisticErrorCancellation =
             Terms = terms
             Normalization = normalization
         }
-    
+
     /// Decompose noisy two-qubit gate into quasi-probability distribution.
     ///
     /// Mathematical foundation:
@@ -164,15 +169,15 @@ module ProbabilisticErrorCancellation =
     let decomposeTwoQubitGate (gate: CircuitBuilder.Gate) (noiseModel: NoiseModel) : QuasiProbDecomposition =
         // Clamp into [0, 1): the inverse channel is singular at p = 1 (denom below would be 0).
         let p = noiseModel.TwoQubitDepolarizing |> max 0.0 |> min (1.0 - 1e-12)
-        
+
         // Helper: Extract qubits from two-qubit gate
         let (control, target) =
             match gate with
-            | CircuitBuilder.Gate.CNOT (c, t) -> (c, t)
-            | CircuitBuilder.Gate.CZ (c, t) -> (c, t)
-            | CircuitBuilder.Gate.SWAP (q1, q2) -> (q1, q2)
-            | CircuitBuilder.Gate.CCX (c1, _, t) -> (c1, t)  // two-qubit approximation of Toffoli
-            | _ -> (0, 1)  // Default for other gate types
+            | CircuitBuilder.Gate.CNOT(c, t) -> (c, t)
+            | CircuitBuilder.Gate.CZ(c, t) -> (c, t)
+            | CircuitBuilder.Gate.SWAP(q1, q2) -> (q1, q2)
+            | CircuitBuilder.Gate.CCX(c1, _, t) -> (c1, t) // two-qubit approximation of Toffoli
+            | _ -> (0, 1) // Default for other gate types
 
         // Exact inverse two-qubit depolarizing quasi-probabilities over the 16-Pauli basis
         // {I,X,Y,Z}⊗{I,X,Y,Z}. D⁻¹ = q_I·(I⊗I) + q·Σ(15 non-identity Paulis) with
@@ -185,22 +190,26 @@ module ProbabilisticErrorCancellation =
 
         // A Pauli factor on a given qubit: None = identity (no gate).
         let pauliOn q =
-            [ None
-              Some (CircuitBuilder.Gate.X q)
-              Some (CircuitBuilder.Gate.Y q)
-              Some (CircuitBuilder.Gate.Z q) ]
+            [
+                None
+                Some(CircuitBuilder.Gate.X q)
+                Some(CircuitBuilder.Gate.Y q)
+                Some(CircuitBuilder.Gate.Z q)
+            ]
 
         // 15 non-identity Pauli pairs P_control ⊗ P_target (skip I⊗I). A tensor product
         // applies BOTH factors, e.g. X⊗X = [X control; X target].
         let pauliBasisCorrections =
-            [ for pc in pauliOn control do
-                for pt in pauliOn target do
-                    match pc, pt with
-                    | None, None -> ()                       // I⊗I folds into the gate term
-                    | _ -> yield (gate :: List.choose id [pc; pt], qP) ]
+            [
+                for pc in pauliOn control do
+                    for pt in pauliOn target do
+                        match pc, pt with
+                        | None, None -> () // I⊗I folds into the gate term
+                        | _ -> yield (gate :: List.choose id [ pc; pt ], qP)
+            ]
 
         // 16 terms total: gate (≡ gate then I⊗I) + 15 Pauli-correction tensor products.
-        let terms = ([gate], qI) :: pauliBasisCorrections
+        let terms = ([ gate ], qI) :: pauliBasisCorrections
 
         // Normalization = Σ|pᵢ| = |q_I| + 15|q| = 1 + 15p/(8(1−p))
         let normalization = abs qI + 15.0 * abs qP
@@ -209,44 +218,44 @@ module ProbabilisticErrorCancellation =
             Terms = terms
             Normalization = normalization
         }
-    
+
     // ============================================================================
     // Importance Sampling - Converting Negative Probabilities
     // ============================================================================
-    
+
     /// Sample from categorical distribution with given probabilities.
-    /// 
+    ///
     /// Takes a list of probabilities [p₁, p₂, ..., pₙ] that sum to 1.0
     /// Returns index i with probability pᵢ.
-    /// 
+    ///
     /// Uses cumulative probability method for efficient sampling.
     let private sampleCategorical (probabilities: float list) (rng: System.Random) : int =
-        let cumulative = 
-            probabilities 
-            |> List.scan (+) 0.0 
-            |> List.skip 1  // Remove initial 0.0 (List.scan always produces at least one element)
-        
+        let cumulative = probabilities |> List.scan (+) 0.0 |> List.skip 1 // Remove initial 0.0 (List.scan always produces at least one element)
+
         let u = rng.NextDouble()
-        
+
         // Find first index where cumulative probability exceeds u
-        cumulative 
+        cumulative
         |> List.tryFindIndex (fun cum -> u <= cum)
         |> Option.defaultValue (probabilities.Length - 1)
-    
+
     /// Sample from quasi-probability distribution using importance sampling.
-    /// 
+    ///
     /// Key insight: Cannot directly sample from quasi-probability (has negative values!)
-    /// 
+    ///
     /// Importance sampling algorithm:
     /// 1. Convert to proper probabilities: qᵢ = |pᵢ| / Σ|pⱼ|
     /// 2. Sample index i with probability qᵢ
     /// 3. Return (gate_i, sign(pᵢ) × Σ|pⱼ|)
-    /// 
+    ///
     /// The sign correction ensures expectation value is correct:
     /// E[f] = Σᵢ pᵢ·f(gateᵢ) = Σᵢ qᵢ·(sign(pᵢ)×Normalization)·f(gateᵢ)
-    /// 
+    ///
     /// Returns: (sampled_gate_sequence, weight) where weight = ±Normalization
-    let sampleQuasiProb (decomposition: QuasiProbDecomposition) (rng: System.Random) : CircuitBuilder.Gate list * float =
+    let sampleQuasiProb
+        (decomposition: QuasiProbDecomposition)
+        (rng: System.Random)
+        : CircuitBuilder.Gate list * float =
         // Step 1: Convert quasi-probabilities to proper probabilities
         // qᵢ = |pᵢ| / Σ|pⱼ|
         let properProbabilities =
@@ -262,13 +271,13 @@ module ProbabilisticErrorCancellation =
         let weight = sign * decomposition.Normalization
 
         (gates, weight)
-    
+
     // ============================================================================
     // Full PEC Pipeline - Monte Carlo Error Mitigation
     // ============================================================================
-    
+
     /// Apply Probabilistic Error Cancellation to a quantum circuit.
-    /// 
+    ///
     /// Full pipeline:
     /// 1. Decompose each gate in circuit into quasi-probability distribution
     /// 2. For each Monte Carlo sample:
@@ -278,50 +287,49 @@ module ProbabilisticErrorCancellation =
     ///    d. Apply weight (sign correction)
     /// 3. Average weighted results over all samples
     /// 4. Compare with uncorrected baseline
-    /// 
+    ///
     /// Achieves 2-3x accuracy improvement at cost of 10-100x overhead.
-    /// 
+    ///
     /// Returns: PECResult with corrected expectation, error reduction, and overhead metrics.
-    let mitigate 
-        (circuit: CircuitBuilder.Circuit) 
-        (config: PECConfig) 
+    let mitigate
+        (circuit: CircuitBuilder.Circuit)
+        (config: PECConfig)
         (executor: CircuitBuilder.Circuit -> Async<Result<float, string>>)
         : Async<Result<PECResult, string>> =
         async {
             try
                 // Step 1: Decompose all gates in the circuit
-                let gateDecompositions = 
+                let gateDecompositions =
                     circuit.Gates
                     |> List.rev
                     |> List.map (fun gate ->
                         match gate with
-                        | CircuitBuilder.Gate.CNOT _ 
+                        | CircuitBuilder.Gate.CNOT _
                         | CircuitBuilder.Gate.CZ _
-                        | CircuitBuilder.Gate.SWAP _ ->
-                            decomposeTwoQubitGate gate config.NoiseModel
+                        | CircuitBuilder.Gate.SWAP _ -> decomposeTwoQubitGate gate config.NoiseModel
                         | CircuitBuilder.Gate.CCX _ ->
                             // For three-qubit gates, use two-qubit approximation
                             // (More sophisticated handling could be added in future)
                             decomposeTwoQubitGate gate config.NoiseModel
-                        | _ ->
-                            decomposeSingleQubitGate gate config.NoiseModel)
-                
+                        | _ -> decomposeSingleQubitGate gate config.NoiseModel)
+
                 // Step 2: Monte Carlo sampling - execute samples in parallel
                 let rng = System.Random(config.Seed |> Option.defaultValue 42)
-                
+
                 // Generate all samples first (for reproducibility with seed)
-                let samples = 
-                    [1 .. config.Samples]
+                let samples =
+                    [ 1 .. config.Samples ]
                     |> List.map (fun _ ->
                         // Sample clean circuit from quasi-probability distributions.
                         // Each sampled term is a short gate sequence (original gate + Pauli
                         // correction), appended in order to rebuild the corrected circuit.
                         gateDecompositions
-                        |> List.fold (fun (gates, weight) decomposition ->
-                            let (sampledGates, gateWeight) = sampleQuasiProb decomposition rng
-                            (gates @ sampledGates, weight * gateWeight)
-                        ) ([], 1.0))
-                
+                        |> List.fold
+                            (fun (gates, weight) decomposition ->
+                                let (sampledGates, gateWeight) = sampleQuasiProb decomposition rng
+                                (gates @ sampledGates, weight * gateWeight))
+                            ([], 1.0))
+
                 // Execute all sampled circuits
                 let! sampleResults =
                     samples
@@ -332,51 +340,55 @@ module ProbabilisticErrorCancellation =
                             // CircuitBuilder.Circuit stores Gates most-recent-first, so reverse it
                             // back — otherwise a conforming executor (which List.rev's) runs the
                             // sampled circuit backwards, inconsistently with the baseline.
-                            let sampledCircuit: CircuitBuilder.Circuit = {
-                                QubitCount = circuit.QubitCount
-                                Gates = List.rev sampledGates
-                            }
-                            
+                            let sampledCircuit: CircuitBuilder.Circuit =
+                                {
+                                    QubitCount = circuit.QubitCount
+                                    Gates = List.rev sampledGates
+                                }
+
                             // Execute sampled circuit
                             let! executionResult = executor sampledCircuit
-                            
-                            return 
-                                executionResult |> Result.map (fun expectation -> expectation, totalWeight)
+
+                            return executionResult |> Result.map (fun expectation -> expectation, totalWeight)
                         })
                     |> Async.Parallel
-                
+
                 // Check for execution failures
-                let failures = 
-                    sampleResults 
-                    |> Array.choose (function | Error e -> Some e | Ok _ -> None)
-                
+                let failures =
+                    sampleResults
+                    |> Array.choose (function
+                        | Error e -> Some e
+                        | Ok _ -> None)
+
                 if not (Array.isEmpty failures) then
-                    return Error (sprintf "Circuit execution failed: %s" (String.concat "; " failures))
+                    return Error(sprintf "Circuit execution failed: %s" (String.concat "; " failures))
                 else
                     // Step 3: Aggregate weighted results
                     let sumCorrected =
                         sampleResults
-                        |> Array.choose (function | Ok (exp, weight) -> Some (exp * weight) | Error _ -> None)
+                        |> Array.choose (function
+                            | Ok(exp, weight) -> Some(exp * weight)
+                            | Error _ -> None)
                         |> Array.sum
-                
+
                     let correctedExpectation = sumCorrected / float config.Samples
-                    
+
                     // Step 4: Get uncorrected baseline and compute result
                     let! uncorrectedResult = executor circuit
-                    
+
                     return
                         uncorrectedResult
                         |> Result.map (fun uncorrectedExpectation ->
                             // Calculate error reduction
-                            let errorReduction = 
+                            let errorReduction =
                                 if uncorrectedExpectation <> 0.0 then
                                     abs ((correctedExpectation - uncorrectedExpectation) / uncorrectedExpectation)
                                 else
                                     0.0
-                            
+
                             // Calculate overhead (samples + 1 baseline execution)
                             let overhead = float config.Samples
-                            
+
                             {
                                 CorrectedExpectation = correctedExpectation
                                 UncorrectedExpectation = uncorrectedExpectation
@@ -385,6 +397,6 @@ module ProbabilisticErrorCancellation =
                                 Overhead = overhead
                             })
                         |> Result.mapError (sprintf "Baseline execution failed: %s")
-            with
-            | ex -> return Error $"PEC pipeline error: %s{ex.Message}"
+            with ex ->
+                return Error $"PEC pipeline error: %s{ex.Message}"
         }

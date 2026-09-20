@@ -10,28 +10,28 @@ open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core
 
 module IonQBackendTests =
-    
+
     // ============================================================================
     // TDD CYCLE 1: Gate Type Definitions
     // ============================================================================
-    
+
     [<Fact>]
     let ``IonQGate - SingleQubit gate has gate name and target`` () =
         // Arrange & Act
         let gate = IonQGate.SingleQubit("h", 0)
-        
+
         // Assert
         match gate with
         | IonQGate.SingleQubit(gateName, target) ->
             Assert.Equal("h", gateName)
             Assert.Equal(0, target)
         | _ -> Assert.True(false, "Expected SingleQubit gate")
-    
+
     [<Fact>]
     let ``IonQGate - TwoQubit gate has gate name, control, and target`` () =
         // Arrange & Act
         let gate = IonQGate.TwoQubit("cnot", 0, 1)
-        
+
         // Assert
         match gate with
         | IonQGate.TwoQubit(gateName, control, target) ->
@@ -39,12 +39,12 @@ module IonQBackendTests =
             Assert.Equal(0, control)
             Assert.Equal(1, target)
         | _ -> Assert.True(false, "Expected TwoQubit gate")
-    
+
     [<Fact>]
     let ``IonQGate - SingleQubitRotation has gate name, target, and rotation angle`` () =
         // Arrange & Act
         let gate = IonQGate.SingleQubitRotation("rx", 2, Math.PI / 2.0)
-        
+
         // Assert
         match gate with
         | IonQGate.SingleQubitRotation(gateName, target, rotation) ->
@@ -52,261 +52,287 @@ module IonQBackendTests =
             Assert.Equal(2, target)
             Assert.Equal(Math.PI / 2.0, rotation, 6)
         | _ -> Assert.True(false, "Expected SingleQubitRotation gate")
-    
+
     [<Fact>]
     let ``IonQGate - Measure gate has array of target qubits`` () =
         // Arrange & Act
         let gate = IonQGate.Measure([| 0; 1; 2 |])
-        
+
         // Assert
         match gate with
         | IonQGate.Measure targets ->
             Assert.Equal(3, targets.Length)
             Assert.Equal<int seq>([| 0; 1; 2 |], targets)
         | _ -> Assert.True(false, "Expected Measure gate")
-    
+
     [<Fact>]
     let ``IonQCircuit - contains qubit count and gate list`` () =
         // Arrange
-        let gates = [
-            IonQGate.SingleQubit("h", 0)
-            IonQGate.TwoQubit("cnot", 0, 1)
-            IonQGate.Measure([| 0; 1 |])
-        ]
-        
+        let gates =
+            [
+                IonQGate.SingleQubit("h", 0)
+                IonQGate.TwoQubit("cnot", 0, 1)
+                IonQGate.Measure([| 0; 1 |])
+            ]
+
         // Act
         let circuit = { Qubits = 2; Circuit = gates }
-        
+
         // Assert
         Assert.Equal(2, circuit.Qubits)
         Assert.Equal(3, circuit.Circuit.Length)
-    
+
     // ============================================================================
     // TDD CYCLE 2: Gate Serialization to JSON
     // ============================================================================
-    
+
     [<Fact>]
     let ``serializeGate - SingleQubit gate serializes to JSON with gate and target`` () =
         // Arrange
         let gate = IonQGate.SingleQubit("h", 0)
-        
+
         // Act
         let json = serializeGate gate
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal("h", root.GetProperty("gate").GetString())
         Assert.Equal(0, root.GetProperty("target").GetInt32())
         Assert.False(root.TryGetProperty("control", ref Unchecked.defaultof<JsonElement>))
         Assert.False(root.TryGetProperty("rotation", ref Unchecked.defaultof<JsonElement>))
-    
+
     [<Fact>]
     let ``serializeGate - TwoQubit gate serializes to JSON with gate, control, and target`` () =
         // Arrange
         let gate = IonQGate.TwoQubit("cnot", 0, 1)
-        
+
         // Act
         let json = serializeGate gate
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal("cnot", root.GetProperty("gate").GetString())
         Assert.Equal(0, root.GetProperty("control").GetInt32())
         Assert.Equal(1, root.GetProperty("target").GetInt32())
         Assert.False(root.TryGetProperty("rotation", ref Unchecked.defaultof<JsonElement>))
-    
+
     [<Fact>]
     let ``serializeGate - SingleQubitRotation serializes to JSON with gate, target, and rotation`` () =
         // Arrange
         let gate = IonQGate.SingleQubitRotation("rx", 2, Math.PI / 2.0)
-        
+
         // Act
         let json = serializeGate gate
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal("rx", root.GetProperty("gate").GetString())
         Assert.Equal(2, root.GetProperty("target").GetInt32())
         Assert.Equal(Math.PI / 2.0, root.GetProperty("rotation").GetDouble(), 6)
         Assert.False(root.TryGetProperty("control", ref Unchecked.defaultof<JsonElement>))
-    
+
     [<Fact>]
     let ``serializeGate - Measure gate serializes to JSON with measure gate and target array`` () =
         // Arrange
         let gate = IonQGate.Measure([| 0; 1; 2 |])
-        
+
         // Act
         let json = serializeGate gate
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal("measure", root.GetProperty("gate").GetString())
-        let targets = root.GetProperty("target").EnumerateArray() |> Seq.map (fun e -> e.GetInt32()) |> Seq.toArray
+
+        let targets =
+            root.GetProperty("target").EnumerateArray()
+            |> Seq.map (fun e -> e.GetInt32())
+            |> Seq.toArray
+
         Assert.Equal<int seq>([| 0; 1; 2 |], targets)
-    
+
     // ============================================================================
     // TDD CYCLE 3: Circuit Serialization
     // ============================================================================
-    
+
     [<Fact>]
     let ``serializeCircuit - Bell state circuit serializes correctly`` () =
         // Arrange - Bell state: H on qubit 0, CNOT(0,1), measure both
-        let circuit = {
-            Qubits = 2
-            Circuit = [
-                IonQGate.SingleQubit("h", 0)
-                IonQGate.TwoQubit("cnot", 0, 1)
-                IonQGate.Measure([| 0; 1 |])
-            ]
-        }
-        
+        let circuit =
+            {
+                Qubits = 2
+                Circuit =
+                    [
+                        IonQGate.SingleQubit("h", 0)
+                        IonQGate.TwoQubit("cnot", 0, 1)
+                        IonQGate.Measure([| 0; 1 |])
+                    ]
+            }
+
         // Act
         let json = serializeCircuit circuit
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal(2, root.GetProperty("qubits").GetInt32())
         let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
         Assert.Equal(3, gates.Length)
-        
+
         // Check H gate
         Assert.Equal("h", gates.[0].GetProperty("gate").GetString())
         Assert.Equal(0, gates.[0].GetProperty("target").GetInt32())
-        
+
         // Check CNOT gate
         Assert.Equal("cnot", gates.[1].GetProperty("gate").GetString())
         Assert.Equal(0, gates.[1].GetProperty("control").GetInt32())
         Assert.Equal(1, gates.[1].GetProperty("target").GetInt32())
-        
+
         // Check Measure gate
         Assert.Equal("measure", gates.[2].GetProperty("gate").GetString())
-        let measureTargets = gates.[2].GetProperty("target").EnumerateArray() |> Seq.map (fun e -> e.GetInt32()) |> Seq.toArray
+
+        let measureTargets =
+            gates.[2].GetProperty("target").EnumerateArray()
+            |> Seq.map (fun e -> e.GetInt32())
+            |> Seq.toArray
+
         Assert.Equal<int seq>([| 0; 1 |], measureTargets)
-    
+
     [<Fact>]
     let ``serializeCircuit - GHZ state with rotations serializes correctly`` () =
         // Arrange - 3-qubit GHZ state with RX rotation
-        let circuit = {
-            Qubits = 3
-            Circuit = [
-                IonQGate.SingleQubit("h", 0)
-                IonQGate.SingleQubitRotation("rx", 1, Math.PI / 4.0)
-                IonQGate.TwoQubit("cnot", 0, 1)
-                IonQGate.TwoQubit("cnot", 1, 2)
-                IonQGate.Measure([| 0; 1; 2 |])
-            ]
-        }
-        
+        let circuit =
+            {
+                Qubits = 3
+                Circuit =
+                    [
+                        IonQGate.SingleQubit("h", 0)
+                        IonQGate.SingleQubitRotation("rx", 1, Math.PI / 4.0)
+                        IonQGate.TwoQubit("cnot", 0, 1)
+                        IonQGate.TwoQubit("cnot", 1, 2)
+                        IonQGate.Measure([| 0; 1; 2 |])
+                    ]
+            }
+
         // Act
         let json = serializeCircuit circuit
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal(3, root.GetProperty("qubits").GetInt32())
         let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
         Assert.Equal(5, gates.Length)
-        
+
         // Check RX rotation gate
         Assert.Equal("rx", gates.[1].GetProperty("gate").GetString())
         Assert.Equal(1, gates.[1].GetProperty("target").GetInt32())
         Assert.Equal(Math.PI / 4.0, gates.[1].GetProperty("rotation").GetDouble(), 6)
-    
+
     [<Fact>]
     let ``serializeCircuit - Empty circuit with just measurement`` () =
         // Arrange
-        let circuit = {
-            Qubits = 1
-            Circuit = [
-                IonQGate.Measure([| 0 |])
-            ]
-        }
-        
+        let circuit =
+            {
+                Qubits = 1
+                Circuit = [ IonQGate.Measure([| 0 |]) ]
+            }
+
         // Act
         let json = serializeCircuit circuit
         let jsonDoc = JsonDocument.Parse(json)
         let root = jsonDoc.RootElement
-        
+
         // Assert
         Assert.Equal(1, root.GetProperty("qubits").GetInt32())
         let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
         Assert.Equal(1, gates.Length)
         Assert.Equal("measure", gates.[0].GetProperty("gate").GetString())
-    
+
     // ============================================================================
     // TDD CYCLE 4: Job Submission
     // ============================================================================
-    
+
     [<Fact>]
     let ``createJobSubmission - Creates correct JobSubmission for IonQ simulator`` () =
         // Arrange
-        let circuit = {
-            Qubits = 2
-            Circuit = [
-                IonQGate.SingleQubit("h", 0)
-                IonQGate.TwoQubit("cnot", 0, 1)
-                IonQGate.Measure([| 0; 1 |])
-            ]
-        }
+        let circuit =
+            {
+                Qubits = 2
+                Circuit =
+                    [
+                        IonQGate.SingleQubit("h", 0)
+                        IonQGate.TwoQubit("cnot", 0, 1)
+                        IonQGate.Measure([| 0; 1 |])
+                    ]
+            }
+
         let shots = 1000
         let target = "ionq.simulator"
-        
+
         // Act
         let submission = createJobSubmission circuit shots target
-        
+
         // Assert
         Assert.NotNull(submission.JobId)
         Assert.Equal(target, submission.Target)
         Assert.Equal(CircuitFormat.IonQ_V1, submission.InputDataFormat)
-        
+
         // Verify input data is serialized circuit
         let inputDataStr = submission.InputData :?> string
         let inputDoc = JsonDocument.Parse(inputDataStr)
         Assert.Equal(2, inputDoc.RootElement.GetProperty("qubits").GetInt32())
-        
+
         // Verify input params contain shots
         Assert.True(submission.InputParams.ContainsKey "shots")
         Assert.Equal(shots, submission.InputParams.["shots"] :?> int)
-    
+
     [<Fact>]
     let ``createJobSubmission - Supports different targets (simulator and hardware)`` () =
         // Arrange
-        let circuit = { Qubits = 1; Circuit = [ IonQGate.Measure([| 0 |]) ] }
-        
+        let circuit =
+            {
+                Qubits = 1
+                Circuit = [ IonQGate.Measure([| 0 |]) ]
+            }
+
         // Act - Simulator
         let simSubmission = createJobSubmission circuit 100 "ionq.simulator"
         // Act - Hardware (Aria)
         let ariaSubmission = createJobSubmission circuit 100 "ionq.qpu.aria-1"
-        
+
         // Assert
         Assert.Equal("ionq.simulator", simSubmission.Target)
         Assert.Equal("ionq.qpu.aria-1", ariaSubmission.Target)
         Assert.NotEqual<string>(simSubmission.JobId, ariaSubmission.JobId) // Different job IDs
-    
+
     [<Fact>]
     let ``createJobSubmission - Uses correct circuit format IonQ_V1`` () =
         // Arrange
-        let circuit = { Qubits = 1; Circuit = [ IonQGate.Measure([| 0 |]) ] }
-        
+        let circuit =
+            {
+                Qubits = 1
+                Circuit = [ IonQGate.Measure([| 0 |]) ]
+            }
+
         // Act
         let submission = createJobSubmission circuit 500 "ionq.simulator"
-        
+
         // Assert
         Assert.Equal("ionq.circuit.v1", submission.InputDataFormat.ToFormatString())
-    
+
     // ============================================================================
     // TDD CYCLE 5: Result Parsing from IonQ Histogram
     // ============================================================================
-    
+
     [<Fact>]
     let ``parseIonQResult - Parses histogram with bitstring keys and counts`` () =
         // Arrange - IonQ result format with histogram
-        let ionqResultJson = """{
+        let ionqResultJson =
+            """{
             "histogram": {
                 "00": 492,
                 "01": 12,
@@ -314,10 +340,11 @@ module IonQBackendTests =
                 "11": 488
             }
         }"""
-        
+
         // Act
         let result =
-            (parseIonQResult 2 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
+            (parseIonQResult 2 1000 ionqResultJson)
+            |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(4, result.Count)
@@ -325,28 +352,31 @@ module IonQBackendTests =
         Assert.Equal(12, result.["01"])
         Assert.Equal(8, result.["10"])
         Assert.Equal(488, result.["11"])
-    
+
     [<Fact>]
     let ``parseIonQResult - Handles single outcome result`` () =
         // Arrange - All measurements produce same result
-        let ionqResultJson = """{
+        let ionqResultJson =
+            """{
             "histogram": {
                 "000": 1000
             }
         }"""
-        
+
         // Act
         let result =
-            (parseIonQResult 3 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
+            (parseIonQResult 3 1000 ionqResultJson)
+            |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(1, result.Count)
         Assert.Equal(1000, result.["000"])
-    
+
     [<Fact>]
     let ``parseIonQResult - Handles uniform superposition (all outcomes equal probability)`` () =
         // Arrange - 2-qubit uniform superposition: each of 4 outcomes ~250 counts
-        let ionqResultJson = """{
+        let ionqResultJson =
+            """{
             "histogram": {
                 "00": 250,
                 "01": 251,
@@ -354,10 +384,11 @@ module IonQBackendTests =
                 "11": 250
             }
         }"""
-        
+
         // Act
         let result =
-            (parseIonQResult 2 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
+            (parseIonQResult 2 1000 ionqResultJson)
+            |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(4, result.Count)
@@ -367,7 +398,8 @@ module IonQBackendTests =
     [<Fact>]
     let ``parseIonQResult - Parses Azure "ionq.quantum-results.v1" format (decimal keys, probabilities)`` () =
         // Arrange - documented Azure Quantum IonQ output: probabilities keyed by decimal state index
-        let ionqResultJson = """{
+        let ionqResultJson =
+            """{
             "histogram": {
                 "0": 0.492,
                 "3": 0.508
@@ -376,7 +408,8 @@ module IonQBackendTests =
 
         // Act
         let result =
-            (parseIonQResult 2 1000 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
+            (parseIonQResult 2 1000 ionqResultJson)
+            |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert - decimal indices become bitstrings, probabilities become counts (round(p * shots))
         Assert.Equal(2, result.Count)
@@ -386,7 +419,8 @@ module IonQBackendTests =
     [<Fact>]
     let ``parseIonQResult - Deterministic probability-1 outcome scales to shot count`` () =
         // Arrange - a deterministic result may serialise the probability as the integer 1
-        let ionqResultJson = """{
+        let ionqResultJson =
+            """{
             "histogram": {
                 "3": 1
             }
@@ -394,121 +428,124 @@ module IonQBackendTests =
 
         // Act
         let result =
-            (parseIonQResult 2 500 ionqResultJson) |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
+            (parseIonQResult 2 500 ionqResultJson)
+            |> Result.defaultWith (fun msg -> failwith $"Expected successful parse, got error: {msg}")
 
         // Assert
         Assert.Equal(1, result.Count)
         Assert.Equal(500, result.["11"])
-    
+
     // ============================================================================
     // TDD CYCLE 6: Error Mapping from IonQ to QuantumError
     // ============================================================================
-    
+
     [<Fact>]
     let ``mapIonQError - InvalidCircuit maps to InvalidCircuit with error message`` () =
         // Arrange
         let errorCode = "InvalidCircuit"
         let errorMessage = "Gate 'toffoli' is not supported on this backend"
-        
+
         // Act
         let quantumError = mapIonQError errorCode errorMessage
-        
+
         // Assert
         match quantumError with
         | QuantumError.ValidationError(field, reason) ->
             Assert.Equal("circuit", field)
             Assert.Contains("toffoli", reason)
         | _ -> Assert.True(false, "Expected ValidationError for circuit")
-    
+
     [<Fact>]
     let ``mapIonQError - TooManyQubits maps to InvalidCircuit with qubit limit message`` () =
         // Arrange
         let errorCode = "TooManyQubits"
         let errorMessage = "Circuit requires 30 qubits but backend supports maximum 29"
-        
+
         // Act
         let quantumError = mapIonQError errorCode errorMessage
-        
+
         // Assert
         match quantumError with
         | QuantumError.ValidationError(field, reason) ->
             Assert.Equal("circuit", field)
             Assert.Contains("30 qubits", reason)
         | _ -> Assert.True(false, "Expected ValidationError for circuit")
-    
+
     [<Fact>]
     let ``mapIonQError - QuotaExceeded maps to QuotaExceeded`` () =
         // Arrange
         let errorCode = "QuotaExceeded"
         let errorMessage = "Insufficient Azure Quantum credits"
-        
+
         // Act
         let quantumError = mapIonQError errorCode errorMessage
-        
+
         // Assert
         match quantumError with
         | QuantumError.AzureError(AzureQuantumError.QuotaExceeded quotaType) ->
             Assert.Contains("credit", quotaType.ToLowerInvariant())
         | _ -> Assert.True(false, "Expected QuotaExceeded error")
-    
+
     [<Fact>]
     let ``mapIonQError - BackendUnavailable maps to ServiceUnavailable`` () =
         // Arrange
         let errorCode = "BackendUnavailable"
         let errorMessage = "IonQ Aria-1 is currently offline for maintenance"
-        
+
         // Act
         let quantumError = mapIonQError errorCode errorMessage
-        
+
         // Assert
         match quantumError with
         | QuantumError.AzureError(AzureQuantumError.ServiceUnavailable retryAfter) ->
             Assert.True(retryAfter.IsSome)
             Assert.Equal(5.0, retryAfter.Value.TotalMinutes)
         | _ -> Assert.True(false, "Expected ServiceUnavailable error")
-    
+
     [<Fact>]
     let ``mapIonQError - Unknown error code maps to UnknownError`` () =
         // Arrange
         let errorCode = "SomethingWeird"
         let errorMessage = "An unexpected error occurred"
-        
+
         // Act
         let quantumError = mapIonQError errorCode errorMessage
-        
+
         // Assert
         match quantumError with
-        | QuantumError.AzureError(AzureQuantumError.UnknownError (statusCode, message)) ->
+        | QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, message)) ->
             Assert.Equal(0, statusCode) // Unknown status code
             Assert.Contains("SomethingWeird", message)
         | _ -> Assert.True(false, "Expected UnknownError")
-    
+
     // ============================================================================
     // INTEGRATION TESTS
     // ============================================================================
-    
+
     [<Fact>]
     let ``Complete workflow - submitAndWaitForResultsAsync has correct signature`` () =
         // This test verifies the complete workflow function exists with correct signature
         // Actual integration testing requires real HTTP client and Azure Quantum workspace
-        
+
         // Arrange - Bell state circuit
-        let circuit = {
-            Qubits = 2
-            Circuit = [
-                IonQGate.SingleQubit("h", 0)
-                IonQGate.TwoQubit("cnot", 0, 1)
-                IonQGate.Measure([| 0; 1 |])
-            ]
-        }
-        
+        let circuit =
+            {
+                Qubits = 2
+                Circuit =
+                    [
+                        IonQGate.SingleQubit("h", 0)
+                        IonQGate.TwoQubit("cnot", 0, 1)
+                        IonQGate.Measure([| 0; 1 |])
+                    ]
+            }
+
         // Act - Verify function signature compiles (no actual execution)
         let workflowFunc = submitAndWaitForResultsAsync
 
         // Assert - Function exists and has expected type
         // (HttpClient -> string -> IonQCircuit -> int -> string -> CancellationToken -> Task<Result<Map<string, int>, QuantumError>>)
         Assert.NotNull(workflowFunc)
-        
+
         // Verify we can create a submission (doesn't require HTTP)
         let submission = createJobSubmission circuit 1000 "ionq.simulator"
         Assert.Equal("ionq.simulator", submission.Target)

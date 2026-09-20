@@ -57,14 +57,42 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "BernsteinVaziraniExample.fsx" "Bernstein-Vazirani: recover a hidden bitstring with 1 quantum query." [
-    { Name = "secret"; Description = "Hidden bitstring to recover (e.g. 1011)"; Default = Some "1011" }
-    { Name = "shots"; Description = "Measurement shots"; Default = Some "100" }
-    { Name = "backend"; Description = "Backend to use (local/topological/both)"; Default = Some "both" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "BernsteinVaziraniExample.fsx"
+    "Bernstein-Vazirani: recover a hidden bitstring with 1 quantum query."
+    [
+        {
+            Name = "secret"
+            Description = "Hidden bitstring to recover (e.g. 1011)"
+            Default = Some "1011"
+        }
+        {
+            Name = "shots"
+            Description = "Measurement shots"
+            Default = Some "100"
+        }
+        {
+            Name = "backend"
+            Description = "Backend to use (local/topological/both)"
+            Default = Some "both"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let secretArg = Cli.getOr "secret" "1011" args
 let shots = Cli.getIntOr "shots" 100 args
@@ -94,7 +122,8 @@ let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
 let backendsToTest =
     match backendArg with
     | "local" -> [ ("local", localBackend) ]
-    | "topological" | "topo" -> [ ("topological", topoBackend) ]
+    | "topological"
+    | "topo" -> [ ("topological", topoBackend) ]
     | _ -> [ ("local", localBackend); ("topological", topoBackend) ]
 
 // ============================================================================
@@ -126,21 +155,28 @@ for (backendKey, backend) in backendsToTest do
 
         if not quiet then
             printfn "  Hidden secret:    %s" secretArg
-            printfn "  Recovered secret: %s  (confidence %.2f%%)  [%s]"
-                recoveredStr (result.Confidence * 100.0)
+
+            printfn
+                "  Recovered secret: %s  (confidence %.2f%%)  [%s]"
+                recoveredStr
+                (result.Confidence * 100.0)
                 (if correct then "OK" else "MISMATCH")
+
             printfn ""
 
         results.Add(
-            [ "backend", backendKey
-              "backend_name", backend.Name
-              "secret", secretArg
-              "recovered", recoveredStr
-              "confidence", $"%.4f{result.Confidence}"
-              "qubits", string result.NumQubits
-              "shots", string result.Shots
-              "correct", string correct ]
-            |> Map.ofList)
+            [
+                "backend", backendKey
+                "backend_name", backend.Name
+                "secret", secretArg
+                "recovered", recoveredStr
+                "confidence", $"%.4f{result.Confidence}"
+                "qubits", string result.NumQubits
+                "shots", string result.Shots
+                "correct", string correct
+            ]
+            |> Map.ofList
+        )
 
     | Error err ->
         if not quiet then
@@ -148,10 +184,9 @@ for (backendKey, backend) in backendsToTest do
             printfn ""
 
         results.Add(
-            [ "backend", backendKey
-              "secret", secretArg
-              "error", $"%A{err}" ]
-            |> Map.ofList)
+            [ "backend", backendKey; "secret", secretArg; "error", $"%A{err}" ]
+            |> Map.ofList
+        )
 
 // ============================================================================
 // Quantum Advantage Summary
@@ -182,12 +217,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

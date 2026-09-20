@@ -16,8 +16,7 @@ let ``Deutsch-Jozsa reports Constant for constant-zero oracle`` () =
     | Ok result ->
         Assert.Equal(DeutschJozsa.Constant, result.OracleType)
         Assert.Equal(1.0, result.ZeroProbability)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")
 
 [<Fact>]
 let ``Deutsch-Jozsa reports Constant for constant-one oracle`` () =
@@ -27,8 +26,7 @@ let ``Deutsch-Jozsa reports Constant for constant-one oracle`` () =
     | Ok result ->
         Assert.Equal(DeutschJozsa.Constant, result.OracleType)
         Assert.Equal(1.0, result.ZeroProbability)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")
 
 [<Fact>]
 let ``Deutsch-Jozsa reports Balanced for first-bit balanced oracle`` () =
@@ -38,8 +36,7 @@ let ``Deutsch-Jozsa reports Balanced for first-bit balanced oracle`` () =
     | Ok result ->
         Assert.Equal(DeutschJozsa.Balanced, result.OracleType)
         Assert.Equal(0.0, result.ZeroProbability)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")
 
 [<Fact>]
 let ``Deutsch-Jozsa reports Balanced for parity balanced oracle`` () =
@@ -49,5 +46,4 @@ let ``Deutsch-Jozsa reports Balanced for parity balanced oracle`` () =
     | Ok result ->
         Assert.Equal(DeutschJozsa.Balanced, result.OracleType)
         Assert.Equal(0.0, result.ZeroProbability)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")

@@ -10,17 +10,21 @@ module Retry =
     /// Retry configuration
     [<Struct>]
     type RetryConfig =
-        { MaxAttempts: int
-          InitialDelayMs: int
-          MaxDelayMs: int
-          JitterFactor: float }
+        {
+            MaxAttempts: int
+            InitialDelayMs: int
+            MaxDelayMs: int
+            JitterFactor: float
+        }
 
     /// Default retry configuration
     let defaultConfig =
-        { MaxAttempts = 3
-          InitialDelayMs = 500
-          MaxDelayMs = 4000
-          JitterFactor = 0.2 }
+        {
+            MaxAttempts = 3
+            InitialDelayMs = 500
+            MaxDelayMs = 4000
+            JitterFactor = 0.2
+        }
 
     /// Check if HTTP status code indicates a transient error
     let isTransientStatusCode (statusCode: HttpStatusCode) =
@@ -36,10 +40,10 @@ module Retry =
     /// Check if QuantumError is transient (retriable)
     let isTransientError =
         function
-        | QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _)
-        | QuantumError.AzureError (AzureQuantumError.RateLimited _)
-        | QuantumError.AzureError (AzureQuantumError.NetworkTimeout _) -> true
-        | QuantumError.AzureError (AzureQuantumError.UnknownError(statusCode, _)) -> 
+        | QuantumError.AzureError(AzureQuantumError.ServiceUnavailable _)
+        | QuantumError.AzureError(AzureQuantumError.RateLimited _)
+        | QuantumError.AzureError(AzureQuantumError.NetworkTimeout _) -> true
+        | QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _)) ->
             isTransientStatusCode (enum<HttpStatusCode> statusCode)
         | _ -> false
 
@@ -60,35 +64,33 @@ module Retry =
     let categorizeHttpError (statusCode: HttpStatusCode) (responseBody: string) =
         match statusCode with
         | HttpStatusCode.Unauthorized
-        | HttpStatusCode.Forbidden -> 
-            QuantumError.AzureError AzureQuantumError.InvalidCredentials
+        | HttpStatusCode.Forbidden -> QuantumError.AzureError AzureQuantumError.InvalidCredentials
 
-        | HttpStatusCode.TooManyRequests -> 
-            QuantumError.AzureError (AzureQuantumError.RateLimited(TimeSpan.FromSeconds(60.0)))
+        | HttpStatusCode.TooManyRequests ->
+            QuantumError.AzureError(AzureQuantumError.RateLimited(TimeSpan.FromSeconds(60.0)))
 
-        | HttpStatusCode.ServiceUnavailable -> 
-            QuantumError.AzureError (AzureQuantumError.ServiceUnavailable(Some(TimeSpan.FromSeconds(30.0))))
+        | HttpStatusCode.ServiceUnavailable ->
+            QuantumError.AzureError(AzureQuantumError.ServiceUnavailable(Some(TimeSpan.FromSeconds(30.0))))
 
         | HttpStatusCode.RequestTimeout
-        | HttpStatusCode.GatewayTimeout -> 
-            QuantumError.AzureError (AzureQuantumError.NetworkTimeout(0))
+        | HttpStatusCode.GatewayTimeout -> QuantumError.AzureError(AzureQuantumError.NetworkTimeout(0))
 
         | HttpStatusCode.BadRequest ->
             // Parse error message to detect specific errors
             if responseBody.Contains("InvalidCircuit") || responseBody.Contains("invalid") then
                 QuantumError.ValidationError("circuit", responseBody)
             elif responseBody.Contains("quota") || responseBody.Contains("Quota") then
-                QuantumError.AzureError (AzureQuantumError.QuotaExceeded("unknown"))
+                QuantumError.AzureError(AzureQuantumError.QuotaExceeded("unknown"))
             else
-                QuantumError.AzureError (AzureQuantumError.UnknownError(int statusCode, responseBody))
+                QuantumError.AzureError(AzureQuantumError.UnknownError(int statusCode, responseBody))
 
         | HttpStatusCode.NotFound ->
             if responseBody.Contains("backend") || responseBody.Contains("Backend") then
                 QuantumError.BackendError("unknown", "Backend not found")
             else
-                QuantumError.AzureError (AzureQuantumError.UnknownError(int statusCode, responseBody))
+                QuantumError.AzureError(AzureQuantumError.UnknownError(int statusCode, responseBody))
 
-        | _ -> QuantumError.AzureError (AzureQuantumError.UnknownError(int statusCode, responseBody))
+        | _ -> QuantumError.AzureError(AzureQuantumError.UnknownError(int statusCode, responseBody))
 
     /// Execute async operation with retry logic (functional, recursive approach)
     let rec private retryLoop<'T>

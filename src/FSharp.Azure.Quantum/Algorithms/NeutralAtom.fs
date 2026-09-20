@@ -3,7 +3,7 @@ namespace FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki  // brings PauliString/PauliHamiltonian record labels into scope
+open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki // brings PauliString/PauliHamiltonian record labels into scope
 open System
 
 /// Neutral-atom (Rydberg) analog quantum computing.
@@ -29,21 +29,23 @@ module NeutralAtom =
     type Atom = { X: float; Y: float }
 
     /// One segment of a global pulse, with Ω and Δ ramped linearly over `Duration`.
-    type PulseSegment = {
-        Duration: float
-        RabiStart: float
-        RabiEnd: float
-        DetuningStart: float
-        DetuningEnd: float
-    }
+    type PulseSegment =
+        {
+            Duration: float
+            RabiStart: float
+            RabiEnd: float
+            DetuningStart: float
+            DetuningEnd: float
+        }
 
     /// A neutral-atom analog program: where the atoms are, how they're driven, and how strong
     /// the van-der-Waals interaction is (C₆).
-    type RydbergProgram = {
-        Register: Atom list
-        Schedule: PulseSegment list
-        C6: float
-    }
+    type RydbergProgram =
+        {
+            Register: Atom list
+            Schedule: PulseSegment list
+            C6: float
+        }
 
     /// Euclidean distance between two atoms.
     let distance (a: Atom) (b: Atom) : float =
@@ -52,7 +54,10 @@ module NeutralAtom =
     /// Blockade radius R_b where the interaction equals the drive: Vᵢⱼ = Ω ⇒ R_b = (C₆/Ω)^(1/6).
     /// Atoms closer than R_b cannot both be excited.
     let blockadeRadius (c6: float) (omega: float) : float =
-        if omega <= 0.0 then infinity else (c6 / omega) ** (1.0 / 6.0)
+        if omega <= 0.0 then
+            infinity
+        else
+            (c6 / omega) ** (1.0 / 6.0)
 
     /// Compile the analog program to a gate circuit by first-order Trotterization with
     /// `stepsPerSegment` steps per pulse segment. More steps ⇒ smaller dt ⇒ less Trotter error
@@ -62,30 +67,42 @@ module NeutralAtom =
         let n = atoms.Length
         // Precompute pairwise interaction strengths Vᵢⱼ = C₆ / rᵢⱼ⁶.
         let interactions =
-            [ for i in 0 .. n - 1 do
-                for j in i + 1 .. n - 1 do
-                    let r = distance atoms.[i] atoms.[j]
-                    let v = if r <= 0.0 then infinity else program.C6 / (r ** 6.0)
-                    yield (i, j, v) ]
+            [
+                for i in 0 .. n - 1 do
+                    for j in i + 1 .. n - 1 do
+                        let r = distance atoms.[i] atoms.[j]
+                        let v = if r <= 0.0 then infinity else program.C6 / (r ** 6.0)
+                        yield (i, j, v)
+            ]
+
         let mutable circuit = CircuitBuilder.empty n
-        let addGate g = circuit <- CircuitBuilder.addGate g circuit
+
+        let addGate g =
+            circuit <- CircuitBuilder.addGate g circuit
+
         for segment in program.Schedule do
             let steps = max 1 stepsPerSegment
             let dt = segment.Duration / float steps
+
             for s in 0 .. steps - 1 do
                 // Sample Ω, Δ at the segment midpoint of this step.
                 let frac = (float s + 0.5) / float steps
                 let omega = segment.RabiStart + (segment.RabiEnd - segment.RabiStart) * frac
-                let delta = segment.DetuningStart + (segment.DetuningEnd - segment.DetuningStart) * frac
+
+                let delta =
+                    segment.DetuningStart + (segment.DetuningEnd - segment.DetuningStart) * frac
                 // Drive: exp(-i (Ω/2) X dt) = RX(Ω·dt).
-                for i in 0 .. n - 1 do addGate (CircuitBuilder.RX (i, omega * dt))
+                for i in 0 .. n - 1 do
+                    addGate (CircuitBuilder.RX(i, omega * dt))
                 // Detuning: exp(i Δ dt nᵢ) = P(Δ·dt).
                 if delta <> 0.0 then
-                    for i in 0 .. n - 1 do addGate (CircuitBuilder.P (i, delta * dt))
+                    for i in 0 .. n - 1 do
+                        addGate (CircuitBuilder.P(i, delta * dt))
                 // Interaction: exp(-i Vᵢⱼ dt nᵢ nⱼ) = CP(-Vᵢⱼ·dt).
                 for (i, j, v) in interactions do
                     if Double.IsFinite v && v <> 0.0 then
-                        addGate (CircuitBuilder.CP (i, j, -v * dt))
+                        addGate (CircuitBuilder.CP(i, j, -v * dt))
+
         circuit
 
     /// Run a Rydberg program on a backend (Trotterized to gates) and return the measurement
@@ -106,27 +123,62 @@ module NeutralAtom =
     /// (all atoms in the ground state) to strongly positive (rewarding Rydberg excitations),
     /// while the blockade forbids exciting adjacent atoms — driving the system toward a
     /// maximum independent set of the unit-disk graph defined by the register.
-    let maximumIndependentSetProgram (register: Atom list) (c6: float) (omegaMax: float) (finalDetuning: float) (totalTime: float) : RydbergProgram =
+    let maximumIndependentSetProgram
+        (register: Atom list)
+        (c6: float)
+        (omegaMax: float)
+        (finalDetuning: float)
+        (totalTime: float)
+        : RydbergProgram =
         let third = totalTime / 3.0
-        { Register = register
-          C6 = c6
-          Schedule =
-            [ // Turn on the drive at large negative detuning.
-              { Duration = third; RabiStart = 0.0; RabiEnd = omegaMax; DetuningStart = -finalDetuning; DetuningEnd = -finalDetuning }
-              // Sweep the detuning through zero to positive with the drive on.
-              { Duration = third; RabiStart = omegaMax; RabiEnd = omegaMax; DetuningStart = -finalDetuning; DetuningEnd = finalDetuning }
-              // Ramp the drive back off to freeze the assignment.
-              { Duration = third; RabiStart = omegaMax; RabiEnd = 0.0; DetuningStart = finalDetuning; DetuningEnd = finalDetuning } ] }
+
+        {
+            Register = register
+            C6 = c6
+            Schedule =
+                [ // Turn on the drive at large negative detuning.
+                    {
+                        Duration = third
+                        RabiStart = 0.0
+                        RabiEnd = omegaMax
+                        DetuningStart = -finalDetuning
+                        DetuningEnd = -finalDetuning
+                    }
+                    // Sweep the detuning through zero to positive with the drive on.
+                    {
+                        Duration = third
+                        RabiStart = omegaMax
+                        RabiEnd = omegaMax
+                        DetuningStart = -finalDetuning
+                        DetuningEnd = finalDetuning
+                    }
+                    // Ramp the drive back off to freeze the assignment.
+                    {
+                        Duration = third
+                        RabiStart = omegaMax
+                        RabiEnd = 0.0
+                        DetuningStart = finalDetuning
+                        DetuningEnd = finalDetuning
+                    }
+                ]
+        }
 
     /// Whether a measured bitstring is an independent set of the register's unit-disk graph
     /// (no two excited atoms are within the blockade radius).
     let isIndependentSet (program: RydbergProgram) (omega: float) (bitstring: string) : bool =
         let atoms = program.Register |> List.toArray
-        let excited = [ for i in 0 .. bitstring.Length - 1 do if bitstring.[i] = '1' then yield i ]
+
+        let excited =
+            [
+                for i in 0 .. bitstring.Length - 1 do
+                    if bitstring.[i] = '1' then
+                        yield i
+            ]
+
         let rb = blockadeRadius program.C6 omega
+
         excited
-        |> List.forall (fun i ->
-            excited |> List.forall (fun j -> i = j || distance atoms.[i] atoms.[j] > rb))
+        |> List.forall (fun i -> excited |> List.forall (fun j -> i = j || distance atoms.[i] atoms.[j] > rb))
 
     // ========================================================================
     // Analog quantum simulation — quench dynamics
@@ -137,13 +189,28 @@ module NeutralAtom =
     /// you can watch by varying `duration` and reading `rydbergDensities` — the neutral-atom
     /// analog-simulation workload (Ising-like quench dynamics) as opposed to optimisation (MIS).
     let quench (register: Atom list) (c6: float) (omega: float) (detuning: float) (duration: float) : RydbergProgram =
-        { Register = register
-          C6 = c6
-          Schedule = [ { Duration = duration; RabiStart = omega; RabiEnd = omega; DetuningStart = detuning; DetuningEnd = detuning } ] }
+        {
+            Register = register
+            C6 = c6
+            Schedule =
+                [
+                    {
+                        Duration = duration
+                        RabiStart = omega
+                        RabiEnd = omega
+                        DetuningStart = detuning
+                        DetuningEnd = detuning
+                    }
+                ]
+        }
 
     /// Evolve an analog program and return the final quantum state (rather than just samples),
     /// so observables such as Rydberg density and correlations can be computed exactly.
-    let evolve (backend: IQuantumBackend) (program: RydbergProgram) (stepsPerSegment: int) : QuantumResult<QuantumState> =
+    let evolve
+        (backend: IQuantumBackend)
+        (program: RydbergProgram)
+        (stepsPerSegment: int)
+        : QuantumResult<QuantumState> =
         Primitives.getState backend (toCircuit program stepsPerSegment)
 
     /// Per-atom Rydberg occupation ⟨nᵢ⟩ = (1 − ⟨Zᵢ⟩)/2 for every atom — the key observable of
@@ -152,8 +219,19 @@ module NeutralAtom =
     let rydbergDensities (numAtoms: int) (state: QuantumState) : QuantumResult<float[]> =
         let densityOf (i: int) : QuantumResult<float> =
             let ops = Array.init numAtoms (fun q -> if q = i then 'Z' else 'I')
-            let zi : PauliHamiltonian =
-                { Terms = [ { Operators = ops; Coefficient = System.Numerics.Complex(1.0, 0.0) } ]; NumQubits = numAtoms }
+
+            let zi: PauliHamiltonian =
+                {
+                    Terms =
+                        [
+                            {
+                                Operators = ops
+                                Coefficient = System.Numerics.Complex(1.0, 0.0)
+                            }
+                        ]
+                    NumQubits = numAtoms
+                }
+
             Primitives.expectation zi state |> Result.map (fun z -> (1.0 - z) / 2.0)
         // Collect per-atom densities, short-circuiting on the first error.
         (Ok [], [ 0 .. numAtoms - 1 ])
@@ -176,8 +254,22 @@ module NeutralAtom =
         (shots: int)
         : QuantumResult<int list> =
         let program = maximumIndependentSetProgram register c6 omega finalDetuning totalTime
+
         simulate backend program stepsPerSegment shots
-        |> Result.map (Map.toList >> List.map fst >> List.filter (isIndependentSet program omega) >> List.sortByDescending (Seq.filter ((=) '1') >> Seq.length) >> List.tryHead >> Option.map (fun b -> [ for i in 0 .. b.Length - 1 do if b.[i] = '1' then yield i ]) >> Option.defaultValue [])
+        |> Result.map (
+            Map.toList
+            >> List.map fst
+            >> List.filter (isIndependentSet program omega)
+            >> List.sortByDescending (Seq.filter ((=) '1') >> Seq.length)
+            >> List.tryHead
+            >> Option.map (fun b ->
+                [
+                    for i in 0 .. b.Length - 1 do
+                        if b.[i] = '1' then
+                            yield i
+                ])
+            >> Option.defaultValue []
+        )
 
     // ========================================================================
     // Analog variational optimization (variational pulse shaping — "analog QAOA")
@@ -206,30 +298,34 @@ module NeutralAtom =
         | Ok _ ->
             let objective (p: float[]) =
                 (energyOf p) |> Result.defaultWith (fun _ -> Double.MaxValue)
+
             match initialParameters.Length with
-            | 0 -> Ok ([||], objective [||])
+            | 0 -> Ok([||], objective [||])
             | 1 ->
                 // 1-D: coarse scan then local refine (Nelder-Mead needs ≥2 dimensions).
                 let scan centre halfWidth steps =
-                    [ for k in 0 .. steps -> centre - halfWidth + float k * (2.0 * halfWidth / float steps) ]
+                    [
+                        for k in 0..steps -> centre - halfWidth + float k * (2.0 * halfWidth / float steps)
+                    ]
                     |> List.map (fun t -> t, objective [| t |])
                     |> List.minBy snd
+
                 let seed = initialParameters.[0]
                 let (coarseT, _) = scan seed (max 1.0 (abs seed * 2.0 + Math.PI)) 60
                 let (fineT, fineV) = scan coarseT (Math.PI / 20.0) 40
                 // If every scanned point errored (MaxValue) or produced a non-finite energy, don't
                 // report a fabricated optimum — fall back to the (validated) seed parameter.
                 if Double.IsNaN fineV || Double.IsInfinity fineV || fineV >= Double.MaxValue then
-                    Ok ([| seed |], objective [| seed |])
+                    Ok([| seed |], objective [| seed |])
                 else
-                    Ok ([| fineT |], fineV)
+                    Ok([| fineT |], fineV)
             | _ ->
                 try
                     let r = QaoaOptimizer.Optimizer.minimize objective initialParameters
                     // Fall back to the seed if the optimizer returns a non-finite objective.
                     if Double.IsNaN r.FinalObjectiveValue || Double.IsInfinity r.FinalObjectiveValue then
-                        Ok (initialParameters, objective initialParameters)
+                        Ok(initialParameters, objective initialParameters)
                     else
-                        Ok (r.OptimizedParameters, r.FinalObjectiveValue)
+                        Ok(r.OptimizedParameters, r.FinalObjectiveValue)
                 with _ ->
-                    Ok (initialParameters, objective initialParameters)
+                    Ok(initialParameters, objective initialParameters)

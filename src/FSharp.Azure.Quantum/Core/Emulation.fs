@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.Core.CircuitValidator  // brings CircuitStats record labels into scope
+open FSharp.Azure.Quantum.Core.CircuitValidator // brings CircuitStats record labels into scope
 
 /// Emulate a specific cloud target locally — the CUDA-Q `emulate=True` counterpart.
 ///
@@ -19,46 +19,57 @@ open FSharp.Azure.Quantum.Core.CircuitValidator  // brings CircuitStats record l
 module Emulation =
 
     /// Result of locally emulating a hardware target.
-    type EmulationReport = {
-        /// The emulated target (e.g. "ionq.qpu.aria-1").
-        Target: string
-        /// Gate count after transpiling to the target's native gate set.
-        NativeGateCount: int
-        /// Whether constraint data is known for this target (false ⇒ validation was skipped).
-        KnownTarget: bool
-        /// Constraint violations found (empty ⇒ the circuit would run on the target as-is).
-        ConstraintViolations: string list
-        /// Measurement histogram from running the transpiled circuit on the local simulator.
-        Counts: Map<string, int>
-    }
+    type EmulationReport =
+        {
+            /// The emulated target (e.g. "ionq.qpu.aria-1").
+            Target: string
+            /// Gate count after transpiling to the target's native gate set.
+            NativeGateCount: int
+            /// Whether constraint data is known for this target (false ⇒ validation was skipped).
+            KnownTarget: bool
+            /// Constraint violations found (empty ⇒ the circuit would run on the target as-is).
+            ConstraintViolations: string list
+            /// Measurement histogram from running the transpiled circuit on the local simulator.
+            Counts: Map<string, int>
+        }
 
     /// Measurement/reset/barrier/conditional are structural operations, not gate-set members —
     /// a target's SupportedGates never lists them, so including them in UsedGates produces bogus
     /// "unsupported gate" violations. Filter them out before validating against the gate set.
     let private isGateSetMember (g: CircuitBuilder.Gate) : bool =
         match g with
-        | CircuitBuilder.Measure _ | CircuitBuilder.Reset _
-        | CircuitBuilder.Barrier _ | CircuitBuilder.Conditional _ -> false
+        | CircuitBuilder.Measure _
+        | CircuitBuilder.Reset _
+        | CircuitBuilder.Barrier _
+        | CircuitBuilder.Conditional _ -> false
         | _ -> true
 
     let private twoQubitPair (g: CircuitBuilder.Gate) : (int * int) option =
         match g with
-        | CircuitBuilder.CNOT (a, b) | CircuitBuilder.CZ (a, b) | CircuitBuilder.SWAP (a, b) -> Some (a, b)
-        | CircuitBuilder.CP (a, b, _)  | CircuitBuilder.CRX (a, b, _) | CircuitBuilder.CRY (a, b, _)
-        | CircuitBuilder.CRZ (a, b, _) | CircuitBuilder.RXX (a, b, _) | CircuitBuilder.RYY (a, b, _)
-        | CircuitBuilder.RZZ (a, b, _) -> Some (a, b)
+        | CircuitBuilder.CNOT(a, b)
+        | CircuitBuilder.CZ(a, b)
+        | CircuitBuilder.SWAP(a, b) -> Some(a, b)
+        | CircuitBuilder.CP(a, b, _)
+        | CircuitBuilder.CRX(a, b, _)
+        | CircuitBuilder.CRY(a, b, _)
+        | CircuitBuilder.CRZ(a, b, _)
+        | CircuitBuilder.RXX(a, b, _)
+        | CircuitBuilder.RYY(a, b, _)
+        | CircuitBuilder.RZZ(a, b, _) -> Some(a, b)
         | _ -> None
 
     let private statsOf (circuit: CircuitBuilder.Circuit) : CircuitStats =
-        { NumQubits = circuit.QubitCount
-          GateCount = List.length circuit.Gates
-          Depth = None
-          UsedGates =
-              circuit.Gates
-              |> List.filter isGateSetMember
-              |> List.map CircuitBuilder.getGateName   // canonical names ("Rx"/"Ry"/"Rz"…) match the validator's SupportedGates
-              |> Set.ofList
-          TwoQubitGates = circuit.Gates |> List.choose twoQubitPair }
+        {
+            NumQubits = circuit.QubitCount
+            GateCount = List.length circuit.Gates
+            Depth = None
+            UsedGates =
+                circuit.Gates
+                |> List.filter isGateSetMember
+                |> List.map CircuitBuilder.getGateName // canonical names ("Rx"/"Ry"/"Rz"…) match the validator's SupportedGates
+                |> Set.ofList
+            TwoQubitGates = circuit.Gates |> List.choose twoQubitPair
+        }
 
     /// Emulate `target` locally: transpile → validate → run on the local simulator.
     let emulate (target: string) (shots: int) (circuit: CircuitBuilder.Circuit) : QuantumResult<EmulationReport> =
@@ -70,15 +81,19 @@ module Emulation =
             match CircuitValidator.KnownTargets.getConstraints target with
             | Some constraints ->
                 match CircuitValidator.validateCircuit constraints stats with
-                | Ok () -> true, []
+                | Ok() -> true, []
                 | Error errors -> true, errors |> List.map CircuitValidator.formatValidationError
             | None -> false, []
         // 3. Run the transpiled circuit on the local simulator.
-        let backend = FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+        let backend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+
         Primitives.sample backend native shots
         |> Result.map (fun counts ->
-            { Target = target
-              NativeGateCount = stats.GateCount
-              KnownTarget = known
-              ConstraintViolations = violations
-              Counts = counts })
+            {
+                Target = target
+                NativeGateCount = stats.GateCount
+                KnownTarget = known
+                ConstraintViolations = violations
+                Counts = counts
+            })

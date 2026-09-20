@@ -5,366 +5,410 @@ open System.Numerics
 open FSharp.Azure.Quantum.Topological
 
 /// Comprehensive tests for TopologicalOperations module
-/// 
+///
 /// Tests demonstrate:
 /// - How quantum superpositions work in topological QC
 /// - Braiding operations (the fundamental gates)
 /// - Measurement and state collapse
 /// - Normalization and probability calculations
 module TopologicalOperationsTests =
-    
+
     // ========================================================================
     // SUPERPOSITION CONSTRUCTION
     // ========================================================================
-    
+
     [<Fact>]
     let ``Pure state is a superposition with single term`` () =
         // A pure state |ψ⟩ has amplitude 1 and single basis state
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
         let tree = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
-        
+
         let superposition = TopologicalOperations.pureState state
-        
+
         Assert.Equal(1, superposition.Terms.Length)
         Assert.Equal(Complex.One, fst superposition.Terms.[0])
         Assert.True(TopologicalOperations.isNormalized superposition)
-    
+
     [<Fact>]
     let ``Uniform superposition has equal amplitudes`` () =
         // Create |+⟩ = (|0⟩ + |1⟩)/√2 superposition
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
-        let superposition = TopologicalOperations.uniform [state0; state1] AnyonSpecies.AnyonType.Ising
-        
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
+        let superposition =
+            TopologicalOperations.uniform [ state0; state1 ] AnyonSpecies.AnyonType.Ising
+
         Assert.Equal(2, superposition.Terms.Length)
-        
+
         // Each amplitude should be 1/√2
         let expectedAmp = 1.0 / sqrt 2.0
-        superposition.Terms |> List.iter (fun (amp, _) ->
+
+        superposition.Terms
+        |> List.iter (fun (amp, _) ->
             Assert.Equal(expectedAmp, amp.Real, 10)
-            Assert.Equal(0.0, amp.Imaginary, 10)
-        )
-        
+            Assert.Equal(0.0, amp.Imaginary, 10))
+
         // Should be normalized
         Assert.True(TopologicalOperations.isNormalized superposition)
-    
+
     [<Fact>]
     let ``Superposition can be normalized`` () =
         // Create unnormalized state: 2|0⟩ + 3|1⟩
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
-        let unnormalized : TopologicalOperations.Superposition = { 
-            Terms = [(Complex(2.0, 0.0), state0); (Complex(3.0, 0.0), state1)]
-            AnyonType = AnyonSpecies.AnyonType.Ising 
-        }
-        
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
+        let unnormalized: TopologicalOperations.Superposition =
+            {
+                Terms = [ (Complex(2.0, 0.0), state0); (Complex(3.0, 0.0), state1) ]
+                AnyonType = AnyonSpecies.AnyonType.Ising
+            }
+
         // Not normalized initially
         Assert.False(TopologicalOperations.isNormalized unnormalized)
-        
+
         // Normalize it
         let normalized = TopologicalOperations.normalize unnormalized
-        
+
         // Now it should be normalized
         Assert.True(TopologicalOperations.isNormalized normalized)
-        
+
         // Check probabilities: |2|² = 4, |3|² = 9, total = 13
         // After normalization: 4/13 and 9/13
         let prob0 = TopologicalOperations.probability (fst normalized.Terms.[0])
         let prob1 = TopologicalOperations.probability (fst normalized.Terms.[1])
-        
+
         Assert.Equal(4.0 / 13.0, prob0, 10)
         Assert.Equal(9.0 / 13.0, prob1, 10)
-    
+
     // ========================================================================
     // BUSINESS MEANING: QUANTUM SUPERPOSITION
     // ========================================================================
-    
+
     [<Fact>]
     let ``Topological qubit in equal superposition has 50-50 measurement probability`` () =
         // THE KEY QUANTUM IDEA: Superposition = being in multiple states simultaneously
         // |+⟩ = (|0⟩ + |1⟩)/√2 means 50% chance of measuring 0, 50% chance of measuring 1
-        
+
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        
+
         // Create basis states
-        let qubitZero = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let qubitOne = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
+        let qubitZero =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let qubitOne =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
         // Create equal superposition
-        let plusState = TopologicalOperations.uniform [qubitZero; qubitOne] AnyonSpecies.AnyonType.Ising
-        
+        let plusState =
+            TopologicalOperations.uniform [ qubitZero; qubitOne ] AnyonSpecies.AnyonType.Ising
+
         // Each term has amplitude 1/√2
         let prob0 = TopologicalOperations.probability (fst plusState.Terms.[0])
         let prob1 = TopologicalOperations.probability (fst plusState.Terms.[1])
-        
+
         // Both probabilities should be 1/2 (50%)
         Assert.Equal(0.5, prob0, 10)
         Assert.Equal(0.5, prob1, 10)
-        
+
         // Total probability = 1 (something MUST happen when we measure)
         Assert.Equal(1.0, prob0 + prob1, 10)
-    
+
     [<Fact>]
     let ``Unequal superposition has asymmetric measurement probabilities`` () =
         // |ψ⟩ = (√3/2)|0⟩ + (1/2)|1⟩
         // Probability of measuring |0⟩ = (√3/2)² = 3/4 = 75%
         // Probability of measuring |1⟩ = (1/2)² = 1/4 = 25%
-        
+
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
         let amp0 = Complex(sqrt 3.0 / 2.0, 0.0)
         let amp1 = Complex(0.5, 0.0)
-        
-        let superposition : TopologicalOperations.Superposition = { 
-            Terms = [(amp0, state0); (amp1, state1)]
-            AnyonType = AnyonSpecies.AnyonType.Ising 
-        }
-        
+
+        let superposition: TopologicalOperations.Superposition =
+            {
+                Terms = [ (amp0, state0); (amp1, state1) ]
+                AnyonType = AnyonSpecies.AnyonType.Ising
+            }
+
         let prob0 = TopologicalOperations.probability amp0
         let prob1 = TopologicalOperations.probability amp1
-        
-        Assert.Equal(0.75, prob0, 10)  // 75% chance
-        Assert.Equal(0.25, prob1, 10)  // 25% chance
+
+        Assert.Equal(0.75, prob0, 10) // 75% chance
+        Assert.Equal(0.25, prob1, 10) // 25% chance
         Assert.True(TopologicalOperations.isNormalized superposition)
-    
+
     // ========================================================================
     // BRAIDING OPERATIONS
     // ========================================================================
-    
+
     [<Fact>]
     let ``Braiding two sigma anyons accumulates phase`` () =
         // Braiding is the fundamental gate operation!
         // When we braid σ × σ, we get a phase from the R-matrix
-        
+
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
         let tree = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
-        
+
         // Braid the two sigma anyons (indices 0 and 1)
         match TopologicalOperations.braidAdjacentAnyons 0 state with
         | Error err -> Assert.Fail($"Braiding should succeed: {err.Message}")
         | Ok braided ->
             // Should accumulate a phase (from R-matrix)
             Assert.NotEmpty(braided.Terms)
-            
+
             // Single basis state in this simple 2-anyon case
             Assert.Equal(1, braided.Terms.Length)
-            
+
             let (amp, _) = braided.Terms.[0]
             Assert.NotEqual(Complex.Zero, amp)
-            
+
             // Should have unit magnitude (unitary operation)
             let magnitude = Complex.Abs amp
             Assert.Equal(1.0, magnitude, 10)
-    
+
     [<Fact>]
     let ``Braiding is a unitary operation (preserves norm)`` () =
         // THE KEY PROPERTY: Braiding doesn't change probabilities, only phases
         // This makes it a valid quantum gate (unitary)
-        
+
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
-        let superposition = TopologicalOperations.uniform [state0; state1] AnyonSpecies.AnyonType.Ising
-        
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
+        let superposition =
+            TopologicalOperations.uniform [ state0; state1 ] AnyonSpecies.AnyonType.Ising
+
         // Braid anyons at position 0
         match TopologicalOperations.braidSuperposition 0 superposition with
         | Error err -> Assert.Fail($"Braiding superposition should succeed: {err.Message}")
         | Ok braided ->
             // Should still be normalized (unitary preserves norm)
             Assert.True(TopologicalOperations.isNormalized braided)
-            
+
             // Same number of terms
             Assert.Equal(superposition.Terms.Length, braided.Terms.Length)
-    
+
     [<Fact>]
     let ``Invalid braid index returns validation error`` () =
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
         let tree = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
-        
+
         // Only 2 anyons, so valid indices are 0 only (braids indices 0-1)
         // Index 1 would try to braid indices 1-2, but we only have 2 anyons
         match TopologicalOperations.braidAdjacentAnyons 1 state with
         | Ok _ -> Assert.Fail("Should have returned validation error")
-        | Error (TopologicalError.ValidationError (_, reason)) ->
-            Assert.Contains("Invalid braid index", reason)
+        | Error(TopologicalError.ValidationError(_, reason)) -> Assert.Contains("Invalid braid index", reason)
         | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
-        
+
         // Negative index should also fail
         match TopologicalOperations.braidAdjacentAnyons -1 state with
         | Ok _ -> Assert.Fail("Should have returned validation error")
-        | Error (TopologicalError.ValidationError _) -> ()
+        | Error(TopologicalError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
-    
+
     // ========================================================================
     // MEASUREMENT OPERATIONS
     // ========================================================================
-    
+
     [<Fact>]
     let ``Measurement collapses superposition to classical outcome`` () =
         // Measurement is IRREVERSIBLE - we learn information but destroy superposition
-        
+
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
         let tree = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
-        
+
         // Measure fusion at index 0
         match TopologicalOperations.measureFusion 0 state with
         | Error err -> Assert.Fail($"Measurement should succeed: {err.Message}")
         | Ok outcomes ->
             // Should get possible outcomes (for σ × σ, could be Vacuum or Psi)
             Assert.NotEmpty(outcomes)
-            
+
             // Each outcome has a probability
-            outcomes |> List.iter (fun (prob, result) ->
+            outcomes
+            |> List.iter (fun (prob, result) ->
                 Assert.True(prob >= 0.0 && prob <= 1.0)
-                
+
                 // Measurement gives classical information
-                Assert.True(result.ClassicalOutcome.IsSome)
-            )
-            
+                Assert.True(result.ClassicalOutcome.IsSome))
+
             // Probabilities should sum to 1
             let totalProb = outcomes |> List.sumBy fst
             Assert.Equal(1.0, totalProb, 10)
-    
+
     [<Fact>]
     let ``Measurement reduces number of anyons`` () =
         // When we fuse two anyons, they combine into one
         // This is how we extract classical information
-        
+
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        
+
         // Create 4 sigma anyons
         let pair1 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         let pair2 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         let fourSigmas = FusionTree.fuse pair1 pair2 AnyonSpecies.Particle.Vacuum
         let state = FusionTree.create fourSigmas AnyonSpecies.AnyonType.Ising
-        
+
         Assert.Equal(4, FusionTree.size state.Tree)
-        
+
         // Measure fusion at index 0 (fuse first two anyons)
         match TopologicalOperations.measureFusion 0 state with
         | Error err -> Assert.Fail($"Measurement should succeed: {err.Message}")
         | Ok outcomes ->
             // After measurement, should have fewer anyons
-            outcomes |> List.iter (fun (_, result) ->
+            outcomes
+            |> List.iter (fun (_, result) ->
                 let newSize = FusionTree.size result.State.Tree
-                Assert.True(newSize < 4)  // Reduced by fusion
+                Assert.True(newSize < 4) // Reduced by fusion
             )
-    
+
     // ========================================================================
     // PROBABILITY CALCULATIONS
     // ========================================================================
-    
+
     [<Fact>]
     let ``Probability is magnitude squared of amplitude`` () =
         // Born rule: P = |ψ|²
-        
-        let testCases = [
-            (Complex(1.0, 0.0), 1.0)           // |1|² = 1
-            (Complex(0.0, 1.0), 1.0)           // |i|² = 1
-            (Complex(1.0/sqrt 2.0, 0.0), 0.5) // |1/√2|² = 1/2
-            (Complex(0.6, 0.8), 1.0)           // |0.6 + 0.8i|² = 0.36 + 0.64 = 1
-        ]
-        
-        testCases |> List.iter (fun (amp, expectedProb) ->
+
+        let testCases =
+            [
+                (Complex(1.0, 0.0), 1.0) // |1|² = 1
+                (Complex(0.0, 1.0), 1.0) // |i|² = 1
+                (Complex(1.0 / sqrt 2.0, 0.0), 0.5) // |1/√2|² = 1/2
+                (Complex(0.6, 0.8), 1.0) // |0.6 + 0.8i|² = 0.36 + 0.64 = 1
+            ]
+
+        testCases
+        |> List.iter (fun (amp, expectedProb) ->
             let prob = TopologicalOperations.probability amp
-            Assert.Equal(expectedProb, prob, 10)
-        )
-    
+            Assert.Equal(expectedProb, prob, 10))
+
     [<Fact>]
     let ``Zero amplitude has zero probability`` () =
         let prob = TopologicalOperations.probability Complex.Zero
         Assert.Equal(0.0, prob)
-    
+
     // ========================================================================
     // UTILITY FUNCTIONS
     // ========================================================================
-    
+
     [<Fact>]
     let ``Dimension equals number of basis states in superposition`` () =
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
-        let superposition = TopologicalOperations.uniform [state0; state1] AnyonSpecies.AnyonType.Ising
-        
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
+        let superposition =
+            TopologicalOperations.uniform [ state0; state1 ] AnyonSpecies.AnyonType.Ising
+
         Assert.Equal(2, TopologicalOperations.dimension superposition)
-    
+
     [<Fact>]
     let ``Basis states can be extracted from superposition`` () =
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
-        let superposition = TopologicalOperations.uniform [state0; state1] AnyonSpecies.AnyonType.Ising
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
+        let superposition =
+            TopologicalOperations.uniform [ state0; state1 ] AnyonSpecies.AnyonType.Ising
+
         let basis = TopologicalOperations.basisStates superposition
-        
+
         Assert.Equal(2, basis.Length)
-        
+
         // Should contain both basis states
-        Assert.Contains(basis, fun s -> 
-            FusionTree.totalCharge s.Tree s.AnyonType = AnyonSpecies.Particle.Vacuum)
-        Assert.Contains(basis, fun s -> 
-            FusionTree.totalCharge s.Tree s.AnyonType = AnyonSpecies.Particle.Psi)
-    
+        Assert.Contains(basis, fun s -> FusionTree.totalCharge s.Tree s.AnyonType = AnyonSpecies.Particle.Vacuum)
+        Assert.Contains(basis, fun s -> FusionTree.totalCharge s.Tree s.AnyonType = AnyonSpecies.Particle.Psi)
+
     [<Fact>]
     let ``Superposition can be pretty-printed`` () =
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let state0 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        let state1 = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
-        
-        let superposition = TopologicalOperations.uniform [state0; state1] AnyonSpecies.AnyonType.Ising
+
+        let state0 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let state1 =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi) AnyonSpecies.AnyonType.Ising
+
+        let superposition =
+            TopologicalOperations.uniform [ state0; state1 ] AnyonSpecies.AnyonType.Ising
+
         let display = TopologicalOperations.displaySuperposition superposition
-        
+
         // Should contain key information
         Assert.Contains("Superposition", display)
         Assert.Contains("Normalized", display)
         Assert.Contains("Sigma", display)
-    
+
     // ========================================================================
     // NORMALIZATION EDGE CASES
     // ========================================================================
-    
+
     [<Fact>]
     let ``Normalizing zero state returns zero state`` () =
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let state = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        
-        let zeroState : TopologicalOperations.Superposition = { 
-            Terms = [(Complex.Zero, state)]
-            AnyonType = AnyonSpecies.AnyonType.Ising 
-        }
-        
+
+        let state =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
+        let zeroState: TopologicalOperations.Superposition =
+            {
+                Terms = [ (Complex.Zero, state) ]
+                AnyonType = AnyonSpecies.AnyonType.Ising
+            }
+
         let normalized = TopologicalOperations.normalize zeroState
-        
+
         // Should still be zero
         Assert.Equal(Complex.Zero, fst normalized.Terms.[0])
-    
+
     [<Fact>]
     let ``Multiple identical states sum amplitudes`` () =
         // If superposition has duplicate states, they should be distinguishable
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let state = FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
-        
+
+        let state =
+            FusionTree.create (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) AnyonSpecies.AnyonType.Ising
+
         // Create superposition with same state twice
-        let superposition : TopologicalOperations.Superposition = { 
-            Terms = [(Complex(0.6, 0.0), state); (Complex(0.8, 0.0), state)]
-            AnyonType = AnyonSpecies.AnyonType.Ising 
-        }
-        
+        let superposition: TopologicalOperations.Superposition =
+            {
+                Terms = [ (Complex(0.6, 0.0), state); (Complex(0.8, 0.0), state) ]
+                AnyonType = AnyonSpecies.AnyonType.Ising
+            }
+
         // This is technically allowed (represents 0.6|ψ⟩ + 0.8|ψ⟩ = 1.4|ψ⟩)
         // After normalization, should be normalized
         let normalized = TopologicalOperations.normalize superposition
@@ -384,13 +428,12 @@ module TopologicalOperationsTests =
 
         // ((σ×σ→1)×σ→σ)
         let leftAssoc =
-            FusionTree.fuse
-                (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum)
-                sigma
-                AnyonSpecies.Particle.Sigma
+            FusionTree.fuse (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) sigma AnyonSpecies.Particle.Sigma
 
         let state = FusionTree.create leftAssoc AnyonSpecies.AnyonType.Ising
-        let result = TopologicalOperations.fMove TopologicalOperations.FMoveDirection.LeftToRight 0 state
+
+        let result =
+            TopologicalOperations.fMove TopologicalOperations.FMoveDirection.LeftToRight 0 state
 
         Assert.NotEmpty(result.Terms)
         Assert.True(TopologicalOperations.isNormalized result)
@@ -408,10 +451,7 @@ module TopologicalOperationsTests =
 
         // Start in a basis state with a fixed intermediate channel e=1
         let initialTree =
-            FusionTree.fuse
-                (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum)
-                sigma
-                AnyonSpecies.Particle.Sigma
+            FusionTree.fuse (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum) sigma AnyonSpecies.Particle.Sigma
 
         let state = FusionTree.create initialTree AnyonSpecies.AnyonType.Ising
 
@@ -452,7 +492,7 @@ module TopologicalOperationsTests =
 
     [<Fact>]
     let ``Hadamard on |0⟩ produces equal superposition (|0⟩ + |1⟩)/√2`` () =
-        let sup0 = mkBasisState [0]
+        let sup0 = mkBasisState [ 0 ]
 
         match TopologicalOperations.hadamard 0 sup0 with
         | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
@@ -462,8 +502,8 @@ module TopologicalOperationsTests =
 
             // Read bits for each term
             let termBits = readTermBits result
-            let amp0 = termBits |> List.find (fun (_, bits) -> bits = [0]) |> fst
-            let amp1 = termBits |> List.find (fun (_, bits) -> bits = [1]) |> fst
+            let amp0 = termBits |> List.find (fun (_, bits) -> bits = [ 0 ]) |> fst
+            let amp1 = termBits |> List.find (fun (_, bits) -> bits = [ 1 ]) |> fst
 
             let invSqrt2 = 1.0 / sqrt 2.0
 
@@ -477,7 +517,7 @@ module TopologicalOperationsTests =
 
     [<Fact>]
     let ``Hadamard on |1⟩ produces (|0⟩ - |1⟩)/√2`` () =
-        let sup1 = mkBasisState [1]
+        let sup1 = mkBasisState [ 1 ]
 
         match TopologicalOperations.hadamard 0 sup1 with
         | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
@@ -485,8 +525,8 @@ module TopologicalOperationsTests =
             Assert.Equal(2, result.Terms.Length)
 
             let termBits = readTermBits result
-            let amp0 = termBits |> List.find (fun (_, bits) -> bits = [0]) |> fst
-            let amp1 = termBits |> List.find (fun (_, bits) -> bits = [1]) |> fst
+            let amp0 = termBits |> List.find (fun (_, bits) -> bits = [ 0 ]) |> fst
+            let amp1 = termBits |> List.find (fun (_, bits) -> bits = [ 1 ]) |> fst
 
             let invSqrt2 = 1.0 / sqrt 2.0
 
@@ -501,7 +541,7 @@ module TopologicalOperationsTests =
     [<Fact>]
     let ``Hadamard is an involution (HH = I)`` () =
         // Apply H twice to |0⟩ → should return to |0⟩
-        let sup0 = mkBasisState [0]
+        let sup0 = mkBasisState [ 0 ]
 
         match TopologicalOperations.hadamard 0 sup0 with
         | Error err -> Assert.Fail($"First H should succeed: {err.Message}")
@@ -512,18 +552,17 @@ module TopologicalOperationsTests =
                 // Should be back to |0⟩ (single term)
                 let termBits = readTermBits afterSecondH
                 // After combineLikeTerms, zero-amplitude terms should be eliminated
-                let nonZeroTerms =
-                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+                let nonZeroTerms = termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
 
                 Assert.Equal(1, nonZeroTerms.Length)
                 let (amp, bits) = nonZeroTerms.[0]
-                Assert.Equal<int list>([0], bits)
+                Assert.Equal<int list>([ 0 ], bits)
                 Assert.Equal(1.0, amp.Real, 10)
                 Assert.Equal(0.0, amp.Imaginary, 10)
 
     [<Fact>]
     let ``Hadamard is an involution on |1⟩ (HH|1⟩ = |1⟩)`` () =
-        let sup1 = mkBasisState [1]
+        let sup1 = mkBasisState [ 1 ]
 
         match TopologicalOperations.hadamard 0 sup1 with
         | Error err -> Assert.Fail($"First H should succeed: {err.Message}")
@@ -532,18 +571,17 @@ module TopologicalOperationsTests =
             | Error err -> Assert.Fail($"Second H should succeed: {err.Message}")
             | Ok afterSecondH ->
                 let termBits = readTermBits afterSecondH
-                let nonZeroTerms =
-                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+                let nonZeroTerms = termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
 
                 Assert.Equal(1, nonZeroTerms.Length)
                 let (amp, bits) = nonZeroTerms.[0]
-                Assert.Equal<int list>([1], bits)
+                Assert.Equal<int list>([ 1 ], bits)
                 Assert.Equal(1.0, amp.Real, 10)
                 Assert.Equal(0.0, amp.Imaginary, 10)
 
     [<Fact>]
     let ``Hadamard on qubit 0 of 2-qubit |00⟩ only affects qubit 0`` () =
-        let sup00 = mkBasisState [0; 0]
+        let sup00 = mkBasisState [ 0; 0 ]
 
         match TopologicalOperations.hadamard 0 sup00 with
         | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
@@ -552,23 +590,21 @@ module TopologicalOperationsTests =
             Assert.Equal(2, result.Terms.Length)
 
             let termBits = readTermBits result
-            let bits0 = termBits |> List.find (fun (_, bits) -> bits = [0; 0]) |> fst
-            let bits1 = termBits |> List.find (fun (_, bits) -> bits = [1; 0]) |> fst
+            let bits0 = termBits |> List.find (fun (_, bits) -> bits = [ 0; 0 ]) |> fst
+            let bits1 = termBits |> List.find (fun (_, bits) -> bits = [ 1; 0 ]) |> fst
 
             let invSqrt2 = 1.0 / sqrt 2.0
             Assert.Equal(invSqrt2, Complex.Abs bits0, 10)
             Assert.Equal(invSqrt2, Complex.Abs bits1, 10)
 
             // Qubit 1 is always 0 in both terms
-            termBits |> List.iter (fun (_, bits) ->
-                Assert.Equal(0, bits.[1])
-            )
+            termBits |> List.iter (fun (_, bits) -> Assert.Equal(0, bits.[1]))
 
             Assert.True(TopologicalOperations.isNormalized result)
 
     [<Fact>]
     let ``Hadamard on qubit 1 of 2-qubit |00⟩ only affects qubit 1`` () =
-        let sup00 = mkBasisState [0; 0]
+        let sup00 = mkBasisState [ 0; 0 ]
 
         match TopologicalOperations.hadamard 1 sup00 with
         | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
@@ -577,76 +613,74 @@ module TopologicalOperationsTests =
             Assert.Equal(2, result.Terms.Length)
 
             let termBits = readTermBits result
-            let bits0 = termBits |> List.find (fun (_, bits) -> bits = [0; 0]) |> fst
-            let bits1 = termBits |> List.find (fun (_, bits) -> bits = [0; 1]) |> fst
+            let bits0 = termBits |> List.find (fun (_, bits) -> bits = [ 0; 0 ]) |> fst
+            let bits1 = termBits |> List.find (fun (_, bits) -> bits = [ 0; 1 ]) |> fst
 
             let invSqrt2 = 1.0 / sqrt 2.0
             Assert.Equal(invSqrt2, Complex.Abs bits0, 10)
             Assert.Equal(invSqrt2, Complex.Abs bits1, 10)
 
             // Qubit 0 is always 0 in both terms
-            termBits |> List.iter (fun (_, bits) ->
-                Assert.Equal(0, bits.[0])
-            )
+            termBits |> List.iter (fun (_, bits) -> Assert.Equal(0, bits.[0]))
 
             Assert.True(TopologicalOperations.isNormalized result)
 
     [<Fact>]
     let ``Hadamard preserves normalization`` () =
         // Test with various initial states
-        let states = [
-            mkBasisState [0]
-            mkBasisState [1]
-            mkBasisState [0; 0]
-            mkBasisState [1; 1]
-            mkBasisState [0; 1; 0]
-        ]
+        let states =
+            [
+                mkBasisState [ 0 ]
+                mkBasisState [ 1 ]
+                mkBasisState [ 0; 0 ]
+                mkBasisState [ 1; 1 ]
+                mkBasisState [ 0; 1; 0 ]
+            ]
 
-        states |> List.iteri (fun i sup ->
+        states
+        |> List.iteri (fun i sup ->
             match TopologicalOperations.hadamard 0 sup with
             | Error err -> Assert.Fail($"Hadamard on state {i} should succeed: {err.Message}")
             | Ok result ->
                 Assert.True(
                     TopologicalOperations.isNormalized result,
                     $"State {i} should be normalized after Hadamard"
-                )
-        )
+                ))
 
     [<Fact>]
     let ``Hadamard with negative qubit index returns ValidationError`` () =
-        let sup = mkBasisState [0]
+        let sup = mkBasisState [ 0 ]
 
         match TopologicalOperations.hadamard -1 sup with
         | Ok _ -> Assert.Fail("Should return error for negative index")
-        | Error (TopologicalError.ValidationError (field, _)) ->
-            Assert.Equal("qubitIndex", field)
+        | Error(TopologicalError.ValidationError(field, _)) -> Assert.Equal("qubitIndex", field)
         | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
 
     [<Fact>]
     let ``Hadamard with out-of-range qubit index returns ValidationError`` () =
-        let sup = mkBasisState [0]  // 1-qubit state, valid index is 0 only
+        let sup = mkBasisState [ 0 ] // 1-qubit state, valid index is 0 only
 
         match TopologicalOperations.hadamard 1 sup with
         | Ok _ -> Assert.Fail("Should return error for out-of-range index")
-        | Error (TopologicalError.ValidationError (field, reason)) ->
+        | Error(TopologicalError.ValidationError(field, reason)) ->
             Assert.Equal("qubitIndex", field)
-            Assert.Contains("1", reason)  // mentions the invalid index
+            Assert.Contains("1", reason) // mentions the invalid index
         | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
 
     [<Fact>]
     let ``Hadamard with large out-of-range index returns ValidationError`` () =
-        let sup = mkBasisState [0; 1]  // 2-qubit state, valid indices 0 and 1
+        let sup = mkBasisState [ 0; 1 ] // 2-qubit state, valid indices 0 and 1
 
         match TopologicalOperations.hadamard 5 sup with
         | Ok _ -> Assert.Fail("Should return error for index 5 on 2-qubit state")
-        | Error (TopologicalError.ValidationError _) -> ()
+        | Error(TopologicalError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
 
     [<Fact>]
     let ``Hadamard on (|0⟩ + |1⟩)/√2 returns |0⟩ (H undoes plus state)`` () =
         // H|+⟩ = H·(|0⟩+|1⟩)/√2 = |0⟩
         // First create |+⟩ by applying H to |0⟩
-        let sup0 = mkBasisState [0]
+        let sup0 = mkBasisState [ 0 ]
 
         match TopologicalOperations.hadamard 0 sup0 with
         | Error err -> Assert.Fail($"Creating |+⟩ should succeed: {err.Message}")
@@ -656,18 +690,17 @@ module TopologicalOperationsTests =
             | Error err -> Assert.Fail($"H on |+⟩ should succeed: {err.Message}")
             | Ok result ->
                 let termBits = readTermBits result
-                let nonZeroTerms =
-                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+                let nonZeroTerms = termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
 
                 Assert.Equal(1, nonZeroTerms.Length)
                 let (_, bits) = nonZeroTerms.[0]
-                Assert.Equal<int list>([0], bits)
+                Assert.Equal<int list>([ 0 ], bits)
 
     [<Fact>]
     let ``Hadamard on (|0⟩ - |1⟩)/√2 returns |1⟩ (H undoes minus state)`` () =
         // H|−⟩ = H·(|0⟩-|1⟩)/√2 = |1⟩
         // Create |−⟩ by applying H to |1⟩
-        let sup1 = mkBasisState [1]
+        let sup1 = mkBasisState [ 1 ]
 
         match TopologicalOperations.hadamard 0 sup1 with
         | Error err -> Assert.Fail($"Creating |−⟩ should succeed: {err.Message}")
@@ -676,17 +709,16 @@ module TopologicalOperationsTests =
             | Error err -> Assert.Fail($"H on |−⟩ should succeed: {err.Message}")
             | Ok result ->
                 let termBits = readTermBits result
-                let nonZeroTerms =
-                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+                let nonZeroTerms = termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
 
                 Assert.Equal(1, nonZeroTerms.Length)
                 let (_, bits) = nonZeroTerms.[0]
-                Assert.Equal<int list>([1], bits)
+                Assert.Equal<int list>([ 1 ], bits)
 
     [<Fact>]
     let ``Hadamard on qubit 0 then qubit 1 of |00⟩ creates full superposition`` () =
         // H₀ H₁ |00⟩ = (|0⟩+|1⟩)/√2 ⊗ (|0⟩+|1⟩)/√2 = (|00⟩+|01⟩+|10⟩+|11⟩)/2
-        let sup00 = mkBasisState [0; 0]
+        let sup00 = mkBasisState [ 0; 0 ]
 
         match TopologicalOperations.hadamard 0 sup00 with
         | Error err -> Assert.Fail($"H on qubit 0 should succeed: {err.Message}")
@@ -698,15 +730,12 @@ module TopologicalOperationsTests =
                 Assert.Equal(4, result.Terms.Length)
 
                 let termBits = readTermBits result
-                let allBitPatterns =
-                    termBits |> List.map snd |> List.sort
+                let allBitPatterns = termBits |> List.map snd |> List.sort
 
-                Assert.Equal<int list list>([[0;0]; [0;1]; [1;0]; [1;1]], allBitPatterns)
+                Assert.Equal<int list list>([ [ 0; 0 ]; [ 0; 1 ]; [ 1; 0 ]; [ 1; 1 ] ], allBitPatterns)
 
                 // Each amplitude should be 1/2
-                termBits |> List.iter (fun (amp, _) ->
-                    Assert.Equal(0.5, Complex.Abs amp, 10)
-                )
+                termBits |> List.iter (fun (amp, _) -> Assert.Equal(0.5, Complex.Abs amp, 10))
 
                 Assert.True(TopologicalOperations.isNormalized result)
 
@@ -720,14 +749,14 @@ module TopologicalOperationsTests =
         // this without F-move basis changes (implemented only for 3-anyon trees).
         // Previously it silently applied the first fusion channel's R-phase as a
         // GLOBAL phase — i.e. the braid became identity while reporting success.
-        match FusionTree.fromComputationalBasis [0; 0] AnyonSpecies.AnyonType.Ising with
+        match FusionTree.fromComputationalBasis [ 0; 0 ] AnyonSpecies.AnyonType.Ising with
         | Error err -> Assert.Fail($"Failed to build state: {err.Message}")
         | Ok tree ->
             let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
+
             match TopologicalOperations.braidAdjacentAnyons 1 state with
             | Ok _ -> Assert.Fail("Cross-pair braid should fail explicitly")
-            | Error (TopologicalError.NotImplemented (feature, _)) ->
-                Assert.Contains("Cross-pair", feature)
+            | Error(TopologicalError.NotImplemented(feature, _)) -> Assert.Contains("Cross-pair", feature)
             | Error err -> Assert.Fail($"Expected NotImplemented but got {err.Category}")
 
     [<Fact>]
@@ -736,14 +765,17 @@ module TopologicalOperationsTests =
         // R-phase of qubit 1's OWN fusion channel. This is the leaf-index mapping
         // that gate compilation (S/Z/Rz on qubit q → generator 2q) relies on.
         let mk bits =
-            (FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising) |> Result.map (fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising) |> Result.defaultWith (fun err -> failwith $"tree: {err.Message}")
+            (FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising)
+            |> Result.map (fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising)
+            |> Result.defaultWith (fun err -> failwith $"tree: {err.Message}")
 
         // [0; 1]: qubit 1 in ψ channel; [0; 0]: qubit 1 in vacuum channel
-        let state01 = mk [0; 1]
-        let state00 = mk [0; 0]
+        let state01 = mk [ 0; 1 ]
+        let state00 = mk [ 0; 0 ]
 
-        match TopologicalOperations.braidAdjacentAnyons 2 state01,
-              TopologicalOperations.braidAdjacentAnyons 2 state00 with
+        match
+            TopologicalOperations.braidAdjacentAnyons 2 state01, TopologicalOperations.braidAdjacentAnyons 2 state00
+        with
         | Ok braided1, Ok braided0 ->
             let (amp1, _) = braided1.Terms.[0]
             let (amp0, _) = braided0.Terms.[0]
@@ -783,20 +815,20 @@ module TopologicalOperationsTests =
         // Right-associated tree τ × (τ × τ → τ) → 1: leaves (0, 1) are NOT an
         // explicitly fused pair in this basis.
         let tree =
-            FusionTree.fuse
-                tau
-                (FusionTree.fuse tau tau AnyonSpecies.Particle.Tau)
-                AnyonSpecies.Particle.Vacuum
+            FusionTree.fuse tau (FusionTree.fuse tau tau AnyonSpecies.Particle.Tau) AnyonSpecies.Particle.Vacuum
+
         let state = FusionTree.create tree AnyonSpecies.AnyonType.Fibonacci
 
         match TopologicalOperations.measureFusion 0 state with
         | Error err -> Assert.Fail($"Measurement should succeed: {err.Message}")
         | Ok outcomes ->
             let phi = (1.0 + sqrt 5.0) / 2.0
+
             let probOf channel =
                 outcomes
                 |> List.tryPick (fun (p, r) -> if r.ClassicalOutcome = Some channel then Some p else None)
                 |> Option.defaultValue 0.0
+
             Assert.Equal(1.0 / (phi * phi), probOf AnyonSpecies.Particle.Vacuum, 10)
             Assert.Equal(1.0 / phi, probOf AnyonSpecies.Particle.Tau, 10)
             Assert.Equal(1.0, outcomes |> List.sumBy fst, 10)
@@ -817,13 +849,15 @@ module TopologicalOperationsTests =
         sup.Terms
         |> List.iter (fun (_, st) ->
             match FusionTree.validateState st with
-            | Ok () -> ()
+            | Ok() -> ()
             | Error err ->
-                Assert.Fail($"{context}: post-gate tree violates fusion rules: {FusionTree.toString st.Tree} — {err.Message}"))
+                Assert.Fail(
+                    $"{context}: post-gate tree violates fusion rules: {FusionTree.toString st.Tree} — {err.Message}"
+                ))
 
     [<Fact>]
     let ``Pauli-X on 2-qubit basis state keeps fusion tree valid`` () =
-        let sup00 = mkBasisState [0; 0]
+        let sup00 = mkBasisState [ 0; 0 ]
 
         match TopologicalOperations.pauliX 0 sup00 with
         | Error err -> Assert.Fail($"Pauli-X should succeed: {err.Message}")
@@ -833,14 +867,12 @@ module TopologicalOperationsTests =
             // Still exactly |10⟩ with the parity pair and total charge updated
             Assert.Equal(1, result.Terms.Length)
             let (_, st) = result.Terms.[0]
-            Assert.Equal<int list>([1; 0], FusionTree.toComputationalBasis st.Tree)
-            Assert.Equal(
-                AnyonSpecies.Particle.Vacuum,
-                FusionTree.totalCharge st.Tree st.AnyonType)
+            Assert.Equal<int list>([ 1; 0 ], FusionTree.toComputationalBasis st.Tree)
+            Assert.Equal(AnyonSpecies.Particle.Vacuum, FusionTree.totalCharge st.Tree st.AnyonType)
 
     [<Fact>]
     let ``Hadamard output trees satisfy fusion rules`` () =
-        let sup00 = mkBasisState [0; 0]
+        let sup00 = mkBasisState [ 0; 0 ]
 
         match TopologicalOperations.hadamard 0 sup00 with
         | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
@@ -851,7 +883,7 @@ module TopologicalOperationsTests =
     [<Fact>]
     let ``CNOT output trees satisfy fusion rules`` () =
         // Prepare |10⟩ then CNOT(0→1): expect |11⟩ with a valid tree
-        let sup10 = mkBasisState [1; 0]
+        let sup10 = mkBasisState [ 1; 0 ]
 
         match TopologicalOperations.cnot 0 1 sup10 with
         | Error err -> Assert.Fail($"CNOT should succeed: {err.Message}")
@@ -859,14 +891,12 @@ module TopologicalOperationsTests =
             assertAllTermsValid "CNOT(0,1)|10⟩" result
             Assert.Equal(1, result.Terms.Length)
             let (_, st) = result.Terms.[0]
-            Assert.Equal<int list>([1; 1], FusionTree.toComputationalBasis st.Tree)
-            Assert.Equal(
-                AnyonSpecies.Particle.Vacuum,
-                FusionTree.totalCharge st.Tree st.AnyonType)
+            Assert.Equal<int list>([ 1; 1 ], FusionTree.toComputationalBasis st.Tree)
+            Assert.Equal(AnyonSpecies.Particle.Vacuum, FusionTree.totalCharge st.Tree st.AnyonType)
 
     [<Fact>]
     let ``SWAP output trees satisfy fusion rules`` () =
-        let sup10 = mkBasisState [1; 0]
+        let sup10 = mkBasisState [ 1; 0 ]
 
         match TopologicalOperations.swap 0 1 sup10 with
         | Error err -> Assert.Fail($"SWAP should succeed: {err.Message}")
@@ -874,18 +904,18 @@ module TopologicalOperationsTests =
             assertAllTermsValid "SWAP(0,1)|10⟩" result
             Assert.Equal(1, result.Terms.Length)
             let (_, st) = result.Terms.[0]
-            Assert.Equal<int list>([0; 1], FusionTree.toComputationalBasis st.Tree)
+            Assert.Equal<int list>([ 0; 1 ], FusionTree.toComputationalBasis st.Tree)
 
     [<Fact>]
     let ``Pauli-Y output trees satisfy fusion rules`` () =
-        let sup0 = mkBasisState [0]
+        let sup0 = mkBasisState [ 0 ]
 
         match TopologicalOperations.pauliY 0 sup0 with
         | Error err -> Assert.Fail($"Pauli-Y should succeed: {err.Message}")
         | Ok result ->
             assertAllTermsValid "Y(0)|0⟩" result
             let (amp, st) = result.Terms.[0]
-            Assert.Equal<int list>([1], FusionTree.toComputationalBasis st.Tree)
+            Assert.Equal<int list>([ 1 ], FusionTree.toComputationalBasis st.Tree)
             // Y|0⟩ = i|1⟩
             Assert.Equal(0.0, amp.Real, 10)
             Assert.Equal(1.0, amp.Imaginary, 10)
@@ -898,17 +928,18 @@ module TopologicalOperationsTests =
     let ``measureAll of empty superposition raises a proper error`` () =
         // Previously this fell through List.findIndex and threw
         // KeyNotFoundException from deep inside sampling.
-        let empty : TopologicalOperations.Superposition =
-            { Terms = []; AnyonType = AnyonSpecies.AnyonType.Ising }
+        let empty: TopologicalOperations.Superposition =
+            {
+                Terms = []
+                AnyonType = AnyonSpecies.AnyonType.Ising
+            }
 
-        Assert.Throws<System.InvalidOperationException>(fun () ->
-            TopologicalOperations.measureAll empty 1 |> ignore)
+        Assert.Throws<System.InvalidOperationException>(fun () -> TopologicalOperations.measureAll empty 1 |> ignore)
 
     [<Fact>]
     let ``measureAll of basis state returns that bitstring for every shot`` () =
-        let sup10 = mkBasisState [1; 0]
+        let sup10 = mkBasisState [ 1; 0 ]
 
         let results = TopologicalOperations.measureAll sup10 20
         Assert.Equal(20, results.Length)
-        results |> Array.iter (fun bits ->
-            Assert.Equal<int[]>([| 1; 0 |], bits))
+        results |> Array.iter (fun bits -> Assert.Equal<int[]>([| 1; 0 |], bits))

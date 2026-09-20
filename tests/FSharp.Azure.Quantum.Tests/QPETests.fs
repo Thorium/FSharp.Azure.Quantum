@@ -9,7 +9,6 @@ open System.Numerics
 open System.Threading
 open System.Threading.Tasks
 
-/// Tests for Quantum Phase Estimation (QPE) using unified backend
 module QPE = FSharp.Azure.Quantum.Algorithms.QPE
 
 [<Collection("NonParallel")>]
@@ -27,13 +26,15 @@ module QPETests =
 
             member _.SupportsOperation operation =
                 match operation with
-                | QuantumOperation.Algorithm (AlgorithmOperation.QPE _) -> false
+                | QuantumOperation.Algorithm(AlgorithmOperation.QPE _) -> false
                 | _ -> inner.SupportsOperation operation
 
             member _.Name = inner.Name + " (no-qpe-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
             member this.ExecuteToStateAsync circuit ct =
                 task { return (this :> IQuantumBackend).ExecuteToState circuit }
+
             member this.ApplyOperationAsync operation state ct =
                 task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
@@ -57,7 +58,7 @@ module QPETests =
             }
 
         match QPE.plan backend intent with
-        | Ok (QPE.QpePlan.ExecuteNatively _) -> Assert.True(true)
+        | Ok(QPE.QpePlan.ExecuteNatively _) -> Assert.True(true)
         | Ok _ -> Assert.Fail("Expected ExecuteNatively plan")
         | Error err -> Assert.Fail($"Planning failed: {err}")
 
@@ -81,7 +82,7 @@ module QPETests =
             }
 
         match QPE.plan backend intent with
-        | Ok (QPE.QpePlan.ExecuteViaOps (ops, exactness)) ->
+        | Ok(QPE.QpePlan.ExecuteViaOps(ops, exactness)) ->
             Assert.Equal(QPE.Exact, exactness)
             Assert.NotEmpty ops
             Assert.True(ops |> List.forall backend.SupportsOperation)
@@ -118,75 +119,75 @@ module QPETests =
         match QPE.plan backend exactIntent, QPE.plan backend approxIntent with
         | Error err, _ -> Assert.Fail($"Exact planning failed: {err}")
         | _, Error err -> Assert.Fail($"Approx planning failed: {err}")
-        | Ok (QPE.QpePlan.ExecuteViaOps (exactOps, _)), Ok (QPE.QpePlan.ExecuteViaOps (approxOps, _)) ->
+        | Ok(QPE.QpePlan.ExecuteViaOps(exactOps, _)), Ok(QPE.QpePlan.ExecuteViaOps(approxOps, _)) ->
             Assert.True(approxOps.Length < exactOps.Length, "Approximate exactness should produce fewer lowered ops")
         | Ok _, Ok _ -> Assert.Fail("Expected ExecuteViaOps plans")
-    
+
     // ========================================================================
     // QPE UNIFIED BACKEND TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``QPE estimates T gate phase correctly (3 qubits)`` () =
         // T gate: e^(iπ/4) = e^(2πi·1/8)
         // Expected phase: φ = 1/8 = 0.125
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        
+
         match QPE.estimateTGatePhase 3 backend with
         | Error err -> Assert.Fail($"QPE execution failed: {err}")
         | Ok result ->
             // With 3 qubits, we get 3 bits of precision
             // φ = 1/8 = 0.001 in binary → measurement should be 1
             let expectedPhase = 1.0 / 8.0
-            
+
             // Allow small error due to quantum measurement
             let error = abs (result.EstimatedPhase - expectedPhase)
             Assert.True(error < 0.2, $"Expected phase ~{expectedPhase}, got {result.EstimatedPhase}")
             Assert.Equal(3, result.Precision)
-    
+
     [<Fact>]
     let ``QPE estimates S gate phase correctly (3 qubits)`` () =
         // S gate: e^(iπ/2) = e^(2πi·1/4)
         // Expected phase: φ = 1/4 = 0.25
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        
+
         match QPE.estimateSGatePhase 3 backend with
         | Error err -> Assert.Fail($"QPE execution failed: {err}")
         | Ok result ->
             // With 3 qubits: φ = 1/4 = 0.010 in binary → measurement should be 2
             let expectedPhase = 1.0 / 4.0
-            
+
             let error = abs (result.EstimatedPhase - expectedPhase)
             Assert.True(error < 0.2, $"Expected phase ~{expectedPhase}, got {result.EstimatedPhase}")
             Assert.Equal(3, result.Precision)
-    
+
     [<Fact>]
     let ``QPE with higher precision gives more accurate results`` () =
         // Test with increasing precision (4, 5, 6 qubits)
         // T gate phase = 1/8 = 0.125
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        
-        let results = [4; 5; 6] |> List.map (fun n -> QPE.estimateTGatePhase n backend)
-        
+
+        let results = [ 4; 5; 6 ] |> List.map (fun n -> QPE.estimateTGatePhase n backend)
+
         for result in results do
             match result with
             | Error err -> Assert.Fail($"QPE failed: {err}")
             | Ok r ->
                 let expectedPhase = 1.0 / 8.0
                 let error = abs (r.EstimatedPhase - expectedPhase)
-                
+
                 // Higher precision should give smaller error
                 let maxError = 1.0 / float (1 <<< (r.Precision - 1))
-                Assert.True(error <= maxError, 
-                    $"With {r.Precision} qubits, expected error < {maxError}, got {error}")
-    
+                Assert.True(error <= maxError, $"With {r.Precision} qubits, expected error < {maxError}, got {error}")
+
     [<Fact>]
     let ``QPE rejects invalid qubit counts`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        
+
         // Test with 0 qubits - should be rejected
-        (QPE.estimateTGatePhase 0 backend) |> Result.iter (fun _ -> Assert.Fail("Should reject 0 counting qubits")) // Expected error
-    
+        (QPE.estimateTGatePhase 0 backend)
+        |> Result.iter (fun _ -> Assert.Fail("Should reject 0 counting qubits")) // Expected error
+
     [<Fact>]
     let ``QPE estimates phase gate correctly`` () =
         // Test with custom phase gate: θ = π/3
@@ -194,20 +195,20 @@ module QPETests =
         // Expected phase: φ = 1/6 ≈ 0.1667
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let theta = Math.PI / 3.0
-        
+
         match QPE.estimatePhaseGate theta 4 backend with
         | Error err -> Assert.Fail($"QPE execution failed: {err}")
         | Ok result ->
             let expectedPhase = 1.0 / 6.0
-            
+
             // With 4 qubits of precision, allow reasonable error
             let error = abs (result.EstimatedPhase - expectedPhase)
             Assert.True(error < 0.15, $"Expected phase ~{expectedPhase}, got {result.EstimatedPhase}")
-    
+
     [<Fact>]
     let ``QPE returns valid gate count`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        
+
         match QPE.estimateTGatePhase 3 backend with
         | Error err -> Assert.Fail($"QPE execution failed: {err}")
         | Ok result ->
@@ -222,18 +223,20 @@ module QPETests =
     // ========================================================================
 
     let private stateVectorOf (amplitudes: Complex[]) : QuantumState =
-        QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.create amplitudes)
+        QuantumState.StateVector(FSharp.Azure.Quantum.LocalSimulator.StateVector.create amplitudes)
 
     [<Fact>]
     let ``QPE with explicit |1> eigenvector matches default behaviour`` () =
         // PhaseGate(π/2) with eigenvector |1⟩: phase φ = 1/4
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        let config: QPE.QPEConfig = {
-            CountingQubits = 3
-            TargetQubits = 1
-            UnitaryOperator = QPE.UnitaryOperator.PhaseGate (Math.PI / 2.0)
-            EigenVector = Some (stateVectorOf [| Complex.Zero; Complex.One |])
-        }
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.PhaseGate(Math.PI / 2.0)
+                EigenVector = Some(stateVectorOf [| Complex.Zero; Complex.One |])
+            }
 
         match QPE.execute config backend with
         | Error err -> Assert.Fail($"QPE with custom eigenvector failed: {err}")
@@ -245,28 +248,35 @@ module QPETests =
     let ``QPE with |0> eigenvector estimates zero phase`` () =
         // PhaseGate leaves |0⟩ unchanged (eigenvalue 1): phase φ = 0
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        let config: QPE.QPEConfig = {
-            CountingQubits = 3
-            TargetQubits = 1
-            UnitaryOperator = QPE.UnitaryOperator.PhaseGate (Math.PI / 2.0)
-            EigenVector = Some (stateVectorOf [| Complex.One; Complex.Zero |])
-        }
 
-        (QPE.execute config backend) |> Result.map (fun result -> Assert.True(result.EstimatedPhase < 0.1, $"Expected phase ~0, got {result.EstimatedPhase}")) |> Result.defaultWith (fun err -> Assert.Fail($"QPE with |0> eigenvector failed: {err}"))
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.PhaseGate(Math.PI / 2.0)
+                EigenVector = Some(stateVectorOf [| Complex.One; Complex.Zero |])
+            }
+
+        (QPE.execute config backend)
+        |> Result.map (fun result ->
+            Assert.True(result.EstimatedPhase < 0.1, $"Expected phase ~0, got {result.EstimatedPhase}"))
+        |> Result.defaultWith (fun err -> Assert.Fail($"QPE with |0> eigenvector failed: {err}"))
 
     [<Fact>]
     let ``QPE rejects eigenvector with wrong dimension`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        let config: QPE.QPEConfig = {
-            CountingQubits = 3
-            TargetQubits = 1
-            UnitaryOperator = QPE.UnitaryOperator.TGate
-            // 4 amplitudes = 2 qubits, but TargetQubits = 1
-            EigenVector = Some (stateVectorOf (Array.create 4 (Complex(0.5, 0.0))))
-        }
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                // 4 amplitudes = 2 qubits, but TargetQubits = 1
+                EigenVector = Some(stateVectorOf (Array.create 4 (Complex(0.5, 0.0))))
+            }
 
         match QPE.execute config backend with
-        | Error (QuantumError.ValidationError ("EigenVector", _)) -> ()
+        | Error(QuantumError.ValidationError("EigenVector", _)) -> ()
         | Error err -> Assert.Fail($"Expected EigenVector validation error, got: {err}")
         | Ok _ -> Assert.Fail("Expected validation error for mismatched eigenvector dimension")
 
@@ -274,33 +284,49 @@ module QPETests =
     // COMPLETE circuits via ExecuteToState (delegated to a local simulator to stand in for a job).
     type private CloudStyleBackend(inner: IQuantumBackend) =
         let mutable executeCalls = 0
-        let incremental : Result<QuantumState, QuantumError> =
-            Error (QuantumError.OperationError ("ApplyOperation", "CloudStyle does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+
+        let incremental: Result<QuantumState, QuantumError> =
+            Error(
+                QuantumError.OperationError(
+                    "ApplyOperation",
+                    "CloudStyle does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                )
+            )
+
         member _.ExecuteToStateCalls = executeCalls
+
         interface IQuantumBackend with
             member _.ExecuteToState circuit =
                 executeCalls <- executeCalls + 1
                 inner.ExecuteToState circuit
+
             member _.NativeStateType = inner.NativeStateType
             member _.ApplyOperation _operation _state = incremental
             member _.SupportsOperation _operation = true
             member _.Name = inner.Name + " (cloud-style)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
             member this.ExecuteToStateAsync circuit _ct =
                 task { return (this :> IQuantumBackend).ExecuteToState circuit }
-            member _.ApplyOperationAsync _operation _state _ct =
-                Task.FromResult(incremental)
+
+            member _.ApplyOperationAsync _operation _state _ct = Task.FromResult(incremental)
 
     [<Fact>]
     let ``QPE runs on a cloud-style backend via whole-circuit submission`` () =
         let cloud = CloudStyleBackend(LocalBackend.LocalBackend() :> IQuantumBackend)
+
         let config: QPE.QPEConfig =
-            { CountingQubits = 3
-              TargetQubits = 1
-              UnitaryOperator = QPE.UnitaryOperator.TGate
-              EigenVector = None }
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
         match QPE.execute config (cloud :> IQuantumBackend) with
         | Ok _ ->
-            Assert.True(cloud.ExecuteToStateCalls > 0,
-                "QPE should submit a complete circuit via ExecuteToState on a cloud-style backend")
+            Assert.True(
+                cloud.ExecuteToStateCalls > 0,
+                "QPE should submit a complete circuit via ExecuteToState on a cloud-style backend"
+            )
         | Error err -> Assert.Fail($"Cloud-style QPE failed: {err}")

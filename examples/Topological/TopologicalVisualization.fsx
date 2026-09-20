@@ -28,19 +28,48 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "TopologicalVisualization.fsx" "Fusion tree and superposition visualization (Ising & Fibonacci)"
-    [ { Name = "example"; Description = "Which example: 1-5|all"; Default = Some "all" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "TopologicalVisualization.fsx"
+    "Fusion tree and superposition visualization (Ising & Fibonacci)"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-5|all"
+            Default = Some "all"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
@@ -52,8 +81,8 @@ let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 â€” Topological qubit encoding
@@ -66,6 +95,7 @@ if shouldRun 1 then
     let qubitZero =
         FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
         |> fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising
+
     let qubitOne =
         FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi
         |> fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising
@@ -75,9 +105,18 @@ if shouldRun 1 then
     pr "Qubit |1> (sigma x sigma -> psi):"
     pr "%s" (qubitOne.ToASCII())
 
-    jsonResults <- ("1_qubit_encoding", box {| state0 = qubitZero.ToASCII()
-                                               state1 = qubitOne.ToASCII() |}) :: jsonResults
-    csvRows <- [ "1_qubit_encoding"; "sigma x sigma -> vacuum"; "sigma x sigma -> psi" ] :: csvRows
+    jsonResults <-
+        ("1_qubit_encoding",
+         box
+             {|
+                 state0 = qubitZero.ToASCII()
+                 state1 = qubitOne.ToASCII()
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [ "1_qubit_encoding"; "sigma x sigma -> vacuum"; "sigma x sigma -> psi" ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 â€” Four sigma anyons fusion tree
@@ -87,9 +126,10 @@ if shouldRun 2 then
     pr "EXAMPLE 2: Four sigma anyons fusion tree"
     separator ()
 
-    let leftPair  = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
+    let leftPair = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
     let rightPair = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
-    let fourTree  =
+
+    let fourTree =
         FusionTree.fuse leftPair rightPair AnyonSpecies.Particle.Vacuum
         |> fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising
 
@@ -98,9 +138,18 @@ if shouldRun 2 then
     pr "Mermaid diagram:"
     pr "%s" (fourTree.ToMermaid())
 
-    jsonResults <- ("2_four_sigma", box {| ascii = fourTree.ToASCII()
-                                           mermaid = fourTree.ToMermaid() |}) :: jsonResults
-    csvRows <- [ "2_four_sigma"; "4 anyons"; string (fourTree.ToASCII().Length) + " chars" ] :: csvRows
+    jsonResults <-
+        ("2_four_sigma",
+         box
+             {|
+                 ascii = fourTree.ToASCII()
+                 mermaid = fourTree.ToMermaid()
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [ "2_four_sigma"; "4 anyons"; string (fourTree.ToASCII().Length) + " chars" ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 3 â€” Quantum superposition
@@ -110,13 +159,19 @@ if shouldRun 3 then
     pr "EXAMPLE 3: Quantum superposition (|0> + |1>) / sqrt(2)"
     separator ()
 
-    let q0 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
-              |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Ising
-    let q1 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi
-              |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Ising
-    let bellState = TopologicalOperations.uniform [q0; q1] AnyonSpecies.AnyonType.Ising
+    let q0 =
+        FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
+        |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Ising
+
+    let q1 =
+        FusionTree.fuse sigma sigma AnyonSpecies.Particle.Psi
+        |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Ising
+
+    let bellState =
+        TopologicalOperations.uniform [ q0; q1 ] AnyonSpecies.AnyonType.Ising
 
     pr "Superposition terms:"
+
     for (amp, state) in bellState.Terms do
         pr "  Amplitude: %A" amp
         pr "  %s" (state.ToASCII())
@@ -133,6 +188,7 @@ if shouldRun 4 then
     separator ()
 
     let tau = FusionTree.leaf AnyonSpecies.Particle.Tau
+
     let fibTree =
         FusionTree.fuse tau tau AnyonSpecies.Particle.Tau
         |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Fibonacci
@@ -142,8 +198,15 @@ if shouldRun 4 then
     pr "Mermaid diagram:"
     pr "%s" (fibTree.ToMermaid())
 
-    jsonResults <- ("4_fibonacci", box {| ascii = fibTree.ToASCII()
-                                          mermaid = fibTree.ToMermaid() |}) :: jsonResults
+    jsonResults <-
+        ("4_fibonacci",
+         box
+             {|
+                 ascii = fibTree.ToASCII()
+                 mermaid = fibTree.ToMermaid()
+             |})
+        :: jsonResults
+
     csvRows <- [ "4_fibonacci"; "tau x tau -> tau"; "Fibonacci" ] :: csvRows
 
 // ---------------------------------------------------------------------------
@@ -154,23 +217,41 @@ if shouldRun 5 then
     pr "EXAMPLE 5: Superposition after braiding"
     separator ()
 
-    let q0 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
-              |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Ising
+    let q0 =
+        FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
+        |> fun t -> FusionTree.create t AnyonSpecies.AnyonType.Ising
+
     let initialState = TopologicalOperations.pureState q0
 
     match TopologicalOperations.braidSuperposition 0 initialState with
     | Ok braidedState ->
         pr "After braiding anyon 0 and 1:"
+
         for (amp, state) in braidedState.Terms do
             pr "  Amplitude: %A" amp
             pr "  %s" (state.ToASCII())
 
-        jsonResults <- ("5_braided", box {| terms = braidedState.Terms.Length
-                                            status = "ok" |}) :: jsonResults
+        jsonResults <-
+            ("5_braided",
+             box
+                 {|
+                     terms = braidedState.Terms.Length
+                     status = "ok"
+                 |})
+            :: jsonResults
+
         csvRows <- [ "5_braided"; string braidedState.Terms.Length; "success" ] :: csvRows
     | Error err ->
         pr "Braiding error: %s" err.Message
-        jsonResults <- ("5_braided", box {| status = "error"; message = err.Message |}) :: jsonResults
+
+        jsonResults <-
+            ("5_braided",
+             box
+                 {|
+                     status = "error"
+                     message = err.Message
+                 |})
+            :: jsonResults
 
 // ---------------------------------------------------------------------------
 // Output
@@ -178,21 +259,22 @@ if shouldRun 5 then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "TopologicalVisualization.fsx"
-           backend   = "Topological (Ising)"
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "TopologicalVisualization.fsx"
+            backend = "Topological (Ising)"
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

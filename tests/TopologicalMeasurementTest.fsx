@@ -1,5 +1,5 @@
 /// Test script for TopologicalOperations.measureAll function
-/// 
+///
 /// This tests the new measurement functionality for topological quantum states.
 
 #r "nuget: MathNet.Numerics"
@@ -31,11 +31,8 @@ let vacuumParticle = AnyonSpecies.Particle.Vacuum
 let sigmaParticle = AnyonSpecies.Particle.Sigma
 
 // Create |00⟩ state: all vacuum fusion
-let tree00 = 
-    FusionTree.fuse 
-        (FusionTree.leaf vacuumParticle)
-        (FusionTree.leaf vacuumParticle)
-        vacuumParticle
+let tree00 =
+    FusionTree.fuse (FusionTree.leaf vacuumParticle) (FusionTree.leaf vacuumParticle) vacuumParticle
 
 let state00 = FusionTree.create tree00 anyonType
 let pureSuperposition = TopologicalOperations.pureState state00
@@ -45,8 +42,9 @@ let measurements = TopologicalOperations.measureAll pureSuperposition 10
 
 printfn "Expected: All measurements = [|0; 0|]"
 printfn "Results:"
+
 for i, bits in Array.indexed measurements do
-    printfn "  Shot %d: %A" (i+1) bits
+    printfn "  Shot %d: %A" (i + 1) bits
 
 // Check all are [|0; 0|] or empty (depends on encoding)
 let allSame = measurements |> Array.forall (fun bits -> bits = measurements.[0])
@@ -58,17 +56,14 @@ printfn "Test 2: Uniform superposition measurement"
 printfn "------------------------------------------"
 
 // Create uniform superposition of two states
-let tree01 = 
-    FusionTree.fuse 
-        (FusionTree.leaf vacuumParticle)
-        (FusionTree.leaf sigmaParticle)
-        sigmaParticle
+let tree01 =
+    FusionTree.fuse (FusionTree.leaf vacuumParticle) (FusionTree.leaf sigmaParticle) sigmaParticle
 
 let state01 = FusionTree.create tree01 anyonType
 
 // Uniform superposition: (|00⟩ + |01⟩) / √2
-let uniformSuperposition = 
-    TopologicalOperations.uniform [state00; state01] anyonType
+let uniformSuperposition =
+    TopologicalOperations.uniform [ state00; state01 ] anyonType
 
 printfn "Superposition: (|00⟩ + |01⟩) / √2"
 printfn "Expected: ~50%% |00⟩, ~50%% |01⟩"
@@ -78,12 +73,13 @@ printfn ""
 let measurements2 = TopologicalOperations.measureAll uniformSuperposition 100
 
 // Count outcomes
-let outcomes = 
-    measurements2 
+let outcomes =
+    measurements2
     |> Array.countBy id
     |> Array.map (fun (bits, count) -> (bits, count, float count / 100.0))
 
 printfn "Results from 100 measurements:"
+
 for (bits, count, prob) in outcomes do
     printfn "  %A: %d times (%.1f%%)" bits count (prob * 100.0)
 
@@ -93,7 +89,9 @@ printfn "  - Should have 2 distinct outcomes"
 printfn "  - Each should appear ~50 times (±20 for statistical variance)"
 
 let distinctOutcomes = outcomes.Length
-let withinRange = outcomes |> Array.forall (fun (_, count, _) -> count >= 30 && count <= 70)
+
+let withinRange =
+    outcomes |> Array.forall (fun (_, count, _) -> count >= 30 && count <= 70)
 
 if distinctOutcomes = 2 && withinRange then
     printfn "  ✓ Distribution looks good!"

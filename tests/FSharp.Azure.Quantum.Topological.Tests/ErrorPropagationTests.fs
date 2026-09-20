@@ -49,8 +49,7 @@ module ErrorPropagationTests =
         let errors = [ 0.001; 0.002; 0.003; 0.004 ]
         let additive = calculateTotalError errors Additive
         let quadratic = calculateTotalError errors Quadratic
-        Assert.True(quadratic <= additive,
-            $"Quadratic ({quadratic}) should be <= Additive ({additive})")
+        Assert.True(quadratic <= additive, $"Quadratic ({quadratic}) should be <= Additive ({additive})")
 
     // ========================================================================
     // GATE ERROR TESTS
@@ -59,6 +58,7 @@ module ErrorPropagationTests =
     [<Fact>]
     let ``Exact gates have zero error`` () =
         let exactGates = [ T; TDagger; S; SDagger; Z; I ]
+
         for g in exactGates do
             let (error, source) = getGateError g
             Assert.Equal(0.0, error)
@@ -67,6 +67,7 @@ module ErrorPropagationTests =
     [<Fact>]
     let ``Approximate gates have non-zero error`` () =
         let approxGates = [ H; X; Y ]
+
         for g in approxGates do
             let (error, source) = getGateError g
             Assert.Equal(1e-5, error)
@@ -90,12 +91,12 @@ module ErrorPropagationTests =
     let ``trackErrors counts exact and approximate gates`` () =
         let gates = [ T; H; S; X; Z; Y ]
         let acc = trackErrors gates Additive
-        Assert.Equal(3, acc.ExactGateCount)       // T, S, Z
-        Assert.Equal(3, acc.ApproximateGateCount)  // H, X, Y
+        Assert.Equal(3, acc.ExactGateCount) // T, S, Z
+        Assert.Equal(3, acc.ApproximateGateCount) // H, X, Y
 
     [<Fact>]
     let ``trackErrors computes total error with specified model`` () =
-        let gates = [ H; X ]  // Both have error 1e-5
+        let gates = [ H; X ] // Both have error 1e-5
         let accAdditive = trackErrors gates Additive
         Assert.Equal(2e-5, accAdditive.TotalError, 10)
 
@@ -105,7 +106,7 @@ module ErrorPropagationTests =
 
     [<Fact>]
     let ``trackErrors records max single error`` () =
-        let gates = [ T; H; S ]  // T=0, H=1e-5, S=0
+        let gates = [ T; H; S ] // T=0, H=1e-5, S=0
         let acc = trackErrors gates Additive
         Assert.Equal(1e-5, acc.MaxSingleError, 10)
 
@@ -183,7 +184,7 @@ module ErrorPropagationTests =
     [<Fact>]
     let ``assessQuality grades F for over budget`` () =
         // Many approximate gates with strict budget
-        let gates = List.replicate 1000 H  // 1000 * 1e-5 = 1e-2 total (additive)
+        let gates = List.replicate 1000 H // 1000 * 1e-5 = 1e-2 total (additive)
         let acc = trackErrors gates strictBudget.Model
         let assessment = assessQuality acc strictBudget
         Assert.Equal("F", assessment.Grade)
@@ -205,7 +206,13 @@ module ErrorPropagationTests =
 
     [<Fact>]
     let ``assessQuality handles zero budget gracefully`` () =
-        let zeroBudget = { MaxTotalError = 0.0; MaxSingleGateError = 0.0; Model = Additive }
+        let zeroBudget =
+            {
+                MaxTotalError = 0.0
+                MaxSingleGateError = 0.0
+                Model = Additive
+            }
+
         let acc = trackErrors [ T ] zeroBudget.Model
         let assessment = assessQuality acc zeroBudget
         Assert.Equal(0.0, assessment.BudgetUtilization, 10)
@@ -250,7 +257,13 @@ module ErrorPropagationTests =
 
     [<Fact>]
     let ``suggestOptimizations provides diamond norm info`` () =
-        let diamondBudget = { MaxTotalError = 1.0; MaxSingleGateError = 1.0; Model = DiamondNorm }
+        let diamondBudget =
+            {
+                MaxTotalError = 1.0
+                MaxSingleGateError = 1.0
+                Model = DiamondNorm
+            }
+
         let acc = trackErrors [ T ] diamondBudget.Model
         let suggestions = suggestOptimizations acc diamondBudget
         Assert.True(suggestions |> List.exists (fun s -> s.Contains "diamond norm"))

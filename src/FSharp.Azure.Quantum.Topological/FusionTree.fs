@@ -1,100 +1,96 @@
 namespace FSharp.Azure.Quantum.Topological
 
 /// Fusion trees represent the quantum state of topological qubits
-/// 
+///
 /// A fusion tree encodes how anyons combine (fuse) to produce a specific outcome.
 /// The tree structure captures the order of fusion operations, and each internal
 /// node stores a fusion channel (which outcome was selected when two anyons fused).
-/// 
+///
 /// Key concepts:
 /// - **Leaves**: Individual anyons (the "input" particles)
 /// - **Internal nodes**: Fusion channels (which outcome: 1 or ψ for σ×σ)
 /// - **Root**: Final fusion outcome (the "total charge")
 /// - **Basis states**: Different fusion trees = different quantum states
-/// 
+///
 /// Example: Four sigma anyons can fuse to vacuum in multiple ways:
 ///   ((σ×σ→1)×(σ×σ→1)) → 1    (different state from)
 ///   ((σ×σ→ψ)×(σ×σ→ψ)) → 1    (orthogonal quantum states!)
-/// 
+///
 /// The dimension of the Hilbert space = number of distinct fusion trees
 [<RequireQualifiedAccess>]
 module FusionTree =
-    
+
     /// A fusion tree node represents either a leaf (anyon) or fusion of subtrees
     type Tree =
         /// Leaf node: A single anyon particle
         | Leaf of particle: AnyonSpecies.Particle
-        
+
         /// Fusion node: Two subtrees fused to produce an intermediate result
-        | Fusion of 
-            left: Tree * 
-            right: Tree * 
-            channel: AnyonSpecies.Particle  // Which outcome was selected
-    
+        | Fusion of left: Tree * right: Tree * channel: AnyonSpecies.Particle // Which outcome was selected
+
     /// Fusion tree state: Tree structure + anyon theory context
-    type State = {
-        /// The fusion tree structure
-        Tree: Tree
-        
-        /// Which anyon theory we're working in (Ising, Fibonacci, etc.)
-        AnyonType: AnyonSpecies.AnyonType
-    }
-    
+    type State =
+        {
+            /// The fusion tree structure
+            Tree: Tree
+
+            /// Which anyon theory we're working in (Ising, Fibonacci, etc.)
+            AnyonType: AnyonSpecies.AnyonType
+        }
+
     // ========================================================================
     // TREE CONSTRUCTION
     // ========================================================================
-    
+
     /// Create a leaf node (single anyon)
-    let leaf (particle: AnyonSpecies.Particle) : Tree =
-        Leaf particle
-    
+    let leaf (particle: AnyonSpecies.Particle) : Tree = Leaf particle
+
     /// Fuse two trees with a specific fusion channel
-    /// 
+    ///
     /// Example: fuse (leaf Sigma) (leaf Sigma) Vacuum
     ///   Creates: σ × σ → 1 (vacuum channel selected)
-    let fuse (left: Tree) (right: Tree) (channel: AnyonSpecies.Particle) : Tree =
-        Fusion (left, right, channel)
-    
+    let fuse (left: Tree) (right: Tree) (channel: AnyonSpecies.Particle) : Tree = Fusion(left, right, channel)
+
     /// Create a fusion tree state with theory context
-    let create (tree: Tree) (anyonType: AnyonSpecies.AnyonType) : State =
-        { Tree = tree; AnyonType = anyonType }
-    
+    let create (tree: Tree) (anyonType: AnyonSpecies.AnyonType) : State = { Tree = tree; AnyonType = anyonType }
+
     // ========================================================================
     // TREE INSPECTION
     // ========================================================================
-    
+
     /// Get all leaf particles (anyons) in the tree (left-to-right order)
     let leaves (tree: Tree) : AnyonSpecies.Particle list =
         let rec collect (tree: Tree) (acc: AnyonSpecies.Particle list) : AnyonSpecies.Particle list =
             match tree with
             | Leaf p -> p :: acc
-            | Fusion (left, right, _) -> collect left (collect right acc)
+            | Fusion(left, right, _) -> collect left (collect right acc)
+
         collect tree []
-    
+
     /// Get the total charge (root fusion outcome)
     let rec totalCharge (tree: Tree) (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle =
         match tree with
         | Leaf p -> p
-        | Fusion (_, _, channel) -> channel
-    
+        | Fusion(_, _, channel) -> channel
+
     /// Count the number of anyons (leaves) in the tree
     let rec size (tree: Tree) : int =
         match tree with
         | Leaf _ -> 1
-        | Fusion (left, right, _) -> size left + size right
-    
+        | Fusion(left, right, _) -> size left + size right
+
     /// Get the depth (height) of the fusion tree
     let rec depth (tree: Tree) : int =
         match tree with
         | Leaf _ -> 0
-        | Fusion (left, right, _) -> 1 + max (depth left) (depth right)
-    
+        | Fusion(left, right, _) -> 1 + max (depth left) (depth right)
+
     // ========================================================================
     // TREE VALIDATION
     // ========================================================================
-    
+
     /// Verify that a fusion tree is valid according to fusion rules
-    /// 
+    ///
     /// Checks:
     /// 1. All particles are valid in the given anyon theory
     /// 2. Each fusion node's channel is possible given its children
@@ -102,35 +98,41 @@ module FusionTree =
     /// Returns Error if validation fails or anyon type is not implemented.
     let rec isValid (tree: Tree) (anyonType: AnyonSpecies.AnyonType) : TopologicalResult<bool> =
         match tree with
-        | Leaf p -> 
-            AnyonSpecies.isValid anyonType p
-        
-        | Fusion (left, right, channel) ->
+        | Leaf p -> AnyonSpecies.isValid anyonType p
+
+        | Fusion(left, right, channel) ->
             // Validate subtrees first
             match isValid left anyonType, isValid right anyonType with
-            | Error err, _ | _, Error err -> Error err
-            | Ok false, _ | _, Ok false -> Ok false
+            | Error err, _
+            | _, Error err -> Error err
+            | Ok false, _
+            | _, Ok false -> Ok false
             | Ok true, Ok true ->
                 // Get the fusion outcomes of left and right subtrees
                 let leftCharge = totalCharge left anyonType
                 let rightCharge = totalCharge right anyonType
-                
+
                 // Verify this fusion is possible
-                match AnyonSpecies.isValid anyonType channel, FusionRules.isPossible leftCharge rightCharge channel anyonType with
-                | Error err, _ | _, Error err -> Error err
-                | Ok validChannel, Ok possibleFusion -> Ok (validChannel && possibleFusion)
-    
+                match
+                    AnyonSpecies.isValid anyonType channel,
+                    FusionRules.isPossible leftCharge rightCharge channel anyonType
+                with
+                | Error err, _
+                | _, Error err -> Error err
+                | Ok validChannel, Ok possibleFusion -> Ok(validChannel && possibleFusion)
+
     /// Validate a fusion tree state (tree + theory consistency)
     let validateState (state: State) : TopologicalResult<unit> =
         match isValid state.Tree state.AnyonType with
         | Error err -> Error err
-        | Ok true -> Ok ()
-        | Ok false -> Error (TopologicalError.Other "Invalid fusion tree: fusion channels inconsistent with anyon theory")
-    
+        | Ok true -> Ok()
+        | Ok false ->
+            Error(TopologicalError.Other "Invalid fusion tree: fusion channels inconsistent with anyon theory")
+
     // ========================================================================
     // HILBERT SPACE DIMENSION
     // ========================================================================
-    
+
     /// Count the number of distinct fusion trees for given anyons and total charge
     ///
     /// This is the Hilbert space dimension dim Hom(a₁ ⊗ ... ⊗ aₙ, c) for this
@@ -154,47 +156,59 @@ module FusionTree =
 
         match particles with
         | [] -> Ok 0
-        | [p] -> Ok (if p = totalCharge then 1 else 0)
+        | [ p ] -> Ok(if p = totalCharge then 1 else 0)
         | first :: rest ->
             match AnyonSpecies.particles anyonType with
             | Error err -> Error err
             | Ok allParticles ->
 
-            // Left-to-right dynamic programming over the left-associated chain:
-            // dims holds, for each reachable intermediate charge e, the number of
-            // fusion paths of the prefix ending in e. One pass per particle keeps
-            // this O(n·k²) in multiplicity lookups (a naive recursion re-solving
-            // the prefix per candidate charge is O(kⁿ) and hangs at ~20 anyons).
-            let fuseStep (dimsResult: TopologicalResult<(AnyonSpecies.Particle * int) list>) (next: AnyonSpecies.Particle) =
-                match dimsResult with
-                | Error err -> Error err
-                | Ok dims ->
-                    let mutable result: TopologicalResult<(AnyonSpecies.Particle * int) list> = Ok []
-                    for (e, d) in dims do
-                        for c in allParticles do
-                            match result with
-                            | Error _ -> ()
-                            | Ok acc ->
-                                match FusionRules.multiplicity e next c anyonType with
-                                | Error err -> result <- Error err
-                                | Ok mult when mult > 0 ->
-                                    let updated =
-                                        match acc |> List.tryFind (fun (p, _) -> p = c) with
-                                        | Some (_, prev) ->
-                                            acc |> List.map (fun (p, v) -> if p = c then (p, prev + d * mult) else (p, v))
-                                        | None -> (c, d * mult) :: acc
-                                    result <- Ok updated
-                                | Ok _ -> ()
-                    result
+                // Left-to-right dynamic programming over the left-associated chain:
+                // dims holds, for each reachable intermediate charge e, the number of
+                // fusion paths of the prefix ending in e. One pass per particle keeps
+                // this O(n·k²) in multiplicity lookups (a naive recursion re-solving
+                // the prefix per candidate charge is O(kⁿ) and hangs at ~20 anyons).
+                let fuseStep
+                    (dimsResult: TopologicalResult<(AnyonSpecies.Particle * int) list>)
+                    (next: AnyonSpecies.Particle)
+                    =
+                    match dimsResult with
+                    | Error err -> Error err
+                    | Ok dims ->
+                        let mutable result: TopologicalResult<(AnyonSpecies.Particle * int) list> = Ok []
 
-            rest
-            |> List.fold fuseStep (Ok [ (first, 1) ])
-            |> Result.map (List.tryFind (fun (p, _) -> p = totalCharge) >> Option.map snd >> Option.defaultValue 0)
-    
+                        for (e, d) in dims do
+                            for c in allParticles do
+                                match result with
+                                | Error _ -> ()
+                                | Ok acc ->
+                                    match FusionRules.multiplicity e next c anyonType with
+                                    | Error err -> result <- Error err
+                                    | Ok mult when mult > 0 ->
+                                        let updated =
+                                            match acc |> List.tryFind (fun (p, _) -> p = c) with
+                                            | Some(_, prev) ->
+                                                acc
+                                                |> List.map (fun (p, v) ->
+                                                    if p = c then (p, prev + d * mult) else (p, v))
+                                            | None -> (c, d * mult) :: acc
+
+                                        result <- Ok updated
+                                    | Ok _ -> ()
+
+                        result
+
+                rest
+                |> List.fold fuseStep (Ok [ (first, 1) ])
+                |> Result.map (
+                    List.tryFind (fun (p, _) -> p = totalCharge)
+                    >> Option.map snd
+                    >> Option.defaultValue 0
+                )
+
     // ========================================================================
     // TREE ENUMERATION
     // ========================================================================
-    
+
     /// Generate all valid fusion trees for given particles and total charge
     ///
     /// Returns a list of all possible fusion trees (basis states).
@@ -217,14 +231,13 @@ module FusionTree =
 
         match particles with
         | [] -> Ok []
-        | [p] ->
-            Ok (if p = totalCharge then [Leaf p] else [])
+        | [ p ] -> Ok(if p = totalCharge then [ Leaf p ] else [])
 
-        | [a; b] ->
+        | [ a; b ] ->
             // Base case: two particles
             match FusionRules.isPossible a b totalCharge anyonType with
             | Error err -> Error err
-            | Ok true -> Ok [Fusion (Leaf a, Leaf b, totalCharge)]
+            | Ok true -> Ok [ Fusion(Leaf a, Leaf b, totalCharge) ]
             | Ok false -> Ok []
 
         | _ ->
@@ -235,52 +248,58 @@ module FusionTree =
             | Error err -> Error err
             | Ok channels ->
 
-            let initParticles = particles |> List.take (particles.Length - 1)
-            let lastParticle = List.last particles
+                let initParticles = particles |> List.take (particles.Length - 1)
+                let lastParticle = List.last particles
 
-            let channelResults =
-                channels
-                |> List.map (fun intermediate ->
-                    match FusionRules.isPossible intermediate lastParticle totalCharge anyonType with
-                    | Error err -> Error err
-                    | Ok false -> Ok []
-                    | Ok true ->
-                        allTrees initParticles intermediate anyonType
-                        |> Result.map (List.map (fun leftTree ->
-                            Fusion (leftTree, Leaf lastParticle, totalCharge)))
-                )
+                let channelResults =
+                    channels
+                    |> List.map (fun intermediate ->
+                        match FusionRules.isPossible intermediate lastParticle totalCharge anyonType with
+                        | Error err -> Error err
+                        | Ok false -> Ok []
+                        | Ok true ->
+                            allTrees initParticles intermediate anyonType
+                            |> Result.map (List.map (fun leftTree -> Fusion(leftTree, Leaf lastParticle, totalCharge))))
 
-            // Check if any errors occurred
-            match channelResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
-            | Some err -> Error err
-            | None ->
-                Ok (channelResults |> List.collect (function Ok trees -> trees | Error _ -> []))
-    
+                // Check if any errors occurred
+                match
+                    channelResults
+                    |> List.tryPick (function
+                        | Error e -> Some e
+                        | Ok _ -> None)
+                with
+                | Some err -> Error err
+                | None ->
+                    Ok(
+                        channelResults
+                        |> List.collect (function
+                            | Ok trees -> trees
+                            | Error _ -> [])
+                    )
+
     // ========================================================================
     // TREE EQUALITY
     // ========================================================================
-    
+
     /// Check if two fusion trees are structurally equal
-    /// 
+    ///
     /// Two trees are equal if they have the same structure and same fusion channels
     let rec equals (tree1: Tree) (tree2: Tree) : bool =
         match tree1, tree2 with
         | Leaf p1, Leaf p2 -> p1 = p2
-        | Fusion (l1, r1, c1), Fusion (l2, r2, c2) ->
-            c1 = c2 && equals l1 l2 && equals r1 r2
+        | Fusion(l1, r1, c1), Fusion(l2, r2, c2) -> c1 = c2 && equals l1 l2 && equals r1 r2
         | _ -> false
-    
+
     // ========================================================================
     // PRETTY PRINTING
     // ========================================================================
-    
+
     /// Convert tree to string representation
     let rec toString (tree: Tree) : string =
         match tree with
         | Leaf p -> $"{p}"
-        | Fusion (left, right, channel) ->
-            $"({toString left} × {toString right} → {channel})"
-    
+        | Fusion(left, right, channel) -> $"({toString left} × {toString right} → {channel})"
+
     /// Pretty-print a fusion tree state
     let display (state: State) : string =
         let treeStr = toString state.Tree
@@ -290,9 +309,9 @@ module FusionTree =
     // ========================================================================
     // COMPUTATIONAL BASIS CONVERSION (for QuantumState interop)
     // ========================================================================
-    
+
     /// Get number of logical qubits encoded in fusion tree
-    /// 
+    ///
     /// Encoding notes:
     /// - **Ising (σ anyons)**: uses 2*(n+1) sigma anyons:
     ///     - n pairs encode n logical qubits (each pair fuses to 1/ψ)
@@ -309,30 +328,32 @@ module FusionTree =
 
         // Ising σ-pair encoding: 2*(n+1) σ anyons
         let isAllSigma = leavesList |> List.forall ((=) AnyonSpecies.Particle.Sigma)
+
         if isAllSigma && anyonCount >= 4 && anyonCount % 2 = 0 then
             max 0 ((anyonCount / 2) - 1)
         else
             // Fibonacci τ-pair encoding: 2*n τ anyons (no parity pair)
             let isAllTau = leavesList |> List.forall ((=) AnyonSpecies.Particle.Tau)
+
             if isAllTau && anyonCount >= 2 && anyonCount % 2 = 0 then
                 anyonCount / 2
             else
                 // Legacy fallback
                 max 0 (anyonCount - 1)
-    
+
     /// Convert computational basis bitstring to fusion tree
-    /// 
+    ///
     /// σ-pair encoding for Ising anyons:
     /// - Qubit i is encoded in a pair (σ × σ → 1 or ψ)
     /// - An extra σ-pair is appended to enforce overall vacuum (fermion parity constraint)
-    /// 
+    ///
     /// Parameters:
     ///   bits - List of bits [b₀, b₁, ..., bₙ₋₁] where bᵢ ∈ {0, 1}
     ///   anyonType - Anyon theory (Ising, Fibonacci, etc.)
-    /// 
+    ///
     /// Returns:
     ///   Fusion tree encoding this computational basis state
-    /// 
+    ///
     /// Example:
     ///   fromComputationalBasis [1; 0; 1] Ising
     ///   → |101⟩ in Ising anyon representation
@@ -346,58 +367,59 @@ module FusionTree =
                 bits
                 |> List.map (fun bit ->
                     let channel =
-                        if bit = 0 then AnyonSpecies.Particle.Vacuum
-                        else AnyonSpecies.Particle.Psi
+                        if bit = 0 then
+                            AnyonSpecies.Particle.Vacuum
+                        else
+                            AnyonSpecies.Particle.Psi
 
-                    Fusion (
-                        Leaf AnyonSpecies.Particle.Sigma,
-                        Leaf AnyonSpecies.Particle.Sigma,
-                        channel
-                    )
-                )
+                    Fusion(Leaf AnyonSpecies.Particle.Sigma, Leaf AnyonSpecies.Particle.Sigma, channel))
 
             // Extra parity pair to enforce total vacuum (overall fermion parity constraint)
             let parityChannel =
                 let ones = bits |> List.sum
-                if ones % 2 = 0 then AnyonSpecies.Particle.Vacuum else AnyonSpecies.Particle.Psi
+
+                if ones % 2 = 0 then
+                    AnyonSpecies.Particle.Vacuum
+                else
+                    AnyonSpecies.Particle.Psi
 
             let parityPair =
-                Fusion (
-                    Leaf AnyonSpecies.Particle.Sigma,
-                    Leaf AnyonSpecies.Particle.Sigma,
-                    parityChannel
-                )
+                Fusion(Leaf AnyonSpecies.Particle.Sigma, Leaf AnyonSpecies.Particle.Sigma, parityChannel)
 
-            let pairTrees = qubitPairs @ [parityPair]
+            let pairTrees = qubitPairs @ [ parityPair ]
 
             // Fuse all pairs left-to-right, tracking running charge
             // Each intermediate channel must equal the fusion of accumulated charge
             // with the next pair's charge. Ising fusion: 1×1→1, 1×ψ→ψ, ψ×1→ψ, ψ×ψ→1
             match pairTrees with
             | [] -> Leaf AnyonSpecies.Particle.Vacuum
-            | [single] -> single
+            | [ single ] -> single
             | first :: rest ->
                 let firstCharge =
                     match first with
-                    | Fusion (_, _, ch) -> ch
+                    | Fusion(_, _, ch) -> ch
                     | Leaf p -> p
+
                 rest
-                |> List.fold (fun (acc, runningCharge) tree ->
-                    let pairCharge =
-                        match tree with
-                        | Fusion (_, _, ch) -> ch
-                        | Leaf p -> p
-                    // Ising fusion: Vacuum acts as identity, Psi×Psi→Vacuum
-                    let newCharge =
-                        match runningCharge, pairCharge with
-                        | AnyonSpecies.Particle.Vacuum, c | c, AnyonSpecies.Particle.Vacuum -> c
-                        | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi -> AnyonSpecies.Particle.Vacuum
-                        | _ -> AnyonSpecies.Particle.Vacuum // fallback
-                    (Fusion (acc, tree, newCharge), newCharge)
-                ) (first, firstCharge)
+                |> List.fold
+                    (fun (acc, runningCharge) tree ->
+                        let pairCharge =
+                            match tree with
+                            | Fusion(_, _, ch) -> ch
+                            | Leaf p -> p
+                        // Ising fusion: Vacuum acts as identity, Psi×Psi→Vacuum
+                        let newCharge =
+                            match runningCharge, pairCharge with
+                            | AnyonSpecies.Particle.Vacuum, c
+                            | c, AnyonSpecies.Particle.Vacuum -> c
+                            | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi -> AnyonSpecies.Particle.Vacuum
+                            | _ -> AnyonSpecies.Particle.Vacuum // fallback
+
+                        (Fusion(acc, tree, newCharge), newCharge))
+                    (first, firstCharge)
                 |> fst
             |> Ok
-        
+
         | AnyonSpecies.AnyonType.Fibonacci ->
             // Similar encoding for Fibonacci anyons
             // 0 → τ × τ → 1 (vacuum)
@@ -405,41 +427,44 @@ module FusionTree =
             let pairTrees =
                 bits
                 |> List.map (fun bit ->
-                    let channel = 
-                        if bit = 0 then AnyonSpecies.Particle.Vacuum
-                        else AnyonSpecies.Particle.Tau
-                    
-                    Fusion (Leaf AnyonSpecies.Particle.Tau,
-                           Leaf AnyonSpecies.Particle.Tau,
-                           channel)
-                )
-            
+                    let channel =
+                        if bit = 0 then
+                            AnyonSpecies.Particle.Vacuum
+                        else
+                            AnyonSpecies.Particle.Tau
+
+                    Fusion(Leaf AnyonSpecies.Particle.Tau, Leaf AnyonSpecies.Particle.Tau, channel))
+
             match pairTrees with
             | [] -> Leaf AnyonSpecies.Particle.Vacuum
-            | [single] -> single
+            | [ single ] -> single
             | first :: rest ->
                 let firstCharge =
                     match first with
-                    | Fusion (_, _, ch) -> ch
+                    | Fusion(_, _, ch) -> ch
                     | Leaf p -> p
+
                 rest
-                |> List.fold (fun (acc, runningCharge) tree ->
-                    let pairCharge =
-                        match tree with
-                        | Fusion (_, _, ch) -> ch
-                        | Leaf p -> p
-                    // Fibonacci fusion: Vacuum is identity, τ×τ → pick Vacuum
-                    // (standard convention for computational basis encoding)
-                    let newCharge =
-                        match runningCharge, pairCharge with
-                        | AnyonSpecies.Particle.Vacuum, c | c, AnyonSpecies.Particle.Vacuum -> c
-                        | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau -> AnyonSpecies.Particle.Vacuum
-                        | _ -> AnyonSpecies.Particle.Vacuum // fallback
-                    (Fusion (acc, tree, newCharge), newCharge)
-                ) (first, firstCharge)
+                |> List.fold
+                    (fun (acc, runningCharge) tree ->
+                        let pairCharge =
+                            match tree with
+                            | Fusion(_, _, ch) -> ch
+                            | Leaf p -> p
+                        // Fibonacci fusion: Vacuum is identity, τ×τ → pick Vacuum
+                        // (standard convention for computational basis encoding)
+                        let newCharge =
+                            match runningCharge, pairCharge with
+                            | AnyonSpecies.Particle.Vacuum, c
+                            | c, AnyonSpecies.Particle.Vacuum -> c
+                            | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau -> AnyonSpecies.Particle.Vacuum
+                            | _ -> AnyonSpecies.Particle.Vacuum // fallback
+
+                        (Fusion(acc, tree, newCharge), newCharge))
+                    (first, firstCharge)
                 |> fst
             |> Ok
-        
+
         | AnyonSpecies.AnyonType.SU2Level k ->
             // SU(2)_k encoding using j=1/2 pairs (the fundamental anyon)
             // j=1/2 × j=1/2 → j=0 (vacuum) + j=1 (when k ≥ 2)
@@ -454,56 +479,58 @@ module FusionTree =
                     $"SU(2)_{k} does not support computational basis encoding: k must be ≥ 2 for j=1/2 pair encoding (j=1 channel is truncated)"
             else
 
-            let half = AnyonSpecies.Particle.SpinJ(1, k)   // j=1/2
-            let j0   = AnyonSpecies.Particle.SpinJ(0, k)   // j=0 (vacuum)
-            let j1   = AnyonSpecies.Particle.SpinJ(2, k)   // j=1
+                let half = AnyonSpecies.Particle.SpinJ(1, k) // j=1/2
+                let j0 = AnyonSpecies.Particle.SpinJ(0, k) // j=0 (vacuum)
+                let j1 = AnyonSpecies.Particle.SpinJ(2, k) // j=1
 
-            let pairTrees =
-                bits
-                |> List.map (fun bit ->
-                    let channel = if bit = 0 then j0 else j1
-                    Fusion (Leaf half, Leaf half, channel)
-                )
+                let pairTrees =
+                    bits
+                    |> List.map (fun bit ->
+                        let channel = if bit = 0 then j0 else j1
+                        Fusion(Leaf half, Leaf half, channel))
 
-            // Fuse pairs left-to-right with running charge via SU(2)_k fusion rules
-            match pairTrees with
-            | [] -> Leaf AnyonSpecies.Particle.Vacuum
-            | [single] -> single
-            | first :: rest ->
-                let firstCharge =
-                    match first with
-                    | Fusion (_, _, ch) -> ch
-                    | Leaf p -> p
-                rest
-                |> List.fold (fun (acc, runningCharge) tree ->
-                    let pairCharge =
-                        match tree with
-                        | Fusion (_, _, ch) -> ch
+                // Fuse pairs left-to-right with running charge via SU(2)_k fusion rules
+                match pairTrees with
+                | [] -> Leaf AnyonSpecies.Particle.Vacuum
+                | [ single ] -> single
+                | first :: rest ->
+                    let firstCharge =
+                        match first with
+                        | Fusion(_, _, ch) -> ch
                         | Leaf p -> p
-                    // SU(2)_k intermediate fusion: use simple rule
-                    // j0 is identity, j1×j1 → j0, j0×j1 → j1, j1×j0 → j1
-                    let newCharge =
-                        match runningCharge, pairCharge with
-                        | c, c2 when c = j0 -> c2
-                        | c, c2 when c2 = j0 -> c
-                        | c, c2 when c = j1 && c2 = j1 -> j0
-                        | _ -> j0 // fallback
-                    (Fusion (acc, tree, newCharge), newCharge)
-                ) (first, firstCharge)
-                |> fst
-            |> Ok
-    
+
+                    rest
+                    |> List.fold
+                        (fun (acc, runningCharge) tree ->
+                            let pairCharge =
+                                match tree with
+                                | Fusion(_, _, ch) -> ch
+                                | Leaf p -> p
+                            // SU(2)_k intermediate fusion: use simple rule
+                            // j0 is identity, j1×j1 → j0, j0×j1 → j1, j1×j0 → j1
+                            let newCharge =
+                                match runningCharge, pairCharge with
+                                | c, c2 when c = j0 -> c2
+                                | c, c2 when c2 = j0 -> c
+                                | c, c2 when c = j1 && c2 = j1 -> j0
+                                | _ -> j0 // fallback
+
+                            (Fusion(acc, tree, newCharge), newCharge))
+                        (first, firstCharge)
+                    |> fst
+                |> Ok
+
     /// Convert fusion tree to computational basis bitstring
-    /// 
+    ///
     /// Inverse of fromComputationalBasis.
     /// Decodes Jordan-Wigner encoding back to classical bits.
-    /// 
+    ///
     /// Parameters:
     ///   tree - Fusion tree to decode
-    /// 
+    ///
     /// Returns:
     ///   List of bits [b₀, b₁, ..., bₙ₋₁]
-    /// 
+    ///
     /// Note: Assumes tree was created via fromComputationalBasis.
     /// For general fusion trees (superpositions), this extracts one
     /// component of the decomposition.
@@ -511,37 +538,31 @@ module FusionTree =
         let rec toComputationalBasisRaw (treeRaw: Tree) : int list =
             match treeRaw with
             | Leaf AnyonSpecies.Particle.Vacuum -> []
-            | Leaf _ -> [0]  // Single anyon → 0 bit
+            | Leaf _ -> [ 0 ] // Single anyon → 0 bit
 
-            | Fusion (Leaf AnyonSpecies.Particle.Sigma,
-                      Leaf AnyonSpecies.Particle.Sigma,
-                      channel) ->
+            | Fusion(Leaf AnyonSpecies.Particle.Sigma, Leaf AnyonSpecies.Particle.Sigma, channel) ->
                 // Single σ-pair encodes one bit
                 match channel with
-                | AnyonSpecies.Particle.Vacuum -> [0]
-                | AnyonSpecies.Particle.Psi -> [1]
-                | _ -> [0]
+                | AnyonSpecies.Particle.Vacuum -> [ 0 ]
+                | AnyonSpecies.Particle.Psi -> [ 1 ]
+                | _ -> [ 0 ]
 
-            | Fusion (Leaf AnyonSpecies.Particle.Tau,
-                      Leaf AnyonSpecies.Particle.Tau,
-                      channel) ->
+            | Fusion(Leaf AnyonSpecies.Particle.Tau, Leaf AnyonSpecies.Particle.Tau, channel) ->
                 // Fibonacci encoding
                 match channel with
-                | AnyonSpecies.Particle.Vacuum -> [0]
-                | AnyonSpecies.Particle.Tau -> [1]
-                | _ -> [0]
+                | AnyonSpecies.Particle.Vacuum -> [ 0 ]
+                | AnyonSpecies.Particle.Tau -> [ 1 ]
+                | _ -> [ 0 ]
 
-            | Fusion (Leaf (AnyonSpecies.Particle.SpinJ (1, _)),
-                      Leaf (AnyonSpecies.Particle.SpinJ (1, _)),
-                      channel) ->
+            | Fusion(Leaf(AnyonSpecies.Particle.SpinJ(1, _)), Leaf(AnyonSpecies.Particle.SpinJ(1, _)), channel) ->
                 // SU(2)_k j=1/2 pair encoding
                 // SpinJ(0, k) → bit 0, SpinJ(2, k) → bit 1
                 match channel with
-                | AnyonSpecies.Particle.SpinJ (0, _) -> [0]
-                | AnyonSpecies.Particle.SpinJ (2, _) -> [1]
-                | _ -> [0]
+                | AnyonSpecies.Particle.SpinJ(0, _) -> [ 0 ]
+                | AnyonSpecies.Particle.SpinJ(2, _) -> [ 1 ]
+                | _ -> [ 0 ]
 
-            | Fusion (left, right, _) ->
+            | Fusion(left, right, _) ->
                 // Recursive: Decode left and right subtrees
                 toComputationalBasisRaw left @ toComputationalBasisRaw right
 
@@ -551,10 +572,17 @@ module FusionTree =
         // This function is documented as decoding trees created via fromComputationalBasis,
         // so this heuristic is acceptable.
         let leafParticles = leaves tree
-        let sigmaCount = leafParticles |> List.filter ((=) AnyonSpecies.Particle.Sigma) |> List.length
+
+        let sigmaCount =
+            leafParticles |> List.filter ((=) AnyonSpecies.Particle.Sigma) |> List.length
+
         let isAllSigma = leafParticles |> List.forall ((=) AnyonSpecies.Particle.Sigma)
+
         let isSigmaPairEncoding =
-            isAllSigma && sigmaCount >= 4 && sigmaCount % 2 = 0 && rawBits.Length = sigmaCount / 2
+            isAllSigma
+            && sigmaCount >= 4
+            && sigmaCount % 2 = 0
+            && rawBits.Length = sigmaCount / 2
 
         if isSigmaPairEncoding && rawBits.Length > 0 then
             rawBits |> List.take (rawBits.Length - 1)

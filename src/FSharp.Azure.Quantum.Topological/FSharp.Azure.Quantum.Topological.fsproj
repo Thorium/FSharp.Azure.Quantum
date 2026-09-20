@@ -6,12 +6,16 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.8</Version>
+    <Version>0.4.9</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.8: Rebuilt against FSharp.Azure.Quantum v1.4.8 (core struct-union binary change — recompile)
+    <PackageReleaseNotes>v0.4.9: Rebuilt against FSharp.Azure.Quantum v1.4.9
+- Codebase-wide Fantomas formatting; no functional changes intended
+- Requires FSharp.Azure.Quantum v1.4.9+
+
+v0.4.8: Rebuilt against FSharp.Azure.Quantum v1.4.8 (core struct-union binary change — recompile)
 - CHANGED: AnyonType, BraidGenerator, Lattice/PlanarLattice, LevinWenRegions, FaultToleranceParams and the noise-parameter records are now [&lt;Struct&gt;]. Source-compatible; recompile consumers
 - fsharp-refactor code clean-up: ordinal string comparisons, use-bindings for disposables, narrower exception catches. No functional changes intended
 - Requires FSharp.Azure.Quantum v1.4.8+

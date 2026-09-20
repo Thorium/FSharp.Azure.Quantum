@@ -6,7 +6,8 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical.TspSolver
 
 // Test helper: Create simple test cities
-let createSimpleCities n = Array.init n (fun i -> TspTypes.create (float i) 0.0)
+let createSimpleCities n =
+    Array.init n (fun i -> TspTypes.create (float i) 0.0)
 
 // Test helper: Create cities in a circle (known optimal tour)
 let createCircleCities n =
@@ -16,7 +17,9 @@ let createCircleCities n =
 
 [<Fact>]
 let ``buildDistanceMatrix should create symmetric matrix`` () =
-    let cities = [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 0.0 1.0 |]
+    let cities =
+        [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 0.0 1.0 |]
+
     let distances = buildDistanceMatrix cities
 
     // Check symmetry
@@ -40,7 +43,14 @@ let ``euclideanDistance should calculate correct distance`` () =
 
 [<Fact>]
 let ``calculateTourLength should sum all edge distances`` () =
-    let cities = [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 1.0 1.0; TspTypes.create 0.0 1.0 |]
+    let cities =
+        [|
+            TspTypes.create 0.0 0.0
+            TspTypes.create 1.0 0.0
+            TspTypes.create 1.0 1.0
+            TspTypes.create 0.0 1.0
+        |]
+
     let distances = buildDistanceMatrix cities
     let tour = [| 0; 1; 2; 3 |] // Square tour
 
@@ -137,7 +147,14 @@ let ``twoOptImprove should improve tour quality`` () =
 [<Fact>]
 let ``solve with small TSP should find optimal solution`` () =
     // 4 cities at corners of unit square
-    let cities = [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 1.0 1.0; TspTypes.create 0.0 1.0 |]
+    let cities =
+        [|
+            TspTypes.create 0.0 0.0
+            TspTypes.create 1.0 0.0
+            TspTypes.create 1.0 1.0
+            TspTypes.create 0.0 1.0
+        |]
+
     let solution = solve cities defaultConfig
 
     let optimalLength = 4.0 // Square perimeter
@@ -215,7 +232,8 @@ let ``solve without nearest neighbor should still work`` () =
 
     let config =
         { defaultConfig with
-            UseNearestNeighbor = false }
+            UseNearestNeighbor = false
+        }
 
     let solution = solve cities config
 

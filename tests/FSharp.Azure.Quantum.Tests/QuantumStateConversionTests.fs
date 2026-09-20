@@ -49,7 +49,10 @@ module QuantumStateConversionTests =
     let ``stateVectorToSparse handles 2-qubit state`` () =
         // |00> + |11> (unnormalized for simplicity)
         let half = 1.0 / sqrt 2.0
-        let sv = StateVector.create [| Complex(half, 0.0); Complex.Zero; Complex.Zero; Complex(half, 0.0) |]
+
+        let sv =
+            StateVector.create [| Complex(half, 0.0); Complex.Zero; Complex.Zero; Complex(half, 0.0) |]
+
         let (amps, n) = QuantumStateConversion.stateVectorToSparse sv
         Assert.Equal(2, n)
         Assert.Equal(2, amps.Count)
@@ -62,7 +65,7 @@ module QuantumStateConversionTests =
 
     [<Fact>]
     let ``sparseToStateVector creates correct state vector`` () =
-        let amps = Map.ofList [(0, Complex.One)]
+        let amps = Map.ofList [ (0, Complex.One) ]
         let sv = QuantumStateConversion.sparseToStateVector amps 1
         let amp0 = StateVector.getAmplitude 0 sv
         let amp1 = StateVector.getAmplitude 1 sv
@@ -79,7 +82,7 @@ module QuantumStateConversionTests =
     [<Fact>]
     let ``sparseToStateVector handles 2-qubit sparse state`` () =
         let half = 1.0 / sqrt 2.0
-        let amps = Map.ofList [(1, Complex(half, 0.0)); (2, Complex(half, 0.0))]
+        let amps = Map.ofList [ (1, Complex(half, 0.0)); (2, Complex(half, 0.0)) ]
         let sv = QuantumStateConversion.sparseToStateVector amps 2
         Assert.True((StateVector.getAmplitude 1 sv - Complex(half, 0.0)).Magnitude < 1e-10)
         Assert.True((StateVector.getAmplitude 2 sv - Complex(half, 0.0)).Magnitude < 1e-10)
@@ -110,15 +113,19 @@ module QuantumStateConversionTests =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convert QuantumStateType.GateBased state
-        r |> Result.map (fun s -> Assert.Equal(state, s)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        r
+        |> Result.map (fun s -> Assert.Equal(state, s))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``convert StateVector to SparseState succeeds`` () =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convert QuantumStateType.Sparse state
+
         match r with
-        | Ok (QuantumState.SparseState (amps, n)) ->
+        | Ok(QuantumState.SparseState(amps, n)) ->
             Assert.Equal(1, n)
             Assert.True(amps.ContainsKey 0)
         | Ok _ -> failwith "Expected SparseState"
@@ -126,11 +133,12 @@ module QuantumStateConversionTests =
 
     [<Fact>]
     let ``convert SparseState to StateVector succeeds`` () =
-        let amps = Map.ofList [(0, Complex.One)]
-        let state = QuantumState.SparseState (amps, 1)
+        let amps = Map.ofList [ (0, Complex.One) ]
+        let state = QuantumState.SparseState(amps, 1)
         let r = QuantumStateConversion.convert QuantumStateType.GateBased state
+
         match r with
-        | Ok (QuantumState.StateVector sv) ->
+        | Ok(QuantumState.StateVector sv) ->
             let amp0 = StateVector.getAmplitude 0 sv
             Assert.True((amp0 - Complex.One).Magnitude < 1e-10)
         | Ok _ -> failwith "Expected StateVector"
@@ -141,8 +149,9 @@ module QuantumStateConversionTests =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
+
         match r with
-        | Error (QuantumError.NotImplemented _) -> ()
+        | Error(QuantumError.NotImplemented _) -> ()
         | Error e -> failwith $"Expected NotImplemented, got {e}"
         | Ok _ -> failwith "Expected Error for topological conversion"
 
@@ -154,8 +163,9 @@ module QuantumStateConversionTests =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
+
         match r with
-        | Error (QuantumError.NotImplemented (_, hint)) ->
+        | Error(QuantumError.NotImplemented(_, hint)) ->
             Assert.True(hint.IsSome, "Should have hint about Topological package")
         | _ -> failwith "Expected NotImplemented with hint"
 
@@ -168,21 +178,28 @@ module QuantumStateConversionTests =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convertSmart QuantumStateType.GateBased state
-        r |> Result.map (fun s -> Assert.Equal(state, s)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        r
+        |> Result.map (fun s -> Assert.Equal(state, s))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``convertSmart with Mixed preferred type returns unchanged`` () =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convertSmart QuantumStateType.Mixed state
-        r |> Result.map (fun s -> Assert.Equal(state, s)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        r
+        |> Result.map (fun s -> Assert.Equal(state, s))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``convertSmart converts when types differ`` () =
         let sv = StateVector.create [| Complex.One; Complex.Zero |]
         let state = QuantumState.StateVector sv
         let r = QuantumStateConversion.convertSmart QuantumStateType.Sparse state
+
         match r with
-        | Ok (QuantumState.SparseState _) -> ()
+        | Ok(QuantumState.SparseState _) -> ()
         | Ok _ -> failwith "Expected SparseState"
         | Error e -> failwith $"Expected Ok, got Error: {e}"

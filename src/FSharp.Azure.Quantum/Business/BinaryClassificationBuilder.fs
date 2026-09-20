@@ -9,15 +9,15 @@ open FSharp.Azure.Quantum
 open Microsoft.Extensions.Logging
 
 /// High-Level Binary Classification Builder - Business-First API
-/// 
+///
 /// DESIGN PHILOSOPHY:
 /// This is a BUSINESS DOMAIN API for classifying items into two categories
 /// without understanding quantum circuits, feature maps, or optimization algorithms.
-/// 
+///
 /// WHAT IS BINARY CLASSIFICATION:
 /// Automatically categorize items into one of two groups based on their characteristics.
 /// Examples: spam/not-spam, fraud/legitimate, churn/retain, approve/reject.
-/// 
+///
 /// USE CASES:
 /// - Fraud detection: Identify suspicious transactions
 /// - Spam filtering: Classify emails as spam or legitimate
@@ -25,41 +25,41 @@ open Microsoft.Extensions.Logging
 /// - Credit risk: Approve or reject loan applications
 /// - Quality control: Detect defective products
 /// - Medical diagnosis: Detect disease presence/absence
-/// 
+///
 /// EXAMPLE USAGE:
 ///   // Simple: Train from data arrays
 ///   let classifier = binaryClassification {
 ///       trainWith trainX trainY
 ///   }
-///   
+///
 ///   // Predict
 ///   let result = classifier |> BinaryClassifier.predict newSample
 ///   if result.IsPositive then
 ///       blockTransaction()
-///   
+///
 ///   // Advanced: Full configuration
 ///   let classifier = binaryClassification {
 ///       trainWith trainX trainY
-///       
+///
 ///       // Architecture (optional - has smart defaults)
 ///       architecture Quantum  // or Hybrid, or Classical
-///       
+///
 ///       // Training (optional)
 ///       learningRate 0.01
 ///       maxEpochs 100
-///       
+///
 ///       // Infrastructure (optional)
 ///       backend azureBackend
-///       
+///
 ///       // Persistence (optional)
 ///       saveModelTo "fraud_detector.model"
 ///   }
 module BinaryClassifier =
-    
+
     // ========================================================================
     // CORE TYPES - Binary Classification Domain Model
     // ========================================================================
-    
+
     /// Architecture choice for classification
     type Architecture =
         /// Pure quantum classifier (VQC)
@@ -68,137 +68,154 @@ module BinaryClassifier =
         | Hybrid
         /// Classical baseline for comparison
         | Classical
-    
+
     /// Binary classification problem specification
-    type ClassificationProblem = {
-        /// Training features (samples × features)
-        TrainFeatures: float array array
-        
-        /// Training labels (0 or 1)
-        TrainLabels: int array
-        
-        /// Architecture to use
-        Architecture: Architecture
-        
-        /// Learning rate for training
-        LearningRate: float
-        
-        /// Maximum training epochs
-        MaxEpochs: int
-        
-        /// Convergence threshold
-        ConvergenceThreshold: float
-        
-        /// Quantum backend (None = LocalBackend)
-        Backend: IQuantumBackend option
-        
-        /// Number of measurement shots
-        Shots: int
-        
-        /// Verbose logging
-        Verbose: bool
-        
-        /// Path to save trained model
-        SavePath: string option
-        
-        /// Optional note about the model
-        Note: string option
-        
-        /// Optional progress reporter for real-time updates
-        ProgressReporter: Core.Progress.IProgressReporter option
-        
-        /// Optional cancellation token for early termination
-        CancellationToken: System.Threading.CancellationToken option
-        
-        /// Optional structured logger
-        Logger: ILogger option
-    }
-    
+    type ClassificationProblem =
+        {
+            /// Training features (samples × features)
+            TrainFeatures: float array array
+
+            /// Training labels (0 or 1)
+            TrainLabels: int array
+
+            /// Architecture to use
+            Architecture: Architecture
+
+            /// Learning rate for training
+            LearningRate: float
+
+            /// Maximum training epochs
+            MaxEpochs: int
+
+            /// Convergence threshold
+            ConvergenceThreshold: float
+
+            /// Quantum backend (None = LocalBackend)
+            Backend: IQuantumBackend option
+
+            /// Number of measurement shots
+            Shots: int
+
+            /// Verbose logging
+            Verbose: bool
+
+            /// Path to save trained model
+            SavePath: string option
+
+            /// Optional note about the model
+            Note: string option
+
+            /// Optional progress reporter for real-time updates
+            ProgressReporter: Core.Progress.IProgressReporter option
+
+            /// Optional cancellation token for early termination
+            CancellationToken: System.Threading.CancellationToken option
+
+            /// Optional structured logger
+            Logger: ILogger option
+        }
+
     /// Trained binary classifier
-    type Classifier = {
-        /// Underlying model
-        Model: ClassifierModel
-        
-        /// Training metadata
-        Metadata: ClassifierMetadata
-        
-        /// Backend used for training/prediction
-        Backend: IQuantumBackend
-    }
-    
+    type Classifier =
+        {
+            /// Underlying model
+            Model: ClassifierModel
+
+            /// Training metadata
+            Metadata: ClassifierMetadata
+
+            /// Backend used for training/prediction
+            Backend: IQuantumBackend
+        }
+
     and ClassifierModel =
-        | VQCModel of result: VQC.TrainingResult * featureMap: FeatureMapType * varForm: VariationalForm * numQubits: int
+        | VQCModel of
+            result: VQC.TrainingResult *
+            featureMap: FeatureMapType *
+            varForm: VariationalForm *
+            numQubits: int
         /// Model * NumQubits
         | SVMModel of QuantumKernelSVM.SVMModel * int
         /// Simple weights
         | ClassicalModel of float array
-    
-    and ClassifierMetadata = {
-        Architecture: Architecture
-        TrainingAccuracy: float
-        TrainingTime: TimeSpan
-        NumFeatures: int
-        NumSamples: int
-        CreatedAt: DateTime
-        Note: string option
-    }
-    
+
+    and ClassifierMetadata =
+        {
+            Architecture: Architecture
+            TrainingAccuracy: float
+            TrainingTime: TimeSpan
+            NumFeatures: int
+            NumSamples: int
+            CreatedAt: DateTime
+            Note: string option
+        }
+
     /// Prediction result
     [<Struct>]
-    type Prediction = {
-        /// Predicted class (0 or 1)
-        Label: int
-        
-        /// Confidence score [0, 1]
-        Confidence: float
-        
-        /// Is positive class (label = 1)
-        IsPositive: bool
-        
-        /// Is negative class (label = 0)
-        IsNegative: bool
-    }
-    
+    type Prediction =
+        {
+            /// Predicted class (0 or 1)
+            Label: int
+
+            /// Confidence score [0, 1]
+            Confidence: float
+
+            /// Is positive class (label = 1)
+            IsPositive: bool
+
+            /// Is negative class (label = 0)
+            IsNegative: bool
+        }
+
     /// Evaluation metrics
-    type EvaluationMetrics = {
-        Accuracy: float
-        Precision: float
-        Recall: float
-        F1Score: float
-        TruePositives: int
-        TrueNegatives: int
-        FalsePositives: int
-        FalseNegatives: int
-    }
-    
+    type EvaluationMetrics =
+        {
+            Accuracy: float
+            Precision: float
+            Recall: float
+            F1Score: float
+            TruePositives: int
+            TrueNegatives: int
+            FalsePositives: int
+            FalseNegatives: int
+        }
+
     // ========================================================================
     // VALIDATION
     // ========================================================================
-    
+
     /// Validate classification problem
     let private validate (problem: ClassificationProblem) : QuantumResult<unit> =
         if problem.TrainFeatures.Length = 0 then
-            Error (QuantumError.ValidationError ("Input", "Training features cannot be empty"))
+            Error(QuantumError.ValidationError("Input", "Training features cannot be empty"))
         elif problem.TrainLabels.Length = 0 then
-            Error (QuantumError.ValidationError ("Input", "Training labels cannot be empty"))
+            Error(QuantumError.ValidationError("Input", "Training labels cannot be empty"))
         elif problem.TrainFeatures.Length <> problem.TrainLabels.Length then
-            Error (QuantumError.ValidationError ("Input", $"Features ({problem.TrainFeatures.Length}) and labels ({problem.TrainLabels.Length}) must have same length"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"Features ({problem.TrainFeatures.Length}) and labels ({problem.TrainLabels.Length}) must have same length"
+                )
+            )
         elif problem.TrainLabels |> Array.exists (fun l -> l <> 0 && l <> 1) then
-            Error (QuantumError.ValidationError ("Input", "Labels must be 0 or 1 for binary classification"))
+            Error(QuantumError.ValidationError("Input", "Labels must be 0 or 1 for binary classification"))
         elif problem.LearningRate <= 0.0 then
-            Error (QuantumError.ValidationError ("Input", "Learning rate must be positive"))
+            Error(QuantumError.ValidationError("Input", "Learning rate must be positive"))
         elif problem.MaxEpochs < 1 then
-            Error (QuantumError.ValidationError ("Input", "MaxEpochs must be at least 1"))
+            Error(QuantumError.ValidationError("Input", "MaxEpochs must be at least 1"))
         elif problem.Shots < 1 then
-            Error (QuantumError.ValidationError ("Input", "Shots must be at least 1"))
+            Error(QuantumError.ValidationError("Input", "Shots must be at least 1"))
         else
             let numFeatures = problem.TrainFeatures.[0].Length
-            let allSameLength = problem.TrainFeatures |> Array.forall (fun x -> x.Length = numFeatures)
+
+            let allSameLength =
+                problem.TrainFeatures |> Array.forall (fun x -> x.Length = numFeatures)
+
             if not allSameLength then
-                Error (QuantumError.ValidationError ("Input", "All feature vectors must have the same length"))
+                Error(QuantumError.ValidationError("Input", "All feature vectors must have the same length"))
             else
-                Ok ()
-    
+                Ok()
+
     // ========================================================================
     // TRAINING
     // ========================================================================
@@ -208,7 +225,10 @@ module BinaryClassifier =
     /// are truncated to the first numQubits dimensions — consistently at training
     /// and prediction time — so the circuit matches the sized parameter vector.
     let private truncateFeatures (numQubits: int) (sample: float array) : float array =
-        if sample.Length > numQubits then Array.sub sample 0 numQubits else sample
+        if sample.Length > numQubits then
+            Array.sub sample 0 numQubits
+        else
+            sample
 
     /// Train quantum VQC classifier
     let private trainQuantum
@@ -222,7 +242,7 @@ module BinaryClassifier =
         let numFeatures = features.[0].Length
 
         // Smart defaults for quantum architecture
-        let maxQubits = 8  // Cap for reasonable local simulation time
+        let maxQubits = 8 // Cap for reasonable local simulation time
         let numQubits = min numFeatures maxQubits
         let featureMap = FeatureMapType.ZZFeatureMap 2
         let variationalForm = VariationalForm.RealAmplitudes 2
@@ -232,74 +252,93 @@ module BinaryClassifier =
         // ignores most of its input features while reporting success is worse
         // than a clear error the user can act on.
         if numFeatures > maxQubits then
-            Error (QuantumError.ValidationError ("features",
-                $"Quantum classification supports at most {maxQubits} features (one qubit per feature; {numFeatures} supplied). Reduce dimensionality first (e.g. feature selection or PCA), or use the Classical architecture."))
+            Error(
+                QuantumError.ValidationError(
+                    "features",
+                    $"Quantum classification supports at most {maxQubits} features (one qubit per feature; {numFeatures} supplied). Reduce dimensionality first (e.g. feature selection or PCA), or use the Classical architecture."
+                )
+            )
         else
 
-        let trainFeatures = features
+            let trainFeatures = features
 
-        // Training configuration
-        let trainConfig = {
-            VQC.LearningRate = config.LearningRate
-            VQC.MaxEpochs = config.MaxEpochs
-            VQC.ConvergenceThreshold = config.ConvergenceThreshold
-            VQC.Shots = config.Shots
-            VQC.Verbose = config.Verbose
-            VQC.Optimizer = VQC.Adam {
-                AdamOptimizer.LearningRate = config.LearningRate
-                Beta1 = 0.9
-                Beta2 = 0.999
-                Epsilon = 1e-8
-            }
-            VQC.ProgressReporter = config.ProgressReporter
-            VQC.Logger = None
-        }
-        
-        // Train VQC (initialize parameters randomly)
-        let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
-        let rng = Random()
-        let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
-        
-        VQC.train backend featureMap variationalForm initialParams trainFeatures labels trainConfig
-        |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC training failed: {e}"))
-        |> Result.map (fun result ->
-            
-            let endTime = DateTime.UtcNow
-            
-            let classifier = {
-                Model = VQCModel (result, featureMap, variationalForm, numQubits)
-                Metadata = {
-                    Architecture = Quantum
-                    TrainingAccuracy = result.TrainAccuracy
-                    TrainingTime = endTime - startTime
-                    NumFeatures = numFeatures
-                    NumSamples = features.Length
-                    CreatedAt = startTime
-                    Note = config.Note
+            // Training configuration
+            let trainConfig =
+                {
+                    VQC.LearningRate = config.LearningRate
+                    VQC.MaxEpochs = config.MaxEpochs
+                    VQC.ConvergenceThreshold = config.ConvergenceThreshold
+                    VQC.Shots = config.Shots
+                    VQC.Verbose = config.Verbose
+                    VQC.Optimizer =
+                        VQC.Adam
+                            {
+                                AdamOptimizer.LearningRate = config.LearningRate
+                                Beta1 = 0.9
+                                Beta2 = 0.999
+                                Epsilon = 1e-8
+                            }
+                    VQC.ProgressReporter = config.ProgressReporter
+                    VQC.Logger = None
                 }
-                Backend = backend
-            }
-            
-            // Save if requested
-            match config.SavePath with
-            | None -> ()
-            | Some path ->
-                let note = 
-                    match config.Note with
-                    | Some n -> Some n
-                    | None -> Some (sprintf "Binary classifier trained %s" (startTime.ToString "yyyy-MM-dd HH:mm:ss"))
-                
-                match ModelSerialization.saveVQCTrainingResult 
-                        path result numQubits "ZZFeatureMap" 2 "RealAmplitudes" 2 note with
-                | Error _e ->
-                    // Model save failure is non-fatal: the trained classifier is still valid.
-                    // Callers who need durable persistence should use BinaryClassifier.save explicitly
-                    // and handle the Result. We do not use printfn in library code.
-                    ()
-                | Ok () -> ()
-            
-            classifier)
-    
+
+            // Train VQC (initialize parameters randomly)
+            let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
+            let rng = Random()
+            let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
+
+            VQC.train backend featureMap variationalForm initialParams trainFeatures labels trainConfig
+            |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"VQC training failed: {e}"))
+            |> Result.map (fun result ->
+
+                let endTime = DateTime.UtcNow
+
+                let classifier =
+                    {
+                        Model = VQCModel(result, featureMap, variationalForm, numQubits)
+                        Metadata =
+                            {
+                                Architecture = Quantum
+                                TrainingAccuracy = result.TrainAccuracy
+                                TrainingTime = endTime - startTime
+                                NumFeatures = numFeatures
+                                NumSamples = features.Length
+                                CreatedAt = startTime
+                                Note = config.Note
+                            }
+                        Backend = backend
+                    }
+
+                // Save if requested
+                match config.SavePath with
+                | None -> ()
+                | Some path ->
+                    let note =
+                        match config.Note with
+                        | Some n -> Some n
+                        | None ->
+                            Some(sprintf "Binary classifier trained %s" (startTime.ToString "yyyy-MM-dd HH:mm:ss"))
+
+                    match
+                        ModelSerialization.saveVQCTrainingResult
+                            path
+                            result
+                            numQubits
+                            "ZZFeatureMap"
+                            2
+                            "RealAmplitudes"
+                            2
+                            note
+                    with
+                    | Error _e ->
+                        // Model save failure is non-fatal: the trained classifier is still valid.
+                        // Callers who need durable persistence should use BinaryClassifier.save explicitly
+                        // and handle the Result. We do not use printfn in library code.
+                        ()
+                    | Ok() -> ()
+
+                classifier)
+
     /// Train hybrid quantum-classical classifier
     let private trainHybrid
         (backend: IQuantumBackend)
@@ -307,81 +346,110 @@ module BinaryClassifier =
         (labels: int array)
         (config: ClassificationProblem)
         : QuantumResult<Classifier> =
-        
+
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
-        
+
         // Use quantum kernel SVM
         let numQubits = min numFeatures 8
         let featureMap = FeatureMapType.ZZFeatureMap 2
-        
-        let svmConfig : QuantumKernelSVM.SVMConfig = {
-            C = 1.0
-            Tolerance = 0.001
-            MaxIterations = 1000
-            Verbose = config.Verbose
-            Logger = config.Logger
-        }
-        
+
+        let svmConfig: QuantumKernelSVM.SVMConfig =
+            {
+                C = 1.0
+                Tolerance = 0.001
+                MaxIterations = 1000
+                Verbose = config.Verbose
+                Logger = config.Logger
+            }
+
         QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots
-        |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Hybrid training failed: {e}"))
+        |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Hybrid training failed: {e}"))
         |> Result.bind (fun model ->
-            
+
             let endTime = DateTime.UtcNow
-            
+
             // Compute training accuracy - propagate prediction errors
-            let predictionResults = features |> Array.map (fun x -> 
-                QuantumKernelSVM.predict backend model x config.Shots
-                |> Result.map (fun pred -> pred.Label))
-            
-            let firstError = predictionResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+            let predictionResults =
+                features
+                |> Array.map (fun x ->
+                    QuantumKernelSVM.predict backend model x config.Shots
+                    |> Result.map (fun pred -> pred.Label))
+
+            let firstError =
+                predictionResults
+                |> Array.tryPick (function
+                    | Error e -> Some e
+                    | Ok _ -> None)
+
             match firstError with
             | Some err ->
-                Error (QuantumError.ValidationError ("Training", $"Prediction failed during accuracy computation: {err}"))
+                Error(
+                    QuantumError.ValidationError("Training", $"Prediction failed during accuracy computation: {err}")
+                )
             | None ->
-                let predictions = predictionResults |> Array.map (function Ok l -> l | Error _ -> 0) // safe: no errors remain
-                let correct = Array.zip predictions labels |> Array.filter (fun (p, l) -> p = l) |> Array.length
+                let predictions =
+                    predictionResults
+                    |> Array.map (function
+                        | Ok l -> l
+                        | Error _ -> 0) // safe: no errors remain
+
+                let correct =
+                    Array.zip predictions labels
+                    |> Array.filter (fun (p, l) -> p = l)
+                    |> Array.length
+
                 let accuracy = float correct / float labels.Length
-                
-                Ok {
-                    Model = SVMModel (model, numQubits)
-                    Metadata = {
-                        Architecture = Hybrid
-                        TrainingAccuracy = accuracy
-                        TrainingTime = endTime - startTime
-                        NumFeatures = numFeatures
-                        NumSamples = features.Length
-                        CreatedAt = startTime
-                        Note = config.Note
-                    }
-                    Backend = backend
-                })
-    
+
+                Ok
+                    {
+                        Model = SVMModel(model, numQubits)
+                        Metadata =
+                            {
+                                Architecture = Hybrid
+                                TrainingAccuracy = accuracy
+                                TrainingTime = endTime - startTime
+                                NumFeatures = numFeatures
+                                NumSamples = features.Length
+                                CreatedAt = startTime
+                                Note = config.Note
+                            }
+                        Backend = backend
+                    })
+
     /// Train classifier based on architecture choice
     let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
         validate problem
         |> Result.bind (fun () ->
-            
-            let backend = 
+
+            let backend =
                 match problem.Backend with
                 | Some b -> b
-                | None -> LocalBackend.LocalBackend() :> IQuantumBackend  // Default to local simulation
-            
-            
+                | None -> LocalBackend.LocalBackend() :> IQuantumBackend // Default to local simulation
+
+
             match problem.Architecture with
             | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem
             | Hybrid -> trainHybrid backend problem.TrainFeatures problem.TrainLabels problem
-            | Classical -> Error (QuantumError.NotImplemented ("Classical architecture", Some "Use PredictiveModelBuilder for classical baselines, or use Hybrid architecture for quantum-classical classification")))
-    
+            | Classical ->
+                Error(
+                    QuantumError.NotImplemented(
+                        "Classical architecture",
+                        Some
+                            "Use PredictiveModelBuilder for classical baselines, or use Hybrid architecture for quantum-classical classification"
+                    )
+                ))
+
     // ========================================================================
     // PREDICTION
     // ========================================================================
-    
+
     /// Make prediction on new sample
     let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
         let backend = classifier.Backend
+
         match classifier.Model with
-        | VQCModel (result, featureMap, varForm, numQubits) ->
+        | VQCModel(result, featureMap, varForm, numQubits) ->
             // Apply the same feature truncation used at training time (qubit cap)
             VQC.predict backend featureMap varForm result.Parameters (truncateFeatures numQubits sample) 1000
             |> Result.map (fun vqcPred ->
@@ -391,120 +459,195 @@ module BinaryClassifier =
                     IsPositive = vqcPred.Label = 1
                     IsNegative = vqcPred.Label = 0
                 })
-        
-        | SVMModel (model, storedNumQubits) ->
+
+        | SVMModel(model, storedNumQubits) ->
             QuantumKernelSVM.predict backend model sample 1000
             |> Result.map (fun prediction ->
                 // Convert decision value to confidence (sigmoid-like transformation)
-                let confidence = 1.0 / (1.0 + exp(-abs prediction.DecisionValue))
+                let confidence = 1.0 / (1.0 + exp (-abs prediction.DecisionValue))
+
                 {
                     Label = prediction.Label
                     Confidence = confidence
                     IsPositive = prediction.Label = 1
                     IsNegative = prediction.Label = 0
                 })
-        
+
         | ClassicalModel _ ->
-            Error (QuantumError.NotImplemented ("Classical model prediction", Some "Use PredictiveModelBuilder for classical baselines"))
-    
+            Error(
+                QuantumError.NotImplemented(
+                    "Classical model prediction",
+                    Some "Use PredictiveModelBuilder for classical baselines"
+                )
+            )
+
     /// Evaluate classifier on test set
-    let evaluate 
-        (testFeatures: float array array) 
-        (testLabels: int array) 
-        (classifier: Classifier) 
+    let evaluate
+        (testFeatures: float array array)
+        (testLabels: int array)
+        (classifier: Classifier)
         : QuantumResult<EvaluationMetrics> =
-        
+
         if testFeatures.Length <> testLabels.Length then
-            Error (QuantumError.ValidationError ("Input", "Test features and labels must have same length"))
+            Error(QuantumError.ValidationError("Input", "Test features and labels must have same length"))
         else
             // Make predictions - propagate errors instead of silently defaulting to 0
-            let predictionResults = 
-                testFeatures 
-                |> Array.map (fun x -> 
-                    predict x classifier
-                    |> Result.map (fun pred -> pred.Label))
-            
-            let firstError = predictionResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+            let predictionResults =
+                testFeatures
+                |> Array.map (fun x -> predict x classifier |> Result.map (fun pred -> pred.Label))
+
+            let firstError =
+                predictionResults
+                |> Array.tryPick (function
+                    | Error e -> Some e
+                    | Ok _ -> None)
+
             match firstError with
-            | Some err ->
-                Error err
+            | Some err -> Error err
             | None ->
-                let predictions = predictionResults |> Array.map (function Ok l -> l | Error _ -> 0) // safe: no errors remain
-                
+                let predictions =
+                    predictionResults
+                    |> Array.map (function
+                        | Ok l -> l
+                        | Error _ -> 0) // safe: no errors remain
+
                 // Compute confusion matrix
-                let tp = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 1 && l = 1) |> Array.length
-                let tn = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 0 && l = 0) |> Array.length
-                let fp = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 1 && l = 0) |> Array.length
-                let fn = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 0 && l = 1) |> Array.length
-                
+                let tp =
+                    Array.zip predictions testLabels
+                    |> Array.filter (fun (p, l) -> p = 1 && l = 1)
+                    |> Array.length
+
+                let tn =
+                    Array.zip predictions testLabels
+                    |> Array.filter (fun (p, l) -> p = 0 && l = 0)
+                    |> Array.length
+
+                let fp =
+                    Array.zip predictions testLabels
+                    |> Array.filter (fun (p, l) -> p = 1 && l = 0)
+                    |> Array.length
+
+                let fn =
+                    Array.zip predictions testLabels
+                    |> Array.filter (fun (p, l) -> p = 0 && l = 1)
+                    |> Array.length
+
                 // Compute metrics
                 let accuracy = float (tp + tn) / float testLabels.Length
                 let precision = if (tp + fp) = 0 then 0.0 else float tp / float (tp + fp)
                 let recall = if (tp + fn) = 0 then 0.0 else float tp / float (tp + fn)
-                let f1 = if (precision + recall) = 0.0 then 0.0 else 2.0 * precision * recall / (precision + recall)
-                
-                Ok {
-                    Accuracy = accuracy
-                    Precision = precision
-                    Recall = recall
-                    F1Score = f1
-                    TruePositives = tp
-                    TrueNegatives = tn
-                    FalsePositives = fp
-                    FalseNegatives = fn
-                }
-    
+
+                let f1 =
+                    if (precision + recall) = 0.0 then
+                        0.0
+                    else
+                        2.0 * precision * recall / (precision + recall)
+
+                Ok
+                    {
+                        Accuracy = accuracy
+                        Precision = precision
+                        Recall = recall
+                        F1Score = f1
+                        TruePositives = tp
+                        TrueNegatives = tn
+                        FalsePositives = fp
+                        FalseNegatives = fn
+                    }
+
     // ========================================================================
     // PERSISTENCE
     // ========================================================================
-    
+
     /// Save classifier to file
     let save (path: string) (classifier: Classifier) : QuantumResult<unit> =
         match classifier.Model with
-        | VQCModel (result, featureMap, varForm, numQubits) ->
-            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
-            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | TwoLocal _ | EfficientSU2 _ -> "Unknown"
-            let vfDepth = match varForm with RealAmplitudes d -> d | TwoLocal _ | EfficientSU2 _ -> 0
-            
-            ModelSerialization.saveVQCTrainingResult path result numQubits fmType fmDepth vfType vfDepth classifier.Metadata.Note
-        
-        | SVMModel (svmModel, _numQubits) ->
+        | VQCModel(result, featureMap, varForm, numQubits) ->
+            let fmType =
+                match featureMap with
+                | ZZFeatureMap _ -> "ZZFeatureMap"
+                | _ -> "Unknown"
+
+            let fmDepth =
+                match featureMap with
+                | ZZFeatureMap d -> d
+                | _ -> 0
+
+            let vfType =
+                match varForm with
+                | RealAmplitudes _ -> "RealAmplitudes"
+                | TwoLocal _
+                | EfficientSU2 _ -> "Unknown"
+
+            let vfDepth =
+                match varForm with
+                | RealAmplitudes d -> d
+                | TwoLocal _
+                | EfficientSU2 _ -> 0
+
+            ModelSerialization.saveVQCTrainingResult
+                path
+                result
+                numQubits
+                fmType
+                fmDepth
+                vfType
+                vfDepth
+                classifier.Metadata.Note
+
+        | SVMModel(svmModel, _numQubits) ->
             // numQubits is recoverable from the feature dimension on load, so it isn't
             // separately persisted; use the canonical SVM schema (SVMModelSerialization).
-            SVMModelSerialization.saveSVMModelAsync path svmModel classifier.Metadata.Note System.Threading.CancellationToken.None
+            SVMModelSerialization.saveSVMModelAsync
+                path
+                svmModel
+                classifier.Metadata.Note
+                System.Threading.CancellationToken.None
             |> Async.AwaitTask
             |> Async.RunSynchronously
-        
+
         | ClassicalModel _ ->
-            Error (QuantumError.NotImplemented ("Classical model persistence", Some "Use PredictiveModelBuilder for classical baselines"))
-    
+            Error(
+                QuantumError.NotImplemented(
+                    "Classical model persistence",
+                    Some "Use PredictiveModelBuilder for classical baselines"
+                )
+            )
+
     /// Load classifier from file
     let load (path: string) : QuantumResult<Classifier> =
         // Detect model type by checking JSON structure
         try
             let json = System.IO.File.ReadAllText(path)
-            
+
             // Check if it's an SVM model (has SupportVectorIndices field)
             if json.Contains "\"SupportVectorIndices\"" then
                 // Load as SVM (canonical SVMModelSerialization schema). The qubit/feature count
                 // is derived from the training-data dimension rather than a stored field.
-                let serialized = System.Text.Json.JsonSerializer.Deserialize<SVMModelSerialization.SerializableSVMModel>(json)
+                let serialized =
+                    System.Text.Json.JsonSerializer.Deserialize<SVMModelSerialization.SerializableSVMModel>(json)
+
                 SVMModelSerialization.fromSerializable serialized
-                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Failed to load SVM model: {e}"))
+                |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Failed to load SVM model: {e}"))
                 |> Result.map (fun svmModel ->
-                    let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
+                    let numFeatures =
+                        if svmModel.TrainData.Length > 0 then
+                            svmModel.TrainData.[0].Length
+                        else
+                            0
+
                     {
-                        Model = SVMModel (svmModel, numFeatures)
-                        Metadata = {
-                            Architecture = Hybrid
-                            TrainingAccuracy = 0.0
-                            TrainingTime = TimeSpan.Zero
-                            NumFeatures = numFeatures
-                            NumSamples = svmModel.TrainData.Length
-                            CreatedAt = DateTime.UtcNow
-                            Note = serialized.Note
-                        }
+                        Model = SVMModel(svmModel, numFeatures)
+                        Metadata =
+                            {
+                                Architecture = Hybrid
+                                TrainingAccuracy = 0.0
+                                TrainingTime = TimeSpan.Zero
+                                NumFeatures = numFeatures
+                                NumSamples = svmModel.TrainData.Length
+                                CreatedAt = DateTime.UtcNow
+                                Note = serialized.Note
+                            }
                         Backend = LocalBackend.LocalBackend() :> IQuantumBackend
                     })
             else
@@ -512,47 +655,49 @@ module BinaryClassifier =
                 ModelSerialization.loadForTransferLearning path
                 |> Result.map (fun (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
                     // Reconstruct VQC model
-                    let featureMap = 
+                    let featureMap =
                         match fmType with
                         | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
                         | _ -> FeatureMapType.ZZFeatureMap 2
-                    
+
                     let varForm =
                         match vfType with
                         | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
                         | _ -> VariationalForm.RealAmplitudes 2
-                    
-                    let result : VQC.TrainingResult = {
-                        Parameters = parameters
-                        LossHistory = []
-                        Epochs = 0
-                        TrainAccuracy = 0.0
-                        Converged = true
-                    }
-                    
-                    {
-                        Model = VQCModel (result, featureMap, varForm, numQubits)
-                        Metadata = {
-                            Architecture = Quantum
-                            TrainingAccuracy = 0.0
-                            TrainingTime = TimeSpan.Zero
-                            NumFeatures = numQubits
-                            NumSamples = 0
-                            CreatedAt = DateTime.UtcNow
-                            Note = None
+
+                    let result: VQC.TrainingResult =
+                        {
+                            Parameters = parameters
+                            LossHistory = []
+                            Epochs = 0
+                            TrainAccuracy = 0.0
+                            Converged = true
                         }
+
+                    {
+                        Model = VQCModel(result, featureMap, varForm, numQubits)
+                        Metadata =
+                            {
+                                Architecture = Quantum
+                                TrainingAccuracy = 0.0
+                                TrainingTime = TimeSpan.Zero
+                                NumFeatures = numQubits
+                                NumSamples = 0
+                                CreatedAt = DateTime.UtcNow
+                                Note = None
+                            }
                         Backend = LocalBackend.LocalBackend() :> IQuantumBackend
                     })
         with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
-    
+            Error(QuantumError.ValidationError("Input", $"Failed to load model: {ex.Message}"))
+
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
     // ========================================================================
-    
+
     /// Computation expression builder for binary classification
     type BinaryClassificationBuilder() =
-        
+
         member _.Yield(_) : ClassificationProblem =
             {
                 TrainFeatures = [||]
@@ -570,19 +715,27 @@ module BinaryClassifier =
                 CancellationToken = None
                 Logger = None
             }
-        
+
         member _.Delay(f: unit -> ClassificationProblem) = f
-        
+
         member _.Run(f: unit -> ClassificationProblem) : QuantumResult<Classifier> =
-            let problem = f()
+            let problem = f ()
             train problem
-        
+
         member _.Combine(p1: ClassificationProblem, p2: ClassificationProblem) =
-            { p2 with 
-                TrainFeatures = if p2.TrainFeatures.Length = 0 then p1.TrainFeatures else p2.TrainFeatures
-                TrainLabels = if p2.TrainLabels.Length = 0 then p1.TrainLabels else p2.TrainLabels
+            { p2 with
+                TrainFeatures =
+                    if p2.TrainFeatures.Length = 0 then
+                        p1.TrainFeatures
+                    else
+                        p2.TrainFeatures
+                TrainLabels =
+                    if p2.TrainLabels.Length = 0 then
+                        p1.TrainLabels
+                    else
+                        p2.TrainLabels
             }
-        
+
         member _.Zero() : ClassificationProblem =
             {
                 TrainFeatures = [||]
@@ -600,79 +753,81 @@ module BinaryClassifier =
                 CancellationToken = None
                 Logger = None
             }
-        
+
         /// <summary>Set the training data with features and binary labels.</summary>
         /// <param name="features">Training feature vectors</param>
         /// <param name="labels">Binary labels (0 or 1) for each sample</param>
         [<CustomOperation("trainWith")>]
         member _.TrainWith(problem: ClassificationProblem, features: float array array, labels: int array) =
-            { problem with TrainFeatures = features; TrainLabels = labels }
-        
+            { problem with
+                TrainFeatures = features
+                TrainLabels = labels
+            }
+
         /// <summary>Set the neural network architecture.</summary>
         /// <param name="arch">Architecture specification</param>
         [<CustomOperation("architecture")>]
-        member _.Architecture(problem: ClassificationProblem, arch: Architecture) =
-            { problem with Architecture = arch }
-        
+        member _.Architecture(problem: ClassificationProblem, arch: Architecture) = { problem with Architecture = arch }
+
         /// <summary>Set the learning rate for optimization.</summary>
         /// <param name="lr">Learning rate (typically 0.001 to 0.1)</param>
         [<CustomOperation("learningRate")>]
-        member _.LearningRate(problem: ClassificationProblem, lr: float) =
-            { problem with LearningRate = lr }
-        
+        member _.LearningRate(problem: ClassificationProblem, lr: float) = { problem with LearningRate = lr }
+
         /// <summary>Set the maximum number of training epochs.</summary>
         /// <param name="epochs">Maximum epochs</param>
         [<CustomOperation("maxEpochs")>]
-        member _.MaxEpochs(problem: ClassificationProblem, epochs: int) =
-            { problem with MaxEpochs = epochs }
-        
+        member _.MaxEpochs(problem: ClassificationProblem, epochs: int) = { problem with MaxEpochs = epochs }
+
         /// <summary>Set the convergence threshold for early stopping.</summary>
         /// <param name="threshold">Convergence threshold for loss improvement</param>
         [<CustomOperation("convergenceThreshold")>]
         member _.ConvergenceThreshold(problem: ClassificationProblem, threshold: float) =
-            { problem with ConvergenceThreshold = threshold }
-        
+            { problem with
+                ConvergenceThreshold = threshold
+            }
+
         /// <summary>Set the quantum backend for execution.</summary>
         /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: ClassificationProblem, backend: IQuantumBackend) =
             { problem with Backend = Some backend }
-        
+
         /// <summary>Set the number of measurement shots.</summary>
         /// <param name="shots">Number of circuit measurements</param>
         [<CustomOperation("shots")>]
-        member _.Shots(problem: ClassificationProblem, shots: int) =
-            { problem with Shots = shots }
-        
+        member _.Shots(problem: ClassificationProblem, shots: int) = { problem with Shots = shots }
+
         /// <summary>Enable or disable verbose output.</summary>
         /// <param name="verbose">True to enable detailed logging</param>
         [<CustomOperation("verbose")>]
-        member _.Verbose(problem: ClassificationProblem, verbose: bool) =
-            { problem with Verbose = verbose }
-        
+        member _.Verbose(problem: ClassificationProblem, verbose: bool) = { problem with Verbose = verbose }
+
         /// <summary>Set the path to save the trained model.</summary>
         /// <param name="path">File path for saving the model</param>
         [<CustomOperation("saveModelTo")>]
-        member _.SaveModelTo(problem: ClassificationProblem, path: string) =
-            { problem with SavePath = Some path }
-        
+        member _.SaveModelTo(problem: ClassificationProblem, path: string) = { problem with SavePath = Some path }
+
         /// <summary>Add a note or description to the classification problem.</summary>
         /// <param name="note">Descriptive note</param>
         [<CustomOperation("note")>]
-        member _.Note(problem: ClassificationProblem, note: string) =
-            { problem with Note = Some note }
-        
+        member _.Note(problem: ClassificationProblem, note: string) = { problem with Note = Some note }
+
         /// <summary>Set a progress reporter for real-time training updates.</summary>
         /// <param name="reporter">Progress reporter instance</param>
         [<CustomOperation("progressReporter")>]
         member _.ProgressReporter(problem: ClassificationProblem, reporter: Core.Progress.IProgressReporter) =
-            { problem with ProgressReporter = Some reporter }
-        
+            { problem with
+                ProgressReporter = Some reporter
+            }
+
         /// <summary>Set a cancellation token for early termination of training.</summary>
         /// <param name="token">Cancellation token</param>
         [<CustomOperation("cancellationToken")>]
         member _.CancellationToken(problem: ClassificationProblem, token: System.Threading.CancellationToken) =
-            { problem with CancellationToken = Some token }
-    
+            { problem with
+                CancellationToken = Some token
+            }
+
     /// Create binary classification computation expression
     let binaryClassification = BinaryClassificationBuilder()

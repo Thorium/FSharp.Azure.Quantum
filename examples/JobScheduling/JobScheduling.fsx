@@ -42,7 +42,7 @@ Usage:
 
 open System
 open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.TaskScheduling  // For types
+open FSharp.Azure.Quantum.TaskScheduling // For types
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
 
@@ -56,10 +56,28 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "JobScheduling.fsx"
     "Quantum-ready job scheduling with resource constraints (QUBO + QAOA)."
-    [ { Cli.OptionSpec.Name = "input";   Description = "CSV file with jobs (id,name,duration_hours,priority)"; Default = None }
-      { Cli.OptionSpec.Name = "output";  Description = "Write results to JSON file";                            Default = None }
-      { Cli.OptionSpec.Name = "csv";     Description = "Write results to CSV file";                             Default = None }
-      { Cli.OptionSpec.Name = "quiet";   Description = "Suppress informational output";                         Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with jobs (id,name,duration_hours,priority)"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -72,63 +90,95 @@ let csvPath = Cli.tryGet "csv" args
 // ==============================================================================
 
 /// Represents a production job for the domain
-type ProductionJob = {
-    Id: string
-    Name: string
-    DurationHours: float
-    Priority: int
-}
+type ProductionJob =
+    {
+        Id: string
+        Name: string
+        DurationHours: float
+        Priority: int
+    }
 
 // ==============================================================================
 // JOB DATA - Manufacturing facility production schedule (or load from file)
 // ==============================================================================
 
-let builtInJobs = [
-    // Initial job (no dependencies)
-    { Id = "J1"; Name = "Prep Materials"; DurationHours = 1.0; Priority = 1 }
+let builtInJobs =
+    [
+        // Initial job (no dependencies)
+        {
+            Id = "J1"
+            Name = "Prep Materials"
+            DurationHours = 1.0
+            Priority = 1
+        }
 
-    // Assembly jobs (depend on prep)
-    { Id = "J2"; Name = "Base Assembly"; DurationHours = 1.0; Priority = 2 }
-    { Id = "J3"; Name = "Component A"; DurationHours = 1.0; Priority = 2 }
-]
+        // Assembly jobs (depend on prep)
+        {
+            Id = "J2"
+            Name = "Base Assembly"
+            DurationHours = 1.0
+            Priority = 2
+        }
+        {
+            Id = "J3"
+            Name = "Component A"
+            DurationHours = 1.0
+            Priority = 2
+        }
+    ]
 
 /// Load jobs from a CSV file with columns: id, name, duration_hours, priority
 let loadJobsFromCsv (path: string) : ProductionJob list =
     let rows = Data.readCsvWithHeader path
-    rows |> List.map (fun row ->
-        { Id =
-            row.Values |> Map.tryFind "id" |> Option.defaultValue "?"
-          Name =
-            row.Values |> Map.tryFind "name" |> Option.defaultValue "Unknown"
-          DurationHours =
-            row.Values
-            |> Map.tryFind "duration_hours"
-            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
-            |> Option.defaultValue 1.0
-          Priority =
-            row.Values
-            |> Map.tryFind "priority"
-            |> Option.bind (fun s -> match Int32.TryParse s with true, v -> Some v | _ -> None)
-            |> Option.defaultValue 1 })
+
+    rows
+    |> List.map (fun row ->
+        {
+            Id = row.Values |> Map.tryFind "id" |> Option.defaultValue "?"
+            Name = row.Values |> Map.tryFind "name" |> Option.defaultValue "Unknown"
+            DurationHours =
+                row.Values
+                |> Map.tryFind "duration_hours"
+                |> Option.bind (fun s ->
+                    match Double.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
+                |> Option.defaultValue 1.0
+            Priority =
+                row.Values
+                |> Map.tryFind "priority"
+                |> Option.bind (fun s ->
+                    match Int32.TryParse s with
+                    | true, v -> Some v
+                    | _ -> None)
+                |> Option.defaultValue 1
+        })
 
 let productionJobs =
     match inputPath with
     | Some path ->
         let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
-        if not quiet then printfn "Loading jobs from: %s" resolved
+
+        if not quiet then
+            printfn "Loading jobs from: %s" resolved
+
         loadJobsFromCsv resolved
-    | None ->
-        builtInJobs
+    | None -> builtInJobs
 
 // ==============================================================================
 // PROBLEM SETUP - Using TaskScheduling Builder with Resource Constraints
 // ==============================================================================
 
 if not quiet then
-    printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn
+        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
     printfn "â•‘              JOB SCHEDULING WITH QUANTUM OPTIMIZATION                        â•‘"
     printfn "â•‘              Resource-Constrained Scheduling via QUBO/QAOA                   â•‘"
-    printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+    printfn
+        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
     printfn ""
     printfn "Problem: Schedule %d jobs with resource capacity constraints" productionJobs.Length
     printfn "Objective: Minimize makespan (total completion time)"
@@ -137,42 +187,50 @@ if not quiet then
     printfn ""
 
 // Define machine resources with limited capacity
-let machine1 = resource {
-    resourceId "Machine1"
-    capacity 1.0  // Only 1 job at a time
-    costPerUnit 100.0
-}
+let machine1 =
+    resource {
+        resourceId "Machine1"
+        capacity 1.0 // Only 1 job at a time
+        costPerUnit 100.0
+    }
 
 // Convert jobs to ScheduledTasks with resource requirements
 // Built-in jobs use hardcoded dependency graph; CSV-loaded jobs run independently.
-let scheduledTasks : ScheduledTask<unit> list =
+let scheduledTasks: ScheduledTask<unit> list =
     match inputPath with
     | None ->
         // Built-in: J2 and J3 depend on J1
-        let j1 : ScheduledTask<unit> = scheduledTask {
-            taskId "J1"
-            duration (hours 1.0)
-            requires "Machine1" 1.0
-            priority 1.0
-        }
-        let j2 : ScheduledTask<unit> = scheduledTask {
-            taskId "J2"
-            duration (hours 1.0)
-            after "J1"
-            requires "Machine1" 1.0
-            priority 2.0
-        }
-        let j3 : ScheduledTask<unit> = scheduledTask {
-            taskId "J3"
-            duration (hours 1.0)
-            after "J1"
-            requires "Machine1" 1.0
-            priority 2.0
-        }
+        let j1: ScheduledTask<unit> =
+            scheduledTask {
+                taskId "J1"
+                duration (hours 1.0)
+                requires "Machine1" 1.0
+                priority 1.0
+            }
+
+        let j2: ScheduledTask<unit> =
+            scheduledTask {
+                taskId "J2"
+                duration (hours 1.0)
+                after "J1"
+                requires "Machine1" 1.0
+                priority 2.0
+            }
+
+        let j3: ScheduledTask<unit> =
+            scheduledTask {
+                taskId "J3"
+                duration (hours 1.0)
+                after "J1"
+                requires "Machine1" 1.0
+                priority 2.0
+            }
+
         [ j1; j2; j3 ]
     | Some _ ->
         // CSV-loaded: no dependency info, each job requires Machine1
-        productionJobs |> List.map (fun job ->
+        productionJobs
+        |> List.map (fun job ->
             scheduledTask {
                 taskId job.Id
                 duration (hours job.DurationHours)
@@ -186,12 +244,13 @@ let timeHorizonSlots =
     max 3.0 (min (totalDuration + 2.0) 5.0)
 
 // Build scheduling problem with resource constraints
-let problem : SchedulingProblem<unit, unit> = scheduling {
-    tasks scheduledTasks
-    resources [machine1]
-    objective MinimizeMakespan
-    timeHorizon (hours timeHorizonSlots)
-}
+let problem: SchedulingProblem<unit, unit> =
+    scheduling {
+        tasks scheduledTasks
+        resources [ machine1 ]
+        objective MinimizeMakespan
+        timeHorizon (hours timeHorizonSlots)
+    }
 
 // ==============================================================================
 // SOLVE - Using Quantum Solver (QUBO + QAOA)
@@ -204,13 +263,17 @@ if not quiet then
     printfn ""
 
 // Initialize quantum backend
-let backend = LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+let backend =
+    LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
 
 if not quiet then
     printfn "Running quantum optimization (QUBO encoding + QAOA)..."
     printfn "- Encoding scheduling problem as QUBO matrix"
-    printfn "- %d tasks discretised into a bounded time-slot grid (qubits kept within LocalBackend limit)"
+
+    printfn
+        "- %d tasks discretised into a bounded time-slot grid (qubits kept within LocalBackend limit)"
         problem.Tasks.Length
+
     printfn "- Applying QAOA (Quantum Approximate Optimization Algorithm)"
     printfn "- Measuring quantum state and decoding to schedule"
     printfn ""
@@ -220,12 +283,13 @@ let startTime = DateTime.UtcNow
 let result = solveQuantum backend problem |> Async.RunSynchronously
 
 let elapsed = DateTime.UtcNow - startTime
+
 if not quiet then
     printfn "Quantum optimization completed in %d ms" (int elapsed.TotalMilliseconds)
     printfn ""
 
 // Extract schedule result for structured output
-let scheduleResult : (Solution * float * float * float) option =
+let scheduleResult: (Solution * float * float * float) option =
     match result with
     | Ok schedule ->
         if not quiet then
@@ -233,27 +297,37 @@ let scheduleResult : (Solution * float * float * float) option =
             // RESULTS - Schedule Report
             // ==============================================================================
 
-            printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn
+                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
             printfn "â•‘                       JOB SCHEDULE REPORT                                    â•‘"
-            printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+            printfn
+                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
             printfn ""
             printfn "SCHEDULE BY JOB:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
 
             // Sort assignments by start time
-            let sortedAssignments =
-                schedule.Assignments
-                |> List.sortBy (fun a -> a.StartTime)
+            let sortedAssignments = schedule.Assignments |> List.sortBy (fun a -> a.StartTime)
 
             // Convert minutes back to hours for display
             for assignment in sortedAssignments do
                 let job = productionJobs |> List.tryFind (fun j -> j.Id = assignment.TaskId)
-                let jobName = job |> Option.map (fun j -> j.Name) |> Option.defaultValue assignment.TaskId
+
+                let jobName =
+                    job |> Option.map (fun j -> j.Name) |> Option.defaultValue assignment.TaskId
+
                 let jobPriority = job |> Option.map (fun j -> j.Priority) |> Option.defaultValue 0
                 let startHours = assignment.StartTime.TotalHours
                 let endHours = assignment.EndTime.TotalHours
                 let durationHours = (assignment.EndTime - assignment.StartTime).TotalHours
-                printfn "  %s: hours %.1f-%.1f (duration: %.1fh, priority: %d)"
+
+                printfn
+                    "  %s: hours %.1f-%.1f (duration: %.1fh, priority: %d)"
                     jobName
                     startHours
                     endHours
@@ -262,13 +336,18 @@ let scheduleResult : (Solution * float * float * float) option =
 
             printfn ""
             printfn "PERFORMANCE SUMMARY:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "  Total Jobs:            %d" productionJobs.Length
             printfn "  Makespan:              %.1f hours" (schedule.Makespan.TotalHours)
             printfn "  Total Cost:            $%.2f" schedule.TotalCost
 
         // Calculate utilization
-        let totalWorkMinutes = productionJobs |> List.sumBy (fun j -> j.DurationHours * 60.0)
+        let totalWorkMinutes =
+            productionJobs |> List.sumBy (fun j -> j.DurationHours * 60.0)
+
         let totalWorkHours = totalWorkMinutes / 60.0
 
         if not quiet then
@@ -281,18 +360,37 @@ let scheduleResult : (Solution * float * float * float) option =
 
         let sequentialHours = productionJobs |> List.sumBy (fun j -> j.DurationHours)
         let makespanHours = schedule.Makespan.TotalHours
-        let speedup = if makespanHours > 0.0 then sequentialHours / makespanHours else 1.0
+
+        let speedup =
+            if makespanHours > 0.0 then
+                sequentialHours / makespanHours
+            else
+                1.0
+
         let timeSaved = sequentialHours - makespanHours
-        let timeSavedPct = if sequentialHours > 0.0 then (timeSaved / sequentialHours) * 100.0 else 0.0
+
+        let timeSavedPct =
+            if sequentialHours > 0.0 then
+                (timeSaved / sequentialHours) * 100.0
+            else
+                0.0
 
         if not quiet then
-            printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn
+                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
             printfn "â•‘                       BUSINESS IMPACT ANALYSIS                               â•‘"
-            printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+            printfn
+                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
             printfn ""
 
             printfn "TIME ANALYSIS:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "  Sequential Time (1 machine):   %.1f hours" sequentialHours
             printfn "  Parallel Time (optimized):     %.1f hours" makespanHours
             printfn "  Speedup Factor:                %.2fx faster" speedup
@@ -303,12 +401,18 @@ let scheduleResult : (Solution * float * float * float) option =
             let sequentialCost = sequentialHours * costPerMachineHour
 
             printfn "COST ANALYSIS (@ $%.0f/machine-hour):" costPerMachineHour
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "  Sequential Cost:               $%.2f" sequentialCost
             printfn ""
 
             printfn "KEY INSIGHTS:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "  âœ“ Achieved %.2fx speedup through optimal scheduling" speedup
 
             if speedup > 1.5 then
@@ -323,16 +427,30 @@ let scheduleResult : (Solution * float * float * float) option =
             printfn "âœ“ Gantt chart exported to: schedule.txt"
             printfn ""
 
-            printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn
+                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
             printfn "â•‘                       SCHEDULING SUCCESSFUL                                  â•‘"
-            printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+            printfn
+                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
             printfn ""
-            printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
+            printfn
+                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
             printfn "â•‘                    WHY QUANTUM OPTIMIZATION?                                 â•‘"
-            printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+            printfn
+                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
             printfn ""
             printfn "CLASSICAL vs QUANTUM SCHEDULING:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn ""
             printfn "Classical Greedy Solver (solve):"
             printfn "  âœ“ Handles task dependencies optimally"
@@ -347,7 +465,10 @@ let scheduleResult : (Solution * float * float * float) option =
             printfn "  âœ“ Scales to larger problems on quantum hardware"
             printfn ""
             printfn "HOW IT WORKS:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "1. QUBO Encoding: Converts scheduling to binary optimization problem"
             printfn "   - Variables: x_{task,time} âˆˆ {0,1} for each task and time slot"
             printfn "   - Objective: Minimize makespan (latest task completion)"
@@ -363,83 +484,114 @@ let scheduleResult : (Solution * float * float * float) option =
             printfn "   - Selects best valid solution (minimum makespan)"
             printfn ""
             printfn "BACKENDS:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "LocalBackend:    16 qubits max (~3 tasks Ã— 5 time slots, demo only)"
             printfn "Azure Quantum:   29-80+ qubits (IonQ, Quantinuum, Rigetti)"
             printfn "                 Scales to realistic production problems (100+ tasks)"
             printfn ""
             printfn "WHEN TO USE QUANTUM:"
-            printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
+            printfn
+                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+
             printfn "âœ“ Resource capacity constraints exist"
             printfn "âœ“ Multiple resources compete for same tasks"
             printfn "âœ“ Optimization critical (minimize cost/makespan)"
             printfn "âœ— Dependencies only (use classical solver instead)"
             printfn ""
 
-        Some (schedule, speedup, timeSavedPct, elapsed.TotalMilliseconds)
+        Some(schedule, speedup, timeSavedPct, elapsed.TotalMilliseconds)
 
     | Error err ->
         if not quiet then
             printfn "âŒ Scheduling failed: %s" err.Message
+
         None
 
 // ==============================================================================
 // STRUCTURED OUTPUT
 // ==============================================================================
 
-let resultRows : Map<string, string> list =
+let resultRows: Map<string, string> list =
     match scheduleResult with
-    | Some (schedule, speedup, timeSavedPct, elapsedMs) ->
+    | Some(schedule, speedup, timeSavedPct, elapsedMs) ->
         let assignmentRows =
             schedule.Assignments
             |> List.sortBy (fun a -> a.StartTime)
             |> List.map (fun a ->
                 let job = productionJobs |> List.tryFind (fun j -> j.Id = a.TaskId)
                 let jobName = job |> Option.map (fun j -> j.Name) |> Option.defaultValue a.TaskId
+
                 Map.ofList
-                    [ "task_id", a.TaskId
-                      "task_name", jobName
-                      "start_hours", sprintf "%.2f" (a.StartTime.TotalHours)
-                      "end_hours", sprintf "%.2f" (a.EndTime.TotalHours)
-                      "duration_hours", sprintf "%.2f" ((a.EndTime - a.StartTime).TotalHours)
-                      "makespan_hours", sprintf "%.2f" (schedule.Makespan.TotalHours)
-                      "total_cost", $"%.2f{schedule.TotalCost}"
-                      "speedup", $"%.2f{speedup}"
-                      "time_saved_pct", $"%.1f{timeSavedPct}"
-                      "solution_time_ms", $"%.0f{elapsedMs}"
-                      "status", "ok" ])
+                    [
+                        "task_id", a.TaskId
+                        "task_name", jobName
+                        "start_hours", sprintf "%.2f" (a.StartTime.TotalHours)
+                        "end_hours", sprintf "%.2f" (a.EndTime.TotalHours)
+                        "duration_hours", sprintf "%.2f" ((a.EndTime - a.StartTime).TotalHours)
+                        "makespan_hours", sprintf "%.2f" (schedule.Makespan.TotalHours)
+                        "total_cost", $"%.2f{schedule.TotalCost}"
+                        "speedup", $"%.2f{speedup}"
+                        "time_saved_pct", $"%.1f{timeSavedPct}"
+                        "solution_time_ms", $"%.0f{elapsedMs}"
+                        "status", "ok"
+                    ])
+
         assignmentRows
     | None ->
-        [ Map.ofList
-            [ "task_id", "N/A"
-              "task_name", "N/A"
-              "start_hours", "N/A"
-              "end_hours", "N/A"
-              "duration_hours", "N/A"
-              "makespan_hours", "N/A"
-              "total_cost", "N/A"
-              "speedup", "N/A"
-              "time_saved_pct", "N/A"
-              "solution_time_ms", $"%.0f{elapsed.TotalMilliseconds}"
-              "status", "failed" ] ]
+        [
+            Map.ofList
+                [
+                    "task_id", "N/A"
+                    "task_name", "N/A"
+                    "start_hours", "N/A"
+                    "end_hours", "N/A"
+                    "duration_hours", "N/A"
+                    "makespan_hours", "N/A"
+                    "total_cost", "N/A"
+                    "speedup", "N/A"
+                    "time_saved_pct", "N/A"
+                    "solution_time_ms", $"%.0f{elapsed.TotalMilliseconds}"
+                    "status", "failed"
+                ]
+        ]
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultRows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
-    let header = [ "task_id"; "task_name"; "start_hours"; "end_hours"; "duration_hours";
-                   "makespan_hours"; "total_cost"; "speedup"; "time_saved_pct";
-                   "solution_time_ms"; "status" ]
+    let header =
+        [
+            "task_id"
+            "task_name"
+            "start_hours"
+            "end_hours"
+            "duration_hours"
+            "makespan_hours"
+            "total_cost"
+            "speedup"
+            "time_saved_pct"
+            "solution_time_ms"
+            "status"
+        ]
+
     let rows =
         resultRows
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

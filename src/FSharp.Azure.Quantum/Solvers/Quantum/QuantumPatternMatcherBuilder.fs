@@ -5,27 +5,27 @@ open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Backends
 
 /// High-level Quantum Pattern Matcher Builder - Quantum-First API
-/// 
+///
 /// DESIGN PHILOSOPHY:
 /// This is a BUSINESS DOMAIN API for finding items in a search space that match a pattern
 /// without understanding Grover's algorithm internals (oracles, qubits, amplitude amplification).
-/// 
+///
 /// QUANTUM-FIRST:
 /// - Uses Grover's algorithm via quantum backends by default (LocalBackend for simulation)
 /// - Optional backend parameter for cloud quantum hardware (IonQ, Rigetti)
 /// - For algorithm-level control, use GroverSearch module directly
-/// 
+///
 /// WHAT IS PATTERN MATCHING SEARCH:
 /// Find items in a search space that satisfy a pattern predicate (expensive evaluation).
 /// Uses quantum search to accelerate exploration when evaluation is computationally expensive.
-/// 
+///
 /// USE CASES:
 /// - Configuration optimization (find best system config from 100+ options)
 /// - Hyperparameter tuning (ML model parameters)
 /// - Feature selection (choose best features from large set)
 /// - System tuning (database configs, compiler flags, etc.)
 /// - A/B testing at scale
-/// 
+///
 /// HOW THIS USES GROVER:
 /// This builder is a thin domain wrapper around `FSharp.Azure.Quantum.GroverSearch`.
 /// Under the hood we:
@@ -33,12 +33,12 @@ open FSharp.Azure.Quantum.Backends
 /// - Run Grover search on the chosen backend.
 /// - Post-filter returned candidates using the same predicate (to avoid false positives
 ///   from finite-shot sampling).
-/// 
+///
 /// IMPORTANT MODEL:
 /// - Grover searches `0 .. (2^n - 1)`.
 /// - If you use `searchSpace items`, index `i` corresponds to `items.[i]`.
 /// - If you use `searchSpaceSize size` (or `searchSpace size`), the predicate is evaluated on indices, so `'T` should be `int`.
-/// 
+///
 /// EXAMPLE USAGE:
 ///   // 1) Search over actual items
 ///   let problem = patternMatcher {
@@ -50,7 +50,7 @@ open FSharp.Azure.Quantum.Backends
 ///       findTop 10
 ///       shots 2000
 ///   }
-/// 
+///
 ///   // 2) Search over an implicit index space (no list allocation)
 ///   let problem = patternMatcher {
 ///       searchSpaceSize 256
@@ -63,159 +63,204 @@ open FSharp.Azure.Quantum.Backends
 ///       maxIterations 10
 ///       backend azureQuantum
 ///   }
-/// 
+///
 ///   // Solve the problem
 ///   match QuantumPatternMatcher.solve problem with
 ///   | Ok solution -> printfn "Matches: %A" solution.Matches
 ///   | Error err -> printfn "Error: %s" err.Message
 module QuantumPatternMatcher =
-    
+
     // ============================================================================
     // CORE TYPES - Pattern Matching Domain Model
     // ============================================================================
-    
+
     /// <summary>
     /// Complete quantum pattern matching problem specification.
     /// </summary>
-    type PatternProblem<'T> = {
-        /// Search space (list of items to search) OR size as integer
-        SearchSpace: Choice<'T list, int>
-        /// Pattern predicate (returns true if item matches)
-        Pattern: 'T -> bool
-        /// Number of top matches to return
-        TopN: int
-        /// Quantum backend to use (None = LocalBackend)
-        Backend: BackendAbstraction.IQuantumBackend option
-        /// Maximum iterations for Grover search
-        MaxIterations: int option
-        /// Number of measurement shots
-        Shots: int
-    }
-    
+    type PatternProblem<'T> =
+        {
+            /// Search space (list of items to search) OR size as integer
+            SearchSpace: Choice<'T list, int>
+            /// Pattern predicate (returns true if item matches)
+            Pattern: 'T -> bool
+            /// Number of top matches to return
+            TopN: int
+            /// Quantum backend to use (None = LocalBackend)
+            Backend: BackendAbstraction.IQuantumBackend option
+            /// Maximum iterations for Grover search
+            MaxIterations: int option
+            /// Number of measurement shots
+            Shots: int
+        }
+
     /// <summary>
     /// Solution to a pattern matching problem.
     /// </summary>
-    type PatternSolution<'T> = {
-        /// Items that matched the pattern
-        Matches: 'T list
-        /// Success probability of the search
-        SuccessProbability: float
-        /// Backend used for execution
-        BackendName: string
-        /// Qubits required for this search
-        QubitsRequired: int
-        /// Number of Grover iterations used
-        IterationsUsed: int
-        /// Total items searched
-        SearchSpaceSize: int
-    }
-    
+    type PatternSolution<'T> =
+        {
+            /// Items that matched the pattern
+            Matches: 'T list
+            /// Success probability of the search
+            SuccessProbability: float
+            /// Backend used for execution
+            BackendName: string
+            /// Qubits required for this search
+            QubitsRequired: int
+            /// Number of Grover iterations used
+            IterationsUsed: int
+            /// Total items searched
+            SearchSpaceSize: int
+        }
+
     // ============================================================================
     // VALIDATION HELPERS
     // ============================================================================
-    
+
     /// <summary>
     /// Validates a pattern matching problem specification.
     /// </summary>
     let validate (problem: PatternProblem<'T>) : Result<unit, QuantumError> =
-        let searchSpaceSize = 
+        let searchSpaceSize =
             match problem.SearchSpace with
             | Choice1Of2 items -> List.length items
             | Choice2Of2 size -> size
-        
+
         if searchSpaceSize < 1 then
-            Error (QuantumError.ValidationError ("SearchSpace", "must contain at least 1 item"))
+            Error(QuantumError.ValidationError("SearchSpace", "must contain at least 1 item"))
         elif searchSpaceSize > (1 <<< 16) then
-            Error (QuantumError.ValidationError ("SearchSpace", $"size {searchSpaceSize} exceeds maximum (2^16 = 65536)"))
+            Error(QuantumError.ValidationError("SearchSpace", $"size {searchSpaceSize} exceeds maximum (2^16 = 65536)"))
         elif problem.TopN < 1 then
-            Error (QuantumError.ValidationError ("TopN", "must be at least 1"))
+            Error(QuantumError.ValidationError("TopN", "must be at least 1"))
         elif problem.TopN > searchSpaceSize then
-            Error (QuantumError.ValidationError ("TopN", $"({problem.TopN}) cannot exceed search space size ({searchSpaceSize})"))
+            Error(
+                QuantumError.ValidationError(
+                    "TopN",
+                    $"({problem.TopN}) cannot exceed search space size ({searchSpaceSize})"
+                )
+            )
         elif problem.Shots < 1 then
-            Error (QuantumError.ValidationError ("Shots", "must be at least 1"))
+            Error(QuantumError.ValidationError("Shots", "must be at least 1"))
         else
             let qubitsNeeded = int (ceil (log (float searchSpaceSize) / log 2.0))
+
             if qubitsNeeded > 16 then
-                Error (QuantumError.ValidationError ("SearchSpace", $"requires {qubitsNeeded} qubits (size {searchSpaceSize}). Max: 16"))
+                Error(
+                    QuantumError.ValidationError(
+                        "SearchSpace",
+                        $"requires {qubitsNeeded} qubits (size {searchSpaceSize}). Max: 16"
+                    )
+                )
             else
-                Ok ()
-    
+                Ok()
+
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDER - Pattern Matcher Builder
     // ============================================================================
-    
+
     /// <summary>
     /// Computation expression builder for defining pattern matching problems.
     /// </summary>
     type QuantumPatternMatcherBuilder<'T>() =
-        
+
         member _.Yield(_) : PatternProblem<'T> =
             {
-                SearchSpace = Choice2Of2 16  // Default: 16 items
+                SearchSpace = Choice2Of2 16 // Default: 16 items
                 Pattern = fun _ -> false
                 TopN = 1
                 Backend = None
                 MaxIterations = None
                 Shots = 1000
             }
-        
+
         member _.Delay(f: unit -> PatternProblem<'T>) : unit -> PatternProblem<'T> = f
-        
+
         member _.Run(f: unit -> PatternProblem<'T>) : PatternProblem<'T> =
-            let problem = f()
+            let problem = f ()
+
             match validate problem with
             | Error err -> failwith err.Message
-            | Ok () -> problem
-        
+            | Ok() -> problem
+
         member _.For(sequence: seq<'U>, body: 'U -> PatternProblem<'T>) : PatternProblem<'T> =
             // Idiomatic F#: Use Seq.fold for functional accumulation with AND logic
-            let zero = {
-                SearchSpace = Choice2Of2 0
-                Pattern = fun _ -> true  // Neutral element for AND
-                TopN = 0
-                Backend = None
-                MaxIterations = None
-                Shots = 0
-            }
-            
+            let zero =
+                {
+                    SearchSpace = Choice2Of2 0
+                    Pattern = fun _ -> true // Neutral element for AND
+                    TopN = 0
+                    Backend = None
+                    MaxIterations = None
+                    Shots = 0
+                }
+
             sequence
             |> Seq.map body
-            |> Seq.fold (fun acc itemProblem ->
-                {
-                    SearchSpace = match itemProblem.SearchSpace with Choice2Of2 0 -> acc.SearchSpace | s -> s
-                    Pattern = fun x -> acc.Pattern x && itemProblem.Pattern x  // AND logic
-                    TopN = if itemProblem.TopN > 0 then itemProblem.TopN else acc.TopN
-                    Backend = match itemProblem.Backend with Some b -> Some b | None -> acc.Backend
-                    MaxIterations = match itemProblem.MaxIterations with Some i -> Some i | None -> acc.MaxIterations
-                    Shots = if itemProblem.Shots > 0 then itemProblem.Shots else acc.Shots
-                }) zero
-        
+            |> Seq.fold
+                (fun acc itemProblem ->
+                    {
+                        SearchSpace =
+                            match itemProblem.SearchSpace with
+                            | Choice2Of2 0 -> acc.SearchSpace
+                            | s -> s
+                        Pattern = fun x -> acc.Pattern x && itemProblem.Pattern x // AND logic
+                        TopN = if itemProblem.TopN > 0 then itemProblem.TopN else acc.TopN
+                        Backend =
+                            match itemProblem.Backend with
+                            | Some b -> Some b
+                            | None -> acc.Backend
+                        MaxIterations =
+                            match itemProblem.MaxIterations with
+                            | Some i -> Some i
+                            | None -> acc.MaxIterations
+                        Shots =
+                            if itemProblem.Shots > 0 then
+                                itemProblem.Shots
+                            else
+                                acc.Shots
+                    })
+                zero
+
         member _.Combine(problem1: PatternProblem<'T>, problem2: PatternProblem<'T>) : PatternProblem<'T> =
             // Merge two problems with AND logic on patterns
             {
-                SearchSpace = match problem2.SearchSpace with Choice2Of2 0 -> problem1.SearchSpace | s -> s
-                Pattern = fun x -> problem1.Pattern x && problem2.Pattern x  // AND both patterns
+                SearchSpace =
+                    match problem2.SearchSpace with
+                    | Choice2Of2 0 -> problem1.SearchSpace
+                    | s -> s
+                Pattern = fun x -> problem1.Pattern x && problem2.Pattern x // AND both patterns
                 TopN = if problem2.TopN > 0 then problem2.TopN else problem1.TopN
-                Backend = match problem2.Backend with Some b -> Some b | None -> problem1.Backend
-                MaxIterations = match problem2.MaxIterations with Some i -> Some i | None -> problem1.MaxIterations
-                Shots = if problem2.Shots > 0 then problem2.Shots else problem1.Shots
+                Backend =
+                    match problem2.Backend with
+                    | Some b -> Some b
+                    | None -> problem1.Backend
+                MaxIterations =
+                    match problem2.MaxIterations with
+                    | Some i -> Some i
+                    | None -> problem1.MaxIterations
+                Shots =
+                    if problem2.Shots > 0 then
+                        problem2.Shots
+                    else
+                        problem1.Shots
             }
-        
+
         member _.Zero() : PatternProblem<'T> =
             {
                 SearchSpace = Choice2Of2 0
-                Pattern = fun _ -> true  // Neutral element for AND
+                Pattern = fun _ -> true // Neutral element for AND
                 TopN = 0
                 Backend = None
                 MaxIterations = None
                 Shots = 0
             }
-        
+
         [<CustomOperation("searchSpace")>]
         member _.SearchSpace(problem: PatternProblem<'T>, space: obj) : PatternProblem<'T> =
             match space with
             | :? int as size ->
-                { problem with SearchSpace = Choice2Of2 size }
+                { problem with
+                    SearchSpace = Choice2Of2 size
+                }
 
             | :? System.Collections.IEnumerable as enumerable ->
                 // The empty list literal `[]` can get inferred as `obj list` when this operation
@@ -224,59 +269,64 @@ module QuantumPatternMatcher =
                 // produce a helpful "empty search space" error.
                 try
                     let items = enumerable |> Seq.cast<'T> |> List.ofSeq
-                    { problem with SearchSpace = Choice1Of2 items }
-                with
-                | :? System.InvalidCastException ->
+
+                    { problem with
+                        SearchSpace = Choice1Of2 items
+                    }
+                with :? System.InvalidCastException ->
                     failwith "searchSpace expects either 'T list (items) or int (size)"
 
-            | _ ->
-                failwith "searchSpace expects either 'T list (items) or int (size)"
-        
+            | _ -> failwith "searchSpace expects either 'T list (items) or int (size)"
+
         [<CustomOperation("searchSpaceSize")>]
         member _.SearchSpaceSize(problem: PatternProblem<'T>, size: int) : PatternProblem<'T> =
-            { problem with SearchSpace = Choice2Of2 size }
-        
+            { problem with
+                SearchSpace = Choice2Of2 size
+            }
+
         [<CustomOperation("matchPattern")>]
         member _.MatchPattern(problem: PatternProblem<'T>, predicate: 'T -> bool) : PatternProblem<'T> =
             { problem with Pattern = predicate }
-        
+
         [<CustomOperation("findTop")>]
-        member _.FindTop(problem: PatternProblem<'T>, n: int) : PatternProblem<'T> =
-            { problem with TopN = n }
-        
+        member _.FindTop(problem: PatternProblem<'T>, n: int) : PatternProblem<'T> = { problem with TopN = n }
+
         [<CustomOperation("backend")>]
-        member _.Backend(problem: PatternProblem<'T>, backend: BackendAbstraction.IQuantumBackend) : PatternProblem<'T> =
+        member _.Backend
+            (problem: PatternProblem<'T>, backend: BackendAbstraction.IQuantumBackend)
+            : PatternProblem<'T> =
             { problem with Backend = Some backend }
-        
+
         [<CustomOperation("maxIterations")>]
         member _.MaxIterations(problem: PatternProblem<'T>, iters: int) : PatternProblem<'T> =
-            { problem with MaxIterations = Some iters }
-        
+            { problem with
+                MaxIterations = Some iters
+            }
+
         [<CustomOperation("shots")>]
-        member _.Shots(problem: PatternProblem<'T>, count: int) : PatternProblem<'T> =
-            { problem with Shots = count }
-    
+        member _.Shots(problem: PatternProblem<'T>, count: int) : PatternProblem<'T> = { problem with Shots = count }
+
     /// Global instance of patternMatcher builder
     let patternMatcher<'T> = QuantumPatternMatcherBuilder<'T>()
-    
+
     // ============================================================================
     // MAIN SOLVER - QUANTUM-FIRST
     // ============================================================================
-    
+
     /// Solve pattern matching problem using Grover's algorithm
-    /// 
+    ///
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain Solution result
-    /// 
+    ///
     /// PARAMETERS:
     ///   problem - Pattern matching problem specification
-    /// 
+    ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
     ///   let solution = QuantumPatternMatcher.solve problem
-    ///   
+    ///
     ///   // Cloud execution: Problem with IonQ backend
     ///   let problem = patternMatcher {
     ///       searchSpace configs
@@ -285,27 +335,29 @@ module QuantumPatternMatcher =
     ///   }
     ///   let solution = QuantumPatternMatcher.solve problem
     let solve (problem: PatternProblem<'T>) : Result<PatternSolution<'T>, QuantumError> =
-        
+
         try
             // Validate problem first
             match validate problem with
             | Error err -> Error err
-            | Ok () ->
-                
+            | Ok() ->
+
                 // Use provided backend or create LocalBackend for simulation
-                let actualBackend = 
-                    problem.Backend 
-                    |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
-                
+                let actualBackend =
+                    problem.Backend
+                    |> Option.defaultValue (
+                        Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+                    )
+
                 // Extract search space
                 let (searchSpaceItems, searchSpaceSize) =
                     match problem.SearchSpace with
                     | Choice1Of2 items -> (Some items, List.length items)
                     | Choice2Of2 size -> (None, size)
-                
+
                 // Calculate qubits needed
                 let qubitsNeeded = int (ceil (log (float searchSpaceSize) / log 2.0))
-                
+
                 // Create pattern predicate for oracle
                 // If we have actual items, check pattern on item
                 // If we only have size, check pattern on index (user must handle decoding)
@@ -321,30 +373,35 @@ module QuantumPatternMatcher =
                         try
                             let indexAsT = box idx :?> 'T
                             problem.Pattern indexAsT
-                        with
-                        | :? System.InvalidCastException ->
+                        with :? System.InvalidCastException ->
                             // Type mismatch: searchSpaceSize used with non-int pattern
                             false
                     | _ -> false
-                
+
                 // Create oracle and execute Grover search using new API
                 result {
                     let! oracle = GroverSearch.Oracle.fromPredicate oraclePredicate qubitsNeeded
-                    
+
                     // Create Grover config
-                    let groverConfig = {
-                        GroverSearch.Grover.defaultConfig with
+                    let groverConfig =
+                        { GroverSearch.Grover.defaultConfig with
                             Iterations = problem.MaxIterations
                             Shots = problem.Shots
-                            SolutionThreshold = 0.05  // 5% for LocalBackend reliability
-                    }
-                    
+                            SolutionThreshold = 0.05 // 5% for LocalBackend reliability
+                        }
+
                     // Execute Grover search
                     let! searchResult = GroverSearch.Grover.search oracle actualBackend groverConfig
-                    
+
                     match searchResult.Solutions with
                     | [] ->
-                        return! Error (QuantumError.OperationError ("GroverSearch", "No matching patterns found by quantum search"))
+                        return!
+                            Error(
+                                QuantumError.OperationError(
+                                    "GroverSearch",
+                                    "No matching patterns found by quantum search"
+                                )
+                            )
                     | solutions ->
                         // Grover returns candidate indices; always verify classically.
                         // This protects against false positives due to finite-shot sampling.
@@ -352,10 +409,17 @@ module QuantumPatternMatcher =
 
                         match verifiedIndices with
                         | [] ->
-                            return! Error (QuantumError.OperationError ("GroverSearch", "No matching patterns found by quantum search"))
+                            return!
+                                Error(
+                                    QuantumError.OperationError(
+                                        "GroverSearch",
+                                        "No matching patterns found by quantum search"
+                                    )
+                                )
                         | _ ->
                             // Take top N verified solutions
-                            let topIndices = verifiedIndices |> List.take (min problem.TopN (List.length verifiedIndices))
+                            let topIndices =
+                                verifiedIndices |> List.take (min problem.TopN (List.length verifiedIndices))
 
                             // Convert indices to actual items (if we have the search space)
                             let matches =
@@ -364,7 +428,7 @@ module QuantumPatternMatcher =
                                     topIndices
                                     |> List.choose (fun idx ->
                                         if idx >= 0 && idx < List.length items then
-                                            Some (List.item idx items)
+                                            Some(List.item idx items)
                                         else
                                             None)
                                 | None ->
@@ -372,31 +436,32 @@ module QuantumPatternMatcher =
                                     topIndices
                                     |> List.choose (fun idx ->
                                         try
-                                            Some (box idx :?> 'T)
-                                        with
-                                        | :? System.InvalidCastException -> None)
+                                            Some(box idx :?> 'T)
+                                        with :? System.InvalidCastException ->
+                                            None)
 
                             let backendName =
                                 match problem.Backend with
                                 | Some backend -> backend.GetType().Name
                                 | None -> "LocalBackend (Simulation)"
 
-                            return {
-                                Matches = matches
-                                SuccessProbability = searchResult.SuccessProbability
-                                BackendName = backendName
-                                QubitsRequired = qubitsNeeded
-                                IterationsUsed = searchResult.Iterations
-                                SearchSpaceSize = searchSpaceSize
-                            }
+                            return
+                                {
+                                    Matches = matches
+                                    SuccessProbability = searchResult.SuccessProbability
+                                    BackendName = backendName
+                                    QubitsRequired = qubitsNeeded
+                                    IterationsUsed = searchResult.Iterations
+                                    SearchSpaceSize = searchSpaceSize
+                                }
                 }
-        with
-        | ex -> Error (QuantumError.OperationError ("PatternMatcher", $"Pattern matcher failed: {ex.Message}"))
-    
+        with ex ->
+            Error(QuantumError.OperationError("PatternMatcher", $"Pattern matcher failed: {ex.Message}"))
+
     // ============================================================================
     // CONVENIENCE FUNCTIONS
     // ============================================================================
-    
+
     /// Quick helper for simple pattern matching
     let simple (items: 'T list) (patternFunc: 'T -> bool) : PatternProblem<'T> =
         {
@@ -407,18 +472,18 @@ module QuantumPatternMatcher =
             MaxIterations = None
             Shots = 1000
         }
-    
+
     /// Find all matching items (up to reasonable limit)
     let findAll (items: 'T list) (patternFunc: 'T -> bool) : PatternProblem<'T> =
         {
             SearchSpace = Choice1Of2 items
             Pattern = patternFunc
-            TopN = min 10 (List.length items)  // Cap at 10 for performance
+            TopN = min 10 (List.length items) // Cap at 10 for performance
             Backend = None
             MaxIterations = None
             Shots = 1000
         }
-    
+
     /// Helper for configuration optimization (cloud deployments, CI/CD configs)
     let forConfigOptimization (configs: 'T list) (performanceCheck: 'T -> bool) (topN: int) : PatternProblem<'T> =
         {
@@ -429,7 +494,7 @@ module QuantumPatternMatcher =
             MaxIterations = None
             Shots = 1000
         }
-    
+
     /// Helper for hyperparameter tuning (ML model optimization)
     let forHyperparameterTuning (searchSpaceSize: int) (evaluator: int -> bool) (topN: int) : PatternProblem<int> =
         {
@@ -440,7 +505,7 @@ module QuantumPatternMatcher =
             MaxIterations = None
             Shots = 1000
         }
-    
+
     /// Helper for feature selection (dimensionality reduction)
     let forFeatureSelection (featureSets: 'T list) (modelPerformance: 'T -> bool) (topN: int) : PatternProblem<'T> =
         {
@@ -451,7 +516,7 @@ module QuantumPatternMatcher =
             MaxIterations = None
             Shots = 1000
         }
-    
+
     /// Helper for A/B test variant selection
     let forABTesting (variants: 'T list) (conversionCheck: 'T -> bool) (topN: int) : PatternProblem<'T> =
         {
@@ -462,12 +527,13 @@ module QuantumPatternMatcher =
             MaxIterations = None
             Shots = 1000
         }
-    
+
     /// Estimate resource requirements without executing
     let estimateResources (searchSpaceSize: int) (topN: int) : string =
         let qubits = int (ceil (log (float searchSpaceSize) / log 2.0))
-        
-        sprintf """Pattern Matcher Resource Estimate:
+
+        sprintf
+            """Pattern Matcher Resource Estimate:
   Search Space Size: %d
   Top N Results: %d
   Qubits Required: %d
@@ -475,8 +541,11 @@ module QuantumPatternMatcher =
             searchSpaceSize
             topN
             qubits
-            (if qubits <= 16 then "✓ Feasible on NISQ devices" else "✗ Requires fault-tolerant quantum computer")
-    
+            (if qubits <= 16 then
+                 "✓ Feasible on NISQ devices"
+             else
+                 "✗ Requires fault-tolerant quantum computer")
+
     /// Export solution to human-readable string
     let describeSolution (solution: PatternSolution<'T>) : string =
         let matchesText =
@@ -484,21 +553,23 @@ module QuantumPatternMatcher =
                 "  No matches found"
             else
                 let displayCount = min 10 (List.length solution.Matches)
-                let matches = 
-                    solution.Matches 
+
+                let matches =
+                    solution.Matches
                     |> List.take displayCount
                     |> List.mapi (fun i item -> sprintf "  Match %d: %A" (i + 1) item)
                     |> String.concat "\n"
-                
+
                 let remainder =
                     if List.length solution.Matches > 10 then
                         sprintf "\n  ... and %d more matches" (List.length solution.Matches - 10)
                     else
                         ""
-                
+
                 $"%s{matches}%s{remainder}"
-        
-        sprintf """=== Quantum Pattern Matcher Solution ===
+
+        sprintf
+            """=== Quantum Pattern Matcher Solution ===
 Success Probability: %.4f
 Matches Found: %d / %d searched
 Backend: %s

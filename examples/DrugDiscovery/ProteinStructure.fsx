@@ -121,14 +121,47 @@ open FSharp.Azure.Quantum.Examples.Common
 
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
-Cli.exitIfHelp "ProteinStructure.fsx" "PDB parsing, binding site analysis, and VQE fragment energy calculation"
-    [ { Cli.OptionSpec.Name = "cutoff"; Description = "Binding site cutoff distance in Angstroms (default: 5.0)"; Default = Some "5.0" }
-      { Cli.OptionSpec.Name = "max-fragment"; Description = "Maximum atoms in quantum fragment (default: 20)"; Default = Some "20" }
-      { Cli.OptionSpec.Name = "max-iterations"; Description = "VQE max iterations (default: 50)"; Default = Some "50" }
-      { Cli.OptionSpec.Name = "tolerance"; Description = "VQE convergence tolerance (default: 1e-4)"; Default = Some "1e-4" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+
+Cli.exitIfHelp
+    "ProteinStructure.fsx"
+    "PDB parsing, binding site analysis, and VQE fragment energy calculation"
+    [
+        {
+            Cli.OptionSpec.Name = "cutoff"
+            Description = "Binding site cutoff distance in Angstroms (default: 5.0)"
+            Default = Some "5.0"
+        }
+        {
+            Cli.OptionSpec.Name = "max-fragment"
+            Description = "Maximum atoms in quantum fragment (default: 20)"
+            Default = Some "20"
+        }
+        {
+            Cli.OptionSpec.Name = "max-iterations"
+            Description = "VQE max iterations (default: 50)"
+            Default = Some "50"
+        }
+        {
+            Cli.OptionSpec.Name = "tolerance"
+            Description = "VQE convergence tolerance (default: 1e-4)"
+            Default = Some "1e-4"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -146,55 +179,56 @@ let minFragmentAtoms = 4
 // ==============================================================================
 
 /// Represents a single atom from PDB file
-type PdbAtom = {
-    SerialNumber: int
-    AtomName: string
-    AltLocation: char option
-    ResidueName: string
-    ChainId: char
-    ResidueSeq: int
-    X: float
-    Y: float
-    Z: float
-    Occupancy: float
-    TempFactor: float
-    Element: string
-    IsHetAtom: bool
-}
+type PdbAtom =
+    {
+        SerialNumber: int
+        AtomName: string
+        AltLocation: char option
+        ResidueName: string
+        ChainId: char
+        ResidueSeq: int
+        X: float
+        Y: float
+        Z: float
+        Occupancy: float
+        TempFactor: float
+        Element: string
+        IsHetAtom: bool
+    }
 
 /// Represents a residue (amino acid or ligand)
-type Residue = {
-    Name: string
-    ChainId: char
-    SeqNumber: int
-    Atoms: PdbAtom list
-    IsLigand: bool
-}
+type Residue =
+    {
+        Name: string
+        ChainId: char
+        SeqNumber: int
+        Atoms: PdbAtom list
+        IsLigand: bool
+    }
 
 /// Represents a protein chain
-type Chain = {
-    Id: char
-    Residues: Residue list
-}
+type Chain = { Id: char; Residues: Residue list }
 
 /// Represents a complete PDB structure
-type PdbStructure = {
-    Header: string
-    Title: string
-    Chains: Chain list
-    Ligands: Residue list
-    Waters: PdbAtom list
-}
+type PdbStructure =
+    {
+        Header: string
+        Title: string
+        Chains: Chain list
+        Ligands: Residue list
+        Waters: PdbAtom list
+    }
 
 /// Binding site analysis results
-type BindingSite = {
-    LigandId: string
-    PocketResidues: Residue list
-    Volume: float
-    Centroid: float * float * float
-    HydrophobicFraction: float
-    HydrogenBondSites: int
-}
+type BindingSite =
+    {
+        LigandId: string
+        PocketResidues: Residue list
+        Volume: float
+        Centroid: float * float * float
+        HydrophobicFraction: float
+        HydrogenBondSites: int
+    }
 
 // ==============================================================================
 // PDB PARSING
@@ -204,11 +238,14 @@ let results = System.Collections.Generic.List<Map<string, string>>()
 
 /// Parse a single ATOM/HETATM line
 let parseAtomLine (line: string) : PdbAtom option =
-    if line.Length < 54 then None
+    if line.Length < 54 then
+        None
     else
         try
             let recordType = line.[0..5].Trim()
-            if recordType <> "ATOM" && recordType <> "HETATM" then None
+
+            if recordType <> "ATOM" && recordType <> "HETATM" then
+                None
             else
                 let serial = Int32.Parse(line.[6..10].Trim())
                 let atomName = line.[12..15].Trim()
@@ -216,35 +253,58 @@ let parseAtomLine (line: string) : PdbAtom option =
                 let resName = line.[17..19].Trim()
                 let chainId = line.[21]
                 let resSeq = Int32.Parse(line.[22..25].Trim())
-                let x = Double.Parse(line.[30..37].Trim(), System.Globalization.CultureInfo.InvariantCulture)
-                let y = Double.Parse(line.[38..45].Trim(), System.Globalization.CultureInfo.InvariantCulture)
-                let z = Double.Parse(line.[46..53].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+
+                let x =
+                    Double.Parse(line.[30..37].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+
+                let y =
+                    Double.Parse(line.[38..45].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+
+                let z =
+                    Double.Parse(line.[46..53].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+
                 let occupancy =
                     if line.Length > 60 then
-                        try Double.Parse(line.[54..59].Trim(), System.Globalization.CultureInfo.InvariantCulture) with _ -> 1.0
-                    else 1.0
+                        try
+                            Double.Parse(line.[54..59].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+                        with _ ->
+                            1.0
+                    else
+                        1.0
+
                 let tempFactor =
                     if line.Length > 66 then
-                        try Double.Parse(line.[60..65].Trim(), System.Globalization.CultureInfo.InvariantCulture) with _ -> 0.0
-                    else 0.0
-                let element =
-                    if line.Length > 78 then line.[76..77].Trim()
-                    else atomName.[0..0]
+                        try
+                            Double.Parse(line.[60..65].Trim(), System.Globalization.CultureInfo.InvariantCulture)
+                        with _ ->
+                            0.0
+                    else
+                        0.0
 
-                Some {
-                    SerialNumber = serial
-                    AtomName = atomName
-                    AltLocation = altLoc
-                    ResidueName = resName
-                    ChainId = chainId
-                    ResidueSeq = resSeq
-                    X = x; Y = y; Z = z
-                    Occupancy = occupancy
-                    TempFactor = tempFactor
-                    Element = element
-                    IsHetAtom = (recordType = "HETATM")
-                }
-        with _ -> None
+                let element =
+                    if line.Length > 78 then
+                        line.[76..77].Trim()
+                    else
+                        atomName.[0..0]
+
+                Some
+                    {
+                        SerialNumber = serial
+                        AtomName = atomName
+                        AltLocation = altLoc
+                        ResidueName = resName
+                        ChainId = chainId
+                        ResidueSeq = resSeq
+                        X = x
+                        Y = y
+                        Z = z
+                        Occupancy = occupancy
+                        TempFactor = tempFactor
+                        Element = element
+                        IsHetAtom = (recordType = "HETATM")
+                    }
+        with _ ->
+            None
 
 /// Group atoms into residues
 let groupIntoResidues (atoms: PdbAtom list) : Residue list =
@@ -252,14 +312,19 @@ let groupIntoResidues (atoms: PdbAtom list) : Residue list =
     |> List.groupBy (fun a -> (a.ChainId, a.ResidueSeq, a.ResidueName))
     |> List.map (fun ((chain, seq, name), atomList) ->
         let isLigand =
-            atomList |> List.exists (fun a -> a.IsHetAtom) &&
-            name <> "HOH" && name <> "WAT"
-        { Name = name; ChainId = chain; SeqNumber = seq
-          Atoms = atomList; IsLigand = isLigand })
+            atomList |> List.exists (fun a -> a.IsHetAtom) && name <> "HOH" && name <> "WAT"
+
+        {
+            Name = name
+            ChainId = chain
+            SeqNumber = seq
+            Atoms = atomList
+            IsLigand = isLigand
+        })
 
 /// Parse PDB content (string)
 let parsePdbContent (content: string) : PdbStructure =
-    let lines = content.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
+    let lines = content.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
 
     let header =
         lines
@@ -272,21 +337,28 @@ let parsePdbContent (content: string) : PdbStructure =
         |> Array.map (fun l -> if l.Length > 10 then l.[10..].Trim() else "")
         |> String.concat " "
 
-    let atoms =
-        lines
-        |> Array.choose parseAtomLine
-        |> Array.toList
+    let atoms = lines |> Array.choose parseAtomLine |> Array.toList
 
     let residues = groupIntoResidues atoms
-    let waters = atoms |> List.filter (fun a -> a.ResidueName = "HOH" || a.ResidueName = "WAT")
+
+    let waters =
+        atoms |> List.filter (fun a -> a.ResidueName = "HOH" || a.ResidueName = "WAT")
+
     let ligands = residues |> List.filter (fun r -> r.IsLigand)
+
     let chains =
         residues
         |> List.filter (fun r -> not r.IsLigand && r.Name <> "HOH" && r.Name <> "WAT")
         |> List.groupBy (fun r -> r.ChainId)
         |> List.map (fun (chainId, res) -> { Id = chainId; Residues = res })
 
-    { Header = header; Title = title; Chains = chains; Ligands = ligands; Waters = waters }
+    {
+        Header = header
+        Title = title
+        Chains = chains
+        Ligands = ligands
+        Waters = waters
+    }
 
 // ==============================================================================
 // SAMPLE PDB DATA
@@ -294,7 +366,8 @@ let parsePdbContent (content: string) : PdbStructure =
 // Simplified excerpt -- real PDB files are much larger.
 // Example: Fragment of a kinase with ATP-binding site.
 
-let samplePdbContent = """
+let samplePdbContent =
+    """
 HEADER    TRANSFERASE                             01-JAN-00   XXXX              
 TITLE     SAMPLE KINASE STRUCTURE FOR DEMONSTRATION
 ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N
@@ -352,7 +425,7 @@ let atomDistance (a1: PdbAtom) (a2: PdbAtom) : float =
     let dx = a2.X - a1.X
     let dy = a2.Y - a1.Y
     let dz = a2.Z - a1.Z
-    sqrt(dx*dx + dy*dy + dz*dz)
+    sqrt (dx * dx + dy * dy + dz * dz)
 
 /// Check if residue is within cutoff of any ligand atom
 let isNearLigand (cutoff: float) (ligandAtoms: PdbAtom list) (residue: Residue) : bool =
@@ -363,13 +436,29 @@ let isNearLigand (cutoff: float) (ligandAtoms: PdbAtom list) (residue: Residue) 
 
 /// Kyte-Doolittle hydrophobicity scale
 let hydrophobicityScale =
-    Map.ofList [
-        ("ALA", 1.8);  ("ARG", -4.5); ("ASN", -3.5); ("ASP", -3.5)
-        ("CYS", 2.5);  ("GLN", -3.5); ("GLU", -3.5); ("GLY", -0.4)
-        ("HIS", -3.2); ("ILE", 4.5);  ("LEU", 3.8);  ("LYS", -3.9)
-        ("MET", 1.9);  ("PHE", 2.8);  ("PRO", -1.6); ("SER", -0.8)
-        ("THR", -0.7); ("TRP", -0.9); ("TYR", -1.3); ("VAL", 4.2)
-    ]
+    Map.ofList
+        [
+            ("ALA", 1.8)
+            ("ARG", -4.5)
+            ("ASN", -3.5)
+            ("ASP", -3.5)
+            ("CYS", 2.5)
+            ("GLN", -3.5)
+            ("GLU", -3.5)
+            ("GLY", -0.4)
+            ("HIS", -3.2)
+            ("ILE", 4.5)
+            ("LEU", 3.8)
+            ("LYS", -3.9)
+            ("MET", 1.9)
+            ("PHE", 2.8)
+            ("PRO", -1.6)
+            ("SER", -0.8)
+            ("THR", -0.7)
+            ("TRP", -0.9)
+            ("TYR", -1.3)
+            ("VAL", 4.2)
+        ]
 
 /// Count hydrogen bond donors/acceptors in residue (N and O atoms)
 let countHBondSites (residue: Residue) : int =
@@ -380,7 +469,9 @@ let countHBondSites (residue: Residue) : int =
 /// Calculate binding site centroid
 let calculateCentroid (atoms: PdbAtom list) : float * float * float =
     let n = float (List.length atoms)
-    if n = 0.0 then (0.0, 0.0, 0.0)
+
+    if n = 0.0 then
+        (0.0, 0.0, 0.0)
     else
         let sumX = atoms |> List.sumBy (fun a -> a.X)
         let sumY = atoms |> List.sumBy (fun a -> a.Y)
@@ -389,7 +480,8 @@ let calculateCentroid (atoms: PdbAtom list) : float * float * float =
 
 /// Estimate binding site volume (bounding box with van der Waals correction)
 let estimateVolume (atoms: PdbAtom list) : float =
-    if List.isEmpty atoms then 0.0
+    if List.isEmpty atoms then
+        0.0
     else
         let xs = atoms |> List.map (fun a -> a.X)
         let ys = atoms |> List.map (fun a -> a.Y)
@@ -397,11 +489,12 @@ let estimateVolume (atoms: PdbAtom list) : float =
         let dx = (List.max xs) - (List.min xs) + 3.0
         let dy = (List.max ys) - (List.min ys) + 3.0
         let dz = (List.max zs) - (List.min zs) + 3.0
-        dx * dy * dz * 0.52  // Approximate sphere packing factor
+        dx * dy * dz * 0.52 // Approximate sphere packing factor
 
 /// Analyze binding site for a ligand
 let analyzeBindingSite (pdb: PdbStructure) (ligand: Residue) (cutoff: float) : BindingSite =
     let ligandAtoms = ligand.Atoms
+
     let pocketResidues =
         pdb.Chains
         |> List.collect (fun c -> c.Residues)
@@ -417,17 +510,22 @@ let analyzeBindingSite (pdb: PdbStructure) (ligand: Residue) (cutoff: float) : B
                 |> Map.tryFind r.Name
                 |> Option.map (fun h -> h > 0.0)
                 |> Option.defaultValue false)
-        if List.isEmpty pocketResidues then 0.0
-        else float (List.length hydrophobicRes) / float (List.length pocketResidues)
+
+        if List.isEmpty pocketResidues then
+            0.0
+        else
+            float (List.length hydrophobicRes) / float (List.length pocketResidues)
 
     let hbondSites = pocketResidues |> List.sumBy countHBondSites
 
-    { LigandId = ligand.Name
-      PocketResidues = pocketResidues
-      Volume = estimateVolume (ligandAtoms @ allPocketAtoms)
-      Centroid = calculateCentroid ligandAtoms
-      HydrophobicFraction = hydrophobicFraction
-      HydrogenBondSites = hbondSites }
+    {
+        LigandId = ligand.Name
+        PocketResidues = pocketResidues
+        Volume = estimateVolume (ligandAtoms @ allPocketAtoms)
+        Centroid = calculateCentroid ligandAtoms
+        HydrophobicFraction = hydrophobicFraction
+        HydrogenBondSites = hbondSites
+    }
 
 /// Assess druggability of a binding site
 let assessDruggability (site: BindingSite) : float * string =
@@ -437,38 +535,47 @@ let assessDruggability (site: BindingSite) : float * string =
         else 0.0
 
     let hydrophobicScore =
-        if site.HydrophobicFraction >= 0.3 && site.HydrophobicFraction <= 0.7 then 1.0
-        elif site.HydrophobicFraction >= 0.2 && site.HydrophobicFraction <= 0.8 then 0.5
-        else 0.0
+        if site.HydrophobicFraction >= 0.3 && site.HydrophobicFraction <= 0.7 then
+            1.0
+        elif site.HydrophobicFraction >= 0.2 && site.HydrophobicFraction <= 0.8 then
+            0.5
+        else
+            0.0
 
     let hbondScore =
-        if site.HydrogenBondSites >= 3 && site.HydrogenBondSites <= 15 then 1.0
-        elif site.HydrogenBondSites >= 1 then 0.5
-        else 0.0
+        if site.HydrogenBondSites >= 3 && site.HydrogenBondSites <= 15 then
+            1.0
+        elif site.HydrogenBondSites >= 1 then
+            0.5
+        else
+            0.0
 
     let totalScore = (volumeScore + hydrophobicScore + hbondScore) / 3.0
+
     let assessment =
         if totalScore >= 0.8 then "Highly druggable"
         elif totalScore >= 0.5 then "Moderately druggable"
         else "Challenging target"
+
     (totalScore, assessment)
 
 /// Extract minimal fragment for quantum calculation
-let extractQuantumFragment (site: BindingSite) (ligand: Residue) (maxAtoms: int) : (string * (float * float * float)) list =
-    let ligandAtoms =
-        ligand.Atoms
-        |> List.map (fun a -> (a.Element, (a.X, a.Y, a.Z)))
+let extractQuantumFragment
+    (site: BindingSite)
+    (ligand: Residue)
+    (maxAtoms: int)
+    : (string * (float * float * float)) list =
+    let ligandAtoms = ligand.Atoms |> List.map (fun a -> (a.Element, (a.X, a.Y, a.Z)))
 
     let backboneAtoms =
         site.PocketResidues
         |> List.collect (fun res ->
             res.Atoms
-            |> List.filter (fun a -> List.contains a.AtomName ["N"; "CA"; "C"; "O"])
+            |> List.filter (fun a -> List.contains a.AtomName [ "N"; "CA"; "C"; "O" ])
             |> List.take (min 2 (List.length res.Atoms))
             |> List.map (fun a -> (a.Element, (a.X, a.Y, a.Z))))
 
-    (ligandAtoms @ backboneAtoms)
-    |> List.truncate maxAtoms
+    (ligandAtoms @ backboneAtoms) |> List.truncate maxAtoms
 
 // ==============================================================================
 // MAIN ANALYSIS
@@ -486,14 +593,29 @@ if not quiet then
     printfn "  VQE tolerance: %.1e" tolerance
     printfn ""
 
-if not quiet then printfn "Parsing PDB structure..."
+if not quiet then
+    printfn "Parsing PDB structure..."
+
 let pdb = parsePdbContent samplePdbContent
 
 if not quiet then
     printfn ""
     printfn "Structure Summary:"
-    printfn "  Header: %s" (if pdb.Header.Length > 60 then pdb.Header.[0..59] + "..." else pdb.Header)
-    printfn "  Title:  %s" (if pdb.Title.Length > 60 then pdb.Title.[0..59] + "..." else pdb.Title)
+
+    printfn
+        "  Header: %s"
+        (if pdb.Header.Length > 60 then
+             pdb.Header.[0..59] + "..."
+         else
+             pdb.Header)
+
+    printfn
+        "  Title:  %s"
+        (if pdb.Title.Length > 60 then
+             pdb.Title.[0..59] + "..."
+         else
+             pdb.Title)
+
     printfn "  Chains: %d" (List.length pdb.Chains)
     printfn "  Ligands: %d" (List.length pdb.Ligands)
     printfn "  Water molecules: %d" (List.length pdb.Waters)
@@ -501,15 +623,19 @@ if not quiet then
 
 // Store structure summary
 results.Add(
-    [ "type", "structure_summary"
-      "chains", string (List.length pdb.Chains)
-      "ligands", string (List.length pdb.Ligands)
-      "waters", string (List.length pdb.Waters) ]
-    |> Map.ofList)
+    [
+        "type", "structure_summary"
+        "chains", string (List.length pdb.Chains)
+        "ligands", string (List.length pdb.Ligands)
+        "waters", string (List.length pdb.Waters)
+    ]
+    |> Map.ofList
+)
 
 // Display chain info
 for chain in pdb.Chains do
     let residueNames = chain.Residues |> List.map (fun r -> r.Name) |> List.distinct
+
     if not quiet then
         printfn "Chain %c:" chain.Id
         printfn "  Residues: %d" (List.length chain.Residues)
@@ -541,28 +667,30 @@ for ligand in pdb.Ligands do
         printfn "  Druggability score: %.2f (%s)" druggScore druggAssessment
         printfn ""
         printfn "  Pocket composition:"
+
         for res in site.PocketResidues do
-            let hydro =
-                hydrophobicityScale
-                |> Map.tryFind res.Name
-                |> Option.defaultValue 0.0
+            let hydro = hydrophobicityScale |> Map.tryFind res.Name |> Option.defaultValue 0.0
             let hydroLabel = if hydro > 0.0 then "hydrophobic" else "polar"
             printfn "    - %s%d (%s, %d atoms)" res.Name res.SeqNumber hydroLabel (List.length res.Atoms)
+
         printfn ""
 
     results.Add(
-        [ "type", "binding_site"
-          "ligand_id", ligand.Name
-          "pocket_residues", string (List.length site.PocketResidues)
-          "volume_a3", $"%.1f{site.Volume}"
-          "centroid_x", $"%.2f{cx}"
-          "centroid_y", $"%.2f{cy}"
-          "centroid_z", $"%.2f{cz}"
-          "hydrophobic_fraction_pct", sprintf "%.1f" (site.HydrophobicFraction * 100.0)
-          "hbond_sites", string site.HydrogenBondSites
-          "druggability_score", $"%.2f{druggScore}"
-          "druggability_assessment", druggAssessment ]
-        |> Map.ofList)
+        [
+            "type", "binding_site"
+            "ligand_id", ligand.Name
+            "pocket_residues", string (List.length site.PocketResidues)
+            "volume_a3", $"%.1f{site.Volume}"
+            "centroid_x", $"%.2f{cx}"
+            "centroid_y", $"%.2f{cy}"
+            "centroid_z", $"%.2f{cz}"
+            "hydrophobic_fraction_pct", sprintf "%.1f" (site.HydrophobicFraction * 100.0)
+            "hbond_sites", string site.HydrogenBondSites
+            "druggability_score", $"%.2f{druggScore}"
+            "druggability_assessment", druggAssessment
+        ]
+        |> Map.ofList
+    )
 
 // ==============================================================================
 // QUANTUM FRAGMENT EXTRACTION + VQE
@@ -585,6 +713,7 @@ for ligand in pdb.Ligands do
     if not quiet then
         printfn "Fragment for %s:" ligand.Name
         printfn "  Total atoms: %d" (List.length fragment)
+
         for (element, count) in elementCounts do
             printfn "    %s: %d" element count
 
@@ -594,30 +723,33 @@ for ligand in pdb.Ligands do
             printfn ""
 
         // Build molecule from extracted fragment
-        let fragmentMolecule : Molecule = {
-            Name = $"%s{ligand.Name}-BindingSiteFragment"
-            Atoms =
-                fragment
-                |> List.map (fun (elem, pos) ->
-                    { Element = elem; Position = pos })
-            Bonds = []  // Bonds inferred from geometry by the VQE framework
-            Charge = 0
-            Multiplicity = 1
-        }
+        let fragmentMolecule: Molecule =
+            {
+                Name = $"%s{ligand.Name}-BindingSiteFragment"
+                Atoms = fragment |> List.map (fun (elem, pos) -> { Element = elem; Position = pos })
+                Bonds = [] // Bonds inferred from geometry by the VQE framework
+                Charge = 0
+                Multiplicity = 1
+            }
 
-        let config = {
-            Method = GroundStateMethod.VQE
-            Backend = Some backend
-            MaxIterations = maxIterations
-            Tolerance = tolerance
-            InitialParameters = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
+        let config =
+            {
+                Method = GroundStateMethod.VQE
+                Backend = Some backend
+                MaxIterations = maxIterations
+                Tolerance = tolerance
+                InitialParameters = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
 
         let startTime = DateTime.Now
-        let result = GroundStateEnergy.estimateEnergy fragmentMolecule config |> Async.RunSynchronously
+
+        let result =
+            GroundStateEnergy.estimateEnergy fragmentMolecule config
+            |> Async.RunSynchronously
+
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
         match result with
@@ -630,15 +762,18 @@ for ligand in pdb.Ligands do
                 printfn ""
 
             results.Add(
-                [ "type", "vqe_fragment"
-                  "ligand_id", ligand.Name
-                  "fragment_atoms", string (List.length fragment)
-                  "energy_hartree", $"%.6f{vqeResult.Energy}"
-                  "computation_time_s", $"%.2f{elapsed}"
-                  "max_iterations", string maxIterations
-                  "tolerance", $"%.1e{tolerance}"
-                  "backend", backend.Name ]
-                |> Map.ofList)
+                [
+                    "type", "vqe_fragment"
+                    "ligand_id", ligand.Name
+                    "fragment_atoms", string (List.length fragment)
+                    "energy_hartree", $"%.6f{vqeResult.Energy}"
+                    "computation_time_s", $"%.2f{elapsed}"
+                    "max_iterations", string maxIterations
+                    "tolerance", $"%.1e{tolerance}"
+                    "backend", backend.Name
+                ]
+                |> Map.ofList
+            )
 
         | Error err ->
             if not quiet then
@@ -646,22 +781,28 @@ for ligand in pdb.Ligands do
                 printfn ""
 
             results.Add(
-                [ "type", "vqe_error"
-                  "ligand_id", ligand.Name
-                  "fragment_atoms", string (List.length fragment)
-                  "error", err.Message ]
-                |> Map.ofList)
+                [
+                    "type", "vqe_error"
+                    "ligand_id", ligand.Name
+                    "fragment_atoms", string (List.length fragment)
+                    "error", err.Message
+                ]
+                |> Map.ofList
+            )
     else
         if not quiet then
             printfn "  Status: Fragment too small (%d atoms, need >= %d)" (List.length fragment) minFragmentAtoms
             printfn ""
 
         results.Add(
-            [ "type", "fragment_too_small"
-              "ligand_id", ligand.Name
-              "fragment_atoms", string (List.length fragment)
-              "min_required", string minFragmentAtoms ]
-            |> Map.ofList)
+            [
+                "type", "fragment_too_small"
+                "ligand_id", ligand.Name
+                "fragment_atoms", string (List.length fragment)
+                "min_required", string minFragmentAtoms
+            ]
+            |> Map.ofList
+        )
 
 // ==============================================================================
 // DRUG DISCOVERY CONTEXT
@@ -720,18 +861,47 @@ let resultsList = results |> Seq.toList
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultsList
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header = [ "type"; "chains"; "ligands"; "waters"; "ligand_id"; "pocket_residues"; "volume_a3"; "centroid_x"; "centroid_y"; "centroid_z"; "hydrophobic_fraction_pct"; "hbond_sites"; "druggability_score"; "druggability_assessment"; "fragment_atoms"; "energy_hartree"; "computation_time_s"; "max_iterations"; "tolerance"; "backend"; "min_required"; "error" ]
+    let header =
+        [
+            "type"
+            "chains"
+            "ligands"
+            "waters"
+            "ligand_id"
+            "pocket_residues"
+            "volume_a3"
+            "centroid_x"
+            "centroid_y"
+            "centroid_z"
+            "hydrophobic_fraction_pct"
+            "hbond_sites"
+            "druggability_score"
+            "druggability_assessment"
+            "fragment_atoms"
+            "energy_hartree"
+            "computation_time_s"
+            "max_iterations"
+            "tolerance"
+            "backend"
+            "min_required"
+            "error"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

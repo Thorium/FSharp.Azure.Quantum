@@ -40,25 +40,30 @@ module CloudBackendHelpers =
         // "00" → 0, "01" → 1, "10" → 2, "11" → 3
         let bitstringToIndex (bitstring: string) =
             let mutable index = 0
+
             for i in 0 .. bitstring.Length - 1 do
                 if bitstring.[i] = '1' then
                     index <- index ||| (1 <<< (bitstring.Length - 1 - i))
+
             index
 
-        let maxDenseQubits = 20   // StateVector: 2^n amplitudes
-        let maxSparseQubits = 31  // SparseState: basis indices must fit Int32
+        let maxDenseQubits = 20 // StateVector: 2^n amplitudes
+        let maxSparseQubits = 31 // SparseState: basis indices must fit Int32
 
         if numQubits > maxSparseQubits then
             // Normalize keys to the MeasurementHistogram convention
             // (leftmost char = qubit 0): left-pad, reverse, merge collisions.
             let normalized =
                 histogram
-                |> Map.fold (fun acc (bitstring: string) count ->
-                    let padded = bitstring.PadLeft(numQubits, '0')
-                    let key = String(Array.rev (padded.ToCharArray()))
-                    let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
-                    acc |> Map.add key merged) Map.empty
-            QuantumState.MeasurementHistogram (normalized, numQubits)
+                |> Map.fold
+                    (fun acc (bitstring: string) count ->
+                        let padded = bitstring.PadLeft(numQubits, '0')
+                        let key = String(Array.rev (padded.ToCharArray()))
+                        let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
+                        acc |> Map.add key merged)
+                    Map.empty
+
+            QuantumState.MeasurementHistogram(normalized, numQubits)
 
         elif numQubits > maxDenseQubits then
             let totalShots =
@@ -67,34 +72,37 @@ module CloudBackendHelpers =
             // then take sqrt once per basis state.
             let countsByIndex =
                 histogram
-                |> Map.fold (fun acc (bitstring: string) count ->
-                    let index = bitstringToIndex bitstring
-                    let merged = (acc |> Map.tryFind index |> Option.defaultValue 0) + count
-                    acc |> Map.add index merged) Map.empty
+                |> Map.fold
+                    (fun acc (bitstring: string) count ->
+                        let index = bitstringToIndex bitstring
+                        let merged = (acc |> Map.tryFind index |> Option.defaultValue 0) + count
+                        acc |> Map.add index merged)
+                    Map.empty
+
             let amplitudes =
                 countsByIndex
                 |> Map.map (fun _ count -> Complex(sqrt (float count / totalShots), 0.0))
-            QuantumState.SparseState (amplitudes, numQubits)
+
+            QuantumState.SparseState(amplitudes, numQubits)
 
         else
             let dimension = 1 <<< numQubits
+
             let totalShots =
-                histogram
-                |> Map.fold (fun acc _ count -> acc + count) 0
-                |> max 1
-                |> float
+                histogram |> Map.fold (fun acc _ count -> acc + count) 0 |> max 1 |> float
 
             let amplitudes = Array.create dimension Complex.Zero
 
             for kvp in histogram do
                 let index = bitstringToIndex kvp.Key
+
                 if index >= 0 && index < dimension then
                     // Approximate amplitude = sqrt(count / totalShots)
                     // Phase is unknown from measurements, so use real positive amplitudes
                     let amplitude = sqrt (float kvp.Value / totalShots)
                     amplitudes.[index] <- Complex(amplitude, 0.0)
 
-            QuantumState.StateVector (StateVector.create amplitudes)
+            QuantumState.StateVector(StateVector.create amplitudes)
 
     /// Undo the logical→physical qubit permutation introduced by routing on a
     /// measurement histogram, so results are reported in the caller's logical
@@ -108,15 +116,23 @@ module CloudBackendHelpers =
     /// their counts merged.
     let unrouteHistogram (mapping: int[]) (numLogical: int) (histogram: Map<string, int>) : Map<string, int> =
         histogram
-        |> Map.fold (fun acc (bitstring: string) count ->
-            let len = bitstring.Length
-            let logicalBits =
-                Array.init numLogical (fun q ->
-                    let physical = mapping.[q]
-                    if physical < len then bitstring.[len - 1 - physical] else '0')
-            let key = String(Array.rev logicalBits)
-            let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
-            acc |> Map.add key merged) Map.empty
+        |> Map.fold
+            (fun acc (bitstring: string) count ->
+                let len = bitstring.Length
+
+                let logicalBits =
+                    Array.init numLogical (fun q ->
+                        let physical = mapping.[q]
+
+                        if physical < len then
+                            bitstring.[len - 1 - physical]
+                        else
+                            '0')
+
+                let key = String(Array.rev logicalBits)
+                let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
+                acc |> Map.add key merged)
+            Map.empty
 
     /// Infer the number of qubits from histogram bitstring length.
     ///
@@ -151,7 +167,8 @@ module CloudBackendHelpers =
     let unsupportedOperationError (backendName: string) (op: BackendAbstraction.QuantumOperation) : QuantumError =
         QuantumError.OperationError(
             "ApplyOperation",
-            $"%s{backendName} does not support operation type: %A{op}. Only Gate, Sequence, and Measure are supported.")
+            $"%s{backendName} does not support operation type: %A{op}. Only Gate, Sequence, and Measure are supported."
+        )
 
     // ============================================================================
     // COST GUARD (pre-submission)
@@ -169,15 +186,23 @@ module CloudBackendHelpers =
     /// Returns Ok () when the job may proceed, or a QuotaExceeded error otherwise.
     let checkCostGuard (target: string) (shots: int) (costLimitUsd: decimal option) : Result<unit, QuantumError> =
         match costLimitUsd with
-        | None -> Ok ()
+        | None -> Ok()
         | Some limit ->
             match estimateCostSimple target shots with
-            | Error _ -> Ok ()  // fail-open: a cost-estimation failure must not block submission
+            | Error _ -> Ok() // fail-open: a cost-estimation failure must not block submission
             | Ok estimate ->
                 let expected = estimate.ExpectedCost / 1.0M<USD>
+
                 if expected > limit then
-                    Error (QuantumError.AzureError (AzureQuantumError.QuotaExceeded(
-                        sprintf "Estimated job cost $%.2f exceeds the configured per-job limit $%.2f. Raise the limit or use a simulator target."
-                            (float expected) (float limit))))
+                    Error(
+                        QuantumError.AzureError(
+                            AzureQuantumError.QuotaExceeded(
+                                sprintf
+                                    "Estimated job cost $%.2f exceeds the configured per-job limit $%.2f. Raise the limit or use a simulator target."
+                                    (float expected)
+                                    (float limit)
+                            )
+                        )
+                    )
                 else
-                    Ok ()
+                    Ok()

@@ -39,32 +39,65 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "BackendComparison.fsx" "Compare Ising vs Fibonacci topological backends"
-    [ { Name = "example"; Description = "Which example: 1-6|all"; Default = Some "all" }
-      { Name = "trials";  Description = "Fusion statistics trials"; Default = Some "1000" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "BackendComparison.fsx"
+    "Compare Ising vs Fibonacci topological backends"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-6|all"
+            Default = Some "all"
+        }
+        {
+            Name = "trials"
+            Description = "Fusion statistics trials"
+            Default = Some "1000"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
-let numTrials  = Cli.getIntOr "trials" 1000 args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
+let numTrials = Cli.getIntOr "trials" 1000 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
 // Backends (Rule 1 -- IQuantumBackend unified API)
 // ---------------------------------------------------------------------------
-let quantumBackend  = TopologicalUnifiedBackendFactory.createIsing 20
-let fibUnified      = TopologicalUnifiedBackendFactory.createFibonacci 20
+let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 20
+let fibUnified = TopologicalUnifiedBackendFactory.createFibonacci 20
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 -- Backend capabilities
@@ -77,11 +110,11 @@ if shouldRun 1 then
     let showCaps label (b: IQuantumBackend) =
         pr "  %s:" label
         pr "    Name:             %s" b.Name
-        pr "    Braiding:         %b" (b.SupportsOperation (QuantumOperation.Braid 0))
-        pr "    Measurement:      %b" (b.SupportsOperation (QuantumOperation.Measure 0))
-        pr "    F-Moves:          %b" (b.SupportsOperation (QuantumOperation.FMove (FMoveDirection.Forward, 1)))
-        pr "    H gate:           %b" (b.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.H 0)))
-        pr "    CNOT gate:        %b" (b.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.CNOT (0, 1))))
+        pr "    Braiding:         %b" (b.SupportsOperation(QuantumOperation.Braid 0))
+        pr "    Measurement:      %b" (b.SupportsOperation(QuantumOperation.Measure 0))
+        pr "    F-Moves:          %b" (b.SupportsOperation(QuantumOperation.FMove(FMoveDirection.Forward, 1)))
+        pr "    H gate:           %b" (b.SupportsOperation(QuantumOperation.Gate(CircuitBuilder.H 0)))
+        pr "    CNOT gate:        %b" (b.SupportsOperation(QuantumOperation.Gate(CircuitBuilder.CNOT(0, 1))))
 
     showCaps "Ising (Microsoft Majorana)" quantumBackend
     pr ""
@@ -118,40 +151,51 @@ if shouldRun 3 then
     pr "EXAMPLE 3: Performance Comparison (Init + 3 Braids)"
     separator ()
 
-    let bench (qb: IQuantumBackend) anyonType label = task {
-        let sw = Stopwatch.StartNew()
-        let program = topological qb {
-            do! TopologicalBuilder.initialize anyonType 6
-            do! TopologicalBuilder.braid 0
-            do! TopologicalBuilder.braid 2
-            do! TopologicalBuilder.braid 4
-        }
-        let! result = TopologicalBuilder.execute qb program
-        sw.Stop()
-        return
-            match result with
-            | Ok () ->
-                pr "  %s: %.3f ms" label sw.Elapsed.TotalMilliseconds
-                Ok sw.Elapsed.TotalMilliseconds
-            | Error err ->
-                pr "  %s: FAILED - %s" label err.Message
-                Error err
-    }
+    let bench (qb: IQuantumBackend) anyonType label =
+        task {
+            let sw = Stopwatch.StartNew()
 
-    let iT = bench quantumBackend AnyonSpecies.AnyonType.Ising "Ising    "
-             |> Async.AwaitTask |> Async.RunSynchronously
-    let fT = bench fibUnified AnyonSpecies.AnyonType.Fibonacci "Fibonacci"
-             |> Async.AwaitTask |> Async.RunSynchronously
+            let program =
+                topological qb {
+                    do! TopologicalBuilder.initialize anyonType 6
+                    do! TopologicalBuilder.braid 0
+                    do! TopologicalBuilder.braid 2
+                    do! TopologicalBuilder.braid 4
+                }
+
+            let! result = TopologicalBuilder.execute qb program
+            sw.Stop()
+
+            return
+                match result with
+                | Ok() ->
+                    pr "  %s: %.3f ms" label sw.Elapsed.TotalMilliseconds
+                    Ok sw.Elapsed.TotalMilliseconds
+                | Error err ->
+                    pr "  %s: FAILED - %s" label err.Message
+                    Error err
+        }
+
+    let iT =
+        bench quantumBackend AnyonSpecies.AnyonType.Ising "Ising    "
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    let fT =
+        bench fibUnified AnyonSpecies.AnyonType.Fibonacci "Fibonacci"
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     match iT, fT with
     | Ok t1, Ok t2 ->
-        if t1 < t2 then pr "  Ising %.2fx faster" (t2 / t1)
-        else pr "  Fibonacci %.2fx faster" (t1 / t2)
+        if t1 < t2 then
+            pr "  Ising %.2fx faster" (t2 / t1)
+        else
+            pr "  Fibonacci %.2fx faster" (t1 / t2)
 
         jsonResults <- ("3_performance", box {| ising_ms = t1; fib_ms = t2 |}) :: jsonResults
         csvRows <- [ "3_performance"; $"%.3f{t1}"; $"%.3f{t2}" ] :: csvRows
-    | _ ->
-        pr "  Comparison incomplete"
+    | _ -> pr "  Comparison incomplete"
 
 // ---------------------------------------------------------------------------
 // Example 4 -- Computational power table
@@ -163,11 +207,11 @@ if shouldRun 4 then
 
     pr "  %-18s %-17s %-20s" "Capability" "Ising" "Fibonacci"
     pr "  %s" (String.replicate 56 "-")
-    pr "  %-18s %-17s %-20s" "Clifford Gates"   "Yes"           "Yes"
-    pr "  %-18s %-17s %-20s" "T Gate"            "Magic States"  "Braiding Only"
-    pr "  %-18s %-17s %-20s" "Universal QC"      "Hybrid"        "Pure Braiding"
-    pr "  %-18s %-17s %-20s" "Hardware Status"   "Experimental"  "Theoretical"
-    pr "  %-18s %-17s %-20s" "Fusion Outcomes"   "3 particles"   "2 particles"
+    pr "  %-18s %-17s %-20s" "Clifford Gates" "Yes" "Yes"
+    pr "  %-18s %-17s %-20s" "T Gate" "Magic States" "Braiding Only"
+    pr "  %-18s %-17s %-20s" "Universal QC" "Hybrid" "Pure Braiding"
+    pr "  %-18s %-17s %-20s" "Hardware Status" "Experimental" "Theoretical"
+    pr "  %-18s %-17s %-20s" "Fusion Outcomes" "3 particles" "2 particles"
 
     jsonResults <- ("4_power", box {| summary = "ok" |}) :: jsonResults
     csvRows <- [ "4_power"; "ok" ] :: csvRows
@@ -182,33 +226,51 @@ if shouldRun 5 then
 
     let runStats (qb: IQuantumBackend) label =
         let outcomes = System.Collections.Generic.Dictionary<string, int>()
-        for _ in 1 .. numTrials do
+
+        for _ in 1..numTrials do
             match qb.InitializeState 1 with
             | Ok state ->
                 match qb.ApplyOperation (QuantumOperation.Measure 0) state with
-                | Ok (QuantumState.FusionSuperposition _) ->
+                | Ok(QuantumState.FusionSuperposition _) ->
                     let key = "measured"
-                    if outcomes.ContainsKey key then outcomes.[key] <- outcomes.[key] + 1
-                    else outcomes.[key] <- 1
+
+                    if outcomes.ContainsKey key then
+                        outcomes.[key] <- outcomes.[key] + 1
+                    else
+                        outcomes.[key] <- 1
                 | Ok _ ->
                     let key = "other"
-                    if outcomes.ContainsKey key then outcomes.[key] <- outcomes.[key] + 1
-                    else outcomes.[key] <- 1
+
+                    if outcomes.ContainsKey key then
+                        outcomes.[key] <- outcomes.[key] + 1
+                    else
+                        outcomes.[key] <- 1
                 | Error _ -> ()
             | Error _ -> ()
 
         pr "  %s (%d trials):" label numTrials
-        let mutable resultPairs : (string * float) list = []
+        let mutable resultPairs: (string * float) list = []
+
         for kvp in outcomes do
             let pct = (float kvp.Value / float numTrials) * 100.0
             pr "    %s: %d (%.1f%%)" kvp.Key kvp.Value pct
             resultPairs <- (kvp.Key, pct) :: resultPairs
+
         resultPairs
 
     let isingStats = runStats quantumBackend "Ising (unified API)"
-    let fibStats   = runStats fibUnified "Fibonacci (unified API)"
+    let fibStats = runStats fibUnified "Fibonacci (unified API)"
 
-    jsonResults <- ("5_fusion_stats", box {| trials = numTrials; ising = isingStats; fibonacci = fibStats |}) :: jsonResults
+    jsonResults <-
+        ("5_fusion_stats",
+         box
+             {|
+                 trials = numTrials
+                 ising = isingStats
+                 fibonacci = fibStats
+             |})
+        :: jsonResults
+
     csvRows <- [ "5_fusion_stats"; string numTrials ] :: csvRows
 
 // ---------------------------------------------------------------------------
@@ -221,24 +283,38 @@ if shouldRun 6 then
 
     let validate (qb: IQuantumBackend) ops label =
         let allSupported = ops |> List.forall qb.SupportsOperation
-        if allSupported then pr "  %s: PASS" label; "PASS"
-        else pr "  %s: FAIL" label; "FAIL"
 
-    let r1 = validate quantumBackend
-                [ QuantumOperation.Braid 0
-                  QuantumOperation.Measure 0
-                  QuantumOperation.FMove (FMoveDirection.Forward, 1) ]
-                "Ising supports braiding, measure, fmove"
+        if allSupported then
+            pr "  %s: PASS" label
+            "PASS"
+        else
+            pr "  %s: FAIL" label
+            "FAIL"
 
-    let r2 = validate quantumBackend
-                [ QuantumOperation.Gate (CircuitBuilder.H 0)
-                  QuantumOperation.Gate (CircuitBuilder.CNOT (0, 1)) ]
-                "Ising supports H and CNOT gates"
+    let r1 =
+        validate
+            quantumBackend
+            [
+                QuantumOperation.Braid 0
+                QuantumOperation.Measure 0
+                QuantumOperation.FMove(FMoveDirection.Forward, 1)
+            ]
+            "Ising supports braiding, measure, fmove"
 
-    let r3 = validate fibUnified
-                [ QuantumOperation.Braid 0
-                  QuantumOperation.Measure 0 ]
-                "Fibonacci supports braiding and measure"
+    let r2 =
+        validate
+            quantumBackend
+            [
+                QuantumOperation.Gate(CircuitBuilder.H 0)
+                QuantumOperation.Gate(CircuitBuilder.CNOT(0, 1))
+            ]
+            "Ising supports H and CNOT gates"
+
+    let r3 =
+        validate
+            fibUnified
+            [ QuantumOperation.Braid 0; QuantumOperation.Measure 0 ]
+            "Fibonacci supports braiding and measure"
 
     jsonResults <- ("6_validation", box {| r1 = r1; r2 = r2; r3 = r3 |}) :: jsonResults
     csvRows <- [ "6_validation"; r1; r2; r3 ] :: csvRows
@@ -259,22 +335,23 @@ if not quiet then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "BackendComparison.fsx"
-           backend   = quantumBackend.Name
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           trials    = numTrials
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "BackendComparison.fsx"
+            backend = quantumBackend.Name
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            trials = numTrials
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

@@ -10,31 +10,33 @@ module Validation =
     /// <summary>
     /// Standard validation result with validity status and messages
     /// </summary>
-    type ValidationResult = {
-        /// Whether validation passed
-        IsValid: bool
-        
-        /// Error or warning messages (empty if IsValid = true)
-        Messages: string list
-    }
+    type ValidationResult =
+        {
+            /// Whether validation passed
+            IsValid: bool
+
+            /// Error or warning messages (empty if IsValid = true)
+            Messages: string list
+        }
 
     /// <summary>
     /// Create a successful validation result
     /// </summary>
-    let success : ValidationResult =
-        { IsValid = true; Messages = [] }
+    let success: ValidationResult = { IsValid = true; Messages = [] }
 
     /// <summary>
     /// Create a failed validation result with error messages
     /// </summary>
-    let failure (errors: string list) : ValidationResult =
-        { IsValid = false; Messages = errors }
+    let failure (errors: string list) : ValidationResult = { IsValid = false; Messages = errors }
 
     /// <summary>
     /// Create a failed validation result with a single error message
     /// </summary>
     let failWith (error: string) : ValidationResult =
-        { IsValid = false; Messages = [error] }
+        {
+            IsValid = false
+            Messages = [ error ]
+        }
 
     /// <summary>
     /// Combine multiple validation results (all must pass for success)
@@ -42,11 +44,15 @@ module Validation =
     let combine (results: ValidationResult list) : ValidationResult =
         let allValid = results |> List.forall (fun r -> r.IsValid)
         let allMessages = results |> List.collect (fun r -> r.Messages)
-        { IsValid = allValid; Messages = allMessages }
+
+        {
+            IsValid = allValid
+            Messages = allMessages
+        }
 
     /// <summary>
     /// Map validation result to Result&lt;'T, QuantumError&gt;
-    /// 
+    ///
     /// Converts validation failures to ValidationError with field name and combined reason
     /// </summary>
     let toResult (field: string) (value: 'T) (validation: ValidationResult) : Result<'T, QuantumError> =
@@ -54,7 +60,7 @@ module Validation =
             Ok value
         else
             let combinedReason = String.concat "; " validation.Messages
-            Error (QuantumError.ValidationError(field, combinedReason))
+            Error(QuantumError.ValidationError(field, combinedReason))
 
     /// <summary>
     /// Format validation errors as a multi-line string
@@ -64,5 +70,8 @@ module Validation =
             "Validation passed"
         else
             let header = $"Validation failed with %d{validation.Messages.Length} error(s):"
-            let messages = validation.Messages |> List.mapi (fun i msg -> sprintf "  %d. %s" (i + 1) msg)
+
+            let messages =
+                validation.Messages |> List.mapi (fun i msg -> sprintf "  %d. %s" (i + 1) msg)
+
             String.concat "\n" (header :: messages)

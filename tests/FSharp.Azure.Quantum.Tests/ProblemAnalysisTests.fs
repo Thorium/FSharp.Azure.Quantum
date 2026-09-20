@@ -11,10 +11,12 @@ module ProblemAnalysisTests =
         // Arrange: Create a symmetric distance matrix (TSP characteristic)
         let distanceMatrix =
             array2D
-                [ [ 0.0; 10.0; 15.0; 20.0 ]
-                  [ 10.0; 0.0; 35.0; 25.0 ]
-                  [ 15.0; 35.0; 0.0; 30.0 ]
-                  [ 20.0; 25.0; 30.0; 0.0 ] ]
+                [
+                    [ 0.0; 10.0; 15.0; 20.0 ]
+                    [ 10.0; 0.0; 35.0; 25.0 ]
+                    [ 15.0; 35.0; 0.0; 30.0 ]
+                    [ 20.0; 25.0; 30.0; 0.0 ]
+                ]
 
         // Act: Classify the problem
         let result = ProblemAnalysis.classifyProblem distanceMatrix
@@ -62,9 +64,11 @@ module ProblemAnalysisTests =
         // Arrange: Non-square matrix (3x4)
         let nonSquareMatrix =
             array2D
-                [ [ 0.0; 10.0; 15.0; 20.0 ]
-                  [ 10.0; 0.0; 35.0; 25.0 ]
-                  [ 15.0; 35.0; 0.0; 30.0 ] ]
+                [
+                    [ 0.0; 10.0; 15.0; 20.0 ]
+                    [ 10.0; 0.0; 35.0; 25.0 ]
+                    [ 15.0; 35.0; 0.0; 30.0 ]
+                ]
 
         // Act: Try to classify
         let result = ProblemAnalysis.classifyProblem nonSquareMatrix
@@ -100,9 +104,11 @@ module ProblemAnalysisTests =
         // Arrange: Asymmetric matrix (not typical TSP)
         let asymmetricMatrix =
             array2D
-                [ [ 0.0; 10.0; 15.0 ]
-                  [ 20.0; 0.0; 35.0 ] // Note: 20.0 != 10.0
-                  [ 15.0; 35.0; 0.0 ] ]
+                [
+                    [ 0.0; 10.0; 15.0 ]
+                    [ 20.0; 0.0; 35.0 ] // Note: 20.0 != 10.0
+                    [ 15.0; 35.0; 0.0 ]
+                ]
 
         // Act: Classify
         let result = ProblemAnalysis.classifyProblem asymmetricMatrix
@@ -157,9 +163,11 @@ module ProblemAnalysisTests =
         // Arrange: Matrix with infinity
         let infMatrix =
             array2D
-                [ [ 0.0; 10.0; Double.PositiveInfinity ]
-                  [ 10.0; 0.0; 15.0 ]
-                  [ Double.PositiveInfinity; 15.0; 0.0 ] ]
+                [
+                    [ 0.0; 10.0; Double.PositiveInfinity ]
+                    [ 10.0; 0.0; 15.0 ]
+                    [ Double.PositiveInfinity; 15.0; 0.0 ]
+                ]
 
         // Act: Classify
         let result = ProblemAnalysis.classifyProblem infMatrix
@@ -180,11 +188,13 @@ module ProblemAnalysisTests =
         // Arrange: 5-city TSP
         let matrix =
             array2D
-                [ [ 0.0; 10.0; 15.0; 20.0; 25.0 ]
-                  [ 10.0; 0.0; 35.0; 30.0; 40.0 ]
-                  [ 15.0; 35.0; 0.0; 30.0; 45.0 ]
-                  [ 20.0; 30.0; 30.0; 0.0; 50.0 ]
-                  [ 25.0; 40.0; 45.0; 50.0; 0.0 ] ]
+                [
+                    [ 0.0; 10.0; 15.0; 20.0; 25.0 ]
+                    [ 10.0; 0.0; 35.0; 30.0; 40.0 ]
+                    [ 15.0; 35.0; 0.0; 30.0; 45.0 ]
+                    [ 20.0; 30.0; 30.0; 0.0; 50.0 ]
+                    [ 25.0; 40.0; 45.0; 50.0; 0.0 ]
+                ]
 
         // Act
         let result = ProblemAnalysis.classifyProblem matrix
@@ -243,11 +253,13 @@ module ProblemAnalysisTests =
         // Arrange: 5-city TSP (small, classical is faster)
         let matrix =
             array2D
-                [ [ 0.0; 10.0; 15.0; 20.0; 25.0 ]
-                  [ 10.0; 0.0; 35.0; 30.0; 40.0 ]
-                  [ 15.0; 35.0; 0.0; 30.0; 45.0 ]
-                  [ 20.0; 30.0; 30.0; 0.0; 50.0 ]
-                  [ 25.0; 40.0; 45.0; 50.0; 0.0 ] ]
+                [
+                    [ 0.0; 10.0; 15.0; 20.0; 25.0 ]
+                    [ 10.0; 0.0; 35.0; 30.0; 40.0 ]
+                    [ 15.0; 35.0; 0.0; 30.0; 45.0 ]
+                    [ 20.0; 30.0; 30.0; 0.0; 50.0 ]
+                    [ 25.0; 40.0; 45.0; 50.0; 0.0 ]
+                ]
 
         // Act
         let result = ProblemAnalysis.estimateQuantumAdvantage matrix
@@ -308,7 +320,9 @@ module ProblemAnalysisTests =
         let result = ProblemAnalysis.estimateQuantumAdvantage nullMatrix
 
         // Assert
-        result |> Result.map (fun _ -> Assert.Fail("Should reject null matrix")) |> Result.defaultWith (fun errorMsg -> Assert.Contains("null", errorMsg.Message.ToLower()))
+        result
+        |> Result.map (fun _ -> Assert.Fail("Should reject null matrix"))
+        |> Result.defaultWith (fun errorMsg -> Assert.Contains("null", errorMsg.Message.ToLower()))
 
     [<Fact>]
     let ``Quantum advantage should reject invalid matrix`` () =
@@ -319,4 +333,6 @@ module ProblemAnalysisTests =
         let result = ProblemAnalysis.estimateQuantumAdvantage invalidMatrix
 
         // Assert
-        result |> Result.map (fun _ -> Assert.Fail("Should reject invalid matrix")) |> Result.defaultWith (fun errorMsg -> Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message)))
+        result
+        |> Result.map (fun _ -> Assert.Fail("Should reject invalid matrix"))
+        |> Result.defaultWith (fun errorMsg -> Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message)))

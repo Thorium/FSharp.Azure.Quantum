@@ -32,12 +32,17 @@ module BraidingAmplitudeTests =
 
     /// Create a 1-qubit Ising backend, initialize to |0⟩, and return (backend, state)
     let private initSingleQubit () =
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
-        (backend.InitializeState 1) |> Result.map (fun state -> backend, state) |> Result.defaultWith (fun err -> failwith $"InitializeState failed: {err}")
+        let backend =
+            TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
+
+        (backend.InitializeState 1)
+        |> Result.map (fun state -> backend, state)
+        |> Result.defaultWith (fun err -> failwith $"InitializeState failed: {err}")
 
     /// Apply a gate operation and return the resulting state
     let private applyGate (backend: IQuantumBackend) (gate: CircuitBuilder.Gate) (state: QuantumState) =
-        (backend.ApplyOperation (QuantumOperation.Gate gate) state) |> Result.defaultWith (fun err -> failwith $"ApplyOperation failed for gate {gate}: {err}")
+        (backend.ApplyOperation (QuantumOperation.Gate gate) state)
+        |> Result.defaultWith (fun err -> failwith $"ApplyOperation failed for gate {gate}: {err}")
 
     /// Extract the amplitude vector from a FusionSuperposition state
     let private getAmplitudes (state: QuantumState) : Complex[] =
@@ -53,14 +58,24 @@ module BraidingAmplitudeTests =
     /// Check that a state vector matches expected amplitudes up to global phase.
     /// Global phase is irrelevant in quantum mechanics, so we find the phase factor
     /// that best aligns the vectors and then compare.
-    let private assertAmplitudesMatchUpToGlobalPhase (tolerance: float) (expected: Complex[]) (actual: Complex[]) (description: string) =
+    let private assertAmplitudesMatchUpToGlobalPhase
+        (tolerance: float)
+        (expected: Complex[])
+        (actual: Complex[])
+        (description: string)
+        =
         Assert.Equal(expected.Length, actual.Length)
 
         // Find a non-zero amplitude to determine the global phase
         let mutable phaseFound = false
         let mutable globalPhase = Complex.One
+
         for i in 0 .. expected.Length - 1 do
-            if not phaseFound && Complex.Abs expected.[i] > 1e-10 && Complex.Abs actual.[i] > 1e-10 then
+            if
+                not phaseFound
+                && Complex.Abs expected.[i] > 1e-10
+                && Complex.Abs actual.[i] > 1e-10
+            then
                 globalPhase <- actual.[i] / expected.[i]
                 // Normalize to unit magnitude
                 globalPhase <- globalPhase / Complex(Complex.Abs globalPhase, 0.0)
@@ -69,15 +84,23 @@ module BraidingAmplitudeTests =
         // Compare each amplitude (actual should equal globalPhase * expected)
         for i in 0 .. expected.Length - 1 do
             let adjustedExpected = globalPhase * expected.[i]
-            let diff = Complex.Abs (actual.[i] - adjustedExpected)
-            Assert.True(diff < tolerance,
-                $"{description}: Amplitude mismatch at index {i}. " +
-                $"Expected {adjustedExpected} (with global phase {globalPhase}), got {actual.[i]}. " +
-                $"Diff = {diff}")
+            let diff = Complex.Abs(actual.[i] - adjustedExpected)
+
+            Assert.True(
+                diff < tolerance,
+                $"{description}: Amplitude mismatch at index {i}. "
+                + $"Expected {adjustedExpected} (with global phase {globalPhase}), got {actual.[i]}. "
+                + $"Diff = {diff}"
+            )
 
     /// Check that the RELATIVE phase between |0⟩ and |1⟩ components matches.
     /// This is the physically meaningful quantity (global phase cancels).
-    let private assertRelativePhase (tolerance: float) (expectedRelPhase: Complex) (amplitudes: Complex[]) (description: string) =
+    let private assertRelativePhase
+        (tolerance: float)
+        (expectedRelPhase: Complex)
+        (amplitudes: Complex[])
+        (description: string)
+        =
         Assert.True(amplitudes.Length >= 2, $"{description}: Need at least 2 amplitudes")
 
         // Both amplitudes must be non-zero for a relative phase to be defined
@@ -85,16 +108,21 @@ module BraidingAmplitudeTests =
         let mag1 = Complex.Abs amplitudes.[1]
 
         if mag0 < 1e-10 || mag1 < 1e-10 then
-            Assert.Fail($"{description}: Cannot compute relative phase when amplitude is zero. " +
-                        $"|0⟩ = {amplitudes.[0]} (mag={mag0}), |1⟩ = {amplitudes.[1]} (mag={mag1})")
+            Assert.Fail(
+                $"{description}: Cannot compute relative phase when amplitude is zero. "
+                + $"|0⟩ = {amplitudes.[0]} (mag={mag0}), |1⟩ = {amplitudes.[1]} (mag={mag1})"
+            )
         else
             // Relative phase = amp[1] / amp[0] (normalized to unit magnitude)
             let actualRel = amplitudes.[1] / amplitudes.[0]
             let actualRelNorm = actualRel / Complex(Complex.Abs actualRel, 0.0)
-            let diff = Complex.Abs (actualRelNorm - expectedRelPhase)
-            Assert.True(diff < tolerance,
-                $"{description}: Relative phase mismatch. " +
-                $"Expected {expectedRelPhase}, got {actualRelNorm}. Diff = {diff}")
+            let diff = Complex.Abs(actualRelNorm - expectedRelPhase)
+
+            Assert.True(
+                diff < tolerance,
+                $"{description}: Relative phase mismatch. "
+                + $"Expected {expectedRelPhase}, got {actualRelNorm}. Diff = {diff}"
+            )
 
     // ========================================================================
     // T GATE AMPLITUDE TESTS
@@ -134,7 +162,7 @@ module BraidingAmplitudeTests =
         let afterT = applyGate backend (CircuitBuilder.Gate.T 0) afterH
         let amps = getAmplitudes afterT
 
-        let expectedRelPhase = Complex(cos (Math.PI / 4.0), sin (Math.PI / 4.0))  // e^{iπ/4}
+        let expectedRelPhase = Complex(cos (Math.PI / 4.0), sin (Math.PI / 4.0)) // e^{iπ/4}
         assertRelativePhase 0.05 expectedRelPhase amps "T gate on |+⟩"
 
     [<Fact>]
@@ -147,7 +175,7 @@ module BraidingAmplitudeTests =
         let afterT2 = applyGate backend (CircuitBuilder.Gate.T 0) afterT1
         let amps = getAmplitudes afterT2
 
-        let expectedRelPhase = Complex(0.0, 1.0)  // e^{iπ/2} = i
+        let expectedRelPhase = Complex(0.0, 1.0) // e^{iπ/2} = i
         assertRelativePhase 0.05 expectedRelPhase amps "T² = S gate on |+⟩"
 
     // ========================================================================
@@ -170,7 +198,7 @@ module BraidingAmplitudeTests =
         let afterS = applyGate backend (CircuitBuilder.Gate.S 0) afterH
         let amps = getAmplitudes afterS
 
-        let expectedRelPhase = Complex(0.0, 1.0)  // i
+        let expectedRelPhase = Complex(0.0, 1.0) // i
         assertRelativePhase 0.05 expectedRelPhase amps "S gate on |+⟩"
 
     [<Fact>]
@@ -194,7 +222,7 @@ module BraidingAmplitudeTests =
         let afterSDG = applyGate backend (CircuitBuilder.Gate.SDG 0) afterH
         let amps = getAmplitudes afterSDG
 
-        let expectedRelPhase = Complex(0.0, -1.0)  // -i
+        let expectedRelPhase = Complex(0.0, -1.0) // -i
         assertRelativePhase 0.05 expectedRelPhase amps "S† gate on |+⟩"
 
     // ========================================================================
@@ -216,7 +244,7 @@ module BraidingAmplitudeTests =
         let afterZ = applyGate backend (CircuitBuilder.Gate.Z 0) afterH
         let amps = getAmplitudes afterZ
 
-        let expectedRelPhase = Complex(-1.0, 0.0)  // -1
+        let expectedRelPhase = Complex(-1.0, 0.0) // -1
         assertRelativePhase 0.05 expectedRelPhase amps "Z gate on |+⟩"
 
     // ========================================================================
@@ -230,11 +258,13 @@ module BraidingAmplitudeTests =
         let (backend, state) = initSingleQubit ()
         let afterH = applyGate backend (CircuitBuilder.Gate.H 0) state
         let mutable current = afterH
+
         for _ in 1..4 do
             current <- applyGate backend (CircuitBuilder.Gate.T 0) current
+
         let amps = getAmplitudes current
 
-        let expectedRelPhase = Complex(-1.0, 0.0)  // -1 (Z gate)
+        let expectedRelPhase = Complex(-1.0, 0.0) // -1 (Z gate)
         assertRelativePhase 0.05 expectedRelPhase amps "T⁴ = Z gate on |+⟩"
 
     [<Fact>]
@@ -244,11 +274,13 @@ module BraidingAmplitudeTests =
         let (backend, state) = initSingleQubit ()
         let afterH = applyGate backend (CircuitBuilder.Gate.H 0) state
         let mutable current = afterH
+
         for _ in 1..8 do
             current <- applyGate backend (CircuitBuilder.Gate.T 0) current
+
         let amps = getAmplitudes current
 
-        let expectedRelPhase = Complex(1.0, 0.0)  // 1 (identity)
+        let expectedRelPhase = Complex(1.0, 0.0) // 1 (identity)
         assertRelativePhase 0.05 expectedRelPhase amps "T⁸ = I on |+⟩"
 
     [<Fact>]
@@ -262,7 +294,7 @@ module BraidingAmplitudeTests =
         let afterS2 = applyGate backend (CircuitBuilder.Gate.S 0) afterS1
         let amps = getAmplitudes afterS2
 
-        let expectedRelPhase = Complex(-1.0, 0.0)  // -1 (Z gate)
+        let expectedRelPhase = Complex(-1.0, 0.0) // -1 (Z gate)
         assertRelativePhase 0.05 expectedRelPhase amps "S² = Z gate on |+⟩"
 
     // ========================================================================
@@ -295,14 +327,16 @@ module BraidingAmplitudeTests =
         let actualRelNorm = actualRel / Complex(Complex.Abs actualRel, 0.0)
 
         // Physical prediction: relative phase = i (±tolerance for braiding numerics)
-        let physicalPhase = Complex(0.0, 1.0)  // i = e^{iπ/2}
-        let diff = Complex.Abs (actualRelNorm - physicalPhase)
+        let physicalPhase = Complex(0.0, 1.0) // i = e^{iπ/2}
+        let diff = Complex.Abs(actualRelNorm - physicalPhase)
 
         // This assertion tests the PHYSICS, not the gate label.
         // It should always pass (it just confirms the R-matrix is correct).
-        Assert.True(diff < 0.05,
-            $"Physical braid phase mismatch. Expected i, got {actualRelNorm}. Diff = {diff}. " +
-            "If this fails, the R-matrix implementation is wrong.")
+        Assert.True(
+            diff < 0.05,
+            $"Physical braid phase mismatch. Expected i, got {actualRelNorm}. Diff = {diff}. "
+            + "If this fails, the R-matrix implementation is wrong."
+        )
 
     [<Fact>]
     let ``Two clockwise braids physically produce relative phase -1`` () =
@@ -318,11 +352,10 @@ module BraidingAmplitudeTests =
         let actualRel = amps.[1] / amps.[0]
         let actualRelNorm = actualRel / Complex(Complex.Abs actualRel, 0.0)
 
-        let physicalPhase = Complex(-1.0, 0.0)  // -1 = e^{iπ}
-        let diff = Complex.Abs (actualRelNorm - physicalPhase)
+        let physicalPhase = Complex(-1.0, 0.0) // -1 = e^{iπ}
+        let diff = Complex.Abs(actualRelNorm - physicalPhase)
 
-        Assert.True(diff < 0.05,
-            $"Physical 2-braid phase mismatch. Expected -1, got {actualRelNorm}. Diff = {diff}")
+        Assert.True(diff < 0.05, $"Physical 2-braid phase mismatch. Expected -1, got {actualRelNorm}. Diff = {diff}")
 
     [<Fact>]
     let ``Four clockwise braids physically produce relative phase +1 (identity)`` () =
@@ -334,18 +367,19 @@ module BraidingAmplitudeTests =
         // Apply 4 individual S gates = 4 clockwise braids
         // S gate = 1 CW braid in Ising model, so 4 S gates = 4 braids
         let mutable current = afterH
+
         for _ in 1..4 do
             current <- applyGate backend (CircuitBuilder.Gate.S 0) current
+
         let amps = getAmplitudes current
 
         let actualRel = amps.[1] / amps.[0]
         let actualRelNorm = actualRel / Complex(Complex.Abs actualRel, 0.0)
 
-        let physicalPhase = Complex(1.0, 0.0)  // +1 = identity
-        let diff = Complex.Abs (actualRelNorm - physicalPhase)
+        let physicalPhase = Complex(1.0, 0.0) // +1 = identity
+        let diff = Complex.Abs(actualRelNorm - physicalPhase)
 
-        Assert.True(diff < 0.05,
-            $"Physical 4-braid phase mismatch. Expected +1, got {actualRelNorm}. Diff = {diff}")
+        Assert.True(diff < 0.05, $"Physical 4-braid phase mismatch. Expected +1, got {actualRelNorm}. Diff = {diff}")
 
     // ========================================================================
     // MULTI-QUBIT BRAID INDEXING (regression: qubit q → leaves 2q, 2q+1)
@@ -358,9 +392,12 @@ module BraidingAmplitudeTests =
         // so S on qubit 1 braided leaves (1, 2) — a cross-pair position — and the
         // executor's fallback silently applied a global phase (identity). Only
         // qubit 0 (leaves 0, 1 — index 0) ever worked.
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
+        let backend =
+            TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
+
         let state =
-            (backend.InitializeState 2) |> Result.defaultWith (fun err -> failwith $"InitializeState failed: {err}")
+            (backend.InitializeState 2)
+            |> Result.defaultWith (fun err -> failwith $"InitializeState failed: {err}")
 
         // Prepare qubit 1 in |+⟩, then apply S (braid-compilation path) to qubit 1
         let afterH = applyGate backend (CircuitBuilder.Gate.H 1) state
@@ -370,9 +407,12 @@ module BraidingAmplitudeTests =
         // LSB-first indexing: |q1=0,q0=0⟩ = index 0, |q1=1,q0=0⟩ = index 2
         let rel = amps.[2] / amps.[0]
         let relNorm = rel / Complex(Complex.Abs rel, 0.0)
-        let expected = Complex(0.0, 1.0)  // i
-        Assert.True(Complex.Abs (relNorm - expected) < 1e-6,
-            $"S on qubit 1 should give relative phase i on qubit 1, got {relNorm}")
+        let expected = Complex(0.0, 1.0) // i
+
+        Assert.True(
+            Complex.Abs(relNorm - expected) < 1e-6,
+            $"S on qubit 1 should give relative phase i on qubit 1, got {relNorm}"
+        )
 
     // ========================================================================
     // ROTATION PHASES ARE EXACT (regression: no silent snap to π/2 multiples)
@@ -387,8 +427,8 @@ module BraidingAmplitudeTests =
         // (exact diag(1, e^{iθ})), and the braid path only accepts exact π/2 multiples.
         let (backend, state) = initSingleQubit ()
         let afterH = applyGate backend (CircuitBuilder.Gate.H 0) state
-        let afterRz = applyGate backend (CircuitBuilder.Gate.RZ (0, Math.PI / 4.0)) afterH
+        let afterRz = applyGate backend (CircuitBuilder.Gate.RZ(0, Math.PI / 4.0)) afterH
         let amps = getAmplitudes afterRz
 
-        let expectedRelPhase = Complex(cos (Math.PI / 4.0), sin (Math.PI / 4.0))  // e^{iπ/4}
+        let expectedRelPhase = Complex(cos (Math.PI / 4.0), sin (Math.PI / 4.0)) // e^{iπ/4}
         assertRelativePhase 1e-6 expectedRelPhase amps "RZ(π/4) on |+⟩"

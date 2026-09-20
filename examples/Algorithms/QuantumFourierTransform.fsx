@@ -23,8 +23,10 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
 [<Literal>]
 let numQubits = 3
+
 [<Literal>]
 let shots = 4000
 
@@ -38,17 +40,30 @@ printfn "Quantum Fourier Transform (%d qubits)\n" numQubits
 
 // 1. Forward QFT on |000⟩  ->  uniform superposition
 match QFT.execute numQubits backend QFT.defaultConfig with
-| Error err -> eprintfn "QFT failed: %s" err.Message; exit 1
+| Error err ->
+    eprintfn "QFT failed: %s" err.Message
+    exit 1
 | Ok qft ->
     printfn "Forward QFT applied: %d gates, %.2f ms" qft.GateCount qft.ExecutionTimeMs
     printfn "Measured distribution (expect ~uniform, ~%.1f%% each):" (100.0 / float (1 <<< numQubits))
+
     for (bitstring, count) in histogram qft.FinalState do
         printfn "  |%s⟩ : %5.1f%%" bitstring (100.0 * float count / float shots)
 
     // 2. Inverse QFT undoes it, recovering |000⟩
-    match QFT.executeOnState qft.FinalState backend { QFT.defaultConfig with Inverse = true } with
-    | Error err -> eprintfn "Inverse QFT failed: %s" err.Message; exit 1
+    match
+        QFT.executeOnState
+            qft.FinalState
+            backend
+            { QFT.defaultConfig with
+                Inverse = true
+            }
+    with
+    | Error err ->
+        eprintfn "Inverse QFT failed: %s" err.Message
+        exit 1
     | Ok inv ->
         printfn "\nInverse QFT applied — state should collapse back to |000⟩:"
+
         for (bitstring, count) in histogram inv.FinalState do
             printfn "  |%s⟩ : %5.1f%%" bitstring (100.0 * float count / float shots)

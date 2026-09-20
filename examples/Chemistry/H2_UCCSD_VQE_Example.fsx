@@ -98,14 +98,46 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "H2_UCCSD_VQE_Example.fsx" "H2 ground state with UCCSD ansatz and VQE optimization"
-    [ { Cli.OptionSpec.Name = "bond-length"; Description = "H-H bond length in Angstroms"; Default = Some "0.74" }
-      { Cli.OptionSpec.Name = "active-orbitals"; Description = "Number of spin-orbitals (2x spatial)"; Default = Some "4" }
-      { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations"; Default = Some "100" }
-      { Cli.OptionSpec.Name = "tolerance"; Description = "Convergence tolerance"; Default = Some "1e-4" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+Cli.exitIfHelp
+    "H2_UCCSD_VQE_Example.fsx"
+    "H2 ground state with UCCSD ansatz and VQE optimization"
+    [
+        {
+            Cli.OptionSpec.Name = "bond-length"
+            Description = "H-H bond length in Angstroms"
+            Default = Some "0.74"
+        }
+        {
+            Cli.OptionSpec.Name = "active-orbitals"
+            Description = "Number of spin-orbitals (2x spatial)"
+            Default = Some "4"
+        }
+        {
+            Cli.OptionSpec.Name = "max-iterations"
+            Description = "Maximum VQE iterations"
+            Default = Some "100"
+        }
+        {
+            Cli.OptionSpec.Name = "tolerance"
+            Description = "Convergence tolerance"
+            Default = Some "1e-4"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -127,16 +159,31 @@ if not quiet then
 [<Literal>]
 let numElectrons = 2
 
-let h2Molecule : Molecule = {
-    Name = "H2"
-    Atoms = [
-        { Element = "H"; Position = (0.0, 0.0, 0.0) }
-        { Element = "H"; Position = (0.0, 0.0, bondLength) }
-    ]
-    Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-    Charge = 0
-    Multiplicity = 1
-}
+let h2Molecule: Molecule =
+    {
+        Name = "H2"
+        Atoms =
+            [
+                {
+                    Element = "H"
+                    Position = (0.0, 0.0, 0.0)
+                }
+                {
+                    Element = "H"
+                    Position = (0.0, 0.0, bondLength)
+                }
+            ]
+        Bonds =
+            [
+                {
+                    Atom1 = 0
+                    Atom2 = 1
+                    BondOrder = 1.0
+                }
+            ]
+        Charge = 0
+        Multiplicity = 1
+    }
 
 if not quiet then
     printfn "Molecular System:"
@@ -172,8 +219,15 @@ if not quiet then
     printfn "Singles excitations: %d occupied x %d virtual = %d" numOccupied numVirtual numSinglesExcitations
     printfn "  (0 -> 2), (0 -> 3), (1 -> 2), (1 -> 3)"
     printfn ""
-    printfn "Doubles excitations: C(%d,2) x C(%d,2) = %d x %d = %d"
-        numOccupied numVirtual numOccPairs numVirtPairs numDoublesExcitations
+
+    printfn
+        "Doubles excitations: C(%d,2) x C(%d,2) = %d x %d = %d"
+        numOccupied
+        numVirtual
+        numOccPairs
+        numVirtPairs
+        numDoublesExcitations
+
     printfn "  (0,1 -> 2,3)"
     printfn ""
     printfn "Total UCCSD parameters: %d" totalUCCSDParams
@@ -181,9 +235,12 @@ if not quiet then
 
 // Generate and inspect the excitation pool
 let rng = System.Random(42)
-let initialParams = Array.init totalUCCSDParams (fun _ -> (rng.NextDouble() - 0.5) * 0.1)
 
-let excitationPoolResult = generateExcitationPool numElectrons numOrbitals initialParams
+let initialParams =
+    Array.init totalUCCSDParams (fun _ -> (rng.NextDouble() - 0.5) * 0.1)
+
+let excitationPoolResult =
+    generateExcitationPool numElectrons numOrbitals initialParams
 
 match excitationPoolResult with
 | Error msg ->
@@ -192,13 +249,27 @@ match excitationPoolResult with
 | Ok pool ->
     if not quiet then
         printfn "Excitation Pool:"
-        pool.Singles |> List.iteri (fun i s ->
-            printfn "  Single %d: orbital %d -> %d (amplitude: %.4f)"
-                (i+1) s.OccupiedOrbital s.VirtualOrbital s.Amplitude)
-        pool.Doubles |> List.iteri (fun i d ->
-            printfn "  Double %d: (%d,%d) -> (%d,%d) (amplitude: %.4f)"
-                (i+1) d.OccupiedOrbital1 d.OccupiedOrbital2
-                d.VirtualOrbital1 d.VirtualOrbital2 d.Amplitude)
+
+        pool.Singles
+        |> List.iteri (fun i s ->
+            printfn
+                "  Single %d: orbital %d -> %d (amplitude: %.4f)"
+                (i + 1)
+                s.OccupiedOrbital
+                s.VirtualOrbital
+                s.Amplitude)
+
+        pool.Doubles
+        |> List.iteri (fun i d ->
+            printfn
+                "  Double %d: (%d,%d) -> (%d,%d) (amplitude: %.4f)"
+                (i + 1)
+                d.OccupiedOrbital1
+                d.OccupiedOrbital2
+                d.VirtualOrbital1
+                d.VirtualOrbital2
+                d.Amplitude)
+
         printfn ""
 
 // ==============================================================================
@@ -206,17 +277,19 @@ match excitationPoolResult with
 // ==============================================================================
 
 /// Collect all results as Map list for structured output.
-let allResults = System.Collections.Generic.List<Map<string,string>>()
+let allResults = System.Collections.Generic.List<Map<string, string>>()
 
 /// Build the parameter-analysis result row.
 let paramAnalysisRow =
-    [ "Section", "ParameterAnalysis"
-      "BondLength_A", $"%.4f{bondLength}"
-      "NumElectrons", $"%d{numElectrons}"
-      "NumOrbitals", $"%d{numOrbitals}"
-      "SinglesExcitations", $"%d{numSinglesExcitations}"
-      "DoublesExcitations", $"%d{numDoublesExcitations}"
-      "TotalUCCSDParams", $"%d{totalUCCSDParams}" ]
+    [
+        "Section", "ParameterAnalysis"
+        "BondLength_A", $"%.4f{bondLength}"
+        "NumElectrons", $"%d{numElectrons}"
+        "NumOrbitals", $"%d{numOrbitals}"
+        "SinglesExcitations", $"%d{numSinglesExcitations}"
+        "DoublesExcitations", $"%d{numDoublesExcitations}"
+        "TotalUCCSDParams", $"%d{totalUCCSDParams}"
+    ]
     |> Map.ofList
 
 allResults.Add paramAnalysisRow
@@ -240,7 +313,7 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
 | Error err ->
     if not quiet then
         printfn "Error building Hamiltonian: %A" err
-| Ok (qaoaHamiltonian, nuclearRepulsion) ->
+| Ok(qaoaHamiltonian, nuclearRepulsion) ->
 
     let molecularHamiltonian = fromQaoaHamiltonian qaoaHamiltonian
 
@@ -251,6 +324,7 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
         printfn ""
 
         printfn "Sample Hamiltonian terms:"
+
         molecularHamiltonian.Terms
         |> List.take (min 5 molecularHamiltonian.Terms.Length)
         |> List.iteri (fun i term ->
@@ -259,14 +333,18 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
                 |> Map.toList
                 |> List.sortBy fst
                 |> List.map (fun (q, p) ->
-                    let pStr = match p with
-                               | PauliOperator.PauliX -> "X"
-                               | PauliOperator.PauliY -> "Y"
-                               | PauliOperator.PauliZ -> "Z"
-                               | PauliOperator.PauliI -> "I"
+                    let pStr =
+                        match p with
+                        | PauliOperator.PauliX -> "X"
+                        | PauliOperator.PauliY -> "Y"
+                        | PauliOperator.PauliZ -> "Z"
+                        | PauliOperator.PauliI -> "I"
+
                     $"%s{pStr}_%d{q}")
                 |> String.concat " "
-            printfn "  %d. %.4f x %s" (i+1) term.Coefficient.Real paulis)
+
+            printfn "  %d. %.4f x %s" (i + 1) term.Coefficient.Real paulis)
+
         printfn ""
 
     // ------------------------------------------------------------------
@@ -308,15 +386,16 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
             printfn "============================================================"
             printfn ""
 
-        let vqeConfig : ChemistryVQEConfig = {
-            Hamiltonian = molecularHamiltonian
-            Ansatz = AnsatzType.UCCSD (numElectrons, numOrbitals)
-            MaxIterations = maxIterations
-            Tolerance = tolerance
-            UseHFInitialState = true
-            Backend = backend
-            ProgressReporter = None
-        }
+        let vqeConfig: ChemistryVQEConfig =
+            {
+                Hamiltonian = molecularHamiltonian
+                Ansatz = AnsatzType.UCCSD(numElectrons, numOrbitals)
+                MaxIterations = maxIterations
+                Tolerance = tolerance
+                UseHFInitialState = true
+                Backend = backend
+                ProgressReporter = None
+            }
 
         if not quiet then
             printfn "VQE Configuration:"
@@ -328,18 +407,16 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
             printfn "Starting optimization..."
             printfn ""
 
-        let vqeResult =
-            ChemistryVQE.run vqeConfig
-            |> Async.RunSynchronously
+        let vqeResult = ChemistryVQE.run vqeConfig |> Async.RunSynchronously
 
         match vqeResult with
         | Error err ->
             if not quiet then
                 printfn "VQE Error: %A" err
         | Ok result ->
-            let exactEnergy = -1.137270   // FCI total for H2/STO-3G at R = 0.7414 Å
-            let totalEnergy = result.Energy + nuclearRepulsion  // electronic + nuclear repulsion
-            let energyError = abs(totalEnergy - exactEnergy)
+            let exactEnergy = -1.137270 // FCI total for H2/STO-3G at R = 0.7414 Å
+            let totalEnergy = result.Energy + nuclearRepulsion // electronic + nuclear repulsion
+            let energyError = abs (totalEnergy - exactEnergy)
             let chemicalAccuracy = 0.0016
 
             if not quiet then
@@ -357,11 +434,14 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
 
                 printfn "Optimal UCCSD Parameters:"
                 let numSingles = numElectrons * (numOrbitals - numElectrons)
-                result.OptimalParameters |> Array.iteri (fun i p ->
+
+                result.OptimalParameters
+                |> Array.iteri (fun i p ->
                     if i < numSingles then
                         printfn "  t_single[%d] = %.6f" i p
                     else
                         printfn "  t_double[%d] = %.6f" (i - numSingles) p)
+
                 printfn ""
 
                 printfn "Accuracy Analysis:"
@@ -377,24 +457,28 @@ match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
                 else
                     printfn "Total energy error exceeds chemical accuracy"
                     printfn "  (VQE may need more iterations or a better initial guess)"
+
                 printfn ""
 
             let vqeRow =
-                [ "Section", "VQE_Result"
-                  "BondLength_A", $"%.4f{bondLength}"
-                  "ElectronicEnergy_Hartree", $"%.6f{result.Energy}"
-                  "NuclearRepulsion_Hartree", $"%.6f{nuclearRepulsion}"
-                  "TotalEnergy_Hartree", $"%.6f{totalEnergy}"
-                  "TotalEnergy_eV", sprintf "%.6f" (totalEnergy * 27.2114)
-                  "Iterations", $"%d{result.Iterations}"
-                  "Converged", $"%b{result.Converged}"
-                  "Error_Hartree", $"%.6f{energyError}"
-                  "ChemAccuracy", sprintf "%b" (energyError < chemicalAccuracy)
-                  "NumQubits", $"%d{molecularHamiltonian.NumQubits}"
-                  "PauliTerms", $"%d{molecularHamiltonian.Terms.Length}"
-                  "UCCSDParams", $"%d{totalUCCSDParams}"
-                  "HF_Valid", $"%b{isValid}" ]
+                [
+                    "Section", "VQE_Result"
+                    "BondLength_A", $"%.4f{bondLength}"
+                    "ElectronicEnergy_Hartree", $"%.6f{result.Energy}"
+                    "NuclearRepulsion_Hartree", $"%.6f{nuclearRepulsion}"
+                    "TotalEnergy_Hartree", $"%.6f{totalEnergy}"
+                    "TotalEnergy_eV", sprintf "%.6f" (totalEnergy * 27.2114)
+                    "Iterations", $"%d{result.Iterations}"
+                    "Converged", $"%b{result.Converged}"
+                    "Error_Hartree", $"%.6f{energyError}"
+                    "ChemAccuracy", sprintf "%b" (energyError < chemicalAccuracy)
+                    "NumQubits", $"%d{molecularHamiltonian.NumQubits}"
+                    "PauliTerms", $"%d{molecularHamiltonian.Terms.Length}"
+                    "UCCSDParams", $"%d{totalUCCSDParams}"
+                    "HF_Valid", $"%b{isValid}"
+                ]
                 |> Map.ofList
+
             allResults.Add vqeRow
 
 // ==============================================================================
@@ -449,20 +533,42 @@ let resultList = allResults |> Seq.toList
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultList
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header = [ "Section"; "BondLength_A"; "Energy_Hartree"; "Energy_eV"; "Iterations"; "Converged";
-                   "Error_Hartree"; "ChemAccuracy"; "NumQubits"; "PauliTerms"; "UCCSDParams"; "HF_Valid";
-                   "NumElectrons"; "NumOrbitals"; "SinglesExcitations"; "DoublesExcitations"; "TotalUCCSDParams" ]
+    let header =
+        [
+            "Section"
+            "BondLength_A"
+            "Energy_Hartree"
+            "Energy_eV"
+            "Iterations"
+            "Converged"
+            "Error_Hartree"
+            "ChemAccuracy"
+            "NumQubits"
+            "PauliTerms"
+            "UCCSDParams"
+            "HF_Valid"
+            "NumElectrons"
+            "NumOrbitals"
+            "SinglesExcitations"
+            "DoublesExcitations"
+            "TotalUCCSDParams"
+        ]
+
     let rows =
         resultList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "CSV results written to %s" path
+
+    if not quiet then
+        printfn "CSV results written to %s" path
 | None -> ()
 
 // ==============================================================================

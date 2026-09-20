@@ -80,21 +80,51 @@ open FSharp.Azure.Quantum.Examples.Common
 // ---------------------------------------------------------------------------
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
-Cli.exitIfHelp "HHLAlgorithm.fsx" "Quantum linear system solver (Ax = b) via HHL algorithm"
-    [ { Name = "example";   Description = "Scenario to run: 1|2|3|4|5|all"; Default = Some "all" }
-      { Name = "precision"; Description = "QPE eigenvalue qubits";           Default = Some "4" }
-      { Name = "output";    Description = "Write results to JSON file";      Default = None }
-      { Name = "csv";       Description = "Write results to CSV file";       Default = None }
-      { Name = "quiet";     Description = "Suppress informational output";   Default = None } ]
+
+Cli.exitIfHelp
+    "HHLAlgorithm.fsx"
+    "Quantum linear system solver (Ax = b) via HHL algorithm"
+    [
+        {
+            Name = "example"
+            Description = "Scenario to run: 1|2|3|4|5|all"
+            Default = Some "all"
+        }
+        {
+            Name = "precision"
+            Description = "QPE eigenvalue qubits"
+            Default = Some "4"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let example    = Cli.getOr "example" "all" args
+let csvPath = Cli.tryGet "csv" args
+let example = Cli.getOr "example" "all" args
 let cliPrecision = Cli.getIntOr "precision" 4 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 // Rule 1: explicit IQuantumBackend
 let quantumBackend = LocalBackend() :> IQuantumBackend
@@ -123,31 +153,33 @@ if shouldRun "1" then
     pr "  Expected solution: x = [2, 2] volts"
     pr ""
 
-    let problem1 = linearSystemSolver {
-        matrix [[2.0; 0.0]; [0.0; 1.0]]
-        vector [4.0; 2.0]
-        precision cliPrecision
-        backend quantumBackend
-    }
+    let problem1 =
+        linearSystemSolver {
+            matrix [ [ 2.0; 0.0 ]; [ 0.0; 1.0 ] ]
+            vector [ 4.0; 2.0 ]
+            precision cliPrecision
+            backend quantumBackend
+        }
 
     pr "Running HHL algorithm on local simulator..."
+
     match problem1 with
-    | Error err ->
-        pr "Problem setup failed: %s" err.Message
+    | Error err -> pr "Problem setup failed: %s" err.Message
     | Ok prob ->
         match solve prob with
-        | Error err ->
-            pr "Error: %s" err.Message
+        | Error err -> pr "Error: %s" err.Message
         | Ok result ->
             pr "SUCCESS!"
             pr ""
             pr "RESULTS:"
             pr "  Success Probability: %.4f" result.SuccessProbability
-            pr "  Condition Number (kappa): %s" (
-                match result.ConditionNumber with
-                | Some k -> $"%.2f{k}"
-                | None -> "N/A"
-            )
+
+            pr
+                "  Condition Number (kappa): %s"
+                (match result.ConditionNumber with
+                 | Some k -> $"%.2f{k}"
+                 | None -> "N/A")
+
             pr "  Gates Used: %d" result.GateCount
             pr "  Backend: %s" result.BackendName
             pr ""
@@ -156,15 +188,21 @@ if shouldRun "1" then
             pr "  x2 = 2/1 = 2.0"
             pr ""
 
-            results.Add(Map.ofList [
-                "scenario", "1_simple_2x2"
-                "matrix", "diag(2,1)"
-                "vector", "[4,2]"
-                "success_probability", $"%.6f{result.SuccessProbability}"
-                "condition_number", (match result.ConditionNumber with Some k -> $"%.2f{k}" | None -> "N/A")
-                "gate_count", $"%d{result.GateCount}"
-                "backend", result.BackendName
-            ])
+            results.Add(
+                Map.ofList
+                    [
+                        "scenario", "1_simple_2x2"
+                        "matrix", "diag(2,1)"
+                        "vector", "[4,2]"
+                        "success_probability", $"%.6f{result.SuccessProbability}"
+                        "condition_number",
+                        (match result.ConditionNumber with
+                         | Some k -> $"%.2f{k}"
+                         | None -> "N/A")
+                        "gate_count", $"%d{result.GateCount}"
+                        "backend", result.BackendName
+                    ]
+            )
 
 // ============================================================================
 // SCENARIO 2: Ill-Conditioned System (Stress Test)
@@ -184,32 +222,32 @@ if shouldRun "2" then
     pr "  Vector: [1, 1]"
     pr ""
 
-    let problem2 = linearSystemSolver {
-        diagonalMatrix [100.0; 1.0]
-        vector [1.0; 1.0]
-        precision 6
-        minEigenvalue 0.001
-        backend quantumBackend
-    }
+    let problem2 =
+        linearSystemSolver {
+            diagonalMatrix [ 100.0; 1.0 ]
+            vector [ 1.0; 1.0 ]
+            precision 6
+            minEigenvalue 0.001
+            backend quantumBackend
+        }
 
     pr "Running HHL..."
+
     match problem2 with
-    | Error err ->
-        pr "Problem setup failed: %s" err.Message
+    | Error err -> pr "Problem setup failed: %s" err.Message
     | Ok prob ->
         match solve prob with
-        | Error err ->
-            pr "Error: %s" err.Message
+        | Error err -> pr "Error: %s" err.Message
         | Ok result ->
             pr "Result obtained"
             pr ""
             pr "CONDITION NUMBER ANALYSIS:"
+
             match result.ConditionNumber with
             | Some k ->
                 pr "  kappa = %.2f (ill-conditioned!)" k
                 pr "  Expected success rate: ~%.2f%%" (100.0 / (k * k))
-            | None ->
-                pr "  kappa not available"
+            | None -> pr "  kappa not available"
 
             pr ""
             pr "MEASURED RESULTS:"
@@ -221,15 +259,21 @@ if shouldRun "2" then
             pr "  For ill-conditioned systems, use preconditioning!"
             pr ""
 
-            results.Add(Map.ofList [
-                "scenario", "2_ill_conditioned"
-                "matrix", "diag(100,1)"
-                "vector", "[1,1]"
-                "success_probability", $"%.6f{result.SuccessProbability}"
-                "condition_number", (match result.ConditionNumber with Some k -> $"%.2f{k}" | None -> "N/A")
-                "gate_count", $"%d{result.GateCount}"
-                "backend", result.BackendName
-            ])
+            results.Add(
+                Map.ofList
+                    [
+                        "scenario", "2_ill_conditioned"
+                        "matrix", "diag(100,1)"
+                        "vector", "[1,1]"
+                        "success_probability", $"%.6f{result.SuccessProbability}"
+                        "condition_number",
+                        (match result.ConditionNumber with
+                         | Some k -> $"%.2f{k}"
+                         | None -> "N/A")
+                        "gate_count", $"%d{result.GateCount}"
+                        "backend", result.BackendName
+                    ]
+            )
 
 // ============================================================================
 // SCENARIO 3: Larger System (4x4)
@@ -245,12 +289,13 @@ if shouldRun "3" then
     pr "  Stiffness matrix (diagonal approximation)"
     pr ""
 
-    let problem3 = linearSystemSolver {
-        diagonalMatrix [2.0; 3.0; 4.0; 5.0]
-        vector [1.0; 0.0; 0.0; 0.0]
-        precision 5
-        backend quantumBackend
-    }
+    let problem3 =
+        linearSystemSolver {
+            diagonalMatrix [ 2.0; 3.0; 4.0; 5.0 ]
+            vector [ 1.0; 0.0; 0.0; 0.0 ]
+            precision 5
+            backend quantumBackend
+        }
 
     pr "Running HHL on 4x4 system..."
     pr "  This requires 5 + 2 + 1 = 8 qubits total"
@@ -258,27 +303,31 @@ if shouldRun "3" then
     pr ""
 
     match problem3 with
-    | Error err ->
-        pr "Problem setup failed: %s" err.Message
+    | Error err -> pr "Problem setup failed: %s" err.Message
     | Ok prob ->
         match solve prob with
-        | Error err ->
-            pr "Error: %s" err.Message
+        | Error err -> pr "Error: %s" err.Message
         | Ok result ->
             pr "Solved 4x4 system!"
             pr "  Gates: %d" result.GateCount
             pr "  Success: %.4f" result.SuccessProbability
             pr ""
 
-            results.Add(Map.ofList [
-                "scenario", "3_4x4_system"
-                "matrix", "diag(2,3,4,5)"
-                "vector", "[1,0,0,0]"
-                "success_probability", $"%.6f{result.SuccessProbability}"
-                "condition_number", (match result.ConditionNumber with Some k -> $"%.2f{k}" | None -> "N/A")
-                "gate_count", $"%d{result.GateCount}"
-                "backend", result.BackendName
-            ])
+            results.Add(
+                Map.ofList
+                    [
+                        "scenario", "3_4x4_system"
+                        "matrix", "diag(2,3,4,5)"
+                        "vector", "[1,0,0,0]"
+                        "success_probability", $"%.6f{result.SuccessProbability}"
+                        "condition_number",
+                        (match result.ConditionNumber with
+                         | Some k -> $"%.2f{k}"
+                         | None -> "N/A")
+                        "gate_count", $"%d{result.GateCount}"
+                        "backend", result.BackendName
+                    ]
+            )
 
 // ============================================================================
 // SCENARIO 4: Mottonen's Arbitrary State Preparation
@@ -297,8 +346,8 @@ if shouldRun "4" then
     pr "  |psi> = 0.6|00> + 0.5|01> + 0.4|10> + 0.4|11>"
     pr ""
 
-    let amplitudes = [| Complex(0.6, 0.0); Complex(0.5, 0.0)
-                        Complex(0.4, 0.0); Complex(0.4, 0.0) |]
+    let amplitudes =
+        [| Complex(0.6, 0.0); Complex(0.5, 0.0); Complex(0.4, 0.0); Complex(0.4, 0.0) |]
 
     try
         let state = normalizeState amplitudes
@@ -307,8 +356,10 @@ if shouldRun "4" then
 
         for i in 0 .. state.Amplitudes.Length - 1 do
             let prob = state.Amplitudes[i].Magnitude * state.Amplitudes[i].Magnitude
+
             if prob > 0.01 then
-                pr "  |%s>: %.4f (prob: %.2f%%)"
+                pr
+                    "  |%s>: %.4f (prob: %.2f%%)"
                     (Convert.ToString(i, 2).PadLeft(state.NumQubits, '0'))
                     state.Amplitudes[i].Real
                     (prob * 100.0)
@@ -317,19 +368,18 @@ if shouldRun "4" then
         pr "This enables HHL to solve Ax = b for ANY input vector b!"
         pr ""
 
-        results.Add(Map.ofList [
-            "scenario", "4_mottonen_state_prep"
-            "num_qubits", $"%d{state.NumQubits}"
-            "dimension", $"%d{state.Amplitudes.Length}"
-            "status", "success"
-        ])
-    with
-    | ex ->
+        results.Add(
+            Map.ofList
+                [
+                    "scenario", "4_mottonen_state_prep"
+                    "num_qubits", $"%d{state.NumQubits}"
+                    "dimension", $"%d{state.Amplitudes.Length}"
+                    "status", "success"
+                ]
+        )
+    with ex ->
         pr "Error: %s" ex.Message
-        results.Add(Map.ofList [
-            "scenario", "4_mottonen_state_prep"
-            "status", $"error: %s{ex.Message}"
-        ])
+        results.Add(Map.ofList [ "scenario", "4_mottonen_state_prep"; "status", $"error: %s{ex.Message}" ])
 
 // ============================================================================
 // SCENARIO 5: Trotter-Suzuki Decomposition
@@ -361,11 +411,7 @@ if shouldRun "5" then
 
     pr ""
     pr "Trotter-Suzuki Configuration:"
-    let trotterConfig = {
-        NumSteps = 10
-        Time = 1.0
-        Order = 1
-    }
+    let trotterConfig = { NumSteps = 10; Time = 1.0; Order = 1 }
     pr "  Steps: %d" trotterConfig.NumSteps
     pr "  Time: %.1f" trotterConfig.Time
     pr "  Order: %d (first-order formula)" trotterConfig.Order
@@ -376,19 +422,29 @@ if shouldRun "5" then
     pr "  Required steps: %d" estimatedSteps
     pr ""
 
-    results.Add(Map.ofList [
-        "scenario", "5_trotter_suzuki"
-        "pauli_terms", $"%d{pauliHamiltonian.Terms.Length}"
-        "num_qubits", $"%d{pauliHamiltonian.NumQubits}"
-        "trotter_steps", $"%d{trotterConfig.NumSteps}"
-        "estimated_steps", $"%d{estimatedSteps}"
-    ])
+    results.Add(
+        Map.ofList
+            [
+                "scenario", "5_trotter_suzuki"
+                "pauli_terms", $"%d{pauliHamiltonian.Terms.Length}"
+                "num_qubits", $"%d{pauliHamiltonian.NumQubits}"
+                "trotter_steps", $"%d{trotterConfig.NumSteps}"
+                "estimated_steps", $"%d{estimatedSteps}"
+            ]
+    )
 
 // ============================================================================
 // PERFORMANCE COMPARISON (always shown unless quiet)
 // ============================================================================
 
-if shouldRun "all" || (example <> "1" && example <> "2" && example <> "3" && example <> "4" && example <> "5") then
+if
+    shouldRun "all"
+    || (example <> "1"
+        && example <> "2"
+        && example <> "3"
+        && example <> "4"
+        && example <> "5")
+then
     pr "--------------------------------------------------------------------"
     pr "QUANTUM ADVANTAGE: When HHL Beats Classical"
     pr "--------------------------------------------------------------------"
@@ -461,29 +517,41 @@ pr ""
 
 match outputPath with
 | Some v ->
-    let payload = {| script = "HHLAlgorithm.fsx"
-                     timestamp = DateTime.UtcNow
-                     precision = cliPrecision
-                     example = example
-                     results = results |> Seq.toArray |}
+    let payload =
+        {|
+            script = "HHLAlgorithm.fsx"
+            timestamp = DateTime.UtcNow
+            precision = cliPrecision
+            example = example
+            results = results |> Seq.toArray
+        |}
+
     Reporting.writeJson v payload
     pr "Results written to %s" v
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
-    let header = ["scenario"; "matrix"; "vector"; "success_probability";
-                  "condition_number"; "gate_count"; "backend"; "status"]
+    let header =
+        [
+            "scenario"
+            "matrix"
+            "vector"
+            "success_probability"
+            "condition_number"
+            "gate_count"
+            "backend"
+            "status"
+        ]
+
     let rows =
         results
-        |> Seq.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> Seq.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
         |> Seq.toList
+
     Reporting.writeCsv v header rows
     pr "CSV written to %s" v
-| None ->
-    ()
+| None -> ()
 
 // Usage hints
 if argv.Length = 0 && outputPath.IsNone && csvPath.IsNone then

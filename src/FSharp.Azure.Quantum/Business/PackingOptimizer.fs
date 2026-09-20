@@ -41,48 +41,52 @@ module PackingOptimizer =
     // ========================================================================
 
     /// An item to be packed
-    type PackingItem = {
-        /// Unique identifier
-        Id: string
-        /// Size/weight of the item
-        Size: float
-    }
+    type PackingItem =
+        {
+            /// Unique identifier
+            Id: string
+            /// Size/weight of the item
+            Size: float
+        }
 
     /// Bin/container assignment
-    type BinAssignment = {
-        /// Item that was assigned
-        Item: PackingItem
-        /// Bin index (0-based)
-        BinIndex: int
-    }
+    type BinAssignment =
+        {
+            /// Item that was assigned
+            Item: PackingItem
+            /// Bin index (0-based)
+            BinIndex: int
+        }
 
     /// Packing optimization problem
-    type PackingProblem = {
-        /// Items to pack
-        Items: PackingItem list
-        /// Capacity of each bin/container (all bins have same capacity)
-        BinCapacity: float
-        /// Quantum backend (None = error, Some = quantum optimization)
-        Backend: IQuantumBackend option
-        /// Number of measurement shots (default: 1000)
-        Shots: int
-    }
+    type PackingProblem =
+        {
+            /// Items to pack
+            Items: PackingItem list
+            /// Capacity of each bin/container (all bins have same capacity)
+            BinCapacity: float
+            /// Quantum backend (None = error, Some = quantum optimization)
+            Backend: IQuantumBackend option
+            /// Number of measurement shots (default: 1000)
+            Shots: int
+        }
 
     /// Packing solution
-    type PackingResult = {
-        /// Item-to-bin assignments
-        Assignments: BinAssignment list
-        /// Number of bins used
-        BinsUsed: int
-        /// Whether all items are assigned and no bin exceeds capacity
-        IsValid: bool
-        /// Total items
-        TotalItems: int
-        /// Items successfully assigned
-        ItemsAssigned: int
-        /// Execution message
-        Message: string
-    }
+    type PackingResult =
+        {
+            /// Item-to-bin assignments
+            Assignments: BinAssignment list
+            /// Number of bins used
+            BinsUsed: int
+            /// Whether all items are assigned and no bin exceeds capacity
+            IsValid: bool
+            /// Total items
+            TotalItems: int
+            /// Items successfully assigned
+            ItemsAssigned: int
+            /// Execution message
+            Message: string
+        }
 
     // ========================================================================
     // CONVERSION & SOLVING
@@ -92,10 +96,12 @@ module PackingOptimizer =
     let private toBinPackingProblem (problem: PackingProblem) : QuantumBinPackingSolver.Problem =
         let items =
             problem.Items
-            |> List.map (fun pi ->
-                ({ Id = pi.Id; Size = pi.Size } : QuantumBinPackingSolver.Item))
-        { Items = items
-          BinCapacity = problem.BinCapacity }
+            |> List.map (fun pi -> ({ Id = pi.Id; Size = pi.Size }: QuantumBinPackingSolver.Item))
+
+        {
+            Items = items
+            BinCapacity = problem.BinCapacity
+        }
 
     /// Decode a QuantumBinPackingSolver.Solution to PackingResult
     let private decodeSolution (problem: PackingProblem) (solution: QuantumBinPackingSolver.Solution) : PackingResult =
@@ -104,30 +110,31 @@ module PackingOptimizer =
             |> List.choose (fun (item, binIdx) ->
                 problem.Items
                 |> List.tryFind (fun pi -> pi.Id = item.Id)
-                |> Option.map (fun pi ->
-                    { Item = pi; BinIndex = binIdx }))
+                |> Option.map (fun pi -> { Item = pi; BinIndex = binIdx }))
 
-        { Assignments = assignments
-          BinsUsed = solution.BinsUsed
-          IsValid = solution.IsValid
-          TotalItems = problem.Items.Length
-          ItemsAssigned = assignments.Length
-          Message =
-            if solution.IsValid then
-                $"Packed {assignments.Length} items into {solution.BinsUsed} bins"
-            else
-                $"Partial packing: {assignments.Length}/{problem.Items.Length} items assigned to {solution.BinsUsed} bins" }
+        {
+            Assignments = assignments
+            BinsUsed = solution.BinsUsed
+            IsValid = solution.IsValid
+            TotalItems = problem.Items.Length
+            ItemsAssigned = assignments.Length
+            Message =
+                if solution.IsValid then
+                    $"Packed {assignments.Length} items into {solution.BinsUsed} bins"
+                else
+                    $"Partial packing: {assignments.Length}/{problem.Items.Length} items assigned to {solution.BinsUsed} bins"
+        }
 
     /// Execute packing optimization
     let solve (problem: PackingProblem) : QuantumResult<PackingResult> =
         if problem.Items.IsEmpty then
-            Error (QuantumError.ValidationError ("Items", "must have at least one item"))
+            Error(QuantumError.ValidationError("Items", "must have at least one item"))
         elif problem.BinCapacity <= 0.0 then
-            Error (QuantumError.ValidationError ("BinCapacity", "bin capacity must be positive"))
+            Error(QuantumError.ValidationError("BinCapacity", "bin capacity must be positive"))
         elif problem.Items |> List.exists (fun i -> i.Size <= 0.0) then
-            Error (QuantumError.ValidationError ("ItemSize", "all item sizes must be positive"))
+            Error(QuantumError.ValidationError("ItemSize", "all item sizes must be positive"))
         elif problem.Items |> List.exists (fun i -> i.Size > problem.BinCapacity) then
-            Error (QuantumError.ValidationError ("ItemSize", "item size exceeds bin capacity"))
+            Error(QuantumError.ValidationError("ItemSize", "item size exceeds bin capacity"))
         else
             // Quantum-first: run on the caller's backend, or default to the local simulator
             // (a real quantum backend) when none was supplied.
@@ -135,8 +142,11 @@ module PackingOptimizer =
                 problem.Backend
                 |> Option.defaultWith (fun () ->
                     FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+
             let binProblem = toBinPackingProblem problem
-            (QuantumBinPackingSolver.solve backend binProblem problem.Shots) |> Result.map (fun solution -> decodeSolution problem solution)
+
+            (QuantumBinPackingSolver.solve backend binProblem problem.Shots)
+            |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -145,18 +155,21 @@ module PackingOptimizer =
     /// Fluent builder for packing optimization.
     type PackingOptimizerBuilder() =
 
-        let defaultProblem = {
-            Items = []
-            BinCapacity = 0.0
-            Backend = None
-            Shots = 1000
-        }
+        let defaultProblem =
+            {
+                Items = []
+                BinCapacity = 0.0
+                Backend = None
+                Shots = 1000
+            }
 
         member _.Yield(_) = defaultProblem
         member _.Delay(f: unit -> PackingProblem) = f
+
         member _.Run(f: unit -> PackingProblem) : QuantumResult<PackingResult> =
-            let problem = f()
+            let problem = f ()
             solve problem
+
         member _.Combine(p1: PackingProblem, p2: PackingProblem) = p2
         member _.Zero() = defaultProblem
 
@@ -166,7 +179,10 @@ module PackingOptimizer =
         [<CustomOperation("item")>]
         member _.Item(problem: PackingProblem, id: string, size: float) : PackingProblem =
             let item = { Id = id; Size = size }
-            { problem with Items = item :: problem.Items }
+
+            { problem with
+                Items = item :: problem.Items
+            }
 
         /// <summary>Set the bin/container capacity.</summary>
         /// <param name="capacity">Maximum capacity per bin</param>
@@ -181,8 +197,7 @@ module PackingOptimizer =
 
         /// <summary>Set the number of measurement shots.</summary>
         [<CustomOperation("shots")>]
-        member _.Shots(problem: PackingProblem, shots: int) : PackingProblem =
-            { problem with Shots = shots }
+        member _.Shots(problem: PackingProblem, shots: int) : PackingProblem = { problem with Shots = shots }
 
     /// Create a packing optimizer builder.
     let packingOptimizer = PackingOptimizerBuilder()

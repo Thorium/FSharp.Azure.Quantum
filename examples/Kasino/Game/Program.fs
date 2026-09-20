@@ -11,67 +11,112 @@ module Program =
 
     /// Parsed command-line options
     type private CliOptions =
-        { Variant: GameVariant option
-          Players: int option
-          Humans: int option
-          Seed: int option
-          Target: int option
-          Mode: bool option
-          Help: bool }
+        {
+            Variant: GameVariant option
+            Players: int option
+            Humans: int option
+            Seed: int option
+            Target: int option
+            Mode: bool option
+            Help: bool
+        }
 
     /// Default (empty) CLI options
     let private defaultOptions =
-        { Variant = None; Players = None; Humans = None
-          Seed = None; Target = None; Mode = None; Help = false }
+        {
+            Variant = None
+            Players = None
+            Humans = None
+            Seed = None
+            Target = None
+            Mode = None
+            Help = false
+        }
 
     /// Parse command-line arguments recursively
     let private parseArgs (args: string array) : CliOptions =
         let argList = args |> Array.toList
-        let rec parse (opts: CliOptions) = function
+
+        let rec parse (opts: CliOptions) =
+            function
             | ("--variant" | "-v") :: value :: rest ->
                 let v =
                     match value.ToLowerInvariant() with
-                    | "standard" | "kasino" -> Some StandardKasino
-                    | "misa" | "misa-kasino" | "laisto" | "laistokasino" -> Some LaistoKasino
+                    | "standard"
+                    | "kasino" -> Some StandardKasino
+                    | "misa"
+                    | "misa-kasino"
+                    | "laisto"
+                    | "laistokasino" -> Some LaistoKasino
                     | _ -> None
-                parse { opts with Variant = v |> Option.orElse opts.Variant } rest
+
+                parse
+                    { opts with
+                        Variant = v |> Option.orElse opts.Variant
+                    }
+                    rest
             | ("--players" | "-p") :: value :: rest ->
                 let p =
                     match Int32.TryParse(value) with
                     | true, n when n >= 2 && n <= 4 -> Some n
                     | _ -> None
-                parse { opts with Players = p |> Option.orElse opts.Players } rest
+
+                parse
+                    { opts with
+                        Players = p |> Option.orElse opts.Players
+                    }
+                    rest
             | ("--humans" | "-h") :: value :: rest ->
                 let h =
                     match Int32.TryParse(value) with
                     | true, n when n >= 0 && n <= 1 -> Some n
                     | _ -> None
-                parse { opts with Humans = h |> Option.orElse opts.Humans } rest
+
+                parse
+                    { opts with
+                        Humans = h |> Option.orElse opts.Humans
+                    }
+                    rest
             | ("--seed" | "-s") :: value :: rest ->
                 let s =
                     match Int32.TryParse(value) with
                     | true, n -> Some n
                     | _ -> None
-                parse { opts with Seed = s |> Option.orElse opts.Seed } rest
+
+                parse
+                    { opts with
+                        Seed = s |> Option.orElse opts.Seed
+                    }
+                    rest
             | ("--target" | "-t") :: value :: rest ->
                 let t =
                     match Int32.TryParse(value) with
                     | true, n when n >= 1 -> Some n
                     | _ -> None
-                parse { opts with Target = t |> Option.orElse opts.Target } rest
+
+                parse
+                    { opts with
+                        Target = t |> Option.orElse opts.Target
+                    }
+                    rest
             | ("--mode" | "-m") :: value :: rest ->
                 let m =
                     match value.ToLowerInvariant() with
-                    | "novice" | "n" -> Some true
-                    | "advanced" | "a" -> Some false
+                    | "novice"
+                    | "n" -> Some true
+                    | "advanced"
+                    | "a" -> Some false
                     | _ -> None
-                parse { opts with Mode = m |> Option.orElse opts.Mode } rest
-            | "--help" :: rest ->
-                parse { opts with Help = true } rest
-            | _ :: rest ->
-                parse opts rest
-            | [] ->
-                opts
+
+                parse
+                    { opts with
+                        Mode = m |> Option.orElse opts.Mode
+                    }
+                    rest
+            | "--help" :: rest -> parse { opts with Help = true } rest
+            | _ :: rest -> parse opts rest
+            | [] -> opts
+
         parse defaultOptions argList
 
     /// Display help message
@@ -85,7 +130,11 @@ module Program =
         AnsiConsole.MarkupLine("  --variant, -v <variant>   Game variant: standard, laisto (default: interactive)")
         AnsiConsole.MarkupLine("  --players, -p <2-4>       Number of players (default: interactive)")
         AnsiConsole.MarkupLine("  --humans, -h <0-1>        Number of human players (default: interactive)")
-        AnsiConsole.MarkupLine("  --mode, -m <mode>         Play mode: novice (show hints), advanced (default: interactive)")
+
+        AnsiConsole.MarkupLine(
+            "  --mode, -m <mode>         Play mode: novice (show hints), advanced (default: interactive)"
+        )
+
         AnsiConsole.MarkupLine("  --seed, -s <int>          Random seed for reproducible games")
         AnsiConsole.MarkupLine("  --target, -t <int>        Target score to end game (default: 16)")
         AnsiConsole.MarkupLine("  --help                    Show this help")
@@ -112,10 +161,13 @@ module Program =
             AnsiConsole.Prompt(
                 SelectionPrompt<string>()
                     .Title("[cyan]Select game variant:[/]")
-                    .AddChoices([
-                        "Standard Kasino - Capture cards, earn most points!"
-                        "Laistokasino - Avoid capturing points!"
-                    ]))
+                    .AddChoices(
+                        [
+                            "Standard Kasino - Capture cards, earn most points!"
+                            "Laistokasino - Avoid capturing points!"
+                        ]
+                    )
+            )
 
         let variant =
             if variantChoice.StartsWith("Standard", StringComparison.Ordinal) then
@@ -128,11 +180,8 @@ module Program =
             AnsiConsole.Prompt(
                 SelectionPrompt<string>()
                     .Title("[cyan]Number of players:[/]")
-                    .AddChoices([
-                        "2 players"
-                        "3 players"
-                        "4 players"
-                    ]))
+                    .AddChoices([ "2 players"; "3 players"; "4 players" ])
+            )
 
         let players =
             match playerCount.[0] with
@@ -146,13 +195,19 @@ module Program =
             AnsiConsole.Prompt(
                 SelectionPrompt<string>()
                     .Title("[cyan]Your role:[/]")
-                    .AddChoices([
-                        "Play as human (1 human + rest quantum CPUs)"
-                        "Watch quantum CPUs play (all AI)"
-                    ]))
+                    .AddChoices(
+                        [
+                            "Play as human (1 human + rest quantum CPUs)"
+                            "Watch quantum CPUs play (all AI)"
+                        ]
+                    )
+            )
 
         let humans =
-            if humanChoice.StartsWith("Play", StringComparison.Ordinal) then 1 else 0
+            if humanChoice.StartsWith("Play", StringComparison.Ordinal) then
+                1
+            else
+                0
 
         // Choose play mode (only relevant for human players)
         let noviceMode =
@@ -161,23 +216,29 @@ module Program =
                     AnsiConsole.Prompt(
                         SelectionPrompt<string>()
                             .Title("[cyan]Play mode:[/]")
-                            .AddChoices([
-                                "Novice - Show capture hints for each card"
-                                "Advanced - Just show your cards (experienced players)"
-                            ]))
+                            .AddChoices(
+                                [
+                                    "Novice - Show capture hints for each card"
+                                    "Advanced - Just show your cards (experienced players)"
+                                ]
+                            )
+                    )
+
                 modeChoice.StartsWith("Novice", StringComparison.Ordinal)
             else
-                true  // Doesn't matter for AI-only games
+                true // Doesn't matter for AI-only games
 
         AnsiConsole.WriteLine()
 
-        { Variant = variant
-          PlayerCount = players
-          HumanCount = humans
-          NoviceMode = noviceMode
-          Seed = None
-          TargetScore = 16
-          Backend = Some (LocalBackendFactory.createUnified()) }
+        {
+            Variant = variant
+            PlayerCount = players
+            HumanCount = humans
+            NoviceMode = noviceMode
+            Seed = None
+            TargetScore = 16
+            Backend = Some(LocalBackendFactory.createUnified ())
+        }
 
     [<EntryPoint>]
     let main args =
@@ -190,27 +251,31 @@ module Program =
             else
                 let targetScore = opts.Target |> Option.defaultValue 16
 
-                let config : GameConfig =
+                let config: GameConfig =
                     // Create quantum backend for capture computation
-                    let backend = Some (LocalBackendFactory.createUnified())
+                    let backend = Some(LocalBackendFactory.createUnified ())
 
                     // If all args provided, use them directly
                     match opts.Variant, opts.Players, opts.Humans with
                     | Some v, Some p, Some h ->
-                        { Variant = v
-                          PlayerCount = p
-                          HumanCount = h
-                          NoviceMode = opts.Mode |> Option.defaultValue true
-                          Seed = opts.Seed
-                          TargetScore = targetScore
-                          Backend = backend }
+                        {
+                            Variant = v
+                            PlayerCount = p
+                            HumanCount = h
+                            NoviceMode = opts.Mode |> Option.defaultValue true
+                            Seed = opts.Seed
+                            TargetScore = targetScore
+                            Backend = backend
+                        }
                     | _ ->
                         // Interactive setup
                         let cfg = interactiveSetup ()
+
                         { cfg with
                             Seed = opts.Seed
                             TargetScore = targetScore
-                            NoviceMode = opts.Mode |> Option.defaultWith (fun () -> cfg.NoviceMode) }
+                            NoviceMode = opts.Mode |> Option.defaultWith (fun () -> cfg.NoviceMode)
+                        }
 
                 GameLoop.runGame config
 
@@ -218,8 +283,7 @@ module Program =
                 AnsiConsole.MarkupLine("[bold green]Kiitos pelaamisesta! (Thanks for playing!)[/]")
                 AnsiConsole.WriteLine()
                 0
-        with
-        | ex ->
+        with ex ->
             AnsiConsole.MarkupLine(sprintf "[red]Error: %s[/]" (Markup.Escape(ex.Message)))
             AnsiConsole.MarkupLine(sprintf "[grey]%s[/]" (Markup.Escape(ex.StackTrace)))
             1

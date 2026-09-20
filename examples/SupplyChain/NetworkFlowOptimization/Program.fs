@@ -18,13 +18,20 @@ type NodeType =
     | Sink
 
 type Node =
-    { Id: string
-      NodeType: NodeType
-      Capacity: int
-      Supply: int option
-      Demand: int option }
+    {
+        Id: string
+        NodeType: NodeType
+        Capacity: int
+        Supply: int option
+        Demand: int option
+    }
 
-type Route = { From: string; To: string; Cost: float }
+type Route =
+    {
+        From: string
+        To: string
+        Cost: float
+    }
 
 module private Parse =
     let private tryGet (k: string) (row: Data.CsvRow) =
@@ -62,16 +69,25 @@ module private Parse =
             rows
             |> List.mapi (fun i row ->
                 let rowNum = i + 2
+
                 match tryGet "node_id" row, tryGet "node_type" row, tryGet "capacity" row with
                 | Some id, Some nt, Some capStr ->
                     match parseNodeType nt, Int32.TryParse capStr with
                     | Some nodeType, (true, cap) ->
                         let supply = tryInt (tryGet "supply" row)
                         let demand = tryInt (tryGet "demand" row)
-                        Ok { Id = id; NodeType = nodeType; Capacity = cap; Supply = supply; Demand = demand }
-                    | None, _ -> Error (sprintf "row=%d invalid node_type='%s'" rowNum nt)
-                    | _, (false, _) -> Error (sprintf "row=%d invalid capacity='%s'" rowNum capStr)
-                | _ -> Error (sprintf "row=%d missing node_id/node_type/capacity" rowNum))
+
+                        Ok
+                            {
+                                Id = id
+                                NodeType = nodeType
+                                Capacity = cap
+                                Supply = supply
+                                Demand = demand
+                            }
+                    | None, _ -> Error(sprintf "row=%d invalid node_type='%s'" rowNum nt)
+                    | _, (false, _) -> Error(sprintf "row=%d invalid capacity='%s'" rowNum capStr)
+                | _ -> Error(sprintf "row=%d missing node_id/node_type/capacity" rowNum))
             |> List.fold
                 (fun (oks, errs) r ->
                     match r with
@@ -88,12 +104,13 @@ module private Parse =
             rows
             |> List.mapi (fun i row ->
                 let rowNum = i + 2
+
                 match tryGet "from" row, tryGet "to" row, tryGet "cost" row with
                 | Some f, Some t, Some costStr ->
                     match Double.TryParse costStr with
                     | true, c -> Ok { From = f; To = t; Cost = c }
-                    | false, _ -> Error (sprintf "row=%d invalid cost='%s'" rowNum costStr)
-                | _ -> Error (sprintf "row=%d missing from/to/cost" rowNum))
+                    | false, _ -> Error(sprintf "row=%d invalid cost='%s'" rowNum costStr)
+                | _ -> Error(sprintf "row=%d missing from/to/cost" rowNum))
             |> List.fold
                 (fun (oks, errs) r ->
                     match r with
@@ -105,9 +122,15 @@ module private Parse =
 
 module private Model =
     let toQuantumProblem (nodes: Node list) (routes: Route list) : QuantumNetworkFlowSolver.NetworkFlowProblem =
-        let sources = nodes |> List.choose (fun n -> if n.NodeType = Source then Some n.Id else None)
-        let sinks = nodes |> List.choose (fun n -> if n.NodeType = Sink then Some n.Id else None)
-        let intermediates = nodes |> List.choose (fun n -> if n.NodeType = Intermediate then Some n.Id else None)
+        let sources =
+            nodes |> List.choose (fun n -> if n.NodeType = Source then Some n.Id else None)
+
+        let sinks =
+            nodes |> List.choose (fun n -> if n.NodeType = Sink then Some n.Id else None)
+
+        let intermediates =
+            nodes
+            |> List.choose (fun n -> if n.NodeType = Intermediate then Some n.Id else None)
 
         // Only intermediate nodes carry a throughput capacity in this model:
         // sources are limited by Supply and sinks by Demand. The CSV uses
@@ -117,12 +140,17 @@ module private Model =
         let capacities =
             nodes
             |> List.choose (fun n ->
-                if n.NodeType = Intermediate then Some (n.Id, n.Capacity) else None)
+                if n.NodeType = Intermediate then
+                    Some(n.Id, n.Capacity)
+                else
+                    None)
             |> Map.ofList
+
         let demands =
             nodes
             |> List.choose (fun n -> n.Demand |> Option.map (fun d -> n.Id, d))
             |> Map.ofList
+
         let supplies =
             nodes
             |> List.choose (fun n -> n.Supply |> Option.map (fun s -> n.Id, s))
@@ -131,23 +159,32 @@ module private Model =
         let edges =
             routes
             |> List.map (fun r ->
-                { Source = r.From
-                  Target = r.To
-                  Weight = r.Cost
-                  Directed = true
-                  Value = Some r.Cost
-                  Properties = Map.empty })
+                {
+                    Source = r.From
+                    Target = r.To
+                    Weight = r.Cost
+                    Directed = true
+                    Value = Some r.Cost
+                    Properties = Map.empty
+                })
 
-        { Sources = sources
-          Sinks = sinks
-          IntermediateNodes = intermediates
-          Edges = edges
-          Capacities = capacities
-          Demands = demands
-          Supplies = supplies }
+        {
+            Sources = sources
+            Sinks = sinks
+            IntermediateNodes = intermediates
+            Edges = edges
+            Capacities = capacities
+            Demands = demands
+            Supplies = supplies
+        }
 
 module private Validate =
-    type Violation = { kind: string; node: string; details: string }
+    type Violation =
+        {
+            kind: string
+            node: string
+            details: string
+        }
 
     let incoming (edges: Edge<float> list) (nodeId: string) =
         edges |> List.filter (fun e -> e.Target = nodeId)
@@ -155,7 +192,10 @@ module private Validate =
     let outgoing (edges: Edge<float> list) (nodeId: string) =
         edges |> List.filter (fun e -> e.Source = nodeId)
 
-    let validateBinaryFlow (problem: QuantumNetworkFlowSolver.NetworkFlowProblem) (selected: Edge<float> list) : Violation list =
+    let validateBinaryFlow
+        (problem: QuantumNetworkFlowSolver.NetworkFlowProblem)
+        (selected: Edge<float> list)
+        : Violation list =
         let sinks = problem.Sinks
         let intermediates = problem.IntermediateNodes
 
@@ -163,25 +203,39 @@ module private Validate =
             sinks
             |> List.choose (fun s ->
                 let inCount = incoming selected s |> List.length
-                if inCount >= 1 then None
-                else Some { kind = "sink_unserved"; node = s; details = "no incoming selected routes" })
+
+                if inCount >= 1 then
+                    None
+                else
+                    Some
+                        {
+                            kind = "sink_unserved"
+                            node = s
+                            details = "no incoming selected routes"
+                        })
 
         let conservationViolations =
             intermediates
             |> List.choose (fun n ->
                 let inCount = incoming selected n |> List.length
                 let outCount = outgoing selected n |> List.length
-                if inCount = outCount then None
+
+                if inCount = outCount then
+                    None
                 else
                     Some
-                        { kind = "flow_conservation"
-                          node = n
-                          details = sprintf "in=%d out=%d" inCount outCount })
+                        {
+                            kind = "flow_conservation"
+                            node = n
+                            details = sprintf "in=%d out=%d" inCount outCount
+                        })
 
         sinkViolations @ conservationViolations
 
 module private Classical =
-    let solveGreedy (problem: QuantumNetworkFlowSolver.NetworkFlowProblem) : Edge<float> list * Validate.Violation list =
+    let solveGreedy
+        (problem: QuantumNetworkFlowSolver.NetworkFlowProblem)
+        : Edge<float> list * Validate.Violation list =
         // Baseline: ensure each sink has at least one incoming edge, then iteratively
         // close conservation gaps for intermediate nodes by adding cheapest missing incoming edges.
         let allEdges = problem.Edges
@@ -216,41 +270,51 @@ module private Classical =
                             if outCount > inCount then
                                 match cheapestIncoming n with
                                 | None -> (sel, anyChanged)
-                                | Some e when sel |> List.exists (fun x -> x.Source = e.Source && x.Target = e.Target) -> (sel, anyChanged)
+                                | Some e when sel |> List.exists (fun x -> x.Source = e.Source && x.Target = e.Target) ->
+                                    (sel, anyChanged)
                                 | Some e -> (e :: sel, true)
                             else
                                 (sel, anyChanged))
                         (selected, false)
 
-                if changed then closeConservation (remainingPasses - 1) updated else updated
+                if changed then
+                    closeConservation (remainingPasses - 1) updated
+                else
+                    updated
 
-        let selected = closeConservation 100 initialSelected |> List.distinctBy (fun e -> e.Source, e.Target)
+        let selected =
+            closeConservation 100 initialSelected
+            |> List.distinctBy (fun e -> e.Source, e.Target)
+
         let violations = Validate.validateBinaryFlow problem selected
         (selected, violations)
 
 type Metrics =
-    { run_id: string
-      nodes_path: string
-      routes_path: string
-      nodes_sha256: string
-      routes_sha256: string
-      nodes_count: int
-      routes_count: int
-      shots: int
-      classical_cost: float
-      classical_fill_rate: float
-      classical_violations: int
-      quantum_cost: float
-      quantum_fill_rate: float
-      quantum_violations: int
-      elapsed_ms_total: int64
-      elapsed_ms_classical: int64
-      elapsed_ms_quantum: int64 }
+    {
+        run_id: string
+        nodes_path: string
+        routes_path: string
+        nodes_sha256: string
+        routes_sha256: string
+        nodes_count: int
+        routes_count: int
+        shots: int
+        classical_cost: float
+        classical_fill_rate: float
+        classical_violations: int
+        quantum_cost: float
+        quantum_fill_rate: float
+        quantum_violations: int
+        elapsed_ms_total: int64
+        elapsed_ms_classical: int64
+        elapsed_ms_quantum: int64
+    }
 
 module Program =
     [<EntryPoint>]
     let main argv =
         let args = Cli.parse argv
+
         if Cli.hasFlag "help" args || Cli.hasFlag "h" args then
             printfn "NetworkFlowOptimization"
             printfn "  --nodes <path>   (CSV: node_id,node_type,capacity,supply,demand)"
@@ -262,8 +326,13 @@ module Program =
             let swTotal = Stopwatch.StartNew()
 
             let nodesPath = Cli.getOr "nodes" "examples/SupplyChain/_data/nodes_tiny.csv" args
-            let routesPath = Cli.getOr "routes" "examples/SupplyChain/_data/routes_tiny.csv" args
-            let outDir = Cli.getOr "out" (Path.Combine("runs", "supplychain", "networkflow")) args
+
+            let routesPath =
+                Cli.getOr "routes" "examples/SupplyChain/_data/routes_tiny.csv" args
+
+            let outDir =
+                Cli.getOr "out" (Path.Combine("runs", "supplychain", "networkflow")) args
+
             let shots = Cli.getIntOr "shots" 1000 args
 
             Data.ensureDirectory outDir
@@ -271,12 +340,14 @@ module Program =
 
             Reporting.writeJson
                 (Path.Combine(outDir, "run-config.json"))
-                {| run_id = runId
-                   utc = DateTimeOffset.UtcNow
-                   nodes = nodesPath
-                   routes = routesPath
-                   out = outDir
-                   shots = shots |}
+                {|
+                    run_id = runId
+                    utc = DateTimeOffset.UtcNow
+                    nodes = nodesPath
+                    routes = routesPath
+                    out = outDir
+                    shots = shots
+                |}
 
             let nodesSha = Data.fileSha256Hex nodesPath
             let routesSha = Data.fileSha256Hex routesPath
@@ -285,11 +356,18 @@ module Program =
             let routes, routeErrors = Parse.readRoutes routesPath
 
             let parseErrors = nodeErrors @ routeErrors
+
             if not parseErrors.IsEmpty then
-                Reporting.writeCsv (Path.Combine(outDir, "bad_rows.csv")) [ "error" ] (parseErrors |> List.map (fun e -> [ e ]))
+                Reporting.writeCsv
+                    (Path.Combine(outDir, "bad_rows.csv"))
+                    [ "error" ]
+                    (parseErrors |> List.map (fun e -> [ e ]))
 
             if nodes.IsEmpty || routes.IsEmpty then
-                Reporting.writeTextFile (Path.Combine(outDir, "run-report.md")) "# Network Flow Optimization\n\nNo nodes or no routes parsed; see bad_rows.csv.\n"
+                Reporting.writeTextFile
+                    (Path.Combine(outDir, "run-report.md"))
+                    "# Network Flow Optimization\n\nNo nodes or no routes parsed; see bad_rows.csv.\n"
+
                 2
             else
                 let problem = Model.toQuantumProblem nodes routes
@@ -299,13 +377,16 @@ module Program =
                 swClassical.Stop()
 
                 let classicalCost = classicalSelected |> List.sumBy (fun e -> e.Weight)
+
                 let classicalFillRate =
-                    if problem.Sinks.Length = 0 then 0.0
+                    if problem.Sinks.Length = 0 then
+                        0.0
                     else
                         let served =
                             problem.Sinks
                             |> List.filter (fun s -> classicalSelected |> List.exists (fun e -> e.Target = s))
                             |> List.length
+
                         float served / float problem.Sinks.Length
 
                 let swQuantum = Stopwatch.StartNew()
@@ -317,9 +398,11 @@ module Program =
                     match quantumResult with
                     | Error _ ->
                         let solverError: Validate.Violation =
-                            { kind = "solver_error"
-                              node = ""
-                              details = "quantum solver failed" }
+                            {
+                                kind = "solver_error"
+                                node = ""
+                                details = "quantum solver failed"
+                            }
 
                         // 0.0 (not nan) so metrics stay JSON-serializable; the
                         // solver_error violation row records the failure.
@@ -340,10 +423,8 @@ module Program =
                 writeSelected (Path.Combine(outDir, "solution_quantum.csv")) quantumSelected
 
                 let allViolations =
-                    [ ("classical", classicalViolations)
-                      ("quantum", quantumViolations) ]
-                    |> List.collect (fun (label, vs) ->
-                        vs |> List.map (fun v -> [ label; v.kind; v.node; v.details ]))
+                    [ ("classical", classicalViolations); ("quantum", quantumViolations) ]
+                    |> List.collect (fun (label, vs) -> vs |> List.map (fun v -> [ label; v.kind; v.node; v.details ]))
 
                 Reporting.writeCsv
                     (Path.Combine(outDir, "violations.csv"))
@@ -353,23 +434,25 @@ module Program =
                 swTotal.Stop()
 
                 let metrics: Metrics =
-                    { run_id = runId
-                      nodes_path = nodesPath
-                      routes_path = routesPath
-                      nodes_sha256 = nodesSha
-                      routes_sha256 = routesSha
-                      nodes_count = nodes.Length
-                      routes_count = routes.Length
-                      shots = shots
-                      classical_cost = classicalCost
-                      classical_fill_rate = classicalFillRate
-                      classical_violations = classicalViolations.Length
-                      quantum_cost = quantumCost
-                      quantum_fill_rate = quantumFillRate
-                      quantum_violations = quantumViolations.Length
-                      elapsed_ms_total = swTotal.ElapsedMilliseconds
-                      elapsed_ms_classical = swClassical.ElapsedMilliseconds
-                      elapsed_ms_quantum = swQuantum.ElapsedMilliseconds }
+                    {
+                        run_id = runId
+                        nodes_path = nodesPath
+                        routes_path = routesPath
+                        nodes_sha256 = nodesSha
+                        routes_sha256 = routesSha
+                        nodes_count = nodes.Length
+                        routes_count = routes.Length
+                        shots = shots
+                        classical_cost = classicalCost
+                        classical_fill_rate = classicalFillRate
+                        classical_violations = classicalViolations.Length
+                        quantum_cost = quantumCost
+                        quantum_fill_rate = quantumFillRate
+                        quantum_violations = quantumViolations.Length
+                        elapsed_ms_total = swTotal.ElapsedMilliseconds
+                        elapsed_ms_classical = swClassical.ElapsedMilliseconds
+                        elapsed_ms_quantum = swQuantum.ElapsedMilliseconds
+                    }
 
                 Reporting.writeJson (Path.Combine(outDir, "metrics.json")) metrics
 

@@ -40,12 +40,38 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "HydrogenTunneling.fsx"
     "VQE simulation of quantum tunneling and hydrogen embrittlement in metals."
-    [ { Cli.OptionSpec.Name = "metals";      Description = "Comma-separated metal short names (Fe, Ni, Pd, Ti, Steel)"; Default = None }
-      { Cli.OptionSpec.Name = "input";       Description = "CSV file with custom metal definitions";                    Default = None }
-      { Cli.OptionSpec.Name = "temperature"; Description = "Temperature in Kelvin for diffusion analysis";              Default = Some "300" }
-      { Cli.OptionSpec.Name = "output";      Description = "Write results to JSON file";                                Default = None }
-      { Cli.OptionSpec.Name = "csv";         Description = "Write results to CSV file";                                 Default = None }
-      { Cli.OptionSpec.Name = "quiet";       Description = "Suppress informational output";                             Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "metals"
+            Description = "Comma-separated metal short names (Fe, Ni, Pd, Ti, Steel)"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with custom metal definitions"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "temperature"
+            Description = "Temperature in Kelvin for diffusion analysis"
+            Default = Some "300"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -58,15 +84,16 @@ let csvPath = Cli.tryGet "csv" args
 // ==============================================================================
 
 /// Metal host properties for hydrogen diffusion
-type MetalHost = {
-    Name: string
-    ShortName: string
-    BarrierHeight: float    // eV
-    BarrierWidth: float     // Angstroms
-    AttemptFrequency: float // Hz
-    LatticeConstant: float  // Angstroms
-    HydrogenSolubility: float // atomic fraction at 1 atm, 300K
-}
+type MetalHost =
+    {
+        Name: string
+        ShortName: string
+        BarrierHeight: float // eV
+        BarrierWidth: float // Angstroms
+        AttemptFrequency: float // Hz
+        LatticeConstant: float // Angstroms
+        HydrogenSolubility: float // atomic fraction at 1 atm, 300K
+    }
 
 // ==============================================================================
 // PHYSICAL CONSTANTS
@@ -75,6 +102,7 @@ type MetalHost = {
 /// proton mass (kg)
 [<Literal>]
 let m_H = 1.6735575e-27
+
 /// deuterium
 let m_D = 2.0 * m_H
 /// tritium
@@ -84,30 +112,60 @@ let m_T = 3.0 * m_H
 // BUILT-IN METAL PRESETS
 // ==============================================================================
 
-let private presetFe = {
-    Name = "Iron (Fe) - BCC"; ShortName = "Fe"
-    BarrierHeight = 0.04; BarrierWidth = 1.2; AttemptFrequency = 1.0e13
-    LatticeConstant = 2.87; HydrogenSolubility = 1.0e-8 }
+let private presetFe =
+    {
+        Name = "Iron (Fe) - BCC"
+        ShortName = "Fe"
+        BarrierHeight = 0.04
+        BarrierWidth = 1.2
+        AttemptFrequency = 1.0e13
+        LatticeConstant = 2.87
+        HydrogenSolubility = 1.0e-8
+    }
 
-let private presetNi = {
-    Name = "Nickel (Ni) - FCC"; ShortName = "Ni"
-    BarrierHeight = 0.41; BarrierWidth = 1.5; AttemptFrequency = 1.0e13
-    LatticeConstant = 3.52; HydrogenSolubility = 1.0e-5 }
+let private presetNi =
+    {
+        Name = "Nickel (Ni) - FCC"
+        ShortName = "Ni"
+        BarrierHeight = 0.41
+        BarrierWidth = 1.5
+        AttemptFrequency = 1.0e13
+        LatticeConstant = 3.52
+        HydrogenSolubility = 1.0e-5
+    }
 
-let private presetPd = {
-    Name = "Palladium (Pd) - FCC"; ShortName = "Pd"
-    BarrierHeight = 0.23; BarrierWidth = 1.4; AttemptFrequency = 1.0e13
-    LatticeConstant = 3.89; HydrogenSolubility = 0.6 }
+let private presetPd =
+    {
+        Name = "Palladium (Pd) - FCC"
+        ShortName = "Pd"
+        BarrierHeight = 0.23
+        BarrierWidth = 1.4
+        AttemptFrequency = 1.0e13
+        LatticeConstant = 3.89
+        HydrogenSolubility = 0.6
+    }
 
-let private presetTi = {
-    Name = "Titanium (Ti) - HCP"; ShortName = "Ti"
-    BarrierHeight = 0.54; BarrierWidth = 1.6; AttemptFrequency = 1.0e13
-    LatticeConstant = 2.95; HydrogenSolubility = 0.08 }
+let private presetTi =
+    {
+        Name = "Titanium (Ti) - HCP"
+        ShortName = "Ti"
+        BarrierHeight = 0.54
+        BarrierWidth = 1.6
+        AttemptFrequency = 1.0e13
+        LatticeConstant = 2.95
+        HydrogenSolubility = 0.08
+    }
 
-let private presetSteel = {
-    Name = "Steel (Fe-C)"; ShortName = "Steel"
-    BarrierHeight = 0.05; BarrierWidth = 1.3; AttemptFrequency = 1.0e13
-    LatticeConstant = 2.87; HydrogenSolubility = 2.0e-8 }
+let private presetSteel =
+    {
+        Name = "Steel (Fe-C)"
+        ShortName = "Steel"
+        BarrierHeight = 0.05
+        BarrierWidth = 1.3
+        AttemptFrequency = 1.0e13
+        LatticeConstant = 2.87
+        HydrogenSolubility = 2.0e-8
+    }
 
 let private builtInMetals =
     [ presetFe; presetNi; presetPd; presetTi; presetSteel ]
@@ -121,25 +179,71 @@ let private builtInMetals =
 let private loadMetalsFromCsv (filePath: string) : MetalHost list =
     let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
     let rows, errors = Data.readCsvWithHeaderWithErrors resolved
+
     if not (List.isEmpty errors) then
         eprintfn "WARNING: CSV parse errors in %s:" filePath
         errors |> List.iter (eprintfn "  %s")
-    if rows.IsEmpty then failwithf "No valid rows in CSV %s" filePath
-    rows |> List.mapi (fun i row ->
-        let get key = row.Values |> Map.tryFind key |> Option.defaultValue ""
+
+    if rows.IsEmpty then
+        failwithf "No valid rows in CSV %s" filePath
+
+    rows
+    |> List.mapi (fun i row ->
+        let get key =
+            row.Values |> Map.tryFind key |> Option.defaultValue ""
+
         match get "preset" with
         | p when not (String.IsNullOrWhiteSpace p) ->
             match builtInMetals |> Map.tryFind (p.Trim().ToUpperInvariant()) with
             | Some m -> m
             | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
         | _ ->
-            { Name              = let n = get "name" in if n = "" then failwithf "Missing name in CSV row %d" (i + 1) else n
-              ShortName         = let s = get "short_name" in if s = "" then failwithf "Missing short_name in CSV row %d" (i + 1) else s
-              BarrierHeight     = get "barrier_height" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.1
-              BarrierWidth      = get "barrier_width" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 1.5
-              AttemptFrequency  = get "attempt_frequency" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 1.0e13
-              LatticeConstant   = get "lattice_constant" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 3.0
-              HydrogenSolubility = get "hydrogen_solubility" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 1.0e-6 })
+            {
+                Name =
+                    let n = get "name" in
+
+                    if n = "" then
+                        failwithf "Missing name in CSV row %d" (i + 1)
+                    else
+                        n
+                ShortName =
+                    let s = get "short_name" in
+
+                    if s = "" then
+                        failwithf "Missing short_name in CSV row %d" (i + 1)
+                    else
+                        s
+                BarrierHeight =
+                    get "barrier_height"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 0.1
+                BarrierWidth =
+                    get "barrier_width"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 1.5
+                AttemptFrequency =
+                    get "attempt_frequency"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 1.0e13
+                LatticeConstant =
+                    get "lattice_constant"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 3.0
+                HydrogenSolubility =
+                    get "hydrogen_solubility"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 1.0e-6
+            })
 
 // ==============================================================================
 // METAL SELECTION
@@ -155,7 +259,9 @@ let selectedMetals =
     | [] -> base'
     | filter ->
         let filterSet = filter |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
-        base' |> List.filter (fun m -> filterSet.Contains(m.ShortName.ToUpperInvariant()))
+
+        base'
+        |> List.filter (fun m -> filterSet.Contains(m.ShortName.ToUpperInvariant()))
 
 if selectedMetals.IsEmpty then
     eprintfn "ERROR: No metals selected. Check --metals filter or --input CSV."
@@ -202,12 +308,30 @@ if not quiet then
 let mutable anyVqeFailure = false
 
 let createFeHMolecule (bondLength: float) (multiplicity: int) : Molecule =
-    { Name = $"FeH (M=%d{multiplicity})"
-      Atoms = [
-          { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
-          { Element = "H"; Position = (0.0, 0.0, bondLength) } ]
-      Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-      Charge = 0; Multiplicity = multiplicity }
+    {
+        Name = $"FeH (M=%d{multiplicity})"
+        Atoms =
+            [
+                {
+                    Element = "Fe"
+                    Position = (0.0, 0.0, 0.0)
+                }
+                {
+                    Element = "H"
+                    Position = (0.0, 0.0, bondLength)
+                }
+            ]
+        Bonds =
+            [
+                {
+                    Atom1 = 0
+                    Atom2 = 1
+                    BondOrder = 1.0
+                }
+            ]
+        Charge = 0
+        Multiplicity = multiplicity
+    }
 
 /// Run VQE and return result row
 let runVqe (label: string) (description: string) (molecule: Molecule) : Map<string, string> =
@@ -215,51 +339,90 @@ let runVqe (label: string) (description: string) (molecule: Molecule) : Map<stri
         printfn "  VQE: %s — %s" label molecule.Name
 
     match calculateVQEEnergy backend molecule with
-    | Ok (energy, iterations, time) ->
+    | Ok(energy, iterations, time) ->
         if not quiet then
             printfn "    Energy: %.6f Ha, Iterations: %d, Time: %.2f s" energy iterations time
-        Map.ofList [
-            "molecule", molecule.Name; "label", label
-            "energy_hartree", $"%.6f{energy}"
-            "iterations", $"%d{iterations}"
-            "time_seconds", $"%.2f{time}"
-            "has_vqe_failure", "false" ]
+
+        Map.ofList
+            [
+                "molecule", molecule.Name
+                "label", label
+                "energy_hartree", $"%.6f{energy}"
+                "iterations", $"%d{iterations}"
+                "time_seconds", $"%.2f{time}"
+                "has_vqe_failure", "false"
+            ]
     | Error msg ->
         anyVqeFailure <- true
-        if not quiet then eprintfn "    Error: %s" msg
-        Map.ofList [
-            "molecule", molecule.Name; "label", label
-            "energy_hartree", "N/A"; "iterations", "N/A"; "time_seconds", "N/A"
-            "has_vqe_failure", "true" ]
+
+        if not quiet then
+            eprintfn "    Error: %s" msg
+
+        Map.ofList
+            [
+                "molecule", molecule.Name
+                "label", label
+                "energy_hartree", "N/A"
+                "iterations", "N/A"
+                "time_seconds", "N/A"
+                "has_vqe_failure", "true"
+            ]
 
 // FeH at different bond lengths (models interstitial potential landscape)
 let bondLengthResults =
-    [ (1.40, "Compressed (saddle point)")
-      (1.63, "Equilibrium (trap site)")
-      (2.00, "Extended (delocalized)") ]
+    [
+        (1.40, "Compressed (saddle point)")
+        (1.63, "Equilibrium (trap site)")
+        (2.00, "Extended (delocalized)")
+    ]
     |> List.map (fun (bl, desc) ->
         let label = $"FeH R=%.2f{bl} A"
+
         runVqe label desc (createFeHMolecule bl 4)
         |> Map.add "bond_length_A" $"%.2f{bl}")
 
 // Spin state comparison at equilibrium
-let quartetResult = runVqe "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
-let doubletResult = runVqe "FeH Doublet (M=2)" "S=1/2, reduced moment" (createFeHMolecule 1.63 2)
-let spinResults = [quartetResult; doubletResult]
+let quartetResult =
+    runVqe "FeH Quartet (M=4)" "S=3/2, ferromagnetic" (createFeHMolecule 1.63 4)
+
+let doubletResult =
+    runVqe "FeH Doublet (M=2)" "S=1/2, reduced moment" (createFeHMolecule 1.63 2)
+
+let spinResults = [ quartetResult; doubletResult ]
 
 let spinGapRow =
-    let E_q = quartetResult |> Map.tryFind "energy_hartree" |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
-    let E_d = doubletResult |> Map.tryFind "energy_hartree" |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+    let E_q =
+        quartetResult
+        |> Map.tryFind "energy_hartree"
+        |> Option.bind (fun s ->
+            match Double.TryParse s with
+            | true, v -> Some v
+            | _ -> None)
+
+    let E_d =
+        doubletResult
+        |> Map.tryFind "energy_hartree"
+        |> Option.bind (fun s ->
+            match Double.TryParse s with
+            | true, v -> Some v
+            | _ -> None)
+
     match E_q, E_d with
     | Some eQ, Some eD ->
         let gap_meV = (eD - eQ) * hartreeToEV * 1000.0
-        if not quiet then printfn "  Spin excitation energy: %.1f meV" gap_meV
-        Map.ofList [
-            "quantity", "spin_gap"; "spin_gap_meV", $"%.1f{gap_meV}"
-            "quartet_hartree", $"%.6f{eQ}"; "doublet_hartree", $"%.6f{eD}"
-            "has_vqe_failure", "false" ]
-    | _ ->
-        Map.ofList [ "quantity", "spin_gap"; "has_vqe_failure", "true" ]
+
+        if not quiet then
+            printfn "  Spin excitation energy: %.1f meV" gap_meV
+
+        Map.ofList
+            [
+                "quantity", "spin_gap"
+                "spin_gap_meV", $"%.1f{gap_meV}"
+                "quartet_hartree", $"%.6f{eQ}"
+                "doublet_hartree", $"%.6f{eD}"
+                "has_vqe_failure", "false"
+            ]
+    | _ -> Map.ofList [ "quantity", "spin_gap"; "has_vqe_failure", "true" ]
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
@@ -271,9 +434,22 @@ let printTable () =
     printfn ""
     printfn "  Hydrogen Tunneling in Metals (T=%.0f K)" userTemperature
     printfn "  %s" divM
-    printfn "  %-6s %-22s %6s %5s %10s %10s %10s %10s %10s %10s"
-        "Key" "Name" "V0(eV)" "w(A)" "P_H" "P_D" "Q-Rate(Hz)" "C-Rate(Hz)" "D(m2/s)" "Regime"
+
+    printfn
+        "  %-6s %-22s %6s %5s %10s %10s %10s %10s %10s %10s"
+        "Key"
+        "Name"
+        "V0(eV)"
+        "w(A)"
+        "P_H"
+        "P_D"
+        "Q-Rate(Hz)"
+        "C-Rate(Hz)"
+        "D(m2/s)"
+        "Regime"
+
     printfn "  %s" divM
+
     for metal in selectedMetals do
         let P_H = tunnelingProbability m_H metal.BarrierHeight metal.BarrierWidth
         let P_D = tunnelingProbability m_D metal.BarrierHeight metal.BarrierWidth
@@ -281,9 +457,20 @@ let printTable () =
         let classical = classicalHoppingRate metal userTemperature
         let D_H = diffusionCoefficient metal rate_H
         let regime = if rate_H > classical then "Quantum" else "Classical"
-        printfn "  %-6s %-22s %6.2f %5.1f %10.2e %10.2e %10.2e %10.2e %10.2e %10s"
-            metal.ShortName metal.Name metal.BarrierHeight metal.BarrierWidth
-            P_H P_D rate_H classical D_H regime
+
+        printfn
+            "  %-6s %-22s %6.2f %5.1f %10.2e %10.2e %10.2e %10.2e %10.2e %10s"
+            metal.ShortName
+            metal.Name
+            metal.BarrierHeight
+            metal.BarrierWidth
+            P_H
+            P_D
+            rate_H
+            classical
+            D_H
+            regime
+
     printfn "  %s" divM
 
     // VQE results table
@@ -291,10 +478,10 @@ let printTable () =
     printfn ""
     printfn "  FeH VQE Results"
     printfn "  %s" divV
-    printfn "  %-22s %-26s %12s %6s %8s %8s"
-        "Molecule" "Label" "Energy(Ha)" "Iters" "Time(s)" "Status"
+    printfn "  %-22s %-26s %12s %6s %8s %8s" "Molecule" "Label" "Energy(Ha)" "Iters" "Time(s)" "Status"
     printfn "  %s" divV
     let allVqe = bondLengthResults @ spinResults
+
     for r in allVqe do
         let mol = r |> Map.tryFind "molecule" |> Option.defaultValue "?"
         let lbl = r |> Map.tryFind "label" |> Option.defaultValue "?"
@@ -304,6 +491,7 @@ let printTable () =
         let fail = r |> Map.tryFind "has_vqe_failure" |> Option.defaultValue "false"
         let status = if fail = "true" then "FAIL" else "OK"
         printfn "  %-22s %-26s %12s %6s %8s %8s" mol lbl energy iters time status
+
     printfn "  %s" divV
 
 printTable ()
@@ -321,39 +509,68 @@ let tunnelingRows =
         let D_H = diffusionCoefficient metal rate_H
         let classical = classicalHoppingRate metal userTemperature
         let regime = if rate_H > classical then "Quantum" else "Classical"
-        Map.ofList [
-            "metal", metal.Name; "short_name", metal.ShortName
-            "barrier_height_eV", $"%.2f{metal.BarrierHeight}"
-            "barrier_width_A", $"%.1f{metal.BarrierWidth}"
-            "P_H", $"%.2e{P_H}"; "P_D", $"%.2e{P_D}"
-            "quantum_rate_Hz", $"%.2e{rate_H}"
-            "classical_rate_Hz", $"%.2e{classical}"
-            "diffusion_m2s", $"%.2e{D_H}"
-            "dominant_regime", regime
-            "temperature_K", $"%.0f{userTemperature}"
-            "has_vqe_failure", $"%b{anyVqeFailure}" ])
+
+        Map.ofList
+            [
+                "metal", metal.Name
+                "short_name", metal.ShortName
+                "barrier_height_eV", $"%.2f{metal.BarrierHeight}"
+                "barrier_width_A", $"%.1f{metal.BarrierWidth}"
+                "P_H", $"%.2e{P_H}"
+                "P_D", $"%.2e{P_D}"
+                "quantum_rate_Hz", $"%.2e{rate_H}"
+                "classical_rate_Hz", $"%.2e{classical}"
+                "diffusion_m2s", $"%.2e{D_H}"
+                "dominant_regime", regime
+                "temperature_K", $"%.0f{userTemperature}"
+                "has_vqe_failure", $"%b{anyVqeFailure}"
+            ])
 
 let vqeAllResults = bondLengthResults @ spinResults
-let allResultRows = tunnelingRows @ vqeAllResults @ [spinGapRow]
+let allResultRows = tunnelingRows @ vqeAllResults @ [ spinGapRow ]
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path allResultRows
-    if not quiet then printfn "\nResults written to %s" path
+
+    if not quiet then
+        printfn "\nResults written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
     let header =
-        [ "metal"; "short_name"; "barrier_height_eV"; "barrier_width_A"; "P_H"; "P_D"
-          "quantum_rate_Hz"; "classical_rate_Hz"; "diffusion_m2s"; "dominant_regime"
-          "temperature_K"; "has_vqe_failure"
-          "molecule"; "label"; "energy_hartree"; "iterations"; "time_seconds"
-          "bond_length_A"; "quantity"; "spin_gap_meV"; "quartet_hartree"; "doublet_hartree" ]
+        [
+            "metal"
+            "short_name"
+            "barrier_height_eV"
+            "barrier_width_A"
+            "P_H"
+            "P_D"
+            "quantum_rate_Hz"
+            "classical_rate_Hz"
+            "diffusion_m2s"
+            "dominant_regime"
+            "temperature_K"
+            "has_vqe_failure"
+            "molecule"
+            "label"
+            "energy_hartree"
+            "iterations"
+            "time_seconds"
+            "bond_length_A"
+            "quantity"
+            "spin_gap_meV"
+            "quartet_hartree"
+            "doublet_hartree"
+        ]
+
     let rows =
         allResultRows
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()

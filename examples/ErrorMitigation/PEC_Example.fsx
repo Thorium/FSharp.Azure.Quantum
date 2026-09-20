@@ -103,16 +103,56 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "PEC_Example.fsx" "Probabilistic Error Cancellation (PEC) error mitigation for quantum circuits"
-    [ { Cli.OptionSpec.Name = "single-qubit-error"; Description = "Single-qubit gate depolarizing error rate"; Default = Some "0.001" }
-      { Cli.OptionSpec.Name = "two-qubit-error"; Description = "Two-qubit gate depolarizing error rate"; Default = Some "0.01" }
-      { Cli.OptionSpec.Name = "readout-error"; Description = "Readout measurement error rate"; Default = Some "0.02" }
-      { Cli.OptionSpec.Name = "samples"; Description = "PEC Monte Carlo sample count"; Default = Some "50" }
-      { Cli.OptionSpec.Name = "theta"; Description = "VQE ansatz angle (radians, or 'pi/4')"; Default = Some "pi/4" }
-      { Cli.OptionSpec.Name = "compare-samples"; Description = "Run sample-count comparison table"; Default = None }
-      { Cli.OptionSpec.Name = "output"; Description = "Write JSON results to file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write CSV results to file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+Cli.exitIfHelp
+    "PEC_Example.fsx"
+    "Probabilistic Error Cancellation (PEC) error mitigation for quantum circuits"
+    [
+        {
+            Cli.OptionSpec.Name = "single-qubit-error"
+            Description = "Single-qubit gate depolarizing error rate"
+            Default = Some "0.001"
+        }
+        {
+            Cli.OptionSpec.Name = "two-qubit-error"
+            Description = "Two-qubit gate depolarizing error rate"
+            Default = Some "0.01"
+        }
+        {
+            Cli.OptionSpec.Name = "readout-error"
+            Description = "Readout measurement error rate"
+            Default = Some "0.02"
+        }
+        {
+            Cli.OptionSpec.Name = "samples"
+            Description = "PEC Monte Carlo sample count"
+            Default = Some "50"
+        }
+        {
+            Cli.OptionSpec.Name = "theta"
+            Description = "VQE ansatz angle (radians, or 'pi/4')"
+            Default = Some "pi/4"
+        }
+        {
+            Cli.OptionSpec.Name = "compare-samples"
+            Description = "Run sample-count comparison table"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write JSON results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write CSV results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -125,11 +165,13 @@ let compareSamples = Cli.hasFlag "compare-samples" args
 /// Parse theta value, supporting "pi/N" notation.
 let parseTheta (s: string) : float =
     let s = s.Trim().ToLowerInvariant()
+
     if s.StartsWith "pi/" then
         match Double.TryParse(s.AsSpan 3) with
         | true, denom -> Math.PI / denom
         | _ -> Math.PI / 4.0
-    elif s = "pi" then Math.PI
+    elif s = "pi" then
+        Math.PI
     else
         match Double.TryParse(s) with
         | true, v -> v
@@ -146,11 +188,12 @@ let theta = parseTheta (Cli.getOr "theta" "pi/4" args)
 let trueEnergy = -1.137
 
 /// Noise model based on CLI parameters.
-let noiseModel: NoiseModel = {
-    SingleQubitDepolarizing = singleQubitError
-    TwoQubitDepolarizing = twoQubitError
-    ReadoutError = readoutError
-}
+let noiseModel: NoiseModel =
+    {
+        SingleQubitDepolarizing = singleQubitError
+        TwoQubitDepolarizing = twoQubitError
+        ReadoutError = readoutError
+    }
 
 /// Create a VQE-like circuit for H2: RY(theta) - CNOT - RY(theta).
 let createH2Circuit (angle: float) : Circuit =
@@ -167,19 +210,26 @@ let noisyExecutor (circuit: Circuit) : Async<Result<float, string>> =
         let singleQubitGates =
             circuit.Gates
             |> List.filter (function
-                | Gate.RY _ | Gate.RX _ | Gate.RZ _ -> true
+                | Gate.RY _
+                | Gate.RX _
+                | Gate.RZ _ -> true
                 | _ -> false)
             |> List.length
+
         let twoQubitGates =
             circuit.Gates
-            |> List.filter (function | Gate.CNOT _ -> true | _ -> false)
+            |> List.filter (function
+                | Gate.CNOT _ -> true
+                | _ -> false)
             |> List.length
+
         let noiseContribution =
-            (float singleQubitGates * noiseModel.SingleQubitDepolarizing) +
-            (float twoQubitGates * noiseModel.TwoQubitDepolarizing)
+            (float singleQubitGates * noiseModel.SingleQubitDepolarizing)
+            + (float twoQubitGates * noiseModel.TwoQubitDepolarizing)
+
         let random = Random()
         let noise = (random.NextDouble() - 0.5) * noiseContribution * 10.0
-        return Ok (trueEnergy + noise)
+        return Ok(trueEnergy + noise)
     }
 
 let h2Circuit = createH2Circuit theta
@@ -210,11 +260,12 @@ if not quiet then
     printfn "Gates: 2x RY (single-qubit), 1x CNOT (two-qubit)"
     printfn ""
 
-let pecConfig: PECConfig = {
-    NoiseModel = noiseModel
-    Samples = pecSamples
-    Seed = Some 42
-}
+let pecConfig: PECConfig =
+    {
+        NoiseModel = noiseModel
+        Samples = pecSamples
+        Seed = Some 42
+    }
 
 if not quiet then
     printfn "PEC Configuration:"
@@ -225,12 +276,16 @@ if not quiet then
     printfn "(Running %d circuit samples)" pecSamples
     printfn ""
 
-match Async.RunSynchronously (mitigate h2Circuit pecConfig noisyExecutor) with
+match Async.RunSynchronously(mitigate h2Circuit pecConfig noisyExecutor) with
 | Ok result ->
     let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
     let correctedError = abs (result.CorrectedExpectation - trueEnergy)
+
     let accuracyImprovement =
-        if correctedError > 0.0 then uncorrectedError / correctedError else 0.0
+        if correctedError > 0.0 then
+            uncorrectedError / correctedError
+        else
+            0.0
 
     if not quiet then
         printfn "[OK] PEC Complete!"
@@ -247,31 +302,37 @@ match Async.RunSynchronously (mitigate h2Circuit pecConfig noisyExecutor) with
         printfn "  Corrected error: %.4f Hartree" correctedError
         printfn "  Accuracy improvement: %.2fx" accuracyImprovement
         printfn ""
+
         if accuracyImprovement >= 2.0 then
             printfn "[OK] Achieved 2x+ accuracy improvement!"
         elif accuracyImprovement >= 1.5 then
             printfn "[OK] 1.5x+ accuracy improvement"
         else
             printfn "[NOTE] Lower accuracy gain (may need more samples or stochastic variation)"
+
         printfn ""
 
     allResults.Add(
-        [ "example", "1_basic_pec"
-          "samples", string pecSamples
-          "single_qubit_error", $"%.4f{singleQubitError}"
-          "two_qubit_error", $"%.4f{twoQubitError}"
-          "readout_error", $"%.4f{readoutError}"
-          "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
-          "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
-          "corrected_error_Ha", $"%.6f{correctedError}"
-          "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
-          "accuracy_improvement_x", $"%.2f{accuracyImprovement}"
-          "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
-          "overhead_x", $"%.0f{result.Overhead}" ]
-        |> Map.ofList)
+        [
+            "example", "1_basic_pec"
+            "samples", string pecSamples
+            "single_qubit_error", $"%.4f{singleQubitError}"
+            "two_qubit_error", $"%.4f{twoQubitError}"
+            "readout_error", $"%.4f{readoutError}"
+            "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+            "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+            "corrected_error_Ha", $"%.6f{correctedError}"
+            "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
+            "accuracy_improvement_x", $"%.2f{accuracyImprovement}"
+            "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
+            "overhead_x", $"%.0f{result.Overhead}"
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -288,7 +349,7 @@ if not quiet then
     printfn "Key Insight: PEC inverts noise by using NEGATIVE probabilities!"
     printfn ""
 
-let exampleGate = Gate.RY (0, Math.PI / 4.0)
+let exampleGate = Gate.RY(0, Math.PI / 4.0)
 let decomposition = decomposeSingleQubitGate exampleGate noiseModel
 
 if not quiet then
@@ -330,11 +391,12 @@ if not quiet then
     printfn "Requirement: +/-0.001 Hartree precision (kcal/mol accuracy)"
     printfn ""
 
-let highPrecisionConfig: PECConfig = {
-    NoiseModel = noiseModel
-    Samples = max pecSamples 100  // At least 100 for this example
-    Seed = Some 42
-}
+let highPrecisionConfig: PECConfig =
+    {
+        NoiseModel = noiseModel
+        Samples = max pecSamples 100 // At least 100 for this example
+        Seed = Some 42
+    }
 
 if not quiet then
     printfn "Configuration:"
@@ -344,10 +406,10 @@ if not quiet then
     printfn "Running high-precision PEC..."
     printfn ""
 
-match Async.RunSynchronously (mitigate h2Circuit highPrecisionConfig noisyExecutor) with
+match Async.RunSynchronously(mitigate h2Circuit highPrecisionConfig noisyExecutor) with
 | Ok result ->
     let errorHartree = abs (result.CorrectedExpectation - trueEnergy)
-    let errorKcalMol = errorHartree * 627.5  // Hartree to kcal/mol
+    let errorKcalMol = errorHartree * 627.5 // Hartree to kcal/mol
 
     if not quiet then
         printfn "[OK] High-Precision PEC Complete!"
@@ -360,30 +422,36 @@ match Async.RunSynchronously (mitigate h2Circuit highPrecisionConfig noisyExecut
         printfn "Error in chemical units:"
         printfn "  %.6f Hartree = %.3f kcal/mol" errorHartree errorKcalMol
         printfn ""
+
         if errorHartree < 0.001 then
             printfn "[OK] Chemical accuracy achieved!"
             printfn "     (Error < 1 kcal/mol = acceptable for drug design)"
         else
             printfn "[NOTE] May need more samples for chemical accuracy"
+
         printfn ""
 
     allResults.Add(
-        [ "example", "3_high_precision"
-          "samples", string highPrecisionConfig.Samples
-          "single_qubit_error", $"%.4f{singleQubitError}"
-          "two_qubit_error", $"%.4f{twoQubitError}"
-          "readout_error", $"%.4f{readoutError}"
-          "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
-          "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
-          "corrected_error_Ha", $"%.6f{errorHartree}"
-          "uncorrected_error_Ha", sprintf "%.6f" (abs (result.UncorrectedExpectation - trueEnergy))
-          "accuracy_improvement_x", ""
-          "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
-          "overhead_x", $"%.0f{result.Overhead}" ]
-        |> Map.ofList)
+        [
+            "example", "3_high_precision"
+            "samples", string highPrecisionConfig.Samples
+            "single_qubit_error", $"%.4f{singleQubitError}"
+            "two_qubit_error", $"%.4f{twoQubitError}"
+            "readout_error", $"%.4f{readoutError}"
+            "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+            "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+            "corrected_error_Ha", $"%.6f{errorHartree}"
+            "uncorrected_error_Ha", sprintf "%.6f" (abs (result.UncorrectedExpectation - trueEnergy))
+            "accuracy_improvement_x", ""
+            "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
+            "overhead_x", $"%.0f{result.Overhead}"
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -401,45 +469,50 @@ if compareSamples || not quiet then
         printfn "Question: How many samples do I need?"
         printfn ""
 
-    let sampleCounts = [10; 25; 50; 100; 200]
+    let sampleCounts = [ 10; 25; 50; 100; 200 ]
 
     if not quiet then
         printfn "Running PEC with different sample counts..."
         printfn ""
 
     for s in sampleCounts do
-        let config: PECConfig = {
-            NoiseModel = noiseModel
-            Samples = s
-            Seed = Some 42
-        }
-        match Async.RunSynchronously (mitigate h2Circuit config noisyExecutor) with
+        let config: PECConfig =
+            {
+                NoiseModel = noiseModel
+                Samples = s
+                Seed = Some 42
+            }
+
+        match Async.RunSynchronously(mitigate h2Circuit config noisyExecutor) with
         | Ok result ->
             let error = abs (result.CorrectedExpectation - trueEnergy)
             let uncorrectedError = abs (result.UncorrectedExpectation - trueEnergy)
-            let improvement =
-                if error > 0.0 then uncorrectedError / error else 0.0
+            let improvement = if error > 0.0 then uncorrectedError / error else 0.0
+
             if not quiet then
-                printfn "  %3d samples -> Error: %.4f Hartree, Improvement: %.2fx, Cost: %dx"
-                    s error improvement s
+                printfn "  %3d samples -> Error: %.4f Hartree, Improvement: %.2fx, Cost: %dx" s error improvement s
 
             if compareSamples then
                 allResults.Add(
-                    [ "example", $"4_compare_%d{s}_samples"
-                      "samples", string s
-                      "single_qubit_error", $"%.4f{singleQubitError}"
-                      "two_qubit_error", $"%.4f{twoQubitError}"
-                      "readout_error", $"%.4f{readoutError}"
-                      "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
-                      "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
-                      "corrected_error_Ha", $"%.6f{error}"
-                      "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
-                      "accuracy_improvement_x", $"%.2f{improvement}"
-                      "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
-                      "overhead_x", string s ]
-                    |> Map.ofList)
+                    [
+                        "example", $"4_compare_%d{s}_samples"
+                        "samples", string s
+                        "single_qubit_error", $"%.4f{singleQubitError}"
+                        "two_qubit_error", $"%.4f{twoQubitError}"
+                        "readout_error", $"%.4f{readoutError}"
+                        "corrected_energy_Ha", $"%.6f{result.CorrectedExpectation}"
+                        "uncorrected_energy_Ha", $"%.6f{result.UncorrectedExpectation}"
+                        "corrected_error_Ha", $"%.6f{error}"
+                        "uncorrected_error_Ha", $"%.6f{uncorrectedError}"
+                        "accuracy_improvement_x", $"%.2f{improvement}"
+                        "error_reduction_pct", sprintf "%.1f" (result.ErrorReduction * 100.0)
+                        "overhead_x", string s
+                    ]
+                    |> Map.ofList
+                )
         | Error msg ->
-            if not quiet then printfn "  %3d samples -> Error: %s" s msg
+            if not quiet then
+                printfn "  %3d samples -> Error: %s" s msg
 
     if not quiet then
         printfn ""
@@ -461,25 +534,22 @@ if not quiet then
     printfn ""
 
 /// Production-ready PEC wrapper with input validation.
-let runVQEWithPEC
-    (circ: Circuit)
-    (noise: NoiseModel)
-    (sampleCount: int)
-    : Async<Result<float, string>> =
+let runVQEWithPEC (circ: Circuit) (noise: NoiseModel) (sampleCount: int) : Async<Result<float, string>> =
     async {
         if sampleCount < 10 then
             return Error "PEC requires at least 10 samples for reliable results"
         elif sampleCount > 1000 then
             return Error "Samples > 1000 may be too expensive. Consider ZNE instead."
         else
-            let config: PECConfig = {
-                NoiseModel = noise
-                Samples = sampleCount
-                Seed = None  // Use random seed in production
-            }
+            let config: PECConfig =
+                {
+                    NoiseModel = noise
+                    Samples = sampleCount
+                    Seed = None // Use random seed in production
+                }
+
             let! result = mitigate circ config noisyExecutor
-            return
-                result |> Result.map (fun res -> res.CorrectedExpectation)
+            return result |> Result.map (fun res -> res.CorrectedExpectation)
     }
 
 if not quiet then
@@ -488,7 +558,7 @@ if not quiet then
     printfn "    -> Async<Result<float, string>>"
     printfn ""
 
-match Async.RunSynchronously (runVQEWithPEC h2Circuit noiseModel pecSamples) with
+match Async.RunSynchronously(runVQEWithPEC h2Circuit noiseModel pecSamples) with
 | Ok energy ->
     if not quiet then
         printfn "[OK] Production VQE Energy: %.4f Hartree" energy
@@ -497,22 +567,26 @@ match Async.RunSynchronously (runVQEWithPEC h2Circuit noiseModel pecSamples) wit
         printfn ""
 
     allResults.Add(
-        [ "example", "5_production_pattern"
-          "samples", string pecSamples
-          "single_qubit_error", $"%.4f{singleQubitError}"
-          "two_qubit_error", $"%.4f{twoQubitError}"
-          "readout_error", $"%.4f{readoutError}"
-          "corrected_energy_Ha", $"%.6f{energy}"
-          "uncorrected_energy_Ha", ""
-          "corrected_error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
-          "uncorrected_error_Ha", ""
-          "accuracy_improvement_x", ""
-          "error_reduction_pct", ""
-          "overhead_x", string pecSamples ]
-        |> Map.ofList)
+        [
+            "example", "5_production_pattern"
+            "samples", string pecSamples
+            "single_qubit_error", $"%.4f{singleQubitError}"
+            "two_qubit_error", $"%.4f{twoQubitError}"
+            "readout_error", $"%.4f{readoutError}"
+            "corrected_energy_Ha", $"%.6f{energy}"
+            "uncorrected_energy_Ha", ""
+            "corrected_error_Ha", sprintf "%.6f" (abs (energy - trueEnergy))
+            "uncorrected_error_Ha", ""
+            "accuracy_improvement_x", ""
+            "error_reduction_pct", ""
+            "overhead_x", string pecSamples
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -562,21 +636,37 @@ let resultsList = allResults |> Seq.toList
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultsList
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "example"; "samples"; "single_qubit_error"; "two_qubit_error"; "readout_error"
-          "corrected_energy_Ha"; "uncorrected_energy_Ha"; "corrected_error_Ha"
-          "uncorrected_error_Ha"; "accuracy_improvement_x"; "error_reduction_pct"; "overhead_x" ]
+        [
+            "example"
+            "samples"
+            "single_qubit_error"
+            "two_qubit_error"
+            "readout_error"
+            "corrected_energy_Ha"
+            "uncorrected_energy_Ha"
+            "corrected_error_Ha"
+            "uncorrected_error_Ha"
+            "accuracy_improvement_x"
+            "error_reduction_pct"
+            "overhead_x"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

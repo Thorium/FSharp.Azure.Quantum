@@ -4,125 +4,124 @@ open System
 open FSharp.Azure.Quantum.Core
 
 /// Error Mitigation Strategy Selection module.
-/// 
+///
 /// Implements automatic strategy selection based on problem type, backend characteristics,
 /// and cost-benefit analysis. Supports fallback strategies if primary mitigation fails.
 module ErrorMitigationStrategy =
-    
+
     // ============================================================================
     // Types - Strategy Selection Domain
     // ============================================================================
-    
+
     /// Available mitigation techniques that can be applied individually or combined.
     type MitigationTechnique =
         /// Zero-Noise Extrapolation: 30-50% error reduction, 3x overhead
         | ZeroNoiseExtrapolation of ZeroNoiseExtrapolation.ZNEConfig
-        
+
         /// Probabilistic Error Cancellation: 2-3x accuracy improvement, 10-100x overhead
         | ProbabilisticErrorCancellation of ProbabilisticErrorCancellation.PECConfig
-        
+
         /// Readout Error Mitigation: 50-90% readout correction, ~0x overhead (after calibration).
         /// The calibration matrix is None when no measured calibration data was available at
         /// selection time (SelectionCriteria.Calibration = None); applyStrategy then passes
         /// counts through uncorrected until real calibration data is supplied.
         | ReadoutErrorMitigation of ReadoutErrorMitigation.CalibrationMatrix option
-        
+
         /// Combined techniques applied in sequence
         | Combined of techniques: MitigationTechnique list
-    
+
     /// Strategy selection criteria for automatic decision-making.
-    type SelectionCriteria = {
-        /// Circuit depth (number of gates)
-        CircuitDepth: int
-        
-        /// Number of qubits in circuit
-        QubitCount: int
-        
-        /// Target quantum backend
-        Backend: Types.Backend
-        
-        /// Maximum acceptable cost in USD (None = no limit)
-        MaxCostUSD: float option
-        
-        /// Required accuracy target 0.0-1.0 (None = best effort)
-        RequiredAccuracy: float option
-        
-        /// User-supplied calibration matrix from actual hardware characterization.
-        /// When None, strategy selection still recommends readout mitigation where
-        /// appropriate, but applyStrategy passes counts through uncorrected. For actual
-        /// correction, supply real calibration data measured via
-        /// ReadoutErrorMitigation.measureCalibrationMatrix.
-        Calibration: ReadoutErrorMitigation.CalibrationMatrix option
-    }
-    
+    type SelectionCriteria =
+        {
+            /// Circuit depth (number of gates)
+            CircuitDepth: int
+
+            /// Number of qubits in circuit
+            QubitCount: int
+
+            /// Target quantum backend
+            Backend: Types.Backend
+
+            /// Maximum acceptable cost in USD (None = no limit)
+            MaxCostUSD: float option
+
+            /// Required accuracy target 0.0-1.0 (None = best effort)
+            RequiredAccuracy: float option
+
+            /// User-supplied calibration matrix from actual hardware characterization.
+            /// When None, strategy selection still recommends readout mitigation where
+            /// appropriate, but applyStrategy passes counts through uncorrected. For actual
+            /// correction, supply real calibration data measured via
+            /// ReadoutErrorMitigation.measureCalibrationMatrix.
+            Calibration: ReadoutErrorMitigation.CalibrationMatrix option
+        }
+
     /// Recommended mitigation strategy with reasoning and estimates.
-    type RecommendedStrategy = {
-        /// Primary mitigation technique to apply
-        Primary: MitigationTechnique
-        
-        /// Fallback strategy if primary fails (None = no fallback)
-        Fallback: MitigationTechnique option
-        
-        /// Human-readable explanation for this choice
-        Reasoning: string
-        
-        /// Estimated cost multiplier (e.g., 3.0 = 3x base cost)
-        EstimatedCostMultiplier: float
-        
-        /// Estimated accuracy improvement (0.0-1.0)
-        EstimatedAccuracy: float
-    }
-    
+    type RecommendedStrategy =
+        {
+            /// Primary mitigation technique to apply
+            Primary: MitigationTechnique
+
+            /// Fallback strategy if primary fails (None = no fallback)
+            Fallback: MitigationTechnique option
+
+            /// Human-readable explanation for this choice
+            Reasoning: string
+
+            /// Estimated cost multiplier (e.g., 3.0 = 3x base cost)
+            EstimatedCostMultiplier: float
+
+            /// Estimated accuracy improvement (0.0-1.0)
+            EstimatedAccuracy: float
+        }
+
     /// Result of applying mitigation strategy.
-    type MitigatedResult = {
-        /// Corrected measurement histogram
-        Histogram: Map<string, float>
+    type MitigatedResult =
+        {
+            /// Corrected measurement histogram
+            Histogram: Map<string, float>
 
-        /// Technique that was successfully applied
-        AppliedTechnique: MitigationTechnique
+            /// Technique that was successfully applied
+            AppliedTechnique: MitigationTechnique
 
-        /// Whether fallback was used
-        UsedFallback: bool
+            /// Whether fallback was used
+            UsedFallback: bool
 
-        /// Actual cost multiplier achieved
-        ActualCostMultiplier: float
+            /// Actual cost multiplier achieved
+            ActualCostMultiplier: float
 
-        /// Whether a correction was actually performed. False when the selected
-        /// readout component carried no measured calibration data — the histogram
-        /// then passed through UNCORRECTED. Check this before treating the result
-        /// as error-mitigated.
-        CorrectionApplied: bool
-    }
-    
+            /// Whether a correction was actually performed. False when the selected
+            /// readout component carried no measured calibration data — the histogram
+            /// then passed through UNCORRECTED. Check this before treating the result
+            /// as error-mitigated.
+            CorrectionApplied: bool
+        }
+
     // ============================================================================
     // Cost Estimation Functions
     // ============================================================================
-    
+
     /// Estimate cost multiplier for ZNE technique.
     /// ZNE requires 3-5 noise scaling levels, each with full circuit execution.
     let estimateZNECost (criteria: SelectionCriteria) : float =
         // ZNE typically uses 3 noise levels (1.0, 1.5, 2.0)
         // Each level requires full measurement shots
         3.0
-    
+
     /// Estimate cost multiplier for PEC technique.
     /// PEC requires Monte Carlo sampling with importance weighting (high overhead).
     let estimatePECCost (criteria: SelectionCriteria) : float =
         // PEC overhead depends on noise model normalization factor
         // Typical range: 10x to 100x
         // Use conservative estimate based on circuit depth
-        if criteria.CircuitDepth < 20 then
-            10.0  // Shallow circuits: lower overhead
-        elif criteria.CircuitDepth < 50 then
-            30.0  // Medium circuits
-        else
-            50.0  // Deep circuits: higher overhead
-    
+        if criteria.CircuitDepth < 20 then 10.0 // Shallow circuits: lower overhead
+        elif criteria.CircuitDepth < 50 then 30.0 // Medium circuits
+        else 50.0 // Deep circuits: higher overhead
+
     /// Estimate cost multiplier for Readout Error Mitigation.
     /// REM has zero runtime overhead after calibration (calibration cost amortized).
-    let estimateReadoutCost (criteria: SelectionCriteria) : float =
-        0.0  // No additional cost after calibration
-    
+    let estimateReadoutCost (criteria: SelectionCriteria) : float = 0.0 // No additional cost after calibration
+
     /// Estimate cost multiplier for combined techniques.
     /// Combined cost is approximately sum of individual costs.
     let rec estimateCombinedCost (techniques: MitigationTechnique list) (criteria: SelectionCriteria) : float =
@@ -132,46 +131,47 @@ module ErrorMitigationStrategy =
             | ZeroNoiseExtrapolation _ -> estimateZNECost criteria
             | ProbabilisticErrorCancellation _ -> estimatePECCost criteria
             | ReadoutErrorMitigation _ -> estimateReadoutCost criteria
-            | Combined nested -> estimateCombinedCost nested criteria
-        )
-    
+            | Combined nested -> estimateCombinedCost nested criteria)
+
     // ============================================================================
     // Strategy Selection Logic
     // ============================================================================
-    
+
     /// Create default ZNE configuration for a given backend.
     let private createDefaultZNEConfig (backend: Types.Backend) : ZeroNoiseExtrapolation.ZNEConfig =
         {
-            NoiseScalings = [
-                ZeroNoiseExtrapolation.IdentityInsertion 0.0    // baseline
-                ZeroNoiseExtrapolation.IdentityInsertion 0.5    // 1.5x noise
-                ZeroNoiseExtrapolation.IdentityInsertion 1.0    // 2.0x noise
-            ]
+            NoiseScalings =
+                [
+                    ZeroNoiseExtrapolation.IdentityInsertion 0.0 // baseline
+                    ZeroNoiseExtrapolation.IdentityInsertion 0.5 // 1.5x noise
+                    ZeroNoiseExtrapolation.IdentityInsertion 1.0 // 2.0x noise
+                ]
             PolynomialDegree = 2
             MinSamples = 1000
         }
-    
+
     /// Create default PEC configuration for a given backend.
     let private createDefaultPECConfig (backend: Types.Backend) : ProbabilisticErrorCancellation.PECConfig =
         {
-            NoiseModel = {
-                SingleQubitDepolarizing = 0.001
-                TwoQubitDepolarizing = 0.01
-                ReadoutError = 0.02
-            }
+            NoiseModel =
+                {
+                    SingleQubitDepolarizing = 0.001
+                    TwoQubitDepolarizing = 0.01
+                    ReadoutError = 0.02
+                }
             Samples = 1000
             Seed = None
         }
-    
+
     /// Select optimal mitigation strategy based on problem characteristics.
-    /// 
+    ///
     /// Decision tree implements cost-benefit heuristics:
     /// - Shallow circuits (<10 gates): Readout only
     /// - Medium circuits (10-50 gates): ZNE + Readout
     /// - Deep circuits (>50 gates) with high accuracy: PEC + ZNE + Readout
     /// - Budget constrained: Downgrade to cheaper techniques
     let selectStrategy (criteria: SelectionCriteria) : RecommendedStrategy =
-        
+
         let zneConfig = createDefaultZNEConfig criteria.Backend
         let pecConfig = createDefaultPECConfig criteria.Backend
         // Pass the user-supplied calibration through as-is. No placeholder is fabricated
@@ -181,7 +181,7 @@ module ErrorMitigationStrategy =
 
         // Decision tree based on cost-benefit analysis
         match criteria with
-        
+
         // Budget extremely constrained (<$1): Readout only
         | { MaxCostUSD = Some budget } when budget < 1.0 ->
             {
@@ -191,7 +191,7 @@ module ErrorMitigationStrategy =
                 EstimatedCostMultiplier = 0.0
                 EstimatedAccuracy = 0.80
             }
-        
+
         // Shallow circuits (<10 gates): Readout errors dominate
         | { CircuitDepth = depth } when depth < 10 ->
             {
@@ -201,52 +201,49 @@ module ErrorMitigationStrategy =
                 EstimatedCostMultiplier = 0.0
                 EstimatedAccuracy = 0.85
             }
-        
+
         // High accuracy required (>90%) with sufficient budget: Full stack
-        | { RequiredAccuracy = Some acc; MaxCostUSD = Some budget } 
-            when acc > 0.90 && budget > 100.0 ->
+        | {
+              RequiredAccuracy = Some acc
+              MaxCostUSD = Some budget
+          } when acc > 0.90 && budget > 100.0 ->
             {
-                Primary = Combined [
-                    ProbabilisticErrorCancellation pecConfig
-                    ZeroNoiseExtrapolation zneConfig
-                    ReadoutErrorMitigation calibration
-                ]
-                Fallback = Some (Combined [
-                    ZeroNoiseExtrapolation zneConfig
-                    ReadoutErrorMitigation calibration
-                ])
+                Primary =
+                    Combined
+                        [
+                            ProbabilisticErrorCancellation pecConfig
+                            ZeroNoiseExtrapolation zneConfig
+                            ReadoutErrorMitigation calibration
+                        ]
+                Fallback = Some(Combined [ ZeroNoiseExtrapolation zneConfig; ReadoutErrorMitigation calibration ])
                 Reasoning = "High accuracy required (>90%) - full mitigation stack with PEC"
-                EstimatedCostMultiplier = 50.0 + 3.0  // PEC + ZNE
+                EstimatedCostMultiplier = 50.0 + 3.0 // PEC + ZNE
                 EstimatedAccuracy = 0.92
             }
-        
+
         // Medium circuits (10-50 gates) with budget: ZNE + Readout
-        | { CircuitDepth = depth; MaxCostUSD = Some budget } 
-            when depth >= 10 && depth < 50 && budget > 10.0 ->
+        | {
+              CircuitDepth = depth
+              MaxCostUSD = Some budget
+          } when depth >= 10 && depth < 50 && budget > 10.0 ->
             {
-                Primary = Combined [
-                    ZeroNoiseExtrapolation zneConfig
-                    ReadoutErrorMitigation calibration
-                ]
-                Fallback = Some (ReadoutErrorMitigation calibration)
+                Primary = Combined [ ZeroNoiseExtrapolation zneConfig; ReadoutErrorMitigation calibration ]
+                Fallback = Some(ReadoutErrorMitigation calibration)
                 Reasoning = "Medium circuit with budget - ZNE provides good cost/benefit balance"
                 EstimatedCostMultiplier = 3.0
                 EstimatedAccuracy = 0.75
             }
-        
+
         // Deep circuits (>50 gates) without strict budget: ZNE + Readout
         | { CircuitDepth = depth } when depth >= 50 ->
             {
-                Primary = Combined [
-                    ZeroNoiseExtrapolation zneConfig
-                    ReadoutErrorMitigation calibration
-                ]
-                Fallback = Some (ReadoutErrorMitigation calibration)
+                Primary = Combined [ ZeroNoiseExtrapolation zneConfig; ReadoutErrorMitigation calibration ]
+                Fallback = Some(ReadoutErrorMitigation calibration)
                 Reasoning = "Deep circuit - ZNE + Readout for balanced accuracy/cost"
                 EstimatedCostMultiplier = 3.0
                 EstimatedAccuracy = 0.70
             }
-        
+
         // Budget constrained (<$10): Readout only
         | { MaxCostUSD = Some budget } when budget < 10.0 ->
             {
@@ -256,34 +253,34 @@ module ErrorMitigationStrategy =
                 EstimatedCostMultiplier = 0.0
                 EstimatedAccuracy = 0.80
             }
-        
+
         // Default: ZNE + Readout (good balance for most cases)
         | _ ->
             {
-                Primary = Combined [
-                    ZeroNoiseExtrapolation zneConfig
-                    ReadoutErrorMitigation calibration
-                ]
-                Fallback = Some (ReadoutErrorMitigation calibration)
+                Primary = Combined [ ZeroNoiseExtrapolation zneConfig; ReadoutErrorMitigation calibration ]
+                Fallback = Some(ReadoutErrorMitigation calibration)
                 Reasoning = "Balanced approach - ZNE + Readout for general use"
                 EstimatedCostMultiplier = 3.0
                 EstimatedAccuracy = 0.75
             }
-    
+
     // ============================================================================
     // Strategy Application (Placeholder for async execution)
     // ============================================================================
-    
+
     /// The readout-mitigation component carried by a technique, if any. Readout error
     /// mitigation is the only component that can be applied to a finished measurement
     /// histogram. Outer option: whether the technique contains a readout component at all;
     /// inner option: the calibration data it carries (None when the strategy was selected
     /// without measured calibration data).
-    let rec private readoutComponentOf (technique: MitigationTechnique) : ReadoutErrorMitigation.CalibrationMatrix option option =
+    let rec private readoutComponentOf
+        (technique: MitigationTechnique)
+        : ReadoutErrorMitigation.CalibrationMatrix option option =
         match technique with
         | ReadoutErrorMitigation calibration -> Some calibration
         | Combined techniques -> techniques |> List.tryPick readoutComponentOf
-        | ZeroNoiseExtrapolation _ | ProbabilisticErrorCancellation _ -> None
+        | ZeroNoiseExtrapolation _
+        | ProbabilisticErrorCancellation _ -> None
 
     /// Apply a mitigation strategy to a measurement histogram.
     ///
@@ -299,52 +296,58 @@ module ErrorMitigationStrategy =
     /// component selected without calibration data (SelectionCriteria.Calibration = None) has
     /// no confusion matrix to invert, so the counts pass through uncorrected. If the primary
     /// carries no applicable readout component it falls back to the secondary strategy.
-    let applyStrategy
-        (histogram: Map<string, int>)
-        (strategy: RecommendedStrategy)
-        : QuantumResult<MitigatedResult> =
+    let applyStrategy (histogram: Map<string, int>) (strategy: RecommendedStrategy) : QuantumResult<MitigatedResult> =
 
         // Returns the (possibly corrected) histogram and whether a correction was
         // actually performed (false = calibration-less pass-through).
         let applyTechnique (technique: MitigationTechnique) : QuantumResult<Map<string, float> * bool> =
             match readoutComponentOf technique with
-            | Some (Some calibration) ->
+            | Some(Some calibration) ->
                 ReadoutErrorMitigation.correctReadoutErrors histogram calibration ReadoutErrorMitigation.defaultConfig
                 |> Result.map (fun corrected -> corrected.Histogram, true)
-                |> Result.mapError (fun msg -> QuantumError.OperationError ("Readout error mitigation", msg))
+                |> Result.mapError (fun msg -> QuantumError.OperationError("Readout error mitigation", msg))
             | Some None ->
                 // Readout mitigation was recommended without measured calibration data:
                 // there is nothing to invert, so return the counts uncorrected —
                 // flagged via CorrectionApplied = false on the result.
-                Ok (histogram |> Map.map (fun _ count -> float count), false)
+                Ok(histogram |> Map.map (fun _ count -> float count), false)
             | None ->
-                Error (QuantumError.NotImplemented (
-                    "post-hoc circuit-level mitigation (ZNE/PEC)",
-                    Some "Zero-Noise Extrapolation and Probabilistic Error Cancellation must execute the circuit at multiple noise levels; they cannot be applied to a finished histogram. Use their mitigate functions with a circuit executor, or include a ReadoutErrorMitigation calibration in the strategy."))
+                Error(
+                    QuantumError.NotImplemented(
+                        "post-hoc circuit-level mitigation (ZNE/PEC)",
+                        Some
+                            "Zero-Noise Extrapolation and Probabilistic Error Cancellation must execute the circuit at multiple noise levels; they cannot be applied to a finished histogram. Use their mitigate functions with a circuit executor, or include a ReadoutErrorMitigation calibration in the strategy."
+                    )
+                )
 
         match applyTechnique strategy.Primary with
-        | Ok (corrected, correctionApplied) ->
-            Ok {
-                Histogram = corrected
-                AppliedTechnique = strategy.Primary
-                UsedFallback = false
-                ActualCostMultiplier = strategy.EstimatedCostMultiplier
-                CorrectionApplied = correctionApplied
-            }
+        | Ok(corrected, correctionApplied) ->
+            Ok
+                {
+                    Histogram = corrected
+                    AppliedTechnique = strategy.Primary
+                    UsedFallback = false
+                    ActualCostMultiplier = strategy.EstimatedCostMultiplier
+                    CorrectionApplied = correctionApplied
+                }
         | Error primaryErr ->
             match strategy.Fallback with
             | Some fallback ->
                 match applyTechnique fallback with
-                | Ok (corrected, correctionApplied) ->
-                    Ok {
-                        Histogram = corrected
-                        AppliedTechnique = fallback
-                        UsedFallback = true
-                        ActualCostMultiplier = strategy.EstimatedCostMultiplier / 2.0
-                        CorrectionApplied = correctionApplied
-                    }
+                | Ok(corrected, correctionApplied) ->
+                    Ok
+                        {
+                            Histogram = corrected
+                            AppliedTechnique = fallback
+                            UsedFallback = true
+                            ActualCostMultiplier = strategy.EstimatedCostMultiplier / 2.0
+                            CorrectionApplied = correctionApplied
+                        }
                 | Error fallbackErr ->
-                    Error (QuantumError.OperationError (
-                        "Error mitigation",
-                        $"Primary failed (%s{primaryErr.Message}) and fallback failed (%s{fallbackErr.Message})"))
+                    Error(
+                        QuantumError.OperationError(
+                            "Error mitigation",
+                            $"Primary failed (%s{primaryErr.Message}) and fallback failed (%s{fallbackErr.Message})"
+                        )
+                    )
             | None -> Error primaryErr

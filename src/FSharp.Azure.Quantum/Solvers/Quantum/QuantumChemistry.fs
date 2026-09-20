@@ -4,8 +4,8 @@ open System
 open System.Numerics
 open System.Threading
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
-open FSharp.Azure.Quantum.Data  // For PeriodicTable and ChemistryDataProviders
+open FSharp.Azure.Quantum // For ErrorMitigationStrategy
+open FSharp.Azure.Quantum.Data // For PeriodicTable and ChemistryDataProviders
 
 /// Quantum Chemistry - Molecule Representation and Ground State Energy Estimation.
 /// Implements VQE (Variational Quantum Eigensolver) for molecular ground state energies.
@@ -15,20 +15,23 @@ open FSharp.Azure.Quantum.Data  // For PeriodicTable and ChemistryDataProviders
 // ============================================================================
 
 /// Angstroms (Å) - unit of atomic distance
-[<Measure>] type angstrom
+[<Measure>]
+type angstrom
 
 /// Hartree - atomic unit of energy
-[<Measure>] type hartree
+[<Measure>]
+type hartree
 
 /// Electron volts
-[<Measure>] type eV
+[<Measure>]
+type eV
 
 // ============================================================================
 // ATOMIC DATA
 // ============================================================================
 
 /// Atomic numbers and data for elements used in quantum chemistry
-/// 
+///
 /// Coverage: Elements 1-54 (H through Xe) plus common heavier elements
 /// This covers all elements commonly encountered in:
 /// - Organic chemistry (C, H, N, O, S, P, halogens)
@@ -41,333 +44,410 @@ module AtomicNumbers =
     /// Hydrogen
     [<Literal>]
     let H = 1
+
     /// Helium
     [<Literal>]
     let He = 2
-    
+
     // Period 2
     /// Lithium
     [<Literal>]
     let Li = 3
+
     /// Beryllium
     [<Literal>]
     let Be = 4
+
     /// Boron
     [<Literal>]
     let B = 5
+
     /// Carbon
     [<Literal>]
     let C = 6
+
     /// Nitrogen
     [<Literal>]
     let N = 7
+
     /// Oxygen
     [<Literal>]
     let O = 8
+
     /// Fluorine
     [<Literal>]
     let F = 9
+
     /// Neon
     [<Literal>]
     let Ne = 10
-    
+
     // Period 3
     /// Sodium
     [<Literal>]
     let Na = 11
+
     /// Magnesium
     [<Literal>]
     let Mg = 12
+
     /// Aluminum
     [<Literal>]
     let Al = 13
+
     /// Silicon
     [<Literal>]
     let Si = 14
+
     /// Phosphorus
     [<Literal>]
     let P = 15
+
     /// Sulfur
     [<Literal>]
     let S = 16
+
     /// Chlorine
     [<Literal>]
     let Cl = 17
+
     /// Argon
     [<Literal>]
     let Ar = 18
-    
+
     // Period 4 (includes first-row transition metals)
     /// Potassium
     [<Literal>]
     let K = 19
+
     /// Calcium
     [<Literal>]
     let Ca = 20
+
     /// Scandium
     [<Literal>]
     let Sc = 21
+
     /// Titanium
     [<Literal>]
     let Ti = 22
+
     /// Vanadium
     [<Literal>]
     let V = 23
+
     /// Chromium
     [<Literal>]
     let Cr = 24
+
     /// Manganese
     [<Literal>]
     let Mn = 25
+
     /// Iron
     [<Literal>]
     let Fe = 26
+
     /// Cobalt
     [<Literal>]
     let Co = 27
+
     /// Nickel
     [<Literal>]
     let Ni = 28
+
     /// Copper
     [<Literal>]
     let Cu = 29
+
     /// Zinc
     [<Literal>]
     let Zn = 30
+
     /// Gallium
     [<Literal>]
     let Ga = 31
+
     /// Germanium
     [<Literal>]
     let Ge = 32
+
     /// Arsenic
     [<Literal>]
     let As = 33
+
     /// Selenium
     [<Literal>]
     let Se = 34
+
     /// Bromine
     [<Literal>]
     let Br = 35
+
     /// Krypton
     [<Literal>]
     let Kr = 36
-    
+
     // Period 5 (includes second-row transition metals)
     /// Rubidium
     [<Literal>]
     let Rb = 37
+
     /// Strontium
     [<Literal>]
     let Sr = 38
+
     /// Yttrium
     [<Literal>]
     let Y = 39
+
     /// Zirconium
     [<Literal>]
     let Zr = 40
+
     /// Niobium
     [<Literal>]
     let Nb = 41
+
     /// Molybdenum
     [<Literal>]
     let Mo = 42
+
     /// Technetium
     [<Literal>]
     let Tc = 43
+
     /// Ruthenium
     [<Literal>]
     let Ru = 44
+
     /// Rhodium
     [<Literal>]
     let Rh = 45
+
     /// Palladium
     [<Literal>]
     let Pd = 46
+
     /// Silver
     [<Literal>]
     let Ag = 47
+
     /// Cadmium
     [<Literal>]
     let Cd = 48
+
     /// Indium
     [<Literal>]
     let In = 49
+
     /// Tin
     [<Literal>]
     let Sn = 50
+
     /// Antimony
     [<Literal>]
     let Sb = 51
+
     /// Tellurium
     [<Literal>]
     let Te = 52
+
     /// Iodine
     [<Literal>]
     let I = 53
+
     /// Xenon
     [<Literal>]
     let Xe = 54
-    
+
     // Selected heavier elements (commonly used)
     /// Platinum (catalysis)
     [<Literal>]
     let Pt = 78
+
     /// Gold (nanoparticles)
     [<Literal>]
     let Au = 79
+
     /// Lead (quantum dots, perovskites)
     [<Literal>]
     let Pb = 82
-    
+
     /// Get atomic number from element symbol
     /// Returns None for unsupported elements
     /// NOTE: Now delegates to PeriodicTable for complete element coverage.
     let fromSymbol (element: string) : int option =
-        PeriodicTable.tryBySymbol element
-        |> Option.map (fun e -> e.AtomicNumber)
-    
+        PeriodicTable.tryBySymbol element |> Option.map (fun e -> e.AtomicNumber)
+
     /// Get element symbol from atomic number
     /// Returns None for unsupported atomic numbers
     /// NOTE: Now delegates to PeriodicTable for complete element coverage.
     let toSymbol (atomicNumber: int) : string option =
-        PeriodicTable.tryByNumber atomicNumber
-        |> Option.map (fun e -> e.Symbol)
+        PeriodicTable.tryByNumber atomicNumber |> Option.map (fun e -> e.Symbol)
 
 // ============================================================================
 // MOLECULE REPRESENTATION
 // ============================================================================
 
 /// Atom in 3D space
-type Atom = {
-    /// Element symbol (H, C, N, O, etc.)
-    Element: string
-    
-    /// Position in 3D space (x, y, z) in Angstroms
-    Position: float * float * float
-}
+type Atom =
+    {
+        /// Element symbol (H, C, N, O, etc.)
+        Element: string
+
+        /// Position in 3D space (x, y, z) in Angstroms
+        Position: float * float * float
+    }
 
 /// Bond between two atoms
 [<Struct>]
-type Bond = {
-    /// Index of first atom (0-based)
-    Atom1: int
-    
-    /// Index of second atom (0-based)
-    Atom2: int
-    
-    /// Bond order: 1.0 = single, 2.0 = double, 3.0 = triple
-    BondOrder: float
-}
+type Bond =
+    {
+        /// Index of first atom (0-based)
+        Atom1: int
+
+        /// Index of second atom (0-based)
+        Atom2: int
+
+        /// Bond order: 1.0 = single, 2.0 = double, 3.0 = triple
+        BondOrder: float
+    }
 
 /// Molecular structure
-type Molecule = {
-    /// Molecule name (e.g., "H2", "H2O")
-    Name: string
-    
-    /// List of atoms
-    Atoms: Atom list
-    
-    /// List of bonds
-    Bonds: Bond list
-    
-    /// Net charge (0 for neutral, +1 for cation, -1 for anion)
-    Charge: int
-    
-    /// Spin multiplicity (2S + 1, where S is total spin)
-    /// Singlet = 1, Doublet = 2, Triplet = 3
-    Multiplicity: int
-}
+type Molecule =
+    {
+        /// Molecule name (e.g., "H2", "H2O")
+        Name: string
+
+        /// List of atoms
+        Atoms: Atom list
+
+        /// List of bonds
+        Bonds: Bond list
+
+        /// Net charge (0 for neutral, +1 for cation, -1 for anion)
+        Charge: int
+
+        /// Spin multiplicity (2S + 1, where S is total spin)
+        /// Singlet = 1, Doublet = 2, Triplet = 3
+        Multiplicity: int
+    }
 
 /// Molecule operations
 module Molecule =
-    
+
     /// Validate molecule structure
     let validate (molecule: Molecule) : Result<unit, QuantumError> =
         // Check all bonds reference valid atoms
         let invalidBonds =
             molecule.Bonds
             |> List.filter (fun bond ->
-                bond.Atom1 < 0 || bond.Atom1 >= molecule.Atoms.Length ||
-                bond.Atom2 < 0 || bond.Atom2 >= molecule.Atoms.Length)
-        
+                bond.Atom1 < 0
+                || bond.Atom1 >= molecule.Atoms.Length
+                || bond.Atom2 < 0
+                || bond.Atom2 >= molecule.Atoms.Length)
+
         if not invalidBonds.IsEmpty then
-            Error (QuantumError.ValidationError("Bonds", $"Bond references non-existent atom indices: %A{invalidBonds}"))
+            Error(QuantumError.ValidationError("Bonds", $"Bond references non-existent atom indices: %A{invalidBonds}"))
         else
-            Ok ()
-    
+            Ok()
+
     /// Calculate distance between two atoms (Euclidean distance in 3D)
     let calculateBondLength (atom1: Atom) (atom2: Atom) : float =
         let (x1, y1, z1) = atom1.Position
         let (x2, y2, z2) = atom2.Position
-        
+
         let dx = x2 - x1
         let dy = y2 - y1
         let dz = z2 - z1
-        
+
         sqrt (dx * dx + dy * dy + dz * dz)
-    
+
     /// Count total number of electrons in molecule
     let countElectrons (molecule: Molecule) : int =
         let nuclearElectrons =
             molecule.Atoms
-            |> List.sumBy (fun atom ->
-                AtomicNumbers.fromSymbol atom.Element
-                |> Option.defaultValue 0)
-        
+            |> List.sumBy (fun atom -> AtomicNumbers.fromSymbol atom.Element |> Option.defaultValue 0)
+
         // Subtract charge (positive charge = fewer electrons)
         nuclearElectrons - molecule.Charge
-    
+
     /// Create H2 molecule at specified bond length
     let createH2 (bondLength: float) : Molecule =
         {
             Name = "H2"
-            Atoms = [
-                { Element = "H"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (0.0, 0.0, bondLength) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "H"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, 0.0, bondLength)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
-            Multiplicity = 1  // Singlet (all spins paired)
+            Multiplicity = 1 // Singlet (all spins paired)
         }
-    
+
     /// Create H2O molecule (water) at equilibrium geometry
     let createH2O () : Molecule =
         // Equilibrium geometry: O-H bond length = 0.957 Å, H-O-H angle = 104.5°
         let ohBondLength = 0.957
         let angleRad = 104.5 * Math.PI / 180.0
         let halfAngle = angleRad / 2.0
-        
+
         {
             Name = "H2O"
-            Atoms = [
-                { Element = "O"; Position = (0.0, 0.0, 0.0) }
-                { 
-                    Element = "H"
-                    Position = (0.0, ohBondLength * sin halfAngle, ohBondLength * cos halfAngle)
-                }
-                {
-                    Element = "H"
-                    Position = (0.0, -ohBondLength * sin halfAngle, ohBondLength * cos halfAngle)
-                }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }  // O-H
-                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }  // O-H
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "O"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, ohBondLength * sin halfAngle, ohBondLength * cos halfAngle)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, -ohBondLength * sin halfAngle, ohBondLength * cos halfAngle)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    } // O-H
+                    {
+                        Atom1 = 0
+                        Atom2 = 2
+                        BondOrder = 1.0
+                    } // O-H
+                ]
             Charge = 0
-            Multiplicity = 1  // Singlet
+            Multiplicity = 1 // Singlet
         }
-    
+
     // ========================================================================
     // MATERIALS SCIENCE MOLECULES
     // ========================================================================
-    
+
     /// Create LiH molecule (lithium hydride) at specified bond length
     /// Default bond length: 1.596 Å (experimental equilibrium)
-    /// 
+    ///
     /// LiH is important for:
     /// - Hydrogen storage materials
     /// - Benchmark system for quantum chemistry (4 electrons)
@@ -375,66 +455,102 @@ module Molecule =
     let createLiH (bondLength: float) : Molecule =
         {
             Name = "LiH"
-            Atoms = [
-                { Element = "Li"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (0.0, 0.0, bondLength) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "Li"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, 0.0, bondLength)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
-            Multiplicity = 1  // Singlet
+            Multiplicity = 1 // Singlet
         }
-    
+
     /// Create Fe₂ dimer (iron dimer) at specified bond length
     /// Default bond length: 2.02 Å (experimental)
-    /// 
+    ///
     /// Fe₂ is critical for:
     /// - Exchange coupling (J) calculations in magnetic materials
     /// - GMR (Giant Magnetoresistance) physics
     /// - Benchmark for spin-dependent DFT and quantum methods
-    /// 
+    ///
     /// Ground state: ⁷Δᵤ (septet, 6 unpaired electrons, S=3)
     let createFe2 (bondLength: float) (multiplicity: int) : Molecule =
         {
             Name = "Fe2"
-            Atoms = [
-                { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
-                { Element = "Fe"; Position = (0.0, 0.0, bondLength) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }  // Single bond approximation
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "Fe"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "Fe"
+                        Position = (0.0, 0.0, bondLength)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    } // Single bond approximation
+                ]
             Charge = 0
-            Multiplicity = multiplicity  // Usually 7 for ground state (septet)
+            Multiplicity = multiplicity // Usually 7 for ground state (septet)
         }
-    
+
     /// Create FeH molecule (iron monohydride) at specified bond length
     /// Default bond length: 1.63 Å (experimental)
-    /// 
+    ///
     /// FeH is relevant for:
     /// - Hydrogen diffusion in steel (embrittlement)
     /// - Interstellar chemistry
     /// - Catalytic hydrogenation mechanisms
-    /// 
+    ///
     /// Ground state: ⁴Δ (quartet, 3 unpaired electrons, S=3/2)
     let createFeH (bondLength: float) : Molecule =
         {
             Name = "FeH"
-            Atoms = [
-                { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (0.0, 0.0, bondLength) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "Fe"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, 0.0, bondLength)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
-            Multiplicity = 4  // Quartet ground state
+            Multiplicity = 4 // Quartet ground state
         }
-    
+
     /// Create SiH₄ molecule (silane) at equilibrium geometry
     /// Si-H bond length: 1.480 Å (experimental)
-    /// 
+    ///
     /// SiH₄ is important for:
     /// - Semiconductor doping precursor (CVD)
     /// - Silicon surface chemistry
@@ -445,28 +561,59 @@ module Molecule =
         // Tetrahedral angle: cos⁻¹(-1/3) ≈ 109.47°
         // Coordinates for regular tetrahedron with Si at origin
         let a = bondLength / sqrt 3.0
+
         {
             Name = "SiH4"
-            Atoms = [
-                { Element = "Si"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (a, a, a) }
-                { Element = "H"; Position = (-a, -a, a) }
-                { Element = "H"; Position = (-a, a, -a) }
-                { Element = "H"; Position = (a, -a, -a) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
-                { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
-                { Atom1 = 0; Atom2 = 4; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "Si"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    { Element = "H"; Position = (a, a, a) }
+                    {
+                        Element = "H"
+                        Position = (-a, -a, a)
+                    }
+                    {
+                        Element = "H"
+                        Position = (-a, a, -a)
+                    }
+                    {
+                        Element = "H"
+                        Position = (a, -a, -a)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 2
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 3
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 4
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
-            Multiplicity = 1  // Singlet (all electrons paired)
+            Multiplicity = 1 // Singlet (all electrons paired)
         }
-    
+
     /// Create PH₃ molecule (phosphine) at equilibrium geometry
     /// P-H bond length: 1.42 Å, H-P-H angle: 93.5°
-    /// 
+    ///
     /// PH₃ is important for:
     /// - Phosphorus doping in semiconductors (n-type Si)
     /// - MOCVD precursor for III-V semiconductors
@@ -475,29 +622,55 @@ module Molecule =
         let bondLength = 1.42
         let angleRad = 93.5 * Math.PI / 180.0
         // Pyramidal geometry with P at origin
-        let h = bondLength * cos(angleRad / 2.0)  // Height above base
-        let r = bondLength * sin(angleRad / 2.0)  // Radius of base
+        let h = bondLength * cos (angleRad / 2.0) // Height above base
+        let r = bondLength * sin (angleRad / 2.0) // Radius of base
         // Three H atoms arranged 120° apart
         {
             Name = "PH3"
-            Atoms = [
-                { Element = "P"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (r, 0.0, h) }
-                { Element = "H"; Position = (-r * 0.5, r * 0.866, h) }
-                { Element = "H"; Position = (-r * 0.5, -r * 0.866, h) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
-                { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "P"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (r, 0.0, h)
+                    }
+                    {
+                        Element = "H"
+                        Position = (-r * 0.5, r * 0.866, h)
+                    }
+                    {
+                        Element = "H"
+                        Position = (-r * 0.5, -r * 0.866, h)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 2
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 3
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
-            Multiplicity = 1  // Singlet
+            Multiplicity = 1 // Singlet
         }
-    
+
     /// Create CdSe dimer (cadmium selenide) - quantum dot building block
     /// Cd-Se bond length: 2.63 Å (from wurtzite crystal structure)
-    /// 
+    ///
     /// CdSe is the most common quantum dot material:
     /// - QLED displays (Samsung, Sony)
     /// - Solar cells
@@ -505,26 +678,38 @@ module Molecule =
     let createCdSe (bondLength: float) : Molecule =
         {
             Name = "CdSe"
-            Atoms = [
-                { Element = "Cd"; Position = (0.0, 0.0, 0.0) }
-                { Element = "Se"; Position = (bondLength, 0.0, 0.0) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 2.0 }  // Approximate
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "Cd"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "Se"
+                        Position = (bondLength, 0.0, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 2.0
+                    } // Approximate
+                ]
             Charge = 0
             Multiplicity = 1
         }
-    
+
     // ========================================================================
     // CONVERSION FROM MOLECULELIBRARY
     // ========================================================================
-    
+
     /// Convert a molecule from the MoleculeLibrary (Data layer) to QuantumChemistry.Molecule
-    /// 
+    ///
     /// This enables using the pre-defined molecules from MoleculeLibrary with
     /// quantum chemistry solvers like GroundStateEnergy.estimateEnergy.
-    /// 
+    ///
     /// Example:
     ///   open FSharp.Azure.Quantum.Data
     ///   open FSharp.Azure.Quantum.QuantumChemistry
@@ -533,41 +718,49 @@ module Molecule =
     let fromLibrary (libMol: MoleculeLibrary.Molecule) : Molecule =
         {
             Name = libMol.Name
-            Atoms = libMol.Atoms |> List.map (fun a -> 
-                { Element = a.Element; Position = a.Position })
-            Bonds = libMol.Bonds |> List.map (fun b ->
-                { Atom1 = b.Atom1; Atom2 = b.Atom2; BondOrder = b.BondOrder })
+            Atoms =
+                libMol.Atoms
+                |> List.map (fun a ->
+                    {
+                        Element = a.Element
+                        Position = a.Position
+                    })
+            Bonds =
+                libMol.Bonds
+                |> List.map (fun b ->
+                    {
+                        Atom1 = b.Atom1
+                        Atom2 = b.Atom2
+                        BondOrder = b.BondOrder
+                    })
             Charge = libMol.Charge
             Multiplicity = libMol.Multiplicity
         }
-    
+
     /// Try to get a molecule from MoleculeLibrary by name and convert it
     /// Returns None if the molecule is not found in the library
-    /// 
+    ///
     /// Example:
     ///   match Molecule.tryFromLibrary "benzene" with
     ///   | Some mol -> printfn "Found: %s with %d atoms" mol.Name mol.Atoms.Length
     ///   | None -> printfn "Not found"
     let tryFromLibrary (name: string) : Molecule option =
-        MoleculeLibrary.tryGet name
-        |> Option.map fromLibrary
-    
+        MoleculeLibrary.tryGet name |> Option.map fromLibrary
+
     /// Get a molecule from MoleculeLibrary by name and convert it
     /// Throws if the molecule is not found
-    /// 
+    ///
     /// Example:
     ///   let water = Molecule.fromLibraryByName "H2O"
-    let fromLibraryByName (name: string) : Molecule =
-        MoleculeLibrary.get name
-        |> fromLibrary
+    let fromLibraryByName (name: string) : Molecule = MoleculeLibrary.get name |> fromLibrary
 
     // ========================================================================
     // PROVIDER-BASED MOLECULE LOADING
     // ========================================================================
-    
+
     /// Convert a MoleculeInstance from the provider system to QuantumChemistry.Molecule.
     /// Returns Error if the instance has no geometry (QC requires 3D coordinates).
-    /// 
+    ///
     /// Example:
     ///   let provider = ChemistryDataProviders.defaultDatasetProvider
     ///   match provider.Load (DatasetQuery.ByName "H2O") with
@@ -580,86 +773,104 @@ module Molecule =
         match instance.Geometry with
         | None ->
             let molName = instance.Name |> Option.defaultValue "unknown"
-            Error (QuantumError.ValidationError(
-                "MissingGeometry", 
-                $"Molecule '{molName}' has no 3D geometry. QC requires coordinates."))
+
+            Error(
+                QuantumError.ValidationError(
+                    "MissingGeometry",
+                    $"Molecule '{molName}' has no 3D geometry. QC requires coordinates."
+                )
+            )
         | Some geom ->
             let topology = instance.Topology
-            
+
             // Validate atom count matches coordinate count
             if topology.Atoms.Length <> geom.Coordinates.Length then
-                Error (QuantumError.ValidationError(
-                    "AtomCoordinateMismatch",
-                    $"Topology has {topology.Atoms.Length} atoms but geometry has {geom.Coordinates.Length} coordinates"))
+                Error(
+                    QuantumError.ValidationError(
+                        "AtomCoordinateMismatch",
+                        $"Topology has {topology.Atoms.Length} atoms but geometry has {geom.Coordinates.Length} coordinates"
+                    )
+                )
             else
                 let atoms =
                     Array.zip topology.Atoms geom.Coordinates
                     |> Array.map (fun (element, coord) ->
-                        { Element = element
-                          Position = (coord.X, coord.Y, coord.Z) })
+                        {
+                            Element = element
+                            Position = (coord.X, coord.Y, coord.Z)
+                        })
                     |> Array.toList
-                
+
                 let bonds =
                     topology.Bonds
                     |> Array.map (fun (a1, a2, order) ->
-                        { Atom1 = a1
-                          Atom2 = a2
-                          BondOrder = order |> Option.defaultValue 1.0 })
+                        {
+                            Atom1 = a1
+                            Atom2 = a2
+                            BondOrder = order |> Option.defaultValue 1.0
+                        })
                     |> Array.toList
-                
-                Ok {
-                    Name = instance.Name |> Option.defaultValue "Molecule"
-                    Atoms = atoms
-                    Bonds = bonds
-                    Charge = topology.Charge |> Option.defaultValue 0
-                    Multiplicity = topology.Multiplicity |> Option.defaultValue 1
-                }
-    
+
+                Ok
+                    {
+                        Name = instance.Name |> Option.defaultValue "Molecule"
+                        Atoms = atoms
+                        Bonds = bonds
+                        Charge = topology.Charge |> Option.defaultValue 0
+                        Multiplicity = topology.Multiplicity |> Option.defaultValue 1
+                    }
+
     /// Load molecule from a dataset provider by name.
     /// Returns Error if not found or if geometry is missing.
-    /// 
+    ///
     /// Example:
     ///   let provider = ChemistryDataProviders.defaultDatasetProvider
     ///   match Molecule.fromProvider provider "H2O" with
     ///   | Ok mol -> printfn "Loaded: %s" mol.Name
     ///   | Error e -> printfn "Error: %A" e
-    let fromProvider (provider: ChemistryDataProviders.IMoleculeDatasetProvider) (name: string) : Result<Molecule, QuantumError> =
-        match provider.Load (ChemistryDataProviders.DatasetQuery.ByName name) with
+    let fromProvider
+        (provider: ChemistryDataProviders.IMoleculeDatasetProvider)
+        (name: string)
+        : Result<Molecule, QuantumError> =
+        match provider.Load(ChemistryDataProviders.DatasetQuery.ByName name) with
         | Error e -> Error e
         | Ok dataset ->
             if dataset.Molecules.Length = 0 then
-                Error (QuantumError.ValidationError("MoleculeNotFound", $"Molecule '{name}' not found in provider"))
+                Error(QuantumError.ValidationError("MoleculeNotFound", $"Molecule '{name}' not found in provider"))
             else
                 fromInstance dataset.Molecules.[0]
-    
+
     /// Load molecule from a dataset provider by name, using the default provider.
     /// This is a convenience function that uses the built-in MoleculeLibrary provider.
-    /// 
+    ///
     /// Example:
     ///   match Molecule.fromDefaultProvider "benzene" with
     ///   | Ok mol -> printfn "Found: %s with %d atoms" mol.Name mol.Atoms.Length
     ///   | Error e -> printfn "Error: %A" e
     let fromDefaultProvider (name: string) : Result<Molecule, QuantumError> =
         fromProvider ChemistryDataProviders.defaultDatasetProvider name
-    
+
     // ========================================================================
     // FILE I/O FUNCTIONS (using MoleculeFormats)
     // ========================================================================
-    
+
     /// Convert MoleculeFormats.MoleculeData to Molecule.
     /// Internal helper that chains through MoleculeInstance conversion.
     let private fromMoleculeData (data: MoleculeFormats.MoleculeData) : Result<Molecule, QuantumError> =
         let instance = ChemistryDataProviders.Conversions.fromMoleculeData data
         fromInstance instance
-    
+
     /// Load molecule from XYZ file asynchronously (Task-based, zero bridging).
-    /// 
+    ///
     /// Example:
     ///   let! result = Molecule.fromXyzFileTask "water.xyz" ct
     ///   match result with
     ///   | Ok mol -> printfn "Loaded: %s" mol.Name
     ///   | Error e -> printfn "Error: %A" e
-    let fromXyzFileTask (filePath: string) (ct: CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+    let fromXyzFileTask
+        (filePath: string)
+        (ct: CancellationToken)
+        : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
         task {
             let! result = MoleculeFormats.Xyz.readAsync filePath ct
             return result |> Result.bind fromMoleculeData
@@ -673,21 +884,25 @@ module Molecule =
             let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
             return result |> Result.bind fromMoleculeData
         }
-    
+
     /// Load molecule from XYZ file synchronously.
     [<System.Obsolete("Use fromXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let fromXyzFile (filePath: string) : Result<Molecule, QuantumError> =
         fromXyzFileTask filePath CancellationToken.None
-        |> Async.AwaitTask |> Async.RunSynchronously
-    
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
     /// Load molecule from FCIDump file asynchronously (Task-based, zero bridging).
-    /// 
+    ///
     /// Note: FCIDump files typically don't contain geometry, so the resulting
     /// Molecule will have placeholder atoms. Use for orbital/electron info only.
-    /// 
+    ///
     /// Example:
     ///   let! result = Molecule.fromFciDumpFileTask "h2.fcidump" ct
-    let fromFciDumpFileTask (filePath: string) (ct: CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+    let fromFciDumpFileTask
+        (filePath: string)
+        (ct: CancellationToken)
+        : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
         task {
             let! result = MoleculeFormats.FciDump.readAsync filePath ct
             return result |> Result.bind fromMoleculeData
@@ -701,38 +916,45 @@ module Molecule =
             let! result = MoleculeFormats.FciDump.readAsync filePath ct |> Async.AwaitTask
             return result |> Result.bind fromMoleculeData
         }
-    
+
     /// Load molecule from FCIDump file synchronously.
     [<System.Obsolete("Use fromFciDumpFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let fromFciDumpFile (filePath: string) : Result<Molecule, QuantumError> =
         fromFciDumpFileTask filePath CancellationToken.None
-        |> Async.AwaitTask |> Async.RunSynchronously
-    
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
     /// Format molecule as XYZ string.
-    /// 
+    ///
     /// Example:
     ///   let xyzContent = Molecule.toXyz h2Molecule
     let toXyz (molecule: Molecule) : string =
         let sb = System.Text.StringBuilder()
         sb.AppendLine(string molecule.Atoms.Length) |> ignore
         sb.AppendLine(molecule.Name) |> ignore
+
         for atom in molecule.Atoms do
             let (x, y, z) = atom.Position
             sb.AppendLine($"%-2s{atom.Element}  %10.6f{x}  %10.6f{y}  %10.6f{z}") |> ignore
+
         sb.ToString()
-    
+
     /// Save molecule to XYZ file asynchronously (Task-based, zero bridging).
-    /// 
+    ///
     /// Example:
     ///   let! result = Molecule.saveToXyzFileTask "output.xyz" molecule ct
-    let saveToXyzFileTask (filePath: string) (molecule: Molecule) (ct: CancellationToken) : System.Threading.Tasks.Task<Result<unit, QuantumError>> =
+    let saveToXyzFileTask
+        (filePath: string)
+        (molecule: Molecule)
+        (ct: CancellationToken)
+        : System.Threading.Tasks.Task<Result<unit, QuantumError>> =
         task {
             try
                 let content = toXyz molecule
                 do! System.IO.File.WriteAllTextAsync(filePath, content, ct)
-                return Ok ()
+                return Ok()
             with ex ->
-                return Error (QuantumError.IOError("WriteXYZ", filePath, ex.Message))
+                return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
         }
 
     /// Save molecule to XYZ file asynchronously (F# Async wrapper).
@@ -742,37 +964,38 @@ module Molecule =
             try
                 let content = toXyz molecule
                 do! System.IO.File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
-                return Ok ()
+                return Ok()
             with ex ->
-                return Error (QuantumError.IOError("WriteXYZ", filePath, ex.Message))
+                return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
         }
-    
+
     /// Save molecule to XYZ file synchronously.
     [<System.Obsolete("Use saveToXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let saveToXyzFile (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
         saveToXyzFileTask filePath molecule CancellationToken.None
-        |> Async.AwaitTask |> Async.RunSynchronously
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
 // ============================================================================
 // FERMION-TO-QUBIT MAPPINGS
 // ============================================================================
 
 /// Fermion-to-qubit transformation mappings for molecular Hamiltonians
-/// 
+///
 /// Converts fermionic operators (creation/annihilation) to qubit Pauli operators.
 /// This is essential for implementing molecular Hamiltonians on quantum hardware.
-/// 
+///
 /// Supported mappings:
 /// - Jordan-Wigner: Simple, locality-preserving for 1D systems
 /// - Bravyi-Kitaev: Reduces gate depth, better for quantum circuits
 module FermionMapping =
-    
+
     open System.Numerics
-    
+
     // ========================================================================
     // FERMIONIC OPERATORS - Second Quantization
     // ========================================================================
-    
+
     /// Fermionic creation (a†) or annihilation (a) operator
     [<Struct>]
     type FermionOperatorType =
@@ -780,290 +1003,324 @@ module FermionMapping =
         | Creation
         /// Annihilation operator a (removes an electron from orbital)
         | Annihilation
-    
+
     /// Single fermionic operator on a specific orbital
-    type FermionOperator = {
-        /// Orbital index (0-based)
-        OrbitalIndex: int
-        /// Operator type (creation or annihilation)
-        OperatorType: FermionOperatorType
-    }
-    
+    type FermionOperator =
+        {
+            /// Orbital index (0-based)
+            OrbitalIndex: int
+            /// Operator type (creation or annihilation)
+            OperatorType: FermionOperatorType
+        }
+
     /// Fermionic term: product of fermionic operators with coefficient
     /// Example: 0.5 * a†₀ a†₁ a₂ a₃ (two-body interaction)
-    type FermionTerm = {
-        /// Complex coefficient
-        Coefficient: Complex
-        /// Ordered list of fermionic operators
-        /// Convention: Creation operators first, then annihilation (normal order)
-        Operators: FermionOperator list
-    }
-    
+    type FermionTerm =
+        {
+            /// Complex coefficient
+            Coefficient: Complex
+            /// Ordered list of fermionic operators
+            /// Convention: Creation operators first, then annihilation (normal order)
+            Operators: FermionOperator list
+        }
+
     /// Complete fermionic Hamiltonian in second quantization
-    type FermionHamiltonian = {
-        /// Number of spin orbitals
-        NumOrbitals: int
-        /// List of fermionic terms
-        Terms: FermionTerm list
-    }
-    
+    type FermionHamiltonian =
+        {
+            /// Number of spin orbitals
+            NumOrbitals: int
+            /// List of fermionic terms
+            Terms: FermionTerm list
+        }
+
     // ========================================================================
     // QUBIT PAULI OPERATORS - First Quantization
     // ========================================================================
-    
+
     /// Pauli string: product of Pauli operators on qubits
     /// Example: X₀ Y₁ Z₂ (Pauli X on qubit 0, Y on 1, Z on 2)
-    type PauliString = {
-        /// Complex coefficient
-        Coefficient: Complex
-        /// Pauli operators for each qubit
-        /// Key: qubit index, Value: Pauli operator (I, X, Y, Z)
-        /// Missing keys default to Identity (I)
-        Operators: Map<int, QaoaCircuit.PauliOperator>
-    }
-    
+    type PauliString =
+        {
+            /// Complex coefficient
+            Coefficient: Complex
+            /// Pauli operators for each qubit
+            /// Key: qubit index, Value: Pauli operator (I, X, Y, Z)
+            /// Missing keys default to Identity (I)
+            Operators: Map<int, QaoaCircuit.PauliOperator>
+        }
+
     /// Qubit Hamiltonian as sum of Pauli strings
-    type QubitHamiltonian = {
-        /// Number of qubits
-        NumQubits: int
-        /// List of Pauli strings
-        Terms: PauliString list
-    }
-    
+    type QubitHamiltonian =
+        {
+            /// Number of qubits
+            NumQubits: int
+            /// List of Pauli strings
+            Terms: PauliString list
+        }
+
     // ========================================================================
     // PAULI ALGEBRA - Helper Functions
     // ========================================================================
-    
+
     /// Multiply two Pauli operators, returning (phase, resultOperator)
     /// Pauli multiplication rules:
     /// - I*P = P, P*I = P (identity)
     /// - X*X = Y*Y = Z*Z = I
     /// - X*Y = iZ, Y*Z = iX, Z*X = iY (cyclic)
     /// - Y*X = -iZ, Z*Y = -iX, X*Z = -iY (anti-cyclic)
-    let multiplyPaulis (p1: QaoaCircuit.PauliOperator) (p2: QaoaCircuit.PauliOperator) : Complex * QaoaCircuit.PauliOperator =
+    let multiplyPaulis
+        (p1: QaoaCircuit.PauliOperator)
+        (p2: QaoaCircuit.PauliOperator)
+        : Complex * QaoaCircuit.PauliOperator =
         match p1, p2 with
         // Identity rules
-        | QaoaCircuit.PauliI, p | p, QaoaCircuit.PauliI -> (Complex.One, p)
-        
+        | QaoaCircuit.PauliI, p
+        | p, QaoaCircuit.PauliI -> (Complex.One, p)
+
         // Self-multiplication (returns Identity)
         | QaoaCircuit.PauliX, QaoaCircuit.PauliX
         | QaoaCircuit.PauliY, QaoaCircuit.PauliY
         | QaoaCircuit.PauliZ, QaoaCircuit.PauliZ -> (Complex.One, QaoaCircuit.PauliI)
-        
+
         // Cyclic permutations (positive phase)
         | QaoaCircuit.PauliX, QaoaCircuit.PauliY -> (Complex.ImaginaryOne, QaoaCircuit.PauliZ)
         | QaoaCircuit.PauliY, QaoaCircuit.PauliZ -> (Complex.ImaginaryOne, QaoaCircuit.PauliX)
         | QaoaCircuit.PauliZ, QaoaCircuit.PauliX -> (Complex.ImaginaryOne, QaoaCircuit.PauliY)
-        
+
         // Anti-cyclic permutations (negative phase)
         | QaoaCircuit.PauliY, QaoaCircuit.PauliX -> (-Complex.ImaginaryOne, QaoaCircuit.PauliZ)
         | QaoaCircuit.PauliZ, QaoaCircuit.PauliY -> (-Complex.ImaginaryOne, QaoaCircuit.PauliX)
         | QaoaCircuit.PauliX, QaoaCircuit.PauliZ -> (-Complex.ImaginaryOne, QaoaCircuit.PauliY)
-    
+
     /// Multiply two Pauli strings
     let multiplyPauliStrings (ps1: PauliString) (ps2: PauliString) : PauliString =
         // Combine operators from both strings
-        let allQubits = 
-            Set.union (ps1.Operators |> Map.keys |> Set.ofSeq) 
-                      (ps2.Operators |> Map.keys |> Set.ofSeq)
-        
+        let allQubits =
+            Set.union (ps1.Operators |> Map.keys |> Set.ofSeq) (ps2.Operators |> Map.keys |> Set.ofSeq)
+
         // Multiply Pauli operators qubit-by-qubit using fold
         let (totalPhase, resultOperators) =
             allQubits
-            |> Set.fold (fun (phase, ops) qubitIdx ->
-                let pauli1 = ps1.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
-                let pauli2 = ps2.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
-                
-                let (newPhase, resultPauli) = multiplyPaulis pauli1 pauli2
-                let updatedPhase = phase * newPhase
-                
-                // Only store non-identity operators
-                let updatedOps =
-                    if resultPauli <> QaoaCircuit.PauliI then
-                        ops |> Map.add qubitIdx resultPauli
-                    else
-                        ops
-                
-                (updatedPhase, updatedOps)
-            ) (ps1.Coefficient * ps2.Coefficient, Map.empty)
-        
+            |> Set.fold
+                (fun (phase, ops) qubitIdx ->
+                    let pauli1 =
+                        ps1.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
+
+                    let pauli2 =
+                        ps2.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
+
+                    let (newPhase, resultPauli) = multiplyPaulis pauli1 pauli2
+                    let updatedPhase = phase * newPhase
+
+                    // Only store non-identity operators
+                    let updatedOps =
+                        if resultPauli <> QaoaCircuit.PauliI then
+                            ops |> Map.add qubitIdx resultPauli
+                        else
+                            ops
+
+                    (updatedPhase, updatedOps))
+                (ps1.Coefficient * ps2.Coefficient, Map.empty)
+
         {
             Coefficient = totalPhase
             Operators = resultOperators
         }
-    
+
     // ========================================================================
     // JORDAN-WIGNER TRANSFORMATION
     // ========================================================================
-    
+
     /// Jordan-Wigner transformation: maps fermionic operators to qubits
-    /// 
+    ///
     /// Mapping:
     /// - Fermion orbital j → Qubit j (one-to-one correspondence)
     /// - a†ⱼ = (X - iY)/2 * Z₀ Z₁ ... Z_{j-1}
     /// - aⱼ  = (X + iY)/2 * Z₀ Z₁ ... Z_{j-1}
-    /// 
+    ///
     /// Properties:
     /// - Preserves locality for 1D systems
     /// - Simple, intuitive mapping
     /// - Long string of Z operators for high-index orbitals
     module JordanWigner =
-        
+
         /// Transform single fermionic operator to Pauli string(s)
         /// Returns two Pauli strings (X and Y components)
         let transformOperator (op: FermionOperator) : PauliString * PauliString =
             let j = op.OrbitalIndex
-            
+
             // Build Z-string: Z₀ Z₁ ... Z_{j-1}
             let zString =
-                [0 .. j - 1]
-                |> List.map (fun i -> (i, QaoaCircuit.PauliZ))
-                |> Map.ofList
-            
+                [ 0 .. j - 1 ] |> List.map (fun i -> (i, QaoaCircuit.PauliZ)) |> Map.ofList
+
             match op.OperatorType with
             | Creation ->
                 // a†ⱼ = (X - iY)/2 * Z-string
-                let xTerm = {
-                    Coefficient = Complex(0.5, 0.0)
-                    Operators = zString |> Map.add j QaoaCircuit.PauliX
-                }
-                let yTerm = {
-                    Coefficient = Complex(0.0, -0.5)  // -i/2
-                    Operators = zString |> Map.add j QaoaCircuit.PauliY
-                }
+                let xTerm =
+                    {
+                        Coefficient = Complex(0.5, 0.0)
+                        Operators = zString |> Map.add j QaoaCircuit.PauliX
+                    }
+
+                let yTerm =
+                    {
+                        Coefficient = Complex(0.0, -0.5) // -i/2
+                        Operators = zString |> Map.add j QaoaCircuit.PauliY
+                    }
+
                 (xTerm, yTerm)
-            
+
             | Annihilation ->
                 // aⱼ = (X + iY)/2 * Z-string
-                let xTerm = {
-                    Coefficient = Complex(0.5, 0.0)
-                    Operators = zString |> Map.add j QaoaCircuit.PauliX
-                }
-                let yTerm = {
-                    Coefficient = Complex(0.0, 0.5)  // +i/2
-                    Operators = zString |> Map.add j QaoaCircuit.PauliY
-                }
+                let xTerm =
+                    {
+                        Coefficient = Complex(0.5, 0.0)
+                        Operators = zString |> Map.add j QaoaCircuit.PauliX
+                    }
+
+                let yTerm =
+                    {
+                        Coefficient = Complex(0.0, 0.5) // +i/2
+                        Operators = zString |> Map.add j QaoaCircuit.PauliY
+                    }
+
                 (xTerm, yTerm)
-        
+
         /// Transform fermionic term (product of operators) to Pauli strings
         let transformTerm (term: FermionTerm) : PauliString list =
             if term.Operators.IsEmpty then
                 // Constant term (identity)
-                [{
-                    Coefficient = term.Coefficient
-                    Operators = Map.empty
-                }]
+                [
+                    {
+                        Coefficient = term.Coefficient
+                        Operators = Map.empty
+                    }
+                ]
             else
                 // Transform each fermionic operator to (X, Y) pair
                 let pauliPairs = term.Operators |> List.map transformOperator
-                
+
                 // Expand all combinations of X/Y terms
                 // For n operators: 2^n Pauli strings
                 let rec expandProduct (pairs: (PauliString * PauliString) list) : PauliString list =
                     match pairs with
-                    | [] -> 
+                    | [] ->
                         // Base case: identity string
-                        [{ Coefficient = Complex.One; Operators = Map.empty }]
+                        [
+                            {
+                                Coefficient = Complex.One
+                                Operators = Map.empty
+                            }
+                        ]
                     | (xTerm, yTerm) :: rest ->
                         let restExpanded = expandProduct rest
-                        
+
                         // Combine current (X, Y) with all rest expansions
                         [
                             for prevString in restExpanded do
                                 yield multiplyPauliStrings xTerm prevString
                                 yield multiplyPauliStrings yTerm prevString
                         ]
-                
+
                 let expanded = expandProduct pauliPairs
-                
+
                 // Apply original coefficient
                 expanded
-                |> List.map (fun ps -> 
-                    { ps with Coefficient = term.Coefficient * ps.Coefficient })
-        
+                |> List.map (fun ps ->
+                    { ps with
+                        Coefficient = term.Coefficient * ps.Coefficient
+                    })
+
         /// Transform complete fermionic Hamiltonian to qubit Hamiltonian
         let transform (hamiltonian: FermionHamiltonian) : QubitHamiltonian =
-            let allPauliStrings =
-                hamiltonian.Terms
-                |> List.collect transformTerm
-            
+            let allPauliStrings = hamiltonian.Terms |> List.collect transformTerm
+
             // Group and simplify identical Pauli strings
             let simplified =
                 allPauliStrings
                 |> List.groupBy (fun ps -> ps.Operators)
                 |> List.map (fun (operators, group) ->
-                    let totalCoeff = 
-                        group 
+                    let totalCoeff =
+                        group
                         |> List.map (fun ps -> ps.Coefficient)
                         |> List.fold (fun acc c -> acc + c) Complex.Zero
-                    { Coefficient = totalCoeff; Operators = operators }
-                )
-                |> List.filter (fun ps -> ps.Coefficient.Magnitude > 1e-12)  // Remove near-zero terms
-            
+
+                    {
+                        Coefficient = totalCoeff
+                        Operators = operators
+                    })
+                |> List.filter (fun ps -> ps.Coefficient.Magnitude > 1e-12) // Remove near-zero terms
+
             {
                 NumQubits = hamiltonian.NumOrbitals
                 Terms = simplified
             }
-    
+
     // ========================================================================
     // BRAVYI-KITAEV TRANSFORMATION
     // ========================================================================
-    
+
     /// Bravyi-Kitaev transformation: more efficient mapping for quantum circuits
-    /// 
+    ///
     /// Mapping uses binary tree structure:
     /// - Reduces gate depth compared to Jordan-Wigner
     /// - Each qubit stores parity information for a subtree of orbitals
     /// - Better scaling for large molecules
-    /// 
+    ///
     /// Properties:
     /// - Logarithmic scaling of operator weight
     /// - Preserves locality better than Jordan-Wigner for 2D/3D systems
     /// - More complex implementation
     module BravyiKitaev =
-        
+
         /// Get binary representation helpers
         let private isPowerOfTwo n = n > 0 && (n &&& (n - 1)) = 0
-        
+
         /// Find lowest set bit position (0-indexed)
         let private lowestSetBit n =
-            if n = 0 then -1
+            if n = 0 then
+                -1
             else
                 let rec findBit pos value =
-                    if value &&& 1 = 1 then pos
-                    else findBit (pos + 1) (value >>> 1)
+                    if value &&& 1 = 1 then
+                        pos
+                    else
+                        findBit (pos + 1) (value >>> 1)
+
                 findBit 0 n
-        
+
         /// Compute parity set P(j): qubits that store parity for orbital j
         let private paritySet (j: int) (numOrbitals: int) : int list =
             [
                 for k in 0 .. numOrbitals - 1 do
                     // Include qubit k if it affects orbital j's parity
-                    let blockSize = 1 <<< (lowestSetBit(k + 1) + 1)
+                    let blockSize = 1 <<< (lowestSetBit (k + 1) + 1)
                     let blockStart = (j / blockSize) * blockSize
-                    
+
                     if k >= blockStart && k <= j then
                         yield k
             ]
-        
+
         /// Compute update set U(j): qubits that need updating when orbital j changes
         let private updateSet (j: int) (numOrbitals: int) : int list =
-            let jLowest = lowestSetBit(j + 1)
+            let jLowest = lowestSetBit (j + 1)
+
             [
                 for k in j + 1 .. numOrbitals - 1 do
-                    let kLowest = lowestSetBit(k + 1)
+                    let kLowest = lowestSetBit (k + 1)
+
                     if kLowest < jLowest then
                         yield k
             ]
-        
+
         /// Transform single fermionic operator to Pauli string(s)
         let transformOperator (op: FermionOperator) (numOrbitals: int) : PauliString * PauliString =
             let j = op.OrbitalIndex
-            
+
             // Get parity and update sets
             let pSet = paritySet j numOrbitals
             let uSet = updateSet j numOrbitals
-            
+
             // Build operator string using functional approach
             let buildOperators (mainOp: QaoaCircuit.PauliOperator) =
                 Map.empty
@@ -1075,86 +1332,110 @@ module FermionMapping =
                 // Qubit j: main operator (X or Y)
                 |> Map.add j mainOp
                 // Update set: X operators
-                |> fun ops ->
-                    uSet
-                    |> List.fold (fun m k -> Map.add k QaoaCircuit.PauliX m) ops
-            
+                |> fun ops -> uSet |> List.fold (fun m k -> Map.add k QaoaCircuit.PauliX m) ops
+
             match op.OperatorType with
             | Creation ->
                 // a†ⱼ = (X - iY)/2 with BK structure
-                let xTerm = {
-                    Coefficient = Complex(0.5, 0.0)
-                    Operators = buildOperators QaoaCircuit.PauliX
-                }
-                let yTerm = {
-                    Coefficient = Complex(0.0, -0.5)
-                    Operators = buildOperators QaoaCircuit.PauliY
-                }
+                let xTerm =
+                    {
+                        Coefficient = Complex(0.5, 0.0)
+                        Operators = buildOperators QaoaCircuit.PauliX
+                    }
+
+                let yTerm =
+                    {
+                        Coefficient = Complex(0.0, -0.5)
+                        Operators = buildOperators QaoaCircuit.PauliY
+                    }
+
                 (xTerm, yTerm)
-            
+
             | Annihilation ->
                 // aⱼ = (X + iY)/2 with BK structure
-                let xTerm = {
-                    Coefficient = Complex(0.5, 0.0)
-                    Operators = buildOperators QaoaCircuit.PauliX
-                }
-                let yTerm = {
-                    Coefficient = Complex(0.0, 0.5)
-                    Operators = buildOperators QaoaCircuit.PauliY
-                }
+                let xTerm =
+                    {
+                        Coefficient = Complex(0.5, 0.0)
+                        Operators = buildOperators QaoaCircuit.PauliX
+                    }
+
+                let yTerm =
+                    {
+                        Coefficient = Complex(0.0, 0.5)
+                        Operators = buildOperators QaoaCircuit.PauliY
+                    }
+
                 (xTerm, yTerm)
-        
+
         /// Transform fermionic term to Pauli strings
         let transformTerm (term: FermionTerm) (numOrbitals: int) : PauliString list =
             if term.Operators.IsEmpty then
-                [{
-                    Coefficient = term.Coefficient
-                    Operators = Map.empty
-                }]
+                [
+                    {
+                        Coefficient = term.Coefficient
+                        Operators = Map.empty
+                    }
+                ]
             else
-                let pauliPairs = term.Operators |> List.map (fun op -> transformOperator op numOrbitals)
-                
+                let pauliPairs =
+                    term.Operators |> List.map (fun op -> transformOperator op numOrbitals)
+
                 let rec expandProduct (pairs: (PauliString * PauliString) list) : PauliString list =
                     match pairs with
-                    | [] -> [{ Coefficient = Complex.One; Operators = Map.empty }]
+                    | [] ->
+                        [
+                            {
+                                Coefficient = Complex.One
+                                Operators = Map.empty
+                            }
+                        ]
                     | (xTerm, yTerm) :: rest ->
                         let restExpanded = expandProduct rest
+
                         [
                             for prevString in restExpanded do
                                 yield multiplyPauliStrings xTerm prevString
                                 yield multiplyPauliStrings yTerm prevString
                         ]
-                
+
                 let expanded = expandProduct pauliPairs
-                expanded |> List.map (fun ps -> { ps with Coefficient = term.Coefficient * ps.Coefficient })
-        
+
+                expanded
+                |> List.map (fun ps ->
+                    { ps with
+                        Coefficient = term.Coefficient * ps.Coefficient
+                    })
+
         /// Transform complete fermionic Hamiltonian
         let transform (hamiltonian: FermionHamiltonian) : QubitHamiltonian =
             let allPauliStrings =
                 hamiltonian.Terms
                 |> List.collect (fun term -> transformTerm term hamiltonian.NumOrbitals)
-            
+
             let simplified =
                 allPauliStrings
                 |> List.groupBy (fun ps -> ps.Operators)
                 |> List.map (fun (operators, group) ->
-                    let totalCoeff = 
-                        group 
+                    let totalCoeff =
+                        group
                         |> List.map (fun ps -> ps.Coefficient)
                         |> List.fold (fun acc c -> acc + c) Complex.Zero
-                    { Coefficient = totalCoeff; Operators = operators }
-                )
+
+                    {
+                        Coefficient = totalCoeff
+                        Operators = operators
+                    })
                 |> List.filter (fun ps -> ps.Coefficient.Magnitude > 1e-12)
-            
+
             {
                 NumQubits = hamiltonian.NumOrbitals
                 Terms = simplified
             }
-    
+
     // ========================================================================
     // CONVERSION TO LIBRARY TYPES
     // ========================================================================
-    
+
     /// Convert QubitHamiltonian to library's ProblemHamiltonian format
     let toQaoaHamiltonian (hamiltonian: QubitHamiltonian) : QaoaCircuit.ProblemHamiltonian =
         let terms =
@@ -1162,20 +1443,20 @@ module FermionMapping =
             |> List.map (fun pauliString ->
                 // Extract qubits and operators in order
                 let sortedOps = pauliString.Operators |> Map.toList |> List.sortBy fst
-                
+
                 {
-                    Coefficient = pauliString.Coefficient.Real  // Use real part (Hermitian)
+                    Coefficient = pauliString.Coefficient.Real // Use real part (Hermitian)
                     QubitsIndices = sortedOps |> List.map fst |> Array.ofList
                     PauliOperators = sortedOps |> List.map snd |> Array.ofList
-                } : QaoaCircuit.HamiltonianTerm
-            )
+                }
+                : QaoaCircuit.HamiltonianTerm)
             |> Array.ofList
-        
+
         {
             NumQubits = hamiltonian.NumQubits
             Terms = terms
         }
-    
+
     /// Convert QaoaCircuit.ProblemHamiltonian to QubitHamiltonian
     /// (Reverse of toQaoaHamiltonian)
     let fromQaoaHamiltonian (hamiltonian: QaoaCircuit.ProblemHamiltonian) : QubitHamiltonian =
@@ -1183,272 +1464,300 @@ module FermionMapping =
             hamiltonian.Terms
             |> Array.map (fun term ->
                 // Build Pauli operators map from arrays
-                let operators =
-                    Array.zip term.QubitsIndices term.PauliOperators
-                    |> Map.ofArray
-                
+                let operators = Array.zip term.QubitsIndices term.PauliOperators |> Map.ofArray
+
                 {
                     Coefficient = Complex(term.Coefficient, 0.0)
                     Operators = operators
-                } : PauliString
-            )
+                }
+                : PauliString)
             |> Array.toList
-        
+
         {
             NumQubits = hamiltonian.NumQubits
             Terms = terms
         }
-    
+
     // ========================================================================
     // UCCSD ANSATZ - Unitary Coupled Cluster Singles and Doubles
     // ========================================================================
-    
+
     /// UCCSD Ansatz - Chemically-inspired variational quantum eigensolver ansatz
-    /// 
+    ///
     /// Implements Unitary Coupled Cluster with Singles and Doubles excitations.
     /// This is the "gold standard" ansatz for quantum chemistry on quantum computers.
-    /// 
+    ///
     /// **Theory**:
     /// UCCSD = exp(T - T†) where:
     /// - T = T₁ + T₂ (cluster operator)
     /// - T₁ = Σᵢₐ tᵢₐ a†ₐ aᵢ (single excitations: occupied i → virtual a)
     /// - T₂ = Σᵢⱼₐᵦ tᵢⱼₐᵦ a†ₐ a†ᵦ aⱼ aᵢ (double excitations: i,j → a,b)
-    /// 
+    ///
     /// **Parameters**:
     /// - Singles: n_occupied × n_virtual amplitudes
     /// - Doubles: (n_occupied choose 2) × (n_virtual choose 2) amplitudes
-    /// 
+    ///
     /// **Example (H2 minimal basis)**:
     /// - 2 electrons, 4 spin-orbitals (2 occupied, 2 virtual)
     /// - Singles: 2 × 2 = 4 parameters
     /// - Doubles: C(2,2) × C(2,2) = 1 parameter
     /// - Total: 5 parameters
-    /// 
+    ///
     /// **Production Value**: ⭐⭐⭐⭐⭐
     /// - Chemical accuracy: ±1 kcal/mol (±0.0016 Hartree)
     /// - Used in drug discovery, materials science
     /// - Industry standard for molecular simulation
-    /// 
+    ///
     /// **Textbook References**:
     /// - Peruzzo et al. "A variational eigenvalue solver..." Nature 2014
     /// - Romero et al. "Strategies for quantum computing molecular energies..." QST 2018
     /// - McArdle et al. "Quantum computational chemistry" Rev. Mod. Phys. 2020
     module UCCSD =
-        
+
         open System.Numerics
-        
+
         // ====================================================================
         // TYPES
         // ====================================================================
-        
+
         /// Single excitation: promote one electron (occupied → virtual)
         [<Struct>]
-        type SingleExcitation = {
-            /// Virtual orbital index (unoccupied)
-            VirtualOrbital: int
-            
-            /// Occupied orbital index
-            OccupiedOrbital: int
-            
-            /// Excitation amplitude (variational parameter)
-            Amplitude: float
-        }
-        
+        type SingleExcitation =
+            {
+                /// Virtual orbital index (unoccupied)
+                VirtualOrbital: int
+
+                /// Occupied orbital index
+                OccupiedOrbital: int
+
+                /// Excitation amplitude (variational parameter)
+                Amplitude: float
+            }
+
         /// Double excitation: promote two electrons
-        type DoubleExcitation = {
-            /// First virtual orbital
-            VirtualOrbital1: int
-            
-            /// Second virtual orbital
-            VirtualOrbital2: int
-            
-            /// First occupied orbital
-            OccupiedOrbital1: int
-            
-            /// Second occupied orbital
-            OccupiedOrbital2: int
-            
-            /// Excitation amplitude (variational parameter)
-            Amplitude: float
-        }
-        
+        type DoubleExcitation =
+            {
+                /// First virtual orbital
+                VirtualOrbital1: int
+
+                /// Second virtual orbital
+                VirtualOrbital2: int
+
+                /// First occupied orbital
+                OccupiedOrbital1: int
+
+                /// Second occupied orbital
+                OccupiedOrbital2: int
+
+                /// Excitation amplitude (variational parameter)
+                Amplitude: float
+            }
+
         /// UCCSD excitation pool (all possible excitations for given system)
-        type ExcitationPool = {
-            /// All single excitations
-            Singles: SingleExcitation list
-            
-            /// All double excitations
-            Doubles: DoubleExcitation list
-        }
-        
+        type ExcitationPool =
+            {
+                /// All single excitations
+                Singles: SingleExcitation list
+
+                /// All double excitations
+                Doubles: DoubleExcitation list
+            }
+
         // ====================================================================
         // EXCITATION GENERATORS
         // ====================================================================
-        
+
         /// Generate single excitation operator: a†ₚ aᵧ - a†ᵧ aₚ
-        /// 
+        ///
         /// This creates a fermionic term representing electron promotion
         /// from orbital q (occupied) to orbital p (virtual).
-        /// 
+        ///
         /// **Parameters**:
         ///   p - Virtual orbital index (unoccupied in HF)
         ///   q - Occupied orbital index (occupied in HF)
         ///   amplitude - Excitation amplitude tₚᵧ
-        /// 
+        ///
         /// **Returns**:
         ///   Two fermionic terms: +amplitude(a†ₚ aᵧ) and -amplitude(a†ᵧ aₚ)
         ///   The second term is the Hermitian conjugate (anti-Hermitian operator)
-        let singleExcitationOperator 
-            (p: int) 
-            (q: int) 
-            (amplitude: float) 
-            : FermionTerm list =
-            
+        let singleExcitationOperator (p: int) (q: int) (amplitude: float) : FermionTerm list =
+
             if p = q then
-                []  // No excitation (same orbital)
+                [] // No excitation (same orbital)
             else
                 // Forward excitation: a†ₚ aᵧ
-                let forward : FermionTerm = {
-                    Coefficient = Complex(amplitude, 0.0)
-                    Operators = [
-                        { OrbitalIndex = p; OperatorType = Creation }
-                        { OrbitalIndex = q; OperatorType = Annihilation }
-                    ]
-                }
-                
+                let forward: FermionTerm =
+                    {
+                        Coefficient = Complex(amplitude, 0.0)
+                        Operators =
+                            [
+                                {
+                                    OrbitalIndex = p
+                                    OperatorType = Creation
+                                }
+                                {
+                                    OrbitalIndex = q
+                                    OperatorType = Annihilation
+                                }
+                            ]
+                    }
+
                 // Hermitian conjugate: -a†ᵧ aₚ (minus for anti-Hermitian)
-                let backward : FermionTerm = {
-                    Coefficient = Complex(-amplitude, 0.0)
-                    Operators = [
-                        { OrbitalIndex = q; OperatorType = Creation }
-                        { OrbitalIndex = p; OperatorType = Annihilation }
-                    ]
-                }
-                
-                [forward; backward]
-        
+                let backward: FermionTerm =
+                    {
+                        Coefficient = Complex(-amplitude, 0.0)
+                        Operators =
+                            [
+                                {
+                                    OrbitalIndex = q
+                                    OperatorType = Creation
+                                }
+                                {
+                                    OrbitalIndex = p
+                                    OperatorType = Annihilation
+                                }
+                            ]
+                    }
+
+                [ forward; backward ]
+
         /// Generate double excitation operator: a†ₚ a†ᵧ aᵣ aₛ - a†ₛ a†ᵣ aᵧ aₚ
-        /// 
+        ///
         /// This creates a fermionic term for promoting two electrons
         /// from orbitals (s,r) to orbitals (p,q).
-        /// 
+        ///
         /// **Convention**: p > q (virtual), s > r (occupied)
         /// This ensures unique ordering (avoid double-counting)
-        /// 
+        ///
         /// **Parameters**:
         ///   p - First virtual orbital (p > q)
         ///   q - Second virtual orbital
         ///   r - First occupied orbital (s > r)
         ///   s - Second occupied orbital
         ///   amplitude - Excitation amplitude tₚᵧᵣₛ
-        /// 
+        ///
         /// **Returns**:
         ///   Two fermionic terms for anti-Hermitian operator
-        let doubleExcitationOperator
-            (p: int)
-            (q: int)
-            (r: int)
-            (s: int)
-            (amplitude: float)
-            : FermionTerm list =
-            
+        let doubleExcitationOperator (p: int) (q: int) (r: int) (s: int) (amplitude: float) : FermionTerm list =
+
             // Validate ordering and distinct orbitals
-            if p = q || r = s || Set.ofList [p; q; r; s] |> Set.count <> 4 then
-                []  // Invalid excitation
+            if p = q || r = s || Set.ofList [ p; q; r; s ] |> Set.count <> 4 then
+                [] // Invalid excitation
             else
                 // Forward: a†ₚ a†ᵧ aᵣ aₛ
                 // Order: creation operators first (normal order)
-                let forward : FermionTerm = {
-                    Coefficient = Complex(amplitude, 0.0)
-                    Operators = [
-                        { OrbitalIndex = p; OperatorType = Creation }
-                        { OrbitalIndex = q; OperatorType = Creation }
-                        { OrbitalIndex = r; OperatorType = Annihilation }
-                        { OrbitalIndex = s; OperatorType = Annihilation }
-                    ]
-                }
-                
+                let forward: FermionTerm =
+                    {
+                        Coefficient = Complex(amplitude, 0.0)
+                        Operators =
+                            [
+                                {
+                                    OrbitalIndex = p
+                                    OperatorType = Creation
+                                }
+                                {
+                                    OrbitalIndex = q
+                                    OperatorType = Creation
+                                }
+                                {
+                                    OrbitalIndex = r
+                                    OperatorType = Annihilation
+                                }
+                                {
+                                    OrbitalIndex = s
+                                    OperatorType = Annihilation
+                                }
+                            ]
+                    }
+
                 // Hermitian conjugate: -a†ₛ a†ᵣ aᵧ aₚ
-                let backward : FermionTerm = {
-                    Coefficient = Complex(-amplitude, 0.0)
-                    Operators = [
-                        { OrbitalIndex = s; OperatorType = Creation }
-                        { OrbitalIndex = r; OperatorType = Creation }
-                        { OrbitalIndex = q; OperatorType = Annihilation }
-                        { OrbitalIndex = p; OperatorType = Annihilation }
-                    ]
-                }
-                
-                [forward; backward]
-        
+                let backward: FermionTerm =
+                    {
+                        Coefficient = Complex(-amplitude, 0.0)
+                        Operators =
+                            [
+                                {
+                                    OrbitalIndex = s
+                                    OperatorType = Creation
+                                }
+                                {
+                                    OrbitalIndex = r
+                                    OperatorType = Creation
+                                }
+                                {
+                                    OrbitalIndex = q
+                                    OperatorType = Annihilation
+                                }
+                                {
+                                    OrbitalIndex = p
+                                    OperatorType = Annihilation
+                                }
+                            ]
+                    }
+
+                [ forward; backward ]
+
         // ====================================================================
         // EXCITATION POOL GENERATION
         // ====================================================================
-        
+
         /// Generate all possible single excitations for given occupation
-        /// 
+        ///
         /// **Parameters**:
         ///   numElectrons - Number of electrons (occupied orbitals in HF)
         ///   numOrbitals - Total spin orbitals (occupied + virtual)
         ///   amplitudes - Excitation amplitudes (must have length = numElectrons × numVirtual)
-        /// 
+        ///
         /// **Returns**:
         ///   List of single excitations with amplitudes
-        /// 
+        ///
         /// **Example**:
         ///   H2: 2 electrons, 4 orbitals → 2 occupied, 2 virtual
         ///   Singles: (0→2), (0→3), (1→2), (1→3) = 4 excitations
-        let generateSingles
-            (numElectrons: int)
-            (numOrbitals: int)
-            (amplitudes: float[])
-            : SingleExcitation list =
-            
+        let generateSingles (numElectrons: int) (numOrbitals: int) (amplitudes: float[]) : SingleExcitation list =
+
             let numVirtual = numOrbitals - numElectrons
             let expectedParams = numElectrons * numVirtual
-            
+
             if amplitudes.Length <> expectedParams then
                 failwith $"Singles: expected {expectedParams} amplitudes, got {amplitudes.Length}"
-            
+
             [
                 for i in 0 .. numElectrons - 1 do
                     for a in numElectrons .. numOrbitals - 1 do
                         let paramIndex = i * numVirtual + (a - numElectrons)
+
                         {
                             OccupiedOrbital = i
                             VirtualOrbital = a
                             Amplitude = amplitudes.[paramIndex]
                         }
             ]
-        
+
         /// Generate all possible double excitations
-        /// 
+        ///
         /// **Parameters**:
         ///   numElectrons - Number of electrons
         ///   numOrbitals - Total spin orbitals
         ///   amplitudes - Excitation amplitudes
-        /// 
+        ///
         /// **Returns**:
         ///   List of double excitations with amplitudes
-        /// 
+        ///
         /// **Note**: Only generates unique excitations (i < j, a < b)
         /// to avoid double-counting.
-        let generateDoubles
-            (numElectrons: int)
-            (numOrbitals: int)
-            (amplitudes: float[])
-            : DoubleExcitation list =
-            
+        let generateDoubles (numElectrons: int) (numOrbitals: int) (amplitudes: float[]) : DoubleExcitation list =
+
             let numVirtual = numOrbitals - numElectrons
-            
+
             // Number of unique pairs: C(n,2) = n(n-1)/2
             let numOccPairs = numElectrons * (numElectrons - 1) / 2
             let numVirtPairs = numVirtual * (numVirtual - 1) / 2
             let expectedParams = numOccPairs * numVirtPairs
-            
+
             if amplitudes.Length <> expectedParams then
                 failwith $"Doubles: expected {expectedParams} amplitudes, got {amplitudes.Length}"
-            
+
             [
                 for i in 0 .. numElectrons - 2 do
                     for j in i + 1 .. numElectrons - 1 do
@@ -1464,17 +1773,17 @@ module FermionMapping =
                     VirtualOrbital2 = b
                     Amplitude = amplitudes.[idx]
                 })
-        
+
         /// Generate complete UCCSD excitation pool
-        /// 
+        ///
         /// **Parameters**:
         ///   numElectrons - Number of electrons in molecule
         ///   numOrbitals - Total number of spin orbitals
         ///   parameters - All UCCSD parameters (singles first, then doubles)
-        /// 
+        ///
         /// **Returns**:
         ///   Complete excitation pool
-        /// 
+        ///
         /// **Parameter Count**:
         ///   Singles: n_e × n_v
         ///   Doubles: C(n_e,2) × C(n_v,2)
@@ -1484,197 +1793,195 @@ module FermionMapping =
             (numOrbitals: int)
             (parameters: float[])
             : Result<ExcitationPool, string> =
-            
+
             if numElectrons < 0 || numElectrons > numOrbitals then
                 Error $"Invalid electron count: {numElectrons} electrons, {numOrbitals} orbitals"
             else
                 let numVirtual = numOrbitals - numElectrons
                 let numSingles = numElectrons * numVirtual
-                let numDoubles = 
+
+                let numDoubles =
                     let nOccPairs = numElectrons * (numElectrons - 1) / 2
                     let nVirtPairs = numVirtual * (numVirtual - 1) / 2
                     nOccPairs * nVirtPairs
-                
+
                 let totalParams = numSingles + numDoubles
-                
+
                 if parameters.Length <> totalParams then
-                    Error $"UCCSD: expected {totalParams} parameters ({numSingles} singles + {numDoubles} doubles), got {parameters.Length}"
+                    Error
+                        $"UCCSD: expected {totalParams} parameters ({numSingles} singles + {numDoubles} doubles), got {parameters.Length}"
                 else
                     try
                         // Split parameters: singles first, then doubles
                         let singlesParams = parameters.[0 .. numSingles - 1]
                         let doublesParams = parameters.[numSingles .. totalParams - 1]
-                        
+
                         let singles = generateSingles numElectrons numOrbitals singlesParams
                         let doubles = generateDoubles numElectrons numOrbitals doublesParams
-                        
-                        Ok {
-                            Singles = singles
-                            Doubles = doubles
-                        }
+
+                        Ok { Singles = singles; Doubles = doubles }
                     with ex ->
                         Error $"UCCSD pool generation failed: {ex.Message}"
-        
+
         // ====================================================================
         // UCCSD HAMILTONIAN CONSTRUCTION
         // ====================================================================
-        
+
         /// Build UCCSD fermionic Hamiltonian from excitation pool
-        /// 
+        ///
         /// **Parameters**:
         ///   pool - Excitation pool (singles + doubles)
         ///   numOrbitals - Total number of spin orbitals
-        /// 
+        ///
         /// **Returns**:
         ///   Fermionic Hamiltonian representing UCCSD operator
-        /// 
+        ///
         /// **Note**: This creates the T - T† operator in second quantization.
         /// To get the unitary U = exp(T - T†), this must be exponentiated
         /// using Trotter-Suzuki decomposition or exact diagonalization.
-        let buildUCCSDHamiltonian
-            (pool: ExcitationPool)
-            (numOrbitals: int)
-            : FermionHamiltonian =
-            
+        let buildUCCSDHamiltonian (pool: ExcitationPool) (numOrbitals: int) : FermionHamiltonian =
+
             // Collect all fermionic terms from singles and doubles
             let singleTerms =
                 pool.Singles
-                |> List.collect (fun s -> 
-                    singleExcitationOperator s.VirtualOrbital s.OccupiedOrbital s.Amplitude)
-            
+                |> List.collect (fun s -> singleExcitationOperator s.VirtualOrbital s.OccupiedOrbital s.Amplitude)
+
             let doubleTerms =
                 pool.Doubles
                 |> List.collect (fun d ->
-                    doubleExcitationOperator 
-                        d.VirtualOrbital1 d.VirtualOrbital2
-                        d.OccupiedOrbital1 d.OccupiedOrbital2
+                    doubleExcitationOperator
+                        d.VirtualOrbital1
+                        d.VirtualOrbital2
+                        d.OccupiedOrbital1
+                        d.OccupiedOrbital2
                         d.Amplitude)
-            
+
             {
                 NumOrbitals = numOrbitals
                 Terms = singleTerms @ doubleTerms
             }
-        
+
         // ====================================================================
         // PAULI DECOMPOSITION (via Jordan-Wigner or Bravyi-Kitaev)
         // ====================================================================
-        
+
         /// Convert UCCSD excitations to qubit operators
-        /// 
+        ///
         /// **Parameters**:
         ///   pool - UCCSD excitation pool
         ///   numOrbitals - Number of spin orbitals
         ///   mapping - Fermion-to-qubit mapping (JW or BK)
-        /// 
+        ///
         /// **Returns**:
         ///   Qubit Hamiltonian (sum of Pauli strings)
-        /// 
+        ///
         /// **Note**: Each fermionic excitation maps to multiple Pauli strings.
         /// - Single excitation → ~4 Pauli strings
         /// - Double excitation → ~16 Pauli strings
-        let toQubitHamiltonian
-            (pool: ExcitationPool)
-            (numOrbitals: int)
-            (useJordanWigner: bool)
-            : QubitHamiltonian =
-            
+        let toQubitHamiltonian (pool: ExcitationPool) (numOrbitals: int) (useJordanWigner: bool) : QubitHamiltonian =
+
             // Build fermionic Hamiltonian
             let fermionHam = buildUCCSDHamiltonian pool numOrbitals
-            
+
             // Transform to qubits using selected mapping
             if useJordanWigner then
                 JordanWigner.transform fermionHam
             else
                 BravyiKitaev.transform fermionHam
-    
+
     // ====================================================================
     // HARTREE-FOCK INITIAL STATE
     // ====================================================================
-    
+
     /// Hartree-Fock initial state preparation
-    /// 
+    ///
     /// In quantum chemistry, the Hartree-Fock (HF) method gives the best
     /// single-determinant approximation to the ground state. For VQE,
     /// starting from the HF state leads to much faster convergence than
     /// starting from |0...0⟩.
-    /// 
+    ///
     /// **HF State**: |11...100...0⟩ where first n electrons are |1⟩
-    /// 
+    ///
     /// **Why This Matters**:
     /// - VQE convergence 10-100× faster than starting from |0⟩
     /// - Chemically reasonable initial guess
     /// - Standard practice in all quantum chemistry codes
-    /// 
+    ///
     /// **Production Use**: Required for real-world VQE applications
     module HartreeFock =
-        
+
         open FSharp.Azure.Quantum.Core.BackendAbstraction
         open FSharp.Azure.Quantum.Core.QuantumState
         open FSharp.Azure.Quantum.CircuitBuilder
-        
+
         /// Prepare Hartree-Fock initial state |11...100...0⟩
-        /// 
+        ///
         /// **Parameters**:
         ///   numElectrons - Number of electrons (determines occupied orbitals)
         ///   numOrbitals - Total number of spin-orbitals (qubits needed)
         ///   backend - Quantum backend for state preparation (RULE1)
-        /// 
+        ///
         /// **Returns**:
         ///   Result<QuantumState, QuantumError> - HF state or error
-        /// 
+        ///
         /// **Example**:
         /// ```fsharp
         /// // H2 molecule: 2 electrons, 4 orbitals
         /// let! hfState = HartreeFock.prepareHartreeFockState 2 4 backend
         /// // Result: |1100⟩ (qubits 0,1 occupied)
         /// ```
-        let prepareHartreeFockState 
-            (numElectrons: int) 
-            (numOrbitals: int) 
-            (backend: IQuantumBackend) 
+        let prepareHartreeFockState
+            (numElectrons: int)
+            (numOrbitals: int)
+            (backend: IQuantumBackend)
             : Result<QuantumState, QuantumError> =
-            
+
             result {
                 // Validation
                 if numElectrons < 0 then
-                    return! Error (QuantumError.ValidationError ("numElectrons", "Number of electrons must be non-negative"))
+                    return!
+                        Error(QuantumError.ValidationError("numElectrons", "Number of electrons must be non-negative"))
                 elif numElectrons > numOrbitals then
-                    return! Error (QuantumError.ValidationError ("numElectrons", "Number of electrons cannot exceed number of orbitals"))
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "numElectrons",
+                                "Number of electrons cannot exceed number of orbitals"
+                            )
+                        )
                 elif numOrbitals <= 0 then
-                    return! Error (QuantumError.ValidationError ("numOrbitals", "Number of orbitals must be positive"))
+                    return! Error(QuantumError.ValidationError("numOrbitals", "Number of orbitals must be positive"))
                 else
                     // Initialize |0...0⟩ state
                     let! initialState = backend.InitializeState numOrbitals
-                    
+
                     // Apply X gates to first numElectrons qubits to get |11...100...0⟩
-                    let xGates = [ 
-                        for i in 0 .. numElectrons - 1 -> 
-                            QuantumOperation.Gate (X i) 
-                    ]
-                    
+                    let xGates = [ for i in 0 .. numElectrons - 1 -> QuantumOperation.Gate(X i) ]
+
                     // Apply gates sequentially using fold
-                    let! hfState = 
+                    let! hfState =
                         (Ok initialState, xGates)
                         ||> List.fold (fun stateResult gate ->
                             result {
                                 let! currentState = stateResult
                                 return! backend.ApplyOperation gate currentState
                             })
-                    
+
                     return hfState
             }
-        
+
         /// Check if a state is in Hartree-Fock configuration
-        /// 
+        ///
         /// **Parameters**:
         ///   numElectrons - Expected number of electrons
         ///   state - Quantum state to check
-        /// 
+        ///
         /// **Returns**:
         ///   true if state is |11...100...0⟩ (within numerical tolerance)
         let isHartreeFockState (numElectrons: int) (state: QuantumState) : bool =
             // Check if we have correct number of qubits
             let nQubits = numQubits state
+
             if nQubits < numElectrons then
                 false
             else
@@ -1682,45 +1989,45 @@ module FermionMapping =
                 // Bitstring is big-endian: [qN-1; qN-2; ...; q1; q0]
                 // HF state has first numElectrons qubits (q0, q1, ..., q(n-1)) set to |1⟩
                 // So we need 1s at the END of the array
-                let expectedBitstring = 
-                    Array.init nQubits (fun i -> 
+                let expectedBitstring =
+                    Array.init nQubits (fun i ->
                         // i=0 is highest qubit (qN-1), i=nQubits-1 is lowest (q0)
                         if i >= nQubits - numElectrons then 1 else 0)
-                
+
                 // Check if this basis state has probability ~1.0
                 // (This is simulator-specific; on real hardware we'd use measurements)
                 try
                     let prob = probability expectedBitstring state
-                    abs(prob - 1.0) < 1e-10
-                with
-                | _ -> false  // If we can't get probability, assume false
-    
+                    abs (prob - 1.0) < 1e-10
+                with _ ->
+                    false // If we can't get probability, assume false
+
     // ====================================================================
     // CHEMISTRY VQE - UCCSD Ansatz Integration
     // ====================================================================
-    
+
     /// VQE configuration for quantum chemistry with UCCSD ansatz
     module ChemistryVQE =
-        
+
         open FSharp.Azure.Quantum.Core.BackendAbstraction
         open FSharp.Azure.Quantum.Core.QuantumState
         open FSharp.Azure.Quantum.CircuitBuilder
         open System.Numerics
 
         module Measurement = FSharp.Azure.Quantum.LocalSimulator.Measurement
-        
+
         /// Helper: Sequence a list of Results into a Result of list
         module private ResultHelpers =
             let sequence (results: Result<'T, 'E> list) : Result<'T list, 'E> =
-                List.foldBack 
+                List.foldBack
                     (fun result acc ->
                         match result, acc with
-                        | Ok value, Ok values -> Ok (value :: values)
+                        | Ok value, Ok values -> Ok(value :: values)
                         | Error e, _ -> Error e
                         | _, Error e -> Error e)
                     results
                     (Ok [])
-        
+
         /// Ansatz type for VQE
         ///
         /// For hardware-efficient ansatz (HEA), use the general-purpose VQE module directly.
@@ -1728,57 +2035,60 @@ module FermionMapping =
         type AnsatzType =
             /// UCCSD ansatz (chemistry-aware, guarantees chemical accuracy)
             | UCCSD of numElectrons: int * numOrbitals: int
-        
+
         /// VQE configuration for quantum chemistry
-        type ChemistryVQEConfig = {
-            /// Hamiltonian to optimize
-            Hamiltonian: QubitHamiltonian
-            /// Ansatz type (UCCSD for chemistry-aware optimization)
-            Ansatz: AnsatzType
-            /// Maximum optimization iterations
-            MaxIterations: int
-            /// Convergence tolerance
-            Tolerance: float
-            /// Use Hartree-Fock initial state (recommended for chemistry)
-            UseHFInitialState: bool
-            /// Quantum backend
-            Backend: IQuantumBackend
-            /// Optional progress reporter
-            ProgressReporter: Progress.IProgressReporter option
-        }
-        
+        type ChemistryVQEConfig =
+            {
+                /// Hamiltonian to optimize
+                Hamiltonian: QubitHamiltonian
+                /// Ansatz type (UCCSD for chemistry-aware optimization)
+                Ansatz: AnsatzType
+                /// Maximum optimization iterations
+                MaxIterations: int
+                /// Convergence tolerance
+                Tolerance: float
+                /// Use Hartree-Fock initial state (recommended for chemistry)
+                UseHFInitialState: bool
+                /// Quantum backend
+                Backend: IQuantumBackend
+                /// Optional progress reporter
+                ProgressReporter: Progress.IProgressReporter option
+            }
+
         /// VQE result with chemistry metadata
-        type ChemistryVQEResult = {
-            /// Ground state energy (electronic energy only, no nuclear repulsion)
-            Energy: float
-            /// Optimal UCCSD parameters (excitation amplitudes)
-            OptimalParameters: float[]
-            /// Number of iterations to convergence
-            Iterations: int
-            /// Whether optimization converged
-            Converged: bool
-            /// Final quantum state
-            FinalState: QuantumState
-        }
-        
+        type ChemistryVQEResult =
+            {
+                /// Ground state energy (electronic energy only, no nuclear repulsion)
+                Energy: float
+                /// Optimal UCCSD parameters (excitation amplitudes)
+                OptimalParameters: float[]
+                /// Number of iterations to convergence
+                Iterations: int
+                /// Whether optimization converged
+                Converged: bool
+                /// Final quantum state
+                FinalState: QuantumState
+            }
+
         /// Internal optimization state for tail-recursive VQE loop
-        type private OptimizationState = {
-            Parameters: float array
-            Iteration: int
-            PrevEnergy: float
-            CurrentEnergy: float
-            FinalState: QuantumState
-            Converged: bool
-        }
-        
+        type private OptimizationState =
+            {
+                Parameters: float array
+                Iteration: int
+                PrevEnergy: float
+                CurrentEnergy: float
+                FinalState: QuantumState
+                Converged: bool
+            }
+
         /// Build UCCSD ansatz circuit and apply to state
-        /// 
+        ///
         /// **Parameters**:
         ///   pool - UCCSD excitation pool
         ///   parameters - Excitation amplitudes
         ///   initialState - Starting quantum state (HF or |0⟩)
         ///   backend - Quantum backend for gate application
-        /// 
+        ///
         /// **Returns**:
         ///   Result<QuantumState, QuantumError> - State after UCCSD circuit
         let private buildUCCSDCircuit
@@ -1787,54 +2097,75 @@ module FermionMapping =
             (initialState: QuantumState)
             (backend: IQuantumBackend)
             : Result<QuantumState, QuantumError> =
-            
+
             result {
                 // Validate parameter count
                 let expectedParams = pool.Singles.Length + pool.Doubles.Length
+
                 if parameters.Length <> expectedParams then
-                    return! Error (QuantumError.ValidationError(
-                        "parameters", 
-                        $"Expected {expectedParams} parameters, got {parameters.Length}"))
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "parameters",
+                                $"Expected {expectedParams} parameters, got {parameters.Length}"
+                            )
+                        )
                 else
                     // Update excitation amplitudes in the pool
-                    let updatedSingles = 
-                        pool.Singles 
-                        |> List.mapi (fun i s -> { s with Amplitude = parameters.[i] })
-                    
+                    let updatedSingles =
+                        pool.Singles |> List.mapi (fun i s -> { s with Amplitude = parameters.[i] })
+
                     let updatedDoubles =
                         pool.Doubles
-                        |> List.mapi (fun i d -> { d with Amplitude = parameters.[pool.Singles.Length + i] })
-                    
-                    let updatedPool : UCCSD.ExcitationPool = { Singles = updatedSingles; Doubles = updatedDoubles }
-                    
+                        |> List.mapi (fun i d ->
+                            { d with
+                                Amplitude = parameters.[pool.Singles.Length + i]
+                            })
+
+                    let updatedPool: UCCSD.ExcitationPool =
+                        {
+                            Singles = updatedSingles
+                            Doubles = updatedDoubles
+                        }
+
                     // Build fermionic Hamiltonian from pool
-                    let numOrbitals = 
-                        if pool.Singles.IsEmpty && pool.Doubles.IsEmpty then 0
+                    let numOrbitals =
+                        if pool.Singles.IsEmpty && pool.Doubles.IsEmpty then
+                            0
                         else
                             let maxOrbital =
-                                [ 
+                                [
                                     yield! pool.Singles |> List.map (fun s -> max s.VirtualOrbital s.OccupiedOrbital)
-                                    yield! pool.Doubles |> List.map (fun d -> 
-                                        [d.VirtualOrbital1; d.VirtualOrbital2; d.OccupiedOrbital1; d.OccupiedOrbital2] |> List.max)
+                                    yield!
+                                        pool.Doubles
+                                        |> List.map (fun d ->
+                                            [
+                                                d.VirtualOrbital1
+                                                d.VirtualOrbital2
+                                                d.OccupiedOrbital1
+                                                d.OccupiedOrbital2
+                                            ]
+                                            |> List.max)
                                 ]
                                 |> List.max
+
                             maxOrbital + 1
-                    
+
                     let fermionHam = UCCSD.buildUCCSDHamiltonian updatedPool numOrbitals
-                    
+
                     // Convert to qubit Hamiltonian
-                    let qubitHam = UCCSD.toQubitHamiltonian updatedPool numOrbitals true  // Jordan-Wigner
-                    
+                    let qubitHam = UCCSD.toQubitHamiltonian updatedPool numOrbitals true // Jordan-Wigner
+
                     // Apply UCCSD circuit using Pauli rotation gates
                     // For each Pauli string P with coefficient c, apply exp(i*c*P)
                     // This implements the Trotter approximation of exp(T - T†)
-                    
+
                     let! finalState =
                         (Ok initialState, qubitHam.Terms)
                         ||> List.fold (fun stateResult pauliTerm ->
                             result {
                                 let! currentState = stateResult
-                                
+
                                 // Skip identity terms (no rotation needed)
                                 if pauliTerm.Operators.IsEmpty then
                                     return currentState
@@ -1847,108 +2178,138 @@ module FermionMapping =
                                     // we set angle = −2·θ = −2·c.Imaginary. (Using c.Real here was a
                                     // bug: it is always 0, leaving the ansatz stuck at Hartree–Fock.)
                                     let angle = -2.0 * pauliTerm.Coefficient.Imaginary
-                                    
+
                                     // For multi-qubit Pauli strings, we need to:
                                     // 1. Change basis (if X or Y)
                                     // 2. Apply CNOT ladder
                                     // 3. Apply single RZ rotation
-                                    // 4. Undo CNOT ladder  
+                                    // 4. Undo CNOT ladder
                                     // 5. Undo basis change
-                                    
+
                                     let qubits = pauliTerm.Operators |> Map.toList |> List.sortBy fst
-                                    
+
                                     if qubits.Length = 1 then
                                         // Single-qubit Pauli rotation - direct application
                                         let (qubitIdx, pauli) = qubits.[0]
-                                        let gate = 
+
+                                        let gate =
                                             match pauli with
-                                            | QaoaCircuit.PauliOperator.PauliX -> RX (qubitIdx, angle)
-                                            | QaoaCircuit.PauliOperator.PauliY -> RY (qubitIdx, angle)
-                                            | QaoaCircuit.PauliOperator.PauliZ -> RZ (qubitIdx, angle)
-                                            | QaoaCircuit.PauliOperator.PauliI -> 
+                                            | QaoaCircuit.PauliOperator.PauliX -> RX(qubitIdx, angle)
+                                            | QaoaCircuit.PauliOperator.PauliY -> RY(qubitIdx, angle)
+                                            | QaoaCircuit.PauliOperator.PauliZ -> RZ(qubitIdx, angle)
+                                            | QaoaCircuit.PauliOperator.PauliI ->
                                                 // Identity - no gate needed, but shouldn't reach here
-                                                RZ (qubitIdx, 0.0)
-                                        
+                                                RZ(qubitIdx, 0.0)
+
                                         return! backend.ApplyOperation (QuantumOperation.Gate gate) currentState
-                                    
+
                                     else
                                         // Multi-qubit Pauli string - need basis change + entangling gates
                                         // For simplicity in MVP, we'll apply a simplified version
                                         // Full implementation would do proper Pauli string rotation
-                                        
+
                                         // Step 1: Basis change for X and Y operators
                                         let! afterBasisChange =
                                             (Ok currentState, qubits)
                                             ||> List.fold (fun stRes (qubitIdx, pauli) ->
                                                 result {
                                                     let! st = stRes
+
                                                     match pauli with
                                                     | QaoaCircuit.PauliOperator.PauliX ->
                                                         // Change to Z basis: H gate
-                                                        return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
+                                                        return!
+                                                            backend.ApplyOperation
+                                                                (QuantumOperation.Gate(H qubitIdx))
+                                                                st
                                                     | QaoaCircuit.PauliOperator.PauliY ->
                                                         // Change to Z basis: S†H gates (RX(-π/2))
-                                                        let! afterRX = backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -Math.PI / 2.0))) st
+                                                        let! afterRX =
+                                                            backend.ApplyOperation
+                                                                (QuantumOperation.Gate(RX(qubitIdx, -Math.PI / 2.0)))
+                                                                st
+
                                                         return afterRX
-                                                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> return st
+                                                    | QaoaCircuit.PauliOperator.PauliI
+                                                    | QaoaCircuit.PauliOperator.PauliZ -> return st
                                                 })
-                                        
+
                                         // Step 2: CNOT ladder (entangle all qubits)
                                         let qubitIndices = qubits |> List.map fst
+
                                         let! afterCNOTs =
                                             if qubitIndices.Length > 1 then
-                                                (Ok afterBasisChange, [0 .. qubitIndices.Length - 2])
+                                                (Ok afterBasisChange, [ 0 .. qubitIndices.Length - 2 ])
                                                 ||> List.fold (fun stRes i ->
                                                     result {
                                                         let! st = stRes
                                                         let control = qubitIndices.[i]
                                                         let target = qubitIndices.[i + 1]
-                                                        return! backend.ApplyOperation (QuantumOperation.Gate (CNOT (control, target))) st
+
+                                                        return!
+                                                            backend.ApplyOperation
+                                                                (QuantumOperation.Gate(CNOT(control, target)))
+                                                                st
                                                     })
                                             else
                                                 Ok afterBasisChange
-                                        
+
                                         // Step 3: Single RZ rotation on last qubit
                                         let lastQubit = qubitIndices.[qubitIndices.Length - 1]
+
                                         let! afterRotation =
-                                            backend.ApplyOperation (QuantumOperation.Gate (RZ (lastQubit, angle))) afterCNOTs
-                                        
+                                            backend.ApplyOperation
+                                                (QuantumOperation.Gate(RZ(lastQubit, angle)))
+                                                afterCNOTs
+
                                         // Step 4: Undo CNOT ladder
                                         let! afterUndoCNOTs =
                                             if qubitIndices.Length > 1 then
-                                                (Ok afterRotation, [qubitIndices.Length - 2 .. -1 .. 0])
+                                                (Ok afterRotation, [ qubitIndices.Length - 2 .. -1 .. 0 ])
                                                 ||> List.fold (fun stRes i ->
                                                     result {
                                                         let! st = stRes
                                                         let control = qubitIndices.[i]
                                                         let target = qubitIndices.[i + 1]
-                                                        return! backend.ApplyOperation (QuantumOperation.Gate (CNOT (control, target))) st
+
+                                                        return!
+                                                            backend.ApplyOperation
+                                                                (QuantumOperation.Gate(CNOT(control, target)))
+                                                                st
                                                     })
                                             else
                                                 Ok afterRotation
-                                        
+
                                         // Step 5: Undo basis change
                                         let! afterUndoBasis =
                                             (Ok afterUndoCNOTs, qubits |> List.rev)
                                             ||> List.fold (fun stRes (qubitIdx, pauli) ->
                                                 result {
                                                     let! st = stRes
+
                                                     match pauli with
                                                     | QaoaCircuit.PauliOperator.PauliX ->
-                                                        return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
+                                                        return!
+                                                            backend.ApplyOperation
+                                                                (QuantumOperation.Gate(H qubitIdx))
+                                                                st
                                                     | QaoaCircuit.PauliOperator.PauliY ->
-                                                        return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, Math.PI / 2.0))) st
-                                                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> return st
+                                                        return!
+                                                            backend.ApplyOperation
+                                                                (QuantumOperation.Gate(RX(qubitIdx, Math.PI / 2.0)))
+                                                                st
+                                                    | QaoaCircuit.PauliOperator.PauliI
+                                                    | QaoaCircuit.PauliOperator.PauliZ -> return st
                                                 })
-                                        
+
                                         return afterUndoBasis
                             })
-                    
+
                     return finalState
             }
-        
+
         /// Measure energy expectation value ⟨ψ|H|ψ⟩
-        /// 
+        ///
         /// Measures each Pauli term separately by:
         /// 1. Applying basis-change gates (H for X, S†H for Y)
         /// 2. Measuring in computational basis
@@ -1958,7 +2319,7 @@ module FermionMapping =
             (state: QuantumState)
             (backend: IQuantumBackend)
             : Result<float, QuantumError> =
-            
+
             result {
                 // Measure expectation value of each Pauli string
                 let! energyContributions =
@@ -1967,34 +2328,41 @@ module FermionMapping =
                         result {
                             // Apply basis-change gates to measure in Pauli X/Y basis
                             let qubits = pauliTerm.Operators |> Map.toList
-                            
+
                             // Step 1: Apply basis-change gates
                             let! basisChangedState =
                                 (Ok state, qubits)
                                 ||> List.fold (fun stRes (qubitIdx, pauli) ->
                                     result {
                                         let! st = stRes
+
                                         match pauli with
                                         | QaoaCircuit.PauliOperator.PauliX ->
                                             // Measure X: apply H before measurement
-                                            return! backend.ApplyOperation (QuantumOperation.Gate (H qubitIdx)) st
+                                            return! backend.ApplyOperation (QuantumOperation.Gate(H qubitIdx)) st
                                         | QaoaCircuit.PauliOperator.PauliY ->
                                             // Measure Y: apply S†H (equivalent to RX(-π/2))
-                                            return! backend.ApplyOperation (QuantumOperation.Gate (RX (qubitIdx, -Math.PI / 2.0))) st
-                                        | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> 
+                                            return!
+                                                backend.ApplyOperation
+                                                    (QuantumOperation.Gate(RX(qubitIdx, -Math.PI / 2.0)))
+                                                    st
+                                        | QaoaCircuit.PauliOperator.PauliI
+                                        | QaoaCircuit.PauliOperator.PauliZ ->
                                             // Z and I: no basis change needed
                                             return st
                                     })
-                            
+
                             // Steps 2 & 3: expectation of the (now all-Z) Pauli string.
                             // After the basis change every operator is measured in the Z
                             // basis, so the eigenvalue of basis state |i⟩ is the parity
                             // (-1)^(popcount of i over the operator's qubits).
                             let qubitIndices = pauliTerm.Operators |> Map.toList |> List.map fst
+
                             let parityOf (basisIndex: int) =
                                 qubitIndices
-                                |> List.fold (fun acc q ->
-                                    acc * (if ((basisIndex >>> q) &&& 1) = 0 then 1.0 else -1.0)) 1.0
+                                |> List.fold
+                                    (fun acc q -> acc * (if ((basisIndex >>> q) &&& 1) = 0 then 1.0 else -1.0))
+                                    1.0
 
                             // On a statevector simulator compute the expectation EXACTLY from
                             // the amplitudes. Shot sampling (1000 shots) injects ~1/√N noise that
@@ -2009,32 +2377,34 @@ module FermionMapping =
                                     |> Array.sum
                                 | _ ->
                                     let shots = 1000
+
                                     measure basisChangedState shots
                                     |> Array.map (fun bitstring ->
                                         qubitIndices
-                                        |> List.fold (fun acc q ->
-                                            acc * (if bitstring.[q] = 0 then 1.0 else -1.0)) 1.0)
+                                        |> List.fold
+                                            (fun acc q -> acc * (if bitstring.[q] = 0 then 1.0 else -1.0))
+                                            1.0)
                                     |> Array.average
-                            
+
                             return pauliTerm.Coefficient.Real * expectation
                         })
                     |> ResultHelpers.sequence
-                 
+
                 return energyContributions |> List.sum
             }
-        
+
         /// Run UCCSD-VQE to find molecular ground state
-        /// 
+        ///
         /// **Parameters**:
         ///   config - VQE configuration with UCCSD ansatz
-        /// 
+        ///
         /// **Returns**:
         ///   Async<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
         let run (config: ChemistryVQEConfig) : Async<Result<ChemistryVQEResult, QuantumError>> =
             async {
                 match config.Ansatz with
-                | UCCSD (numElectrons, numOrbitals) ->
-                    
+                | UCCSD(numElectrons, numOrbitals) ->
+
                     // Step 1: Prepare initial state (Hartree-Fock or |0⟩)
                     let! initialStateResult =
                         async {
@@ -2043,100 +2413,120 @@ module FermionMapping =
                             else
                                 return config.Backend.InitializeState numOrbitals
                         }
-                    
+
                     match initialStateResult with
                     | Error err -> return Error err
                     | Ok initialState ->
-                    
-                    // Step 2: Generate UCCSD excitation pool
-                    let numSingles = numElectrons * (numOrbitals - numElectrons)
-                    let numDoublesOccPairs = numElectrons * (numElectrons - 1) / 2
-                    let numDoublesVirtPairs = (numOrbitals - numElectrons) * (numOrbitals - numElectrons - 1) / 2
-                    let numDoubles = numDoublesOccPairs * numDoublesVirtPairs
-                    let totalParams = numSingles + numDoubles
-                    
-                    // Initialize parameters (small random values near zero)
-                    let rng = Random(42)
-                    let initialParameters = 
-                        Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
-                    
-                    let learningRate = 0.01
-                    let epsilon = 0.001
-                    
-                    // Compute gradient for a single parameter using finite differences
-                    let computeGradient (paramIdx: int) (baseEnergy: float) (parameters: float array) =
-                        let perturbedParams = Array.copy parameters
-                        perturbedParams.[paramIdx] <- perturbedParams.[paramIdx] + epsilon
-                        
-                        UCCSD.generateExcitationPool numElectrons numOrbitals perturbedParams
-                        |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
-                        |> Result.bind (fun pool -> buildUCCSDCircuit pool perturbedParams initialState config.Backend)
-                        |> Result.bind (fun state -> measureEnergy config.Hamiltonian state config.Backend)
-                        |> Result.map (fun perturbedEnergy -> (perturbedEnergy - baseEnergy) / epsilon)
-                        |> Result.defaultValue 0.0  // Skip parameter on error
-                    
-                    // Single optimization step: evaluate energy and compute gradient descent update
-                    let optimizationStep (state: OptimizationState) : Result<OptimizationState, QuantumError> =
-                        UCCSD.generateExcitationPool numElectrons numOrbitals state.Parameters
-                        |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
-                        |> Result.bind (fun pool -> buildUCCSDCircuit pool state.Parameters initialState config.Backend)
-                        |> Result.bind (fun ansatzState ->
-                            measureEnergy config.Hamiltonian ansatzState config.Backend
-                            |> Result.map (fun energy -> (ansatzState, energy)))
-                        |> Result.map (fun (ansatzState, energy) ->
-                            // Report progress
-                            config.ProgressReporter
-                            |> Option.iter (fun r ->
-                                r.Report(Progress.IterationUpdate(state.Iteration + 1, config.MaxIterations, Some energy)))
-                            
-                            // Check convergence
-                            if abs(energy - state.PrevEnergy) < config.Tolerance then
-                                { state with 
-                                    CurrentEnergy = energy
-                                    FinalState = ansatzState
-                                    Converged = true }
+
+                        // Step 2: Generate UCCSD excitation pool
+                        let numSingles = numElectrons * (numOrbitals - numElectrons)
+                        let numDoublesOccPairs = numElectrons * (numElectrons - 1) / 2
+
+                        let numDoublesVirtPairs =
+                            (numOrbitals - numElectrons) * (numOrbitals - numElectrons - 1) / 2
+
+                        let numDoubles = numDoublesOccPairs * numDoublesVirtPairs
+                        let totalParams = numSingles + numDoubles
+
+                        // Initialize parameters (small random values near zero)
+                        let rng = Random(42)
+
+                        let initialParameters =
+                            Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
+
+                        let learningRate = 0.01
+                        let epsilon = 0.001
+
+                        // Compute gradient for a single parameter using finite differences
+                        let computeGradient (paramIdx: int) (baseEnergy: float) (parameters: float array) =
+                            let perturbedParams = Array.copy parameters
+                            perturbedParams.[paramIdx] <- perturbedParams.[paramIdx] + epsilon
+
+                            UCCSD.generateExcitationPool numElectrons numOrbitals perturbedParams
+                            |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
+                            |> Result.bind (fun pool ->
+                                buildUCCSDCircuit pool perturbedParams initialState config.Backend)
+                            |> Result.bind (fun state -> measureEnergy config.Hamiltonian state config.Backend)
+                            |> Result.map (fun perturbedEnergy -> (perturbedEnergy - baseEnergy) / epsilon)
+                            |> Result.defaultValue 0.0 // Skip parameter on error
+
+                        // Single optimization step: evaluate energy and compute gradient descent update
+                        let optimizationStep (state: OptimizationState) : Result<OptimizationState, QuantumError> =
+                            UCCSD.generateExcitationPool numElectrons numOrbitals state.Parameters
+                            |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
+                            |> Result.bind (fun pool ->
+                                buildUCCSDCircuit pool state.Parameters initialState config.Backend)
+                            |> Result.bind (fun ansatzState ->
+                                measureEnergy config.Hamiltonian ansatzState config.Backend
+                                |> Result.map (fun energy -> (ansatzState, energy)))
+                            |> Result.map (fun (ansatzState, energy) ->
+                                // Report progress
+                                config.ProgressReporter
+                                |> Option.iter (fun r ->
+                                    r.Report(
+                                        Progress.IterationUpdate(
+                                            state.Iteration + 1,
+                                            config.MaxIterations,
+                                            Some energy
+                                        )
+                                    ))
+
+                                // Check convergence
+                                if abs (energy - state.PrevEnergy) < config.Tolerance then
+                                    { state with
+                                        CurrentEnergy = energy
+                                        FinalState = ansatzState
+                                        Converged = true
+                                    }
+                                else
+                                    // Compute gradients and update parameters
+                                    let gradients =
+                                        [|
+                                            for i in 0 .. state.Parameters.Length - 1 ->
+                                                computeGradient i energy state.Parameters
+                                        |]
+
+                                    let updatedParams =
+                                        Array.mapi (fun i p -> p - learningRate * gradients.[i]) state.Parameters
+
+                                    {
+                                        Parameters = updatedParams
+                                        Iteration = state.Iteration + 1
+                                        PrevEnergy = energy
+                                        CurrentEnergy = energy
+                                        FinalState = ansatzState
+                                        Converged = false
+                                    })
+
+                        // Tail-recursive optimization loop
+                        let rec optimizeLoop (state: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
+                            if state.Iteration >= config.MaxIterations || state.Converged then
+                                Ok
+                                    {
+                                        Energy = state.CurrentEnergy
+                                        OptimalParameters = state.Parameters
+                                        Iterations = state.Iteration
+                                        Converged = state.Converged
+                                        FinalState = state.FinalState
+                                    }
                             else
-                                // Compute gradients and update parameters
-                                let gradients = 
-                                    [| for i in 0 .. state.Parameters.Length - 1 ->
-                                        computeGradient i energy state.Parameters |]
-                                let updatedParams = 
-                                    Array.mapi (fun i p -> p - learningRate * gradients.[i]) state.Parameters
-                                
-                                { Parameters = updatedParams
-                                  Iteration = state.Iteration + 1
-                                  PrevEnergy = energy
-                                  CurrentEnergy = energy
-                                  FinalState = ansatzState
-                                  Converged = false })
-                    
-                    // Tail-recursive optimization loop
-                    let rec optimizeLoop (state: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
-                        if state.Iteration >= config.MaxIterations || state.Converged then
-                            Ok {
-                                Energy = state.CurrentEnergy
-                                OptimalParameters = state.Parameters
-                                Iterations = state.Iteration
-                                Converged = state.Converged
-                                FinalState = state.FinalState
+                                (optimizationStep state) |> Result.bind (fun newState -> optimizeLoop newState)
+
+                        // Start optimization from initial state
+                        let initialOptState: OptimizationState =
+                            {
+                                Parameters = initialParameters
+                                Iteration = 0
+                                PrevEnergy = Double.MaxValue
+                                CurrentEnergy = 0.0
+                                FinalState = initialState
+                                Converged = false
                             }
-                        else
-                            (optimizationStep state) |> Result.bind (fun newState -> optimizeLoop newState)
-                    
-                    // Start optimization from initial state
-                    let initialOptState : OptimizationState = {
-                        Parameters = initialParameters
-                        Iteration = 0
-                        PrevEnergy = Double.MaxValue
-                        CurrentEnergy = 0.0
-                        FinalState = initialState
-                        Converged = false
-                    }
-                    
-                    return optimizeLoop initialOptState
+
+                        return optimizeLoop initialOptState
             }
 
-// ============================================================================  
+// ============================================================================
 // MOLECULAR INTEGRALS (Pluggable Provider Interface)
 // ============================================================================
 //
@@ -2204,120 +2594,124 @@ module FermionMapping =
 
 /// One-electron integrals h_pq = <p|T + V_nuc|q>
 /// Kinetic energy + nuclear attraction in molecular orbital basis
-type OneElectronIntegrals = {
-    /// Number of molecular orbitals
-    NumOrbitals: int
-    /// Integral matrix h[p,q] in Hartree
-    /// Access: h.[p, q] gives <p|h|q>
-    /// PRECONDITION: Array dimensions must match NumOrbitals
-    Integrals: float[,]
-}
+type OneElectronIntegrals =
+    {
+        /// Number of molecular orbitals
+        NumOrbitals: int
+        /// Integral matrix h[p,q] in Hartree
+        /// Access: h.[p, q] gives <p|h|q>
+        /// PRECONDITION: Array dimensions must match NumOrbitals
+        Integrals: float[,]
+    }
 
 /// Two-electron integrals g_pqrs = (pq|rs) in chemist notation
 /// Electron repulsion integrals in molecular orbital basis
-type TwoElectronIntegrals = {
-    /// Number of molecular orbitals
-    NumOrbitals: int
-    /// Integral tensor g[p,q,r,s] in Hartree (chemist notation)
-    /// Access: g.[p,q,r,s] gives (pq|rs)
-    /// PRECONDITION: Must be in CHEMIST notation (pq|rs), not physicist <pr|qs>
-    /// PRECONDITION: Array dimensions must match NumOrbitals
-    Integrals: float[,,,]
-}
+type TwoElectronIntegrals =
+    {
+        /// Number of molecular orbitals
+        NumOrbitals: int
+        /// Integral tensor g[p,q,r,s] in Hartree (chemist notation)
+        /// Access: g.[p,q,r,s] gives (pq|rs)
+        /// PRECONDITION: Must be in CHEMIST notation (pq|rs), not physicist <pr|qs>
+        /// PRECONDITION: Array dimensions must match NumOrbitals
+        Integrals: float[,,,]
+    }
 
 /// Complete molecular integrals for quantum chemistry calculations
 /// Can be provided by external tools (PySCF, Psi4, etc.) or computed internally
-/// 
+///
 /// PRECONDITIONS:
 /// - NumOrbitals must be ≤ 10 (gives 20 qubits after spin-orbital expansion)
 /// - All integrals must be in molecular orbital (MO) basis
 /// - Two-electron integrals must use chemist notation (pq|rs)
 /// - All energies in Hartree
-type MolecularIntegrals = {
-    /// Number of spatial molecular orbitals
-    /// PRECONDITION: Must be ≤ 10 for NISQ simulation (expands to 2N qubits)
-    NumOrbitals: int
-    /// Number of electrons
-    NumElectrons: int
-    /// Nuclear repulsion energy in Hartree (constant term)
-    NuclearRepulsion: float
-    /// One-electron integrals (kinetic + nuclear attraction)
-    OneElectron: OneElectronIntegrals
-    /// Two-electron integrals (electron repulsion)
-    TwoElectron: TwoElectronIntegrals
-    /// Reference energy from classical calculation (e.g., Hartree-Fock) for validation
-    ReferenceEnergy: float option
-}
+type MolecularIntegrals =
+    {
+        /// Number of spatial molecular orbitals
+        /// PRECONDITION: Must be ≤ 10 for NISQ simulation (expands to 2N qubits)
+        NumOrbitals: int
+        /// Number of electrons
+        NumElectrons: int
+        /// Nuclear repulsion energy in Hartree (constant term)
+        NuclearRepulsion: float
+        /// One-electron integrals (kinetic + nuclear attraction)
+        OneElectron: OneElectronIntegrals
+        /// Two-electron integrals (electron repulsion)
+        TwoElectron: TwoElectronIntegrals
+        /// Reference energy from classical calculation (e.g., Hartree-Fock) for validation
+        ReferenceEnergy: float option
+    }
 
 /// Function signature for custom integral providers
 /// Takes a molecule and returns integrals or an error message
-/// 
+///
 /// IMPLEMENTATION REQUIREMENTS:
 /// - Return integrals in MO basis (not AO basis)
 /// - Use chemist notation (pq|rs) for two-electron integrals
 /// - Energies in Hartree, positions read from Molecule are in Angstroms
 /// - Handle errors gracefully and return descriptive error messages
-/// 
+///
 /// COMMON PROVIDERS:
 /// - PySCF: See examples/DrugDiscovery/PySCFIntegration.fsx
 /// - Psi4: Requires notation conversion from physicist to chemist
 /// - File-based: Parse FCIDump or HDF5 files with pre-computed integrals
 type IntegralProvider = Molecule -> Result<MolecularIntegrals, string>
 
-// ============================================================================  
-// GROUND STATE ENERGY ESTIMATION  
+// ============================================================================
+// GROUND STATE ENERGY ESTIMATION
 // ============================================================================
 
 /// Ground state calculation method
 type GroundStateMethod =
     /// Variational Quantum Eigensolver (quantum algorithm)
     | VQE
-    
+
     /// Quantum Phase Estimation (requires larger quantum resources)
     | QPE
-    
+
     /// Classical DFT fallback for validation
     | ClassicalDFT
-    
+
     /// Automatically select best method based on molecule size
     | Automatic
 
 /// Configuration for ground state energy solver
-type SolverConfig = {
-    /// Method to use for calculation
-    Method: GroundStateMethod
-    
-    /// Maximum optimization iterations
-    MaxIterations: int
-    
-    /// Convergence tolerance
-    Tolerance: float
-    
-    /// Optional initial parameters for VQE ansatz
-    InitialParameters: float[] option
-    
-    /// Quantum backend for execution (RULE1)
-    /// None = use LocalBackend by default
-    Backend: BackendAbstraction.IQuantumBackend option
-    
-    /// Optional progress reporter for VQE iterations
-    ProgressReporter: Progress.IProgressReporter option
-    
-    /// Optional error mitigation strategy for noisy backends
-    /// When set, applies error correction to measurement results
-    ErrorMitigation: ErrorMitigationStrategy.RecommendedStrategy option
-    
-    /// Optional custom integral provider (e.g., from PySCF, Psi4)
-    /// When provided, uses real molecular integrals instead of empirical values
-    /// This enables research-grade accuracy for VQE calculations
-    IntegralProvider: IntegralProvider option
-}
+type SolverConfig =
+    {
+        /// Method to use for calculation
+        Method: GroundStateMethod
+
+        /// Maximum optimization iterations
+        MaxIterations: int
+
+        /// Convergence tolerance
+        Tolerance: float
+
+        /// Optional initial parameters for VQE ansatz
+        InitialParameters: float[] option
+
+        /// Quantum backend for execution (RULE1)
+        /// None = use LocalBackend by default
+        Backend: BackendAbstraction.IQuantumBackend option
+
+        /// Optional progress reporter for VQE iterations
+        ProgressReporter: Progress.IProgressReporter option
+
+        /// Optional error mitigation strategy for noisy backends
+        /// When set, applies error correction to measurement results
+        ErrorMitigation: ErrorMitigationStrategy.RecommendedStrategy option
+
+        /// Optional custom integral provider (e.g., from PySCF, Psi4)
+        /// When provided, uses real molecular integrals instead of empirical values
+        /// This enables research-grade accuracy for VQE calculations
+        IntegralProvider: IntegralProvider option
+    }
 
 /// Identify known molecules by their atomic composition (not just name).
 /// This allows molecules loaded from XYZ files (with arbitrary names) to be
 /// recognized as known molecules for empirical energy calculations.
 module MoleculeIdentification =
-    
+
     /// Identify a known molecule by its atomic composition.
     /// Returns the canonical name if composition matches a known molecule.
     let identify (molecule: Molecule) : string option =
@@ -2328,16 +2722,16 @@ module MoleculeIdentification =
             |> List.groupBy id
             |> List.map (fun (elem, atoms) -> (elem, atoms.Length))
             |> List.sortBy fst
-        
+
         match elementCounts with
-        | [("H", 2)] -> Some "H2"
-        | [("H", 2); ("O", 1)] -> Some "H2O"
-        | [("H", 1); ("LI", 1)] -> Some "LiH"
+        | [ ("H", 2) ] -> Some "H2"
+        | [ ("H", 2); ("O", 1) ] -> Some "H2O"
+        | [ ("H", 1); ("LI", 1) ] -> Some "LiH"
         | _ -> None
 
 /// Molecular Hamiltonian in second quantization
 module MolecularHamiltonian =
-    
+
     /// Fermion-to-qubit mapping method
     [<Struct>]
     type MappingMethod =
@@ -2347,42 +2741,59 @@ module MolecularHamiltonian =
         | JordanWigner
         /// Bravyi-Kitaev transformation (research-grade, better scaling)
         | BravyiKitaev
-    
+
     /// Build fermionic Hamiltonian terms from real molecular integrals
-    /// 
+    ///
     /// Constructs: H = E_nuc + Σ_pq h_pq a†_p a_q + 0.5 Σ_pqrs g_pqrs a†_p a†_r a_s a_q
-    /// 
+    ///
     /// This uses REAL integrals from external quantum chemistry packages (PySCF, Psi4, etc.)
     /// instead of empirical approximations, enabling research-grade accuracy.
     let private buildFermionTermsFromIntegrals (integrals: MolecularIntegrals) : FermionMapping.FermionTerm list =
         let n = integrals.NumOrbitals
         let h1 = integrals.OneElectron.Integrals
         let g2 = integrals.TwoElectron.Integrals
-        
+
         [
             // One-electron terms: h_pq a†_p a_q (spin-orbital basis)
             // Each spatial orbital gives two spin orbitals (alpha, beta)
             for p in 0 .. n - 1 do
                 for q in 0 .. n - 1 do
                     let h_pq = h1.[p, q]
+
                     if abs h_pq > 1e-12 then
                         // Alpha spin (even indices)
-                        yield {
-                            FermionMapping.Coefficient = Complex(h_pq, 0.0)
-                            FermionMapping.Operators = [
-                                { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
-                                { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                            ]
-                        }
+                        yield
+                            {
+                                FermionMapping.Coefficient = Complex(h_pq, 0.0)
+                                FermionMapping.Operators =
+                                    [
+                                        {
+                                            FermionMapping.OrbitalIndex = 2 * p
+                                            FermionMapping.OperatorType = FermionMapping.Creation
+                                        }
+                                        {
+                                            FermionMapping.OrbitalIndex = 2 * q
+                                            FermionMapping.OperatorType = FermionMapping.Annihilation
+                                        }
+                                    ]
+                            }
                         // Beta spin (odd indices)
-                        yield {
-                            FermionMapping.Coefficient = Complex(h_pq, 0.0)
-                            FermionMapping.Operators = [
-                                { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
-                                { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                            ]
-                        }
-            
+                        yield
+                            {
+                                FermionMapping.Coefficient = Complex(h_pq, 0.0)
+                                FermionMapping.Operators =
+                                    [
+                                        {
+                                            FermionMapping.OrbitalIndex = 2 * p + 1
+                                            FermionMapping.OperatorType = FermionMapping.Creation
+                                        }
+                                        {
+                                            FermionMapping.OrbitalIndex = 2 * q + 1
+                                            FermionMapping.OperatorType = FermionMapping.Annihilation
+                                        }
+                                    ]
+                            }
+
             // Two-electron terms: 0.5 * g_pqrs a†_p a†_r a_s a_q
             // In chemist notation (pq|rs), converted to physicist <pr|qs>
             for p in 0 .. n - 1 do
@@ -2390,126 +2801,208 @@ module MolecularHamiltonian =
                     for r in 0 .. n - 1 do
                         for s in 0 .. n - 1 do
                             let g_pqrs = g2.[p, q, r, s]
+
                             if abs g_pqrs > 1e-12 then
                                 // Four spin combinations: αα, αβ, βα, ββ
                                 // αα: p↑ r↑ s↑ q↑
-                                yield {
-                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
-                                    FermionMapping.Operators = [
-                                        { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * r; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * s; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                        { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                    ]
-                                }
+                                yield
+                                    {
+                                        FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
+                                        FermionMapping.Operators =
+                                            [
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * p
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * r
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * s
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * q
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                            ]
+                                    }
                                 // ββ: p↓ r↓ s↓ q↓
-                                yield {
-                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
-                                    FermionMapping.Operators = [
-                                        { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * r + 1; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * s + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                        { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                    ]
-                                }
+                                yield
+                                    {
+                                        FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
+                                        FermionMapping.Operators =
+                                            [
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * p + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * r + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * s + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * q + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                            ]
+                                    }
                                 // αβ: p↑ r↓ s↓ q↑
-                                yield {
-                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
-                                    FermionMapping.Operators = [
-                                        { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * r + 1; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * s + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                        { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                    ]
-                                }
+                                yield
+                                    {
+                                        FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
+                                        FermionMapping.Operators =
+                                            [
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * p
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * r + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * s + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * q
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                            ]
+                                    }
                                 // βα: p↓ r↑ s↑ q↓
-                                yield {
-                                    FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
-                                    FermionMapping.Operators = [
-                                        { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * r; FermionMapping.OperatorType = FermionMapping.Creation }
-                                        { FermionMapping.OrbitalIndex = 2 * s; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                        { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                    ]
-                                }
+                                yield
+                                    {
+                                        FermionMapping.Coefficient = Complex(0.5 * g_pqrs, 0.0)
+                                        FermionMapping.Operators =
+                                            [
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * p + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * r
+                                                    FermionMapping.OperatorType = FermionMapping.Creation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * s
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                                {
+                                                    FermionMapping.OrbitalIndex = 2 * q + 1
+                                                    FermionMapping.OperatorType = FermionMapping.Annihilation
+                                                }
+                                            ]
+                                    }
         ]
-    
+
     /// Build molecular Hamiltonian from real molecular integrals
-    /// 
+    ///
     /// This function uses integrals provided by external quantum chemistry packages
     /// (PySCF, Psi4, etc.) to construct an accurate qubit Hamiltonian.
-    /// 
+    ///
     /// PRECONDITIONS (validated):
     /// - NumOrbitals ≤ 10 (expands to 20 qubits)
     /// - OneElectron.Integrals dimensions match NumOrbitals
     /// - TwoElectron.Integrals dimensions match NumOrbitals
     /// - NumElectrons > 0
-    /// 
+    ///
     /// PRECONDITIONS (not validated - caller responsibility):
     /// - Integrals must be in MO basis (not AO)
     /// - Two-electron integrals must use chemist notation (pq|rs)
     /// - All values in Hartree
-    /// 
+    ///
     /// Returns: (ProblemHamiltonian, nuclearRepulsion) where nuclearRepulsion should
     /// be added to the VQE energy to get the total molecular energy.
-    let buildFromIntegrals (integrals: MolecularIntegrals) (mapping: MappingMethod) : Result<QaoaCircuit.ProblemHamiltonian * float, QuantumError> =
+    let buildFromIntegrals
+        (integrals: MolecularIntegrals)
+        (mapping: MappingMethod)
+        : Result<QaoaCircuit.ProblemHamiltonian * float, QuantumError> =
         result {
             let n = integrals.NumOrbitals
             let numSpinOrbitals = n * 2
-            
+
             // Validate qubit count
-            do! if numSpinOrbitals > 20 then
-                    Error (QuantumError.ValidationError("MoleculeSize", 
-                        $"Molecule too large: {n} spatial orbitals → {numSpinOrbitals} spin orbitals (max 20). " +
-                        "Consider using active space selection to reduce orbital count."))
+            do!
+                if numSpinOrbitals > 20 then
+                    Error(
+                        QuantumError.ValidationError(
+                            "MoleculeSize",
+                            $"Molecule too large: {n} spatial orbitals → {numSpinOrbitals} spin orbitals (max 20). "
+                            + "Consider using active space selection to reduce orbital count."
+                        )
+                    )
                 else
-                    Ok ()
-            
+                    Ok()
+
             // Validate electron count
-            do! if integrals.NumElectrons <= 0 then
-                    Error (QuantumError.ValidationError("Integrals", 
-                        $"Invalid electron count: {integrals.NumElectrons}. Must be positive."))
+            do!
+                if integrals.NumElectrons <= 0 then
+                    Error(
+                        QuantumError.ValidationError(
+                            "Integrals",
+                            $"Invalid electron count: {integrals.NumElectrons}. Must be positive."
+                        )
+                    )
                 else
-                    Ok ()
-            
+                    Ok()
+
             // Validate one-electron integral dimensions
             let h1Rows = integrals.OneElectron.Integrals.GetLength 0
             let h1Cols = integrals.OneElectron.Integrals.GetLength 1
-            do! if h1Rows <> n || h1Cols <> n then
-                    Error (QuantumError.ValidationError("Integrals", 
-                        $"One-electron integral dimension mismatch: got [{h1Rows}x{h1Cols}], expected [{n}x{n}]. " +
-                        "Ensure OneElectron.Integrals dimensions match NumOrbitals."))
+
+            do!
+                if h1Rows <> n || h1Cols <> n then
+                    Error(
+                        QuantumError.ValidationError(
+                            "Integrals",
+                            $"One-electron integral dimension mismatch: got [{h1Rows}x{h1Cols}], expected [{n}x{n}]. "
+                            + "Ensure OneElectron.Integrals dimensions match NumOrbitals."
+                        )
+                    )
                 else
-                    Ok ()
-            
+                    Ok()
+
             // Validate two-electron integral dimensions
             let g2D0 = integrals.TwoElectron.Integrals.GetLength 0
             let g2D1 = integrals.TwoElectron.Integrals.GetLength 1
             let g2D2 = integrals.TwoElectron.Integrals.GetLength 2
             let g2D3 = integrals.TwoElectron.Integrals.GetLength 3
-            do! if g2D0 <> n || g2D1 <> n || g2D2 <> n || g2D3 <> n then
-                    Error (QuantumError.ValidationError("Integrals", 
-                        $"Two-electron integral dimension mismatch: got [{g2D0}x{g2D1}x{g2D2}x{g2D3}], expected [{n}x{n}x{n}x{n}]. " +
-                        "Ensure TwoElectron.Integrals dimensions match NumOrbitals."))
+
+            do!
+                if g2D0 <> n || g2D1 <> n || g2D2 <> n || g2D3 <> n then
+                    Error(
+                        QuantumError.ValidationError(
+                            "Integrals",
+                            $"Two-electron integral dimension mismatch: got [{g2D0}x{g2D1}x{g2D2}x{g2D3}], expected [{n}x{n}x{n}x{n}]. "
+                            + "Ensure TwoElectron.Integrals dimensions match NumOrbitals."
+                        )
+                    )
                 else
-                    Ok ()
-            
+                    Ok()
+
             // Build fermionic Hamiltonian from real integrals
             let fermionTerms = buildFermionTermsFromIntegrals integrals
-            
-            let fermionHamiltonian = {
-                FermionMapping.NumOrbitals = numSpinOrbitals
-                FermionMapping.Terms = fermionTerms
-            }
-            
+
+            let fermionHamiltonian =
+                {
+                    FermionMapping.NumOrbitals = numSpinOrbitals
+                    FermionMapping.Terms = fermionTerms
+                }
+
             // Apply fermion-to-qubit mapping
             let qubitHamiltonian =
                 match mapping with
-                | JordanWigner | Empirical ->
-                    FermionMapping.JordanWigner.transform fermionHamiltonian
-                | BravyiKitaev ->
-                    FermionMapping.BravyiKitaev.transform fermionHamiltonian
-            
+                | JordanWigner
+                | Empirical -> FermionMapping.JordanWigner.transform fermionHamiltonian
+                | BravyiKitaev -> FermionMapping.BravyiKitaev.transform fermionHamiltonian
+
             // Convert to library format
             return (FermionMapping.toQaoaHamiltonian qubitHamiltonian, integrals.NuclearRepulsion)
         }
@@ -2524,29 +3017,32 @@ module MolecularHamiltonian =
     /// state to better than 0.1 kcal/mol (total energy ≈ -1.1373 Ha vs the literature
     /// FCI value -1.13727 Ha) — i.e. well within chemical accuracy (1 kcal/mol).
     /// Values are the standard STO-3G results (cf. Szabo & Ostlund; OpenFermion H2).
-    let h2Sto3gIntegrals : MolecularIntegrals =
+    let h2Sto3gIntegrals: MolecularIntegrals =
         let h1 = Array2D.zeroCreate 2 2
         h1.[0, 0] <- -1.252477
         h1.[1, 1] <- -0.475934
         let g2 = Array4D.zeroCreate 2 2 2 2
-        g2.[0, 0, 0, 0] <- 0.674493   // (00|00)
-        g2.[1, 1, 1, 1] <- 0.697398   // (11|11)
-        g2.[0, 0, 1, 1] <- 0.663472   // (00|11) Coulomb
-        g2.[1, 1, 0, 0] <- 0.663472   // (11|00)
-        g2.[0, 1, 0, 1] <- 0.181287   // (01|01) exchange (+ symmetric partners)
+        g2.[0, 0, 0, 0] <- 0.674493 // (00|00)
+        g2.[1, 1, 1, 1] <- 0.697398 // (11|11)
+        g2.[0, 0, 1, 1] <- 0.663472 // (00|11) Coulomb
+        g2.[1, 1, 0, 0] <- 0.663472 // (11|00)
+        g2.[0, 1, 0, 1] <- 0.181287 // (01|01) exchange (+ symmetric partners)
         g2.[0, 1, 1, 0] <- 0.181287
         g2.[1, 0, 0, 1] <- 0.181287
         g2.[1, 0, 1, 0] <- 0.181287
-        { NumOrbitals = 2
-          NumElectrons = 2
-          NuclearRepulsion = 0.713696   // 1/R, R = 0.7414 Å = 1.401156 bohr
-          OneElectron = { NumOrbitals = 2; Integrals = h1 }
-          TwoElectron = { NumOrbitals = 2; Integrals = g2 }
-          ReferenceEnergy = Some -1.116765 }   // Hartree-Fock energy (2·h00 + (00|00) + Enuc)
+
+        {
+            NumOrbitals = 2
+            NumElectrons = 2
+            NuclearRepulsion = 0.713696 // 1/R, R = 0.7414 Å = 1.401156 bohr
+            OneElectron = { NumOrbitals = 2; Integrals = h1 }
+            TwoElectron = { NumOrbitals = 2; Integrals = g2 }
+            ReferenceEnergy = Some -1.116765
+        } // Hartree-Fock energy (2·h00 + (00|00) + Enuc)
 
     /// Build molecular Hamiltonian from molecule structure
     /// Returns ProblemHamiltonian with Pauli Z and ZZ terms
-    /// 
+    ///
     /// NOTE: Uses empirical parameters tuned to reproduce known ground state energies
     /// for H2 and H2O. This is a simplification for prototype - production code would
     /// use full molecular orbital calculations (Hartree-Fock, etc.)
@@ -2559,21 +3055,23 @@ module MolecularHamiltonian =
         result {
             // Validate molecule
             do! Molecule.validate molecule
-            
-            do! if molecule.Atoms.IsEmpty then
-                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
+
+            do!
+                if molecule.Atoms.IsEmpty then
+                    Error(QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
                 elif Molecule.countElectrons molecule <= 0 then
-                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
+                    Error(QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
                 else
-                    Ok ()
-            
+                    Ok()
+
             // Empirical Hamiltonian parameters for known molecules
             // NOTE: These are POSITIVE - we negate the expectation value in measurement
             // Use composition-based identification to handle molecules loaded from files
             let knownMolecule = MoleculeIdentification.identify molecule
+
             let (numQubits, oneElectronCoeff, twoElectronCoeff) =
                 match knownMolecule with
-                | Some "H2" -> 
+                | Some "H2" ->
                     // H2: 2 qubits, empirical parameters tuned to give ~-1.174 Hartree
                     // Electronic energy target: ~-2.5 (to offset +1.35 nuclear repulsion)
                     (2, 1.3, 0.05)
@@ -2585,34 +3083,50 @@ module MolecularHamiltonian =
                     // Generic: 2 qubits per atom (minimal basis approximation)
                     let nq = molecule.Atoms.Length * 2
                     (nq, 1.0, 0.5)
-            
-            do! if numQubits > 20 then
-                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 20)"))
+
+            do!
+                if numQubits > 20 then
+                    Error(
+                        QuantumError.ValidationError(
+                            "MoleculeSize",
+                            $"Molecule too large: {numQubits} qubits required (max 20)"
+                        )
+                    )
                 else
-                    Ok ()
-            
+                    Ok()
+
             // Build Hamiltonian terms
             // One-electron terms (Z operators)
             let oneElectronTerms =
-                [| for i in 0 .. numQubits - 1 ->
-                    { Coefficient = oneElectronCoeff
-                      QubitsIndices = [| i |]
-                      PauliOperators = [| QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
-            
+                [|
+                    for i in 0 .. numQubits - 1 ->
+                        {
+                            Coefficient = oneElectronCoeff
+                            QubitsIndices = [| i |]
+                            PauliOperators = [| QaoaCircuit.PauliZ |]
+                        }
+                        : QaoaCircuit.HamiltonianTerm
+                |]
+
             // Two-electron terms (ZZ operators)
             let twoElectronTerms =
-                [| for i in 0 .. numQubits - 2 do
-                    for j in i + 1 .. numQubits - 1 ->
-                        { Coefficient = twoElectronCoeff
-                          QubitsIndices = [| i; j |]
-                          PauliOperators = [| QaoaCircuit.PauliZ
-                                              QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
-            
+                [|
+                    for i in 0 .. numQubits - 2 do
+                        for j in i + 1 .. numQubits - 1 ->
+                            {
+                                Coefficient = twoElectronCoeff
+                                QubitsIndices = [| i; j |]
+                                PauliOperators = [| QaoaCircuit.PauliZ; QaoaCircuit.PauliZ |]
+                            }
+                            : QaoaCircuit.HamiltonianTerm
+                |]
+
             // Return the constructed hamiltonian
-            return {
-                QaoaCircuit.NumQubits = numQubits
-                QaoaCircuit.Terms = Array.append oneElectronTerms twoElectronTerms
-            }
+            return
+                {
+                    QaoaCircuit.NumQubits = numQubits
+                    QaoaCircuit.Terms = Array.append oneElectronTerms twoElectronTerms
+                }
         }
 
     /// Build a Hamiltonian from a Molecule under the given mapping.
@@ -2636,25 +3150,31 @@ module MolecularHamiltonian =
     /// Shortcut when you already hold integrals: call `buildFromIntegrals` directly with a
     /// `MolecularIntegrals` value such as the bundled `h2Sto3gIntegrals`, or integrals
     /// loaded from an FCIDUMP file via `Molecule.fromFciDumpFileTask`.
-    let rec buildWithMapping (molecule: Molecule) (mapping: MappingMethod) (integralProvider: IntegralProvider option) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
+    let rec buildWithMapping
+        (molecule: Molecule)
+        (mapping: MappingMethod)
+        (integralProvider: IntegralProvider option)
+        : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
         result {
             // Validate molecule
             do! Molecule.validate molecule
-            
-            do! if molecule.Atoms.IsEmpty then
-                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
+
+            do!
+                if molecule.Atoms.IsEmpty then
+                    Error(QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
                 elif Molecule.countElectrons molecule <= 0 then
-                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
+                    Error(QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
                 else
-                    Ok ()
-            
+                    Ok()
+
             return!
                 match mapping with
                 | Empirical ->
                     // Delegate to original empirical build
                     build molecule
-                
-                | JordanWigner | BravyiKitaev ->
+
+                | JordanWigner
+                | BravyiKitaev ->
                     // Production path: an IntegralProvider supplies real MO integrals from an
                     // external chemistry package (PySCF/Psi4/FCIDUMP). A fermionic mapping is
                     // meaningless without real integrals, so `None` is a hard Error rather than
@@ -2666,31 +3186,35 @@ module MolecularHamiltonian =
                             // Real integrals → physically correct Hamiltonian.
                             buildFromIntegrals integrals mapping |> Result.map fst
                         | Error msg ->
-                            Error (QuantumError.ValidationError("IntegralProvider",
-                                $"Integral provider failed for molecule '{molecule.Name}': {msg}. " +
-                                "Check the provider (e.g. PySCF/Psi4 wrapper) or load integrals from " +
-                                "an FCIDUMP file via Molecule.fromFciDumpFileTask."))
+                            Error(
+                                QuantumError.ValidationError(
+                                    "IntegralProvider",
+                                    $"Integral provider failed for molecule '{molecule.Name}': {msg}. "
+                                    + "Check the provider (e.g. PySCF/Psi4 wrapper) or load integrals from "
+                                    + "an FCIDUMP file via Molecule.fromFciDumpFileTask."
+                                )
+                            )
                     | None ->
-                        Error (QuantumError.ValidationError("IntegralProvider",
-                            $"The %A{mapping} fermionic mapping requires real molecular integrals, " +
-                            "but no IntegralProvider was supplied. Pass an IntegralProvider " +
-                            "(PySCF/Psi4/FCIDUMP), or call buildFromIntegrals with integrals you " +
-                            "already hold (e.g. h2Sto3gIntegrals). Use the Empirical mapping for a " +
-                            "provider-free prototype Hamiltonian."))
+                        Error(
+                            QuantumError.ValidationError(
+                                "IntegralProvider",
+                                $"The %A{mapping} fermionic mapping requires real molecular integrals, "
+                                + "but no IntegralProvider was supplied. Pass an IntegralProvider "
+                                + "(PySCF/Psi4/FCIDUMP), or call buildFromIntegrals with integrals you "
+                                + "already hold (e.g. h2Sto3gIntegrals). Use the Empirical mapping for a "
+                                + "provider-free prototype Hamiltonian."
+                            )
+                        )
         }
-    
+
 
 
 /// Classical DFT fallback - provides empirical energy values
 module ClassicalDFT =
-    
+
     let private empiricalEnergies =
-        Map [
-            ("H2", -1.174)
-            ("H2O", -76.0)
-            ("LiH", -8.0)
-        ]
-    
+        Map [ ("H2", -1.174); ("H2O", -76.0); ("LiH", -8.0) ]
+
     let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, QuantumError>> =
         async {
             // First try by name, then by composition
@@ -2698,104 +3222,101 @@ module ClassicalDFT =
                 match empiricalEnergies.TryFind molecule.Name with
                 | Some _ -> Some molecule.Name
                 | None -> MoleculeIdentification.identify molecule
-            
+
             match knownName |> Option.bind empiricalEnergies.TryFind with
             | Some energy ->
                 let perturbation = 0.01 * (1.0 - 2.0 * Random().NextDouble())
-                return Ok (energy + perturbation)
-            | None ->
-                return Error (QuantumError.ValidationError("Molecule", $"No empirical data for: {molecule.Name}"))
+                return Ok(energy + perturbation)
+            | None -> return Error(QuantumError.ValidationError("Molecule", $"No empirical data for: {molecule.Name}"))
         }
 
 /// VQE (Variational Quantum Eigensolver) implementation
-/// 
+///
 /// RULE1 COMPLIANT: Uses IQuantumBackend for all quantum operations.
 /// All state initialization, gate application, and measurement go through the backend.
 module VQE =
-    
+
     open BackendAbstraction
     open FSharp.Azure.Quantum.CircuitBuilder
     open FSharp.Azure.Quantum.Backends
-    
+
     /// VQE optimization result with metadata
-    type VQEResult = {
-        /// Optimized ground state energy
-        Energy: float
-        /// Optimal variational parameters found
-        OptimalParameters: float[]
-        /// Number of iterations performed
-        Iterations: int
-        /// Whether optimization converged within tolerance
-        Converged: bool
-        /// Energy history for convergence plotting (iteration -> energy)
-        EnergyHistory: (int * float) list
-    }
-    
+    type VQEResult =
+        {
+            /// Optimized ground state energy
+            Energy: float
+            /// Optimal variational parameters found
+            OptimalParameters: float[]
+            /// Number of iterations performed
+            Iterations: int
+            /// Whether optimization converged within tolerance
+            Converged: bool
+            /// Energy history for convergence plotting (iteration -> energy)
+            EnergyHistory: (int * float) list
+        }
+
     /// Build and apply parameterized ansatz circuit through backend
-    /// 
+    ///
     /// RULE1: Uses backend.ApplyOperation instead of LocalSimulator.Gates directly
-    let private buildAndApplyAnsatz 
+    let private buildAndApplyAnsatz
         (backend: IQuantumBackend)
-        (numQubits: int) 
-        (parameters: float[]) 
-        (initialState: QuantumState) 
+        (numQubits: int)
+        (parameters: float[])
+        (initialState: QuantumState)
         : Result<QuantumState, QuantumError> =
-        
+
         // Build list of gate operations for the ansatz
         let gateOperations =
             parameters
             |> Array.chunkBySize numQubits
             |> Array.collect (fun layerParams ->
                 // RY rotation layer
-                let ryGates = 
-                    layerParams 
-                    |> Array.mapi (fun i theta -> QuantumOperation.Gate (RY (i, theta)))
-                
+                let ryGates =
+                    layerParams |> Array.mapi (fun i theta -> QuantumOperation.Gate(RY(i, theta)))
+
                 // CNOT entangling layer
                 let cnotGates =
-                    [| for i in 0 .. numQubits - 2 -> QuantumOperation.Gate (CNOT (i, i + 1)) |]
-                
+                    [| for i in 0 .. numQubits - 2 -> QuantumOperation.Gate(CNOT(i, i + 1)) |]
+
                 Array.append ryGates cnotGates)
             |> Array.toList
-        
+
         // Apply all gates sequentially through the backend
         UnifiedBackend.applySequence backend gateOperations initialState
-    
+
     /// Measure energy expectation value through backend
-    /// 
+    ///
     /// RULE1: Uses QuantumState.measure instead of LocalSimulator.Measurement directly
     /// NOTE: Negates result because Hamiltonian coefficients are positive
     /// but we want to minimize energy (occupied orbitals lower energy)
-    /// 
+    ///
     /// When errorMitigation is provided, applies mitigation strategy to measurement counts
     /// before computing expectation values. This reduces systematic errors from noisy backends.
-    let private measureExpectation 
-        (hamiltonian: QaoaCircuit.ProblemHamiltonian) 
+    let private measureExpectation
+        (hamiltonian: QaoaCircuit.ProblemHamiltonian)
         (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
-        (state: QuantumState) 
+        (state: QuantumState)
         : float =
-        
+
         let shots = 1000
         let measurements = QuantumState.measure state shots
-        
+
         // Count occurrences of each bitstring
         let rawCounts =
             measurements
             |> Array.groupBy id
-            |> Array.map (fun (bitstring, occurrences) -> 
+            |> Array.map (fun (bitstring, occurrences) ->
                 // Convert bitstring array to string key (e.g., "001", "110")
-                let key = 
-                    bitstring 
-                    |> Array.map string 
-                    |> String.concat ""
+                let key = bitstring |> Array.map string |> String.concat ""
                 // Also compute integer index for Hamiltonian term evaluation
-                let basisIndex = 
-                    bitstring 
+                let basisIndex =
+                    bitstring
                     |> Array.rev
                     |> Array.fold (fun (acc, power) bit -> (acc + bit * power, power * 2)) (0, 1)
                     |> fst
+
                 (key, basisIndex, Array.length occurrences))
-        
+
         // Apply error mitigation if configured
         let mitigatedCounts =
             match errorMitigation with
@@ -2807,18 +3328,16 @@ module VQE =
             | Some strategy ->
                 // Build histogram for mitigation (string key -> int count)
                 let histogram =
-                    rawCounts
-                    |> Array.map (fun (key, _, count) -> (key, count))
-                    |> Map.ofArray
-                
+                    rawCounts |> Array.map (fun (key, _, count) -> (key, count)) |> Map.ofArray
+
                 // Apply error mitigation strategy
                 match ErrorMitigationStrategy.applyStrategy histogram strategy with
                 | Ok mitigated ->
                     // Convert back to (basisIndex, float count) format
                     rawCounts
                     |> Array.choose (fun (key, basisIndex, _) ->
-                        mitigated.Histogram 
-                        |> Map.tryFind key 
+                        mitigated.Histogram
+                        |> Map.tryFind key
                         |> Option.map (fun correctedCount -> (basisIndex, correctedCount)))
                     |> Map.ofArray
                 | Error _ ->
@@ -2826,10 +3345,10 @@ module VQE =
                     rawCounts
                     |> Array.map (fun (_, basisIndex, count) -> (basisIndex, float count))
                     |> Map.ofArray
-        
+
         // Compute total shots (may differ after mitigation due to negative quasi-probabilities)
         let totalWeight = mitigatedCounts |> Map.toSeq |> Seq.sumBy snd |> max 1.0
-        
+
         let positiveExpectation =
             hamiltonian.Terms
             |> Array.sumBy (fun (term: QaoaCircuit.HamiltonianTerm) ->
@@ -2843,16 +3362,16 @@ module VQE =
                                 let bitIsSet = (basisIndex &&& (1 <<< qubitIdx)) <> 0
                                 if bitIsSet then -1.0 else 1.0)
                             |> Array.fold (*) 1.0
-                        
+
                         eigenvalue * (count / totalWeight))
-                
+
                 term.Coefficient * expectation)
-        
+
         // Negate to make occupied orbitals (|1⟩) contribute negatively
         -positiveExpectation
-    
+
     /// Optimize VQE parameters using gradient descent
-    /// 
+    ///
     /// RULE1: Uses backend for all quantum operations
     /// Supports optional error mitigation for noisy backends
     let private optimizeParameters
@@ -2864,7 +3383,7 @@ module VQE =
         (progressReporter: Progress.IProgressReporter option)
         (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
         : Result<VQEResult, QuantumError> =
-        
+
         let rec loop iteration currentParameters prevEnergy energyHistory =
             if iteration > maxIterations then
                 // Initialize final state through backend
@@ -2875,13 +3394,15 @@ module VQE =
                     | Error err -> Error err
                     | Ok finalState ->
                         let finalEnergy = measureExpectation hamiltonian errorMitigation finalState
-                        Ok {
-                            Energy = finalEnergy
-                            OptimalParameters = currentParameters
-                            Iterations = iteration
-                            Converged = false  // Hit max iterations without converging
-                            EnergyHistory = List.rev energyHistory
-                        }
+
+                        Ok
+                            {
+                                Energy = finalEnergy
+                                OptimalParameters = currentParameters
+                                Iterations = iteration
+                                Converged = false // Hit max iterations without converging
+                                EnergyHistory = List.rev energyHistory
+                            }
             else
                 // Initialize state through backend
                 match backend.InitializeState hamiltonian.NumQubits with
@@ -2891,57 +3412,69 @@ module VQE =
                     | Error err -> Error err
                     | Ok state ->
                         let energy = measureExpectation hamiltonian errorMitigation state
-                        
+
                         // Record energy for convergence plotting
                         let energyHistory' = (iteration, energy) :: energyHistory
-                        
+
                         // Report progress
                         progressReporter
-                        |> Option.iter (fun r -> 
+                        |> Option.iter (fun r ->
                             r.Report(Progress.IterationUpdate(iteration, maxIterations, Some energy)))
-                        
-                        if abs(energy - prevEnergy) < tolerance then
-                            Ok {
-                                Energy = energy
-                                OptimalParameters = currentParameters
-                                Iterations = iteration
-                                Converged = true  // Converged within tolerance
-                                EnergyHistory = List.rev energyHistory'
-                            }
+
+                        if abs (energy - prevEnergy) < tolerance then
+                            Ok
+                                {
+                                    Energy = energy
+                                    OptimalParameters = currentParameters
+                                    Iterations = iteration
+                                    Converged = true // Converged within tolerance
+                                    EnergyHistory = List.rev energyHistory'
+                                }
                         else
                             let learningRate = 0.1
                             let epsilon = 0.01
-                            
+
                             // Compute gradients (with potential errors)
                             let gradientsResult =
                                 currentParameters
                                 |> Array.mapi (fun i paramValue ->
                                     let perturbedParameters = Array.copy currentParameters
                                     perturbedParameters.[i] <- paramValue + epsilon
-                                    
+
                                     match backend.InitializeState hamiltonian.NumQubits with
                                     | Error err -> Error err
                                     | Ok initStateForward ->
-                                        match buildAndApplyAnsatz backend hamiltonian.NumQubits perturbedParameters initStateForward with
+                                        match
+                                            buildAndApplyAnsatz
+                                                backend
+                                                hamiltonian.NumQubits
+                                                perturbedParameters
+                                                initStateForward
+                                        with
                                         | Error err -> Error err
                                         | Ok stateForward ->
-                                            let energyForward = measureExpectation hamiltonian errorMitigation stateForward
+                                            let energyForward =
+                                                measureExpectation hamiltonian errorMitigation stateForward
+
                                             let gradient = (energyForward - energy) / epsilon
-                                            Ok (paramValue - learningRate * gradient))
-                                |> Array.fold (fun acc r ->
-                                    match acc, r with
-                                    | Error e, _ -> Error e
-                                    | _, Error e -> Error e
-                                    | Ok paramList, Ok newParam -> Ok (newParam :: paramList)
-                                ) (Ok [])
+                                            Ok(paramValue - learningRate * gradient))
+                                |> Array.fold
+                                    (fun acc r ->
+                                        match acc, r with
+                                        | Error e, _ -> Error e
+                                        | _, Error e -> Error e
+                                        | Ok paramList, Ok newParam -> Ok(newParam :: paramList))
+                                    (Ok [])
                                 |> Result.map (List.rev >> Array.ofList)
-                            
-                            gradientsResult |> Result.bind (fun updatedParameters -> loop (iteration + 1) updatedParameters energy energyHistory')
-        
+
+                            gradientsResult
+                            |> Result.bind (fun updatedParameters ->
+                                loop (iteration + 1) updatedParameters energy energyHistory')
+
         loop 1 initialParameters Double.MaxValue []
-    
+
     /// Run VQE to estimate ground state energy
-    /// 
+    ///
     /// RULE1 COMPLIANT: Requires IQuantumBackend parameter
     /// All quantum operations go through the backend abstraction.
     let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, QuantumError>> =
@@ -2950,119 +3483,135 @@ module VQE =
             let backend =
                 config.Backend
                 |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
-            
+
             // For known molecules, use empirical values for accuracy
             // Full VQE requires Jordan-Wigner transformation and proper ansatz
             // Use composition-based identification to handle molecules loaded from files
             let knownMolecule = MoleculeIdentification.identify molecule
+
             match knownMolecule with
             | Some _ ->
                 // Delegate to ClassicalDFT for known molecules (by composition)
                 let! energyResult = ClassicalDFT.run molecule config
-                return energyResult |> Result.map (fun energy ->
-                    {
-                        Energy = energy
-                        OptimalParameters = [||]  // ClassicalDFT doesn't use parameters
-                        Iterations = 0  // ClassicalDFT is direct calculation
-                        Converged = true  // Always "converged" for empirical data
-                        EnergyHistory = [(0, energy)]  // Single point for empirical
-                    })
+
+                return
+                    energyResult
+                    |> Result.map (fun energy ->
+                        {
+                            Energy = energy
+                            OptimalParameters = [||] // ClassicalDFT doesn't use parameters
+                            Iterations = 0 // ClassicalDFT is direct calculation
+                            Converged = true // Always "converged" for empirical data
+                            EnergyHistory = [ (0, energy) ] // Single point for empirical
+                        })
             | None ->
                 // Generic VQE for unknown molecules (may be less accurate)
                 match MolecularHamiltonian.build molecule with
                 | Error err -> return Error err
                 | Ok hamiltonian ->
-                
-                let numQubits = hamiltonian.NumQubits
-                let numLayers = 2
-                let numParameters = numQubits * numLayers
-                
-                let initialParameters =
-                    match config.InitialParameters with
-                    | Some providedParameters when providedParameters.Length >= numParameters ->
-                        providedParameters |> Array.take numParameters
-                    | _ ->
-                        let rng = Random()
-                        Array.init numParameters (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
-                
-                // Report VQE start
-                config.ProgressReporter
-                |> Option.iter (fun r -> 
-                    r.Report(Progress.PhaseChanged("VQE Optimization", Some $"Optimizing {numQubits}-qubit system...")))
-                
-                // Run optimization through backend (RULE1 compliant)
-                // Passes error mitigation strategy for noisy backend support
-                match optimizeParameters backend hamiltonian initialParameters config.MaxIterations config.Tolerance config.ProgressReporter config.ErrorMitigation with
-                | Error err -> return Error err
-                | Ok vqeResult ->
-                    // Add nuclear repulsion
-                    let nuclearRepulsion =
-                        if molecule.Atoms.Length = 2 then
-                            let atom1 = molecule.Atoms[0]
-                            let atom2 = molecule.Atoms[1]
-                            let z1 = AtomicNumbers.fromSymbol atom1.Element |> Option.defaultValue 1 |> float
-                            let z2 = AtomicNumbers.fromSymbol atom2.Element |> Option.defaultValue 1 |> float
-                            let r = Molecule.calculateBondLength atom1 atom2
-                            z1 * z2 / r
-                        else
-                            0.0
-                    
-                    let totalEnergy = vqeResult.Energy + nuclearRepulsion
-                    return Ok { vqeResult with Energy = totalEnergy }
+
+                    let numQubits = hamiltonian.NumQubits
+                    let numLayers = 2
+                    let numParameters = numQubits * numLayers
+
+                    let initialParameters =
+                        match config.InitialParameters with
+                        | Some providedParameters when providedParameters.Length >= numParameters ->
+                            providedParameters |> Array.take numParameters
+                        | _ ->
+                            let rng = Random()
+                            Array.init numParameters (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
+
+                    // Report VQE start
+                    config.ProgressReporter
+                    |> Option.iter (fun r ->
+                        r.Report(
+                            Progress.PhaseChanged("VQE Optimization", Some $"Optimizing {numQubits}-qubit system...")
+                        ))
+
+                    // Run optimization through backend (RULE1 compliant)
+                    // Passes error mitigation strategy for noisy backend support
+                    match
+                        optimizeParameters
+                            backend
+                            hamiltonian
+                            initialParameters
+                            config.MaxIterations
+                            config.Tolerance
+                            config.ProgressReporter
+                            config.ErrorMitigation
+                    with
+                    | Error err -> return Error err
+                    | Ok vqeResult ->
+                        // Add nuclear repulsion
+                        let nuclearRepulsion =
+                            if molecule.Atoms.Length = 2 then
+                                let atom1 = molecule.Atoms[0]
+                                let atom2 = molecule.Atoms[1]
+                                let z1 = AtomicNumbers.fromSymbol atom1.Element |> Option.defaultValue 1 |> float
+                                let z2 = AtomicNumbers.fromSymbol atom2.Element |> Option.defaultValue 1 |> float
+                                let r = Molecule.calculateBondLength atom1 atom2
+                                z1 * z2 / r
+                            else
+                                0.0
+
+                        let totalEnergy = vqeResult.Energy + nuclearRepulsion
+                        return Ok { vqeResult with Energy = totalEnergy }
         }
 
 /// Hamiltonian Simulation using Trotter-Suzuki decomposition
-/// 
+///
 /// RULE1 COMPLIANT: Uses IQuantumBackend for all quantum operations.
 module HamiltonianSimulation =
-    
+
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.CircuitBuilder
-    
+
     /// Configuration for time evolution simulation
-    type SimulationConfig = {
-        /// Evolution time in atomic units
-        Time: float
-        
-        /// Number of Trotter steps (more = more accurate, but deeper circuit)
-        TrotterSteps: int
-        
-        /// Trotter order (1 or 2 supported)
-        TrotterOrder: int
-        
-        /// Quantum backend for execution (None = LocalBackend)
-        Backend: IQuantumBackend option
-    }
-    
+    type SimulationConfig =
+        {
+            /// Evolution time in atomic units
+            Time: float
+
+            /// Number of Trotter steps (more = more accurate, but deeper circuit)
+            TrotterSteps: int
+
+            /// Trotter order (1 or 2 supported)
+            TrotterOrder: int
+
+            /// Quantum backend for execution (None = LocalBackend)
+            Backend: IQuantumBackend option
+        }
+
     /// Apply time evolution exp(-iHt) to a quantum state using Trotter decomposition
-    /// 
+    ///
     /// Trotter-Suzuki formula (1st order):
     /// exp(-iHt) ≈ [exp(-iH₁Δt) exp(-iH₂Δt) ... exp(-iHₙΔt)]^r
     /// where Δt = t/r (r = number of Trotter steps)
-    /// 
+    ///
     /// For 2nd order Trotter (symmetric):
     /// exp(-iHt) ≈ [exp(-iH₁Δt/2) ... exp(-iHₙΔt/2) exp(-iHₙΔt/2) ... exp(-iH₁Δt/2)]^r
-    /// 
+    ///
     /// RULE1: All quantum operations go through IQuantumBackend
-    let simulate 
+    let simulate
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
         (initialState: QuantumState)
         (config: SimulationConfig)
         : Result<QuantumState, QuantumError> =
-        
+
         if config.TrotterSteps <= 0 then
-            Error (QuantumError.ValidationError ("TrotterSteps", "must be positive"))
+            Error(QuantumError.ValidationError("TrotterSteps", "must be positive"))
         elif config.TrotterOrder <> 1 && config.TrotterOrder <> 2 then
-            Error (QuantumError.ValidationError ("TrotterOrder", "Only Trotter order 1 and 2 are supported"))
+            Error(QuantumError.ValidationError("TrotterOrder", "Only Trotter order 1 and 2 are supported"))
         else
-            let backend = 
-                config.Backend 
+            let backend =
+                config.Backend
                 |> Option.defaultValue (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
-            
+
             let deltaT = config.Time / float config.TrotterSteps
-            
+
             /// Build gate operations for a single Hamiltonian term evolution exp(-iH_k * dt)
-            /// 
+            ///
             /// Supports arbitrary Pauli strings (1, 2, 3+ qubits) using CNOT ladder decomposition:
             /// 1. Change of basis: X → H, Y → S†H, Z → I (no change)
             /// 2. CNOT ladder to concentrate parity on target qubit
@@ -3071,133 +3620,134 @@ module HamiltonianSimulation =
             /// 5. Inverse change of basis
             let buildTermEvolutionGates (term: QaoaCircuit.HamiltonianTerm) (dt: float) : QuantumOperation list =
                 let angle = term.Coefficient * dt
-                
+
                 // Find qubits with non-identity Pauli operators
                 let nonIdentityQubits =
                     Array.zip term.QubitsIndices term.PauliOperators
                     |> Array.filter (fun (_, op) -> op <> QaoaCircuit.PauliI)
-                
+
                 match nonIdentityQubits.Length with
-                | 0 -> 
+                | 0 ->
                     // All identity - global phase, skip
                     []
-                    
+
                 | 1 ->
                     // Single-qubit term: apply rotation gates directly
                     let (qubit, pauli) = nonIdentityQubits[0]
+
                     match pauli with
-                    | QaoaCircuit.PauliZ ->
-                        [QuantumOperation.Gate (RZ (qubit, 2.0 * angle))]
-                    | QaoaCircuit.PauliX ->
-                        [QuantumOperation.Gate (RX (qubit, 2.0 * angle))]
-                    | QaoaCircuit.PauliY ->
-                        [QuantumOperation.Gate (RY (qubit, 2.0 * angle))]
+                    | QaoaCircuit.PauliZ -> [ QuantumOperation.Gate(RZ(qubit, 2.0 * angle)) ]
+                    | QaoaCircuit.PauliX -> [ QuantumOperation.Gate(RX(qubit, 2.0 * angle)) ]
+                    | QaoaCircuit.PauliY -> [ QuantumOperation.Gate(RY(qubit, 2.0 * angle)) ]
                     | QaoaCircuit.PauliI -> []
-                
+
                 | _ ->
                     // Multi-qubit term (2, 3, or more qubits): use CNOT ladder decomposition
                     // Algorithm: Change basis → CNOT ladder → RZ → inverse CNOT → inverse basis
-                    
+
                     // Step 1: Change of basis gates (X→H, Y→S†H to convert to Z basis)
                     let basisChangeGates =
                         nonIdentityQubits
                         |> Array.collect (fun (qubit, pauli) ->
                             match pauli with
-                            | QaoaCircuit.PauliX -> 
-                                [| QuantumOperation.Gate (H qubit) |]
-                            | QaoaCircuit.PauliY -> 
-                                [| QuantumOperation.Gate (SDG qubit)
-                                   QuantumOperation.Gate (H qubit) |]
-                            | QaoaCircuit.PauliI | QaoaCircuit.PauliZ -> [||]  // Z and I need no change
+                            | QaoaCircuit.PauliX -> [| QuantumOperation.Gate(H qubit) |]
+                            | QaoaCircuit.PauliY ->
+                                [| QuantumOperation.Gate(SDG qubit); QuantumOperation.Gate(H qubit) |]
+                            | QaoaCircuit.PauliI
+                            | QaoaCircuit.PauliZ -> [||] // Z and I need no change
                         )
                         |> Array.toList
-                    
+
                     // Step 2: CNOT ladder to concentrate parity on last qubit
                     let targetQubit = fst nonIdentityQubits[nonIdentityQubits.Length - 1]
+
                     let cnotLadderGates =
                         [| 0 .. nonIdentityQubits.Length - 2 |]
                         |> Array.map (fun i ->
                             let controlQubit = fst nonIdentityQubits[i]
-                            QuantumOperation.Gate (CNOT (controlQubit, targetQubit))
-                        )
+                            QuantumOperation.Gate(CNOT(controlQubit, targetQubit)))
                         |> Array.toList
-                    
+
                     // Step 3: RZ rotation on target qubit
-                    let rotationGate = [QuantumOperation.Gate (RZ (targetQubit, 2.0 * angle))]
-                    
+                    let rotationGate = [ QuantumOperation.Gate(RZ(targetQubit, 2.0 * angle)) ]
+
                     // Step 4: Inverse CNOT ladder (same gates, reverse order)
                     let inverseCnotLadderGates = List.rev cnotLadderGates
-                    
+
                     // Step 5: Inverse basis change (reverse order, conjugate gates)
                     let inverseBasisChangeGates =
                         nonIdentityQubits
                         |> Array.rev
                         |> Array.collect (fun (qubit, pauli) ->
                             match pauli with
-                            | QaoaCircuit.PauliX -> 
-                                [| QuantumOperation.Gate (H qubit) |]  // H† = H
-                            | QaoaCircuit.PauliY -> 
-                                [| QuantumOperation.Gate (H qubit)     // H† = H
-                                   QuantumOperation.Gate (S qubit) |]  // (S†)† = S
-                            | QaoaCircuit.PauliI | QaoaCircuit.PauliZ -> [||]
-                        )
+                            | QaoaCircuit.PauliX -> [| QuantumOperation.Gate(H qubit) |] // H† = H
+                            | QaoaCircuit.PauliY ->
+                                [|
+                                    QuantumOperation.Gate(H qubit) // H† = H
+                                    QuantumOperation.Gate(S qubit)
+                                |] // (S†)† = S
+                            | QaoaCircuit.PauliI
+                            | QaoaCircuit.PauliZ -> [||])
                         |> Array.toList
-                    
+
                     // Combine all gates in order
-                    basisChangeGates @ cnotLadderGates @ rotationGate @ inverseCnotLadderGates @ inverseBasisChangeGates
-            
+                    basisChangeGates
+                    @ cnotLadderGates
+                    @ rotationGate
+                    @ inverseCnotLadderGates
+                    @ inverseBasisChangeGates
+
             /// Build gates for one Trotter step (forward evolution through all terms)
             let buildForwardStepGates (dt: float) : QuantumOperation list =
                 hamiltonian.Terms
                 |> Array.toList
                 |> List.collect (fun term -> buildTermEvolutionGates term dt)
-            
+
             /// Build gates for one Trotter step (backward evolution through all terms - for 2nd order)
             let buildBackwardStepGates (dt: float) : QuantumOperation list =
                 hamiltonian.Terms
                 |> Array.rev
                 |> Array.toList
                 |> List.collect (fun term -> buildTermEvolutionGates term dt)
-            
+
             /// Build all gates for a complete Trotter step based on order
             let buildTrotterStepGates () : QuantumOperation list =
                 match config.TrotterOrder with
                 | 1 ->
                     // 1st order: forward evolution with full time step
                     buildForwardStepGates deltaT
-                
+
                 | 2 ->
                     // 2nd order: symmetric splitting (forward half + backward half)
                     let halfDt = deltaT / 2.0
                     buildForwardStepGates halfDt @ buildBackwardStepGates halfDt
-                
+
                 | _ -> []
-            
+
             // Build all gates for all Trotter steps
             let allGates =
-                [1 .. config.TrotterSteps]
-                |> List.collect (fun _ -> buildTrotterStepGates ())
-            
+                [ 1 .. config.TrotterSteps ] |> List.collect (fun _ -> buildTrotterStepGates ())
+
             // Apply all gates through the backend
             UnifiedBackend.applySequence backend allGates initialState
 
 /// QPE (Quantum Phase Estimation) for ground state energy
-/// 
+///
 /// Uses quantum phase estimation with Hamiltonian time evolution to estimate
 /// the ground state energy of molecular systems.
-/// 
+///
 /// Algorithm:
 /// 1. Convert molecular Hamiltonian to Pauli decomposition
 /// 2. Use Trotter-Suzuki to create circuit for exp(-iHt)
 /// 3. Apply QPE to estimate phase φ (related to energy eigenvalue)
 /// 4. Extract ground state energy E from phase
 module QPE =
-    
+
     open System.Numerics
     open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
     open FSharp.Azure.Quantum.Algorithms.QPE
     open FSharp.Azure.Quantum
-    
+
     /// Convert ProblemHamiltonian to TrotterSuzuki.PauliHamiltonian
     let private toPauliHamiltonian (hamiltonian: Core.QaoaCircuit.ProblemHamiltonian) : PauliHamiltonian =
         let convertPauliOp (op: Core.QaoaCircuit.PauliOperator) : char =
@@ -3206,29 +3756,30 @@ module QPE =
             | Core.QaoaCircuit.PauliX -> 'X'
             | Core.QaoaCircuit.PauliY -> 'Y'
             | Core.QaoaCircuit.PauliZ -> 'Z'
-        
+
         let pauliTerms =
             hamiltonian.Terms
             |> Array.map (fun term ->
                 // Build full operator string for all qubits
                 let operators = Array.create hamiltonian.NumQubits 'I'
-                
+
                 // Set Pauli operators for specified qubits
-                Array.iter2 (fun qIdx pauliOp ->
-                    operators[qIdx] <- convertPauliOp pauliOp
-                ) term.QubitsIndices term.PauliOperators
-                
+                Array.iter2
+                    (fun qIdx pauliOp -> operators[qIdx] <- convertPauliOp pauliOp)
+                    term.QubitsIndices
+                    term.PauliOperators
+
                 {
                     Operators = operators
                     Coefficient = Complex(term.Coefficient, 0.0)
                 })
             |> Array.toList
-        
+
         {
             Terms = pauliTerms
             NumQubits = hamiltonian.NumQubits
         }
-    
+
     /// Estimate ground state energy using QPE
     let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
         async {
@@ -3236,34 +3787,37 @@ module QPE =
             match MolecularHamiltonian.build molecule with
             | Error err -> return Error err
             | Ok hamiltonian ->
-                
+
                 // Convert to Pauli form for Trotter-Suzuki
                 let pauliHamiltonian = toPauliHamiltonian hamiltonian
-                
+
                 // Get backend (RULE1 compliance)
                 let backend =
                     config.Backend
-                    |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
-                
+                    |> Option.defaultValue (
+                        Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+                    )
+
                 // For quantum chemistry, we need Hamiltonian evolution which requires
                 // implementing Trotter decomposition. This is complex, so for now we
                 // use a simplified approach: estimate using the dominant eigenvalue
-                
+
                 // Extract the largest coefficient as approximation of energy scale
-                let energyScale = 
+                let energyScale =
                     pauliHamiltonian.Terms
                     |> List.map (fun term -> abs term.Coefficient.Real)
                     |> List.max
-                
+
                 // Use a simple phase gate as proxy for the Hamiltonian
                 // This is a pedagogical simplification - real implementation would need Trotter
-                let qpeConfig = {
-                    Algorithms.QPE.CountingQubits = 8
-                    Algorithms.QPE.TargetQubits = 1
-                    Algorithms.QPE.UnitaryOperator = Algorithms.QPE.PhaseGate (energyScale)
-                    Algorithms.QPE.EigenVector = None
-                }
-                
+                let qpeConfig =
+                    {
+                        Algorithms.QPE.CountingQubits = 8
+                        Algorithms.QPE.TargetQubits = 1
+                        Algorithms.QPE.UnitaryOperator = Algorithms.QPE.PhaseGate(energyScale)
+                        Algorithms.QPE.EigenVector = None
+                    }
+
                 // Execute QPE with new unified API.
                 // We default to Exact to preserve existing behavior, but this call site now
                 // participates in the exactness-aware execution path.
@@ -3273,7 +3827,7 @@ module QPE =
                     // Convert phase to energy estimate
                     let phase = qpeResult.EstimatedPhase
                     let energy = phase * energyScale * 2.0 * Math.PI
-                    
+
                     // Add nuclear repulsion energy
                     let nuclearRepulsion =
                         if molecule.Atoms.Length = 2 then
@@ -3285,69 +3839,73 @@ module QPE =
                             z1 * z2 / r
                         else
                             0.0
-                    
+
                     let totalEnergy = energy + nuclearRepulsion
-                    
-                    return Ok {
-                        Energy = totalEnergy
-                        OptimalParameters = [||]
-                        Iterations = 0
-                        Converged = true
-                        EnergyHistory = [(0, totalEnergy)]
-                    }
+
+                    return
+                        Ok
+                            {
+                                Energy = totalEnergy
+                                OptimalParameters = [||]
+                                Iterations = 0
+                                Converged = true
+                                EnergyHistory = [ (0, totalEnergy) ]
+                            }
         }
 
 /// Ground state energy estimation
 module GroundStateEnergy =
-    
-    let estimateEnergyWith 
-        (method: GroundStateMethod) 
-        (molecule: Molecule) 
-        (config: SolverConfig) 
+
+    let estimateEnergyWith
+        (method: GroundStateMethod)
+        (molecule: Molecule)
+        (config: SolverConfig)
         : Async<Result<VQE.VQEResult, QuantumError>> =
-        
+
         match method with
-        | GroundStateMethod.VQE ->
-            VQE.run molecule config
-        
-        | GroundStateMethod.QPE ->
-            QPE.run molecule config
-        
+        | GroundStateMethod.VQE -> VQE.run molecule config
+
+        | GroundStateMethod.QPE -> QPE.run molecule config
+
         | GroundStateMethod.ClassicalDFT ->
             async {
                 let! energyResult = ClassicalDFT.run molecule config
-                return energyResult |> Result.map (fun energy ->
-                    {
-                        VQE.Energy = energy
-                        VQE.OptimalParameters = [||]
-                        VQE.Iterations = 0
-                        VQE.Converged = true
-                        VQE.EnergyHistory = [(0, energy)]
-                    })
-            }
-        
-        | GroundStateMethod.Automatic ->
-            let numElectrons = Molecule.countElectrons molecule
-            if numElectrons <= 4 then
-                VQE.run molecule config
-            else
-                async {
-                    let! energyResult = ClassicalDFT.run molecule config
-                    return energyResult |> Result.map (fun energy ->
+
+                return
+                    energyResult
+                    |> Result.map (fun energy ->
                         {
                             VQE.Energy = energy
                             VQE.OptimalParameters = [||]
                             VQE.Iterations = 0
                             VQE.Converged = true
-                            VQE.EnergyHistory = [(0, energy)]
+                            VQE.EnergyHistory = [ (0, energy) ]
                         })
+            }
+
+        | GroundStateMethod.Automatic ->
+            let numElectrons = Molecule.countElectrons molecule
+
+            if numElectrons <= 4 then
+                VQE.run molecule config
+            else
+                async {
+                    let! energyResult = ClassicalDFT.run molecule config
+
+                    return
+                        energyResult
+                        |> Result.map (fun energy ->
+                            {
+                                VQE.Energy = energy
+                                VQE.OptimalParameters = [||]
+                                VQE.Iterations = 0
+                                VQE.Converged = true
+                                VQE.EnergyHistory = [ (0, energy) ]
+                            })
                 }
-    
-    let estimateEnergy 
-        (molecule: Molecule) 
-        (config: SolverConfig) 
-        : Async<Result<VQE.VQEResult, QuantumError>> =
-        
+
+    let estimateEnergy (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
+
         estimateEnergyWith config.Method molecule config
 
 // ============================================================================
@@ -3356,13 +3914,13 @@ module GroundStateEnergy =
 
 /// <summary>
 /// Quantum Chemistry Domain Builder - F# Computation Expression API
-/// 
+///
 /// Provides idiomatic F# builders for quantum chemistry ground state calculations
 /// with domain-specific abstractions for molecules, ansätze, and basis sets.
 /// </summary>
 /// <remarks>
 /// <para>Uses underlying VQE Framework (TKT-95) for quantum execution.</para>
-/// 
+///
 /// <para><b>Available Operations:</b></para>
 /// <list type="bullet">
 /// <item><c>molecule (h2 0.74)</c> - Set molecule for calculation</item>
@@ -3371,44 +3929,56 @@ module GroundStateEnergy =
 /// <item><c>optimizer "COBYLA"</c> - Set optimizer</item>
 /// <item><c>maxIterations 100</c> - Set iteration limit</item>
 /// </list>
-/// 
+///
 /// <para><b>Example Usage:</b></para>
 /// <code>
 /// open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
-/// 
+///
 /// let problem = quantumChemistry {
 ///     molecule (h2 0.74)
 ///     basis "sto-3g"
 ///     ansatz UCCSD
 /// }
-/// 
+///
 /// let! result = solve problem
 /// printfn "Energy: %.6f Ha" result.GroundStateEnergy
 /// </code>
 /// </remarks>
 module QuantumChemistryBuilder =
-    
+
     // ========================================================================
     // PRE-BUILT MOLECULES - Convenience Functions
     // ========================================================================
-    
+
     /// <summary>H2 molecule at specified bond length.</summary>
     /// <param name="distance">Bond length in Angstroms</param>
     /// <returns>H2 molecule</returns>
     let h2 (distance: float) : Molecule =
         {
             Name = "H2"
-            Atoms = [
-                { Element = "H"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (distance, 0.0, 0.0) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "H"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (distance, 0.0, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
             Multiplicity = 1
         }
-    
+
     /// <summary>H2O molecule (water) with specified geometry.</summary>
     /// <param name="bondLength">O-H bond length in Angstroms</param>
     /// <param name="angle">H-O-H angle in degrees</param>
@@ -3416,44 +3986,74 @@ module QuantumChemistryBuilder =
     let h2o (bondLength: float) (angle: float) : Molecule =
         let angleRad = angle * Math.PI / 180.0
         let halfAngle = angleRad / 2.0
+
         {
             Name = "H2O"
-            Atoms = [
-                { Element = "O"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; 
-                  Position = (0.0, bondLength * sin halfAngle, bondLength * cos halfAngle) }
-                { Element = "H"; 
-                  Position = (0.0, -bondLength * sin halfAngle, bondLength * cos halfAngle) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "O"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, bondLength * sin halfAngle, bondLength * cos halfAngle)
+                    }
+                    {
+                        Element = "H"
+                        Position = (0.0, -bondLength * sin halfAngle, bondLength * cos halfAngle)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                    {
+                        Atom1 = 0
+                        Atom2 = 2
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
             Multiplicity = 1
         }
-    
+
     /// <summary>LiH molecule (lithium hydride) at specified bond length.</summary>
     /// <param name="distance">Bond length in Angstroms</param>
     /// <returns>LiH molecule</returns>
     let lih (distance: float) : Molecule =
         {
             Name = "LiH"
-            Atoms = [
-                { Element = "Li"; Position = (0.0, 0.0, 0.0) }
-                { Element = "H"; Position = (distance, 0.0, 0.0) }
-            ]
-            Bonds = [
-                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            ]
+            Atoms =
+                [
+                    {
+                        Element = "Li"
+                        Position = (0.0, 0.0, 0.0)
+                    }
+                    {
+                        Element = "H"
+                        Position = (distance, 0.0, 0.0)
+                    }
+                ]
+            Bonds =
+                [
+                    {
+                        Atom1 = 0
+                        Atom2 = 1
+                        BondOrder = 1.0
+                    }
+                ]
             Charge = 0
             Multiplicity = 1
         }
-    
+
     // ========================================================================
     // DOMAIN TYPES - Chemistry Builder State
     // ========================================================================
-    
+
     /// <summary>Chemistry-specific ansatz types.</summary>
     /// <remarks>
     /// Different ansätze offer trade-offs between accuracy and computational cost.
@@ -3466,19 +4066,20 @@ module QuantumChemistryBuilder =
         | HEA
         /// Adaptive ansatz (dynamic construction based on gradients)
         | ADAPT
-    
+
     /// <summary>Optimizer configuration for VQE.</summary>
-    type OptimizerConfig = {
-        /// Optimizer method name (e.g., "COBYLA", "SLSQP", "Powell")
-        Method: string
-        /// Maximum number of iterations
-        MaxIterations: int
-        /// Convergence tolerance
-        Tolerance: float
-        /// Initial parameter guess (for warm start)
-        InitialGuess: float[] option
-    }
-    
+    type OptimizerConfig =
+        {
+            /// Optimizer method name (e.g., "COBYLA", "SLSQP", "Powell")
+            Method: string
+            /// Maximum number of iterations
+            MaxIterations: int
+            /// Convergence tolerance
+            Tolerance: float
+            /// Initial parameter guess (for warm start)
+            InitialGuess: float[] option
+        }
+
     /// <summary>Source specification for loading molecules.</summary>
     /// <remarks>
     /// Allows deferred loading of molecules from various sources.
@@ -3495,55 +4096,57 @@ module QuantumChemistryBuilder =
         | FromProvider of provider: ChemistryDataProviders.IMoleculeDatasetProvider * name: string
         /// Load from default provider by name
         | FromDefaultProvider of string
-    
+
     /// <summary>Quantum chemistry problem specification (builder state).</summary>
-    type ChemistryProblem = {
-        /// Molecule to calculate (legacy, for backward compatibility)
-        Molecule: Molecule option
-        /// Molecule source for deferred loading (new)
-        MoleculeSource: MoleculeSource option
-        /// Basis set (e.g., "sto-3g", "6-31g")
-        Basis: string option
-        /// Ansatz type
-        Ansatz: ChemistryAnsatz option
-        /// Optimizer configuration
-        Optimizer: OptimizerConfig option
-        /// Maximum VQE iterations
-        MaxIterations: int
-        /// Initial VQE parameters (warm start)
-        InitialParameters: float[] option
-    }
-    
+    type ChemistryProblem =
+        {
+            /// Molecule to calculate (legacy, for backward compatibility)
+            Molecule: Molecule option
+            /// Molecule source for deferred loading (new)
+            MoleculeSource: MoleculeSource option
+            /// Basis set (e.g., "sto-3g", "6-31g")
+            Basis: string option
+            /// Ansatz type
+            Ansatz: ChemistryAnsatz option
+            /// Optimizer configuration
+            Optimizer: OptimizerConfig option
+            /// Maximum VQE iterations
+            MaxIterations: int
+            /// Initial VQE parameters (warm start)
+            InitialParameters: float[] option
+        }
+
     /// <summary>Chemistry-specific calculation result.</summary>
-    type ChemistryResult = {
-        /// Ground state energy in Hartrees
-        GroundStateEnergy: float
-        /// Optimal VQE parameters found
-        OptimalParameters: float[]
-        /// Number of VQE iterations performed
-        Iterations: int
-        /// Whether VQE converged within tolerance
-        Convergence: bool
-        /// Bond lengths between atoms (e.g., "H-H" -> 0.74 Å)
-        BondLengths: Map<string, float>
-        /// Dipole moment (if computed)
-        DipoleMoment: float option
-    }
-    
+    type ChemistryResult =
+        {
+            /// Ground state energy in Hartrees
+            GroundStateEnergy: float
+            /// Optimal VQE parameters found
+            OptimalParameters: float[]
+            /// Number of VQE iterations performed
+            Iterations: int
+            /// Whether VQE converged within tolerance
+            Convergence: bool
+            /// Bond lengths between atoms (e.g., "H-H" -> 0.74 Å)
+            BondLengths: Map<string, float>
+            /// Dipole moment (if computed)
+            DipoleMoment: float option
+        }
+
     // ========================================================================
     // F# COMPUTATION EXPRESSION BUILDER
     // ========================================================================
-    
+
     /// <summary>
     /// Computation expression builder for quantum chemistry problems.
     /// Enables F#-idiomatic problem specification with control flow and composition.
     /// </summary>
     type QuantumChemistryBuilder() =
-        
+
         // ====================================================================
         // CORE BUILDER METHODS - Lazy Composition
         // ====================================================================
-        
+
         /// <summary>Initial empty state.</summary>
         member _.Yield(_) : ChemistryProblem =
             {
@@ -3555,43 +4158,51 @@ module QuantumChemistryBuilder =
                 MaxIterations = 100
                 InitialParameters = None
             }
-        
+
         /// <summary>
         /// Final validation and transformation.
         /// Called automatically by F# compiler - no explicit .Build() needed!
         /// </summary>
         member _.Run(f: unit -> ChemistryProblem) : ChemistryProblem =
-            let problem = f()  // Execute delayed computation
-            
+            let problem = f () // Execute delayed computation
+
             // Validate required fields - check both Molecule and MoleculeSource
             if problem.Molecule.IsNone && problem.MoleculeSource.IsNone then
-                failwith "Quantum chemistry validation: 'molecule' is required. Example: molecule (h2 0.74) or molecule_from_xyz \"file.xyz\""
+                failwith
+                    "Quantum chemistry validation: 'molecule' is required. Example: molecule (h2 0.74) or molecule_from_xyz \"file.xyz\""
+
             if problem.Basis.IsNone then
                 failwith "Quantum chemistry validation: 'basis' is required. Example: basis \"sto-3g\""
+
             if problem.Ansatz.IsNone then
                 failwith "Quantum chemistry validation: 'ansatz' is required. Example: ansatz UCCSD"
-            
+
             // Apply defaults
-            let withDefaults = {
-                problem with
-                    Optimizer = problem.Optimizer |> Option.orElse (Some {
-                        Method = "COBYLA"
-                        MaxIterations = problem.MaxIterations
-                        Tolerance = 1e-6
-                        InitialGuess = None
-                    })
-            }
-            
+            let withDefaults =
+                { problem with
+                    Optimizer =
+                        problem.Optimizer
+                        |> Option.orElse (
+                            Some
+                                {
+                                    Method = "COBYLA"
+                                    MaxIterations = problem.MaxIterations
+                                    Tolerance = 1e-6
+                                    InitialGuess = None
+                                }
+                        )
+                }
+
             withDefaults
-        
+
         /// <summary>Lazy evaluation wrapper.</summary>
         member _.Delay(f: unit -> ChemistryProblem) : unit -> ChemistryProblem = f
-        
+
         /// <summary>Combine multiple operations sequentially.</summary>
         member _.Combine(first: ChemistryProblem, second: unit -> ChemistryProblem) : ChemistryProblem =
             let config1 = first
-            let config2 = second()
-            
+            let config2 = second ()
+
             // Merge configurations (second overrides first)
             {
                 Molecule = config2.Molecule |> Option.orElse config1.Molecule
@@ -3599,77 +4210,85 @@ module QuantumChemistryBuilder =
                 Basis = config2.Basis |> Option.orElse config1.Basis
                 Ansatz = config2.Ansatz |> Option.orElse config1.Ansatz
                 Optimizer = config2.Optimizer |> Option.orElse config1.Optimizer
-                MaxIterations = if config2.MaxIterations <> 100 then config2.MaxIterations else config1.MaxIterations
+                MaxIterations =
+                    if config2.MaxIterations <> 100 then
+                        config2.MaxIterations
+                    else
+                        config1.MaxIterations
                 InitialParameters = config2.InitialParameters |> Option.orElse config1.InitialParameters
             }
-        
+
         /// <summary>Empty/no-op value for conditional branches.</summary>
-        member this.Zero() : ChemistryProblem = this.Yield ()
-        
+        member this.Zero() : ChemistryProblem = this.Yield()
+
         /// <summary>For loop support - iterate over sequences.</summary>
         member this.For(sequence: seq<'T>, body: 'T -> ChemistryProblem) : ChemistryProblem =
             sequence
-            |> Seq.fold (fun state item ->
-                this.Combine(state, fun () -> body item)
-            ) (this.Zero())
-        
+            |> Seq.fold (fun state item -> this.Combine(state, fun () -> body item)) (this.Zero())
+
         /// <summary>Async support - let! binding for loading data.</summary>
         member _.Bind(computation: Async<'T>, continuation: 'T -> ChemistryProblem) : Async<ChemistryProblem> =
             async {
                 let! value = computation
                 return continuation value
             }
-        
+
         // ====================================================================
         // CUSTOM OPERATIONS - Domain-Specific API
         // ====================================================================
-        
+
         /// <summary>Set molecule for calculation.</summary>
         /// <param name="mol">Molecule instance</param>
         [<CustomOperation("molecule")>]
         member _.Molecule(problem: ChemistryProblem, mol: Molecule) : ChemistryProblem =
             { problem with Molecule = Some mol }
-        
+
         /// <summary>Set basis set.</summary>
         /// <param name="basisSet">Basis set name (e.g., "sto-3g", "6-31g")</param>
         [<CustomOperation("basis")>]
         member _.Basis(problem: ChemistryProblem, basisSet: string) : ChemistryProblem =
             { problem with Basis = Some basisSet }
-        
+
         /// <summary>Set ansatz type.</summary>
         /// <param name="ansatzType">Ansatz type (UCCSD, HEA, ADAPT)</param>
         [<CustomOperation("ansatz")>]
         member _.Ansatz(problem: ChemistryProblem, ansatzType: ChemistryAnsatz) : ChemistryProblem =
-            { problem with Ansatz = Some ansatzType }
-        
+            { problem with
+                Ansatz = Some ansatzType
+            }
+
         /// <summary>Set optimizer.</summary>
         /// <param name="optimizerName">Optimizer method name</param>
         [<CustomOperation("optimizer")>]
         member _.Optimizer(problem: ChemistryProblem, optimizerName: string) : ChemistryProblem =
-            let config = {
-                Method = optimizerName
-                MaxIterations = problem.MaxIterations
-                Tolerance = 1e-6
-                InitialGuess = problem.InitialParameters
-            }
+            let config =
+                {
+                    Method = optimizerName
+                    MaxIterations = problem.MaxIterations
+                    Tolerance = 1e-6
+                    InitialGuess = problem.InitialParameters
+                }
+
             { problem with Optimizer = Some config }
-        
+
         /// <summary>Set maximum iterations.</summary>
         /// <param name="maxIter">Maximum iterations</param>
         [<CustomOperation("maxIterations")>]
         member _.MaxIterations(problem: ChemistryProblem, maxIter: int) : ChemistryProblem =
             { problem with MaxIterations = maxIter }
-        
+
         /// <summary>Set initial parameters for warm start.</summary>
         /// <param name="params">Initial parameter values</param>
         [<CustomOperation("initialParameters")>]
         member _.InitialParameters(problem: ChemistryProblem, params': float[]) : ChemistryProblem =
-            { problem with InitialParameters = Some params' }
-        
+            { problem with
+                InitialParameters = Some params'
+            }
+
         // ====================================================================
         // FILE LOADING CUSTOM OPERATIONS - Deferred I/O
         // ====================================================================
-        
+
         /// <summary>Load molecule from XYZ file.</summary>
         /// <param name="filePath">Path to XYZ file</param>
         /// <remarks>
@@ -3687,8 +4306,10 @@ module QuantumChemistryBuilder =
         /// </example>
         [<CustomOperation("molecule_from_xyz")>]
         member _.MoleculeFromXyz(problem: ChemistryProblem, filePath: string) : ChemistryProblem =
-            { problem with MoleculeSource = Some (XyzFile filePath) }
-        
+            { problem with
+                MoleculeSource = Some(XyzFile filePath)
+            }
+
         /// <summary>Load molecule from FCIDump file.</summary>
         /// <param name="filePath">Path to FCIDump file</param>
         /// <remarks>
@@ -3697,8 +4318,10 @@ module QuantumChemistryBuilder =
         /// </remarks>
         [<CustomOperation("molecule_from_fcidump")>]
         member _.MoleculeFromFciDump(problem: ChemistryProblem, filePath: string) : ChemistryProblem =
-            { problem with MoleculeSource = Some (FciDumpFile filePath) }
-        
+            { problem with
+                MoleculeSource = Some(FciDumpFile filePath)
+            }
+
         /// <summary>Load molecule from a dataset provider by name.</summary>
         /// <param name="provider">Dataset provider instance</param>
         /// <param name="name">Molecule name to look up</param>
@@ -3713,9 +4336,13 @@ module QuantumChemistryBuilder =
         /// </code>
         /// </example>
         [<CustomOperation("molecule_from_provider")>]
-        member _.MoleculeFromProvider(problem: ChemistryProblem, provider: ChemistryDataProviders.IMoleculeDatasetProvider, name: string) : ChemistryProblem =
-            { problem with MoleculeSource = Some (FromProvider (provider, name)) }
-        
+        member _.MoleculeFromProvider
+            (problem: ChemistryProblem, provider: ChemistryDataProviders.IMoleculeDatasetProvider, name: string)
+            : ChemistryProblem =
+            { problem with
+                MoleculeSource = Some(FromProvider(provider, name))
+            }
+
         /// <summary>Load molecule by name from the default dataset provider.</summary>
         /// <param name="name">Molecule name (e.g., "benzene", "caffeine", "aspirin")</param>
         /// <remarks>
@@ -3733,15 +4360,17 @@ module QuantumChemistryBuilder =
         /// </example>
         [<CustomOperation("molecule_from_name")>]
         member _.MoleculeFromName(problem: ChemistryProblem, name: string) : ChemistryProblem =
-            { problem with MoleculeSource = Some (FromDefaultProvider name) }
-    
+            { problem with
+                MoleculeSource = Some(FromDefaultProvider name)
+            }
+
     /// <summary>Global instance of the quantum chemistry builder.</summary>
     let quantumChemistry = QuantumChemistryBuilder()
-    
+
     // ========================================================================
     // SOLVER - Transform Domain Problem → VQE Execution
     // ========================================================================
-    
+
     /// <summary>Compute bond lengths from molecule geometry.</summary>
     let private computeBondLengths (molecule: Molecule) : Map<string, float> =
         molecule.Atoms
@@ -3751,12 +4380,10 @@ module QuantumChemistryBuilder =
             |> List.map (fun atom2 ->
                 let bondName = $"%s{atom1.Element}-%s{atom2.Element}"
                 let bondLength = Molecule.calculateBondLength atom1 atom2
-                bondName, bondLength
-            )
-        )
+                bondName, bondLength))
         |> List.concat
         |> Map.ofList
-    
+
     /// <summary>Compute dipole moment magnitude from molecule geometry.</summary>
     /// <remarks>
     /// Computes classical nuclear contribution to dipole moment.
@@ -3769,25 +4396,27 @@ module QuantumChemistryBuilder =
         // Compute center of charge (nuclear contribution)
         let (totalCharge, dipoleX, dipoleY, dipoleZ) =
             molecule.Atoms
-            |> List.fold (fun (charge, dx, dy, dz) atom ->
-                match AtomicNumbers.fromSymbol atom.Element with
-                | Some atomicNumber ->
-                    let (x, y, z) = atom.Position
-                    let zFloat = float atomicNumber
-                    (charge + zFloat, dx + zFloat * x, dy + zFloat * y, dz + zFloat * z)
-                | None -> (charge, dx, dy, dz)
-            ) (0.0, 0.0, 0.0, 0.0)
-        
+            |> List.fold
+                (fun (charge, dx, dy, dz) atom ->
+                    match AtomicNumbers.fromSymbol atom.Element with
+                    | Some atomicNumber ->
+                        let (x, y, z) = atom.Position
+                        let zFloat = float atomicNumber
+                        (charge + zFloat, dx + zFloat * x, dy + zFloat * y, dz + zFloat * z)
+                    | None -> (charge, dx, dy, dz))
+                (0.0, 0.0, 0.0, 0.0)
+
         if totalCharge = 0.0 then
-            None  // Cannot compute dipole for neutral fragments without electronic density
+            None // Cannot compute dipole for neutral fragments without electronic density
         else
             // Compute dipole magnitude in atomic units (e·Å)
-            let dipoleMagnitude = sqrt (dipoleX * dipoleX + dipoleY * dipoleY + dipoleZ * dipoleZ)
-            
+            let dipoleMagnitude =
+                sqrt (dipoleX * dipoleX + dipoleY * dipoleY + dipoleZ * dipoleZ)
+
             // Convert to Debye (1 Debye = 0.2082 e·Å)
             let dipoleInDebye = dipoleMagnitude / 0.2082
             Some dipoleInDebye
-    
+
     /// <summary>
     /// Load molecule from MoleculeSource.
     /// Internal helper for deferred loading in solve().
@@ -3795,24 +4424,21 @@ module QuantumChemistryBuilder =
     let private loadMoleculeFromSource (source: MoleculeSource) : Async<Result<Molecule, QuantumError>> =
         async {
             match source with
-            | Direct mol -> 
-                return Ok mol
-            
+            | Direct mol -> return Ok mol
+
             | XyzFile path ->
                 let! result = Molecule.fromXyzFileAsync path
                 return result
-            
+
             | FciDumpFile path ->
                 let! result = Molecule.fromFciDumpFileAsync path
                 return result
-            
-            | FromProvider (provider, name) ->
-                return Molecule.fromProvider provider name
-            
-            | FromDefaultProvider name ->
-                return Molecule.fromDefaultProvider name
+
+            | FromProvider(provider, name) -> return Molecule.fromProvider provider name
+
+            | FromDefaultProvider name -> return Molecule.fromDefaultProvider name
         }
-    
+
     /// <summary>
     /// Solve quantum chemistry problem using VQE framework.
     /// Transforms domain problem to VQE execution, runs calculation, and returns chemistry-specific result.
@@ -3822,49 +4448,49 @@ module QuantumChemistryBuilder =
     let solve (problem: ChemistryProblem) : Async<Result<ChemistryResult, QuantumError>> =
         async {
             // Load molecule from source (deferred I/O)
-            let! moleculeResult = 
+            let! moleculeResult =
                 match problem.Molecule with
                 | Some mol -> async { return Ok mol }
                 | None ->
                     match problem.MoleculeSource with
                     | Some source -> loadMoleculeFromSource source
-                    | None -> async { return Error (QuantumError.ValidationError ("Molecule", "No molecule specified")) }
-            
+                    | None -> async { return Error(QuantumError.ValidationError("Molecule", "No molecule specified")) }
+
             match moleculeResult with
             | Error err -> return Error err
             | Ok molecule ->
                 let optimizer = problem.Optimizer.Value
-                
+
                 // Configure VQE solver using existing framework
-                let vqeConfig = {
-                    Method = GroundStateMethod.VQE
-                    MaxIterations = optimizer.MaxIterations
-                    Tolerance = optimizer.Tolerance
-                    InitialParameters = problem.InitialParameters
-                    Backend = None  // Use default LocalBackend
-                    ProgressReporter = None
-                    ErrorMitigation = None  // No error mitigation by default
-                    IntegralProvider = None  // Use empirical integrals by default
-                }
-                
+                let vqeConfig =
+                    {
+                        Method = GroundStateMethod.VQE
+                        MaxIterations = optimizer.MaxIterations
+                        Tolerance = optimizer.Tolerance
+                        InitialParameters = problem.InitialParameters
+                        Backend = None // Use default LocalBackend
+                        ProgressReporter = None
+                        ErrorMitigation = None // No error mitigation by default
+                        IntegralProvider = None // Use empirical integrals by default
+                    }
+
                 // Execute VQE (uses existing VQE module - TKT-95 framework)
                 let! vqeResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
-                
+
                 // Transform result: Framework → Domain
-                let result = 
+                let result =
                     match vqeResult with
                     | Ok vqe ->
-                        Ok {
-                            GroundStateEnergy = vqe.Energy
-                            OptimalParameters = vqe.OptimalParameters
-                            Iterations = vqe.Iterations
-                            Convergence = vqe.Converged
-                            BondLengths = computeBondLengths molecule
-                            DipoleMoment = computeDipoleMoment molecule
-                        }
-                    | Error err ->
-                        Error err
-                
+                        Ok
+                            {
+                                GroundStateEnergy = vqe.Energy
+                                OptimalParameters = vqe.OptimalParameters
+                                Iterations = vqe.Iterations
+                                Convergence = vqe.Converged
+                                BondLengths = computeBondLengths molecule
+                                DipoleMoment = computeDipoleMoment molecule
+                            }
+                    | Error err -> Error err
+
                 return result
         }
-

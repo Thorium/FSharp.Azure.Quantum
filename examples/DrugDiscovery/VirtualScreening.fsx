@@ -33,17 +33,57 @@ open FSharp.Azure.Quantum.Examples.Common
 
 let args = Cli.parse (fsi.CommandLineArgs |> Array.skip 1)
 
-args |> Cli.exitIfHelp "DrugDiscovery/VirtualScreening.fsx"
+args
+|> Cli.exitIfHelp
+    "DrugDiscovery/VirtualScreening.fsx"
     "Screen candidate molecules using quantum ML methods"
-    [ { Name = "input";   Description = "SMILES/CSV/SDF file with candidate molecules"; Default = Some "built-in 10 compounds" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file"; Default = None }
-      { Name = "method";  Description = "Screening method: all, kernel, vqc, qaoa"; Default = Some "all" }
-      { Name = "shots";   Description = "Quantum circuit shots"; Default = Some "100" }
-      { Name = "batch";   Description = "Batch size for processing"; Default = Some "5" }
-      { Name = "budget";  Description = "QAOA selection budget (float)"; Default = Some "5.0" }
-      { Name = "diversity"; Description = "QAOA diversity weight (0-1)"; Default = Some "0.6" }
-      { Name = "quiet";   Description = "Suppress detailed per-method output (flag)"; Default = None } ]
+    [
+        {
+            Name = "input"
+            Description = "SMILES/CSV/SDF file with candidate molecules"
+            Default = Some "built-in 10 compounds"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "method"
+            Description = "Screening method: all, kernel, vqc, qaoa"
+            Default = Some "all"
+        }
+        {
+            Name = "shots"
+            Description = "Quantum circuit shots"
+            Default = Some "100"
+        }
+        {
+            Name = "batch"
+            Description = "Batch size for processing"
+            Default = Some "5"
+        }
+        {
+            Name = "budget"
+            Description = "QAOA selection budget (float)"
+            Default = Some "5.0"
+        }
+        {
+            Name = "diversity"
+            Description = "QAOA diversity weight (0-1)"
+            Default = Some "0.6"
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress detailed per-method output (flag)"
+            Default = None
+        }
+    ]
 
 let scriptDir = __SOURCE_DIRECTORY__
 let inputFile = args |> Cli.tryGet "input"
@@ -66,18 +106,19 @@ printfn "============================================================"
 printfn ""
 
 /// Built-in SMILES data (used when no --input provided)
-let builtinSmiles = [
-    "CCO"
-    "CCCO"
-    "CCCCO"
-    "CC(C)O"
-    "CC(=O)O"
-    "c1ccccc1"
-    "c1ccc(O)cc1"
-    "c1ccc(N)cc1"
-    "CC(=O)Oc1ccccc1C(=O)O"
-    "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"
-]
+let builtinSmiles =
+    [
+        "CCO"
+        "CCCO"
+        "CCCCO"
+        "CC(C)O"
+        "CC(=O)O"
+        "c1ccccc1"
+        "c1ccc(O)cc1"
+        "c1ccc(N)cc1"
+        "CC(=O)Oc1ccccc1C(=O)O"
+        "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"
+    ]
 
 /// Write SMILES to a temp file for the drugDiscovery builder
 let prepareSmilesFile (smilesList: string list) : string =
@@ -89,14 +130,18 @@ let smilesData, usingExternalInput =
     match inputFile with
     | Some path ->
         let resolved = Data.resolveRelative scriptDir path
+
         if not (File.Exists resolved) then
             eprintfn "Error: Input file not found: %s" resolved
             exit 1
+
         printfn "Loading candidates from: %s" resolved
         let smiles = Data.readSmiles resolved
+
         if smiles.IsEmpty then
             eprintfn "Error: No SMILES found in %s" resolved
             exit 1
+
         printfn "Loaded %d compounds" smiles.Length
         (smiles, true)
     | None ->
@@ -116,24 +161,29 @@ let localBackend = LocalBackend() :> IQuantumBackend
 // ==============================================================================
 
 /// Record for collecting results across methods
-type MethodResult = {
-    MethodName: string
-    Status: string
-    MoleculesProcessed: int
-    Message: string
-}
+type MethodResult =
+    {
+        MethodName: string
+        Status: string
+        MoleculesProcessed: int
+        Message: string
+    }
 
-let runMethods = [
-    if methodFilter = "all" || methodFilter = "kernel" then "kernel"
-    if methodFilter = "all" || methodFilter = "vqc" then "vqc"
-    if methodFilter = "all" || methodFilter = "qaoa" then "qaoa"
-]
+let runMethods =
+    [
+        if methodFilter = "all" || methodFilter = "kernel" then
+            "kernel"
+        if methodFilter = "all" || methodFilter = "vqc" then
+            "vqc"
+        if methodFilter = "all" || methodFilter = "qaoa" then
+            "qaoa"
+    ]
 
 if runMethods.IsEmpty then
     eprintfn "Error: Unknown method '%s'. Use: all, kernel, vqc, qaoa" methodFilter
     exit 1
 
-let mutable methodResults : MethodResult list = []
+let mutable methodResults: MethodResult list = []
 
 // ==============================================================================
 // METHOD 1: Quantum Kernel SVM
@@ -148,14 +198,15 @@ if runMethods |> List.contains "kernel" then
         printfn "============================================================"
         printfn ""
 
-    let kernelSvmResult = drugDiscovery {
-        load_candidates_from_file smilesFile
-        use_method QuantumKernelSVM
-        use_feature_map ZZFeatureMap
-        set_batch_size batchSize
-        shots numShots
-        backend localBackend
-    }
+    let kernelSvmResult =
+        drugDiscovery {
+            load_candidates_from_file smilesFile
+            use_method QuantumKernelSVM
+            use_feature_map ZZFeatureMap
+            set_batch_size batchSize
+            shots numShots
+            backend localBackend
+        }
 
     match kernelSvmResult with
     | Ok result ->
@@ -165,22 +216,34 @@ if runMethods |> List.contains "kernel" then
             printfn "  Molecules Processed: %d" result.MoleculesProcessed
             printfn "  Result:"
             result.Message.Split('\n') |> Array.iter (printfn "    %s")
-        methodResults <- methodResults @ [{
-            MethodName = "QuantumKernelSVM"
-            Status = "OK"
-            MoleculesProcessed = result.MoleculesProcessed
-            Message = result.Message
-        }]
+
+        methodResults <-
+            methodResults
+            @ [
+                {
+                    MethodName = "QuantumKernelSVM"
+                    Status = "OK"
+                    MoleculesProcessed = result.MoleculesProcessed
+                    Message = result.Message
+                }
+            ]
     | Error err ->
         if not quiet then
             printfn "[ERROR] %s" err.Message
-        methodResults <- methodResults @ [{
-            MethodName = "QuantumKernelSVM"
-            Status = "ERROR"
-            MoleculesProcessed = 0
-            Message = err.Message
-        }]
-    if not quiet then printfn ""
+
+        methodResults <-
+            methodResults
+            @ [
+                {
+                    MethodName = "QuantumKernelSVM"
+                    Status = "ERROR"
+                    MoleculesProcessed = 0
+                    Message = err.Message
+                }
+            ]
+
+    if not quiet then
+        printfn ""
 
 // ==============================================================================
 // METHOD 2: VQC Classifier
@@ -195,19 +258,20 @@ if runMethods |> List.contains "vqc" then
         printfn "============================================================"
         printfn ""
 
-    let vqcResult = drugDiscovery {
-        load_candidates_from_file smilesFile
-        use_method VQCClassifier
-        use_feature_map ZZFeatureMap
-        
-        // VQC-specific configuration
-        vqc_layers 1              // Number of variational layers
-        vqc_max_epochs 3          // Maximum training epochs (reduced for demo)
-        
-        set_batch_size (min batchSize 3)
-        shots (min numShots 50)
-        backend localBackend
-    }
+    let vqcResult =
+        drugDiscovery {
+            load_candidates_from_file smilesFile
+            use_method VQCClassifier
+            use_feature_map ZZFeatureMap
+
+            // VQC-specific configuration
+            vqc_layers 1 // Number of variational layers
+            vqc_max_epochs 3 // Maximum training epochs (reduced for demo)
+
+            set_batch_size (min batchSize 3)
+            shots (min numShots 50)
+            backend localBackend
+        }
 
     match vqcResult with
     | Ok result ->
@@ -217,22 +281,34 @@ if runMethods |> List.contains "vqc" then
             printfn "  Molecules Processed: %d" result.MoleculesProcessed
             printfn "  Result:"
             result.Message.Split('\n') |> Array.iter (printfn "    %s")
-        methodResults <- methodResults @ [{
-            MethodName = "VQCClassifier"
-            Status = "OK"
-            MoleculesProcessed = result.MoleculesProcessed
-            Message = result.Message
-        }]
+
+        methodResults <-
+            methodResults
+            @ [
+                {
+                    MethodName = "VQCClassifier"
+                    Status = "OK"
+                    MoleculesProcessed = result.MoleculesProcessed
+                    Message = result.Message
+                }
+            ]
     | Error err ->
         if not quiet then
             printfn "[ERROR] %s" err.Message
-        methodResults <- methodResults @ [{
-            MethodName = "VQCClassifier"
-            Status = "ERROR"
-            MoleculesProcessed = 0
-            Message = err.Message
-        }]
-    if not quiet then printfn ""
+
+        methodResults <-
+            methodResults
+            @ [
+                {
+                    MethodName = "VQCClassifier"
+                    Status = "ERROR"
+                    MoleculesProcessed = 0
+                    Message = err.Message
+                }
+            ]
+
+    if not quiet then
+        printfn ""
 
 // ==============================================================================
 // METHOD 3: QAOA Diverse Selection
@@ -247,18 +323,19 @@ if runMethods |> List.contains "qaoa" then
         printfn "============================================================"
         printfn ""
 
-    let qaoaResult = drugDiscovery {
-        load_candidates_from_file smilesFile
-        use_method QAOADiverseSelection
-        
-        // QAOA-specific configuration
-        selection_budget selectionBudget
-        diversity_weight diversityWeight
-        
-        set_batch_size (min batchSize 8)
-        shots (max numShots 200)
-        backend localBackend
-    }
+    let qaoaResult =
+        drugDiscovery {
+            load_candidates_from_file smilesFile
+            use_method QAOADiverseSelection
+
+            // QAOA-specific configuration
+            selection_budget selectionBudget
+            diversity_weight diversityWeight
+
+            set_batch_size (min batchSize 8)
+            shots (max numShots 200)
+            backend localBackend
+        }
 
     match qaoaResult with
     | Ok result ->
@@ -268,22 +345,34 @@ if runMethods |> List.contains "qaoa" then
             printfn "  Molecules Processed: %d" result.MoleculesProcessed
             printfn "  Result:"
             result.Message.Split('\n') |> Array.iter (printfn "    %s")
-        methodResults <- methodResults @ [{
-            MethodName = "QAOADiverseSelection"
-            Status = "OK"
-            MoleculesProcessed = result.MoleculesProcessed
-            Message = result.Message
-        }]
+
+        methodResults <-
+            methodResults
+            @ [
+                {
+                    MethodName = "QAOADiverseSelection"
+                    Status = "OK"
+                    MoleculesProcessed = result.MoleculesProcessed
+                    Message = result.Message
+                }
+            ]
     | Error err ->
         if not quiet then
             printfn "[ERROR] %s" err.Message
-        methodResults <- methodResults @ [{
-            MethodName = "QAOADiverseSelection"
-            Status = "ERROR"
-            MoleculesProcessed = 0
-            Message = err.Message
-        }]
-    if not quiet then printfn ""
+
+        methodResults <-
+            methodResults
+            @ [
+                {
+                    MethodName = "QAOADiverseSelection"
+                    Status = "ERROR"
+                    MoleculesProcessed = 0
+                    Message = err.Message
+                }
+            ]
+
+    if not quiet then
+        printfn ""
 
 // ==============================================================================
 // COMPARISON TABLE
@@ -317,7 +406,9 @@ printfn "============================================================"
 printfn ""
 
 let okCount = methodResults |> List.filter (fun r -> r.Status = "OK") |> List.length
-let errCount = methodResults |> List.filter (fun r -> r.Status = "ERROR") |> List.length
+
+let errCount =
+    methodResults |> List.filter (fun r -> r.Status = "ERROR") |> List.length
 
 printfn "Compounds screened: %d" smilesData.Length
 printfn "Methods run: %d (%d succeeded, %d failed)" methodResults.Length okCount errCount
@@ -339,15 +430,16 @@ if methodFilter = "all" then
 
 /// Convert a MethodResult to a serializable map
 let resultToMap (r: MethodResult) : Map<string, string> =
-    Map.ofList [
-        "MethodName", r.MethodName
-        "Status", r.Status
-        "MoleculesProcessed", string r.MoleculesProcessed
-        "Message", r.Message
-        "InputCompounds", string smilesData.Length
-        "Shots", string numShots
-        "BatchSize", string batchSize
-    ]
+    Map.ofList
+        [
+            "MethodName", r.MethodName
+            "Status", r.Status
+            "MoleculesProcessed", string r.MoleculesProcessed
+            "Message", r.Message
+            "InputCompounds", string smilesData.Length
+            "Shots", string numShots
+            "BatchSize", string batchSize
+        ]
 
 match outputFile with
 | Some path ->
@@ -358,11 +450,20 @@ match outputFile with
 
 match csvFile with
 | Some path ->
-    let header = [ "MethodName"; "Status"; "MoleculesProcessed"; "InputCompounds"; "Message" ]
+    let header =
+        [ "MethodName"; "Status"; "MoleculesProcessed"; "InputCompounds"; "Message" ]
+
     let rows =
-        methodResults |> List.map (fun r ->
-            [ r.MethodName; r.Status; string r.MoleculesProcessed; string smilesData.Length
-              r.Message.Replace('\n', ' ') ])
+        methodResults
+        |> List.map (fun r ->
+            [
+                r.MethodName
+                r.Status
+                string r.MoleculesProcessed
+                string smilesData.Length
+                r.Message.Replace('\n', ' ')
+            ])
+
     Reporting.writeCsv path header rows
     printfn "CSV results written to: %s" path
 | None -> ()

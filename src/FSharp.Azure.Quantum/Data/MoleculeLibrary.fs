@@ -1,7 +1,7 @@
 namespace FSharp.Azure.Quantum.Data
 
 /// Molecule Library - Pre-defined molecules loaded from embedded CSV data
-/// 
+///
 /// This module provides a curated library of 62 molecules for quantum chemistry calculations.
 /// Geometries are from NIST CCCBDB, experimental data, and computational chemistry literature.
 ///
@@ -29,10 +29,10 @@ namespace FSharp.Azure.Quantum.Data
 ///
 ///   open FSharp.Azure.Quantum.Data
 ///   open FSharp.Azure.Quantum.QuantumChemistry
-///   
+///
 ///   // Get molecule from library and convert for quantum chemistry
 ///   let water = MoleculeLibrary.get "H2O" |> Molecule.fromLibrary
-///   
+///
 ///   // Configure and run VQE
 ///   let config = { ... Backend = Some backend ... }
 ///   let energy = GroundStateEnergy.estimateEnergy water config
@@ -49,56 +49,60 @@ open System
 open System.Globalization
 
 module MoleculeLibrary =
-    
+
     // ========================================================================
     // LOCAL TYPE DEFINITIONS
     // ========================================================================
     // These mirror types in QuantumChemistry namespace but are defined here
     // to avoid circular dependencies (Data layer compiles before Solvers)
-    
+
     /// Atom in 3D space
-    type Atom = {
-        /// Element symbol (H, C, N, O, etc.)
-        Element: string
-        /// Position in 3D space (x, y, z) in Angstroms
-        Position: float * float * float
-    }
-    
+    type Atom =
+        {
+            /// Element symbol (H, C, N, O, etc.)
+            Element: string
+            /// Position in 3D space (x, y, z) in Angstroms
+            Position: float * float * float
+        }
+
     /// Bond between two atoms
     [<Struct>]
-    type Bond = {
-        /// Index of first atom (0-based)
-        Atom1: int
-        /// Index of second atom (0-based)
-        Atom2: int
-        /// Bond order: 1.0 = single, 2.0 = double, 3.0 = triple
-        BondOrder: float
-    }
-    
+    type Bond =
+        {
+            /// Index of first atom (0-based)
+            Atom1: int
+            /// Index of second atom (0-based)
+            Atom2: int
+            /// Bond order: 1.0 = single, 2.0 = double, 3.0 = triple
+            BondOrder: float
+        }
+
     /// Molecular structure
-    type Molecule = {
-        /// Molecule name (e.g., "H2", "H2O")
-        Name: string
-        /// List of atoms
-        Atoms: Atom list
-        /// List of bonds
-        Bonds: Bond list
-        /// Net charge (0 for neutral, +1 for cation, -1 for anion)
-        Charge: int
-        /// Spin multiplicity (2S + 1, where S is total spin)
-        Multiplicity: int
-        /// Category (e.g., "diatomic", "aromatic", "metal_hydride")
-        Category: string
-        /// Reference source (e.g., "NIST CCCBDB")
-        Reference: string
-    }
-    
+    type Molecule =
+        {
+            /// Molecule name (e.g., "H2", "H2O")
+            Name: string
+            /// List of atoms
+            Atoms: Atom list
+            /// List of bonds
+            Bonds: Bond list
+            /// Net charge (0 for neutral, +1 for cation, -1 for anion)
+            Charge: int
+            /// Spin multiplicity (2S + 1, where S is total spin)
+            Multiplicity: int
+            /// Category (e.g., "diatomic", "aromatic", "metal_hydride")
+            Category: string
+            /// Reference source (e.g., "NIST CCCBDB")
+            Reference: string
+        }
+
     // ========================================================================
     // EMBEDDED CSV DATA
     // ========================================================================
-    
+
     /// Common molecules CSV data
-    let private commonCsvData = """Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+    let private commonCsvData =
+        """Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
 H2,H2,0,1,diatomic,NIST CCCBDB,H:0.0:0.0:0.0;H:0.74:0.0:0.0
 He2,He2,0,1,diatomic,theoretical,He:0.0:0.0:0.0;He:2.97:0.0:0.0
 LiH,LiH,0,1,diatomic,NIST CCCBDB,Li:0.0:0.0:0.0;H:1.595:0.0:0.0
@@ -121,7 +125,8 @@ NH3,NH3,0,1,small,NIST CCCBDB,N:0.0:0.0:0.0;H:0.0:0.939:0.381;H:0.813:-0.470:0.3
 PH3,PH3,0,1,small,NIST CCCBDB,P:0.0:0.0:0.0;H:0.0:1.193:0.770;H:1.033:-0.596:0.770;H:-1.033:-0.596:0.770"""
 
     /// Hydrocarbon molecules CSV data
-    let private hydrocarbonsCsvData = """Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+    let private hydrocarbonsCsvData =
+        """Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
 methane,CH4,0,1,alkane,NIST CCCBDB,C:0.0:0.0:0.0;H:1.089:0.0:0.0;H:-0.363:1.027:0.0;H:-0.363:-0.513:0.890;H:-0.363:-0.513:-0.890
 ethane,C2H6,0,1,alkane,NIST CCCBDB,C:-0.762:0.0:0.0;C:0.762:0.0:0.0;H:-1.157:1.013:0.0;H:-1.157:-0.507:0.878;H:-1.157:-0.507:-0.878;H:1.157:-1.013:0.0;H:1.157:0.507:-0.878;H:1.157:0.507:0.878
 propane,C3H8,0,1,alkane,NIST CCCBDB,C:0.0:0.0:0.0;C:-1.270:0.0:0.880;C:1.270:0.0:0.880;H:0.0:0.0:-1.090;H:0.0:-1.013:0.363;H:-1.270:0.0:1.970;H:-1.270:-1.013:0.517;H:-2.163:0.507:0.517;H:1.270:0.0:1.970;H:1.270:-1.013:0.517;H:2.163:0.507:0.517
@@ -139,7 +144,8 @@ formic_acid,CH2O2,0,1,carboxylic_acid,NIST CCCBDB,C:0.0:0.0:0.0;O:1.196:0.0:0.0;
 acetic_acid,C2H4O2,0,1,carboxylic_acid,NIST CCCBDB,C:0.0:0.0:0.0;C:1.500:0.0:0.0;O:2.037:1.139:0.0;O:2.037:-1.139:0.0;H:-0.363:0.513:0.890;H:-0.363:0.513:-0.890;H:-0.363:-1.027:0.0;H:2.966:-1.139:0.0"""
 
     /// Materials science molecules CSV data
-    let private materialsCsvData = """Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+    let private materialsCsvData =
+        """Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
 FeH,FeH,0,4,metal_hydride,Phillips 1987,Fe:0.0:0.0:0.0;H:1.63:0.0:0.0
 CoH,CoH,0,3,metal_hydride,NIST CCCBDB,Co:0.0:0.0:0.0;H:1.54:0.0:0.0
 NiH,NiH,0,2,metal_hydride,NIST CCCBDB,Ni:0.0:0.0:0.0;H:1.48:0.0:0.0
@@ -171,41 +177,42 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
     // ========================================================================
     // PARSING FUNCTIONS
     // ========================================================================
-    
+
     /// Parse a single atom from "Element:X:Y:Z" format
     let private parseAtom (atomStr: string) : Atom option =
         let parts = atomStr.Split ':'
+
         if parts.Length >= 4 then
             try
-                Some {
-                    Element = parts.[0].Trim()
-                    Position = (
-                        Double.Parse(parts.[1].Trim(), CultureInfo.InvariantCulture),
-                        Double.Parse(parts.[2].Trim(), CultureInfo.InvariantCulture),
-                        Double.Parse(parts.[3].Trim(), CultureInfo.InvariantCulture)
-                    )
-                }
-            with _ -> None
-        else None
-    
+                Some
+                    {
+                        Element = parts.[0].Trim()
+                        Position =
+                            (Double.Parse(parts.[1].Trim(), CultureInfo.InvariantCulture),
+                             Double.Parse(parts.[2].Trim(), CultureInfo.InvariantCulture),
+                             Double.Parse(parts.[3].Trim(), CultureInfo.InvariantCulture))
+                    }
+            with _ ->
+                None
+        else
+            None
+
     /// Parse atoms string "H:0:0:0;H:0.74:0:0" into Atom list
     let private parseAtoms (atomsStr: string) : Atom list =
-        atomsStr.Split ';'
-        |> Array.choose parseAtom
-        |> Array.toList
-    
+        atomsStr.Split ';' |> Array.choose parseAtom |> Array.toList
+
     /// Infer bonds from atomic distances using covalent radii
     /// Uses PeriodicTable.estimateBondLength for accurate thresholds
     let private inferBonds (atoms: Atom list) : Bond list =
         let atomArray = atoms |> Array.ofList
         let n = atomArray.Length
-        
+
         [
             for i in 0 .. n - 2 do
                 for j in i + 1 .. n - 1 do
                     let atom1 = atomArray.[i]
                     let atom2 = atomArray.[j]
-                    
+
                     // Calculate actual distance
                     let (x1, y1, z1) = atom1.Position
                     let (x2, y2, z2) = atom2.Position
@@ -213,31 +220,42 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                     let dy = y2 - y1
                     let dz = z2 - z1
                     let distance = sqrt (dx * dx + dy * dy + dz * dz)
-                    
+
                     // Get expected bond length from periodic table
                     match PeriodicTable.estimateBondLength atom1.Element atom2.Element with
                     | Some expectedLength ->
                         // Allow 20% tolerance for bond detection
                         let tolerance = 0.20
                         let maxBondLength = expectedLength * (1.0 + tolerance)
-                        
+
                         if distance <= maxBondLength then
                             // Estimate bond order based on how short the bond is
                             // Shorter than expected = higher bond order
                             let bondRatio = distance / expectedLength
+
                             let bondOrder =
-                                if bondRatio < 0.80 then 3.0      // Triple bond
-                                elif bondRatio < 0.90 then 2.0    // Double bond
-                                else 1.0                           // Single bond
-                            
-                            yield { Atom1 = i; Atom2 = j; BondOrder = bondOrder }
+                                if bondRatio < 0.80 then 3.0 // Triple bond
+                                elif bondRatio < 0.90 then 2.0 // Double bond
+                                else 1.0 // Single bond
+
+                            yield
+                                {
+                                    Atom1 = i
+                                    Atom2 = j
+                                    BondOrder = bondOrder
+                                }
                     | None ->
                         // Fallback: use simple distance threshold for elements without covalent radius
                         // Most covalent bonds are < 3.0 A
                         if distance < 3.0 then
-                            yield { Atom1 = i; Atom2 = j; BondOrder = 1.0 }
+                            yield
+                                {
+                                    Atom1 = i
+                                    Atom2 = j
+                                    BondOrder = 1.0
+                                }
         ]
-    
+
     /// Parse a CSV line into a Molecule
     let private parseMoleculeLine (line: string) : Molecule option =
         // Skip comment lines and empty lines
@@ -245,6 +263,7 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
             None
         else
             let fields = line.Split ','
+
             if fields.Length >= 7 then
                 try
                     let name = fields.[0].Trim()
@@ -254,137 +273,142 @@ Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0"""
                     let reference = fields.[5].Trim()
                     let atoms = parseAtoms fields.[6]
                     let bonds = inferBonds atoms
-                    
-                    Some {
-                        Name = name
-                        Atoms = atoms
-                        Bonds = bonds
-                        Charge = charge
-                        Multiplicity = multiplicity
-                        Category = category
-                        Reference = reference
-                    }
-                with _ -> None
-            else None
-    
+
+                    Some
+                        {
+                            Name = name
+                            Atoms = atoms
+                            Bonds = bonds
+                            Charge = charge
+                            Multiplicity = multiplicity
+                            Category = category
+                            Reference = reference
+                        }
+                with _ ->
+                    None
+            else
+                None
+
     /// Load molecules from CSV content
     let private loadFromCsvContent (content: string) : Molecule array =
-        content.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.skip 1  // Skip header
+        content.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.skip 1 // Skip header
         |> Array.choose parseMoleculeLine
-    
+
     // ========================================================================
     // INTERNAL DATA STRUCTURES (lazy loaded)
     // ========================================================================
-    
+
     /// All molecules from all CSV sources
-    let private allMolecules = lazy (
-        [|
-            yield! loadFromCsvContent commonCsvData
-            yield! loadFromCsvContent hydrocarbonsCsvData
-            yield! loadFromCsvContent materialsCsvData
-        |]
-    )
-    
+    let private allMolecules =
+        lazy
+            ([|
+                yield! loadFromCsvContent commonCsvData
+                yield! loadFromCsvContent hydrocarbonsCsvData
+                yield! loadFromCsvContent materialsCsvData
+            |])
+
     /// Lookup by name (case-insensitive)
-    let private byNameMap = lazy (
-        allMolecules.Value
-        |> Array.map (fun m -> m.Name.ToLowerInvariant(), m)
-        |> Map.ofArray
-    )
-    
+    let private byNameMap =
+        lazy
+            (allMolecules.Value
+             |> Array.map (fun m -> m.Name.ToLowerInvariant(), m)
+             |> Map.ofArray)
+
     // ========================================================================
     // PUBLIC API
     // ========================================================================
-    
+
     /// Get all molecules in the library
     let all () : Molecule array = allMolecules.Value
-    
+
     /// Get molecule by name (case-insensitive)
     /// Returns None if not found
     let tryGet (name: string) : Molecule option =
-        byNameMap.Value.TryFind (name.ToLowerInvariant())
-    
+        byNameMap.Value.TryFind(name.ToLowerInvariant())
+
     /// Get molecule by name (case-insensitive)
     /// Throws if not found
     let get (name: string) : Molecule =
         match tryGet name with
         | Some m -> m
         | None -> failwithf "Molecule not found: %s" name
-    
+
     /// Search molecules by name (partial match, case-insensitive)
     let search (query: string) : Molecule array =
         let q = query.ToLowerInvariant()
+
         allMolecules.Value
         |> Array.filter (fun m -> m.Name.ToLowerInvariant().Contains q)
-    
+
     /// Get molecules by category (exact match, case-insensitive)
     let byCategory (category: string) : Molecule array =
         let cat = category.ToLowerInvariant()
+
         allMolecules.Value
         |> Array.filter (fun m -> m.Category.ToLowerInvariant() = cat)
-    
+
     /// Get all unique categories in the library
     let categories () : string array =
         allMolecules.Value
         |> Array.map (fun m -> m.Category)
         |> Array.distinct
         |> Array.sort
-    
+
     /// Get count of molecules in the library
     let count () : int = allMolecules.Value.Length
-    
+
     /// Check if a molecule exists in the library
     let exists (name: string) : bool = tryGet name |> Option.isSome
-    
+
     // ========================================================================
     // CATEGORY-SPECIFIC ACCESSORS
     // ========================================================================
-    
+
     /// Get all diatomic molecules
     let diatomics () : Molecule array = byCategory "diatomic"
-    
+
     /// Get all triatomic molecules
     let triatomics () : Molecule array = byCategory "triatomic"
-    
+
     /// Get all aromatic molecules
     let aromatics () : Molecule array = byCategory "aromatic"
-    
+
     /// Get all alkanes
     let alkanes () : Molecule array = byCategory "alkane"
-    
+
     /// Get all alkenes
     let alkenes () : Molecule array = byCategory "alkene"
-    
+
     /// Get all alkynes
     let alkynes () : Molecule array = byCategory "alkyne"
-    
+
     /// Get all metal hydrides
     let metalHydrides () : Molecule array = byCategory "metal_hydride"
-    
+
     /// Get all metal dimers
     let metalDimers () : Molecule array = byCategory "metal_dimer"
-    
+
     /// Get all quantum dot materials
     let quantumDots () : Molecule array = byCategory "quantum_dot"
-    
+
     /// Get all metal oxides
     let metalOxides () : Molecule array = byCategory "metal_oxide"
-    
+
     /// Get all semiconductor materials
     let semiconductors () : Molecule array = byCategory "semiconductor"
-    
+
     /// Get all catalyst molecules
     let catalysts () : Molecule array = byCategory "catalyst"
-    
+
     /// Get all alcohols
     let alcohols () : Molecule array = byCategory "alcohol"
-    
+
     /// Get all aldehydes
     let aldehydes () : Molecule array = byCategory "aldehyde"
-    
+
     /// Get all carboxylic acids
     let carboxylicAcids () : Molecule array = byCategory "carboxylic_acid"
-    
+
     /// Get all small molecules (NH3, PH3, etc.)
     let smallMolecules () : Molecule array = byCategory "small"

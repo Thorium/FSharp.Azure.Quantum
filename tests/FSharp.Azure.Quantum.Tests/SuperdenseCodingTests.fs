@@ -19,7 +19,11 @@ let ``SuperdenseCoding.send00 returns correct bits`` () =
     match SuperdenseCoding.send00 backend with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
-        Assert.True(result.Success, $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}")
+        Assert.True(
+            result.Success,
+            $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}"
+        )
+
         Assert.Equal(0, result.ReceivedMessage.Bit1)
         Assert.Equal(0, result.ReceivedMessage.Bit2)
 
@@ -30,7 +34,11 @@ let ``SuperdenseCoding.send01 returns correct bits`` () =
     match SuperdenseCoding.send01 backend with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
-        Assert.True(result.Success, $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}")
+        Assert.True(
+            result.Success,
+            $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}"
+        )
+
         Assert.Equal(0, result.ReceivedMessage.Bit1)
         Assert.Equal(1, result.ReceivedMessage.Bit2)
 
@@ -41,7 +49,11 @@ let ``SuperdenseCoding.send10 returns correct bits`` () =
     match SuperdenseCoding.send10 backend with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
-        Assert.True(result.Success, $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}")
+        Assert.True(
+            result.Success,
+            $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}"
+        )
+
         Assert.Equal(1, result.ReceivedMessage.Bit1)
         Assert.Equal(0, result.ReceivedMessage.Bit2)
 
@@ -52,7 +64,11 @@ let ``SuperdenseCoding.send11 returns correct bits`` () =
     match SuperdenseCoding.send11 backend with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
-        Assert.True(result.Success, $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}")
+        Assert.True(
+            result.Success,
+            $"Expected success, got received={result.ReceivedMessage.Bit1}{result.ReceivedMessage.Bit2}"
+        )
+
         Assert.Equal(1, result.ReceivedMessage.Bit1)
         Assert.Equal(1, result.ReceivedMessage.Bit2)
 
@@ -64,18 +80,20 @@ let ``SuperdenseCoding.send11 returns correct bits`` () =
 let ``SuperdenseCoding.AllFourMessages produce distinct results`` () =
     let backend = createLocalBackend ()
 
-    let messages : SuperdenseCoding.ClassicalMessage list = [
-        { Bit1 = 0; Bit2 = 0 }
-        { Bit1 = 0; Bit2 = 1 }
-        { Bit1 = 1; Bit2 = 0 }
-        { Bit1 = 1; Bit2 = 1 }
-    ]
+    let messages: SuperdenseCoding.ClassicalMessage list =
+        [
+            { Bit1 = 0; Bit2 = 0 }
+            { Bit1 = 0; Bit2 = 1 }
+            { Bit1 = 1; Bit2 = 0 }
+            { Bit1 = 1; Bit2 = 1 }
+        ]
 
     let results =
         messages
         |> List.map (fun msg ->
-            (SuperdenseCoding.send backend msg) |> Result.map (fun result -> result.ReceivedMessage.Bit1, result.ReceivedMessage.Bit2) |> Result.defaultWith (fun err -> failwith $"Unexpected error: {err}")
-        )
+            (SuperdenseCoding.send backend msg)
+            |> Result.map (fun result -> result.ReceivedMessage.Bit1, result.ReceivedMessage.Bit2)
+            |> Result.defaultWith (fun err -> failwith $"Unexpected error: {err}"))
 
     // All 4 received messages should be distinct
     let distinctResults = results |> List.distinct
@@ -88,7 +106,7 @@ let ``SuperdenseCoding.AllFourMessages produce distinct results`` () =
 [<Fact>]
 let ``SuperdenseCoding.runStatistics all trials succeed on local backend`` () =
     let backend = createLocalBackend ()
-    let message : SuperdenseCoding.ClassicalMessage = { Bit1 = 1; Bit2 = 0 }
+    let message: SuperdenseCoding.ClassicalMessage = { Bit1 = 1; Bit2 = 0 }
 
     match SuperdenseCoding.runStatistics backend message 25 with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
@@ -105,12 +123,15 @@ let ``SuperdenseCoding.runStatistics all trials succeed on local backend`` () =
 let ``SuperdenseCoding.send rejects invalid bit values`` () =
     let backend = createLocalBackend ()
 
-    let badMsg : SuperdenseCoding.ClassicalMessage = { Bit1 = 2; Bit2 = 0 }
-    (SuperdenseCoding.send backend badMsg) |> Result.iter (fun _ -> Assert.Fail("Expected Error for invalid bit value")) // Expected
+    let badMsg: SuperdenseCoding.ClassicalMessage = { Bit1 = 2; Bit2 = 0 }
+
+    (SuperdenseCoding.send backend badMsg)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for invalid bit value")) // Expected
 
 [<Fact>]
 let ``SuperdenseCoding.runStatistics rejects zero trials`` () =
     let backend = createLocalBackend ()
-    let message : SuperdenseCoding.ClassicalMessage = { Bit1 = 0; Bit2 = 0 }
+    let message: SuperdenseCoding.ClassicalMessage = { Bit1 = 0; Bit2 = 0 }
 
-    (SuperdenseCoding.runStatistics backend message 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for zero trials")) // Expected
+    (SuperdenseCoding.runStatistics backend message 0)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for zero trials")) // Expected

@@ -35,7 +35,7 @@ let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 let bell =
     CircuitBuilder.empty 2
     |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
 
 printfn "CUDA-Q-style primitives on a Bell state\n"
 
@@ -43,14 +43,35 @@ printfn "CUDA-Q-style primitives on a Bell state\n"
 match Primitives.sample backend bell 1000 with
 | Ok histogram ->
     printfn "sample (1000 shots):"
-    histogram |> Map.iter (fun bitstring count -> printfn "  |%s⟩ : %d" bitstring count)
+
+    histogram
+    |> Map.iter (fun bitstring count -> printfn "  |%s⟩ : %d" bitstring count)
 | Error e -> eprintfn "sample failed: %s" e.Message
 
 // cudaq.observe → expectation value ⟨H⟩ of a Pauli Hamiltonian
-let zz : TrotterSuzuki.PauliHamiltonian =
-    { Terms = [ { Operators = [| 'Z'; 'Z' |]; Coefficient = Complex(1.0, 0.0) } ]; NumQubits = 2 }
-let x0 : TrotterSuzuki.PauliHamiltonian =
-    { Terms = [ { Operators = [| 'X'; 'I' |]; Coefficient = Complex(1.0, 0.0) } ]; NumQubits = 2 }
+let zz: TrotterSuzuki.PauliHamiltonian =
+    {
+        Terms =
+            [
+                {
+                    Operators = [| 'Z'; 'Z' |]
+                    Coefficient = Complex(1.0, 0.0)
+                }
+            ]
+        NumQubits = 2
+    }
+
+let x0: TrotterSuzuki.PauliHamiltonian =
+    {
+        Terms =
+            [
+                {
+                    Operators = [| 'X'; 'I' |]
+                    Coefficient = Complex(1.0, 0.0)
+                }
+            ]
+        NumQubits = 2
+    }
 
 match Primitives.observe backend bell zz, Primitives.observe backend bell x0 with
 | Ok ezz, Ok ex0 ->
@@ -59,6 +80,11 @@ match Primitives.observe backend bell zz, Primitives.observe backend bell x0 wit
 | _ -> eprintfn "observe failed"
 
 // cudaq.run → raw per-shot outcomes; cudaq.get_state → full statevector
-(Primitives.run backend bell 5) |> Result.map (fun shots -> printfn "\nrun: %d shots × %d qubits (first shot: %A)" shots.Length shots.[0].Length shots.[0]) |> Result.defaultWith (fun e -> eprintfn "run failed: %s" e.Message)
+(Primitives.run backend bell 5)
+|> Result.map (fun shots ->
+    printfn "\nrun: %d shots × %d qubits (first shot: %A)" shots.Length shots.[0].Length shots.[0])
+|> Result.defaultWith (fun e -> eprintfn "run failed: %s" e.Message)
 
-(Primitives.getState backend bell) |> Result.map (fun _ -> printfn "getState: returned the full quantum state (simulator)") |> Result.defaultWith (fun e -> eprintfn "getState failed: %s" e.Message)
+(Primitives.getState backend bell)
+|> Result.map (fun _ -> printfn "getState: returned the full quantum state (simulator)")
+|> Result.defaultWith (fun e -> eprintfn "getState failed: %s" e.Message)

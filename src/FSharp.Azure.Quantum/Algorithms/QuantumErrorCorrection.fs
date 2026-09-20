@@ -64,68 +64,73 @@ module QuantumErrorCorrection =
 
     /// Code parameters describing the structure of an error correction code
     [<Struct>]
-    type CodeParameters = {
-        /// Which code this describes
-        Code: ErrorCode
-        /// Number of physical qubits used
-        PhysicalQubits: int
-        /// Number of logical qubits encoded
-        LogicalQubits: int
-        /// Code distance (minimum weight of undetectable error)
-        Distance: int
-        /// Number of errors the code can correct
-        CorrectableErrors: int
-    }
+    type CodeParameters =
+        {
+            /// Which code this describes
+            Code: ErrorCode
+            /// Number of physical qubits used
+            PhysicalQubits: int
+            /// Number of logical qubits encoded
+            LogicalQubits: int
+            /// Code distance (minimum weight of undetectable error)
+            Distance: int
+            /// Number of errors the code can correct
+            CorrectableErrors: int
+        }
 
     /// Syndrome measurement result
-    type SyndromeResult = {
-        /// Raw syndrome bits
-        SyndromeBits: int list
-        /// Detected error type (if any)
-        DetectedError: ErrorType option
-        /// Qubit where error was detected (if identifiable)
-        ErrorQubit: int option
-    }
+    type SyndromeResult =
+        {
+            /// Raw syndrome bits
+            SyndromeBits: int list
+            /// Detected error type (if any)
+            DetectedError: ErrorType option
+            /// Qubit where error was detected (if identifiable)
+            ErrorQubit: int option
+        }
 
     /// Result of encoding a logical qubit
-    type EncodingResult = {
-        /// Which code was used
-        Code: ErrorCode
-        /// Number of physical qubits
-        PhysicalQubits: int
-        /// The encoded quantum state
-        EncodedState: QuantumState
-    }
+    type EncodingResult =
+        {
+            /// Which code was used
+            Code: ErrorCode
+            /// Number of physical qubits
+            PhysicalQubits: int
+            /// The encoded quantum state
+            EncodedState: QuantumState
+        }
 
     /// Result of a full correction cycle
-    type CorrectionResult = {
-        /// The syndrome measurement
-        Syndrome: SyndromeResult
-        /// State after correction
-        CorrectedState: QuantumState
-        /// Whether a correction gate was applied
-        CorrectionApplied: bool
-    }
+    type CorrectionResult =
+        {
+            /// The syndrome measurement
+            Syndrome: SyndromeResult
+            /// State after correction
+            CorrectedState: QuantumState
+            /// Whether a correction gate was applied
+            CorrectionApplied: bool
+        }
 
     /// Result of a full round-trip test (encode -> error -> syndrome -> correct -> verify)
-    type RoundTripResult = {
-        /// Which code was used
-        Code: ErrorCode
-        /// Logical bit that was encoded (0 or 1)
-        LogicalBit: int
-        /// Error that was injected (if any)
-        InjectedError: (ErrorType * int) option
-        /// Syndrome measurement
-        Syndrome: SyndromeResult
-        /// Whether correction was applied
-        CorrectionApplied: bool
-        /// Decoded bit after correction
-        DecodedBit: int
-        /// Whether the round-trip succeeded (decoded == encoded)
-        Success: bool
-        /// Backend used
-        BackendName: string
-    }
+    type RoundTripResult =
+        {
+            /// Which code was used
+            Code: ErrorCode
+            /// Logical bit that was encoded (0 or 1)
+            LogicalBit: int
+            /// Error that was injected (if any)
+            InjectedError: (ErrorType * int) option
+            /// Syndrome measurement
+            Syndrome: SyndromeResult
+            /// Whether correction was applied
+            CorrectionApplied: bool
+            /// Decoded bit after correction
+            DecodedBit: int
+            /// Whether the round-trip succeeded (decoded == encoded)
+            Success: bool
+            /// Backend used
+            BackendName: string
+        }
 
     // ========================================================================
     // CODE PARAMETERS
@@ -135,39 +140,71 @@ module QuantumErrorCorrection =
     let codeParameters (code: ErrorCode) : CodeParameters =
         match code with
         | BitFlipCode3 ->
-            { Code = BitFlipCode3; PhysicalQubits = 3; LogicalQubits = 1
-              Distance = 1; CorrectableErrors = 1 }
+            {
+                Code = BitFlipCode3
+                PhysicalQubits = 3
+                LogicalQubits = 1
+                Distance = 1
+                CorrectableErrors = 1
+            }
         | PhaseFlipCode3 ->
-            { Code = PhaseFlipCode3; PhysicalQubits = 3; LogicalQubits = 1
-              Distance = 1; CorrectableErrors = 1 }
+            {
+                Code = PhaseFlipCode3
+                PhysicalQubits = 3
+                LogicalQubits = 1
+                Distance = 1
+                CorrectableErrors = 1
+            }
         | ShorCode9 ->
-            { Code = ShorCode9; PhysicalQubits = 9; LogicalQubits = 1
-              Distance = 3; CorrectableErrors = 1 }
+            {
+                Code = ShorCode9
+                PhysicalQubits = 9
+                LogicalQubits = 1
+                Distance = 3
+                CorrectableErrors = 1
+            }
         | SteaneCode7 ->
-            { Code = SteaneCode7; PhysicalQubits = 7; LogicalQubits = 1
-              Distance = 3; CorrectableErrors = 1 }
+            {
+                Code = SteaneCode7
+                PhysicalQubits = 7
+                LogicalQubits = 1
+                Distance = 3
+                CorrectableErrors = 1
+            }
 
     // ========================================================================
     // INTENT -> PLAN -> EXECUTE (shared infrastructure)
     // ========================================================================
 
     /// Required operations for error correction circuits
-    let private requiredOps : QuantumOperation list =
-        [ QuantumOperation.Gate (H 0)
-          QuantumOperation.Gate (X 0)
-          QuantumOperation.Gate (Z 0)
-          QuantumOperation.Gate (CNOT (0, 1)) ]
+    let private requiredOps: QuantumOperation list =
+        [
+            QuantumOperation.Gate(H 0)
+            QuantumOperation.Gate(X 0)
+            QuantumOperation.Gate(Z 0)
+            QuantumOperation.Gate(CNOT(0, 1))
+        ]
 
     /// Validate that the backend supports gate-based QEC
     let private validateBackend (moduleName: string) (backend: IQuantumBackend) : Result<unit, QuantumError> =
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
-            Error (QuantumError.OperationError (moduleName, $"Backend '{backend.Name}' does not support quantum error correction (native state type: {backend.NativeStateType})"))
+            Error(
+                QuantumError.OperationError(
+                    moduleName,
+                    $"Backend '{backend.Name}' does not support quantum error correction (native state type: {backend.NativeStateType})"
+                )
+            )
         | _ ->
             if requiredOps |> List.forall backend.SupportsOperation then
-                Ok ()
+                Ok()
             else
-                Error (QuantumError.OperationError (moduleName, $"Backend '{backend.Name}' does not support required gate operations for quantum error correction"))
+                Error(
+                    QuantumError.OperationError(
+                        moduleName,
+                        $"Backend '{backend.Name}' does not support required gate operations for quantum error correction"
+                    )
+                )
 
     // ========================================================================
     // ERROR INJECTION UTILITIES
@@ -179,7 +216,7 @@ module QuantumErrorCorrection =
         (qubit: int)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
-        backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
+        backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
 
     /// Inject a phase-flip (Z) error on a specific qubit
     let injectPhaseFlip
@@ -187,7 +224,7 @@ module QuantumErrorCorrection =
         (qubit: int)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
-        backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) state
+        backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) state
 
     /// Inject a combined bit+phase flip (Y, up to global phase) error on a specific qubit
     let injectCombinedError
@@ -197,8 +234,8 @@ module QuantumErrorCorrection =
         : Result<QuantumState, QuantumError> =
         result {
             // Y = iXZ, apply X then Z (global phase i is irrelevant for measurement)
-            let! afterX = backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
-            return! backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) afterX
+            let! afterX = backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
+            return! backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) afterX
         }
 
     /// Inject an error of a given type on a given qubit
@@ -213,7 +250,12 @@ module QuantumErrorCorrection =
         | PhaseFlipError -> injectPhaseFlip backend qubit state
         | CombinedError -> injectCombinedError backend qubit state
         | UncorrectableError ->
-            Error (QuantumError.OperationError ("QuantumErrorCorrection", "Cannot inject an uncorrectable error: it is a detection-only classification"))
+            Error(
+                QuantumError.OperationError(
+                    "QuantumErrorCorrection",
+                    "Cannot inject an uncorrectable error: it is a detection-only classification"
+                )
+            )
 
     // ========================================================================
     // 3-QUBIT BIT-FLIP CODE [[3,1,1]]
@@ -251,41 +293,41 @@ module QuantumErrorCorrection =
         /// Then CNOT(0,1) and CNOT(0,2) to spread the state:
         ///   |0> -> |000>
         ///   |1> -> |111>
-        let encode
-            (backend: IQuantumBackend)
-            (logicalBit: int)
-            : Result<EncodingResult, QuantumError> =
+        let encode (backend: IQuantumBackend) (logicalBit: int) : Result<EncodingResult, QuantumError> =
 
             result {
                 do! validateBackend "BitFlip.encode" backend
 
                 do!
                     if logicalBit <> 0 && logicalBit <> 1 then
-                        Error (QuantumError.ValidationError ("logicalBit", "must be 0 or 1"))
+                        Error(QuantumError.ValidationError("logicalBit", "must be 0 or 1"))
                     else
-                        Ok ()
+                        Ok()
 
                 let! initialState = backend.InitializeState totalQubits
 
                 // Prepare logical state on qubit 0
                 let! preparedState =
                     if logicalBit = 1 then
-                        backend.ApplyOperation (QuantumOperation.Gate (X dataQubits.[0])) initialState
+                        backend.ApplyOperation (QuantumOperation.Gate(X dataQubits.[0])) initialState
                     else
                         Ok initialState
 
                 // Encode: CNOT(0,1) then CNOT(0,2)
-                let encodeOps = [
-                    QuantumOperation.Gate (CNOT (dataQubits.[0], dataQubits.[1]))
-                    QuantumOperation.Gate (CNOT (dataQubits.[0], dataQubits.[2]))
-                ]
+                let encodeOps =
+                    [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[1]))
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[2]))
+                    ]
+
                 let! encodedState = UnifiedBackend.applySequence backend encodeOps preparedState
 
-                return {
-                    Code = BitFlipCode3
-                    PhysicalQubits = 3
-                    EncodedState = encodedState
-                }
+                return
+                    {
+                        Code = BitFlipCode3
+                        PhysicalQubits = 3
+                        EncodedState = encodedState
+                    }
             }
 
         /// Measure the syndrome using ancilla qubits
@@ -307,14 +349,16 @@ module QuantumErrorCorrection =
 
             result {
                 // Extract syndrome via CNOT to ancilla
-                let syndromeOps = [
-                    // s1 = parity(q0, q1): CNOT q0->a1, CNOT q1->a1
-                    QuantumOperation.Gate (CNOT (dataQubits.[0], ancilla1))
-                    QuantumOperation.Gate (CNOT (dataQubits.[1], ancilla1))
-                    // s2 = parity(q1, q2): CNOT q1->a2, CNOT q2->a2
-                    QuantumOperation.Gate (CNOT (dataQubits.[1], ancilla2))
-                    QuantumOperation.Gate (CNOT (dataQubits.[2], ancilla2))
-                ]
+                let syndromeOps =
+                    [
+                        // s1 = parity(q0, q1): CNOT q0->a1, CNOT q1->a1
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla1))
+                        // s2 = parity(q1, q2): CNOT q1->a2, CNOT q2->a2
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla2))
+                        QuantumOperation.Gate(CNOT(dataQubits.[2], ancilla2))
+                    ]
+
                 let! afterSyndrome = UnifiedBackend.applySequence backend syndromeOps state
 
                 // Measure ancilla qubits
@@ -331,11 +375,13 @@ module QuantumErrorCorrection =
                     | (0, 1) -> (Some BitFlipError, Some dataQubits.[2])
                     | _ -> (None, None)
 
-                return ({
-                    SyndromeBits = [ s1; s2 ]
-                    DetectedError = detectedError
-                    ErrorQubit = errorQubit
-                }, afterSyndrome)
+                return
+                    ({
+                        SyndromeBits = [ s1; s2 ]
+                        DetectedError = detectedError
+                        ErrorQubit = errorQubit
+                     },
+                     afterSyndrome)
             }
 
         /// Apply correction based on syndrome result
@@ -348,19 +394,21 @@ module QuantumErrorCorrection =
             result {
                 match syndrome.ErrorQubit with
                 | Some qubit ->
-                    let! correctedState =
-                        backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
-                    return {
-                        Syndrome = syndrome
-                        CorrectedState = correctedState
-                        CorrectionApplied = true
-                    }
+                    let! correctedState = backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = correctedState
+                            CorrectionApplied = true
+                        }
                 | None ->
-                    return {
-                        Syndrome = syndrome
-                        CorrectedState = state
-                        CorrectionApplied = false
-                    }
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = state
+                            CorrectionApplied = false
+                        }
             }
 
         /// Decode: measure qubit 0 to recover the logical bit
@@ -393,19 +441,19 @@ module QuantumErrorCorrection =
                 // Decode
                 let decodedBit = decode correction.CorrectedState
 
-                let injectedError =
-                    errorOnQubit |> Option.map (fun q -> (BitFlipError, q))
+                let injectedError = errorOnQubit |> Option.map (fun q -> (BitFlipError, q))
 
-                return {
-                    Code = BitFlipCode3
-                    LogicalBit = logicalBit
-                    InjectedError = injectedError
-                    Syndrome = syndrome
-                    CorrectionApplied = correction.CorrectionApplied
-                    DecodedBit = decodedBit
-                    Success = (decodedBit = logicalBit)
-                    BackendName = backend.Name
-                }
+                return
+                    {
+                        Code = BitFlipCode3
+                        LogicalBit = logicalBit
+                        InjectedError = injectedError
+                        Syndrome = syndrome
+                        CorrectionApplied = correction.CorrectionApplied
+                        DecodedBit = decodedBit
+                        Success = (decodedBit = logicalBit)
+                        BackendName = backend.Name
+                    }
             }
 
     // ========================================================================
@@ -441,43 +489,43 @@ module QuantumErrorCorrection =
         /// 2. CNOT(0,1), CNOT(0,2) to spread (like bit-flip)
         /// 3. H on all 3 data qubits to move to X-basis
         ///    |000> -> |+++>, |111> -> |--->
-        let encode
-            (backend: IQuantumBackend)
-            (logicalBit: int)
-            : Result<EncodingResult, QuantumError> =
+        let encode (backend: IQuantumBackend) (logicalBit: int) : Result<EncodingResult, QuantumError> =
 
             result {
                 do! validateBackend "PhaseFlip.encode" backend
 
                 do!
                     if logicalBit <> 0 && logicalBit <> 1 then
-                        Error (QuantumError.ValidationError ("logicalBit", "must be 0 or 1"))
+                        Error(QuantumError.ValidationError("logicalBit", "must be 0 or 1"))
                     else
-                        Ok ()
+                        Ok()
 
                 let! initialState = backend.InitializeState totalQubits
 
                 let! preparedState =
                     if logicalBit = 1 then
-                        backend.ApplyOperation (QuantumOperation.Gate (X dataQubits.[0])) initialState
+                        backend.ApplyOperation (QuantumOperation.Gate(X dataQubits.[0])) initialState
                     else
                         Ok initialState
 
                 // Bit-flip encoding + Hadamard on all data qubits
-                let encodeOps = [
-                    QuantumOperation.Gate (CNOT (dataQubits.[0], dataQubits.[1]))
-                    QuantumOperation.Gate (CNOT (dataQubits.[0], dataQubits.[2]))
-                    QuantumOperation.Gate (H dataQubits.[0])
-                    QuantumOperation.Gate (H dataQubits.[1])
-                    QuantumOperation.Gate (H dataQubits.[2])
-                ]
+                let encodeOps =
+                    [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[1]))
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[2]))
+                        QuantumOperation.Gate(H dataQubits.[0])
+                        QuantumOperation.Gate(H dataQubits.[1])
+                        QuantumOperation.Gate(H dataQubits.[2])
+                    ]
+
                 let! encodedState = UnifiedBackend.applySequence backend encodeOps preparedState
 
-                return {
-                    Code = PhaseFlipCode3
-                    PhysicalQubits = 3
-                    EncodedState = encodedState
-                }
+                return
+                    {
+                        Code = PhaseFlipCode3
+                        PhysicalQubits = 3
+                        EncodedState = encodedState
+                    }
             }
 
         /// Measure syndrome for phase-flip detection
@@ -497,20 +545,24 @@ module QuantumErrorCorrection =
 
             result {
                 // Transform to Z-basis
-                let toZBasis = [
-                    QuantumOperation.Gate (H dataQubits.[0])
-                    QuantumOperation.Gate (H dataQubits.[1])
-                    QuantumOperation.Gate (H dataQubits.[2])
-                ]
+                let toZBasis =
+                    [
+                        QuantumOperation.Gate(H dataQubits.[0])
+                        QuantumOperation.Gate(H dataQubits.[1])
+                        QuantumOperation.Gate(H dataQubits.[2])
+                    ]
+
                 let! inZBasis = UnifiedBackend.applySequence backend toZBasis state
 
                 // Extract syndrome via CNOT to ancilla (same as bit-flip)
-                let syndromeOps = [
-                    QuantumOperation.Gate (CNOT (dataQubits.[0], ancilla1))
-                    QuantumOperation.Gate (CNOT (dataQubits.[1], ancilla1))
-                    QuantumOperation.Gate (CNOT (dataQubits.[1], ancilla2))
-                    QuantumOperation.Gate (CNOT (dataQubits.[2], ancilla2))
-                ]
+                let syndromeOps =
+                    [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla2))
+                        QuantumOperation.Gate(CNOT(dataQubits.[2], ancilla2))
+                    ]
+
                 let! afterSyndrome = UnifiedBackend.applySequence backend syndromeOps inZBasis
 
                 // Measure ancilla
@@ -520,11 +572,13 @@ module QuantumErrorCorrection =
                 let s2 = bits.[ancilla2]
 
                 // Transform back to X-basis (restore encoding basis for correction)
-                let toXBasis = [
-                    QuantumOperation.Gate (H dataQubits.[0])
-                    QuantumOperation.Gate (H dataQubits.[1])
-                    QuantumOperation.Gate (H dataQubits.[2])
-                ]
+                let toXBasis =
+                    [
+                        QuantumOperation.Gate(H dataQubits.[0])
+                        QuantumOperation.Gate(H dataQubits.[1])
+                        QuantumOperation.Gate(H dataQubits.[2])
+                    ]
+
                 let! restoredState = UnifiedBackend.applySequence backend toXBasis afterSyndrome
 
                 let (detectedError, errorQubit) =
@@ -535,11 +589,13 @@ module QuantumErrorCorrection =
                     | (0, 1) -> (Some PhaseFlipError, Some dataQubits.[2])
                     | _ -> (None, None)
 
-                return ({
-                    SyndromeBits = [ s1; s2 ]
-                    DetectedError = detectedError
-                    ErrorQubit = errorQubit
-                }, restoredState)
+                return
+                    ({
+                        SyndromeBits = [ s1; s2 ]
+                        DetectedError = detectedError
+                        ErrorQubit = errorQubit
+                     },
+                     restoredState)
             }
 
         /// Apply correction based on syndrome
@@ -553,34 +609,35 @@ module QuantumErrorCorrection =
                 match syndrome.ErrorQubit with
                 | Some qubit ->
                     // For phase-flip code, correct with Z gate
-                    let! correctedState =
-                        backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) state
-                    return {
-                        Syndrome = syndrome
-                        CorrectedState = correctedState
-                        CorrectionApplied = true
-                    }
+                    let! correctedState = backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) state
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = correctedState
+                            CorrectionApplied = true
+                        }
                 | None ->
-                    return {
-                        Syndrome = syndrome
-                        CorrectedState = state
-                        CorrectionApplied = false
-                    }
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = state
+                            CorrectionApplied = false
+                        }
             }
 
         /// Decode: apply H to all data qubits, then measure qubit 0
-        let private decode
-            (backend: IQuantumBackend)
-            (state: QuantumState)
-            : Result<int, QuantumError> =
+        let private decode (backend: IQuantumBackend) (state: QuantumState) : Result<int, QuantumError> =
 
             result {
                 // Move back to Z-basis for decoding
-                let toZBasis = [
-                    QuantumOperation.Gate (H dataQubits.[0])
-                    QuantumOperation.Gate (H dataQubits.[1])
-                    QuantumOperation.Gate (H dataQubits.[2])
-                ]
+                let toZBasis =
+                    [
+                        QuantumOperation.Gate(H dataQubits.[0])
+                        QuantumOperation.Gate(H dataQubits.[1])
+                        QuantumOperation.Gate(H dataQubits.[2])
+                    ]
+
                 let! inZBasis = UnifiedBackend.applySequence backend toZBasis state
                 let measurements = QuantumState.measure inZBasis 1
                 return measurements.[0].[dataQubits.[0]]
@@ -610,19 +667,19 @@ module QuantumErrorCorrection =
 
                 let! decodedBit = decode backend correction.CorrectedState
 
-                let injectedError =
-                    errorOnQubit |> Option.map (fun q -> (PhaseFlipError, q))
+                let injectedError = errorOnQubit |> Option.map (fun q -> (PhaseFlipError, q))
 
-                return {
-                    Code = PhaseFlipCode3
-                    LogicalBit = logicalBit
-                    InjectedError = injectedError
-                    Syndrome = syndrome
-                    CorrectionApplied = correction.CorrectionApplied
-                    DecodedBit = decodedBit
-                    Success = (decodedBit = logicalBit)
-                    BackendName = backend.Name
-                }
+                return
+                    {
+                        Code = PhaseFlipCode3
+                        LogicalBit = logicalBit
+                        InjectedError = injectedError
+                        Syndrome = syndrome
+                        CorrectionApplied = correction.CorrectionApplied
+                        DecodedBit = decodedBit
+                        Success = (decodedBit = logicalBit)
+                        BackendName = backend.Name
+                    }
             }
 
     // ========================================================================
@@ -666,6 +723,7 @@ module QuantumErrorCorrection =
         // Phase-flip ancilla
         [<Literal>]
         let private pfAncilla1 = 15
+
         [<Literal>]
         let private pfAncilla2 = 16
 
@@ -675,58 +733,60 @@ module QuantumErrorCorrection =
         /// 1. Prepare logical state on qubit 0
         /// 2. Phase-flip encoding: CNOT(0,3), CNOT(0,6), then H on 0,3,6
         /// 3. Bit-flip encoding per block: CNOT(0,1), CNOT(0,2) for each block
-        let encode
-            (backend: IQuantumBackend)
-            (logicalBit: int)
-            : Result<EncodingResult, QuantumError> =
+        let encode (backend: IQuantumBackend) (logicalBit: int) : Result<EncodingResult, QuantumError> =
 
             result {
                 do! validateBackend "Shor.encode" backend
 
                 do!
                     if logicalBit <> 0 && logicalBit <> 1 then
-                        Error (QuantumError.ValidationError ("logicalBit", "must be 0 or 1"))
+                        Error(QuantumError.ValidationError("logicalBit", "must be 0 or 1"))
                     else
-                        Ok ()
+                        Ok()
 
                 let! initialState = backend.InitializeState totalQubits
 
                 let! preparedState =
                     if logicalBit = 1 then
-                        backend.ApplyOperation (QuantumOperation.Gate (X 0)) initialState
+                        backend.ApplyOperation (QuantumOperation.Gate(X 0)) initialState
                     else
                         Ok initialState
 
                 // Phase-flip encoding: spread across blocks
-                let phaseEncOps = [
-                    QuantumOperation.Gate (CNOT (0, 3))
-                    QuantumOperation.Gate (CNOT (0, 6))
-                    // Hadamard on each block leader
-                    QuantumOperation.Gate (H 0)
-                    QuantumOperation.Gate (H 3)
-                    QuantumOperation.Gate (H 6)
-                ]
+                let phaseEncOps =
+                    [
+                        QuantumOperation.Gate(CNOT(0, 3))
+                        QuantumOperation.Gate(CNOT(0, 6))
+                        // Hadamard on each block leader
+                        QuantumOperation.Gate(H 0)
+                        QuantumOperation.Gate(H 3)
+                        QuantumOperation.Gate(H 6)
+                    ]
+
                 let! afterPhase = UnifiedBackend.applySequence backend phaseEncOps preparedState
 
                 // Bit-flip encoding within each block
-                let bitEncOps = [
-                    // Block 0: CNOT(0,1), CNOT(0,2)
-                    QuantumOperation.Gate (CNOT (block0.[0], block0.[1]))
-                    QuantumOperation.Gate (CNOT (block0.[0], block0.[2]))
-                    // Block 1: CNOT(3,4), CNOT(3,5)
-                    QuantumOperation.Gate (CNOT (block1.[0], block1.[1]))
-                    QuantumOperation.Gate (CNOT (block1.[0], block1.[2]))
-                    // Block 2: CNOT(6,7), CNOT(6,8)
-                    QuantumOperation.Gate (CNOT (block2.[0], block2.[1]))
-                    QuantumOperation.Gate (CNOT (block2.[0], block2.[2]))
-                ]
+                let bitEncOps =
+                    [
+                        // Block 0: CNOT(0,1), CNOT(0,2)
+                        QuantumOperation.Gate(CNOT(block0.[0], block0.[1]))
+                        QuantumOperation.Gate(CNOT(block0.[0], block0.[2]))
+                        // Block 1: CNOT(3,4), CNOT(3,5)
+                        QuantumOperation.Gate(CNOT(block1.[0], block1.[1]))
+                        QuantumOperation.Gate(CNOT(block1.[0], block1.[2]))
+                        // Block 2: CNOT(6,7), CNOT(6,8)
+                        QuantumOperation.Gate(CNOT(block2.[0], block2.[1]))
+                        QuantumOperation.Gate(CNOT(block2.[0], block2.[2]))
+                    ]
+
                 let! encodedState = UnifiedBackend.applySequence backend bitEncOps afterPhase
 
-                return {
-                    Code = ShorCode9
-                    PhysicalQubits = 9
-                    EncodedState = encodedState
-                }
+                return
+                    {
+                        Code = ShorCode9
+                        PhysicalQubits = 9
+                        EncodedState = encodedState
+                    }
             }
 
         /// Measure bit-flip syndrome for one block using ancilla
@@ -739,14 +799,16 @@ module QuantumErrorCorrection =
             : Result<int * int * QuantumState, QuantumError> =
 
             result {
-                let syndromeOps = [
-                    // s1 = parity(block[0], block[1])
-                    QuantumOperation.Gate (CNOT (block.[0], anc1))
-                    QuantumOperation.Gate (CNOT (block.[1], anc1))
-                    // s2 = parity(block[1], block[2])
-                    QuantumOperation.Gate (CNOT (block.[1], anc2))
-                    QuantumOperation.Gate (CNOT (block.[2], anc2))
-                ]
+                let syndromeOps =
+                    [
+                        // s1 = parity(block[0], block[1])
+                        QuantumOperation.Gate(CNOT(block.[0], anc1))
+                        QuantumOperation.Gate(CNOT(block.[1], anc1))
+                        // s2 = parity(block[1], block[2])
+                        QuantumOperation.Gate(CNOT(block.[1], anc2))
+                        QuantumOperation.Gate(CNOT(block.[2], anc2))
+                    ]
+
                 let! afterSyndrome = UnifiedBackend.applySequence backend syndromeOps state
                 let measurements = QuantumState.measure afterSyndrome 1
                 let bits = measurements.[0]
@@ -777,8 +839,10 @@ module QuantumErrorCorrection =
                 // === Bit-flip syndrome for each block ===
                 let! (s1_b0, s2_b0, afterBf0) =
                     measureBlockBitFlipSyndrome backend block0 (fst bfAncilla0) (snd bfAncilla0) state
+
                 let! (s1_b1, s2_b1, afterBf1) =
                     measureBlockBitFlipSyndrome backend block1 (fst bfAncilla1) (snd bfAncilla1) afterBf0
+
                 let! (s1_b2, s2_b2, afterBf2) =
                     measureBlockBitFlipSyndrome backend block2 (fst bfAncilla2) (snd bfAncilla2) afterBf1
 
@@ -788,51 +852,53 @@ module QuantumErrorCorrection =
                 // X-stabilizer 2: X_3 X_4 X_5 X_6 X_7 X_8 (blocks 1 and 2)
                 //
                 // Measurement: H on support qubits, CNOT to ancilla (Z-parity), H back
-                let phaseSetup = [
-                    // Stabilizer 1: X on qubits 0-5
-                    // H on all qubits in support
-                    QuantumOperation.Gate (H 0)
-                    QuantumOperation.Gate (H 1)
-                    QuantumOperation.Gate (H 2)
-                    QuantumOperation.Gate (H 3)
-                    QuantumOperation.Gate (H 4)
-                    QuantumOperation.Gate (H 5)
-                    // CNOT from each to ancilla 1
-                    QuantumOperation.Gate (CNOT (0, pfAncilla1))
-                    QuantumOperation.Gate (CNOT (1, pfAncilla1))
-                    QuantumOperation.Gate (CNOT (2, pfAncilla1))
-                    QuantumOperation.Gate (CNOT (3, pfAncilla1))
-                    QuantumOperation.Gate (CNOT (4, pfAncilla1))
-                    QuantumOperation.Gate (CNOT (5, pfAncilla1))
-                    // H back
-                    QuantumOperation.Gate (H 0)
-                    QuantumOperation.Gate (H 1)
-                    QuantumOperation.Gate (H 2)
-                    QuantumOperation.Gate (H 3)
-                    QuantumOperation.Gate (H 4)
-                    QuantumOperation.Gate (H 5)
-                    // Stabilizer 2: X on qubits 3-8
-                    QuantumOperation.Gate (H 3)
-                    QuantumOperation.Gate (H 4)
-                    QuantumOperation.Gate (H 5)
-                    QuantumOperation.Gate (H 6)
-                    QuantumOperation.Gate (H 7)
-                    QuantumOperation.Gate (H 8)
-                    // CNOT from each to ancilla 2
-                    QuantumOperation.Gate (CNOT (3, pfAncilla2))
-                    QuantumOperation.Gate (CNOT (4, pfAncilla2))
-                    QuantumOperation.Gate (CNOT (5, pfAncilla2))
-                    QuantumOperation.Gate (CNOT (6, pfAncilla2))
-                    QuantumOperation.Gate (CNOT (7, pfAncilla2))
-                    QuantumOperation.Gate (CNOT (8, pfAncilla2))
-                    // H back
-                    QuantumOperation.Gate (H 3)
-                    QuantumOperation.Gate (H 4)
-                    QuantumOperation.Gate (H 5)
-                    QuantumOperation.Gate (H 6)
-                    QuantumOperation.Gate (H 7)
-                    QuantumOperation.Gate (H 8)
-                ]
+                let phaseSetup =
+                    [
+                        // Stabilizer 1: X on qubits 0-5
+                        // H on all qubits in support
+                        QuantumOperation.Gate(H 0)
+                        QuantumOperation.Gate(H 1)
+                        QuantumOperation.Gate(H 2)
+                        QuantumOperation.Gate(H 3)
+                        QuantumOperation.Gate(H 4)
+                        QuantumOperation.Gate(H 5)
+                        // CNOT from each to ancilla 1
+                        QuantumOperation.Gate(CNOT(0, pfAncilla1))
+                        QuantumOperation.Gate(CNOT(1, pfAncilla1))
+                        QuantumOperation.Gate(CNOT(2, pfAncilla1))
+                        QuantumOperation.Gate(CNOT(3, pfAncilla1))
+                        QuantumOperation.Gate(CNOT(4, pfAncilla1))
+                        QuantumOperation.Gate(CNOT(5, pfAncilla1))
+                        // H back
+                        QuantumOperation.Gate(H 0)
+                        QuantumOperation.Gate(H 1)
+                        QuantumOperation.Gate(H 2)
+                        QuantumOperation.Gate(H 3)
+                        QuantumOperation.Gate(H 4)
+                        QuantumOperation.Gate(H 5)
+                        // Stabilizer 2: X on qubits 3-8
+                        QuantumOperation.Gate(H 3)
+                        QuantumOperation.Gate(H 4)
+                        QuantumOperation.Gate(H 5)
+                        QuantumOperation.Gate(H 6)
+                        QuantumOperation.Gate(H 7)
+                        QuantumOperation.Gate(H 8)
+                        // CNOT from each to ancilla 2
+                        QuantumOperation.Gate(CNOT(3, pfAncilla2))
+                        QuantumOperation.Gate(CNOT(4, pfAncilla2))
+                        QuantumOperation.Gate(CNOT(5, pfAncilla2))
+                        QuantumOperation.Gate(CNOT(6, pfAncilla2))
+                        QuantumOperation.Gate(CNOT(7, pfAncilla2))
+                        QuantumOperation.Gate(CNOT(8, pfAncilla2))
+                        // H back
+                        QuantumOperation.Gate(H 3)
+                        QuantumOperation.Gate(H 4)
+                        QuantumOperation.Gate(H 5)
+                        QuantumOperation.Gate(H 6)
+                        QuantumOperation.Gate(H 7)
+                        QuantumOperation.Gate(H 8)
+                    ]
+
                 let! afterPhase = UnifiedBackend.applySequence backend phaseSetup afterBf2
 
                 let pfMeasurements = QuantumState.measure afterPhase 1
@@ -841,11 +907,8 @@ module QuantumErrorCorrection =
                 let s_pf2 = pfBits.[pfAncilla2]
 
                 // Determine error from syndrome
-                let bitFlipSyndromes = [
-                    (s1_b0, s2_b0, block0)
-                    (s1_b1, s2_b1, block1)
-                    (s1_b2, s2_b2, block2)
-                ]
+                let bitFlipSyndromes =
+                    [ (s1_b0, s2_b0, block0); (s1_b1, s2_b1, block1); (s1_b2, s2_b2, block2) ]
 
                 // Check for bit-flip error in any block
                 let bitFlipQubit =
@@ -858,12 +921,12 @@ module QuantumErrorCorrection =
                         | _ -> None)
 
                 // Check for phase-flip error between blocks
-                let phaseFlipBlock : int option =
+                let phaseFlipBlock: int option =
                     match (s_pf1, s_pf2) with
                     | (0, 0) -> None
-                    | (1, 0) -> Some 0  // Phase flip in block 0
-                    | (1, 1) -> Some 1  // Phase flip in block 1
-                    | (0, 1) -> Some 2  // Phase flip in block 2
+                    | (1, 0) -> Some 0 // Phase flip in block 0
+                    | (1, 1) -> Some 1 // Phase flip in block 1
+                    | (0, 1) -> Some 2 // Phase flip in block 2
                     | _ -> None
 
                 let (detectedError, errorQubit) =
@@ -876,11 +939,13 @@ module QuantumErrorCorrection =
                     | (Some q, Some _) -> (Some CombinedError, Some q)
                     | (None, None) -> (None, None)
 
-                return ({
-                    SyndromeBits = [ s1_b0; s2_b0; s1_b1; s2_b1; s1_b2; s2_b2; s_pf1; s_pf2 ]
-                    DetectedError = detectedError
-                    ErrorQubit = errorQubit
-                }, afterPhase)
+                return
+                    ({
+                        SyndromeBits = [ s1_b0; s2_b0; s1_b1; s2_b1; s1_b2; s2_b2; s_pf1; s_pf2 ]
+                        DetectedError = detectedError
+                        ErrorQubit = errorQubit
+                     },
+                     afterPhase)
             }
 
         /// Apply correction based on syndrome
@@ -893,49 +958,78 @@ module QuantumErrorCorrection =
             result {
                 match (syndrome.DetectedError, syndrome.ErrorQubit) with
                 | (Some BitFlipError, Some qubit) ->
-                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
-                    return { Syndrome = syndrome; CorrectedState = corrected; CorrectionApplied = true }
+                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = corrected
+                            CorrectionApplied = true
+                        }
                 | (Some PhaseFlipError, Some qubit) ->
-                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) state
-                    return { Syndrome = syndrome; CorrectedState = corrected; CorrectionApplied = true }
+                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) state
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = corrected
+                            CorrectionApplied = true
+                        }
                 | (Some CombinedError, Some qubit) ->
                     // Apply both X and Z (Y up to phase)
-                    let! afterX = backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
-                    let! afterZ = backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) afterX
-                    return { Syndrome = syndrome; CorrectedState = afterZ; CorrectionApplied = true }
+                    let! afterX = backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
+                    let! afterZ = backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) afterX
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = afterZ
+                            CorrectionApplied = true
+                        }
                 | (Some UncorrectableError, _) ->
                     // Multi-qubit error beyond code distance; no reliable correction possible
-                    return { Syndrome = syndrome; CorrectedState = state; CorrectionApplied = false }
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = state
+                            CorrectionApplied = false
+                        }
                 | _ ->
-                    return { Syndrome = syndrome; CorrectedState = state; CorrectionApplied = false }
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = state
+                            CorrectionApplied = false
+                        }
             }
 
         /// Decode: undo encoding and measure logical qubit
-        let private decode
-            (backend: IQuantumBackend)
-            (state: QuantumState)
-            : Result<int, QuantumError> =
+        let private decode (backend: IQuantumBackend) (state: QuantumState) : Result<int, QuantumError> =
 
             result {
                 // Undo bit-flip encoding
-                let undoBitFlip = [
-                    QuantumOperation.Gate (CNOT (block0.[0], block0.[2]))
-                    QuantumOperation.Gate (CNOT (block0.[0], block0.[1]))
-                    QuantumOperation.Gate (CNOT (block1.[0], block1.[2]))
-                    QuantumOperation.Gate (CNOT (block1.[0], block1.[1]))
-                    QuantumOperation.Gate (CNOT (block2.[0], block2.[2]))
-                    QuantumOperation.Gate (CNOT (block2.[0], block2.[1]))
-                ]
+                let undoBitFlip =
+                    [
+                        QuantumOperation.Gate(CNOT(block0.[0], block0.[2]))
+                        QuantumOperation.Gate(CNOT(block0.[0], block0.[1]))
+                        QuantumOperation.Gate(CNOT(block1.[0], block1.[2]))
+                        QuantumOperation.Gate(CNOT(block1.[0], block1.[1]))
+                        QuantumOperation.Gate(CNOT(block2.[0], block2.[2]))
+                        QuantumOperation.Gate(CNOT(block2.[0], block2.[1]))
+                    ]
+
                 let! afterUndoBf = UnifiedBackend.applySequence backend undoBitFlip state
 
                 // Undo phase-flip encoding: H on block leaders, then undo CNOT spread
-                let undoPhaseFlip = [
-                    QuantumOperation.Gate (H 0)
-                    QuantumOperation.Gate (H 3)
-                    QuantumOperation.Gate (H 6)
-                    QuantumOperation.Gate (CNOT (0, 6))
-                    QuantumOperation.Gate (CNOT (0, 3))
-                ]
+                let undoPhaseFlip =
+                    [
+                        QuantumOperation.Gate(H 0)
+                        QuantumOperation.Gate(H 3)
+                        QuantumOperation.Gate(H 6)
+                        QuantumOperation.Gate(CNOT(0, 6))
+                        QuantumOperation.Gate(CNOT(0, 3))
+                    ]
+
                 let! decoded = UnifiedBackend.applySequence backend undoPhaseFlip afterUndoBf
 
                 let measurements = QuantumState.measure decoded 1
@@ -965,16 +1059,17 @@ module QuantumErrorCorrection =
                 // Decode
                 let! decodedBit = decode backend correction.CorrectedState
 
-                return {
-                    Code = ShorCode9
-                    LogicalBit = logicalBit
-                    InjectedError = Some (errorType, errorQubit)
-                    Syndrome = syndrome
-                    CorrectionApplied = correction.CorrectionApplied
-                    DecodedBit = decodedBit
-                    Success = (decodedBit = logicalBit)
-                    BackendName = backend.Name
-                }
+                return
+                    {
+                        Code = ShorCode9
+                        LogicalBit = logicalBit
+                        InjectedError = Some(errorType, errorQubit)
+                        Syndrome = syndrome
+                        CorrectionApplied = correction.CorrectionApplied
+                        DecodedBit = decodedBit
+                        Success = (decodedBit = logicalBit)
+                        BackendName = backend.Name
+                    }
             }
 
     // ========================================================================
@@ -1042,19 +1137,16 @@ module QuantumErrorCorrection =
         ///
         /// For |1_L>: Start with X on qubit 0 (or equivalently, apply
         /// logical X after encoding |0_L>)
-        let encode
-            (backend: IQuantumBackend)
-            (logicalBit: int)
-            : Result<EncodingResult, QuantumError> =
+        let encode (backend: IQuantumBackend) (logicalBit: int) : Result<EncodingResult, QuantumError> =
 
             result {
                 do! validateBackend "Steane.encode" backend
 
                 do!
                     if logicalBit <> 0 && logicalBit <> 1 then
-                        Error (QuantumError.ValidationError ("logicalBit", "must be 0 or 1"))
+                        Error(QuantumError.ValidationError("logicalBit", "must be 0 or 1"))
                     else
-                        Ok ()
+                        Ok()
 
                 let! initialState = backend.InitializeState totalQubits
 
@@ -1071,39 +1163,41 @@ module QuantumErrorCorrection =
                 //   CNOT(q3, q4), CNOT(q3, q5), CNOT(q3, q6)  -- h1 contributions
                 //   CNOT(q1, q2), CNOT(q1, q5), CNOT(q1, q6)  -- h2 contributions
                 //   CNOT(q0, q2), CNOT(q0, q4), CNOT(q0, q6)  -- h3 contributions
-                let encodeOps = [
-                    QuantumOperation.Gate (H 0)
-                    QuantumOperation.Gate (H 1)
-                    QuantumOperation.Gate (H 3)
-                    // h1: q3 → q4, q5, q6
-                    QuantumOperation.Gate (CNOT (3, 4))
-                    QuantumOperation.Gate (CNOT (3, 5))
-                    QuantumOperation.Gate (CNOT (3, 6))
-                    // h2: q1 → q2, q5, q6
-                    QuantumOperation.Gate (CNOT (1, 2))
-                    QuantumOperation.Gate (CNOT (1, 5))
-                    QuantumOperation.Gate (CNOT (1, 6))
-                    // h3: q0 → q2, q4, q6
-                    QuantumOperation.Gate (CNOT (0, 2))
-                    QuantumOperation.Gate (CNOT (0, 4))
-                    QuantumOperation.Gate (CNOT (0, 6))
-                ]
+                let encodeOps =
+                    [
+                        QuantumOperation.Gate(H 0)
+                        QuantumOperation.Gate(H 1)
+                        QuantumOperation.Gate(H 3)
+                        // h1: q3 → q4, q5, q6
+                        QuantumOperation.Gate(CNOT(3, 4))
+                        QuantumOperation.Gate(CNOT(3, 5))
+                        QuantumOperation.Gate(CNOT(3, 6))
+                        // h2: q1 → q2, q5, q6
+                        QuantumOperation.Gate(CNOT(1, 2))
+                        QuantumOperation.Gate(CNOT(1, 5))
+                        QuantumOperation.Gate(CNOT(1, 6))
+                        // h3: q0 → q2, q4, q6
+                        QuantumOperation.Gate(CNOT(0, 2))
+                        QuantumOperation.Gate(CNOT(0, 4))
+                        QuantumOperation.Gate(CNOT(0, 6))
+                    ]
+
                 let! encodedState = UnifiedBackend.applySequence backend encodeOps initialState
 
                 // For |1_L>, apply logical X (transversal X on all 7 data qubits)
                 let! finalState =
                     if logicalBit = 1 then
-                        let logicalXOps =
-                            [ for i in 0..6 -> QuantumOperation.Gate (X i) ]
+                        let logicalXOps = [ for i in 0..6 -> QuantumOperation.Gate(X i) ]
                         UnifiedBackend.applySequence backend logicalXOps encodedState
                     else
                         Ok encodedState
 
-                return {
-                    Code = SteaneCode7
-                    PhysicalQubits = 7
-                    EncodedState = finalState
-                }
+                return
+                    {
+                        Code = SteaneCode7
+                        PhysicalQubits = 7
+                        EncodedState = finalState
+                    }
             }
 
         /// Measure X-stabilizer syndrome (detects Z errors)
@@ -1124,7 +1218,7 @@ module QuantumErrorCorrection =
 
             result {
                 // Apply H to all 7 data qubits
-                let hOps = [ for i in 0..6 -> QuantumOperation.Gate (H i) ]
+                let hOps = [ for i in 0..6 -> QuantumOperation.Gate(H i) ]
                 let! afterH = UnifiedBackend.applySequence backend hOps state
 
                 // Sample the state
@@ -1187,8 +1281,7 @@ module QuantumErrorCorrection =
         ///   111 -> qubit 6
         let private decodeSyndrome (syndrome: int[]) : int option =
             let value = syndrome.[0] * 4 + syndrome.[1] * 2 + syndrome.[2]
-            if value = 0 then None
-            else Some (value - 1)  // Convert 1-indexed to 0-indexed
+            if value = 0 then None else Some(value - 1) // Convert 1-indexed to 0-indexed
 
         /// Measure full syndrome (X and Z stabilizers)
         ///
@@ -1208,31 +1301,28 @@ module QuantumErrorCorrection =
                 // Z-stabilizers detect X errors (direct sampling, state unchanged)
                 let! (zSyndrome, afterZSyndrome) = measureZSyndrome backend afterXSyndrome
 
-                let xErrorQubit = decodeSyndrome xSyndrome  // Z error location
-                let zErrorQubit = decodeSyndrome zSyndrome  // X error location
+                let xErrorQubit = decodeSyndrome xSyndrome // Z error location
+                let zErrorQubit = decodeSyndrome zSyndrome // X error location
 
                 let (detectedError, errorQubit) =
                     match (zErrorQubit, xErrorQubit) with
-                    | (Some zq, Some xq) when zq = xq ->
-                        (Some CombinedError, Some zq)
-                    | (Some zq, None) ->
-                        (Some BitFlipError, Some zq)
-                    | (None, Some xq) ->
-                        (Some PhaseFlipError, Some xq)
+                    | (Some zq, Some xq) when zq = xq -> (Some CombinedError, Some zq)
+                    | (Some zq, None) -> (Some BitFlipError, Some zq)
+                    | (None, Some xq) -> (Some PhaseFlipError, Some xq)
                     | (Some _zq, Some _xq) ->
                         // Different qubits: multi-qubit error beyond code distance
                         (Some UncorrectableError, None)
-                    | (None, None) ->
-                        (None, None)
+                    | (None, None) -> (None, None)
 
-                let allBits =
-                    (Array.toList zSyndrome) @ (Array.toList xSyndrome)
+                let allBits = (Array.toList zSyndrome) @ (Array.toList xSyndrome)
 
-                return ({
-                    SyndromeBits = allBits
-                    DetectedError = detectedError
-                    ErrorQubit = errorQubit
-                }, afterZSyndrome)
+                return
+                    ({
+                        SyndromeBits = allBits
+                        DetectedError = detectedError
+                        ErrorQubit = errorQubit
+                     },
+                     afterZSyndrome)
             }
 
         /// Apply correction based on syndrome
@@ -1245,20 +1335,48 @@ module QuantumErrorCorrection =
             result {
                 match (syndrome.DetectedError, syndrome.ErrorQubit) with
                 | (Some BitFlipError, Some qubit) ->
-                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
-                    return { Syndrome = syndrome; CorrectedState = corrected; CorrectionApplied = true }
+                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = corrected
+                            CorrectionApplied = true
+                        }
                 | (Some PhaseFlipError, Some qubit) ->
-                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) state
-                    return { Syndrome = syndrome; CorrectedState = corrected; CorrectionApplied = true }
+                    let! corrected = backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) state
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = corrected
+                            CorrectionApplied = true
+                        }
                 | (Some CombinedError, Some qubit) ->
-                    let! afterX = backend.ApplyOperation (QuantumOperation.Gate (X qubit)) state
-                    let! afterZ = backend.ApplyOperation (QuantumOperation.Gate (Z qubit)) afterX
-                    return { Syndrome = syndrome; CorrectedState = afterZ; CorrectionApplied = true }
+                    let! afterX = backend.ApplyOperation (QuantumOperation.Gate(X qubit)) state
+                    let! afterZ = backend.ApplyOperation (QuantumOperation.Gate(Z qubit)) afterX
+
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = afterZ
+                            CorrectionApplied = true
+                        }
                 | (Some UncorrectableError, _) ->
                     // Multi-qubit error beyond code distance; no reliable correction possible
-                    return { Syndrome = syndrome; CorrectedState = state; CorrectionApplied = false }
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = state
+                            CorrectionApplied = false
+                        }
                 | _ ->
-                    return { Syndrome = syndrome; CorrectedState = state; CorrectionApplied = false }
+                    return
+                        {
+                            Syndrome = syndrome
+                            CorrectedState = state
+                            CorrectionApplied = false
+                        }
             }
 
         /// Decode: measure all 7 data qubits and compute parity
@@ -1271,16 +1389,15 @@ module QuantumErrorCorrection =
         /// After error correction, the state is back in the code space.
         /// Measuring all 7 qubits and computing the parity of 1s gives
         /// the logical bit directly: even parity → 0, odd parity → 1.
-        let private decode
-            (_backend: IQuantumBackend)
-            (state: QuantumState)
-            : Result<int, QuantumError> =
+        let private decode (_backend: IQuantumBackend) (state: QuantumState) : Result<int, QuantumError> =
 
             result {
                 let measurements = QuantumState.measure state 1
                 let bits = measurements.[0]
                 // Logical bit = parity of all 7 data qubits
-                let parity = (bits.[0] + bits.[1] + bits.[2] + bits.[3] + bits.[4] + bits.[5] + bits.[6]) % 2
+                let parity =
+                    (bits.[0] + bits.[1] + bits.[2] + bits.[3] + bits.[4] + bits.[5] + bits.[6]) % 2
+
                 return parity
             }
 
@@ -1305,16 +1422,17 @@ module QuantumErrorCorrection =
 
                 let! decodedBit = decode backend correction.CorrectedState
 
-                return {
-                    Code = SteaneCode7
-                    LogicalBit = logicalBit
-                    InjectedError = Some (errorType, errorQubit)
-                    Syndrome = syndrome
-                    CorrectionApplied = correction.CorrectionApplied
-                    DecodedBit = decodedBit
-                    Success = (decodedBit = logicalBit)
-                    BackendName = backend.Name
-                }
+                return
+                    {
+                        Code = SteaneCode7
+                        LogicalBit = logicalBit
+                        InjectedError = Some(errorType, errorQubit)
+                        Syndrome = syndrome
+                        CorrectionApplied = correction.CorrectionApplied
+                        DecodedBit = decodedBit
+                        Success = (decodedBit = logicalBit)
+                        BackendName = backend.Name
+                    }
             }
 
     // ========================================================================
@@ -1324,24 +1442,30 @@ module QuantumErrorCorrection =
     /// Format code parameters for display
     let formatCodeParameters (code: ErrorCode) : string =
         let p = codeParameters code
+
         let name =
             match code with
             | BitFlipCode3 -> "3-Qubit Bit-Flip Code"
             | PhaseFlipCode3 -> "3-Qubit Phase-Flip Code"
             | ShorCode9 -> "Shor 9-Qubit Code"
             | SteaneCode7 -> "Steane 7-Qubit Code"
-        sprintf "%s [[%d,%d,%d]]: %d physical qubits, %d logical qubit(s), corrects %d error(s)"
-            name p.PhysicalQubits p.LogicalQubits p.Distance
-            p.PhysicalQubits p.LogicalQubits p.CorrectableErrors
+
+        sprintf
+            "%s [[%d,%d,%d]]: %d physical qubits, %d logical qubit(s), corrects %d error(s)"
+            name
+            p.PhysicalQubits
+            p.LogicalQubits
+            p.Distance
+            p.PhysicalQubits
+            p.LogicalQubits
+            p.CorrectableErrors
 
     /// Format a syndrome result for display
     let formatSyndrome (result: SyndromeResult) : string =
         let sb = Text.StringBuilder()
-        let syndromeStr =
-            result.SyndromeBits
-            |> List.map string
-            |> String.concat ""
-        sb.AppendLine ($"Syndrome: [%s{syndromeStr}]") |> ignore
+        let syndromeStr = result.SyndromeBits |> List.map string |> String.concat ""
+        sb.AppendLine($"Syndrome: [%s{syndromeStr}]") |> ignore
+
         match result.DetectedError with
         | Some errorType ->
             let errorStr =
@@ -1350,38 +1474,47 @@ module QuantumErrorCorrection =
                 | PhaseFlipError -> "Phase-Flip (Z)"
                 | CombinedError -> "Combined (Y)"
                 | UncorrectableError -> "Uncorrectable (multi-qubit)"
-            sb.AppendLine (sprintf "Detected Error: %s on qubit %s"
-                errorStr
-                (result.ErrorQubit |> Option.map string |> Option.defaultValue "unknown")) |> ignore
-        | None ->
-            sb.AppendLine "No error detected" |> ignore
+
+            sb.AppendLine(
+                sprintf
+                    "Detected Error: %s on qubit %s"
+                    errorStr
+                    (result.ErrorQubit |> Option.map string |> Option.defaultValue "unknown")
+            )
+            |> ignore
+        | None -> sb.AppendLine "No error detected" |> ignore
+
         sb.ToString()
 
     /// Format a round-trip result for display
     let formatRoundTrip (result: RoundTripResult) : string =
         let sb = Text.StringBuilder()
+
         let codeName =
             match result.Code with
             | BitFlipCode3 -> "Bit-Flip [[3,1,1]]"
             | PhaseFlipCode3 -> "Phase-Flip [[3,1,1]]"
             | ShorCode9 -> "Shor [[9,1,3]]"
             | SteaneCode7 -> "Steane [[7,1,3]]"
-        sb.AppendLine ($"Code: %s{codeName}") |> ignore
-        sb.AppendLine ($"Logical bit: |%d{result.LogicalBit}>") |> ignore
+
+        sb.AppendLine($"Code: %s{codeName}") |> ignore
+        sb.AppendLine($"Logical bit: |%d{result.LogicalBit}>") |> ignore
+
         match result.InjectedError with
-        | Some (errorType, qubit) ->
+        | Some(errorType, qubit) ->
             let errorStr =
                 match errorType with
                 | BitFlipError -> "Bit-Flip (X)"
                 | PhaseFlipError -> "Phase-Flip (Z)"
                 | CombinedError -> "Combined (Y)"
                 | UncorrectableError -> "Uncorrectable (multi-qubit)"
-            sb.AppendLine ($"Injected: %s{errorStr} on qubit %d{qubit}") |> ignore
-        | None ->
-            sb.AppendLine "Injected: None" |> ignore
-        sb.AppendLine (formatSyndrome result.Syndrome) |> ignore
-        sb.AppendLine ($"Correction applied: %b{result.CorrectionApplied}") |> ignore
-        sb.AppendLine ($"Decoded: |%d{result.DecodedBit}>") |> ignore
-        sb.AppendLine ($"Success: %b{result.Success}") |> ignore
-        sb.AppendLine ($"Backend: %s{result.BackendName}") |> ignore
+
+            sb.AppendLine($"Injected: %s{errorStr} on qubit %d{qubit}") |> ignore
+        | None -> sb.AppendLine "Injected: None" |> ignore
+
+        sb.AppendLine(formatSyndrome result.Syndrome) |> ignore
+        sb.AppendLine($"Correction applied: %b{result.CorrectionApplied}") |> ignore
+        sb.AppendLine($"Decoded: |%d{result.DecodedBit}>") |> ignore
+        sb.AppendLine($"Success: %b{result.Success}") |> ignore
+        sb.AppendLine($"Backend: %s{result.BackendName}") |> ignore
         sb.ToString()

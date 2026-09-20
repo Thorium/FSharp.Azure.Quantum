@@ -16,8 +16,7 @@ let ``Bernstein-Vazirani recovers all-zero secret`` () =
     | Ok result ->
         Assert.Equal<int[]>([| 0; 0; 0 |], result.RecoveredSecret)
         Assert.Equal(1.0, result.Confidence)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")
 
 [<Fact>]
 let ``Bernstein-Vazirani recovers mixed secret in one query`` () =
@@ -27,8 +26,7 @@ let ``Bernstein-Vazirani recovers mixed secret in one query`` () =
     | Ok result ->
         Assert.Equal<int[]>([| 1; 0; 1; 1 |], result.RecoveredSecret)
         Assert.Equal(1.0, result.Confidence)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")
 
 [<Fact>]
 let ``Bernstein-Vazirani recovers all-one secret`` () =
@@ -38,17 +36,18 @@ let ``Bernstein-Vazirani recovers all-one secret`` () =
     | Ok result ->
         Assert.Equal<int[]>([| 1; 1; 1 |], result.RecoveredSecret)
         Assert.Equal(1.0, result.Confidence)
-    | Error err ->
-        Assert.True(false, $"Expected Ok, got Error: {err}")
+    | Error err -> Assert.True(false, $"Expected Ok, got Error: {err}")
 
 [<Fact>]
 let ``Bernstein-Vazirani rejects non-bit secret`` () =
     let backend = createLocalBackend ()
 
-    (BernsteinVazirani.runWithSecret [| 1; 2; 0 |] backend 10) |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for non-bit secret"))
+    (BernsteinVazirani.runWithSecret [| 1; 2; 0 |] backend 10)
+    |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for non-bit secret"))
 
 [<Fact>]
 let ``Bernstein-Vazirani rejects zero shots`` () =
     let backend = createLocalBackend ()
 
-    (BernsteinVazirani.runWithSecret [| 1; 0 |] backend 0) |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for zero shots"))
+    (BernsteinVazirani.runWithSecret [| 1; 0 |] backend 0)
+    |> Result.iter (fun _ -> Assert.True(false, "Expected validation error for zero shots"))

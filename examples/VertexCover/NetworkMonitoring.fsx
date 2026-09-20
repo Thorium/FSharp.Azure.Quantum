@@ -31,19 +31,28 @@ open FSharp.Azure.Quantum.Quantum
 
 let routers =
     [ "R1"; "R2"; "R3"; "R4"; "R5"; "R6" ]
-    |> List.map (fun id -> { QuantumVertexCoverSolver.Id = id; QuantumVertexCoverSolver.Weight = 1.0 })
+    |> List.map (fun id ->
+        {
+            QuantumVertexCoverSolver.Id = id
+            QuantumVertexCoverSolver.Weight = 1.0
+        })
 
 let idx = routers |> List.mapi (fun i v -> v.Id, i) |> Map.ofList
 
 // Physical links between routers (undirected)
 let links =
-    [ "R1","R2"; "R1","R3"; "R1","R5"    // R1 is a hub
-      "R4","R3"; "R4","R5"; "R4","R6" ]  // R4 is a hub; together they touch every link
+    [
+        "R1", "R2"
+        "R1", "R3"
+        "R1", "R5" // R1 is a hub
+        "R4", "R3"
+        "R4", "R5"
+        "R4", "R6"
+    ] // R4 is a hub; together they touch every link
     |> List.map (fun (a, b) -> idx.[a], idx.[b])
 
-let problem : QuantumVertexCoverSolver.Problem =
-    { Vertices = routers
-      Edges = links }
+let problem: QuantumVertexCoverSolver.Problem =
+    { Vertices = routers; Edges = links }
 
 // ---------------------------------------------------------------------------
 // Solve on the local simulator (a real quantum backend). Pass a cloud backend
@@ -51,9 +60,14 @@ let problem : QuantumVertexCoverSolver.Problem =
 // ---------------------------------------------------------------------------
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
 [<Literal>]
 let shots = 1000
-let config = { QuantumVertexCoverSolver.defaultConfig with FinalShots = shots }
+
+let config =
+    { QuantumVertexCoverSolver.defaultConfig with
+        FinalShots = shots
+    }
 
 printfn "Network Monitoring — Minimum Vertex Cover (QAOA)\n"
 printfn "Routers: %d, links to observe: %d\n" routers.Length links.Length
@@ -65,7 +79,9 @@ let result =
 
 match result with
 | Ok solution ->
-    let monitors = solution.CoverVertices |> List.map (fun v -> v.Id) |> String.concat ", "
+    let monitors =
+        solution.CoverVertices |> List.map (fun v -> v.Id) |> String.concat ", "
+
     printfn "Place monitors on   : { %s }" monitors
     printfn "Monitors required   : %d of %d routers" solution.CoverSize routers.Length
     printfn "Total cost (weight) : %.1f" solution.CoverWeight

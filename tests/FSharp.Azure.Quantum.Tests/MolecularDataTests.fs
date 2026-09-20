@@ -13,13 +13,13 @@ module MolecularDataTests =
     [<Fact>]
     let ``parseSmiles rejects empty string`` () =
         match parseSmiles "" with
-        | Error (QuantumError.ValidationError _) -> ()
+        | Error(QuantumError.ValidationError _) -> ()
         | r -> failwith $"Expected ValidationError, got {r}"
 
     [<Fact>]
     let ``parseSmiles rejects whitespace only`` () =
         match parseSmiles "   " with
-        | Error (QuantumError.ValidationError _) -> ()
+        | Error(QuantumError.ValidationError _) -> ()
         | r -> failwith $"Expected ValidationError, got {r}"
 
     [<Fact>]
@@ -175,7 +175,11 @@ module MolecularDataTests =
         match parseSmiles "c1ccccc1" with
         | Ok mol ->
             let desc = calculateDescriptors mol
-            Assert.True(desc.AromaticRingCount >= 1, $"Benzene aromatic ring count {desc.AromaticRingCount} should be >= 1")
+
+            Assert.True(
+                desc.AromaticRingCount >= 1,
+                $"Benzene aromatic ring count {desc.AromaticRingCount} should be >= 1"
+            )
         | Error e -> failwith $"Parse failed: {e}"
 
     [<Fact>]
@@ -183,8 +187,11 @@ module MolecularDataTests =
         match parseSmiles "CCCCC" with // Pentane, all sp3
         | Ok mol ->
             let desc = calculateDescriptors mol
-            Assert.True(desc.FractionCsp3 >= 0.0 && desc.FractionCsp3 <= 1.0,
-                $"FractionCsp3 {desc.FractionCsp3} should be in [0, 1]")
+
+            Assert.True(
+                desc.FractionCsp3 >= 0.0 && desc.FractionCsp3 <= 1.0,
+                $"FractionCsp3 {desc.FractionCsp3} should be in [0, 1]"
+            )
         | Error e -> failwith $"Parse failed: {e}"
 
     // ========================================================================
@@ -234,7 +241,7 @@ module MolecularDataTests =
         | Ok mol ->
             let fp = generateFingerprint mol 256
             let sim = tanimotoSimilarity fp fp
-            Assert.True(abs(sim - 1.0) < 1e-10, $"Self-similarity {sim} should be 1.0")
+            Assert.True(abs (sim - 1.0) < 1e-10, $"Self-similarity {sim} should be 1.0")
         | Error e -> failwith $"Parse failed: {e}"
 
     [<Fact>]
@@ -253,8 +260,9 @@ module MolecularDataTests =
         | Ok mol ->
             let fp1 = generateFingerprint mol 256
             let fp2 = generateFingerprint mol 512
-            Assert.Throws<System.Exception>(fun () ->
-                tanimotoSimilarity fp1 fp2 |> ignore) |> ignore
+
+            Assert.Throws<System.Exception>(fun () -> tanimotoSimilarity fp1 fp2 |> ignore)
+            |> ignore
         | Error e -> failwith $"Parse failed: {e}"
 
     [<Fact>]
@@ -263,7 +271,7 @@ module MolecularDataTests =
         | Ok mol ->
             let fp = generateFingerprint mol 256
             let sim = diceSimilarity fp fp
-            Assert.True(abs(sim - 1.0) < 1e-10, $"Self Dice similarity {sim} should be 1.0")
+            Assert.True(abs (sim - 1.0) < 1e-10, $"Self Dice similarity {sim} should be 1.0")
         | Error e -> failwith $"Parse failed: {e}"
 
     [<Fact>]
@@ -299,7 +307,8 @@ module MolecularDataTests =
 
     [<Fact>]
     let ``loadFromSmilesList returns error when all fail`` () =
-        (loadFromSmilesList [ "" ]) |> Result.iter (fun _ -> failwith "Expected Error when all SMILES are invalid")
+        (loadFromSmilesList [ "" ])
+        |> Result.iter (fun _ -> failwith "Expected Error when all SMILES are invalid")
 
     // ========================================================================
     // FEATURE EXTRACTION
@@ -348,7 +357,7 @@ module MolecularDataTests =
         match loadFromSmilesList [ "C" ] with
         | Ok dataset ->
             match toFeatureMatrix false false dataset with
-            | Error (QuantumError.ValidationError _) -> ()
+            | Error(QuantumError.ValidationError _) -> ()
             | r -> failwith $"Expected ValidationError, got {r}"
         | Error e -> failwith $"Load failed: {e}"
 
@@ -357,7 +366,7 @@ module MolecularDataTests =
         match loadFromSmilesList [ "C"; "CC" ] with
         | Ok dataset ->
             match toFeatureMatrix true false dataset with
-            | Ok (features, _) ->
+            | Ok(features, _) ->
                 Assert.Equal(2, features.Length)
                 Assert.Equal(10, features.[0].Length) // 10 descriptor features
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -368,8 +377,9 @@ module MolecularDataTests =
         match loadFromSmilesList [ "C" ] with
         | Ok dataset ->
             let enriched = withFingerprints 128 dataset
+
             match toFeatureMatrix false true enriched with
-            | Ok (features, _) ->
+            | Ok(features, _) ->
                 Assert.Equal(1, features.Length)
                 Assert.Equal(128, features.[0].Length)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -380,8 +390,9 @@ module MolecularDataTests =
         match loadFromSmilesList [ "C" ] with
         | Ok dataset ->
             let enriched = dataset |> withDescriptors |> withFingerprints 64
+
             match toFeatureMatrix true true enriched with
-            | Ok (features, _) ->
+            | Ok(features, _) ->
                 Assert.Equal(1, features.Length)
                 Assert.Equal(74, features.[0].Length) // 10 descriptors + 64 fingerprint
             | Error e -> failwith $"Expected Ok, got Error: {e}"

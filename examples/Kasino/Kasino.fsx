@@ -65,10 +65,28 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "Kasino.fsx"
     "Optimal card captures in the Finnish Kasino card game via quantum knapsack."
-    [ { Cli.OptionSpec.Name = "example"; Description = "Scenario: simple|complex|strategy|sequence|all"; Default = Some "simple" }
-      { Cli.OptionSpec.Name = "output";  Description = "Write results to JSON file";                     Default = None }
-      { Cli.OptionSpec.Name = "csv";     Description = "Write results to CSV file";                      Default = None }
-      { Cli.OptionSpec.Name = "quiet";   Description = "Suppress informational output";                  Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "example"
+            Description = "Scenario: simple|complex|strategy|sequence|all"
+            Default = Some "simple"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -90,49 +108,58 @@ type Rank =
 
 /// Kasino card with rank, numeric value, and display name
 type Card =
-    { Rank: Rank
-      Value: float
-      DisplayName: string }
+    {
+        Rank: Rank
+        Value: float
+        DisplayName: string
+    }
 
 /// Capture result with strategy analysis
 type CaptureResult =
-    { HandCard: Card
-      CapturedCards: Card list
-      TotalValue: float
-      CardCount: int
-      Strategy: string
-      IsExactMatch: bool }
+    {
+        HandCard: Card
+        CapturedCards: Card list
+        TotalValue: float
+        CardCount: int
+        Strategy: string
+        IsExactMatch: bool
+    }
 
 // ==============================================================================
 // HELPER FUNCTIONS
 // ==============================================================================
 
-let rankValue = function
-    | Ace        -> 1.0
-    | Number n   -> float n
-    | Jack       -> 11.0
-    | Queen      -> 12.0
-    | King       -> 13.0
+let rankValue =
+    function
+    | Ace -> 1.0
+    | Number n -> float n
+    | Jack -> 11.0
+    | Queen -> 12.0
+    | King -> 13.0
 
 /// Capture power when the card is played from hand. In Kasino an Ace on the
 /// table counts as 1, but played from hand it captures combos summing to 14.
 /// (2♠=15 and 10♦=16 also exist, but this demo's cards carry no suit, so
 /// those two specials are not representable here.)
-let handValue = function
+let handValue =
+    function
     | Ace -> 14.0
-    | r   -> rankValue r
+    | r -> rankValue r
 
-let rankName = function
-    | Ace        -> "Ace"
-    | Number n   -> string n
-    | Jack       -> "Jack"
-    | Queen      -> "Queen"
-    | King       -> "King"
+let rankName =
+    function
+    | Ace -> "Ace"
+    | Number n -> string n
+    | Jack -> "Jack"
+    | Queen -> "Queen"
+    | King -> "King"
 
 let card rank =
-    { Rank = rank
-      Value = rankValue rank
-      DisplayName = rankName rank }
+    {
+        Rank = rank
+        Value = rankValue rank
+        DisplayName = rankName rank
+    }
 
 let displayCards cards =
     cards
@@ -147,7 +174,7 @@ let displayCards cards =
 /// QAOA on this backend. (Knapsack.solve would fall back to an implicit local
 /// quantum backend even for None, but passing it explicitly keeps the demo's
 /// quantum-first intent visible in the code.)
-let quantumBackend = Some (LocalBackendFactory.createUnified ())
+let quantumBackend = Some(LocalBackendFactory.createUnified ())
 
 /// Find optimal Kasino capture using Knapsack optimization.
 /// Knapsack.solve internally uses QAOA via IQuantumBackend.
@@ -161,9 +188,7 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         printfn "  Table Cards: %s" (displayCards tableCards)
         printfn "  Strategy:    %s" strategy
 
-    let items =
-        tableCards
-        |> List.map (fun c -> (c.DisplayName, c.Value, c.Value))
+    let items = tableCards |> List.map (fun c -> (c.DisplayName, c.Value, c.Value))
 
     let problem = Knapsack.createProblem items target
 
@@ -171,16 +196,17 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
     | Ok solution ->
         let capturedCards =
             solution.SelectedItems
-            |> List.choose (fun item ->
-                tableCards |> List.tryFind (fun c -> c.DisplayName = item.Id))
+            |> List.choose (fun item -> tableCards |> List.tryFind (fun c -> c.DisplayName = item.Id))
 
         let result =
-            { HandCard = handCard
-              CapturedCards = capturedCards
-              TotalValue = solution.TotalValue
-              CardCount = capturedCards.Length
-              Strategy = strategy
-              IsExactMatch = abs (solution.TotalValue - target) < 1e-9 }
+            {
+                HandCard = handCard
+                CapturedCards = capturedCards
+                TotalValue = solution.TotalValue
+                CardCount = capturedCards.Length
+                Strategy = strategy
+                IsExactMatch = abs (solution.TotalValue - target) < 1e-9
+            }
 
         if not quiet then
             if result.IsExactMatch then
@@ -193,12 +219,15 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
                 // legal capture, so the card would be placed on the table.
                 printfn "  Best subset: %s (= %g of %g)" (displayCards capturedCards) result.TotalValue target
                 printfn "  No exact match - the card is placed on the table."
+
             printfn ""
 
         Some result
 
     | Error err ->
-        if not quiet then printfn "  Solver error: %s" err.Message
+        if not quiet then
+            printfn "  Solver error: %s" err.Message
+
         None
 
 // ==============================================================================
@@ -207,14 +236,16 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
 
 let resultRow (scenario: string) (result: CaptureResult) : Map<string, string> =
     Map.ofList
-        [ "scenario",     scenario
-          "hand_card",    result.HandCard.DisplayName
-          "hand_value",   $"%g{result.HandCard.Value}"
-          "captured",     result.CapturedCards |> List.map (fun c -> c.DisplayName) |> String.concat "; "
-          "total_value",  $"%g{result.TotalValue}"
-          "card_count",   $"%d{result.CardCount}"
-          "exact_match",  $"%b{result.IsExactMatch}"
-          "strategy",     result.Strategy ]
+        [
+            "scenario", scenario
+            "hand_card", result.HandCard.DisplayName
+            "hand_value", $"%g{result.HandCard.Value}"
+            "captured", result.CapturedCards |> List.map (fun c -> c.DisplayName) |> String.concat "; "
+            "total_value", $"%g{result.TotalValue}"
+            "card_count", $"%d{result.CardCount}"
+            "exact_match", $"%b{result.IsExactMatch}"
+            "strategy", result.Strategy
+        ]
 
 // ==============================================================================
 // BUILT-IN SCENARIOS
@@ -231,17 +262,21 @@ let runSimple () =
     printHeader "Scenario 1: Simple Capture (King vs Small Table)"
     let hand = card King
     let table = [ card (Number 2); card (Number 5); card (Number 8); card Jack ]
+
     findOptimalCapture hand table "Maximize value"
     |> Option.map (resultRow "simple")
 
 /// Scenario 2: Complex capture â€” multiple optimal paths exist
 let runComplex () =
     printHeader "Scenario 2: Complex Capture (Multiple Solutions)"
+
     if not quiet then
         printfn "  Multiple subsets sum to 10: [4,6], [3,7], [1,2,3,4], ..."
         printfn ""
+
     let hand = card (Number 10)
-    let table = [ 1 .. 7 ] |> List.map (Number >> card)
+    let table = [ 1..7 ] |> List.map (Number >> card)
+
     findOptimalCapture hand table "Maximize value"
     |> Option.map (resultRow "complex")
 
@@ -249,15 +284,18 @@ let runComplex () =
 let runStrategy () =
     printHeader "Scenario 3: Strategy Comparison"
     let hand = card Queen
-    let table =
-        [ card (Number 5); card (Number 7); card (Number 10); card (Number 3) ]
+    let table = [ card (Number 5); card (Number 7); card (Number 10); card (Number 3) ]
 
-    if not quiet then printfn "  Strategy A: Maximize captured value"
+    if not quiet then
+        printfn "  Strategy A: Maximize captured value"
+
     let a =
         findOptimalCapture hand table "Maximize value"
         |> Option.map (resultRow "strategy-maximize")
 
-    if not quiet then printfn "  Strategy B: Same problem (minimize cards left for opponent)"
+    if not quiet then
+        printfn "  Strategy B: Same problem (minimize cards left for opponent)"
+
     let b =
         findOptimalCapture hand table "Minimize cards"
         |> Option.map (resultRow "strategy-minimize")
@@ -267,20 +305,21 @@ let runStrategy () =
 /// Scenario 4: Multi-turn game sequence
 let runSequence () =
     printHeader "Scenario 4: Multi-Turn Game Sequence"
+
     let turns =
-        [ (card Ace,
-           [ card King; card Ace ],
-           "Turn 1: Ace (hand value 14) captures King + Ace (13 + 1)")
-          (card (Number 7),
-           [ card (Number 2); card (Number 5); card (Number 3); card (Number 4) ],
-           "Turn 2: Multiple options")
-          (card Queen,
-           [ card (Number 5); card (Number 7); card (Number 10) ],
-           "Turn 3: Strategic capture") ]
+        [
+            (card Ace, [ card King; card Ace ], "Turn 1: Ace (hand value 14) captures King + Ace (13 + 1)")
+            (card (Number 7),
+             [ card (Number 2); card (Number 5); card (Number 3); card (Number 4) ],
+             "Turn 2: Multiple options")
+            (card Queen, [ card (Number 5); card (Number 7); card (Number 10) ], "Turn 3: Strategic capture")
+        ]
 
     turns
     |> List.mapi (fun i (hand, table, desc) ->
-        if not quiet then printfn "  %s" desc
+        if not quiet then
+            printfn "  %s" desc
+
         findOptimalCapture hand table "Maximize value"
         |> Option.map (resultRow (sprintf "sequence-turn%d" (i + 1))))
     |> List.choose id
@@ -298,13 +337,13 @@ let allResults = ResizeArray<Map<string, string>>()
 
 match exampleName.ToLowerInvariant() with
 | "all" ->
-    runSimple ()   |> Option.iter allResults.Add
-    runComplex ()  |> Option.iter allResults.Add
+    runSimple () |> Option.iter allResults.Add
+    runComplex () |> Option.iter allResults.Add
     runStrategy () |> List.iter allResults.Add
     runSequence () |> List.iter allResults.Add
 
-| "simple"   -> runSimple ()   |> Option.iter allResults.Add
-| "complex"  -> runComplex ()  |> Option.iter allResults.Add
+| "simple" -> runSimple () |> Option.iter allResults.Add
+| "complex" -> runComplex () |> Option.iter allResults.Add
 | "strategy" -> runStrategy () |> List.iter allResults.Add
 | "sequence" -> runSequence () |> List.iter allResults.Add
 | other ->
@@ -325,20 +364,33 @@ let resultRows = allResults |> Seq.toList
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultRows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
     let header =
-        [ "scenario"; "hand_card"; "hand_value"; "captured";
-          "total_value"; "card_count"; "exact_match"; "strategy" ]
+        [
+            "scenario"
+            "hand_card"
+            "hand_value"
+            "captured"
+            "total_value"
+            "card_count"
+            "exact_match"
+            "strategy"
+        ]
+
     let rows =
         resultRows
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

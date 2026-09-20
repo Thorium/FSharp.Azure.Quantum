@@ -3,7 +3,7 @@ namespace FSharp.Azure.Quantum
 open System
 
 /// TKT-90: Generic Graph Optimization Framework
-/// 
+///
 /// Provides a unified, extensible framework for solving graph optimization problems
 /// including Graph Coloring, Traveling Salesman Problem (TSP), MaxCut, and more.
 ///
@@ -28,7 +28,6 @@ open System
 /// let qubo = toQubo problem
 /// let solution = decodeSolution problem [1; 0; 0; 0; 1; 0]
 /// ```
-
 /// <summary>
 /// Generic Graph Optimization Framework.
 /// Powers Graph Coloring, TSP, MaxCut, and other graph problems.
@@ -39,11 +38,11 @@ open System
 /// problems using quantum annealing (QUBO), classical solvers, or hybrid approaches.
 /// </remarks>
 module GraphOptimization =
-    
+
     // ========================================================================
     // FR-1: NODE DEFINITION
     // ========================================================================
-    
+
     /// <summary>
     /// A node in the graph with generic value type.
     /// </summary>
@@ -54,93 +53,101 @@ module GraphOptimization =
     /// Nodes are identified by unique string IDs and can store arbitrary
     /// metadata in the Properties map.
     /// </remarks>
-    type Node<'T when 'T : equality> = {
-        /// Unique identifier for this node
-        Id: string
-        /// The value stored in this node
-        Value: 'T
-        /// Additional metadata for this node
-        Properties: Map<string, obj>
-    }
-    
+    type Node<'T when 'T: equality> =
+        {
+            /// Unique identifier for this node
+            Id: string
+            /// The value stored in this node
+            Value: 'T
+            /// Additional metadata for this node
+            Properties: Map<string, obj>
+        }
+
     /// <summary>Create a node with id and value.</summary>
     /// <param name="id">Unique identifier for the node</param>
     /// <param name="value">The value to store in the node</param>
     /// <returns>A new node with empty properties</returns>
-    let node id value = {
-        Id = id
-        Value = value
-        Properties = Map.empty
-    }
-    
+    let node id value =
+        {
+            Id = id
+            Value = value
+            Properties = Map.empty
+        }
+
     /// <summary>Create a node with properties.</summary>
     /// <param name="id">Unique identifier for the node</param>
     /// <param name="value">The value to store in the node</param>
     /// <param name="properties">List of key-value pairs for node metadata</param>
     /// <returns>A new node with the specified properties</returns>
-    let nodeWithProps id value properties = {
-        Id = id
-        Value = value
-        Properties = Map.ofList properties
-    }
-    
+    let nodeWithProps id value properties =
+        {
+            Id = id
+            Value = value
+            Properties = Map.ofList properties
+        }
+
     // ========================================================================
     // FR-2: EDGE DEFINITION
     // ========================================================================
-    
+
     /// An edge connecting two nodes
-    type Edge<'T> = {
-        Source: string
-        Target: string
-        Weight: float
-        Directed: bool
-        Value: 'T option
-        Properties: Map<string, obj>
-    }
-    
+    type Edge<'T> =
+        {
+            Source: string
+            Target: string
+            Weight: float
+            Directed: bool
+            Value: 'T option
+            Properties: Map<string, obj>
+        }
+
     /// Create an undirected edge with weight
-    let edge source target weight = {
-        Source = source
-        Target = target
-        Weight = weight
-        Directed = false
-        Value = None
-        Properties = Map.empty
-    }
-    
+    let edge source target weight =
+        {
+            Source = source
+            Target = target
+            Weight = weight
+            Directed = false
+            Value = None
+            Properties = Map.empty
+        }
+
     /// Create a directed edge with weight
-    let directedEdge source target weight = {
-        Source = source
-        Target = target
-        Weight = weight
-        Directed = true
-        Value = None
-        Properties = Map.empty
-    }
-    
+    let directedEdge source target weight =
+        {
+            Source = source
+            Target = target
+            Weight = weight
+            Directed = true
+            Value = None
+            Properties = Map.empty
+        }
+
     // ========================================================================
     // FR-3: GRAPH REPRESENTATION
     // ========================================================================
-    
+
     /// Graph representation with adjacency list
-    type Graph<'TNode, 'TEdge when 'TNode : equality> = {
-        Nodes: Map<string, Node<'TNode>>
-        Edges: Edge<'TEdge> list
-        Directed: bool
-        Adjacency: Map<string, string list>
-    }
-    
+    type Graph<'TNode, 'TEdge when 'TNode: equality> =
+        {
+            Nodes: Map<string, Node<'TNode>>
+            Edges: Edge<'TEdge> list
+            Directed: bool
+            Adjacency: Map<string, string list>
+        }
+
     /// Graph construction and utilities
     module Graph =
-        
+
         /// Create an empty graph
-        let empty<'TNode, 'TEdge when 'TNode : equality> : Graph<'TNode, 'TEdge> = {
-            Nodes = Map.empty
-            Edges = []
-            Directed = false
-            Adjacency = Map.empty
-        }
-        
+        let empty<'TNode, 'TEdge when 'TNode: equality> : Graph<'TNode, 'TEdge> =
+            {
+                Nodes = Map.empty
+                Edges = []
+                Directed = false
+                Adjacency = Map.empty
+            }
+
         /// Build adjacency list from edges (extracted for reuse)
         let buildAdjacency (directed: bool) (edges: Edge<'T> list) : Map<string, string list> =
             let addEdge acc (e: Edge<'T>) =
@@ -148,20 +155,19 @@ module GraphOptimization =
                     map
                     |> Map.change nodeId (fun existing ->
                         match existing with
-                        | Some neighbors -> Some (neighborId :: neighbors)
-                        | None -> Some [neighborId]
-                    )
-                
+                        | Some neighbors -> Some(neighborId :: neighbors)
+                        | None -> Some [ neighborId ])
+
                 let acc' = addToList e.Source e.Target acc
-                
+
                 // For undirected graphs, add reverse edge
                 if not (directed || e.Directed) then
                     addToList e.Target e.Source acc'
                 else
                     acc'
-            
+
             edges |> List.fold addEdge Map.empty
-        
+
         /// Create a graph from nodes and edges
         let create directed (nodes: Node<'TNode> list) (edges: Edge<'TEdge> list) : Graph<'TNode, 'TEdge> =
             {
@@ -170,11 +176,11 @@ module GraphOptimization =
                 Directed = directed
                 Adjacency = buildAdjacency directed edges
             }
-    
+
     // ========================================================================
     // FR-4: CONSTRAINT TYPES
     // ========================================================================
-    
+
     /// Graph constraints for optimization problems
     [<NoComparison; NoEquality>]
     type GraphConstraint =
@@ -196,11 +202,11 @@ module GraphOptimization =
         | OneOutgoing
         /// Custom constraint function
         | Custom of (Graph<obj, obj> -> bool)
-    
+
     // ========================================================================
     // FR-5: OBJECTIVE FUNCTIONS
     // ========================================================================
-    
+
     /// Optimization objectives for graph problems
     type GraphObjective =
         /// Minimize number of colors used (Graph Coloring)
@@ -219,156 +225,162 @@ module GraphOptimization =
         | MinimizeEdges
         /// Custom objective function
         | Custom of (Graph<obj, obj> -> float)
-    
+
     // ========================================================================
     // QUBO REPRESENTATION
     // ========================================================================
-    
+
     /// QUBO (Quadratic Unconstrained Binary Optimization) representation
-    type QuboMatrix = {
-        NumVariables: int
-        Q: Map<int * int, float>  // Sparse matrix representation
-    }
-    
+    type QuboMatrix =
+        {
+            NumVariables: int
+            Q: Map<int * int, float> // Sparse matrix representation
+        }
+
     /// Create empty QUBO matrix
-    let emptyQubo numVars = {
-        NumVariables = numVars
-        Q = Map.empty
-    }
-    
+    let emptyQubo numVars =
+        {
+            NumVariables = numVars
+            Q = Map.empty
+        }
+
     // ========================================================================
     // CONSTRAINT VIOLATIONS
     // ========================================================================
-    
+
     /// Constraint violation information
-    type ConstraintViolation = {
-        Constraint: GraphConstraint
-        Description: string
-        Severity: float  // Penalty value
-    }
-    
+    type ConstraintViolation =
+        {
+            Constraint: GraphConstraint
+            Description: string
+            Severity: float // Penalty value
+        }
+
     // ========================================================================
     // FR-8: SOLUTION REPRESENTATION
     // ========================================================================
-    
+
     /// Solution to a graph optimization problem
-    type GraphOptimizationSolution<'TNode, 'TEdge when 'TNode : equality> = {
-        Graph: Graph<'TNode, 'TEdge>
-        NodeAssignments: Map<string, int> option  // For coloring, partitioning
-        SelectedEdges: Edge<'TEdge> list option   // For TSP, spanning tree
-        ObjectiveValue: float
-        IsFeasible: bool
-        Violations: ConstraintViolation list
-    }
-    
+    type GraphOptimizationSolution<'TNode, 'TEdge when 'TNode: equality> =
+        {
+            Graph: Graph<'TNode, 'TEdge>
+            NodeAssignments: Map<string, int> option // For coloring, partitioning
+            SelectedEdges: Edge<'TEdge> list option // For TSP, spanning tree
+            ObjectiveValue: float
+            IsFeasible: bool
+            Violations: ConstraintViolation list
+        }
+
     // ========================================================================
     // GRAPH OPTIMIZATION PROBLEM
     // ========================================================================
-    
+
     /// A graph optimization problem specification
-    type GraphOptimizationProblem<'TNode, 'TEdge when 'TNode : equality and 'TEdge : equality> = {
-        Graph: Graph<'TNode, 'TEdge>
-        Constraints: GraphConstraint list
-        Objective: GraphObjective
-        NumColors: int option  // For graph coloring
-    }
-    
+    type GraphOptimizationProblem<'TNode, 'TEdge when 'TNode: equality and 'TEdge: equality> =
+        {
+            Graph: Graph<'TNode, 'TEdge>
+            Constraints: GraphConstraint list
+            Objective: GraphObjective
+            NumColors: int option // For graph coloring
+        }
+
     // ========================================================================
     // FR-6: FLUENT BUILDER API (Idiomatic Immutable)
     // ========================================================================
-    
+
     /// Fluent builder for graph optimization problems (immutable)
-    type GraphOptimizationBuilder<'TNode, 'TEdge when 'TNode : equality and 'TEdge : equality> = private {
-        nodes: Node<'TNode> list
-        edges: Edge<'TEdge> list
-        directed: bool
-        constraints: GraphConstraint list
-        objective: GraphObjective
-        numColors: int option
-    } with
+    type GraphOptimizationBuilder<'TNode, 'TEdge when 'TNode: equality and 'TEdge: equality> =
+        private
+            {
+                nodes: Node<'TNode> list
+                edges: Edge<'TEdge> list
+                directed: bool
+                constraints: GraphConstraint list
+                objective: GraphObjective
+                numColors: int option
+            }
+
         /// Create a new builder with default values
-        static member Create() : GraphOptimizationBuilder<'TNode, 'TEdge> = {
-            nodes = []
-            edges = []
-            directed = false
-            constraints = []
-            objective = MinimizeColors
-            numColors = None
-        }
-        
+        static member Create() : GraphOptimizationBuilder<'TNode, 'TEdge> =
+            {
+                nodes = []
+                edges = []
+                directed = false
+                constraints = []
+                objective = MinimizeColors
+                numColors = None
+            }
+
         /// Fluent API: Set the nodes in the graph
-        member this.Nodes(nodeList: Node<'TNode> list) =
-            { this with nodes = nodeList }
-        
+        member this.Nodes(nodeList: Node<'TNode> list) = { this with nodes = nodeList }
+
         /// Fluent API: Set the edges in the graph
-        member this.Edges(edgeList: Edge<'TEdge> list) =
-            { this with edges = edgeList }
-        
+        member this.Edges(edgeList: Edge<'TEdge> list) = { this with edges = edgeList }
+
         /// Fluent API: Set whether the graph is directed
-        member this.Directed(isDirected: bool) =
-            { this with directed = isDirected }
-        
+        member this.Directed(isDirected: bool) = { this with directed = isDirected }
+
         /// Fluent API: Mark graph as directed (no parameter)
-        member this.Directed() =
-            { this with directed = true }
-        
+        member this.Directed() = { this with directed = true }
+
         /// Fluent API: Add a constraint to the problem
         member this.AddConstraint(c: GraphConstraint) =
-            { this with constraints = c :: this.constraints }
-        
+            { this with
+                constraints = c :: this.constraints
+            }
+
         /// Fluent API: Set the optimization objective
-        member this.Objective(obj: GraphObjective) =
-            { this with objective = obj }
-        
+        member this.Objective(obj: GraphObjective) = { this with objective = obj }
+
         /// Fluent API: Set the number of colors (for graph coloring)
-        member this.NumColors(colors: int) =
-            { this with numColors = Some colors }
-        
+        member this.NumColors(colors: int) = { this with numColors = Some colors }
+
         /// Build the graph optimization problem
         member this.Build() : GraphOptimizationProblem<'TNode, 'TEdge> =
             let nodeMap = this.nodes |> List.map (fun n -> n.Id, n) |> Map.ofList
-            
-            let graph = {
-                Nodes = nodeMap
-                Edges = this.edges
-                Directed = this.directed
-                Adjacency = Graph.buildAdjacency this.directed this.edges
-            }
-            
+
+            let graph =
+                {
+                    Nodes = nodeMap
+                    Edges = this.edges
+                    Directed = this.directed
+                    Adjacency = Graph.buildAdjacency this.directed this.edges
+                }
+
             {
                 Graph = graph
                 Constraints = List.rev this.constraints
                 Objective = this.objective
                 NumColors = this.numColors
             }
-    
+
     /// Constructor-like syntax for C# compatibility
-    let GraphOptimizationBuilder<'TNode, 'TEdge when 'TNode : equality and 'TEdge : equality> () =
+    let GraphOptimizationBuilder<'TNode, 'TEdge when 'TNode: equality and 'TEdge: equality> () =
         GraphOptimizationBuilder<'TNode, 'TEdge>.Create()
-    
+
     // ========================================================================
     // QUBO ENCODING CONSTANTS
     // ========================================================================
-    
+
     /// Default penalty weight for constraint violations
     [<Literal>]
     let private DefaultPenalty = 10.0
-    
+
     /// Default number of colors for graph coloring
     [<Literal>]
     let private DefaultNumColors = 4
-    
+
     // ========================================================================
     // FR-7: QUBO ENCODING (Idiomatic Functional)
     // ========================================================================
-    
+
     /// <summary>
     /// Encode a graph optimization problem to Quadratic Unconstrained Binary Optimization (QUBO) format.
     /// </summary>
-    /// 
+    ///
     /// <param name="problem">The graph optimization problem to encode</param>
     /// <returns>A QUBO matrix suitable for quantum annealing or classical optimization</returns>
-    /// 
+    ///
     /// <remarks>
     /// <para><b>Graph Coloring (MinimizeColors):</b></para>
     /// <para>Variables: x_{i,c} = 1 if node i has color c (one-hot encoding)</para>
@@ -378,7 +390,7 @@ module GraphOptimization =
     ///   <item>NoAdjacentEqual: Adjacent nodes must have different colors (if specified)</item>
     /// </list>
     /// <para>Formula: Σ_{c1&lt;c2} x_{i,c1} * x_{i,c2} + Σ_{(u,v)∈E} Σ_c x_{u,c} * x_{v,c}</para>
-    /// 
+    ///
     /// <para><b>Traveling Salesman Problem (MinimizeTotalWeight):</b></para>
     /// <para>Variables: x_{i,t} = 1 if city i is visited at time t (n² variables)</para>
     /// <para>Constraints:</para>
@@ -387,13 +399,13 @@ module GraphOptimization =
     ///   <item>Each time slot has one city: Σ_i x_{i,t} = 1</item>
     /// </list>
     /// <para>Objective: Minimize Σ_{(i,j)∈E} Σ_t d_{i,j} * x_{i,t} * x_{j,t+1}</para>
-    /// 
+    ///
     /// <para><b>MaxCut (MaximizeCut):</b></para>
     /// <para>Variables: x_i = 1 if node i is in partition 1, else 0</para>
     /// <para>Objective: Maximize Σ_{(i,j)∈E} w_{i,j} * (x_i ⊕ x_j)</para>
     /// <para>QUBO form: Minimize -Σ_{(i,j)∈E} w_{i,j} * x_i * x_j (encourages opposite partitions)</para>
     /// </remarks>
-    /// 
+    ///
     /// <example>
     /// <code>
     /// let problem =
@@ -403,7 +415,7 @@ module GraphOptimization =
     ///         .Objective(MinimizeColors)
     ///         .NumColors(3)
     ///         .Build()
-    /// 
+    ///
     /// let qubo = toQubo problem
     /// // qubo.NumVariables = 6 (2 nodes * 3 colors)
     /// // qubo.Q contains penalty terms for constraints and objective
@@ -411,39 +423,43 @@ module GraphOptimization =
     /// </example>
     let toQubo (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : QuboMatrix =
         let numNodes = problem.Graph.Nodes |> Map.count
-        
+
         /// Helper: Check if constraint exists in problem
         let hasConstraint constraintPredicate =
             problem.Constraints |> List.exists constraintPredicate
-        
+
         /// Helper: Create node ID to index mapping
         let nodeIndexMap =
             problem.Graph.Nodes
             |> Map.toList
             |> List.mapi (fun idx (nodeId, _) -> nodeId, idx)
             |> Map.ofList
-        
+
         /// Helper: Add terms to QUBO matrix
         let addTermsToQubo (qubo: QuboMatrix) (terms: ((int * int) * float) list) : QuboMatrix =
             // Accumulate coefficients on duplicate keys (e.g. parallel edges):
             // QUBO terms with the same index pair sum, they don't overwrite
             let updatedQ =
                 terms
-                |> List.fold (fun q (key, value) ->
-                    q |> Map.change key (function
-                        | Some existing -> Some (existing + value)
-                        | None -> Some value)) qubo.Q
+                |> List.fold
+                    (fun q (key, value) ->
+                        q
+                        |> Map.change key (function
+                            | Some existing -> Some(existing + value)
+                            | None -> Some value))
+                    qubo.Q
+
             { qubo with Q = updatedQ }
-        
+
         match problem.Objective with
         | MinimizeColors ->
             // Graph coloring: one-hot encoding
             // Variables: x_{i,c} = 1 if node i has color c
             let numColors = problem.NumColors |> Option.defaultValue DefaultNumColors
             let numVars = numNodes * numColors
-            
+
             let baseQubo = emptyQubo numVars
-            
+
             // ONE-HOT CONSTRAINT: each node must have exactly one color (Σ_c x_{i,c} = 1).
             // Reuse the canonical encoder so the constraint contributes BOTH the linear
             // reward (-λ·x_i, the QUBO diagonal) and the quadratic penalty (2λ·x_i·x_j).
@@ -455,32 +471,35 @@ module GraphOptimization =
                 |> List.collect (fun (_, nodeIdx) ->
                     let nodeVars = [ for c in 0 .. numColors - 1 -> nodeIdx * numColors + c ]
                     Qubo.oneHotConstraint nodeVars DefaultPenalty |> Map.toList)
-            
+
             let quboWithOneHot = addTermsToQubo baseQubo oneHotTerms
-            
+
             // NO-ADJACENT-EQUAL CONSTRAINT: Adjacent nodes cannot have same color
-            if hasConstraint (function NoAdjacentEqual -> true | _ -> false) then
+            if
+                hasConstraint (function
+                    | NoAdjacentEqual -> true
+                    | _ -> false)
+            then
                 // For each edge (u, v), add penalty if same color
                 let penaltyTerms =
                     problem.Graph.Edges
                     |> List.collect (fun edge ->
                         match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
                         | Some uIdx, Some vIdx ->
-                            [0 .. numColors - 1]
+                            [ 0 .. numColors - 1 ]
                             |> List.map (fun c ->
                                 // Penalty term: x_{u,c} * x_{v,c}
                                 let varU = uIdx * numColors + c
                                 let varV = vIdx * numColors + c
-                                ((varU, varV), DefaultPenalty)
-                            )
-                        | _ -> []  // Skip edges with unknown nodes
+                                ((varU, varV), DefaultPenalty))
+                        | _ -> [] // Skip edges with unknown nodes
                     )
-                
+
                 // Add all penalty terms to QUBO
                 addTermsToQubo quboWithOneHot penaltyTerms
             else
                 quboWithOneHot
-        
+
         | MinimizeTotalWeight ->
             // TSP: one-hot time encoding
             // Variables: x_{i,t} = 1 if city i visited at time t
@@ -488,13 +507,13 @@ module GraphOptimization =
             //   1. Each city visited exactly once: Σ_t x_{i,t} = 1
             //   2. Each time slot has one city: Σ_i x_{i,t} = 1
             // Objective: Minimize Σ_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
-            
+
             let numVars = numNodes * numNodes
             let baseQubo = emptyQubo numVars
-            
+
             // Helper: Get variable index for city i at time t
             let varIndex i t = i * numNodes + t
-            
+
             // Helper: Generate one-hot constraint terms (exactly one variable = 1)
             // For each outer index, penalize having multiple inner indices selected
             // Exactly-one per outer index. Reuse the canonical encoder so each group
@@ -502,18 +521,23 @@ module GraphOptimization =
             // The two TSP one-hot families (city-once and slot-once) share the same
             // x_{i,t} variables, so their diagonal terms accumulate to -2λ via
             // addTermsToQubo (which sums duplicate keys).
-            let oneHotConstraintTerms (outerRange: int) (innerRange: int) (varFn: int -> int -> int) : ((int * int) * float) list =
-                [0 .. outerRange - 1]
+            let oneHotConstraintTerms
+                (outerRange: int)
+                (innerRange: int)
+                (varFn: int -> int -> int)
+                : ((int * int) * float) list =
+                [ 0 .. outerRange - 1 ]
                 |> List.collect (fun outer ->
                     let groupVars = [ for inner in 0 .. innerRange - 1 -> varFn outer inner ]
                     Qubo.oneHotConstraint groupVars DefaultPenalty |> Map.toList)
-            
+
             // Constraint 1: Each city i must be visited exactly once
             let constraint1Terms = oneHotConstraintTerms numNodes numNodes varIndex
-            
+
             // Constraint 2: Each time slot t must have exactly one city
-            let constraint2Terms = oneHotConstraintTerms numNodes numNodes (fun t i -> varIndex i t)
-            
+            let constraint2Terms =
+                oneHotConstraintTerms numNodes numNodes (fun t i -> varIndex i t)
+
             // Distance objective: Σ_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
             // For each edge (i->j) with distance d, add terms for consecutive time slots
             let distanceTerms =
@@ -521,31 +545,29 @@ module GraphOptimization =
                 |> List.collect (fun edge ->
                     match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
                     | Some srcIdx, Some tgtIdx ->
-                        [0 .. numNodes - 2]  // Time slots 0 to n-2
+                        [ 0 .. numNodes - 2 ] // Time slots 0 to n-2
                         |> List.map (fun t ->
                             let v1 = varIndex srcIdx t
                             let v2 = varIndex tgtIdx (t + 1)
                             // Canonical ordering for QUBO
                             let (i, j) = if v1 < v2 then (v1, v2) else (v2, v1)
-                            ((i, j), edge.Weight)
-                        )
-                    | _ -> []
-                )
-            
+                            ((i, j), edge.Weight))
+                    | _ -> [])
+
             // Combine all terms
             let allTerms = constraint1Terms @ constraint2Terms @ distanceTerms
             addTermsToQubo baseQubo allTerms
-        
+
         | MaximizeCut ->
             // MaxCut: binary partition encoding
             // Variables: x_i = 1 if node i in partition 1, 0 otherwise
             // Objective: Maximize edges crossing partition
             // QUBO formulation: Minimize -Σ w_ij * x_i * x_j
             //   (negative weights encourage x_i ≠ x_j, i.e., nodes in different partitions)
-            
+
             let numVars = numNodes
             let baseQubo = emptyQubo numVars
-            
+
             // Add quadratic terms for each edge: Q[(i,j)] = -weight
             let edgeTerms =
                 problem.Graph.Edges
@@ -553,11 +575,15 @@ module GraphOptimization =
                     match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
                     | Some srcIdx, Some tgtIdx ->
                         // Use canonical ordering (i < j) for QUBO matrix
-                        let (i, j) = if srcIdx < tgtIdx then (srcIdx, tgtIdx) else (tgtIdx, srcIdx)
-                        Some ((i, j), -edge.Weight)
-                    | _ -> None
-                )
-            
+                        let (i, j) =
+                            if srcIdx < tgtIdx then
+                                (srcIdx, tgtIdx)
+                            else
+                                (tgtIdx, srcIdx)
+
+                        Some((i, j), -edge.Weight)
+                    | _ -> None)
+
             // Build QUBO matrix with edge terms
             addTermsToQubo baseQubo edgeTerms
 
@@ -568,37 +594,39 @@ module GraphOptimization =
             // count means minimizing its negation.
             let numEdges = problem.Graph.Edges.Length
             let baseQubo = emptyQubo numEdges
+
             let sign =
                 match problem.Objective with
                 | MinimizeEdges -> 1.0
                 | _ -> -1.0
 
-            let edgeTerms =
-                problem.Graph.Edges
-                |> List.mapi (fun e _ -> ((e, e), sign))
+            let edgeTerms = problem.Graph.Edges |> List.mapi (fun e _ -> ((e, e), sign))
 
             addTermsToQubo baseQubo edgeTerms
 
-        | MinimizeSpanningTree | MinimizeMaxWeight | Custom _ ->
+        | MinimizeSpanningTree
+        | MinimizeMaxWeight
+        | Custom _ ->
             // Spanning-tree and minimax objectives need auxiliary-variable
             // encodings that are not implemented; Custom objectives have no
             // generic QUBO form.
             invalidOp (
-                sprintf "GraphOptimization.toQubo: QUBO encoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut, MaximizeEdges, MinimizeEdges."
+                sprintf
+                    "GraphOptimization.toQubo: QUBO encoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut, MaximizeEdges, MinimizeEdges."
                     problem.Objective
             )
-    
+
     // ========================================================================
     // OBJECTIVE VALUE CALCULATION (TDD CYCLE 2)
     // ========================================================================
-    
+
     /// <summary>
     /// Calculate the objective value for a given solution.
     /// </summary>
-    /// 
+    ///
     /// <param name="solution">The graph optimization solution to evaluate</param>
     /// <returns>The objective value (lower is better for minimization, higher for maximization)</returns>
-    /// 
+    ///
     /// <remarks>
     /// <para><b>Smart Inference:</b> Automatically detects objective type from solution structure:</para>
     /// <list type="bullet">
@@ -607,17 +635,17 @@ module GraphOptimization =
     ///   <item><b>TSP:</b> Sums edge weights in selected tour</item>
     /// </list>
     /// </remarks>
-    /// 
+    ///
     /// <example>
     /// <code>
     /// // Graph Coloring
     /// let solution = { NodeAssignments = Some (Map ["A", 0; "B", 1; "C", 0]); ... }
     /// let value = calculateObjectiveValue solution  // Returns 2.0 (two colors used)
-    /// 
+    ///
     /// // MaxCut
     /// let solution = { NodeAssignments = Some (Map ["A", 0; "B", 1; "C", 1]); ... }
     /// let value = calculateObjectiveValue solution  // Returns count of edges between different partitions
-    /// 
+    ///
     /// // TSP
     /// let solution = { SelectedEdges = Some [edge "A" "B" 5.0; edge "B" "C" 3.0]; ... }
     /// let value = calculateObjectiveValue solution  // Returns 8.0 (sum of edge weights)
@@ -630,55 +658,53 @@ module GraphOptimization =
             // Heuristic: If all values are 0 or 1, it's MaxCut; otherwise graph coloring
             let values = assignments |> Map.toList |> List.map snd
             let allBinary = values |> List.forall (fun v -> v = 0 || v = 1)
-            
+
             if allBinary && solution.Graph.Edges.Length > 0 then
                 // MaxCut: Count edges crossing partition
                 solution.Graph.Edges
                 |> List.filter (fun edge ->
                     match Map.tryFind edge.Source assignments, Map.tryFind edge.Target assignments with
                     | Some colorU, Some colorV -> colorU <> colorV
-                    | _ -> false
-                )
+                    | _ -> false)
                 |> List.length
                 |> float
             else
                 // Graph coloring: Count unique colors used
-                values
-                |> List.distinct
-                |> List.length
-                |> float
-        
+                values |> List.distinct |> List.length |> float
+
         | None, Some selectedEdges ->
             // TSP: Sum edge weights in tour
-            selectedEdges
-            |> List.sumBy (fun edge -> edge.Weight)
-        
+            selectedEdges |> List.sumBy (fun edge -> edge.Weight)
+
         | _ ->
             // Unknown or empty solution
             0.0
-    
+
     // ========================================================================
     // FR-8: SOLUTION DECODING
     // ========================================================================
-    
+
     /// Helper: Create a solution record with calculated objective value
-    let private createSolution 
-        (graph: Graph<'TNode, 'TEdge>) 
-        (nodeAssignments: Map<string, int> option) 
-        (selectedEdges: Edge<'TEdge> list option) 
+    let private createSolution
+        (graph: Graph<'TNode, 'TEdge>)
+        (nodeAssignments: Map<string, int> option)
+        (selectedEdges: Edge<'TEdge> list option)
         : GraphOptimizationSolution<'TNode, 'TEdge> =
-        
-        let tempSolution = {
-            Graph = graph
-            NodeAssignments = nodeAssignments
-            SelectedEdges = selectedEdges
-            ObjectiveValue = 0.0
-            IsFeasible = true
-            Violations = []
+
+        let tempSolution =
+            {
+                Graph = graph
+                NodeAssignments = nodeAssignments
+                SelectedEdges = selectedEdges
+                ObjectiveValue = 0.0
+                IsFeasible = true
+                Violations = []
+            }
+
+        { tempSolution with
+            ObjectiveValue = calculateObjectiveValue tempSolution
         }
-        
-        { tempSolution with ObjectiveValue = calculateObjectiveValue tempSolution }
-    
+
     /// Helper: Create an empty/infeasible solution
     let private emptySolution (graph: Graph<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
         {
@@ -689,28 +715,28 @@ module GraphOptimization =
             IsFeasible = false
             Violations = []
         }
-    
+
     /// <summary>
     /// Decode a QUBO solution (binary variable assignments) back to a graph optimization solution.
     /// </summary>
-    /// 
+    ///
     /// <param name="problem">The original graph optimization problem</param>
     /// <param name="quboSolution">Binary variable assignments from QUBO solver (list of 0s and 1s)</param>
     /// <returns>A graph optimization solution with node assignments, objective value, and feasibility status</returns>
-    /// 
+    ///
     /// <remarks>
     /// <para><b>Graph Coloring:</b></para>
     /// <para>Decodes one-hot color encoding: x_{i,c} = 1 means node i has color c</para>
     /// <para>If multiple colors are assigned to a node, selects the first one</para>
-    /// 
+    ///
     /// <para><b>TSP:</b></para>
     /// <para>Decodes one-hot time encoding: x_{i,t} = 1 means city i visited at time t</para>
     /// <para>Reconstructs tour edges from time sequence (coming soon)</para>
-    /// 
+    ///
     /// <para><b>MaxCut:</b></para>
     /// <para>Decodes binary partition: x_i = 1 means node i is in partition 1, else partition 0</para>
     /// </remarks>
-    /// 
+    ///
     /// <example>
     /// <code>
     /// let problem = GraphOptimizationBuilder().Nodes(...).Objective(MinimizeColors).NumColors(3).Build()
@@ -721,56 +747,55 @@ module GraphOptimization =
     /// // solution.IsFeasible = true
     /// </code>
     /// </example>
-    let decodeSolution (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (quboSolution: int list) : GraphOptimizationSolution<'TNode, 'TEdge> =
+    let decodeSolution
+        (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
+        (quboSolution: int list)
+        : GraphOptimizationSolution<'TNode, 'TEdge> =
         let numNodes = problem.Graph.Nodes |> Map.count
         let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
-        
+
         match problem.Objective with
         | MinimizeColors ->
             // Decode one-hot color assignment
             let numColors = problem.NumColors |> Option.defaultValue DefaultNumColors
-            
+
             let assignments =
                 nodeIds
                 |> List.mapi (fun nodeIdx nodeId ->
                     // Find which color is assigned (one-hot)
-                    let colorIdx = 
-                        [0 .. numColors - 1]
+                    let colorIdx =
+                        [ 0 .. numColors - 1 ]
                         |> List.tryFindIndex (fun c ->
                             let varIdx = nodeIdx * numColors + c
-                            varIdx < quboSolution.Length && quboSolution.[varIdx] = 1
-                        )
+                            varIdx < quboSolution.Length && quboSolution.[varIdx] = 1)
                         |> Option.defaultValue 0
-                    
-                    nodeId, colorIdx
-                )
+
+                    nodeId, colorIdx)
                 |> Map.ofList
-            
+
             createSolution problem.Graph (Some assignments) None
-        
+
         | MinimizeTotalWeight ->
             // Decode TSP tour from one-hot time encoding
             // Variables: x_{i,t} = 1 if city i visited at time t
             // For each time slot t, find which city i has x_{i,t} = 1
             let numNodes = nodeIds.Length
-            
+
             // Helper: Get variable index for city i at time t
             let varIndex i t = i * numNodes + t
-            
+
             // Decode tour: For each time slot, find the city visited
             let tourCities =
-                [0 .. numNodes - 1]
+                [ 0 .. numNodes - 1 ]
                 |> List.choose (fun t ->
                     // Find city i where x_{i,t} = 1
                     nodeIds
                     |> List.tryFindIndex (fun nodeId ->
                         let i = List.findIndex ((=) nodeId) nodeIds
                         let vIdx = varIndex i t
-                        vIdx < quboSolution.Length && quboSolution.[vIdx] = 1
-                    )
-                    |> Option.map (fun cityIdx -> nodeIds.[cityIdx])
-                )
-            
+                        vIdx < quboSolution.Length && quboSolution.[vIdx] = 1)
+                    |> Option.map (fun cityIdx -> nodeIds.[cityIdx]))
+
             // Extract tour edges from consecutive cities in tour
             let tourEdges =
                 if tourCities.Length >= 2 then
@@ -778,31 +803,28 @@ module GraphOptimization =
                     |> List.pairwise
                     |> List.choose (fun (src, tgt) ->
                         // Find edge in graph
-                        problem.Graph.Edges
-                        |> List.tryFind (fun e -> e.Source = src && e.Target = tgt)
-                    )
+                        problem.Graph.Edges |> List.tryFind (fun e -> e.Source = src && e.Target = tgt))
                 else
                     []
-            
+
             createSolution problem.Graph None (Some tourEdges)
-        
+
         | MaximizeCut ->
             // Decode partition
             let partition =
                 nodeIds
                 |> List.mapi (fun i nodeId ->
-                    let partitionValue = 
-                        if i < quboSolution.Length then quboSolution.[i] else 0
-                    nodeId, partitionValue
-                )
+                    let partitionValue = if i < quboSolution.Length then quboSolution.[i] else 0
+                    nodeId, partitionValue)
                 |> Map.ofList
-            
+
             createSolution problem.Graph (Some partition) None
 
         | MaximizeEdges
         | MinimizeEdges ->
             // Decode edge selection: edge e is selected when its bit is 1
             let bits = List.toArray quboSolution
+
             let selectedEdges =
                 problem.Graph.Edges
                 |> List.indexed
@@ -811,24 +833,27 @@ module GraphOptimization =
 
             createSolution problem.Graph None (Some selectedEdges)
 
-        | MinimizeSpanningTree | MinimizeMaxWeight | Custom _ ->
+        | MinimizeSpanningTree
+        | MinimizeMaxWeight
+        | Custom _ ->
             invalidOp (
-                sprintf "GraphOptimization.decodeSolution: decoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut, MaximizeEdges, MinimizeEdges."
+                sprintf
+                    "GraphOptimization.decodeSolution: decoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut, MaximizeEdges, MinimizeEdges."
                     problem.Objective
             )
 
     // ========================================================================
     // TDD CYCLE 2 - CONSTRAINT VALIDATION
     // ========================================================================
-    
+
     /// <summary>
     /// Validate that a solution satisfies all problem constraints.
     /// </summary>
-    /// 
+    ///
     /// <param name="problem">The graph optimization problem with constraints</param>
     /// <param name="solution">The solution to validate</param>
     /// <returns>True if all constraints are satisfied, false otherwise</returns>
-    /// 
+    ///
     /// <remarks>
     /// <para><b>Supported Constraints:</b></para>
     /// <list type="bullet">
@@ -839,7 +864,7 @@ module GraphOptimization =
     ///   <item><b>Acyclic:</b> Selected edges form tree (no cycles)</item>
     /// </list>
     /// </remarks>
-    /// 
+    ///
     /// <example>
     /// <code>
     /// let problem =
@@ -849,15 +874,18 @@ module GraphOptimization =
     ///         .AddConstraint(NoAdjacentEqual)
     ///         .Objective(MinimizeColors)
     ///         .Build()
-    /// 
+    ///
     /// let solution = { NodeAssignments = Some (Map ["A", 0; "B", 1]); ... }
     /// let isValid = validateConstraints problem solution  // Returns true
-    /// 
+    ///
     /// let invalidSolution = { NodeAssignments = Some (Map ["A", 0; "B", 0]); ... }
     /// let isValid2 = validateConstraints problem invalidSolution  // Returns false (same color)
     /// </code>
     /// </example>
-    let validateConstraints (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : bool =
+    let validateConstraints
+        (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
+        (solution: GraphOptimizationSolution<'TNode, 'TEdge>)
+        : bool =
         problem.Constraints
         |> List.forall (fun constr ->
             match constr with
@@ -869,84 +897,94 @@ module GraphOptimization =
                     |> List.forall (fun edge ->
                         match Map.tryFind edge.Source assignments, Map.tryFind edge.Target assignments with
                         | Some colorU, Some colorV -> colorU <> colorV
-                        | _ -> true  // If node not in assignments, skip
+                        | _ -> true // If node not in assignments, skip
                     )
-                | None -> true  // No node assignments, constraint doesn't apply
-            
+                | None -> true // No node assignments, constraint doesn't apply
+
             | DegreeLimit maxDegree ->
                 // Check that no node has degree > maxDegree
                 problem.Graph.Adjacency
                 |> Map.forall (fun _ neighbors -> neighbors.Length <= maxDegree)
-            
+
             | VisitOnce ->
                 // For TSP: each node should be visited exactly once
                 // This is validated by checking the tour structure
                 match solution.SelectedEdges with
                 | Some edges ->
                     let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+
                     let visitedNodes =
-                        edges
-                        |> List.collect (fun e -> [e.Source; e.Target])
-                        |> List.distinct
+                        edges |> List.collect (fun e -> [ e.Source; e.Target ]) |> List.distinct
+
                     visitedNodes.Length = nodeIds.Length
                 | None -> true
-            
+
             | Acyclic ->
                 // Check for cycles (simplified: always true for now)
                 true
-            
+
             | Connected ->
                 // Check graph connectivity (simplified: assume valid if has edges)
                 problem.Graph.Edges.Length > 0
-            
+
             | MinDegree minDegree ->
                 // Check that all nodes have degree >= minDegree
                 problem.Graph.Adjacency
                 |> Map.forall (fun _ neighbors -> neighbors.Length >= minDegree)
-            
+
             | OneIncoming ->
                 // Check that each node has exactly one incoming edge
                 match solution.SelectedEdges with
                 | Some edges ->
                     let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+
                     nodeIds
                     |> List.forall (fun nodeId ->
                         let incomingCount = edges |> List.filter (fun e -> e.Target = nodeId) |> List.length
                         incomingCount = 1)
                 | None -> true
-            
+
             | OneOutgoing ->
                 // Check that each node has exactly one outgoing edge
                 match solution.SelectedEdges with
                 | Some edges ->
                     let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+
                     nodeIds
                     |> List.forall (fun nodeId ->
                         let outgoingCount = edges |> List.filter (fun e -> e.Source = nodeId) |> List.length
                         outgoingCount = 1)
                 | None -> true
-            
+
             | GraphConstraint.Custom predicate ->
                 // Custom constraint validation using provided predicate.
                 // Note: predicate takes the graph, not problem/solution.
                 // The predicate is typed over Graph<obj, obj>, so box the node/edge
                 // payloads into a new graph value (a direct cast of Graph<'TNode, 'TEdge>
                 // throws InvalidCastException for any concretely-typed graph).
-                let boxedGraph : Graph<obj, obj> = {
-                    Nodes =
-                        problem.Graph.Nodes
-                        |> Map.map (fun _ n -> { Id = n.Id; Value = box n.Value; Properties = n.Properties })
-                    Edges =
-                        problem.Graph.Edges
-                        |> List.map (fun e ->
-                            { Source = e.Source
-                              Target = e.Target
-                              Weight = e.Weight
-                              Directed = e.Directed
-                              Value = e.Value |> Option.map box
-                              Properties = e.Properties })
-                    Directed = problem.Graph.Directed
-                    Adjacency = problem.Graph.Adjacency
-                }
-                predicate boxedGraph
-        )
+                let boxedGraph: Graph<obj, obj> =
+                    {
+                        Nodes =
+                            problem.Graph.Nodes
+                            |> Map.map (fun _ n ->
+                                {
+                                    Id = n.Id
+                                    Value = box n.Value
+                                    Properties = n.Properties
+                                })
+                        Edges =
+                            problem.Graph.Edges
+                            |> List.map (fun e ->
+                                {
+                                    Source = e.Source
+                                    Target = e.Target
+                                    Weight = e.Weight
+                                    Directed = e.Directed
+                                    Value = e.Value |> Option.map box
+                                    Properties = e.Properties
+                                })
+                        Directed = problem.Graph.Directed
+                        Adjacency = problem.Graph.Adjacency
+                    }
+
+                predicate boxedGraph)

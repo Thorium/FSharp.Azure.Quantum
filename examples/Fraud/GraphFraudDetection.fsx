@@ -40,12 +40,31 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "GraphFraudDetection.fsx"
+Cli.exitIfHelp
+    "GraphFraudDetection.fsx"
     "Graph-based fraud detection using quantum QAOA community detection."
-    [ { Cli.OptionSpec.Name = "accounts"; Description = "Comma-separated account IDs to filter output (default: all)"; Default = Some "all" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output (flag)"; Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "accounts"
+            Description = "Comma-separated account IDs to filter output (default: all)"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output (flag)"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -63,11 +82,13 @@ type AccountType =
     | Unknown
 
 type Account =
-    { Id: string
-      Type: AccountType
-      CreationDate: DateTime
-      Country: string
-      RiskScore: float option }
+    {
+        Id: string
+        Type: AccountType
+        CreationDate: DateTime
+        Country: string
+        RiskScore: float option
+    }
 
 type TransactionType =
     | Transfer
@@ -77,34 +98,42 @@ type TransactionType =
     | Exchange
 
 type Transaction =
-    { From: string
-      To: string
-      Amount: float
-      Timestamp: DateTime
-      TransactionType: TransactionType }
+    {
+        From: string
+        To: string
+        Amount: float
+        Timestamp: DateTime
+        TransactionType: TransactionType
+    }
 
 type GraphFeatures =
-    { AccountId: string
-      Degree: int
-      InDegree: int
-      OutDegree: int
-      ClusteringCoefficient: float
-      PageRank: float
-      TotalVolume: float
-      AvgTransactionSize: float
-      TransactionVelocity: float }
+    {
+        AccountId: string
+        Degree: int
+        InDegree: int
+        OutDegree: int
+        ClusteringCoefficient: float
+        PageRank: float
+        TotalVolume: float
+        AvgTransactionSize: float
+        TransactionVelocity: float
+    }
 
 type FraudPattern =
-    { Members: string list
-      Confidence: float
-      PatternType: string }
+    {
+        Members: string list
+        Confidence: float
+        PatternType: string
+    }
 
 type AccountRisk =
-    { AccountId: string
-      RiskScore: float
-      Reasons: string list
-      Community: int
-      HasQuantumFailure: bool }
+    {
+        AccountId: string
+        RiskScore: float
+        Reasons: string list
+        Community: int
+        HasQuantumFailure: bool
+    }
 
 // ==============================================================================
 // SYNTHETIC TRANSACTION NETWORK
@@ -112,53 +141,265 @@ type AccountRisk =
 
 let generateSampleNetwork () =
     let legitimateAccounts =
-        [ { Id = "ACC001"; Type = Business; CreationDate = DateTime(2020, 1, 15); Country = "US"; RiskScore = Some 0.1 }
-          { Id = "ACC002"; Type = Business; CreationDate = DateTime(2019, 6, 20); Country = "US"; RiskScore = Some 0.15 }
-          { Id = "ACC003"; Type = Business; CreationDate = DateTime(2018, 3, 10); Country = "US"; RiskScore = Some 0.1 }
-          { Id = "ACC004"; Type = Personal; CreationDate = DateTime(2021, 2, 5); Country = "US"; RiskScore = Some 0.05 }
-          { Id = "ACC005"; Type = Business; CreationDate = DateTime(2017, 8, 1); Country = "UK"; RiskScore = Some 0.2 }
-          { Id = "ACC006"; Type = Personal; CreationDate = DateTime(2020, 11, 30); Country = "UK"; RiskScore = Some 0.1 }
-          { Id = "ACC007"; Type = Personal; CreationDate = DateTime(2019, 4, 15); Country = "UK"; RiskScore = Some 0.08 } ]
+        [
+            {
+                Id = "ACC001"
+                Type = Business
+                CreationDate = DateTime(2020, 1, 15)
+                Country = "US"
+                RiskScore = Some 0.1
+            }
+            {
+                Id = "ACC002"
+                Type = Business
+                CreationDate = DateTime(2019, 6, 20)
+                Country = "US"
+                RiskScore = Some 0.15
+            }
+            {
+                Id = "ACC003"
+                Type = Business
+                CreationDate = DateTime(2018, 3, 10)
+                Country = "US"
+                RiskScore = Some 0.1
+            }
+            {
+                Id = "ACC004"
+                Type = Personal
+                CreationDate = DateTime(2021, 2, 5)
+                Country = "US"
+                RiskScore = Some 0.05
+            }
+            {
+                Id = "ACC005"
+                Type = Business
+                CreationDate = DateTime(2017, 8, 1)
+                Country = "UK"
+                RiskScore = Some 0.2
+            }
+            {
+                Id = "ACC006"
+                Type = Personal
+                CreationDate = DateTime(2020, 11, 30)
+                Country = "UK"
+                RiskScore = Some 0.1
+            }
+            {
+                Id = "ACC007"
+                Type = Personal
+                CreationDate = DateTime(2019, 4, 15)
+                Country = "UK"
+                RiskScore = Some 0.08
+            }
+        ]
 
     let fraudRingAccounts =
-        [ { Id = "FRAUD01"; Type = Personal; CreationDate = DateTime(2023, 10, 1); Country = "XX"; RiskScore = None }
-          { Id = "FRAUD02"; Type = Personal; CreationDate = DateTime(2023, 10, 2); Country = "XX"; RiskScore = None }
-          { Id = "FRAUD03"; Type = Personal; CreationDate = DateTime(2023, 10, 3); Country = "XX"; RiskScore = None }
-          { Id = "FRAUD04"; Type = MoneyService; CreationDate = DateTime(2023, 9, 28); Country = "XX"; RiskScore = None } ]
+        [
+            {
+                Id = "FRAUD01"
+                Type = Personal
+                CreationDate = DateTime(2023, 10, 1)
+                Country = "XX"
+                RiskScore = None
+            }
+            {
+                Id = "FRAUD02"
+                Type = Personal
+                CreationDate = DateTime(2023, 10, 2)
+                Country = "XX"
+                RiskScore = None
+            }
+            {
+                Id = "FRAUD03"
+                Type = Personal
+                CreationDate = DateTime(2023, 10, 3)
+                Country = "XX"
+                RiskScore = None
+            }
+            {
+                Id = "FRAUD04"
+                Type = MoneyService
+                CreationDate = DateTime(2023, 9, 28)
+                Country = "XX"
+                RiskScore = None
+            }
+        ]
 
     let muleAccounts =
-        [ { Id = "MULE01"; Type = Personal; CreationDate = DateTime(2023, 8, 15); Country = "NG"; RiskScore = Some 0.6 }
-          { Id = "VICTIM01"; Type = Personal; CreationDate = DateTime(2015, 3, 20); Country = "US"; RiskScore = Some 0.05 }
-          { Id = "VICTIM02"; Type = Personal; CreationDate = DateTime(2018, 7, 10); Country = "CA"; RiskScore = Some 0.03 }
-          { Id = "VICTIM03"; Type = Personal; CreationDate = DateTime(2016, 12, 5); Country = "UK"; RiskScore = Some 0.04 } ]
+        [
+            {
+                Id = "MULE01"
+                Type = Personal
+                CreationDate = DateTime(2023, 8, 15)
+                Country = "NG"
+                RiskScore = Some 0.6
+            }
+            {
+                Id = "VICTIM01"
+                Type = Personal
+                CreationDate = DateTime(2015, 3, 20)
+                Country = "US"
+                RiskScore = Some 0.05
+            }
+            {
+                Id = "VICTIM02"
+                Type = Personal
+                CreationDate = DateTime(2018, 7, 10)
+                Country = "CA"
+                RiskScore = Some 0.03
+            }
+            {
+                Id = "VICTIM03"
+                Type = Personal
+                CreationDate = DateTime(2016, 12, 5)
+                Country = "UK"
+                RiskScore = Some 0.04
+            }
+        ]
 
     let allAccounts = legitimateAccounts @ fraudRingAccounts @ muleAccounts
 
     let legitimateTransactions =
-        [ { From = "ACC001"; To = "ACC002"; Amount = 15000.0; Timestamp = DateTime(2024, 1, 5); TransactionType = Payment }
-          { From = "ACC002"; To = "ACC003"; Amount = 12000.0; Timestamp = DateTime(2024, 1, 6); TransactionType = Payment }
-          { From = "ACC003"; To = "ACC001"; Amount = 8000.0; Timestamp = DateTime(2024, 1, 7); TransactionType = Payment }
-          { From = "ACC001"; To = "ACC004"; Amount = 3500.0; Timestamp = DateTime(2024, 1, 8); TransactionType = Transfer }
-          { From = "ACC005"; To = "ACC006"; Amount = 2500.0; Timestamp = DateTime(2024, 1, 3); TransactionType = Payment }
-          { From = "ACC006"; To = "ACC007"; Amount = 800.0; Timestamp = DateTime(2024, 1, 4); TransactionType = Transfer }
-          { From = "ACC007"; To = "ACC005"; Amount = 1200.0; Timestamp = DateTime(2024, 1, 5); TransactionType = Payment }
-          { From = "ACC002"; To = "ACC005"; Amount = 5000.0; Timestamp = DateTime(2024, 1, 10); TransactionType = Payment } ]
+        [
+            {
+                From = "ACC001"
+                To = "ACC002"
+                Amount = 15000.0
+                Timestamp = DateTime(2024, 1, 5)
+                TransactionType = Payment
+            }
+            {
+                From = "ACC002"
+                To = "ACC003"
+                Amount = 12000.0
+                Timestamp = DateTime(2024, 1, 6)
+                TransactionType = Payment
+            }
+            {
+                From = "ACC003"
+                To = "ACC001"
+                Amount = 8000.0
+                Timestamp = DateTime(2024, 1, 7)
+                TransactionType = Payment
+            }
+            {
+                From = "ACC001"
+                To = "ACC004"
+                Amount = 3500.0
+                Timestamp = DateTime(2024, 1, 8)
+                TransactionType = Transfer
+            }
+            {
+                From = "ACC005"
+                To = "ACC006"
+                Amount = 2500.0
+                Timestamp = DateTime(2024, 1, 3)
+                TransactionType = Payment
+            }
+            {
+                From = "ACC006"
+                To = "ACC007"
+                Amount = 800.0
+                Timestamp = DateTime(2024, 1, 4)
+                TransactionType = Transfer
+            }
+            {
+                From = "ACC007"
+                To = "ACC005"
+                Amount = 1200.0
+                Timestamp = DateTime(2024, 1, 5)
+                TransactionType = Payment
+            }
+            {
+                From = "ACC002"
+                To = "ACC005"
+                Amount = 5000.0
+                Timestamp = DateTime(2024, 1, 10)
+                TransactionType = Payment
+            }
+        ]
 
     let fraudRingTransactions =
-        [ { From = "FRAUD01"; To = "FRAUD02"; Amount = 9800.0; Timestamp = DateTime(2024, 1, 15, 10, 0, 0); TransactionType = Transfer }
-          { From = "FRAUD02"; To = "FRAUD03"; Amount = 9500.0; Timestamp = DateTime(2024, 1, 15, 10, 5, 0); TransactionType = Transfer }
-          { From = "FRAUD03"; To = "FRAUD04"; Amount = 9200.0; Timestamp = DateTime(2024, 1, 15, 10, 10, 0); TransactionType = Transfer }
-          { From = "FRAUD04"; To = "FRAUD01"; Amount = 4000.0; Timestamp = DateTime(2024, 1, 15, 10, 15, 0); TransactionType = Transfer }
-          { From = "FRAUD01"; To = "FRAUD03"; Amount = 5000.0; Timestamp = DateTime(2024, 1, 16, 14, 0, 0); TransactionType = Transfer }
-          { From = "FRAUD02"; To = "FRAUD04"; Amount = 4800.0; Timestamp = DateTime(2024, 1, 16, 14, 5, 0); TransactionType = Transfer } ]
+        [
+            {
+                From = "FRAUD01"
+                To = "FRAUD02"
+                Amount = 9800.0
+                Timestamp = DateTime(2024, 1, 15, 10, 0, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "FRAUD02"
+                To = "FRAUD03"
+                Amount = 9500.0
+                Timestamp = DateTime(2024, 1, 15, 10, 5, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "FRAUD03"
+                To = "FRAUD04"
+                Amount = 9200.0
+                Timestamp = DateTime(2024, 1, 15, 10, 10, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "FRAUD04"
+                To = "FRAUD01"
+                Amount = 4000.0
+                Timestamp = DateTime(2024, 1, 15, 10, 15, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "FRAUD01"
+                To = "FRAUD03"
+                Amount = 5000.0
+                Timestamp = DateTime(2024, 1, 16, 14, 0, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "FRAUD02"
+                To = "FRAUD04"
+                Amount = 4800.0
+                Timestamp = DateTime(2024, 1, 16, 14, 5, 0)
+                TransactionType = Transfer
+            }
+        ]
 
     let muleTransactions =
-        [ { From = "VICTIM01"; To = "MULE01"; Amount = 2000.0; Timestamp = DateTime(2024, 1, 12, 9, 0, 0); TransactionType = Transfer }
-          { From = "VICTIM02"; To = "MULE01"; Amount = 1800.0; Timestamp = DateTime(2024, 1, 12, 11, 0, 0); TransactionType = Transfer }
-          { From = "VICTIM03"; To = "MULE01"; Amount = 2200.0; Timestamp = DateTime(2024, 1, 12, 14, 0, 0); TransactionType = Transfer }
-          { From = "MULE01"; To = "FRAUD04"; Amount = 5500.0; Timestamp = DateTime(2024, 1, 13, 8, 0, 0); TransactionType = Withdrawal } ]
+        [
+            {
+                From = "VICTIM01"
+                To = "MULE01"
+                Amount = 2000.0
+                Timestamp = DateTime(2024, 1, 12, 9, 0, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "VICTIM02"
+                To = "MULE01"
+                Amount = 1800.0
+                Timestamp = DateTime(2024, 1, 12, 11, 0, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "VICTIM03"
+                To = "MULE01"
+                Amount = 2200.0
+                Timestamp = DateTime(2024, 1, 12, 14, 0, 0)
+                TransactionType = Transfer
+            }
+            {
+                From = "MULE01"
+                To = "FRAUD04"
+                Amount = 5500.0
+                Timestamp = DateTime(2024, 1, 13, 8, 0, 0)
+                TransactionType = Withdrawal
+            }
+        ]
 
-    let allTransactions = legitimateTransactions @ fraudRingTransactions @ muleTransactions
+    let allTransactions =
+        legitimateTransactions @ fraudRingTransactions @ muleTransactions
+
     (allAccounts, allTransactions)
 
 // ==============================================================================
@@ -171,36 +412,53 @@ let extractGraphFeatures (accounts: Account list) (transactions: Transaction lis
 
     let getNeighbors accountId =
         let outNeighbors =
-            outgoing |> Map.tryFind accountId |> Option.defaultValue [] |> List.map (fun t -> t.To)
+            outgoing
+            |> Map.tryFind accountId
+            |> Option.defaultValue []
+            |> List.map (fun t -> t.To)
+
         let inNeighbors =
-            incoming |> Map.tryFind accountId |> Option.defaultValue [] |> List.map (fun t -> t.From)
+            incoming
+            |> Map.tryFind accountId
+            |> Option.defaultValue []
+            |> List.map (fun t -> t.From)
+
         Set.union (Set.ofList outNeighbors) (Set.ofList inNeighbors)
 
     let clusteringCoefficient accountId =
         let neighbors = getNeighbors accountId |> Set.toList
+
         if neighbors.Length < 2 then
             0.0
         else
             let possibleEdges = neighbors.Length * (neighbors.Length - 1) / 2
+
             let actualEdges =
-                [ for i in 0 .. neighbors.Length - 2 do
-                    for j in i + 1 .. neighbors.Length - 1 do
-                        let n1, n2 = neighbors.[i], neighbors.[j]
-                        let hasEdge =
-                            transactions
-                            |> List.exists (fun t ->
-                                (t.From = n1 && t.To = n2) || (t.From = n2 && t.To = n1))
-                        if hasEdge then yield 1 ]
+                [
+                    for i in 0 .. neighbors.Length - 2 do
+                        for j in i + 1 .. neighbors.Length - 1 do
+                            let n1, n2 = neighbors.[i], neighbors.[j]
+
+                            let hasEdge =
+                                transactions
+                                |> List.exists (fun t -> (t.From = n1 && t.To = n2) || (t.From = n2 && t.To = n1))
+
+                            if hasEdge then
+                                yield 1
+                ]
                 |> List.length
+
             float actualEdges / float possibleEdges
 
     let pageRankScores =
         let n = float accounts.Length
         let dampingFactor = 0.85
+
         accounts
         |> List.map (fun acc ->
             let inLinks =
                 incoming |> Map.tryFind acc.Id |> Option.defaultValue [] |> List.length
+
             let score = (1.0 - dampingFactor) / n + dampingFactor * (float inLinks / n)
             (acc.Id, score))
         |> Map.ofList
@@ -221,24 +479,31 @@ let extractGraphFeatures (accounts: Account list) (transactions: Transaction lis
                 let span = (List.max dates - List.min dates).TotalDays + 1.0
                 float allTx.Length / span
 
-        { AccountId = acc.Id
-          Degree = Set.count neighbors
-          InDegree = inTx.Length
-          OutDegree = outTx.Length
-          ClusteringCoefficient = clusteringCoefficient acc.Id
-          PageRank = pageRankScores |> Map.tryFind acc.Id |> Option.defaultValue 0.0
-          TotalVolume = totalVolume
-          AvgTransactionSize = if allTx.IsEmpty then 0.0 else totalVolume / float allTx.Length
-          TransactionVelocity = velocity })
+        {
+            AccountId = acc.Id
+            Degree = Set.count neighbors
+            InDegree = inTx.Length
+            OutDegree = outTx.Length
+            ClusteringCoefficient = clusteringCoefficient acc.Id
+            PageRank = pageRankScores |> Map.tryFind acc.Id |> Option.defaultValue 0.0
+            TotalVolume = totalVolume
+            AvgTransactionSize =
+                if allTx.IsEmpty then
+                    0.0
+                else
+                    totalVolume / float allTx.Length
+            TransactionVelocity = velocity
+        })
 
 // ==============================================================================
 // QUANTUM COMMUNITY DETECTION (MaxCut)
 // ==============================================================================
 
-let quantumBackend : IQuantumBackend = LocalBackend() :> IQuantumBackend
+let quantumBackend: IQuantumBackend = LocalBackend() :> IQuantumBackend
 
 let detectCommunities (accounts: Account list) (transactions: Transaction list) =
-    if not quiet then printfn "  Running quantum community detection..."
+    if not quiet then
+        printfn "  Running quantum community detection..."
 
     let maxVolume = transactions |> List.map (fun t -> t.Amount) |> List.max
 
@@ -260,13 +525,18 @@ let detectCommunities (accounts: Account list) (transactions: Transaction list) 
             printfn "    Cut value: %.2f" solution.CutValue
 
         let membership =
-            [ for id in solution.PartitionS -> (id, 1)
-              for id in solution.PartitionT -> (id, 2) ]
+            [
+                for id in solution.PartitionS -> (id, 1)
+                for id in solution.PartitionT -> (id, 2)
+            ]
             |> Map.ofList
+
         Ok membership
 
     | Error err ->
-        if not quiet then eprintfn "  Community detection failed: %s" err.Message
+        if not quiet then
+            eprintfn "  Community detection failed: %s" err.Message
+
         Error err
 
 // ==============================================================================
@@ -278,28 +548,39 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
     // Pattern 1: Layering (rapid sequential transfers within 30 min)
     let layeringPatterns =
         let sortedTx = transactions |> List.sortBy (fun t -> t.Timestamp)
+
         let chains, currentChain =
             sortedTx
-            |> List.fold (fun (chains: Transaction list list, currentChain: Transaction list) tx ->
-                match currentChain with
-                | [] -> (chains, [ tx ])
-                | lastTx :: _ ->
-                    let timeDiff = (tx.Timestamp - lastTx.Timestamp).TotalMinutes
-                    if timeDiff < 30.0 && lastTx.To = tx.From then
-                        (chains, tx :: currentChain)
-                    elif currentChain.Length >= 3 then
-                        (currentChain :: chains, [ tx ])
-                    else
-                        (chains, [ tx ])) ([], [])
+            |> List.fold
+                (fun (chains: Transaction list list, currentChain: Transaction list) tx ->
+                    match currentChain with
+                    | [] -> (chains, [ tx ])
+                    | lastTx :: _ ->
+                        let timeDiff = (tx.Timestamp - lastTx.Timestamp).TotalMinutes
+
+                        if timeDiff < 30.0 && lastTx.To = tx.From then
+                            (chains, tx :: currentChain)
+                        elif currentChain.Length >= 3 then
+                            (currentChain :: chains, [ tx ])
+                        else
+                            (chains, [ tx ]))
+                ([], [])
+
         let allChains =
-            if currentChain.Length >= 3 then currentChain :: chains else chains
+            if currentChain.Length >= 3 then
+                currentChain :: chains
+            else
+                chains
+
         allChains
         |> List.map (fun chain ->
-            let members =
-                chain |> List.collect (fun t -> [ t.From; t.To ]) |> List.distinct
-            { Members = members
-              Confidence = min 1.0 (float chain.Length / 5.0)
-              PatternType = "Layering" })
+            let members = chain |> List.collect (fun t -> [ t.From; t.To ]) |> List.distinct
+
+            {
+                Members = members
+                Confidence = min 1.0 (float chain.Length / 5.0)
+                PatternType = "Layering"
+            })
 
     // Pattern 2: Money mule (star topology â€” many in, few out)
     let mulePatterns =
@@ -310,9 +591,12 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
                 transactions
                 |> List.filter (fun t -> t.To = f.AccountId)
                 |> List.map (fun t -> t.From)
-            { Members = f.AccountId :: senders
-              Confidence = 0.8
-              PatternType = $"Money Mule (%s{f.AccountId} <- %d{senders.Length} senders)" })
+
+            {
+                Members = f.AccountId :: senders
+                Confidence = 0.8
+                PatternType = $"Money Mule (%s{f.AccountId} <- %d{senders.Length} senders)"
+            })
 
     // Pattern 3: Circular transactions
     let circularPatterns =
@@ -321,28 +605,36 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
             |> List.groupBy (fun t -> t.From)
             |> List.map (fun (from, txs) -> from, txs |> List.map (fun t -> t.To))
             |> Map.ofList
+
         let allIds = features |> List.map (fun f -> f.AccountId)
+
         let rec dfs path visited current depth maxDepth =
-            if depth > maxDepth then []
-            elif current = List.head path && depth > 2 then [ path ]
-            elif Set.contains current visited then []
+            if depth > maxDepth then
+                []
+            elif current = List.head path && depth > 2 then
+                [ path ]
+            elif Set.contains current visited then
+                []
             else
                 match Map.tryFind current adjacency with
                 | None -> []
                 | Some neighbors ->
                     neighbors
-                    |> List.collect (fun next ->
-                        dfs path (Set.add current visited) next (depth + 1) maxDepth)
+                    |> List.collect (fun next -> dfs path (Set.add current visited) next (depth + 1) maxDepth)
+
         let cycles =
             allIds
             |> List.collect (fun start -> dfs [ start ] Set.empty start 0 5)
             |> List.filter (fun cycle -> cycle.Length >= 3)
             |> List.distinctBy (List.sort >> String.concat ",")
+
         cycles
         |> List.map (fun cycle ->
-            { Members = cycle
-              Confidence = 0.9
-              PatternType = $"Circular (%d{cycle.Length} accounts)" })
+            {
+                Members = cycle
+                Confidence = 0.9
+                PatternType = $"Circular (%d{cycle.Length} accounts)"
+            })
 
     layeringPatterns @ mulePatterns @ circularPatterns
 
@@ -362,8 +654,7 @@ let calculateRiskScores
 
     let fraudInvolvement =
         fraudPatterns
-        |> List.collect (fun p ->
-            p.Members |> List.map (fun m -> m, (p.Confidence, p.PatternType)))
+        |> List.collect (fun p -> p.Members |> List.map (fun m -> m, (p.Confidence, p.PatternType)))
         |> List.groupBy fst
         |> List.map (fun (acc, involvements) ->
             let maxConf = involvements |> List.map (snd >> fst) |> List.max
@@ -388,16 +679,14 @@ let calculateRiskScores
             match feature with
             | Some f ->
                 (score0, reasons0)
-                |> addIf (f.TransactionVelocity > 5.0) 0.2
-                       $"High velocity: %.1f{f.TransactionVelocity} tx/day"
-                |> addIf (f.ClusteringCoefficient > 0.8) 0.15
-                       "Highly clustered connections"
-                |> addIf (f.InDegree > 5 && f.OutDegree <= 1) 0.25
-                       "Money mule topology (many in, few out)"
+                |> addIf (f.TransactionVelocity > 5.0) 0.2 $"High velocity: %.1f{f.TransactionVelocity} tx/day"
+                |> addIf (f.ClusteringCoefficient > 0.8) 0.15 "Highly clustered connections"
+                |> addIf (f.InDegree > 5 && f.OutDegree <= 1) 0.25 "Money mule topology (many in, few out)"
             | None -> (score0, reasons0)
 
         // Factor 2: Account metadata
         let accountAge = (DateTime.Now - acc.CreationDate).TotalDays
+
         let s2, r2 =
             (s1, r1)
             |> addIf (acc.Country = "XX") 0.1 "Unknown jurisdiction"
@@ -406,7 +695,7 @@ let calculateRiskScores
         // Factor 3: Fraud pattern involvement
         let s3, r3 =
             match involvement with
-            | Some (confidence, patterns) ->
+            | Some(confidence, patterns) ->
                 let withPatterns = patterns |> List.fold (fun (s, rs) p -> (s, p :: rs)) (s2, r2)
                 (fst withPatterns + confidence * 0.5, snd withPatterns)
             | None -> (s2, r2)
@@ -417,11 +706,13 @@ let calculateRiskScores
             | Some existing -> (s3 + existing * 0.2, r3)
             | None -> (s3 + 0.05, "No prior risk assessment" :: r3)
 
-        { AccountId = acc.Id
-          RiskScore = min 1.0 s4
-          Reasons = List.rev r4
-          Community = community
-          HasQuantumFailure = hasQuantumFailure })
+        {
+            AccountId = acc.Id
+            RiskScore = min 1.0 s4
+            Reasons = List.rev r4
+            Community = community
+            HasQuantumFailure = hasQuantumFailure
+        })
     |> List.filter (fun r -> r.RiskScore > 0.3)
     |> List.sortByDescending (fun r -> r.RiskScore)
 
@@ -447,11 +738,9 @@ let features = extractGraphFeatures accounts transactions
 let communityResult = detectCommunities accounts transactions
 let fraudPatterns = detectFraudPatterns transactions features
 
-let hasQuantumFailure =
-    communityResult |> Result.isError
+let hasQuantumFailure = communityResult |> Result.isError
 
-let communityMap =
-    communityResult |> Result.defaultWith (fun _ -> Map.empty)
+let communityMap = communityResult |> Result.defaultWith (fun _ -> Map.empty)
 
 let riskScores =
     calculateRiskScores accounts features fraudPatterns communityMap hasQuantumFailure
@@ -462,6 +751,7 @@ let filteredScores =
     | [] -> riskScores
     | filters ->
         let filterSet = filters |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
+
         riskScores
         |> List.filter (fun r ->
             let key = r.AccountId.ToUpperInvariant()
@@ -477,8 +767,7 @@ let printTable () =
     printfn "  Account Risk Scores (Quantum Graph Analysis)"
     printfn "=================================================================="
     printfn ""
-    printfn "  %-12s  %8s  %9s  %4s  %-40s"
-        "Account" "Risk%%" "Community" "Qtm?" "Top Reason"
+    printfn "  %-12s  %8s  %9s  %4s  %-40s" "Account" "Risk%%" "Community" "Qtm?" "Top Reason"
     printfn "  %s" (String('=', 82))
 
     if List.isEmpty filteredScores then
@@ -487,10 +776,18 @@ let printTable () =
         filteredScores
         |> List.iter (fun r ->
             let topReason = r.Reasons |> List.tryHead |> Option.defaultValue "-"
+
             let truncated =
-                if topReason.Length > 40 then topReason.[..39] else topReason
-            printfn "  %-12s  %7.1f%%  %9d  %-4s  %s"
-                r.AccountId (r.RiskScore * 100.0) r.Community
+                if topReason.Length > 40 then
+                    topReason.[..39]
+                else
+                    topReason
+
+            printfn
+                "  %-12s  %7.1f%%  %9d  %-4s  %s"
+                r.AccountId
+                (r.RiskScore * 100.0)
+                r.Community
                 (if r.HasQuantumFailure then "FAIL" else "OK")
                 truncated)
 
@@ -509,9 +806,11 @@ if not quiet then
 
     if not (List.isEmpty fraudPatterns) then
         printfn ""
+
         for p in fraudPatterns do
             printfn "  [%3.0f%%] %s" (p.Confidence * 100.0) p.PatternType
             printfn "         Members: %s" (String.Join(", ", p.Members))
+
     printfn ""
 
 // ==============================================================================
@@ -521,32 +820,46 @@ if not quiet then
 let resultMaps =
     filteredScores
     |> List.map (fun r ->
-        [ "account_id", r.AccountId
-          "risk_score", $"%.4f{r.RiskScore}"
-          "risk_pct", sprintf "%.1f" (r.RiskScore * 100.0)
-          "community", string r.Community
-          "top_reason", (r.Reasons |> List.tryHead |> Option.defaultValue "")
-          "all_reasons", (r.Reasons |> String.concat "; ")
-          "has_quantum_failure", string r.HasQuantumFailure ]
+        [
+            "account_id", r.AccountId
+            "risk_score", $"%.4f{r.RiskScore}"
+            "risk_pct", sprintf "%.1f" (r.RiskScore * 100.0)
+            "community", string r.Community
+            "top_reason", (r.Reasons |> List.tryHead |> Option.defaultValue "")
+            "all_reasons", (r.Reasons |> String.concat "; ")
+            "has_quantum_failure", string r.HasQuantumFailure
+        ]
         |> Map.ofList)
 
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultMaps
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "account_id"; "risk_score"; "risk_pct"; "community"
-          "top_reason"; "all_reasons"; "has_quantum_failure" ]
+        [
+            "account_id"
+            "risk_score"
+            "risk_pct"
+            "community"
+            "top_reason"
+            "all_reasons"
+            "has_quantum_failure"
+        ]
+
     let rows =
         resultMaps
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "CSV written to %s" path
+
+    if not quiet then
+        printfn "CSV written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

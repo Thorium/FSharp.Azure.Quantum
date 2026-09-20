@@ -11,16 +11,16 @@ module PasqalTests =
 
     let private program () : RydbergProgram =
         let register = [ { X = 0.0; Y = 0.0 }; { X = 4.0; Y = 0.0 }; { X = 8.0; Y = 0.0 } ]
-        maximumIndependentSetProgram register 30.0 1.0 4.0 900.0   // 3 pulse segments
+        maximumIndependentSetProgram register 30.0 1.0 4.0 900.0 // 3 pulse segments
 
     [<Fact>]
     let ``toPulserJson emits a valid Pulser abstract-representation`` () =
         let json = Pasqal.toPulserJson (program ())
-        use doc = JsonDocument.Parse(json)   // must be valid JSON
+        use doc = JsonDocument.Parse(json) // must be valid JSON
         let root = doc.RootElement
         Assert.Equal("1", root.GetProperty("version").GetString())
-        Assert.Equal(3, root.GetProperty("register").GetArrayLength())          // 3 atoms
-        Assert.Equal(3, root.GetProperty("operations").GetArrayLength())        // 3 pulse segments
+        Assert.Equal(3, root.GetProperty("register").GetArrayLength()) // 3 atoms
+        Assert.Equal(3, root.GetProperty("operations").GetArrayLength()) // 3 pulse segments
         Assert.True(root.GetProperty("channels").TryGetProperty("rydberg_global") |> fst)
         Assert.Equal("ground-rydberg", root.GetProperty("measurement").GetString())
 
@@ -60,6 +60,8 @@ module PasqalTests =
 
     [<Fact>]
     let ``parsePasqalResult reads a results histogram`` () =
-        let counts = Pasqal.parsePasqalResult """{ "results": { "010": 640, "101": 360 } }"""
+        let counts =
+            Pasqal.parsePasqalResult """{ "results": { "010": 640, "101": 360 } }"""
+
         Assert.Equal(640, counts.["010"])
         Assert.Equal(360, counts.["101"])

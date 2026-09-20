@@ -14,32 +14,27 @@ module ScheduleMetrics =
 
     /// Calculate makespan (latest end time) from assignments.
     let calculateMakespan (assignments: TaskAssignment list) : TimeSpan =
-        if List.isEmpty assignments then TimeSpan.Zero
-        else assignments |> List.map (fun a -> a.EndTime) |> List.max
+        if List.isEmpty assignments then
+            TimeSpan.Zero
+        else
+            assignments |> List.map (fun a -> a.EndTime) |> List.max
 
     /// Calculate total cost from assignments and resources.
-    let calculateTotalCost
-        (assignments: TaskAssignment list)
-        (resources: Resource<'R> list)
-        : float =
+    let calculateTotalCost (assignments: TaskAssignment list) (resources: Resource<'R> list) : float =
 
         assignments
         |> List.sumBy (fun a ->
             let durationMinutes = (a.EndTime - a.StartTime).TotalMinutes
+
             a.AssignedResources
             |> Map.toList
             |> List.sumBy (fun (resourceId, quantity) ->
                 match resources |> List.tryFind (fun r -> r.Id = resourceId) with
                 | Some resource -> resource.CostPerUnit * quantity * durationMinutes
-                | None -> 0.0
-            )
-        )
+                | None -> 0.0))
 
     /// Find tasks that violate their deadlines.
-    let findDeadlineViolations
-        (tasks: ScheduledTask<'T> list)
-        (completionTimes: Map<string, TimeSpan>)
-        : string list =
+    let findDeadlineViolations (tasks: ScheduledTask<'T> list) (completionTimes: Map<string, TimeSpan>) : string list =
 
         tasks
         |> List.choose (fun task ->
@@ -47,8 +42,7 @@ module ScheduleMetrics =
             | Some deadline ->
                 let completion = Map.find task.Id completionTimes
                 if completion > deadline then Some task.Id else None
-            | None -> None
-        )
+            | None -> None)
 
     /// Calculate resource utilization across all resources.
     let calculateResourceUtilization
@@ -63,12 +57,12 @@ module ScheduleMetrics =
                 assignments
                 |> List.sumBy (fun a ->
                     let durationMinutes = (a.EndTime - a.StartTime).TotalMinutes
+
                     match Map.tryFind r.Id a.AssignedResources with
                     | Some quantity -> quantity * durationMinutes
-                    | None -> 0.0
-                )
+                    | None -> 0.0)
+
             let maxPossible = r.Capacity * makespan.TotalMinutes
             let utilization = if maxPossible > 0.0 then totalUsage / maxPossible else 0.0
-            r.Id, utilization
-        )
+            r.Id, utilization)
         |> Map.ofList

@@ -55,14 +55,48 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "HamiltonianTimeEvolution.fsx"
     "Trotter-Suzuki time evolution for molecular Hamiltonians on unified backends."
-    [ { Cli.OptionSpec.Name = "bond-length"; Description = "H2 bond length in Angstroms";        Default = Some "0.74" }
-      { Cli.OptionSpec.Name = "time";        Description = "Evolution time in atomic units";      Default = Some "1.0" }
-      { Cli.OptionSpec.Name = "steps";       Description = "Number of Trotter steps";             Default = Some "20" }
-      { Cli.OptionSpec.Name = "order";       Description = "Trotter order (1 or 2)";              Default = Some "2" }
-      { Cli.OptionSpec.Name = "backend";     Description = "Backend: local, topological, or both"; Default = Some "both" }
-      { Cli.OptionSpec.Name = "output";      Description = "Write results to JSON file";          Default = None }
-      { Cli.OptionSpec.Name = "csv";         Description = "Write results to CSV file";           Default = None }
-      { Cli.OptionSpec.Name = "quiet";       Description = "Suppress informational output";      Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "bond-length"
+            Description = "H2 bond length in Angstroms"
+            Default = Some "0.74"
+        }
+        {
+            Cli.OptionSpec.Name = "time"
+            Description = "Evolution time in atomic units"
+            Default = Some "1.0"
+        }
+        {
+            Cli.OptionSpec.Name = "steps"
+            Description = "Number of Trotter steps"
+            Default = Some "20"
+        }
+        {
+            Cli.OptionSpec.Name = "order"
+            Description = "Trotter order (1 or 2)"
+            Default = Some "2"
+        }
+        {
+            Cli.OptionSpec.Name = "backend"
+            Description = "Backend: local, topological, or both"
+            Default = Some "both"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -72,8 +106,13 @@ let trotterSteps = Cli.getIntOr "steps" 20 args
 let trotterOrder = Cli.getIntOr "order" 2 args
 let backendArg = Cli.getOr "backend" "both" args
 
-let runLocal = String.Equals(backendArg, "local", StringComparison.OrdinalIgnoreCase) || String.Equals(backendArg, "both", StringComparison.OrdinalIgnoreCase)
-let runTopo  = String.Equals(backendArg, "topological", StringComparison.OrdinalIgnoreCase) || String.Equals(backendArg, "both", StringComparison.OrdinalIgnoreCase)
+let runLocal =
+    String.Equals(backendArg, "local", StringComparison.OrdinalIgnoreCase)
+    || String.Equals(backendArg, "both", StringComparison.OrdinalIgnoreCase)
+
+let runTopo =
+    String.Equals(backendArg, "topological", StringComparison.OrdinalIgnoreCase)
+    || String.Equals(backendArg, "both", StringComparison.OrdinalIgnoreCase)
 
 // ==============================================================================
 // UNIFIED STATE ANALYSIS HELPERS
@@ -101,6 +140,7 @@ let analyzeState (state: QuantumState) (numQubits: int) (label: string) =
 
     if not quiet then
         printfn "    Top measurement outcomes (1000 shots):"
+
         counts
         |> Array.truncate 4
         |> Array.iter (fun (bitstring, count) ->
@@ -111,8 +151,7 @@ let analyzeState (state: QuantumState) (numQubits: int) (label: string) =
 
 /// Get probability of specific basis state (works with any QuantumState)
 let getBasisProbability (state: QuantumState) (basisIndex: int) (numQubits: int) =
-    let bitstring =
-        [| for i in 0 .. numQubits - 1 -> (basisIndex >>> i) &&& 1 |]
+    let bitstring = [| for i in 0 .. numQubits - 1 -> (basisIndex >>> i) &&& 1 |]
     QuantumState.probability bitstring state
 
 // ==============================================================================
@@ -140,11 +179,12 @@ if not quiet then
 let hamiltonianResult = MolecularHamiltonian.build h2
 
 /// Mutable list to collect results across backends
-let mutable allBackendResults : Map<string, string> list = []
+let mutable allBackendResults: Map<string, string> list = []
 
 match hamiltonianResult with
 | Error err ->
-    if not quiet then printfn "Hamiltonian construction failed: %A" err
+    if not quiet then
+        printfn "Hamiltonian construction failed: %A" err
 | Ok hamiltonian ->
     if not quiet then
         printfn "Molecular Hamiltonian constructed"
@@ -176,12 +216,13 @@ match hamiltonianResult with
             analyzeState initialState hamiltonian.NumQubits "Initial" |> ignore
             printfn ""
 
-        let config = {
-            HamiltonianSimulation.SimulationConfig.Time = evolutionTime
-            HamiltonianSimulation.SimulationConfig.TrotterSteps = trotterSteps
-            HamiltonianSimulation.SimulationConfig.TrotterOrder = trotterOrder
-            HamiltonianSimulation.SimulationConfig.Backend = Some backend
-        }
+        let config =
+            {
+                HamiltonianSimulation.SimulationConfig.Time = evolutionTime
+                HamiltonianSimulation.SimulationConfig.TrotterSteps = trotterSteps
+                HamiltonianSimulation.SimulationConfig.TrotterOrder = trotterOrder
+                HamiltonianSimulation.SimulationConfig.Backend = Some backend
+            }
 
         if not quiet then
             printfn "  Simulation config:"
@@ -198,19 +239,21 @@ match hamiltonianResult with
             if not quiet then
                 printfn "  Simulation failed: %A" err
                 printfn ""
-            Map.ofList [
-                "backend", backendLabel
-                "backend_name", backend.Name
-                "bond_length_A", $"%.2f{bondLength}"
-                "time_au", $"%.1f{evolutionTime}"
-                "trotter_steps", $"%d{trotterSteps}"
-                "trotter_order", $"%d{trotterOrder}"
-                "num_qubits", $"%d{hamiltonian.NumQubits}"
-                "num_terms", $"%d{hamiltonian.Terms.Length}"
-                "ground_state_prob", "N/A"
-                "normalized", "N/A"
-                "status", $"Error: %A{err}"
-            ]
+
+            Map.ofList
+                [
+                    "backend", backendLabel
+                    "backend_name", backend.Name
+                    "bond_length_A", $"%.2f{bondLength}"
+                    "time_au", $"%.1f{evolutionTime}"
+                    "trotter_steps", $"%d{trotterSteps}"
+                    "trotter_order", $"%d{trotterOrder}"
+                    "num_qubits", $"%d{hamiltonian.NumQubits}"
+                    "num_terms", $"%d{hamiltonian.Terms.Length}"
+                    "ground_state_prob", "N/A"
+                    "normalized", "N/A"
+                    "status", $"Error: %A{err}"
+                ]
         | Ok finalState ->
             let p0 = getBasisProbability finalState 0 hamiltonian.NumQubits
             let normalized = QuantumState.isNormalized finalState
@@ -223,19 +266,20 @@ match hamiltonianResult with
                 printfn "  Normalized: %b" normalized
                 printfn ""
 
-            Map.ofList [
-                "backend", backendLabel
-                "backend_name", backend.Name
-                "bond_length_A", $"%.2f{bondLength}"
-                "time_au", $"%.1f{evolutionTime}"
-                "trotter_steps", $"%d{trotterSteps}"
-                "trotter_order", $"%d{trotterOrder}"
-                "num_qubits", $"%d{hamiltonian.NumQubits}"
-                "num_terms", $"%d{hamiltonian.Terms.Length}"
-                "ground_state_prob", $"%.6f{p0}"
-                "normalized", $"%b{normalized}"
-                "status", "OK"
-            ]
+            Map.ofList
+                [
+                    "backend", backendLabel
+                    "backend_name", backend.Name
+                    "bond_length_A", $"%.2f{bondLength}"
+                    "time_au", $"%.1f{evolutionTime}"
+                    "trotter_steps", $"%d{trotterSteps}"
+                    "trotter_order", $"%d{trotterOrder}"
+                    "num_qubits", $"%d{hamiltonian.NumQubits}"
+                    "num_terms", $"%d{hamiltonian.Terms.Length}"
+                    "ground_state_prob", $"%.6f{p0}"
+                    "normalized", $"%b{normalized}"
+                    "status", "OK"
+                ]
 
     // ==================================================================
     // BACKEND 1: LocalBackend
@@ -274,21 +318,27 @@ match hamiltonianResult with
             printfn ""
 
         let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+
         let localInitialState =
             match localBackend.InitializeState hamiltonian.NumQubits with
             | Ok state -> state
             | Error err -> failwithf "Failed to initialize state: %A" err
 
-        let config1st = {
-            HamiltonianSimulation.SimulationConfig.Time = evolutionTime
-            HamiltonianSimulation.SimulationConfig.TrotterSteps = trotterSteps
-            HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
-            HamiltonianSimulation.SimulationConfig.Backend = Some localBackend
-        }
+        let config1st =
+            {
+                HamiltonianSimulation.SimulationConfig.Time = evolutionTime
+                HamiltonianSimulation.SimulationConfig.TrotterSteps = trotterSteps
+                HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+                HamiltonianSimulation.SimulationConfig.Backend = Some localBackend
+            }
+
         let config2nd = { config1st with TrotterOrder = 2 }
 
-        let result1st = HamiltonianSimulation.simulate hamiltonian localInitialState config1st
-        let result2nd = HamiltonianSimulation.simulate hamiltonian localInitialState config2nd
+        let result1st =
+            HamiltonianSimulation.simulate hamiltonian localInitialState config1st
+
+        let result2nd =
+            HamiltonianSimulation.simulate hamiltonian localInitialState config2nd
 
         match result1st, result2nd with
         | Ok state1st, Ok state2nd ->
@@ -308,36 +358,42 @@ match hamiltonianResult with
                 printfn ""
 
             // Add Trotter comparison rows
-            allBackendResults <- allBackendResults @ [
-                Map.ofList [
-                    "backend", "Trotter-1st-order"
-                    "backend_name", localBackend.Name
-                    "bond_length_A", $"%.2f{bondLength}"
-                    "time_au", $"%.1f{evolutionTime}"
-                    "trotter_steps", $"%d{trotterSteps}"
-                    "trotter_order", "1"
-                    "num_qubits", $"%d{hamiltonian.NumQubits}"
-                    "num_terms", $"%d{hamiltonian.Terms.Length}"
-                    "ground_state_prob", $"%.6f{p0_1st}"
-                    "normalized", sprintf "%b" (QuantumState.isNormalized state1st)
-                    "status", "OK"
+            allBackendResults <-
+                allBackendResults
+                @ [
+                    Map.ofList
+                        [
+                            "backend", "Trotter-1st-order"
+                            "backend_name", localBackend.Name
+                            "bond_length_A", $"%.2f{bondLength}"
+                            "time_au", $"%.1f{evolutionTime}"
+                            "trotter_steps", $"%d{trotterSteps}"
+                            "trotter_order", "1"
+                            "num_qubits", $"%d{hamiltonian.NumQubits}"
+                            "num_terms", $"%d{hamiltonian.Terms.Length}"
+                            "ground_state_prob", $"%.6f{p0_1st}"
+                            "normalized", sprintf "%b" (QuantumState.isNormalized state1st)
+                            "status", "OK"
+                        ]
+                    Map.ofList
+                        [
+                            "backend", "Trotter-2nd-order"
+                            "backend_name", localBackend.Name
+                            "bond_length_A", $"%.2f{bondLength}"
+                            "time_au", $"%.1f{evolutionTime}"
+                            "trotter_steps", $"%d{trotterSteps}"
+                            "trotter_order", "2"
+                            "num_qubits", $"%d{hamiltonian.NumQubits}"
+                            "num_terms", $"%d{hamiltonian.Terms.Length}"
+                            "ground_state_prob", $"%.6f{p0_2nd}"
+                            "normalized", sprintf "%b" (QuantumState.isNormalized state2nd)
+                            "status", "OK"
+                        ]
                 ]
-                Map.ofList [
-                    "backend", "Trotter-2nd-order"
-                    "backend_name", localBackend.Name
-                    "bond_length_A", $"%.2f{bondLength}"
-                    "time_au", $"%.1f{evolutionTime}"
-                    "trotter_steps", $"%d{trotterSteps}"
-                    "trotter_order", "2"
-                    "num_qubits", $"%d{hamiltonian.NumQubits}"
-                    "num_terms", $"%d{hamiltonian.Terms.Length}"
-                    "ground_state_prob", $"%.6f{p0_2nd}"
-                    "normalized", sprintf "%b" (QuantumState.isNormalized state2nd)
-                    "status", "OK"
-                ]
-            ]
         | _ ->
-            if not quiet then printfn "  Trotter comparison failed"; printfn ""
+            if not quiet then
+                printfn "  Trotter comparison failed"
+                printfn ""
 
     // ==================================================================
     // UNIFIED ARCHITECTURE SUMMARY
@@ -387,30 +443,50 @@ match hamiltonianResult with
 // STRUCTURED OUTPUT
 // ==============================================================================
 
-let allResults : Map<string, obj> =
-    Map.ofList [
-        "script", box "HamiltonianTimeEvolution.fsx"
-        "bond_length_A", box bondLength
-        "evolution_time_au", box evolutionTime
-        "trotter_steps", box trotterSteps
-        "trotter_order", box trotterOrder
-        "backend_arg", box backendArg
-        "backend_results", box allBackendResults
-    ]
+let allResults: Map<string, obj> =
+    Map.ofList
+        [
+            "script", box "HamiltonianTimeEvolution.fsx"
+            "bond_length_A", box bondLength
+            "evolution_time_au", box evolutionTime
+            "trotter_steps", box trotterSteps
+            "trotter_order", box trotterOrder
+            "backend_arg", box backendArg
+            "backend_results", box allBackendResults
+        ]
 
-Cli.tryGet "output" args |> Option.iter (fun path ->
+Cli.tryGet "output" args
+|> Option.iter (fun path ->
     Reporting.writeJson path allResults
-    if not quiet then printfn "Results written to %s" path)
+
+    if not quiet then
+        printfn "Results written to %s" path)
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header = [ "backend"; "backend_name"; "bond_length_A"; "time_au"; "trotter_steps"; "trotter_order"; "num_qubits"; "num_terms"; "ground_state_prob"; "normalized"; "status" ]
+    let header =
+        [
+            "backend"
+            "backend_name"
+            "bond_length_A"
+            "time_au"
+            "trotter_steps"
+            "trotter_order"
+            "num_qubits"
+            "num_terms"
+            "ground_state_prob"
+            "normalized"
+            "status"
+        ]
+
     let rows =
         allBackendResults
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

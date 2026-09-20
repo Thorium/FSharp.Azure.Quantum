@@ -15,12 +15,12 @@ module QuantumMonteCarloTests =
 
     let private createSimpleConfig numQubits iterations shots =
         let statePrep =
-            [0 .. numQubits - 1]
-            |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q))
-                         (CircuitBuilder.empty numQubits)
+            [ 0 .. numQubits - 1 ]
+            |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q)) (CircuitBuilder.empty numQubits)
+
         let oracle =
-            CircuitBuilder.empty numQubits
-            |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
+            CircuitBuilder.empty numQubits |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
+
         {
             NumQubits = numQubits
             StatePreparation = statePrep
@@ -44,29 +44,46 @@ module QuantumMonteCarloTests =
             let probs = [| 0.1; 0.2; 0.3; 0.4 |]
             let amps = probs |> Array.map (fun p -> System.Numerics.Complex(sqrt p, 0.0))
             let qubits = [| 0 .. numQubits - 1 |]
+
             let statePrep =
                 FSharp.Azure.Quantum.Algorithms.MottonenStatePreparation.prepareStateFromAmplitudes
-                    amps qubits (CircuitBuilder.empty numQubits)
+                    amps
+                    qubits
+                    (CircuitBuilder.empty numQubits)
             // Phase oracle marking basis states 0 (|00>) and 1: flip the qubits that are 0 in
             // the target index, apply CZ to flip |11>, then undo the flips.
             let markState (c: CircuitBuilder.Circuit) (idx: int) =
-                let flips = [0 .. numQubits - 1] |> List.filter (fun q -> (idx >>> q) &&& 1 = 0)
-                let withFlips = flips |> List.fold (fun cc q -> cc |> CircuitBuilder.addGate (CircuitBuilder.X q)) c
+                let flips = [ 0 .. numQubits - 1 ] |> List.filter (fun q -> (idx >>> q) &&& 1 = 0)
+
+                let withFlips =
+                    flips
+                    |> List.fold (fun cc q -> cc |> CircuitBuilder.addGate (CircuitBuilder.X q)) c
+
                 let withCZ = withFlips |> CircuitBuilder.addGate (CircuitBuilder.CZ(0, 1))
-                flips |> List.fold (fun cc q -> cc |> CircuitBuilder.addGate (CircuitBuilder.X q)) withCZ
-            let oracle = [0; 1] |> List.fold markState (CircuitBuilder.empty numQubits)
+
+                flips
+                |> List.fold (fun cc q -> cc |> CircuitBuilder.addGate (CircuitBuilder.X q)) withCZ
+
+            let oracle = [ 0; 1 ] |> List.fold markState (CircuitBuilder.empty numQubits)
+
             let config =
-                { NumQubits = numQubits
-                  StatePreparation = statePrep
-                  Oracle = oracle
-                  GroverIterations = 4
-                  Shots = 1000 }
-            match! estimateExpectation config (createBackend()) |> Async.StartImmediateAsTask with
+                {
+                    NumQubits = numQubits
+                    StatePreparation = statePrep
+                    Oracle = oracle
+                    GroverIterations = 4
+                    Shots = 1000
+                }
+
+            match! estimateExpectation config (createBackend ()) |> Async.StartImmediateAsTask with
             | Ok qmc ->
-                Assert.True(abs (qmc.ExpectationValue - 0.3) < 0.02,
-                    $"Expected marked amplitude a ≈ 0.3, got {qmc.ExpectationValue}")
+                Assert.True(
+                    abs (qmc.ExpectationValue - 0.3) < 0.02,
+                    $"Expected marked amplitude a ≈ 0.3, got {qmc.ExpectationValue}"
+                )
             | Error e -> failwith $"QAE failed: {e}"
-        } :> Task
+        }
+        :> Task
 
     // ========================================================================
     // VALIDATION
@@ -75,52 +92,82 @@ module QuantumMonteCarloTests =
     [<Fact>]
     let ``estimateExpectation rejects NumQubits < 1`` () =
         task {
-            let config = { createSimpleConfig 1 1 100 with NumQubits = 0 }
-            let qb = createBackend()
+            let config =
+                { createSimpleConfig 1 1 100 with
+                    NumQubits = 0
+                }
+
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
-            | Error (QuantumError.ValidationError ("NumQubits", _)) -> ()
+            | Error(QuantumError.ValidationError("NumQubits", _)) -> ()
             | r -> failwith $"Expected ValidationError for NumQubits, got {r}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects NumQubits > 20`` () =
         task {
-            let config = { createSimpleConfig 1 1 100 with NumQubits = 21 }
-            let qb = createBackend()
+            let config =
+                { createSimpleConfig 1 1 100 with
+                    NumQubits = 21
+                }
+
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
-            | Error (QuantumError.ValidationError ("NumQubits", _)) -> ()
+            | Error(QuantumError.ValidationError("NumQubits", _)) -> ()
             | r -> failwith $"Expected ValidationError for NumQubits, got {r}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects negative GroverIterations`` () =
         task {
-            let config = { createSimpleConfig 2 1 100 with GroverIterations = -1 }
-            let qb = createBackend()
+            let config =
+                { createSimpleConfig 2 1 100 with
+                    GroverIterations = -1
+                }
+
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
-            | Error (QuantumError.ValidationError ("GroverIterations", _)) -> ()
+            | Error(QuantumError.ValidationError("GroverIterations", _)) -> ()
             | r -> failwith $"Expected ValidationError for GroverIterations, got {r}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects Shots < 100`` () =
         task {
-            let config = { createSimpleConfig 2 1 50 with Shots = 50 }
-            let qb = createBackend()
+            let config =
+                { createSimpleConfig 2 1 50 with
+                    Shots = 50
+                }
+
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
-            | Error (QuantumError.ValidationError ("Shots", _)) -> ()
+            | Error(QuantumError.ValidationError("Shots", _)) -> ()
             | r -> failwith $"Expected ValidationError for Shots, got {r}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation rejects state prep qubit count mismatch`` () =
         task {
-            let config = { createSimpleConfig 3 1 100 with NumQubits = 2 }
-            let qb = createBackend()
+            let config =
+                { createSimpleConfig 3 1 100 with
+                    NumQubits = 2
+                }
+
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
-            | Error (QuantumError.ValidationError _) -> ()
+            | Error(QuantumError.ValidationError _) -> ()
             | r -> failwith $"Expected ValidationError for qubit count mismatch, got {r}"
-        } :> Task
+        }
+        :> Task
 
     // ========================================================================
     // SUCCESSFUL EXECUTION
@@ -130,26 +177,39 @@ module QuantumMonteCarloTests =
     let ``estimateExpectation returns QMCResult on success`` () =
         task {
             let config = createSimpleConfig 3 1 100
-            let qb = createBackend()
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Ok qmc ->
-                Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0,
-                    $"ExpectationValue {qmc.ExpectationValue} should be in [0,1]")
+                Assert.True(
+                    qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0,
+                    $"ExpectationValue {qmc.ExpectationValue} should be in [0,1]"
+                )
+
                 Assert.True(qmc.StandardError > 0.0, "StandardError should be positive")
-                Assert.True(qmc.SuccessProbability >= 0.0 && qmc.SuccessProbability <= 1.0,
-                    $"SuccessProbability {qmc.SuccessProbability} should be in [0,1]")
+
+                Assert.True(
+                    qmc.SuccessProbability >= 0.0 && qmc.SuccessProbability <= 1.0,
+                    $"SuccessProbability {qmc.SuccessProbability} should be in [0,1]"
+                )
+
                 Assert.True(qmc.QuantumQueries > 0, "QuantumQueries should be positive")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation with zero Grover iterations still works`` () =
         task {
             let config = createSimpleConfig 2 0 100
-            let qb = createBackend()
+            let qb = createBackend ()
             let! result = estimateExpectation config qb |> Async.StartImmediateAsTask
-            result |> Result.map (fun qmc -> Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
-        } :> Task
+
+            result
+            |> Result.map (fun qmc -> Assert.True(qmc.ExpectationValue >= 0.0 && qmc.ExpectationValue <= 1.0))
+            |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        }
+        :> Task
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -159,29 +219,42 @@ module QuantumMonteCarloTests =
     let ``estimateProbability returns probability in valid range`` () =
         task {
             let numQubits = 3
+
             let statePrep =
-                [0 .. numQubits - 1]
-                |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q))
-                             (CircuitBuilder.empty numQubits)
+                [ 0 .. numQubits - 1 ]
+                |> List.fold
+                    (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q))
+                    (CircuitBuilder.empty numQubits)
+
             let oracle =
-                CircuitBuilder.empty numQubits
-                |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
-            let qb = createBackend()
+                CircuitBuilder.empty numQubits |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
+
+            let qb = createBackend ()
             let! result = estimateProbability statePrep oracle 1 qb |> Async.StartImmediateAsTask
-            result |> Result.map (fun p -> Assert.True(p >= 0.0 && p <= 1.0, $"Probability {p} should be in [0,1]")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
-        } :> Task
+
+            result
+            |> Result.map (fun p -> Assert.True(p >= 0.0 && p <= 1.0, $"Probability {p} should be in [0,1]"))
+            |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``integrate returns a finite value`` () =
         task {
             let numQubits = 3
+
             let functionOracle =
-                CircuitBuilder.empty numQubits
-                |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
-            let qb = createBackend()
+                CircuitBuilder.empty numQubits |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
+
+            let qb = createBackend ()
             let! result = integrate functionOracle (0.0, 1.0) 1 qb |> Async.StartImmediateAsTask
-            result |> Result.map (fun value -> Assert.True(System.Double.IsFinite(value), $"Integration result {value} should be finite")) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
-        } :> Task
+
+            result
+            |> Result.map (fun value ->
+                Assert.True(System.Double.IsFinite(value), $"Integration result {value} should be finite"))
+            |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        }
+        :> Task
 
     // ========================================================================
     // QMC RESULT FIELDS
@@ -191,22 +264,26 @@ module QuantumMonteCarloTests =
     let ``QMCResult has correct QuantumQueries calculation`` () =
         task {
             let config = createSimpleConfig 3 2 200
-            let qb = createBackend()
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Ok qmc ->
                 // QuantumQueries = GroverIterations * Shots
                 Assert.Equal(2 * 200, qmc.QuantumQueries)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``QMCResult has correct ClassicalEquivalent calculation`` () =
         task {
             let config = createSimpleConfig 3 3 100
-            let qb = createBackend()
+            let qb = createBackend ()
+
             match! estimateExpectation config qb |> Async.StartImmediateAsTask with
             | Ok qmc ->
                 // ClassicalEquivalent = GroverIterations^2
                 Assert.Equal(9, qmc.ClassicalEquivalent)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task

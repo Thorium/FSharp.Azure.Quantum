@@ -9,7 +9,7 @@ module EmulationTests =
     let private bell () =
         CircuitBuilder.empty 2
         |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-        |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+        |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
 
     [<Fact>]
     let ``emulate on a known target validates and runs the Bell circuit`` () =
@@ -37,7 +37,8 @@ module EmulationTests =
         let wide =
             CircuitBuilder.empty 5
             |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-            |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 4))
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 4))
+
         match Emulation.emulate "rigetti.qpu.aspen-m-3" 500 wide with
         | Error e -> failwith $"emulate failed: {e.Message}"
         | Ok report ->

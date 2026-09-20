@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Core
+
 open FSharp.Azure.Quantum.Core
 
 open System
@@ -8,35 +9,35 @@ open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 /// IonQ Backend Integration
-/// 
+///
 /// Implements circuit serialization to IonQ format, job submission to ionq.simulator,
 /// result parsing, and error mapping.
 module IonQBackend =
-    
+
     // ============================================================================
     // TYPE DEFINITIONS
     // ============================================================================
-    
+
     /// IonQ gate representation using discriminated unions to avoid JSON null issues
-    /// 
+    ///
     /// Design rationale: Using DUs instead of records with optional fields prevents
     /// JSON serialization null complications. Each gate variant contains exactly
     /// the fields it needs, with no nulls.
     type IonQGate =
         /// Single-qubit gate (H, X, Y, Z, S, T)
         | SingleQubit of gate: string * target: int
-        
+
         /// Single-qubit rotation gate (RX, RY, RZ)
         | SingleQubitRotation of gate: string * target: int * rotation: float
-        
+
         /// Two-qubit gate (CNOT, MS)
         | TwoQubit of gate: string * control: int * target: int
-        
+
         /// Measurement operation
         | Measure of targets: int[]
-    
+
     /// IonQ circuit format (JSON schema)
-    /// 
+    ///
     /// Example JSON:
     /// {
     ///   "qubits": 3,
@@ -45,23 +46,24 @@ module IonQBackend =
     ///     { "gate": "cnot", "control": 0, "target": 1 }
     ///   ]
     /// }
-    type IonQCircuit = {
-        /// Number of qubits
-        Qubits: int
-        
-        /// Sequence of gates
-        Circuit: IonQGate list
-    }
-    
+    type IonQCircuit =
+        {
+            /// Number of qubits
+            Qubits: int
+
+            /// Sequence of gates
+            Circuit: IonQGate list
+        }
+
     // ============================================================================
     // GATE SERIALIZATION
     // ============================================================================
-    
+
     /// Serialize a single IonQ gate to JSON string
-    /// 
+    ///
     /// Uses manual JSON construction to avoid null serialization issues.
     /// Each gate variant produces exactly the JSON fields it needs.
-    /// 
+    ///
     /// Examples:
     /// - SingleQubit("h", 0) → {"gate": "h", "target": 0}
     /// - TwoQubit("cnot", 0, 1) → {"gate": "cnot", "control": 0, "target": 1}
@@ -70,42 +72,44 @@ module IonQBackend =
     let serializeGate (gate: IonQGate) : string =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream)
-        
+
         writer.WriteStartObject()
-        
+
         match gate with
         | SingleQubit(gateName, target) ->
             writer.WriteString("gate", gateName)
             writer.WriteNumber("target", target)
-        
+
         | SingleQubitRotation(gateName, target, rotation) ->
             writer.WriteString("gate", gateName)
             writer.WriteNumber("target", target)
             writer.WriteNumber("rotation", rotation)
-        
+
         | TwoQubit(gateName, control, target) ->
             writer.WriteString("gate", gateName)
             writer.WriteNumber("control", control)
             writer.WriteNumber("target", target)
-        
+
         | Measure targets ->
             writer.WriteString("gate", "measure")
             writer.WriteStartArray "target"
+
             for t in targets do
                 writer.WriteNumberValue t
+
             writer.WriteEndArray()
-        
+
         writer.WriteEndObject()
         writer.Flush()
-        
+
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
-    
+
     // ============================================================================
     // CIRCUIT SERIALIZATION
     // ============================================================================
-    
+
     /// Serialize an IonQ circuit to JSON string
-    /// 
+    ///
     /// Produces JSON in IonQ format:
     /// {
     ///   "qubits": 2,
@@ -118,32 +122,34 @@ module IonQBackend =
     let serializeCircuit (circuit: IonQCircuit) : string =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream, JsonWriterOptions(Indented = false))
-        
+
         writer.WriteStartObject()
         writer.WriteNumber("qubits", circuit.Qubits)
-        
+
         // Serialize circuit array
         writer.WriteStartArray "circuit"
+
         for gate in circuit.Circuit do
             // Parse each gate's JSON and write to array
             let gateJson = serializeGate gate
             use gateDoc = JsonDocument.Parse(gateJson)
             gateDoc.RootElement.WriteTo writer
+
         writer.WriteEndArray()
-        
+
         writer.WriteEndObject()
         writer.Flush()
-        
+
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
-    
+
     // ============================================================================
     // CIRCUIT VALIDATION (Pre-Flight Checks)
     // ============================================================================
-    
+
     /// Extract circuit information for validation
     /// Converts IonQCircuit to CircuitValidator.Circuit format
     let private extractCircuitInfo (circuit: IonQCircuit) : CircuitValidator.CircuitStats =
-        let usedGates = 
+        let usedGates =
             circuit.Circuit
             |> List.map (fun gate ->
                 match gate with
@@ -152,14 +158,14 @@ module IonQBackend =
                 | TwoQubit(gateName, _, _) -> gateName.ToUpperInvariant()
                 | Measure _ -> "MEASURE")
             |> Set.ofList
-        
+
         let twoQubitGates =
             circuit.Circuit
             |> List.choose (fun gate ->
                 match gate with
-                | TwoQubit(_, control, target) -> Some (control, target)
+                | TwoQubit(_, control, target) -> Some(control, target)
                 | _ -> None)
-        
+
         {
             CircuitValidator.NumQubits = circuit.Qubits
             CircuitValidator.GateCount = circuit.Circuit.Length
@@ -167,23 +173,23 @@ module IonQBackend =
             CircuitValidator.UsedGates = usedGates
             CircuitValidator.TwoQubitGates = twoQubitGates
         }
-    
+
     // ============================================================================
     // JOB SUBMISSION
     // ============================================================================
-    
+
     /// Create a JobSubmission for an IonQ circuit
-    /// 
+    ///
     /// Parameters:
     /// - circuit: IonQ circuit to submit
     /// - shots: Number of measurement shots
     /// - target: IonQ backend target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
-    /// 
+    ///
     /// Returns: JobSubmission ready for submitJobAsync
     let createJobSubmission (circuit: IonQCircuit) (shots: int) (target: string) : JobSubmission =
         let jobId = Guid.NewGuid().ToString()
         let circuitJson = serializeCircuit circuit
-        
+
         {
             JobId = jobId
             Target = target
@@ -193,11 +199,11 @@ module IonQBackend =
             InputParams = Map [ ("shots", shots :> obj) ]
             Tags = Map.empty
         }
-    
+
     // ============================================================================
     // RESULT PARSING
     // ============================================================================
-    
+
     /// Parse IonQ result JSON into a measurement-count histogram keyed by bitstrings
     /// (rightmost character = qubit 0, matching the local simulators).
     ///
@@ -228,24 +234,24 @@ module IonQBackend =
         // as decimal indices.
         let normalizeKey (treatAsBitstring: bool) (key: string) : Result<string, string> =
             let isBinary = key.Length > 0 && key |> Seq.forall (fun c -> c = '0' || c = '1')
+
             if treatAsBitstring && isBinary then
                 if key.Length > numQubits then
                     Error $"Bitstring key '{key}' is longer than the circuit's {numQubits} qubits"
                 else
-                    Ok (key.PadLeft(numQubits, '0'))
+                    Ok(key.PadLeft(numQubits, '0'))
             else
                 match Int64.TryParse key with
                 | true, index when index >= 0L && (numQubits >= 63 || index < (1L <<< numQubits)) ->
-                    Ok (Convert.ToString(index, 2).PadLeft(numQubits, '0'))
-                | true, index ->
-                    Error $"State index {index} is out of range for {numQubits} qubits"
-                | false, _ ->
-                    Error $"Histogram key '{key}' is neither a bitstring nor a decimal state index"
+                    Ok(Convert.ToString(index, 2).PadLeft(numQubits, '0'))
+                | true, index -> Error $"State index {index} is out of range for {numQubits} qubits"
+                | false, _ -> Error $"Histogram key '{key}' is neither a bitstring nor a decimal state index"
+
         try
             use jsonDoc = JsonDocument.Parse(jsonResult)
+
             match jsonDoc.RootElement.TryGetProperty "histogram" with
-            | false, _ ->
-                Error "IonQ result JSON is missing the 'histogram' property"
+            | false, _ -> Error "IonQ result JSON is missing the 'histogram' property"
             | true, histogram when histogram.ValueKind <> JsonValueKind.Object ->
                 Error $"Expected 'histogram' to be a JSON object, got {histogram.ValueKind}"
             | true, histogram ->
@@ -255,8 +261,9 @@ module IonQBackend =
                         acc
                         |> Result.bind (fun entries ->
                             match prop.Value.ValueKind with
-                            | JsonValueKind.Number -> Ok ((prop.Name, prop.Value.GetDouble()) :: entries)
+                            | JsonValueKind.Number -> Ok((prop.Name, prop.Value.GetDouble()) :: entries)
                             | kind -> Error $"Value for outcome '{prop.Name}' is not a number, got {kind}"))
+
                 entries
                 |> Result.bind (fun entries ->
                     if entries |> List.exists (fun (_, v) -> v < 0.0) then
@@ -268,6 +275,7 @@ module IonQBackend =
                         let isProbability =
                             entries |> List.exists (fun (_, v) -> v <> Math.Floor v)
                             || (entries |> List.sumBy snd) <= 1.0 + 1e-9
+
                         if isProbability && entries |> List.exists (fun (_, v) -> v > 1.0) then
                             Error "Histogram mixes fractional probabilities with values greater than 1"
                         else
@@ -276,71 +284,78 @@ module IonQBackend =
                             // the probability shape (and any non-binary key) is decimal-indexed.
                             let treatAsBitstring =
                                 not isProbability
-                                && entries |> List.forall (fun (k, _) ->
-                                    k.Length > 0 && k |> Seq.forall (fun c -> c = '0' || c = '1'))
+                                && entries
+                                   |> List.forall (fun (k, _) ->
+                                       k.Length > 0 && k |> Seq.forall (fun c -> c = '0' || c = '1'))
+
                             let toCount (v: float) =
-                                if isProbability then int (Math.Round(v * float shots)) else int (Math.Round v)
+                                if isProbability then
+                                    int (Math.Round(v * float shots))
+                                else
+                                    int (Math.Round v)
+
                             (Ok Map.empty, entries)
                             ||> List.fold (fun acc (key, value) ->
                                 acc
                                 |> Result.bind (fun counts ->
                                     normalizeKey treatAsBitstring key
                                     |> Result.map (fun bitstring ->
-                                        let merged = (counts |> Map.tryFind bitstring |> Option.defaultValue 0) + toCount value
+                                        let merged =
+                                            (counts |> Map.tryFind bitstring |> Option.defaultValue 0)
+                                            + toCount value
+
                                         counts |> Map.add bitstring merged))))
-        with
-        | :? JsonException as ex -> Error $"Invalid JSON in IonQ result: {ex.Message}"
-    
+        with :? JsonException as ex ->
+            Error $"Invalid JSON in IonQ result: {ex.Message}"
+
     // ============================================================================
     // ERROR MAPPING
     // ============================================================================
-    
+
     /// Map IonQ-specific error codes to QuantumError types
-    /// 
+    ///
     /// IonQ Error Codes:
     /// - InvalidCircuit: Unsupported gate or malformed circuit
     /// - TooManyQubits: Circuit exceeds qubit limit (29 for simulator, varies for hardware)
     /// - QuotaExceeded: Insufficient credits
     /// - BackendUnavailable: Hardware offline
-    /// 
+    ///
     /// Parameters:
     /// - errorCode: IonQ error code string
     /// - errorMessage: IonQ error message
-    /// 
+    ///
     /// Returns: Mapped QuantumError
     let mapIonQError (errorCode: string) (errorMessage: string) : QuantumError =
         match errorCode with
-        | "InvalidCircuit" ->
-            QuantumError.ValidationError("circuit", errorMessage)
-        
+        | "InvalidCircuit" -> QuantumError.ValidationError("circuit", errorMessage)
+
         | "TooManyQubits" ->
             // TooManyQubits is a circuit validation error
             QuantumError.ValidationError("circuit", $"Circuit too large: %s{errorMessage}")
-        
-        | "QuotaExceeded" ->
-            QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
-        
+
+        | "QuotaExceeded" -> QuantumError.AzureError(AzureQuantumError.QuotaExceeded errorMessage)
+
         | "BackendUnavailable" ->
             // Suggest retry after 5 minutes for maintenance
-            QuantumError.AzureError (AzureQuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes(5.0))))
-        
+            QuantumError.AzureError(AzureQuantumError.ServiceUnavailable(Some(TimeSpan.FromMinutes(5.0))))
+
         | _ ->
             // Unknown IonQ error
-            QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"IonQ error: %s{errorCode} - %s{errorMessage}"))
-    
+            QuantumError.AzureError(AzureQuantumError.UnknownError(0, $"IonQ error: %s{errorCode} - %s{errorMessage}"))
+
     // ============================================================================
     // CONVENIENCE FUNCTIONS
     // ============================================================================
-    
+
     /// Submit an IonQ circuit and wait for results
-    /// 
+    ///
     /// This is a high-level convenience function that combines:
     /// 1. Circuit serialization
     /// 2. Job submission via JobLifecycle.submitJobAsync
     /// 3. Status polling via JobLifecycle.pollJobUntilCompleteAsync
     /// 4. Result retrieval via JobLifecycle.getJobResultAsync
     /// 5. Result parsing from IonQ histogram format
-    /// 
+    ///
     /// Parameters:
     /// - httpClient: HTTP client for API requests
     /// - workspaceUrl: Azure Quantum workspace URL
@@ -363,23 +378,31 @@ module IonQBackend =
         task {
             // Step 1: Create job submission
             let submission = createJobSubmission circuit shots target
-            
+
             // Step 2: Submit job
             match! JobLifecycle.submitJobAsync httpClient workspaceUrl submission with
             | Error err -> return Error err
             | Ok jobId ->
                 // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                match! JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken with
+
+                match!
+                    JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
+                with
                 | Error err -> return Error err
-                | Ok (job: QuantumJob) ->
+                | Ok(job: QuantumJob) ->
                     // Check job status
                     match job.Status with
                     | JobStatus.Succeeded ->
                         // Step 4: Get results from blob storage
                         match job.OutputDataUri with
                         | None ->
-                            return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                            return
+                                Error(
+                                    QuantumError.AzureError(
+                                        AzureQuantumError.UnknownError(500, "Job completed but no output URI available")
+                                    )
+                                )
                         | Some uri ->
                             match! JobLifecycle.getJobResultAsync httpClient uri with
                             | Error err -> return Error err
@@ -390,26 +413,49 @@ module IonQBackend =
                                     | :? string as resultJson ->
                                         match parseIonQResult circuit.Qubits shots resultJson with
                                         | Ok histogram -> Ok histogram
-                                        | Error msg -> Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Failed to parse IonQ results: %s{msg}")))
+                                        | Error msg ->
+                                            Error(
+                                                QuantumError.AzureError(
+                                                    AzureQuantumError.UnknownError(
+                                                        0,
+                                                        $"Failed to parse IonQ results: %s{msg}"
+                                                    )
+                                                )
+                                            )
                                     | other ->
-                                        Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
-                    
-                    | JobStatus.Failed (errorCode, errorMessage) ->
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(
+                                                    0,
+                                                    sprintf
+                                                        "Expected IonQ output data to be a JSON string, got %s"
+                                                        (if isNull other then "null" else other.GetType().Name)
+                                                )
+                                            )
+                                        )
+
+                    | JobStatus.Failed(errorCode, errorMessage) ->
                         // Map IonQ error to QuantumError
-                        return Error (mapIonQError errorCode errorMessage)
-                    
+                        return Error(mapIonQError errorCode errorMessage)
+
                     | JobStatus.Cancelled ->
-                        return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
-                    
-                    | JobStatus.Waiting | JobStatus.Executing ->
-                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")))
+                        return Error(QuantumError.OperationError("Job execution", "Operation cancelled"))
+
+                    | JobStatus.Waiting
+                    | JobStatus.Executing ->
+                        return
+                            Error(
+                                QuantumError.AzureError(
+                                    AzureQuantumError.UnknownError(0, $"Unexpected job status: %A{job.Status}")
+                                )
+                            )
         }
-    
+
     /// Submit IonQ circuit with pre-flight validation
-    /// 
+    ///
     /// This function validates the circuit against backend constraints BEFORE submission,
     /// preventing costly failed Azure API calls.
-    /// 
+    ///
     /// Parameters:
     /// - httpClient: Authenticated HttpClient
     /// - workspaceUrl: Azure Quantum workspace URL
@@ -437,22 +483,24 @@ module IonQBackend =
                 match constraints with
                 | Some c -> Some c
                 | None -> CircuitValidator.KnownTargets.getConstraints target
-            
+
             // Step 2: Validate circuit if constraints available
             let validationResult =
                 match backendConstraints with
                 | Some c ->
                     let circuitInfo = extractCircuitInfo circuit
                     CircuitValidator.validateCircuit c circuitInfo
-                | None -> Ok ()  // No constraints available, skip validation
-            
+                | None -> Ok() // No constraints available, skip validation
+
             // Step 3: Check validation result
             match validationResult with
             | Error validationErrors ->
                 // Convert validation errors to QuantumError
-                let errorMessages = validationErrors |> List.map CircuitValidator.formatValidationError
-                return Error (QuantumError.ValidationError("circuit", String.concat "; " errorMessages))
-            | Ok () ->
+                let errorMessages =
+                    validationErrors |> List.map CircuitValidator.formatValidationError
+
+                return Error(QuantumError.ValidationError("circuit", String.concat "; " errorMessages))
+            | Ok() ->
                 // Step 4: Submit circuit (validation passed)
                 return! submitAndWaitForResultsAsync httpClient workspaceUrl circuit shots target cancellationToken
         }

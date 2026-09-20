@@ -44,14 +44,48 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "WorkspaceExample.fsx"
     "Azure Quantum workspace management: create, env config, backend comparison"
-    [ { Name = "example"; Description = "Which example (all|create|env-config|backends|submit)"; Default = Some "all" }
-      { Name = "subscription"; Description = "Azure subscription ID"; Default = Some "your-subscription-id" }
-      { Name = "resource-group"; Description = "Azure resource group"; Default = Some "your-resource-group" }
-      { Name = "workspace-name"; Description = "Azure Quantum workspace name"; Default = Some "your-workspace-name" }
-      { Name = "location"; Description = "Azure region"; Default = Some "eastus" }
-      { Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    [
+        {
+            Name = "example"
+            Description = "Which example (all|create|env-config|backends|submit)"
+            Default = Some "all"
+        }
+        {
+            Name = "subscription"
+            Description = "Azure subscription ID"
+            Default = Some "your-subscription-id"
+        }
+        {
+            Name = "resource-group"
+            Description = "Azure resource group"
+            Default = Some "your-resource-group"
+        }
+        {
+            Name = "workspace-name"
+            Description = "Azure Quantum workspace name"
+            Default = Some "your-workspace-name"
+        }
+        {
+            Name = "location"
+            Description = "Azure region"
+            Default = Some "eastus"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -63,19 +97,27 @@ let resourceGroup = Cli.getOr "resource-group" "your-resource-group" args
 let workspaceName = Cli.getOr "workspace-name" "your-workspace-name" args
 let location = Cli.getOr "location" "eastus" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
 let shouldRun key = exampleArg = "all" || exampleArg = key
 
 // --- Result Tracking ---
 
 type ExampleResult =
-    { Name: string
-      Label: string
-      Status: string
-      Detail: string }
+    {
+        Name: string
+        Label: string
+        Status: string
+        Detail: string
+    }
 
-let mutable jsonResults : ExampleResult list = []
-let mutable csvRows : string list list = []
+let mutable jsonResults: ExampleResult list = []
+let mutable csvRows: string list list = []
 
 let record (r: ExampleResult) =
     jsonResults <- jsonResults @ [ r ]
@@ -89,8 +131,7 @@ if shouldRun "create" then
     pr "=== Example 1: Create Workspace Connection ==="
     pr ""
 
-    let workspace =
-        createDefault subscription resourceGroup workspaceName location
+    let workspace = createDefault subscription resourceGroup workspaceName location
 
     pr "  [OK] Workspace created: %s" workspace.Config.WorkspaceName
     pr "  Location: %s" workspace.Config.Location
@@ -111,9 +152,12 @@ if shouldRun "create" then
     pr ""
 
     record
-        { Name = "create"; Label = "Workspace Connection"
-          Status = "OK"
-          Detail = $"%s{workspace.Config.WorkspaceName} @ %s{workspace.Config.Location}" }
+        {
+            Name = "create"
+            Label = "Workspace Connection"
+            Status = "OK"
+            Detail = $"%s{workspace.Config.WorkspaceName} @ %s{workspace.Config.Location}"
+        }
 
 // ============================================================================
 // EXAMPLE 2: Environment-Based Configuration
@@ -130,22 +174,29 @@ if shouldRun "env-config" then
     pr "    AZURE_QUANTUM_LOCATION"
     pr ""
 
-    match createFromEnvironment() with
+    match createFromEnvironment () with
     | Ok ws ->
         pr "  [OK] Workspace loaded from environment: %s" ws.Config.WorkspaceName
 
         record
-            { Name = "env-config"; Label = "Environment Config"
-              Status = "OK"
-              Detail = ws.Config.WorkspaceName }
+            {
+                Name = "env-config"
+                Label = "Environment Config"
+                Status = "OK"
+                Detail = ws.Config.WorkspaceName
+            }
     | Error err ->
         pr "  [WARN] Environment variables not set: %s" err.Message
         pr "  (This is expected without Azure Quantum credentials)"
 
         record
-            { Name = "env-config"; Label = "Environment Config"
-              Status = "NOT_SET"
-              Detail = err.Message }
+            {
+                Name = "env-config"
+                Label = "Environment Config"
+                Status = "NOT_SET"
+                Detail = err.Message
+            }
+
     pr ""
 
 // ============================================================================
@@ -211,9 +262,12 @@ if shouldRun "backends" then
     pr ""
 
     record
-        { Name = "backends"; Label = "Backend Comparison"
-          Status = "OK"
-          Detail = $"local backend=%s{quantumBackend.Name} type=%A{quantumBackend.NativeStateType}" }
+        {
+            Name = "backends"
+            Label = "Backend Comparison"
+            Status = "OK"
+            Detail = $"local backend=%s{quantumBackend.Name} type=%A{quantumBackend.NativeStateType}"
+        }
 
 // ============================================================================
 // EXAMPLE 4: Real Cloud Job Submission (env-gated — the ONLY example that
@@ -234,17 +288,29 @@ if exampleArg = "submit" then
     pr ""
 
     let workspaceUrl = Environment.GetEnvironmentVariable "AZURE_QUANTUM_WORKSPACE_URL"
+
     let target =
         match Environment.GetEnvironmentVariable "AZURE_QUANTUM_TARGET" with
-        | null | "" -> "ionq.simulator"
+        | null
+        | "" -> "ionq.simulator"
         | t -> t
 
     if String.IsNullOrWhiteSpace workspaceUrl then
         pr "  [SKIP] AZURE_QUANTUM_WORKSPACE_URL not set — not contacting Azure Quantum."
         pr "         Set it (and authenticate, e.g. 'az login') to run on real hardware:"
-        pr "           export AZURE_QUANTUM_WORKSPACE_URL=https://<loc>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+
+        pr
+            "           export AZURE_QUANTUM_WORKSPACE_URL=https://<loc>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+
         pr "           export AZURE_QUANTUM_TARGET=ionq.simulator   # optional"
-        record { Name = "submit"; Label = "Real Cloud Submission"; Status = "SKIPPED"; Detail = "AZURE_QUANTUM_WORKSPACE_URL not set" }
+
+        record
+            {
+                Name = "submit"
+                Label = "Real Cloud Submission"
+                Status = "SKIPPED"
+                Detail = "AZURE_QUANTUM_WORKSPACE_URL not set"
+            }
     else
         pr "  Target:    %s" target
         pr "  Workspace: %s" workspaceUrl
@@ -254,7 +320,7 @@ if exampleArg = "submit" then
         let circuit =
             CircuitBuilder.empty 2
             |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
-            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 1))
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT(0, 1))
             |> CircuitBuilder.addMeasurement 0
             |> CircuitBuilder.addMeasurement 1
 
@@ -263,13 +329,27 @@ if exampleArg = "submit" then
         use httpClient = Authentication.createAuthenticatedClient credential
         let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl target 1000
 
-        match backend.ExecuteToState (CircuitAbstraction.wrapCircuit circuit) with
+        match backend.ExecuteToState(CircuitAbstraction.wrapCircuit circuit) with
         | Ok _ ->
             pr "  [OK] Job completed on backend '%s'" backend.Name
-            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "OK"; Detail = $"target=%s{target}" }
+
+            record
+                {
+                    Name = "submit"
+                    Label = "Real Cloud Submission"
+                    Status = "OK"
+                    Detail = $"target=%s{target}"
+                }
         | Error err ->
             pr "  [ERROR] %A" err
-            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "ERROR"; Detail = $"%A{err}" }
+
+            record
+                {
+                    Name = "submit"
+                    Label = "Real Cloud Submission"
+                    Status = "ERROR"
+                    Detail = $"%A{err}"
+                }
 
 // --- JSON output ---
 
@@ -278,11 +358,14 @@ outputPath
     let payload =
         jsonResults
         |> List.map (fun r ->
-            dict [
-                "name", box r.Name
-                "label", box r.Label
-                "status", box r.Status
-                "detail", box r.Detail ])
+            dict
+                [
+                    "name", box r.Name
+                    "label", box r.Label
+                    "status", box r.Status
+                    "detail", box r.Detail
+                ])
+
     Reporting.writeJson path payload)
 
 // --- CSV output ---
@@ -297,9 +380,10 @@ csvPath
 if not quiet then
     pr ""
     pr "=== Summary ==="
+
     jsonResults
-    |> List.iter (fun r ->
-        pr "  [%s] %-25s %s" r.Status r.Label r.Detail)
+    |> List.iter (fun r -> pr "  [%s] %-25s %s" r.Status r.Label r.Detail)
+
     pr ""
     pr "Next steps:"
     pr "  1. Set up Azure Quantum workspace: https://docs.microsoft.com/azure/quantum/"

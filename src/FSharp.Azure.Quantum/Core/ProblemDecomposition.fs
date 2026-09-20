@@ -62,11 +62,11 @@ module ProblemDecomposition =
         : DecompositionPlan<'Problem> =
 
         match strategy with
-        | NoDecomposition ->
-            RunDirect problem
+        | NoDecomposition -> RunDirect problem
 
         | FixedPartition maxQubits ->
             let qubitsNeeded = estimateQubits problem
+
             if qubitsNeeded <= maxQubits then
                 RunDirect problem
             else
@@ -79,16 +79,19 @@ module ProblemDecomposition =
 
         | AdaptiveToBackend ->
             let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
+
             match maxQubits with
             | None ->
                 // Backend doesn't report capacity — run directly.
                 RunDirect problem
             | Some limit ->
                 let qubitsNeeded = estimateQubits problem
+
                 if qubitsNeeded <= limit then
                     RunDirect problem
                 else
                     let subProblems = decomposeFn problem
+
                     match subProblems with
                     | [ _ ] -> RunDirect problem
                     | subs -> RunDecomposed subs
@@ -112,22 +115,25 @@ module ProblemDecomposition =
         : Result<'Solution, QuantumError> =
 
         match plan with
-        | RunDirect problem ->
-            solveFn problem
+        | RunDirect problem -> solveFn problem
 
         | RunDecomposed subProblems ->
             // Solve each sub-problem, collecting results.
             // Short-circuit on first error.
             let results =
                 subProblems
-                |> List.fold (fun acc subProblem ->
-                    acc |> Result.map (fun solutions -> (solveFn subProblem) |> Result.map (fun solution -> solution :: solutions)) |> Result.defaultValue acc
-                ) (Ok [])
+                |> List.fold
+                    (fun acc subProblem ->
+                        acc
+                        |> Result.map (fun solutions ->
+                            (solveFn subProblem) |> Result.map (fun solution -> solution :: solutions))
+                        |> Result.defaultValue acc)
+                    (Ok [])
 
             results
             |> Result.map (fun solutions ->
                 solutions
-                |> List.rev  // Restore original order
+                |> List.rev // Restore original order
                 |> recombineFn)
 
     // ========================================================================
@@ -175,7 +181,8 @@ module ProblemDecomposition =
     /// Returns list of vertex groups (each group is a list of vertex indices).
     /// Singleton components (isolated vertices) are included.
     let connectedComponents (numVertices: int) (edges: (int * int) list) : int list list =
-        if numVertices = 0 then []
+        if numVertices = 0 then
+            []
         else
             // Union-Find with path compression
             let parent = Array.init numVertices id
@@ -183,26 +190,31 @@ module ProblemDecomposition =
 
             let rec find x =
                 if parent.[x] <> x then
-                    parent.[x] <- find parent.[x]  // Path compression
+                    parent.[x] <- find parent.[x] // Path compression
+
                 parent.[x]
 
             let union a b =
                 let ra = find a
                 let rb = find b
+
                 if ra <> rb then
-                    if rank.[ra] < rank.[rb] then parent.[ra] <- rb
-                    elif rank.[ra] > rank.[rb] then parent.[rb] <- ra
-                    else parent.[rb] <- ra; rank.[ra] <- rank.[ra] + 1
+                    if rank.[ra] < rank.[rb] then
+                        parent.[ra] <- rb
+                    elif rank.[ra] > rank.[rb] then
+                        parent.[rb] <- ra
+                    else
+                        parent.[rb] <- ra
+                        rank.[ra] <- rank.[ra] + 1
 
             // Process all edges
-            edges |> List.iter (fun (i, j) ->
+            edges
+            |> List.iter (fun (i, j) ->
                 if i >= 0 && i < numVertices && j >= 0 && j < numVertices then
                     union i j)
 
             // Group vertices by their root
-            [0 .. numVertices - 1]
-            |> List.groupBy find
-            |> List.map snd
+            [ 0 .. numVertices - 1 ] |> List.groupBy find |> List.map snd
 
     /// Partition a graph problem (vertices + edges) into sub-problems by connected
     /// components. Returns sub-problems with local vertex indices (0-based) and
@@ -216,10 +228,7 @@ module ProblemDecomposition =
     ///   List of (localVertices: int list, localEdges: (int*int) list) per component.
     ///   localVertices contains the original global indices.
     ///   localEdges use 0-based indices within the component.
-    let partitionByComponents
-        (numVertices: int)
-        (edges: (int * int) list)
-        : (int list * (int * int) list) list =
+    let partitionByComponents (numVertices: int) (edges: (int * int) list) : (int list * (int * int) list) list =
 
         let components = connectedComponents numVertices edges
 
@@ -236,7 +245,7 @@ module ProblemDecomposition =
                 edges
                 |> List.choose (fun (i, j) ->
                     match Map.tryFind i globalToLocal, Map.tryFind j globalToLocal with
-                    | Some li, Some lj -> Some (li, lj)
+                    | Some li, Some lj -> Some(li, lj)
                     | _ -> None)
 
             (componentVertices, localEdges))
@@ -259,5 +268,6 @@ module ProblemDecomposition =
         : bool =
 
         let components = connectedComponents numVertices edges
+
         components
         |> List.forall (fun comp -> comp.Length * qubitsPerVertex <= maxQubitsPerPart)

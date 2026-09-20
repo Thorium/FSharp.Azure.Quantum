@@ -37,44 +37,47 @@ module QuantumMatchingSolver =
 
     /// A weighted edge in the graph
     [<Struct>]
-    type Edge = {
-        /// Source vertex index
-        Source: int
-        /// Target vertex index
-        Target: int
-        /// Edge weight (positive = desirable to include)
-        Weight: float
-    }
+    type Edge =
+        {
+            /// Source vertex index
+            Source: int
+            /// Target vertex index
+            Target: int
+            /// Edge weight (positive = desirable to include)
+            Weight: float
+        }
 
     /// Maximum matching problem definition
-    type Problem = {
-        /// Number of vertices in the graph
-        NumVertices: int
-        /// Weighted edges
-        Edges: Edge list
-    }
+    type Problem =
+        {
+            /// Number of vertices in the graph
+            NumVertices: int
+            /// Weighted edges
+            Edges: Edge list
+        }
 
     /// Maximum matching solution
-    type Solution = {
-        /// Edges selected in the matching
-        SelectedEdges: Edge list
-        /// Total weight of the matching
-        TotalWeight: float
-        /// Number of edges in the matching
-        MatchingSize: int
-        /// Whether the matching is valid (no shared vertices)
-        IsValid: bool
-        /// Whether constraint repair was applied
-        WasRepaired: bool
-        /// Name of the quantum backend used
-        BackendName: string
-        /// Number of measurement shots
-        NumShots: int
-        /// Optimized QAOA (gamma, beta) parameters per layer
-        OptimizedParameters: (float * float)[] option
-        /// Whether Nelder-Mead converged
-        OptimizationConverged: bool option
-    }
+    type Solution =
+        {
+            /// Edges selected in the matching
+            SelectedEdges: Edge list
+            /// Total weight of the matching
+            TotalWeight: float
+            /// Number of edges in the matching
+            MatchingSize: int
+            /// Whether the matching is valid (no shared vertices)
+            IsValid: bool
+            /// Whether constraint repair was applied
+            WasRepaired: bool
+            /// Name of the quantum backend used
+            BackendName: string
+            /// Number of measurement shots
+            NumShots: int
+            /// Optimized QAOA (gamma, beta) parameters per layer
+            OptimizedParameters: (float * float)[] option
+            /// Whether Nelder-Mead converged
+            OptimizationConverged: bool option
+        }
 
     // ========================================================================
     // CONFIGURATION (type alias for unified config)
@@ -82,9 +85,9 @@ module QuantumMatchingSolver =
 
     type Config = QaoaSolverConfig
 
-    let defaultConfig : Config = QaoaExecutionHelpers.defaultConfig
-    let fastConfig : Config = QaoaExecutionHelpers.fastConfig
-    let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
+    let defaultConfig: Config = QaoaExecutionHelpers.defaultConfig
+    let fastConfig: Config = QaoaExecutionHelpers.fastConfig
+    let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
     // EDGE NORMALIZATION
@@ -95,7 +98,8 @@ module QuantumMatchingSolver =
     let private normalizeEdges (edges: Edge list) : Edge list =
         edges
         |> List.choose (fun e ->
-            if e.Source = e.Target then None  // Remove self-loops
+            if e.Source = e.Target then
+                None // Remove self-loops
             else
                 let s, t = min e.Source e.Target, max e.Source e.Target
                 Some { e with Source = s; Target = t })
@@ -119,8 +123,7 @@ module QuantumMatchingSolver =
     let private buildIncidenceMap (edges: Edge list) : Map<int, int list> =
         edges
         |> List.indexed
-        |> List.collect (fun (edgeIdx, edge) ->
-            [ (edge.Source, edgeIdx); (edge.Target, edgeIdx) ])
+        |> List.collect (fun (edgeIdx, edge) -> [ (edge.Source, edgeIdx); (edge.Target, edgeIdx) ])
         |> List.groupBy fst
         |> List.map (fun (vertex, pairs) -> (vertex, pairs |> List.map snd))
         |> Map.ofList
@@ -151,15 +154,15 @@ module QuantumMatchingSolver =
             [ 0 .. numVertices - 1 ]
             |> List.collect (fun v ->
                 match incidenceMap |> Map.tryFind v with
-                | None | Some [] | Some [ _ ] -> []
+                | None
+                | Some []
+                | Some [ _ ] -> []
                 | Some edgeIndices ->
                     edgeIndices
                     |> List.collect (fun e1 ->
                         edgeIndices
                         |> List.filter (fun e2 -> e2 > e1)
-                        |> List.collect (fun e2 ->
-                            [ ((e1, e2), penalty / 2.0)
-                              ((e2, e1), penalty / 2.0) ])))
+                        |> List.collect (fun e2 -> [ ((e1, e2), penalty / 2.0); ((e2, e1), penalty / 2.0) ])))
 
         (objectiveTerms @ constraintTerms)
         |> List.fold (fun acc (key, value) -> Qubo.combineTerms key value acc) Map.empty
@@ -167,28 +170,33 @@ module QuantumMatchingSolver =
     /// Validate a matching problem, returning Error if invalid.
     let private validateProblem (problem: Problem) : Result<unit, QuantumError> =
         if problem.Edges.IsEmpty then
-            Error (QuantumError.ValidationError ("edges", "Problem has no edges"))
+            Error(QuantumError.ValidationError("edges", "Problem has no edges"))
         elif problem.NumVertices <= 0 then
-            Error (QuantumError.ValidationError ("numVertices", "Number of vertices must be positive"))
-        elif problem.Edges |> List.exists (fun e ->
-                e.Source < 0 || e.Source >= problem.NumVertices
-                || e.Target < 0 || e.Target >= problem.NumVertices) then
-            Error (QuantumError.ValidationError ("edge", "Edge endpoint out of range"))
+            Error(QuantumError.ValidationError("numVertices", "Number of vertices must be positive"))
+        elif
+            problem.Edges
+            |> List.exists (fun e ->
+                e.Source < 0
+                || e.Source >= problem.NumVertices
+                || e.Target < 0
+                || e.Target >= problem.NumVertices)
+        then
+            Error(QuantumError.ValidationError("edge", "Edge endpoint out of range"))
         elif problem.Edges |> List.exists (fun e -> e.Source = e.Target) then
-            Error (QuantumError.ValidationError ("edge", "Self-loops are not allowed"))
+            Error(QuantumError.ValidationError("edge", "Self-loops are not allowed"))
         else
-            Ok ()
+            Ok()
 
     /// Convert problem to dense QUBO matrix.
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         match validateProblem problem with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             let edges = normalizeEdges problem.Edges
             let n = edges.Length
             let quboMap = buildQuboMap edges problem.NumVertices
-            Ok (Qubo.toDenseArray n quboMap)
+            Ok(Qubo.toDenseArray n quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -199,13 +207,14 @@ module QuantumMatchingSolver =
     /// Also validates bitstring length matches edge count.
     let isValid (problem: Problem) (bits: int[]) : bool =
         let edges = normalizeEdges problem.Edges
+
         bits.Length = edges.Length
-        && (
-            let selectedVertices =
+        && (let selectedVertices =
                 edges
                 |> List.indexed
                 |> List.filter (fun (eIdx, _) -> bits.[eIdx] = 1)
                 |> List.collect (fun (_, edge) -> [ edge.Source; edge.Target ])
+
             let distinct = selectedVertices |> List.distinct
             distinct.Length = selectedVertices.Length)
 
@@ -215,11 +224,12 @@ module QuantumMatchingSolver =
             edges
             |> List.indexed
             |> List.choose (fun (eIdx, edge) ->
-                if eIdx < bits.Length && bits.[eIdx] = 1 then Some edge
-                else None)
+                if eIdx < bits.Length && bits.[eIdx] = 1 then
+                    Some edge
+                else
+                    None)
 
-        let usedVertices =
-            selected |> List.collect (fun e -> [ e.Source; e.Target ])
+        let usedVertices = selected |> List.collect (fun e -> [ e.Source; e.Target ])
 
         let isValidMatching =
             let distinct = usedVertices |> List.distinct
@@ -249,31 +259,28 @@ module QuantumMatchingSolver =
             edges
             |> List.indexed
             |> List.choose (fun (eIdx, edge) ->
-                if eIdx < bits.Length && bits.[eIdx] = 1 then Some (eIdx, edge)
-                else None)
+                if eIdx < bits.Length && bits.[eIdx] = 1 then
+                    Some(eIdx, edge)
+                else
+                    None)
             |> List.sortByDescending (fun (_, edge) -> edge.Weight)
 
-        let rec greedyKeep
-            (remaining: (int * Edge) list)
-            (usedVertices: Set<int>)
-            (kept: Set<int>) =
+        let rec greedyKeep (remaining: (int * Edge) list) (usedVertices: Set<int>) (kept: Set<int>) =
             match remaining with
             | [] -> kept
             | (eIdx, edge) :: rest ->
-                if usedVertices |> Set.contains edge.Source
-                   || usedVertices |> Set.contains edge.Target then
+                if
+                    usedVertices |> Set.contains edge.Source
+                    || usedVertices |> Set.contains edge.Target
+                then
                     greedyKeep rest usedVertices kept
                 else
-                    let newUsed =
-                        usedVertices
-                        |> Set.add edge.Source
-                        |> Set.add edge.Target
+                    let newUsed = usedVertices |> Set.add edge.Source |> Set.add edge.Target
                     greedyKeep rest newUsed (kept |> Set.add eIdx)
 
         let keptEdges = greedyKeep selected Set.empty Set.empty
 
-        Array.init edges.Length (fun eIdx ->
-            if keptEdges |> Set.contains eIdx then 1 else 0)
+        Array.init edges.Length (fun eIdx -> if keptEdges |> Set.contains eIdx then 1 else 0)
 
     // ========================================================================
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
@@ -283,11 +290,13 @@ module QuantumMatchingSolver =
     /// components. Maximum matchings are independent across components.
     let decompose (problem: Problem) : Problem list =
         let n = problem.NumVertices
-        if n <= 1 then [ problem ]
+
+        if n <= 1 then
+            [ problem ]
         else
-            let simpleEdges =
-                problem.Edges |> List.map (fun e -> (e.Source, e.Target))
+            let simpleEdges = problem.Edges |> List.map (fun e -> (e.Source, e.Target))
             let parts = ProblemDecomposition.partitionByComponents n simpleEdges
+
             match parts with
             | [ _ ] -> [ problem ]
             | components ->
@@ -298,11 +307,19 @@ module QuantumMatchingSolver =
                     // Qubit count = #edges (see estimateQubits), independent of
                     // NumVertices, so retaining the global vertex space is free.
                     let idxSet = Set.ofList globalIndices
+
                     let componentEdges =
                         problem.Edges
                         |> List.filter (fun e -> idxSet.Contains e.Source && idxSet.Contains e.Target)
-                    if componentEdges.IsEmpty then None
-                    else Some { NumVertices = problem.NumVertices; Edges = componentEdges })
+
+                    if componentEdges.IsEmpty then
+                        None
+                    else
+                        Some
+                            {
+                                NumVertices = problem.NumVertices
+                                Edges = componentEdges
+                            })
 
     /// Recombine sub-solutions into a single solution. Currently identity.
     /// Handles empty list gracefully.
@@ -325,15 +342,25 @@ module QuantumMatchingSolver =
             // Connected components are independent: the maximum matching of the whole
             // graph is the UNION of the per-component matchings (edges keep global
             // vertex indices, so concatenation is valid).
-            { SelectedEdges = sols |> List.collect (fun s -> s.SelectedEdges)
-              TotalWeight = sols |> List.sumBy (fun s -> s.TotalWeight)
-              MatchingSize = sols |> List.sumBy (fun s -> s.MatchingSize)
-              IsValid = sols |> List.forall (fun s -> s.IsValid)
-              WasRepaired = sols |> List.exists (fun s -> s.WasRepaired)
-              BackendName = sols |> List.tryHead |> Option.map (fun s -> s.BackendName) |> Option.defaultValue ""
-              NumShots = sols |> List.tryHead |> Option.map (fun s -> s.NumShots) |> Option.defaultValue 0
-              OptimizedParameters = None
-              OptimizationConverged = None }
+            {
+                SelectedEdges = sols |> List.collect (fun s -> s.SelectedEdges)
+                TotalWeight = sols |> List.sumBy (fun s -> s.TotalWeight)
+                MatchingSize = sols |> List.sumBy (fun s -> s.MatchingSize)
+                IsValid = sols |> List.forall (fun s -> s.IsValid)
+                WasRepaired = sols |> List.exists (fun s -> s.WasRepaired)
+                BackendName =
+                    sols
+                    |> List.tryHead
+                    |> Option.map (fun s -> s.BackendName)
+                    |> Option.defaultValue ""
+                NumShots =
+                    sols
+                    |> List.tryHead
+                    |> Option.map (fun s -> s.NumShots)
+                    |> Option.defaultValue 0
+                OptimizedParameters = None
+                OptimizationConverged = None
+            }
 
     // ========================================================================
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
@@ -351,25 +378,24 @@ module QuantumMatchingSolver =
 
         match validateProblem problem with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             let solveSingle (subProblem: Problem) =
                 let edges = normalizeEdges subProblem.Edges
+
                 match toQubo subProblem with
                 | Error err -> Error err
                 | Ok qubo ->
                     let result =
                         if config.EnableOptimization then
                             executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) ->
-                                (bits, Some optParams, Some converged))
+                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
                             executeQaoaWithGridSearch backend qubo config
-                            |> Result.map (fun (bits, optParams) ->
-                                (bits, Some optParams, None))
+                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
                     | Error err -> Error err
-                    | Ok (bits, optParams, converged) ->
+                    | Ok(bits, optParams, converged) ->
                         let needsRepair =
                             let decoded = decodeSolution edges bits
                             not decoded.IsValid
@@ -381,15 +407,17 @@ module QuantumMatchingSolver =
                                 (bits, false)
 
                         let solution = decodeSolution edges finalBits
-                        Ok { solution with
+
+                        Ok
+                            { solution with
                                 BackendName = backend.Name
                                 NumShots = config.FinalShots
                                 WasRepaired = wasRepaired
                                 OptimizedParameters = optParams
-                                OptimizationConverged = converged }
+                                OptimizationConverged = converged
+                            }
 
-            ProblemDecomposition.solveWithDecomposition
-                backend problem estimateQubits decompose recombine solveSingle
+            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve maximum matching using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
@@ -399,10 +427,11 @@ module QuantumMatchingSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Task<Result<Solution, QuantumError>> = task {
-        cancellationToken.ThrowIfCancellationRequested()
-        return solveWithConfig backend problem config
-    }
+        : Task<Result<Solution, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
 
     /// Solve maximum matching using QAOA with default configuration.
     [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -412,7 +441,11 @@ module QuantumMatchingSolver =
         (shots: int)
         : Result<Solution, QuantumError> =
 
-        let config = { defaultConfig with FinalShots = shots }
+        let config =
+            { defaultConfig with
+                FinalShots = shots
+            }
+
         solveWithConfigAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -440,21 +473,17 @@ module QuantumMatchingSolver =
         else
             let edges = normalizeEdges problem.Edges
 
-            let rec greedyMatch
-                (remaining: Edge list)
-                (usedVertices: Set<int>)
-                (selected: Edge list) =
+            let rec greedyMatch (remaining: Edge list) (usedVertices: Set<int>) (selected: Edge list) =
                 match remaining with
                 | [] -> selected |> List.rev
                 | edge :: rest ->
-                    if usedVertices |> Set.contains edge.Source
-                       || usedVertices |> Set.contains edge.Target then
+                    if
+                        usedVertices |> Set.contains edge.Source
+                        || usedVertices |> Set.contains edge.Target
+                    then
                         greedyMatch rest usedVertices selected
                     else
-                        let newUsed =
-                            usedVertices
-                            |> Set.add edge.Source
-                            |> Set.add edge.Target
+                        let newUsed = usedVertices |> Set.add edge.Source |> Set.add edge.Target
                         greedyMatch rest newUsed (edge :: selected)
 
             let sorted = edges |> List.sortByDescending (fun e -> e.Weight)

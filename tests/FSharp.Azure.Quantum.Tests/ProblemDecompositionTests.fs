@@ -19,15 +19,18 @@ type private UnlimitedBackend() =
     interface IQuantumBackend with
         member _.Name = "UnlimitedMock"
         member _.NativeStateType = QuantumStateType.GateBased
-        member _.SupportsOperation (_op: QuantumOperation) = true
+        member _.SupportsOperation(_op: QuantumOperation) = true
         member _.ApplyOperation (_op: QuantumOperation) (state: QuantumState) = Ok state
-        member _.ExecuteToState (_circuit) =
-            Ok (QuantumState.StateVector (StateVector.init 1))
-        member _.InitializeState (n: int) =
-            Ok (QuantumState.StateVector (StateVector.init n))
+
+        member _.ExecuteToState(_circuit) =
+            Ok(QuantumState.StateVector(StateVector.init 1))
+
+        member _.InitializeState(n: int) =
+            Ok(QuantumState.StateVector(StateVector.init n))
 
         member this.ExecuteToStateAsync circuit ct =
             task { return (this :> IQuantumBackend).ExecuteToState circuit }
+
         member this.ApplyOperationAsync operation state ct =
             task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
@@ -36,15 +39,18 @@ type private LimitedBackend(maxQubits: int) =
     interface IQuantumBackend with
         member _.Name = "LimitedMock"
         member _.NativeStateType = QuantumStateType.GateBased
-        member _.SupportsOperation (_op: QuantumOperation) = true
+        member _.SupportsOperation(_op: QuantumOperation) = true
         member _.ApplyOperation (_op: QuantumOperation) (state: QuantumState) = Ok state
-        member _.ExecuteToState (_circuit) =
-            Ok (QuantumState.StateVector (StateVector.init 1))
-        member _.InitializeState (n: int) =
-            Ok (QuantumState.StateVector (StateVector.init n))
+
+        member _.ExecuteToState(_circuit) =
+            Ok(QuantumState.StateVector(StateVector.init 1))
+
+        member _.InitializeState(n: int) =
+            Ok(QuantumState.StateVector(StateVector.init n))
 
         member this.ExecuteToStateAsync circuit ct =
             task { return (this :> IQuantumBackend).ExecuteToState circuit }
+
         member this.ApplyOperationAsync operation state ct =
             task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
@@ -71,20 +77,20 @@ module ConnectedComponentsTests =
             Assert.Equal(1, comp.Length)
         // All vertices 0..2 should appear
         let allVertices = result |> List.concat |> List.sort
-        Assert.Equal<int list>([0; 1; 2], allVertices)
+        Assert.Equal<int list>([ 0; 1; 2 ], allVertices)
 
     [<Fact>]
     let ``connectedComponents with single edge connects two vertices`` () =
-        let result = connectedComponents 3 [(0, 1)]
+        let result = connectedComponents 3 [ (0, 1) ]
         // Vertex 0 and 1 connected, vertex 2 isolated → 2 components
         Assert.Equal(2, result.Length)
         let sorted = result |> List.sortBy List.length |> List.rev
-        Assert.Equal(2, sorted.[0].Length)  // {0, 1}
-        Assert.Equal(1, sorted.[1].Length)  // {2}
+        Assert.Equal(2, sorted.[0].Length) // {0, 1}
+        Assert.Equal(1, sorted.[1].Length) // {2}
 
     [<Fact>]
     let ``connectedComponents with fully connected graph returns one component`` () =
-        let edges = [(0, 1); (1, 2); (0, 2)]
+        let edges = [ (0, 1); (1, 2); (0, 2) ]
         let result = connectedComponents 3 edges
         Assert.Equal(1, result.Length)
         Assert.Equal(3, result.[0].Length)
@@ -92,16 +98,16 @@ module ConnectedComponentsTests =
     [<Fact>]
     let ``connectedComponents with two disconnected cliques`` () =
         // Two triangles: {0,1,2} and {3,4,5}
-        let edges = [(0, 1); (1, 2); (0, 2); (3, 4); (4, 5); (3, 5)]
+        let edges = [ (0, 1); (1, 2); (0, 2); (3, 4); (4, 5); (3, 5) ]
         let result = connectedComponents 6 edges
         Assert.Equal(2, result.Length)
         let sizes = result |> List.map List.length |> List.sort
-        Assert.Equal<int list>([3; 3], sizes)
+        Assert.Equal<int list>([ 3; 3 ], sizes)
 
     [<Fact>]
     let ``connectedComponents with chain graph returns one component`` () =
         // 0--1--2--3--4 (path graph)
-        let edges = [(0, 1); (1, 2); (2, 3); (3, 4)]
+        let edges = [ (0, 1); (1, 2); (2, 3); (3, 4) ]
         let result = connectedComponents 5 edges
         Assert.Equal(1, result.Length)
         Assert.Equal(5, result.[0].Length)
@@ -109,14 +115,14 @@ module ConnectedComponentsTests =
     [<Fact>]
     let ``connectedComponents ignores out-of-range edges gracefully`` () =
         // Edge (5,6) is out of range for 3 vertices — should be silently ignored
-        let edges = [(0, 1); (5, 6)]
+        let edges = [ (0, 1); (5, 6) ]
         let result = connectedComponents 3 edges
         // 0-1 connected, 2 isolated → 2 components
         Assert.Equal(2, result.Length)
 
     [<Fact>]
     let ``connectedComponents with self-loops does not create extra components`` () =
-        let edges = [(0, 0); (1, 1); (0, 1)]
+        let edges = [ (0, 0); (1, 1); (0, 1) ]
         let result = connectedComponents 2 edges
         Assert.Equal(1, result.Length)
         Assert.Equal(2, result.[0].Length)
@@ -131,6 +137,7 @@ module PartitionByComponentsTests =
     let ``partitionByComponents with isolated vertices returns singleton components`` () =
         let result = partitionByComponents 3 []
         Assert.Equal(3, result.Length)
+
         for (vertices, edges) in result do
             Assert.Equal(1, vertices.Length)
             Assert.Empty(edges)
@@ -138,7 +145,7 @@ module PartitionByComponentsTests =
     [<Fact>]
     let ``partitionByComponents re-indexes edges to local indices`` () =
         // Graph: 0--1  2--3
-        let edges = [(0, 1); (2, 3)]
+        let edges = [ (0, 1); (2, 3) ]
         let result = partitionByComponents 4 edges
         Assert.Equal(2, result.Length)
 
@@ -153,15 +160,14 @@ module PartitionByComponentsTests =
     [<Fact>]
     let ``partitionByComponents preserves global vertex indices`` () =
         // Graph: 0--1  2 (isolated)
-        let edges = [(0, 1)]
+        let edges = [ (0, 1) ]
         let result = partitionByComponents 3 edges
-        let allGlobalVertices =
-            result |> List.collect fst |> List.sort
-        Assert.Equal<int list>([0; 1; 2], allGlobalVertices)
+        let allGlobalVertices = result |> List.collect fst |> List.sort
+        Assert.Equal<int list>([ 0; 1; 2 ], allGlobalVertices)
 
     [<Fact>]
     let ``partitionByComponents with single component returns one partition`` () =
-        let edges = [(0, 1); (1, 2)]
+        let edges = [ (0, 1); (1, 2) ]
         let result = partitionByComponents 3 edges
         Assert.Equal(1, result.Length)
         let (vertices, localEdges) = result.[0]
@@ -170,7 +176,7 @@ module PartitionByComponentsTests =
 
     [<Fact>]
     let ``partitionByComponents with triangle has correct local edges`` () =
-        let edges = [(0, 1); (1, 2); (0, 2)]
+        let edges = [ (0, 1); (1, 2); (0, 2) ]
         let result = partitionByComponents 3 edges
         Assert.Equal(1, result.Length)
         let (_, localEdges) = result.[0]
@@ -190,21 +196,21 @@ module CanDecomposeWithinLimitTests =
     [<Fact>]
     let ``canDecomposeWithinLimit returns true when all components fit`` () =
         // Two isolated components: {0,1} and {2,3}, each size 2
-        let edges = [(0, 1); (2, 3)]
-        let result = canDecomposeWithinLimit 4 edges 2 1  // limit 2 qubits, 1 qubit/vertex
+        let edges = [ (0, 1); (2, 3) ]
+        let result = canDecomposeWithinLimit 4 edges 2 1 // limit 2 qubits, 1 qubit/vertex
         Assert.True(result)
 
     [<Fact>]
     let ``canDecomposeWithinLimit returns false when a component exceeds limit`` () =
         // One connected component of size 3
-        let edges = [(0, 1); (1, 2)]
-        let result = canDecomposeWithinLimit 3 edges 2 1  // limit 2, but component has 3
+        let edges = [ (0, 1); (1, 2) ]
+        let result = canDecomposeWithinLimit 3 edges 2 1 // limit 2, but component has 3
         Assert.False(result)
 
     [<Fact>]
     let ``canDecomposeWithinLimit accounts for qubitsPerVertex`` () =
         // Two isolated vertices, each needing 3 qubits → 3 qubits per component
-        let result = canDecomposeWithinLimit 2 [] 3 3  // limit 3, 3 qubits/vertex, each comp has 1 vertex * 3 = 3
+        let result = canDecomposeWithinLimit 2 [] 3 3 // limit 3, 3 qubits/vertex, each comp has 1 vertex * 3 = 3
         Assert.True(result)
 
     [<Fact>]
@@ -216,15 +222,15 @@ module CanDecomposeWithinLimitTests =
     [<Fact>]
     let ``canDecomposeWithinLimit with disconnected graph that fits`` () =
         // 6 vertices: three pairs {0,1}, {2,3}, {4,5} → each component size 2
-        let edges = [(0, 1); (2, 3); (4, 5)]
-        let result = canDecomposeWithinLimit 6 edges 4 2  // limit 4, 2 qubits/vertex → each comp needs 4
+        let edges = [ (0, 1); (2, 3); (4, 5) ]
+        let result = canDecomposeWithinLimit 6 edges 4 2 // limit 4, 2 qubits/vertex → each comp needs 4
         Assert.True(result)
 
     [<Fact>]
     let ``canDecomposeWithinLimit returns false when one large component exists`` () =
         // 6 vertices: one big chain {0,1,2,3,4,5}
-        let edges = [(0, 1); (1, 2); (2, 3); (3, 4); (4, 5)]
-        let result = canDecomposeWithinLimit 6 edges 4 1  // limit 4, but chain has 6 vertices
+        let edges = [ (0, 1); (1, 2); (2, 3); (3, 4); (4, 5) ]
+        let result = canDecomposeWithinLimit 6 edges 4 1 // limit 4, but chain has 6 vertices
         Assert.False(result)
 
 // ============================================================================
@@ -234,12 +240,13 @@ module CanDecomposeWithinLimitTests =
 module PlanTests =
 
     let private simpleEstimate (n: int) = n
-    let private simpleDecompose (n: int) = [n / 2; n - n / 2]
+    let private simpleDecompose (n: int) = [ n / 2; n - n / 2 ]
 
     [<Fact>]
     let ``plan with NoDecomposition always returns RunDirect`` () =
         let backend = LimitedBackend(4) :> IQuantumBackend
         let result = plan NoDecomposition backend simpleEstimate simpleDecompose 10
+
         match result with
         | RunDirect p -> Assert.Equal(10, p)
         | RunDecomposed _ -> Assert.Fail("Expected RunDirect")
@@ -248,6 +255,7 @@ module PlanTests =
     let ``plan with FixedPartition returns RunDirect when within limit`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
         let result = plan (FixedPartition 10) backend simpleEstimate simpleDecompose 8
+
         match result with
         | RunDirect p -> Assert.Equal(8, p)
         | RunDecomposed _ -> Assert.Fail("Expected RunDirect")
@@ -256,6 +264,7 @@ module PlanTests =
     let ``plan with FixedPartition returns RunDecomposed when exceeding limit`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
         let result = plan (FixedPartition 5) backend simpleEstimate simpleDecompose 10
+
         match result with
         | RunDirect _ -> Assert.Fail("Expected RunDecomposed")
         | RunDecomposed subs ->
@@ -267,8 +276,9 @@ module PlanTests =
     let ``plan with FixedPartition returns RunDirect when decompose returns single item`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
         // Decompose function returns single item (can't decompose)
-        let noDecompose x = [x]
+        let noDecompose x = [ x ]
         let result = plan (FixedPartition 5) backend simpleEstimate noDecompose 10
+
         match result with
         | RunDirect p -> Assert.Equal(10, p)
         | RunDecomposed _ -> Assert.Fail("Expected RunDirect when decompose returns single item")
@@ -277,6 +287,7 @@ module PlanTests =
     let ``plan with AdaptiveToBackend uses backend MaxQubits`` () =
         let backend = LimitedBackend(5) :> IQuantumBackend
         let result = plan AdaptiveToBackend backend simpleEstimate simpleDecompose 10
+
         match result with
         | RunDirect _ -> Assert.Fail("Expected RunDecomposed")
         | RunDecomposed subs -> Assert.Equal(2, subs.Length)
@@ -285,6 +296,7 @@ module PlanTests =
     let ``plan with AdaptiveToBackend returns RunDirect when within limit`` () =
         let backend = LimitedBackend(20) :> IQuantumBackend
         let result = plan AdaptiveToBackend backend simpleEstimate simpleDecompose 10
+
         match result with
         | RunDirect p -> Assert.Equal(10, p)
         | RunDecomposed _ -> Assert.Fail("Expected RunDirect when within limit")
@@ -293,6 +305,7 @@ module PlanTests =
     let ``plan with AdaptiveToBackend and unlimited backend returns RunDirect`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
         let result = plan AdaptiveToBackend backend simpleEstimate simpleDecompose 100
+
         match result with
         | RunDirect p -> Assert.Equal(100, p)
         | RunDecomposed _ -> Assert.Fail("Expected RunDirect for unlimited backend")
@@ -301,6 +314,7 @@ module PlanTests =
     let ``plan with FixedPartition at exact boundary returns RunDirect`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
         let result = plan (FixedPartition 10) backend simpleEstimate simpleDecompose 10
+
         match result with
         | RunDirect p -> Assert.Equal(10, p)
         | RunDecomposed _ -> Assert.Fail("Expected RunDirect at exact boundary")
@@ -313,40 +327,53 @@ module ExecuteTests =
 
     [<Fact>]
     let ``execute RunDirect calls solveFn directly`` () =
-        let solveFn (n: int) = Ok (n * 2)
+        let solveFn (n: int) = Ok(n * 2)
         let recombineFn (xs: int list) = xs |> List.sum
         let plan = RunDirect 5
         let result = execute solveFn recombineFn plan
-        result |> Result.map (fun solution -> Assert.Equal(10, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
+
+        result
+        |> Result.map (fun solution -> Assert.Equal(10, solution))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``execute RunDecomposed solves sub-problems and recombines`` () =
-        let solveFn (n: int) = Ok (n * 10)
+        let solveFn (n: int) = Ok(n * 10)
         let recombineFn (xs: int list) = xs |> List.sum
-        let plan = RunDecomposed [3; 4; 5]
+        let plan = RunDecomposed [ 3; 4; 5 ]
         let result = execute solveFn recombineFn plan
+
         match result with
-        | Ok solution -> Assert.Equal(120, solution)  // 30 + 40 + 50
+        | Ok solution -> Assert.Equal(120, solution) // 30 + 40 + 50
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
 
     [<Fact>]
     let ``execute RunDecomposed preserves order`` () =
-        let solveFn (s: string) = Ok (s.ToUpper())
+        let solveFn (s: string) = Ok(s.ToUpper())
         let recombineFn (xs: string list) = xs |> String.concat ","
-        let plan = RunDecomposed ["a"; "b"; "c"]
+        let plan = RunDecomposed [ "a"; "b"; "c" ]
         let result = execute solveFn recombineFn plan
-        result |> Result.map (fun solution -> Assert.Equal("A,B,C", solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
+
+        result
+        |> Result.map (fun solution -> Assert.Equal("A,B,C", solution))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``execute RunDecomposed short-circuits on first error`` () =
         let mutable callCount = 0
+
         let solveFn (n: int) =
             callCount <- callCount + 1
-            if n = 2 then Error (QuantumError.OperationError ("test", "fail on 2"))
-            else Ok (n * 10)
+
+            if n = 2 then
+                Error(QuantumError.OperationError("test", "fail on 2"))
+            else
+                Ok(n * 10)
+
         let recombineFn (xs: int list) = xs |> List.sum
-        let plan = RunDecomposed [1; 2; 3]
+        let plan = RunDecomposed [ 1; 2; 3 ]
         let result = execute solveFn recombineFn plan
+
         match result with
         | Error _ ->
             // After the error on item 2, item 3 should not be solved
@@ -355,30 +382,39 @@ module ExecuteTests =
 
     [<Fact>]
     let ``execute RunDirect propagates solver error`` () =
-        let solveFn (_: int) = Error (QuantumError.OperationError ("test", "always fails"))
+        let solveFn (_: int) =
+            Error(QuantumError.OperationError("test", "always fails"))
+
         let recombineFn (xs: int list) = xs |> List.sum
         let plan = RunDirect 5
         let result = execute solveFn recombineFn plan
+
         match result with
-        | Error (QuantumError.OperationError (op, _)) -> Assert.Equal("test", op)
+        | Error(QuantumError.OperationError(op, _)) -> Assert.Equal("test", op)
         | Error _ -> Assert.Fail("Expected OperationError")
         | Ok _ -> Assert.Fail("Expected Error but got Ok")
 
     [<Fact>]
     let ``execute RunDecomposed with single sub-problem works`` () =
-        let solveFn (n: int) = Ok (n + 1)
+        let solveFn (n: int) = Ok(n + 1)
         let recombineFn (xs: int list) = xs |> List.sum
-        let plan = RunDecomposed [7]
+        let plan = RunDecomposed [ 7 ]
         let result = execute solveFn recombineFn plan
-        result |> Result.map (fun solution -> Assert.Equal(8, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
+
+        result
+        |> Result.map (fun solution -> Assert.Equal(8, solution))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``execute RunDecomposed with empty sub-problems calls recombine with empty list`` () =
         let solveFn (_: int) = Ok 0
-        let recombineFn (xs: int list) = xs.Length  // returns count
-        let plan : DecompositionPlan<int> = RunDecomposed []
+        let recombineFn (xs: int list) = xs.Length // returns count
+        let plan: DecompositionPlan<int> = RunDecomposed []
         let result = execute solveFn recombineFn plan
-        result |> Result.map (fun solution -> Assert.Equal(0, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
+
+        result
+        |> Result.map (fun solution -> Assert.Equal(0, solution))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
 // ============================================================================
 // solveWithDecomposition TESTS
@@ -389,38 +425,50 @@ module SolveWithDecompositionTests =
     [<Fact>]
     let ``solveWithDecomposition runs directly when backend is unlimited`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
-        let solveFn (n: int) = Ok (n * 2)
-        let decomposeFn (n: int) = [n / 2; n - n / 2]
+        let solveFn (n: int) = Ok(n * 2)
+        let decomposeFn (n: int) = [ n / 2; n - n / 2 ]
         let recombineFn (xs: int list) = xs |> List.sum
         let estimateQubits (n: int) = n
 
-        let result = solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
-        result |> Result.map (fun solution -> Assert.Equal(20, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
+        let result =
+            solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
+
+        result
+        |> Result.map (fun solution -> Assert.Equal(20, solution))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``solveWithDecomposition decomposes when problem exceeds backend limit`` () =
         let backend = LimitedBackend(5) :> IQuantumBackend
-        let solveFn (n: int) = Ok (n * 2)
-        let decomposeFn (n: int) = [n / 2; n - n / 2]
+        let solveFn (n: int) = Ok(n * 2)
+        let decomposeFn (n: int) = [ n / 2; n - n / 2 ]
         let recombineFn (xs: int list) = xs |> List.sum
         let estimateQubits (n: int) = n
 
         // 10 qubits > 5 limit → decompose into [5; 5] → solve each → 10 + 10 = 20
-        let result = solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
-        result |> Result.map (fun solution -> Assert.Equal(20, solution)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
+        let result =
+            solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
+
+        result
+        |> Result.map (fun solution -> Assert.Equal(20, solution))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err}"))
 
     [<Fact>]
     let ``solveWithDecomposition runs directly when within backend limit`` () =
         let backend = LimitedBackend(20) :> IQuantumBackend
         let mutable wasDecomposed = false
-        let solveFn (n: int) = Ok (n * 2)
+        let solveFn (n: int) = Ok(n * 2)
+
         let decomposeFn (n: int) =
             wasDecomposed <- true
-            [n / 2; n - n / 2]
+            [ n / 2; n - n / 2 ]
+
         let recombineFn (xs: int list) = xs |> List.sum
         let estimateQubits (n: int) = n
 
-        let result = solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
+        let result =
+            solveWithDecomposition backend 10 estimateQubits decomposeFn recombineFn solveFn
+
         match result with
         | Ok solution ->
             Assert.Equal(20, solution)
@@ -430,14 +478,19 @@ module SolveWithDecompositionTests =
     [<Fact>]
     let ``solveWithDecomposition propagates error from solver`` () =
         let backend = UnlimitedBackend() :> IQuantumBackend
-        let solveFn (_: int) = Error (QuantumError.OperationError ("solver", "test error"))
-        let decomposeFn (n: int) = [n]
+
+        let solveFn (_: int) =
+            Error(QuantumError.OperationError("solver", "test error"))
+
+        let decomposeFn (n: int) = [ n ]
         let recombineFn (xs: int list) = xs |> List.sum
         let estimateQubits (n: int) = n
 
-        let result = solveWithDecomposition backend 5 estimateQubits decomposeFn recombineFn solveFn
+        let result =
+            solveWithDecomposition backend 5 estimateQubits decomposeFn recombineFn solveFn
+
         match result with
-        | Error _ -> ()  // expected
+        | Error _ -> () // expected
         | Ok _ -> Assert.Fail("Expected Error but got Ok")
 
     [<Fact>]
@@ -449,12 +502,16 @@ module SolveWithDecompositionTests =
 
         let mutable wasDecomposed = false
         let solveFn (n: int) = Ok n
+
         let decomposeFn (n: int) =
             wasDecomposed <- true
-            [n / 2; n - n / 2]
+            [ n / 2; n - n / 2 ]
+
         let recombineFn (xs: int list) = xs |> List.sum
         let estimateQubits (n: int) = n
 
         // 25 qubits > 20 limit → should decompose
-        let _result = solveWithDecomposition backend 25 estimateQubits decomposeFn recombineFn solveFn
+        let _result =
+            solveWithDecomposition backend 25 estimateQubits decomposeFn recombineFn solveFn
+
         Assert.True(wasDecomposed, "Should decompose when problem exceeds LocalBackend limit")

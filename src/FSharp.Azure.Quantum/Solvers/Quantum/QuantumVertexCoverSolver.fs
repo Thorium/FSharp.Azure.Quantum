@@ -31,40 +31,43 @@ module QuantumVertexCoverSolver =
     // ========================================================================
 
     /// A vertex in the graph
-    type Vertex = {
-        Id: string
-        /// Optional weight (for weighted vertex cover); default 1.0
-        Weight: float
-    }
+    type Vertex =
+        {
+            Id: string
+            /// Optional weight (for weighted vertex cover); default 1.0
+            Weight: float
+        }
 
     /// Vertex cover problem definition
-    type Problem = {
-        Vertices: Vertex list
-        /// Edges as (source index, target index) pairs
-        Edges: (int * int) list
-    }
+    type Problem =
+        {
+            Vertices: Vertex list
+            /// Edges as (source index, target index) pairs
+            Edges: (int * int) list
+        }
 
     /// Vertex cover solution
-    type Solution = {
-        /// Vertices included in the cover
-        CoverVertices: Vertex list
-        /// Total weight of the cover (sum of weights of selected vertices)
-        CoverWeight: float
-        /// Number of vertices in the cover
-        CoverSize: int
-        /// Whether every edge has at least one endpoint in the cover
-        IsValid: bool
-        /// Whether constraint repair was applied
-        WasRepaired: bool
-        /// Name of the quantum backend used
-        BackendName: string
-        /// Number of measurement shots
-        NumShots: int
-        /// Optimized QAOA (gamma, beta) parameters per layer
-        OptimizedParameters: (float * float)[] option
-        /// Whether Nelder-Mead converged
-        OptimizationConverged: bool option
-    }
+    type Solution =
+        {
+            /// Vertices included in the cover
+            CoverVertices: Vertex list
+            /// Total weight of the cover (sum of weights of selected vertices)
+            CoverWeight: float
+            /// Number of vertices in the cover
+            CoverSize: int
+            /// Whether every edge has at least one endpoint in the cover
+            IsValid: bool
+            /// Whether constraint repair was applied
+            WasRepaired: bool
+            /// Name of the quantum backend used
+            BackendName: string
+            /// Number of measurement shots
+            NumShots: int
+            /// Optimized QAOA (gamma, beta) parameters per layer
+            OptimizedParameters: (float * float)[] option
+            /// Whether Nelder-Mead converged
+            OptimizationConverged: bool option
+        }
 
     // ========================================================================
     // CONFIGURATION (type alias for unified config)
@@ -72,9 +75,9 @@ module QuantumVertexCoverSolver =
 
     type Config = QaoaSolverConfig
 
-    let defaultConfig : Config = QaoaExecutionHelpers.defaultConfig
-    let fastConfig : Config = QaoaExecutionHelpers.fastConfig
-    let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
+    let defaultConfig: Config = QaoaExecutionHelpers.defaultConfig
+    let fastConfig: Config = QaoaExecutionHelpers.fastConfig
+    let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
     // QUBIT ESTIMATION (Decision 11)
@@ -82,8 +85,7 @@ module QuantumVertexCoverSolver =
 
     /// Estimate the number of qubits required for a vertex cover problem.
     /// One qubit per vertex.
-    let estimateQubits (problem: Problem) : int =
-        problem.Vertices.Length
+    let estimateQubits (problem: Problem) : int = problem.Vertices.Length
 
     // ========================================================================
     // EDGE NORMALIZATION
@@ -92,9 +94,7 @@ module QuantumVertexCoverSolver =
     /// Normalize edges to canonical form: (min(i,j), max(i,j)), deduplicated.
     /// Handles bidirectional edges and duplicates.
     let private normalizeEdges (edges: (int * int) list) : (int * int) list =
-        edges
-        |> List.map (fun (i, j) -> (min i j, max i j))
-        |> List.distinct
+        edges |> List.map (fun (i, j) -> (min i j, max i j)) |> List.distinct
 
     // ========================================================================
     // QUBO CONSTRUCTION (Decision 9: sparse internally, Decision 5: dense output)
@@ -135,9 +135,7 @@ module QuantumVertexCoverSolver =
         // Quadratic terms: +penalty for each edge (symmetric split)
         let quadraticTerms =
             normalizedEdges
-            |> List.collect (fun (i, j) ->
-                [ ((i, j), penalty / 2.0)
-                  ((j, i), penalty / 2.0) ])
+            |> List.collect (fun (i, j) -> [ ((i, j), penalty / 2.0); ((j, i), penalty / 2.0) ])
 
         (linearTerms @ quadraticTerms)
         |> List.fold (fun acc (key, value) -> Qubo.combineTerms key value acc) Map.empty
@@ -146,11 +144,11 @@ module QuantumVertexCoverSolver =
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         if problem.Vertices.IsEmpty then
-            Error (QuantumError.ValidationError ("vertices", "Problem has no vertices"))
+            Error(QuantumError.ValidationError("vertices", "Problem has no vertices"))
         else
             let n = problem.Vertices.Length
             let quboMap = buildQuboMap problem
-            Ok (Qubo.toDenseArray n quboMap)
+            Ok(Qubo.toDenseArray n quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -165,8 +163,7 @@ module QuantumVertexCoverSolver =
            |> List.forall (fun (i, j) ->
                let lo = min i j
                let hi = max i j
-               lo >= 0 && hi < bits.Length
-               && (bits.[lo] = 1 || bits.[hi] = 1))
+               lo >= 0 && hi < bits.Length && (bits.[lo] = 1 || bits.[hi] = 1))
 
     /// Decode a bitstring into a Solution.
     let private decodeSolution (problem: Problem) (bits: int[]) : Solution =
@@ -201,17 +198,20 @@ module QuantumVertexCoverSolver =
         // Phase 1: ensure every edge is covered
         let afterCover =
             normalizedEdges
-            |> List.fold (fun (acc: int[]) (i, j) ->
-                if acc.[i] = 0 && acc.[j] = 0 then
-                    let updated = Array.copy acc
-                    if problem.Vertices.[i].Weight <= problem.Vertices.[j].Weight then
-                        updated.[i] <- 1
+            |> List.fold
+                (fun (acc: int[]) (i, j) ->
+                    if acc.[i] = 0 && acc.[j] = 0 then
+                        let updated = Array.copy acc
+
+                        if problem.Vertices.[i].Weight <= problem.Vertices.[j].Weight then
+                            updated.[i] <- 1
+                        else
+                            updated.[j] <- 1
+
+                        updated
                     else
-                        updated.[j] <- 1
-                    updated
-                else
-                    acc
-            ) (Array.copy bits)
+                        acc)
+                (Array.copy bits)
 
         // Phase 2: recursively remove redundant vertices (heaviest first)
         let sortedSelected =
@@ -226,6 +226,7 @@ module QuantumVertexCoverSolver =
             | (idx, _) :: rest ->
                 let tentative = Array.copy current
                 tentative.[idx] <- 0
+
                 if isValid problem tentative then
                     tryRemove tentative rest
                 else
@@ -242,18 +243,23 @@ module QuantumVertexCoverSolver =
     /// edges only create constraints within a component.
     let decompose (problem: Problem) : Problem list =
         let n = problem.Vertices.Length
-        if n <= 1 then [ problem ]
+
+        if n <= 1 then
+            [ problem ]
         else
             let parts = ProblemDecomposition.partitionByComponents n problem.Edges
+
             match parts with
-            | [ _ ] -> [ problem ]  // Single component — no benefit to splitting
+            | [ _ ] -> [ problem ] // Single component — no benefit to splitting
             | components ->
                 components
                 |> List.map (fun (globalIndices, localEdges) ->
-                    let localVertices =
-                        globalIndices
-                        |> List.map (fun gi -> problem.Vertices.[gi])
-                    { Vertices = localVertices; Edges = localEdges })
+                    let localVertices = globalIndices |> List.map (fun gi -> problem.Vertices.[gi])
+
+                    {
+                        Vertices = localVertices
+                        Edges = localEdges
+                    })
 
     /// Recombine sub-solutions (one per connected component) into a single solution.
     /// Connected components are independent, so the vertex cover of the whole graph
@@ -274,15 +280,25 @@ module QuantumVertexCoverSolver =
             }
         | [ single ] -> single
         | sols ->
-            { CoverVertices = sols |> List.collect (fun s -> s.CoverVertices)
-              CoverWeight = sols |> List.sumBy (fun s -> s.CoverWeight)
-              CoverSize = sols |> List.sumBy (fun s -> s.CoverSize)
-              IsValid = sols |> List.forall (fun s -> s.IsValid)
-              WasRepaired = sols |> List.exists (fun s -> s.WasRepaired)
-              BackendName = sols |> List.tryHead |> Option.map (fun s -> s.BackendName) |> Option.defaultValue ""
-              NumShots = sols |> List.tryHead |> Option.map (fun s -> s.NumShots) |> Option.defaultValue 0
-              OptimizedParameters = None
-              OptimizationConverged = None }
+            {
+                CoverVertices = sols |> List.collect (fun s -> s.CoverVertices)
+                CoverWeight = sols |> List.sumBy (fun s -> s.CoverWeight)
+                CoverSize = sols |> List.sumBy (fun s -> s.CoverSize)
+                IsValid = sols |> List.forall (fun s -> s.IsValid)
+                WasRepaired = sols |> List.exists (fun s -> s.WasRepaired)
+                BackendName =
+                    sols
+                    |> List.tryHead
+                    |> Option.map (fun s -> s.BackendName)
+                    |> Option.defaultValue ""
+                NumShots =
+                    sols
+                    |> List.tryHead
+                    |> Option.map (fun s -> s.NumShots)
+                    |> Option.defaultValue 0
+                OptimizedParameters = None
+                OptimizationConverged = None
+            }
 
     // ========================================================================
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
@@ -299,10 +315,17 @@ module QuantumVertexCoverSolver =
         : Result<Solution, QuantumError> =
 
         if problem.Vertices.IsEmpty then
-            Error (QuantumError.ValidationError ("vertices", "Problem has no vertices"))
-        elif problem.Edges |> List.exists (fun (i, j) ->
-                i < 0 || j < 0 || i >= problem.Vertices.Length || j >= problem.Vertices.Length || i = j) then
-            Error (QuantumError.ValidationError ("edges", "Edge index out of range or self-loop"))
+            Error(QuantumError.ValidationError("vertices", "Problem has no vertices"))
+        elif
+            problem.Edges
+            |> List.exists (fun (i, j) ->
+                i < 0
+                || j < 0
+                || i >= problem.Vertices.Length
+                || j >= problem.Vertices.Length
+                || i = j)
+        then
+            Error(QuantumError.ValidationError("edges", "Edge index out of range or self-loop"))
         else
             let solveSingle (subProblem: Problem) =
                 match toQubo subProblem with
@@ -311,16 +334,14 @@ module QuantumVertexCoverSolver =
                     let result =
                         if config.EnableOptimization then
                             executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) ->
-                                (bits, Some optParams, Some converged))
+                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
                             executeQaoaWithGridSearch backend qubo config
-                            |> Result.map (fun (bits, optParams) ->
-                                (bits, Some optParams, None))
+                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
                     | Error err -> Error err
-                    | Ok (bits, optParams, converged) ->
+                    | Ok(bits, optParams, converged) ->
                         let finalBits, wasRepaired =
                             if config.EnableConstraintRepair && not (isValid subProblem bits) then
                                 (repairConstraints subProblem bits, true)
@@ -328,15 +349,17 @@ module QuantumVertexCoverSolver =
                                 (bits, false)
 
                         let solution = decodeSolution subProblem finalBits
-                        Ok { solution with
+
+                        Ok
+                            { solution with
                                 BackendName = backend.Name
                                 NumShots = config.FinalShots
                                 WasRepaired = wasRepaired
                                 OptimizedParameters = optParams
-                                OptimizationConverged = converged }
+                                OptimizationConverged = converged
+                            }
 
-            ProblemDecomposition.solveWithDecomposition
-                backend problem estimateQubits decompose recombine solveSingle
+            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve vertex cover using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
@@ -346,10 +369,11 @@ module QuantumVertexCoverSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Task<Result<Solution, QuantumError>> = task {
-        cancellationToken.ThrowIfCancellationRequested()
-        return solveWithConfig backend problem config
-    }
+        : Task<Result<Solution, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
 
     /// Solve vertex cover using QAOA with default configuration.
     [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -359,7 +383,11 @@ module QuantumVertexCoverSolver =
         (shots: int)
         : Result<Solution, QuantumError> =
 
-        let config = { defaultConfig with FinalShots = shots }
+        let config =
+            { defaultConfig with
+                FinalShots = shots
+            }
+
         solveWithConfigAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -374,7 +402,10 @@ module QuantumVertexCoverSolver =
     let private solveClassical (problem: Problem) : Solution =
         if problem.Vertices.IsEmpty then
             decodeSolution problem (Array.zeroCreate 0)
-            |> fun s -> { s with BackendName = "Classical Greedy" }
+            |> fun s ->
+                { s with
+                    BackendName = "Classical Greedy"
+                }
         else
             let n = problem.Vertices.Length
             let normalizedEdges = normalizeEdges problem.Edges
@@ -382,42 +413,51 @@ module QuantumVertexCoverSolver =
             // Sort edges by the minimum-weight endpoint (greedy heuristic)
             let sortedEdges =
                 normalizedEdges
-                |> List.sortBy (fun (i, j) ->
-                    min problem.Vertices.[i].Weight problem.Vertices.[j].Weight)
+                |> List.sortBy (fun (i, j) -> min problem.Vertices.[i].Weight problem.Vertices.[j].Weight)
 
             // Greedily cover edges using fold with immutable Set
             let selected =
                 sortedEdges
-                |> List.fold (fun (sel: Set<int>, covered: Set<int * int>) (i, j) ->
-                    if covered |> Set.contains (i, j) then
-                        (sel, covered)
-                    else
-                        // Pick the lighter endpoint (skip if already selected)
-                        let pick =
-                            if sel |> Set.contains i then None
-                            elif sel |> Set.contains j then None
-                            elif problem.Vertices.[i].Weight <= problem.Vertices.[j].Weight then Some i
-                            else Some j
-
-                        let sel' =
-                            match pick with
-                            | Some v -> sel |> Set.add v
-                            | None -> sel
-
-                        // Mark all edges incident to selected vertices as covered
-                        let covered' =
-                            normalizedEdges
-                            |> List.fold (fun acc (ei, ej) ->
-                                if sel' |> Set.contains ei || sel' |> Set.contains ej then
-                                    acc |> Set.add (ei, ej)
+                |> List.fold
+                    (fun (sel: Set<int>, covered: Set<int * int>) (i, j) ->
+                        if covered |> Set.contains (i, j) then
+                            (sel, covered)
+                        else
+                            // Pick the lighter endpoint (skip if already selected)
+                            let pick =
+                                if sel |> Set.contains i then
+                                    None
+                                elif sel |> Set.contains j then
+                                    None
+                                elif problem.Vertices.[i].Weight <= problem.Vertices.[j].Weight then
+                                    Some i
                                 else
-                                    acc
-                            ) covered
+                                    Some j
 
-                        (sel', covered')
-                ) (Set.empty, Set.empty)
+                            let sel' =
+                                match pick with
+                                | Some v -> sel |> Set.add v
+                                | None -> sel
+
+                            // Mark all edges incident to selected vertices as covered
+                            let covered' =
+                                normalizedEdges
+                                |> List.fold
+                                    (fun acc (ei, ej) ->
+                                        if sel' |> Set.contains ei || sel' |> Set.contains ej then
+                                            acc |> Set.add (ei, ej)
+                                        else
+                                            acc)
+                                    covered
+
+                            (sel', covered'))
+                    (Set.empty, Set.empty)
                 |> fst
 
             let bits = Array.init n (fun i -> if selected |> Set.contains i then 1 else 0)
+
             decodeSolution problem bits
-            |> fun s -> { s with BackendName = "Classical Greedy" }
+            |> fun s ->
+                { s with
+                    BackendName = "Classical Greedy"
+                }

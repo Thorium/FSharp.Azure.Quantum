@@ -14,11 +14,16 @@ module BraketTests =
         let bell =
             CircuitBuilder.empty 2
             |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-            |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
+
         let action = Braket.openQasmAction (OpenQasm.exportV3 bell)
-        use doc = JsonDocument.Parse(action)   // must be valid JSON
+        use doc = JsonDocument.Parse(action) // must be valid JSON
         let root = doc.RootElement
-        Assert.Equal("braket.ir.openqasm.program", root.GetProperty("braketSchemaHeader").GetProperty("name").GetString())
+
+        Assert.Equal(
+            "braket.ir.openqasm.program",
+            root.GetProperty("braketSchemaHeader").GetProperty("name").GetString()
+        )
         // The source round-trips (newlines/quotes escaped correctly) and contains the circuit.
         let source = root.GetProperty("source").GetString()
         Assert.Contains("OPENQASM 3.0;", source)

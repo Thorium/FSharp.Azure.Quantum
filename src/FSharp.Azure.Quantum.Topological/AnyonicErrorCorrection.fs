@@ -30,40 +30,43 @@ module AnyonicErrorCorrection =
         | Right
 
     /// Information about a single charge violation
-    type ChargeViolation = {
-        /// Path from root to the violating fusion node
-        Path: PathDirection list
-        /// The invalid channel that was found
-        ActualChannel: AnyonSpecies.Particle
-        /// Valid channels for the fusing particles at this node
-        ExpectedChannels: AnyonSpecies.Particle list
-        /// Left child's charge at the violation
-        LeftCharge: AnyonSpecies.Particle
-        /// Right child's charge at the violation
-        RightCharge: AnyonSpecies.Particle
-    }
+    type ChargeViolation =
+        {
+            /// Path from root to the violating fusion node
+            Path: PathDirection list
+            /// The invalid channel that was found
+            ActualChannel: AnyonSpecies.Particle
+            /// Valid channels for the fusing particles at this node
+            ExpectedChannels: AnyonSpecies.Particle list
+            /// Left child's charge at the violation
+            LeftCharge: AnyonSpecies.Particle
+            /// Right child's charge at the violation
+            RightCharge: AnyonSpecies.Particle
+        }
 
     /// Syndrome extracted from a fusion tree state
-    type Syndrome = {
-        /// All detected charge violations
-        Violations: ChargeViolation list
-        /// True if no violations detected
-        IsClean: bool
-        /// Number of violations
-        ViolationCount: int
-        /// The anyon theory context
-        AnyonType: AnyonSpecies.AnyonType
-    }
+    type Syndrome =
+        {
+            /// All detected charge violations
+            Violations: ChargeViolation list
+            /// True if no violations detected
+            IsClean: bool
+            /// Number of violations
+            ViolationCount: int
+            /// The anyon theory context
+            AnyonType: AnyonSpecies.AnyonType
+        }
 
     /// Result of charge correction
-    type CorrectionResult = {
-        /// The corrected fusion tree state
-        Tree: FusionTree.Tree
-        /// The anyon theory context
-        AnyonType: AnyonSpecies.AnyonType
-        /// Number of corrections applied
-        CorrectionsApplied: int
-    }
+    type CorrectionResult =
+        {
+            /// The corrected fusion tree state
+            Tree: FusionTree.Tree
+            /// The anyon theory context
+            AnyonType: AnyonSpecies.AnyonType
+            /// Number of corrections applied
+            CorrectionsApplied: int
+        }
 
     // ========================================================================
     // CHARGE VIOLATION DETECTION
@@ -84,10 +87,11 @@ module AnyonicErrorCorrection =
         let rec detect (t: FusionTree.Tree) (path: PathDirection list) : TopologicalResult<ChargeViolation list> =
             match t with
             | FusionTree.Leaf _ -> Ok []
-            | FusionTree.Fusion (left, right, channel) ->
+            | FusionTree.Fusion(left, right, channel) ->
                 // Recurse into children
-                match detect left (path @ [Left]), detect right (path @ [Right]) with
-                | Error e, _ | _, Error e -> Error e
+                match detect left (path @ [ Left ]), detect right (path @ [ Right ]) with
+                | Error e, _
+                | _, Error e -> Error e
                 | Ok leftViolations, Ok rightViolations ->
                     let leftCharge = FusionTree.totalCharge left anyonType
                     let rightCharge = FusionTree.totalCharge right anyonType
@@ -100,16 +104,18 @@ module AnyonicErrorCorrection =
                         let isValid = validChannels |> List.contains channel
 
                         if isValid then
-                            Ok (leftViolations @ rightViolations)
+                            Ok(leftViolations @ rightViolations)
                         else
-                            let violation = {
-                                Path = path
-                                ActualChannel = channel
-                                ExpectedChannels = validChannels
-                                LeftCharge = leftCharge
-                                RightCharge = rightCharge
-                            }
-                            Ok (leftViolations @ rightViolations @ [violation])
+                            let violation =
+                                {
+                                    Path = path
+                                    ActualChannel = channel
+                                    ExpectedChannels = validChannels
+                                    LeftCharge = leftCharge
+                                    RightCharge = rightCharge
+                                }
+
+                            Ok(leftViolations @ rightViolations @ [ violation ])
 
         detect tree []
 
@@ -135,17 +141,19 @@ module AnyonicErrorCorrection =
         let rec inject (t: FusionTree.Tree) (remaining: PathDirection list) : TopologicalResult<FusionTree.Tree> =
             match t, remaining with
             // Arrived at target — must be a Fusion node
-            | FusionTree.Fusion (left, right, channel), [] ->
+            | FusionTree.Fusion(left, right, channel), [] ->
                 let leftCharge = FusionTree.totalCharge left anyonType
                 let rightCharge = FusionTree.totalCharge right anyonType
+
                 match FusionRules.fuse leftCharge rightCharge anyonType with
                 | Error e -> Error e
                 | Ok outcomes ->
                     let validChannels = outcomes |> List.map (fun o -> o.Result)
                     // Pick a different channel (cycle to next)
                     let otherChannels = validChannels |> List.filter (fun c -> c <> channel)
+
                     match otherChannels with
-                    | next :: _ -> Ok (FusionTree.Fusion (left, right, next))
+                    | next :: _ -> Ok(FusionTree.Fusion(left, right, next))
                     | [] ->
                         // Only one valid channel — can't flip, return unchanged
                         Ok t
@@ -155,11 +163,13 @@ module AnyonicErrorCorrection =
                 TopologicalResult.validationError "path" "Cannot inject charge flip on a leaf node (no fusion channel)"
 
             // Navigate deeper
-            | FusionTree.Fusion (left, right, channel), Left :: rest ->
-                (inject left rest) |> Result.map (fun newLeft -> FusionTree.Fusion (newLeft, right, channel))
+            | FusionTree.Fusion(left, right, channel), Left :: rest ->
+                (inject left rest)
+                |> Result.map (fun newLeft -> FusionTree.Fusion(newLeft, right, channel))
 
-            | FusionTree.Fusion (left, right, channel), Right :: rest ->
-                (inject right rest) |> Result.map (fun newRight -> FusionTree.Fusion (left, newRight, channel))
+            | FusionTree.Fusion(left, right, channel), Right :: rest ->
+                (inject right rest)
+                |> Result.map (fun newRight -> FusionTree.Fusion(left, newRight, channel))
 
             // Path goes deeper but we hit a leaf
             | FusionTree.Leaf _, _ :: _ ->
@@ -175,19 +185,18 @@ module AnyonicErrorCorrection =
     ///
     /// Combines charge violation detection with metadata about
     /// the tree's health for diagnostic purposes.
-    let extractSyndrome
-        (state: FusionTree.State)
-        : TopologicalResult<Syndrome> =
+    let extractSyndrome (state: FusionTree.State) : TopologicalResult<Syndrome> =
 
         match detectChargeViolations state.Tree state.AnyonType with
         | Error e -> Error e
         | Ok violations ->
-            Ok {
-                Violations = violations
-                IsClean = violations.IsEmpty
-                ViolationCount = violations.Length
-                AnyonType = state.AnyonType
-            }
+            Ok
+                {
+                    Violations = violations
+                    IsClean = violations.IsEmpty
+                    ViolationCount = violations.Length
+                    AnyonType = state.AnyonType
+                }
 
     // ========================================================================
     // GREEDY CHARGE CORRECTION DECODER
@@ -202,20 +211,19 @@ module AnyonicErrorCorrection =
     ///
     /// After correcting inner nodes, propagates upward to ensure
     /// parent nodes are also consistent with the new child charges.
-    let correctChargeViolations
-        (state: FusionTree.State)
-        : TopologicalResult<CorrectionResult> =
+    let correctChargeViolations (state: FusionTree.State) : TopologicalResult<CorrectionResult> =
 
         let anyonType = state.AnyonType
 
         let rec correct (t: FusionTree.Tree) : TopologicalResult<FusionTree.Tree * int> =
             match t with
-            | FusionTree.Leaf _ -> Ok (t, 0)
-            | FusionTree.Fusion (left, right, channel) ->
+            | FusionTree.Leaf _ -> Ok(t, 0)
+            | FusionTree.Fusion(left, right, channel) ->
                 // First, correct children
                 match correct left, correct right with
-                | Error e, _ | _, Error e -> Error e
-                | Ok (correctedLeft, leftFixes), Ok (correctedRight, rightFixes) ->
+                | Error e, _
+                | _, Error e -> Error e
+                | Ok(correctedLeft, leftFixes), Ok(correctedRight, rightFixes) ->
                     let leftCharge = FusionTree.totalCharge correctedLeft anyonType
                     let rightCharge = FusionTree.totalCharge correctedRight anyonType
 
@@ -226,7 +234,7 @@ module AnyonicErrorCorrection =
 
                         if validChannels |> List.contains channel then
                             // Current channel is valid — no correction needed
-                            Ok (FusionTree.Fusion (correctedLeft, correctedRight, channel), leftFixes + rightFixes)
+                            Ok(FusionTree.Fusion(correctedLeft, correctedRight, channel), leftFixes + rightFixes)
                         else
                             // Pick first valid channel (prefer vacuum if available)
                             let preferred =
@@ -236,20 +244,27 @@ module AnyonicErrorCorrection =
 
                             match preferred with
                             | Some channel ->
-                                Ok (FusionTree.Fusion (correctedLeft, correctedRight, channel), leftFixes + rightFixes + 1)
+                                Ok(
+                                    FusionTree.Fusion(correctedLeft, correctedRight, channel),
+                                    leftFixes + rightFixes + 1
+                                )
                             | None ->
-                                Error (TopologicalError.ComputationError (
-                                    "Anyonic error correction",
-                                    $"No valid fusion channel for {leftCharge} x {rightCharge}"))
+                                Error(
+                                    TopologicalError.ComputationError(
+                                        "Anyonic error correction",
+                                        $"No valid fusion channel for {leftCharge} x {rightCharge}"
+                                    )
+                                )
 
         match correct state.Tree with
         | Error e -> Error e
-        | Ok (correctedTree, fixes) ->
-            Ok {
-                Tree = correctedTree
-                AnyonType = anyonType
-                CorrectionsApplied = fixes
-            }
+        | Ok(correctedTree, fixes) ->
+            Ok
+                {
+                    Tree = correctedTree
+                    AnyonType = anyonType
+                    CorrectionsApplied = fixes
+                }
 
     // ========================================================================
     // PROTECTED SUBSPACE PROJECTION
@@ -273,12 +288,15 @@ module AnyonicErrorCorrection =
                 let charge = FusionTree.totalCharge state.Tree state.AnyonType
                 charge = targetCharge)
 
-        let projected = { superposition with Terms = filteredTerms }
+        let projected =
+            { superposition with
+                Terms = filteredTerms
+            }
 
         if filteredTerms.IsEmpty then
             Ok projected
         else
-            Ok (TopologicalOperations.normalize projected)
+            Ok(TopologicalOperations.normalize projected)
 
     // ========================================================================
     // FULL CORRECTION PIPELINE
@@ -304,13 +322,23 @@ module AnyonicErrorCorrection =
                 | Error e -> Error e
                 | Ok corrected ->
                     let newState = FusionTree.create corrected.Tree corrected.AnyonType
-                    Ok (amp, newState))
+                    Ok(amp, newState))
 
         // Check for errors
-        match correctedTerms |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+        match
+            correctedTerms
+            |> List.tryPick (function
+                | Error e -> Some e
+                | Ok _ -> None)
+        with
         | Some err -> Error err
         | None ->
-            let terms = correctedTerms |> List.choose (function Ok t -> Some t | Error _ -> None)
+            let terms =
+                correctedTerms
+                |> List.choose (function
+                    | Ok t -> Some t
+                    | Error _ -> None)
+
             let correctedSuperposition = { superposition with Terms = terms }
             projectToCodeSpace correctedSuperposition targetCharge
 
@@ -327,9 +355,19 @@ module AnyonicErrorCorrection =
                 syndrome.Violations
                 |> List.mapi (fun i v ->
                     let pathStr =
-                        if v.Path.IsEmpty then "root"
-                        else v.Path |> List.map (function Left -> "L" | Right -> "R") |> String.concat ""
-                    let expectedStr = v.ExpectedChannels |> List.map (fun p -> $"{p}") |> String.concat ", "
+                        if v.Path.IsEmpty then
+                            "root"
+                        else
+                            v.Path
+                            |> List.map (function
+                                | Left -> "L"
+                                | Right -> "R")
+                            |> String.concat ""
+
+                    let expectedStr =
+                        v.ExpectedChannels |> List.map (fun p -> $"{p}") |> String.concat ", "
+
                     $"  Violation {i + 1}: path={pathStr}, actual={v.ActualChannel}, expected=[{expectedStr}]")
                 |> String.concat "\n"
+
             $"Syndrome: {syndrome.ViolationCount} charge violation(s) detected\nTheory: {syndrome.AnyonType}\n{violationStrs}"

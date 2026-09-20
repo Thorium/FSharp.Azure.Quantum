@@ -20,35 +20,36 @@ open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 
 module FinancialData =
-    
+
     // ========================================================================
     // CORE TYPES
     // ========================================================================
-    
+
     /// Single price observation (OHLCV)
-    type PriceBar = {
-        /// Date/time of the observation
-        Date: DateTime
-        
-        /// Opening price
-        Open: float
-        
-        /// Highest price
-        High: float
-        
-        /// Lowest price
-        Low: float
-        
-        /// Closing price
-        Close: float
-        
-        /// Trading volume
-        Volume: float
-        
-        /// Adjusted close (for dividends/splits)
-        AdjustedClose: float option
-    }
-    
+    type PriceBar =
+        {
+            /// Date/time of the observation
+            Date: DateTime
+
+            /// Opening price
+            Open: float
+
+            /// Highest price
+            High: float
+
+            /// Lowest price
+            Low: float
+
+            /// Closing price
+            Close: float
+
+            /// Trading volume
+            Volume: float
+
+            /// Adjusted close (for dividends/splits)
+            AdjustedClose: float option
+        }
+
     [<Struct>]
     type AssetClass =
         | Equity
@@ -58,7 +59,7 @@ module FinancialData =
         | Derivative
         | Alternative
         | Cash
-    
+
     [<Struct>]
     type DataFrequency =
         | Daily
@@ -76,290 +77,332 @@ module FinancialData =
     type ScenarioType =
         /// Historical scenario (replay actual market moves)
         | Historical of startDate: DateTime * endDate: DateTime
-        
+
         /// Hypothetical scenario (user-defined shocks)
         | Hypothetical
-        
+
         /// Regulatory scenario (Basel, CCAR, etc.)
         | Regulatory of standard: string
 
     /// Time series of price data for a single asset
-    type PriceSeries = {
-        /// Asset symbol/ticker
-        Symbol: string
-        
-        /// Asset name (optional)
-        Name: string option
-        
-        /// Currency of prices
-        Currency: string
-        
-        /// Price observations (sorted by date ascending)
-        Prices: PriceBar array
-        
-        /// Data frequency
-        Frequency: DataFrequency
-    }
-    
+    type PriceSeries =
+        {
+            /// Asset symbol/ticker
+            Symbol: string
+
+            /// Asset name (optional)
+            Name: string option
+
+            /// Currency of prices
+            Currency: string
+
+            /// Price observations (sorted by date ascending)
+            Prices: PriceBar array
+
+            /// Data frequency
+            Frequency: DataFrequency
+        }
+
     /// Return series for an asset
-    type ReturnSeries = {
-        /// Asset symbol
-        Symbol: string
-        
-        /// Date range
-        StartDate: DateTime
-        EndDate: DateTime
-        
-        /// Log returns: ln(P_t / P_{t-1})
-        LogReturns: float array
-        
-        /// Simple returns: (P_t - P_{t-1}) / P_{t-1}
-        SimpleReturns: float array
-        
-        /// Corresponding dates (length = LogReturns.Length)
-        Dates: DateTime array
-    }
-    
+    type ReturnSeries =
+        {
+            /// Asset symbol
+            Symbol: string
+
+            /// Date range
+            StartDate: DateTime
+            EndDate: DateTime
+
+            /// Log returns: ln(P_t / P_{t-1})
+            LogReturns: float array
+
+            /// Simple returns: (P_t - P_{t-1}) / P_{t-1}
+            SimpleReturns: float array
+
+            /// Corresponding dates (length = LogReturns.Length)
+            Dates: DateTime array
+        }
+
     /// Portfolio position
-    type Position = {
-        /// Asset symbol
-        Symbol: string
-        
-        /// Number of shares/units held
-        Quantity: float
-        
-        /// Current market price per unit
-        CurrentPrice: float
-        
-        /// Position market value (Quantity * CurrentPrice)
-        MarketValue: float
-        
-        /// Asset class for risk aggregation
-        AssetClass: AssetClass
-        
-        /// Optional sector/industry
-        Sector: string option
-    }
-    
-    
+    type Position =
+        {
+            /// Asset symbol
+            Symbol: string
+
+            /// Number of shares/units held
+            Quantity: float
+
+            /// Current market price per unit
+            CurrentPrice: float
+
+            /// Position market value (Quantity * CurrentPrice)
+            MarketValue: float
+
+            /// Asset class for risk aggregation
+            AssetClass: AssetClass
+
+            /// Optional sector/industry
+            Sector: string option
+        }
+
+
     /// Complete portfolio definition
-    type Portfolio = {
-        /// Portfolio identifier
-        Id: string
-        
-        /// Portfolio name
-        Name: string
-        
-        /// Base currency for NAV calculation
-        BaseCurrency: string
-        
-        /// Portfolio positions
-        Positions: Position array
-        
-        /// Total market value
-        TotalValue: float
-        
-        /// Valuation date
-        ValuationDate: DateTime
-    }
-    
+    type Portfolio =
+        {
+            /// Portfolio identifier
+            Id: string
+
+            /// Portfolio name
+            Name: string
+
+            /// Base currency for NAV calculation
+            BaseCurrency: string
+
+            /// Portfolio positions
+            Positions: Position array
+
+            /// Total market value
+            TotalValue: float
+
+            /// Valuation date
+            ValuationDate: DateTime
+        }
+
     /// Correlation matrix between assets
-    type CorrelationMatrix = {
-        /// Asset symbols (row/column labels)
-        Assets: string array
-        
-        /// Correlation values (symmetric matrix)
-        Values: float array array
-        
-        /// Calculation period
-        StartDate: DateTime
-        EndDate: DateTime
-        
-        /// Number of observations used
-        ObservationCount: int
-    }
-    
+    type CorrelationMatrix =
+        {
+            /// Asset symbols (row/column labels)
+            Assets: string array
+
+            /// Correlation values (symmetric matrix)
+            Values: float array array
+
+            /// Calculation period
+            StartDate: DateTime
+            EndDate: DateTime
+
+            /// Number of observations used
+            ObservationCount: int
+        }
+
     /// Covariance matrix
-    type CovarianceMatrix = {
-        /// Asset symbols
-        Assets: string array
-        
-        /// Covariance values
-        Values: float array array
-        
-        /// Annualized (252 trading days)
-        IsAnnualized: bool
-    }
-    
+    type CovarianceMatrix =
+        {
+            /// Asset symbols
+            Assets: string array
+
+            /// Covariance values
+            Values: float array array
+
+            /// Annualized (252 trading days)
+            IsAnnualized: bool
+        }
+
     /// Risk parameters for VaR calculation
-    type RiskParameters = {
-        /// Confidence level (e.g., 0.95, 0.99)
-        ConfidenceLevel: float
-        
-        /// Time horizon in days (e.g., 1, 10)
-        TimeHorizon: int
-        
-        /// Return distribution assumption
-        Distribution: ReturnDistribution
-        
-        /// Historical lookback period in days
-        LookbackPeriod: int
-    }
-    
+    type RiskParameters =
+        {
+            /// Confidence level (e.g., 0.95, 0.99)
+            ConfidenceLevel: float
+
+            /// Time horizon in days (e.g., 1, 10)
+            TimeHorizon: int
+
+            /// Return distribution assumption
+            Distribution: ReturnDistribution
+
+            /// Historical lookback period in days
+            LookbackPeriod: int
+        }
+
     /// Stress scenario definition
-    type StressScenario = {
-        /// Scenario name
-        Name: string
-        
-        /// Scenario type
-        Type: ScenarioType
-        
-        /// Shock magnitudes by asset class or specific asset
-        Shocks: Map<string, float>
-        
-        /// Correlation stress (optional multiplier)
-        CorrelationShock: float option
-    }
-    
-   
+    type StressScenario =
+        {
+            /// Scenario name
+            Name: string
+
+            /// Scenario type
+            Type: ScenarioType
+
+            /// Shock magnitudes by asset class or specific asset
+            Shocks: Map<string, float>
+
+            /// Correlation stress (optional multiplier)
+            CorrelationShock: float option
+        }
+
+
     /// VaR calculation result
-    type VaRResult = {
-        /// Value at Risk amount
-        VaR: float
-        
-        /// Expected Shortfall (CVaR)
-        ExpectedShortfall: float
-        
-        /// Confidence level used
-        ConfidenceLevel: float
-        
-        /// Time horizon (days)
-        TimeHorizon: int
-        
-        /// Method used
-        Method: string
-        
-        /// Portfolio value
-        PortfolioValue: float
-        
-        /// VaR as percentage of portfolio
-        VaRPercent: float
-    }
-    
+    type VaRResult =
+        {
+            /// Value at Risk amount
+            VaR: float
+
+            /// Expected Shortfall (CVaR)
+            ExpectedShortfall: float
+
+            /// Confidence level used
+            ConfidenceLevel: float
+
+            /// Time horizon (days)
+            TimeHorizon: int
+
+            /// Method used
+            Method: string
+
+            /// Portfolio value
+            PortfolioValue: float
+
+            /// VaR as percentage of portfolio
+            VaRPercent: float
+        }
+
     // ========================================================================
     // PRICE DATA LOADING
     // ========================================================================
-    
+
     /// Parse date from various formats
     let private parseDate (dateStr: string) : DateTime option =
-        let formats = [|
-            "yyyy-MM-dd"
-            "MM/dd/yyyy"
-            "dd/MM/yyyy"
-            "yyyy/MM/dd"
-            "yyyyMMdd"
-            "yyyy-MM-dd HH:mm:ss"
-        |]
-        
-        match DateTime.TryParseExact(
-                dateStr.Trim(), 
-                formats, 
+        let formats =
+            [|
+                "yyyy-MM-dd"
+                "MM/dd/yyyy"
+                "dd/MM/yyyy"
+                "yyyy/MM/dd"
+                "yyyyMMdd"
+                "yyyy-MM-dd HH:mm:ss"
+            |]
+
+        match
+            DateTime.TryParseExact(
+                dateStr.Trim(),
+                formats,
                 System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.None) with
+                System.Globalization.DateTimeStyles.None
+            )
+        with
         | true, dt -> Some dt
-        | false, _ -> 
+        | false, _ ->
             match DateTime.TryParse(dateStr.Trim()) with
             | true, dt -> Some dt
             | false, _ -> None
-    
+
     /// Parse float with fallback
     let private parseFloat (s: string) : float option =
-        match Double.TryParse(s.Trim(), System.Globalization.NumberStyles.Any, 
-                             System.Globalization.CultureInfo.InvariantCulture) with
+        match
+            Double.TryParse(
+                s.Trim(),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture
+            )
+        with
         | true, v -> Some v
         | false, _ -> None
-    
+
     /// Load OHLCV data from CSV file
     ///
     /// Supports common formats: Yahoo Finance, Alpha Vantage, generic OHLCV
-    let loadPricesFromCsv 
-        (filePath: string) 
+    let loadPricesFromCsv
+        (filePath: string)
         (symbol: string)
         (dateColumn: string)
         (closeColumn: string)
         : QuantumResult<PriceSeries> =
-        
+
         try
             let lines = File.ReadAllLines(filePath)
+
             if lines.Length < 2 then
-                Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
+                Error(QuantumError.ValidationError("file", "CSV must have header and at least one data row"))
             else
-                let headers = 
-                    lines.[0].Split ',' 
-                    |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
-                
+                let headers =
+                    lines.[0].Split ',' |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
+
                 let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
                 let closeIdx = headers |> Array.tryFindIndex (fun h -> h = closeColumn.ToLower())
-                
+
                 // Try to find optional columns
                 let openIdx = headers |> Array.tryFindIndex (fun h -> h = "open")
                 let highIdx = headers |> Array.tryFindIndex (fun h -> h = "high")
                 let lowIdx = headers |> Array.tryFindIndex (fun h -> h = "low")
                 let volumeIdx = headers |> Array.tryFindIndex (fun h -> h = "volume")
-                let adjCloseIdx = headers |> Array.tryFindIndex (fun h -> 
-                    h = "adj close" || h = "adjusted_close" || h = "adjclose")
-                
+
+                let adjCloseIdx =
+                    headers
+                    |> Array.tryFindIndex (fun h -> h = "adj close" || h = "adjusted_close" || h = "adjclose")
+
                 match dateIdx, closeIdx with
-                | None, _ -> Error (QuantumError.ValidationError ("dateColumn", $"Column '%s{dateColumn}' not found"))
-                | _, None -> Error (QuantumError.ValidationError ("closeColumn", $"Column '%s{closeColumn}' not found"))
+                | None, _ -> Error(QuantumError.ValidationError("dateColumn", $"Column '%s{dateColumn}' not found"))
+                | _, None -> Error(QuantumError.ValidationError("closeColumn", $"Column '%s{closeColumn}' not found"))
                 | Some dIdx, Some cIdx ->
                     let dataLines = lines.[1..]
-                    
+
                     let prices =
                         dataLines
                         |> Array.choose (fun line ->
                             let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
+
                             match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
                             | Some date, Some close ->
-                                let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                                let highPrice = highIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                                let lowPrice = lowIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                                let volume = volumeIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue 0.0
+                                let openPrice =
+                                    openIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue close
+
+                                let highPrice =
+                                    highIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue close
+
+                                let lowPrice =
+                                    lowIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue close
+
+                                let volume =
+                                    volumeIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue 0.0
+
                                 let adjClose = adjCloseIdx |> Option.bind (fun idx -> parseFloat fields.[idx])
-                                
-                                Some {
-                                    Date = date
-                                    Open = openPrice
-                                    High = highPrice
-                                    Low = lowPrice
-                                    Close = close
-                                    Volume = volume
-                                    AdjustedClose = adjClose
-                                }
+
+                                Some
+                                    {
+                                        Date = date
+                                        Open = openPrice
+                                        High = highPrice
+                                        Low = lowPrice
+                                        Close = close
+                                        Volume = volume
+                                        AdjustedClose = adjClose
+                                    }
                             | _ -> None)
-                    
+
                     if prices.Length = 0 then
-                        Error (QuantumError.ValidationError (
-                            "csv",
-                            $"All %d{dataLines.Length} data rows failed to parse (no valid date/close pairs found)"))
+                        Error(
+                            QuantumError.ValidationError(
+                                "csv",
+                                $"All %d{dataLines.Length} data rows failed to parse (no valid date/close pairs found)"
+                            )
+                        )
                     else
-                    
-                    let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
-                    
-                    Ok {
-                        Symbol = symbol
-                        Name = None
-                        Currency = "USD"
-                        Prices = sortedPrices
-                        Frequency = Daily
-                    }
+
+                        let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
+
+                        Ok
+                            {
+                                Symbol = symbol
+                                Name = None
+                                Currency = "USD"
+                                Prices = sortedPrices
+                                Frequency = Daily
+                            }
         with ex ->
-            Error (QuantumError.Other ($"Failed to read CSV: %s{ex.Message}"))
-    
+            Error(QuantumError.Other($"Failed to read CSV: %s{ex.Message}"))
+
     /// Load prices for Yahoo Finance CSV format
     let loadYahooFinanceCsv (filePath: string) (symbol: string) : QuantumResult<PriceSeries> =
         loadPricesFromCsv filePath symbol "Date" "Close"
-    
+
     /// Load OHLCV data from CSV file asynchronously
     let loadPricesFromCsvAsync
         (filePath: string)
@@ -369,44 +412,64 @@ module FinancialData =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<PriceSeries>> =
 
-            let processContent (allText:string) =
-                let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
-                if lines.Length < 2 then
-                    Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
-                else
-                    let headers = 
-                        lines.[0].Split ',' 
-                        |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
-                    
-                    let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
-                    let closeIdx = headers |> Array.tryFindIndex (fun h -> h = closeColumn.ToLower())
-                    
-                    let openIdx = headers |> Array.tryFindIndex (fun h -> h = "open")
-                    let highIdx = headers |> Array.tryFindIndex (fun h -> h = "high")
-                    let lowIdx = headers |> Array.tryFindIndex (fun h -> h = "low")
-                    let volumeIdx = headers |> Array.tryFindIndex (fun h -> h = "volume")
-                    let adjCloseIdx = headers |> Array.tryFindIndex (fun h -> 
-                        h = "adj close" || h = "adjusted_close" || h = "adjclose")
-                    
-                    match dateIdx, closeIdx with
-                    | None, _ -> Error (QuantumError.ValidationError ("dateColumn", $"Column '%s{dateColumn}' not found"))
-                    | _, None -> Error (QuantumError.ValidationError ("closeColumn", $"Column '%s{closeColumn}' not found"))
-                    | Some dIdx, Some cIdx ->
-                        let dataLines = lines.[1..]
-                        
-                        let prices =
-                            dataLines
-                            |> Array.choose (fun line ->
-                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
-                                match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
-                                | Some date, Some close ->
-                                    let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                                    let highPrice = highIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                                    let lowPrice = lowIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                                    let volume = volumeIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue 0.0
-                                    let adjClose = adjCloseIdx |> Option.bind (fun idx -> parseFloat fields.[idx])
-                                    
-                                    Some {
+        let processContent (allText: string) =
+            let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+
+            if lines.Length < 2 then
+                Error(QuantumError.ValidationError("file", "CSV must have header and at least one data row"))
+            else
+                let headers =
+                    lines.[0].Split ',' |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
+
+                let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
+                let closeIdx = headers |> Array.tryFindIndex (fun h -> h = closeColumn.ToLower())
+
+                let openIdx = headers |> Array.tryFindIndex (fun h -> h = "open")
+                let highIdx = headers |> Array.tryFindIndex (fun h -> h = "high")
+                let lowIdx = headers |> Array.tryFindIndex (fun h -> h = "low")
+                let volumeIdx = headers |> Array.tryFindIndex (fun h -> h = "volume")
+
+                let adjCloseIdx =
+                    headers
+                    |> Array.tryFindIndex (fun h -> h = "adj close" || h = "adjusted_close" || h = "adjclose")
+
+                match dateIdx, closeIdx with
+                | None, _ -> Error(QuantumError.ValidationError("dateColumn", $"Column '%s{dateColumn}' not found"))
+                | _, None -> Error(QuantumError.ValidationError("closeColumn", $"Column '%s{closeColumn}' not found"))
+                | Some dIdx, Some cIdx ->
+                    let dataLines = lines.[1..]
+
+                    let prices =
+                        dataLines
+                        |> Array.choose (fun line ->
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
+
+                            match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
+                            | Some date, Some close ->
+                                let openPrice =
+                                    openIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue close
+
+                                let highPrice =
+                                    highIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue close
+
+                                let lowPrice =
+                                    lowIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue close
+
+                                let volume =
+                                    volumeIdx
+                                    |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    |> Option.defaultValue 0.0
+
+                                let adjClose = adjCloseIdx |> Option.bind (fun idx -> parseFloat fields.[idx])
+
+                                Some
+                                    {
                                         Date = date
                                         Open = openPrice
                                         High = highPrice
@@ -415,38 +478,42 @@ module FinancialData =
                                         Volume = volume
                                         AdjustedClose = adjClose
                                     }
-                                | _ -> None)
-                        
-                        if prices.Length = 0 then
-                            Error (QuantumError.ValidationError (
+                            | _ -> None)
+
+                    if prices.Length = 0 then
+                        Error(
+                            QuantumError.ValidationError(
                                 "csv",
-                                $"All %d{dataLines.Length} data rows failed to parse (no valid date/close pairs found)"))
-                        else
-                        
+                                $"All %d{dataLines.Length} data rows failed to parse (no valid date/close pairs found)"
+                            )
+                        )
+                    else
+
                         let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
-                        
-                        Ok {
-                            Symbol = symbol
-                            Name = None
-                            Currency = "USD"
-                            Prices = sortedPrices
-                            Frequency = Daily
-                        }
-            task {
-                // try/with must live INSIDE the task so exceptions from file I/O and
-                // row parsing (e.g. IndexOutOfRangeException on short rows) become
-                // Error results, matching the sync API, instead of faulting the task.
-                try
-                    let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
-                    return processContent allText
-                with
-                | :? OperationCanceledException ->
-                    // Preserve cancellation semantics: re-raise so the task is Canceled
-                    cancellationToken.ThrowIfCancellationRequested()
-                    return Error (QuantumError.Other "Operation was canceled")
-                | ex ->
-                    return Error (QuantumError.Other ($"Failed to read CSV: %s{ex.Message}"))
-            }
+
+                        Ok
+                            {
+                                Symbol = symbol
+                                Name = None
+                                Currency = "USD"
+                                Prices = sortedPrices
+                                Frequency = Daily
+                            }
+
+        task {
+            // try/with must live INSIDE the task so exceptions from file I/O and
+            // row parsing (e.g. IndexOutOfRangeException on short rows) become
+            // Error results, matching the sync API, instead of faulting the task.
+            try
+                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                return processContent allText
+            with
+            | :? OperationCanceledException ->
+                // Preserve cancellation semantics: re-raise so the task is Canceled
+                cancellationToken.ThrowIfCancellationRequested()
+                return Error(QuantumError.Other "Operation was canceled")
+            | ex -> return Error(QuantumError.Other($"Failed to read CSV: %s{ex.Message}"))
+        }
 
     // ========================================================================
     // YAHOO FINANCE - LIVE FETCHING
@@ -486,14 +553,15 @@ module FinancialData =
             | TenYears -> "10y"
             | Max -> "max"
 
-    type YahooHistoryRequest = {
-        Symbol: string
-        Range: YahooHistoryRange
-        Interval: YahooHistoryInterval
-        IncludeAdjustedClose: bool
-        CacheDirectory: string option
-        CacheTtl: TimeSpan
-    }
+    type YahooHistoryRequest =
+        {
+            Symbol: string
+            Range: YahooHistoryRange
+            Interval: YahooHistoryInterval
+            IncludeAdjustedClose: bool
+            CacheDirectory: string option
+            CacheTtl: TimeSpan
+        }
 
     let private defaultYahooHistoryRequest symbol =
         {
@@ -515,19 +583,26 @@ module FinancialData =
         try
             if File.Exists(cachePath) then
                 let age = DateTime.UtcNow - File.GetLastWriteTimeUtc(cachePath)
+
                 if age <= ttl then
-                    Some (File.ReadAllText(cachePath))
+                    Some(File.ReadAllText(cachePath))
                 else
                     None
             else
                 None
-        with _ -> None
+        with _ ->
+            None
 
-    let private tryReadFreshCacheAsync (cachePath: string) (ttl: TimeSpan) (cancellationToken: CancellationToken) : Task<string option> =
+    let private tryReadFreshCacheAsync
+        (cachePath: string)
+        (ttl: TimeSpan)
+        (cancellationToken: CancellationToken)
+        : Task<string option> =
         task {
             try
                 if File.Exists(cachePath) then
                     let age = DateTime.UtcNow - File.GetLastWriteTimeUtc(cachePath)
+
                     if age <= ttl then
                         let! content = File.ReadAllTextAsync(cachePath, cancellationToken)
                         return Some content
@@ -535,25 +610,36 @@ module FinancialData =
                         return None
                 else
                     return None
-            with _ -> return None
+            with _ ->
+                return None
         }
 
     let private tryWriteCache (cachePath: string) (content: string) : unit =
         try
             let directory = Path.GetDirectoryName(cachePath)
+
             if not (String.IsNullOrWhiteSpace directory) then
                 Directory.CreateDirectory(directory) |> ignore
-            File.WriteAllText(cachePath, content)
-        with _ -> ()
 
-    let private tryWriteCacheAsync (cachePath: string) (content: string) (cancellationToken: CancellationToken) : Task<unit> =
+            File.WriteAllText(cachePath, content)
+        with _ ->
+            ()
+
+    let private tryWriteCacheAsync
+        (cachePath: string)
+        (content: string)
+        (cancellationToken: CancellationToken)
+        : Task<unit> =
         task {
             try
                 let directory = Path.GetDirectoryName(cachePath)
+
                 if not (String.IsNullOrWhiteSpace directory) then
                     Directory.CreateDirectory(directory) |> ignore
+
                 do! File.WriteAllTextAsync(cachePath, content, cancellationToken)
-            with _ -> ()
+            with _ ->
+                ()
         }
 
     let private parseYahooChartJson (symbol: string) (json: string) : QuantumResult<PriceSeries> =
@@ -564,17 +650,19 @@ module FinancialData =
             let chart = root.GetProperty "chart"
 
             let errorEl = chart.GetProperty "error"
+
             if errorEl.ValueKind <> JsonValueKind.Null then
                 let message =
                     match errorEl.TryGetProperty "description" with
                     | true, v -> (v.GetString() |> Option.ofObj) |> Option.defaultValue (errorEl.ToString())
                     | _ -> errorEl.ToString()
 
-                Error (QuantumError.BackendError ("YahooFinance", message))
+                Error(QuantumError.BackendError("YahooFinance", message))
             else
                 let resultArr = chart.GetProperty "result"
+
                 if resultArr.GetArrayLength() = 0 then
-                    Error (QuantumError.BackendError ("YahooFinance", "Empty result"))
+                    Error(QuantumError.BackendError("YahooFinance", "Empty result"))
                 else
                     let result0 = resultArr.[0]
 
@@ -596,6 +684,7 @@ module FinancialData =
                         match indicators.TryGetProperty "adjclose" with
                         | true, adjArr ->
                             let adj0 = adjArr.[0]
+
                             match adj0.TryGetProperty "adjclose" with
                             | true, v -> v.EnumerateArray() |> Seq.toArray
                             | _ -> Array.empty
@@ -624,6 +713,7 @@ module FinancialData =
                         [|
                             for i in 0 .. count - 1 do
                                 let closeOpt = tryGetFloat closes.[i]
+
                                 match closeOpt with
                                 | Some v ->
                                     let ts = timestamps.[i].GetInt64()
@@ -643,29 +733,30 @@ module FinancialData =
                                         else
                                             None
 
-                                    yield {
-                                        Date = toDate (timestamps.[i].GetInt64())
-                                        Open = openP
-                                        High = highP
-                                        Low = lowP
-                                        Close = v
-                                        Volume = volume
-                                        AdjustedClose = adjClose
-                                    }
-                                | None ->
-                                    ()
+                                    yield
+                                        {
+                                            Date = toDate (timestamps.[i].GetInt64())
+                                            Open = openP
+                                            High = highP
+                                            Low = lowP
+                                            Close = v
+                                            Volume = volume
+                                            AdjustedClose = adjClose
+                                        }
+                                | None -> ()
                         |]
                         |> Array.sortBy (fun b -> b.Date)
 
-                    Ok {
-                        Symbol = symbol
-                        Name = None
-                        Currency = currency
-                        Prices = bars
-                        Frequency = Daily
-                    }
+                    Ok
+                        {
+                            Symbol = symbol
+                            Name = None
+                            Currency = currency
+                            Prices = bars
+                            Frequency = Daily
+                        }
         with ex ->
-            Error (QuantumError.OperationError ("YahooFinance.Parse", ex.Message))
+            Error(QuantumError.OperationError("YahooFinance.Parse", ex.Message))
 
     /// Download historical prices from Yahoo Finance's chart API (task-based).
     ///
@@ -678,17 +769,26 @@ module FinancialData =
         : Task<QuantumResult<PriceSeries>> =
         task {
             let symbol = request.Symbol.Trim().ToUpperInvariant()
+
             if String.IsNullOrWhiteSpace symbol then
-                return Error (QuantumError.ValidationError ("symbol", "Symbol must be non-empty"))
+                return Error(QuantumError.ValidationError("symbol", "Symbol must be non-empty"))
             else
                 let range = request.Range.ToQueryString()
                 let interval = request.Interval.ToQueryString()
 
                 let url =
-                    sprintf "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&includePrePost=false&events=div%%7Csplits" (Uri.EscapeDataString symbol) range interval
-                    + (if request.IncludeAdjustedClose then "&includeAdjustedClose=true" else "")
+                    sprintf
+                        "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&includePrePost=false&events=div%%7Csplits"
+                        (Uri.EscapeDataString symbol)
+                        range
+                        interval
+                    + (if request.IncludeAdjustedClose then
+                           "&includeAdjustedClose=true"
+                       else
+                           "")
 
                 let cacheKey = sha256Hex url
+
                 let cachePathOpt =
                     request.CacheDirectory
                     |> Option.map (fun dir -> Path.Combine(dir, $"yahoo_chart_%s{cacheKey}.json"))
@@ -700,12 +800,12 @@ module FinancialData =
                     | None -> Task.FromResult None
 
                 match cachedJsonOpt with
-                | Some cachedJson ->
-                    return parseYahooChartJson symbol cachedJson
+                | Some cachedJson -> return parseYahooChartJson symbol cachedJson
                 | None ->
                     try
                         httpClient.DefaultRequestHeaders.UserAgent.ParseAdd "FSharp.Azure.Quantum/InvestmentPortfolio"
-                    with _ -> ()
+                    with _ ->
+                        ()
 
                     try
                         use req = new HttpRequestMessage(HttpMethod.Get, url)
@@ -713,23 +813,24 @@ module FinancialData =
                         let! body = resp.Content.ReadAsStringAsync cancellationToken
 
                         if not resp.IsSuccessStatusCode then
-                            return Error (QuantumError.BackendError ("YahooFinance", $"HTTP {(int resp.StatusCode)}: {body}"))
+                            return
+                                Error(
+                                    QuantumError.BackendError("YahooFinance", $"HTTP {(int resp.StatusCode)}: {body}")
+                                )
                         else
                             // Write to cache asynchronously
                             match cachePathOpt with
                             | Some p -> do! tryWriteCacheAsync p body cancellationToken
                             | None -> ()
+
                             return parseYahooChartJson symbol body
                     with ex ->
-                        return Error (QuantumError.BackendError ("YahooFinance", ex.Message))
+                        return Error(QuantumError.BackendError("YahooFinance", ex.Message))
         }
 
     /// Synchronous wrapper for fetchYahooHistoryAsync.
     [<Obsolete("Use fetchYahooHistoryAsync with CancellationToken instead.")>]
-    let fetchYahooHistory
-        (httpClient: HttpClient)
-        (request: YahooHistoryRequest)
-        : QuantumResult<PriceSeries> =
+    let fetchYahooHistory (httpClient: HttpClient) (request: YahooHistoryRequest) : QuantumResult<PriceSeries> =
         fetchYahooHistoryAsync httpClient request CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -742,65 +843,71 @@ module FinancialData =
     // ========================================================================
     // RETURN CALCULATIONS
     // ========================================================================
-    
+
     /// Calculate returns from price series
     let calculateReturns (priceSeries: PriceSeries) : ReturnSeries =
         let prices = priceSeries.Prices
         let n = prices.Length
-        
+
         if n < 2 then
             {
                 Symbol = priceSeries.Symbol
                 StartDate = if n > 0 then prices.[0].Date else DateTime.MinValue
-                EndDate = if n > 0 then prices.[n-1].Date else DateTime.MinValue
+                EndDate = if n > 0 then prices.[n - 1].Date else DateTime.MinValue
                 LogReturns = [||]
                 SimpleReturns = [||]
                 Dates = [||]
             }
         else
-            let logReturns = Array.init (n - 1) (fun i ->
-                let p0 = prices.[i].AdjustedClose |> Option.defaultValue prices.[i].Close
-                let p1 = prices.[i+1].AdjustedClose |> Option.defaultValue prices.[i+1].Close
-                if p0 > 0.0 then log(p1 / p0) else 0.0)
-            
-            let simpleReturns = Array.init (n - 1) (fun i ->
-                let p0 = prices.[i].AdjustedClose |> Option.defaultValue prices.[i].Close
-                let p1 = prices.[i+1].AdjustedClose |> Option.defaultValue prices.[i+1].Close
-                if p0 > 0.0 then (p1 - p0) / p0 else 0.0)
-            
-            let dates = Array.init (n - 1) (fun i -> prices.[i+1].Date)
-            
+            let logReturns =
+                Array.init (n - 1) (fun i ->
+                    let p0 = prices.[i].AdjustedClose |> Option.defaultValue prices.[i].Close
+                    let p1 = prices.[i + 1].AdjustedClose |> Option.defaultValue prices.[i + 1].Close
+                    if p0 > 0.0 then log (p1 / p0) else 0.0)
+
+            let simpleReturns =
+                Array.init (n - 1) (fun i ->
+                    let p0 = prices.[i].AdjustedClose |> Option.defaultValue prices.[i].Close
+                    let p1 = prices.[i + 1].AdjustedClose |> Option.defaultValue prices.[i + 1].Close
+                    if p0 > 0.0 then (p1 - p0) / p0 else 0.0)
+
+            let dates = Array.init (n - 1) (fun i -> prices.[i + 1].Date)
+
             {
                 Symbol = priceSeries.Symbol
                 StartDate = prices.[0].Date
-                EndDate = prices.[n-1].Date
+                EndDate = prices.[n - 1].Date
                 LogReturns = logReturns
                 SimpleReturns = simpleReturns
                 Dates = dates
             }
-    
+
     /// Calculate annualized volatility from returns
     let calculateVolatility (returns: ReturnSeries) (annualizationFactor: float) : float =
         let n = returns.LogReturns.Length
-        if n < 2 then 0.0
+
+        if n < 2 then
+            0.0
         else
             let mean = returns.LogReturns |> Array.average
-            let variance = 
-                returns.LogReturns 
-                |> Array.map (fun r -> (r - mean) ** 2.0)
-                |> Array.average
-            sqrt(variance * annualizationFactor)
+
+            let variance =
+                returns.LogReturns |> Array.map (fun r -> (r - mean) ** 2.0) |> Array.average
+
+            sqrt (variance * annualizationFactor)
 
     /// Calculate annualized expected return from log returns.
     ///
     /// Typical usage: annualizationFactor = 252.0 for daily returns.
     let calculateExpectedReturn (returns: ReturnSeries) (annualizationFactor: float) : float =
         let n = returns.LogReturns.Length
-        if n < 1 then 0.0
+
+        if n < 1 then
+            0.0
         else
             let meanLog = returns.LogReturns |> Array.average
             // Convert expected log return to expected simple return
-            exp(meanLog * annualizationFactor) - 1.0
+            exp (meanLog * annualizationFactor) - 1.0
 
     /// Extract latest close from a PriceSeries.
     let tryGetLatestPrice (series: PriceSeries) : float option =
@@ -812,30 +919,26 @@ module FinancialData =
     // ========================================================================
     // CORRELATION & COVARIANCE
     // ========================================================================
-    
+
     /// Align multiple return series by date
     let private alignReturns (returnSeries: ReturnSeries array) : (DateTime array * float array array) =
         // Find common dates
-        let allDates = 
-            returnSeries 
+        let allDates =
+            returnSeries
             |> Array.collect (fun rs -> rs.Dates)
             |> Array.distinct
             |> Array.sort
-        
+
         // Create date lookup for each series
         let dateLookups =
             returnSeries
-            |> Array.map (fun rs ->
-                rs.Dates
-                |> Array.mapi (fun i dt -> (dt, i))
-                |> Map.ofArray)
-        
+            |> Array.map (fun rs -> rs.Dates |> Array.mapi (fun i dt -> (dt, i)) |> Map.ofArray)
+
         // Find dates present in all series
         let commonDates =
             allDates
-            |> Array.filter (fun dt ->
-                dateLookups |> Array.forall (fun lookup -> lookup.ContainsKey dt))
-        
+            |> Array.filter (fun dt -> dateLookups |> Array.forall (fun lookup -> lookup.ContainsKey dt))
+
         // Extract aligned returns
         let alignedReturns =
             returnSeries
@@ -845,9 +948,9 @@ module FinancialData =
                     match dateLookups.[seriesIdx].TryFind dt with
                     | Some idx -> rs.LogReturns.[idx]
                     | None -> 0.0))
-        
+
         (commonDates, alignedReturns)
-    
+
     /// Average that tolerates an empty array: series sharing no common dates
     /// (disjoint histories, single-bar series) produce empty aligned returns,
     /// and Array.average would throw ArgumentException.
@@ -877,32 +980,36 @@ module FinancialData =
         let correlations =
             Array.init n (fun i ->
                 Array.init n (fun j ->
-                    if i = j then 1.0
-                    elif stds.[i] = 0.0 || stds.[j] = 0.0 then 0.0
+                    if i = j then
+                        1.0
+                    elif stds.[i] = 0.0 || stds.[j] = 0.0 then
+                        0.0
                     else
                         let cov =
                             Array.zip alignedReturns.[i] alignedReturns.[j]
                             |> Array.map (fun (ri, rj) -> (ri - means.[i]) * (rj - means.[j]))
                             |> safeAverage
+
                         cov / (stds.[i] * stds.[j])))
-        
+
         {
             Assets = symbols
             Values = correlations
             StartDate = if dates.Length > 0 then dates.[0] else DateTime.MinValue
-            EndDate = if dates.Length > 0 then dates.[dates.Length - 1] else DateTime.MinValue
+            EndDate =
+                if dates.Length > 0 then
+                    dates.[dates.Length - 1]
+                else
+                    DateTime.MinValue
             ObservationCount = nObs
         }
-    
+
     /// Calculate covariance matrix from return series
-    let calculateCovarianceMatrix 
-        (returnSeries: ReturnSeries array) 
-        (annualize: bool) 
-        : CovarianceMatrix =
-        
+    let calculateCovarianceMatrix (returnSeries: ReturnSeries array) (annualize: bool) : CovarianceMatrix =
+
         let n = returnSeries.Length
         let symbols = returnSeries |> Array.map (fun rs -> rs.Symbol)
-        
+
         let (_, alignedReturns) = alignReturns returnSeries
 
         // Calculate means
@@ -919,60 +1026,74 @@ module FinancialData =
                         Array.zip alignedReturns.[i] alignedReturns.[j]
                         |> Array.map (fun (ri, rj) -> (ri - means.[i]) * (rj - means.[j]))
                         |> safeAverage
+
                     cov * annFactor))
-        
+
         {
             Assets = symbols
             Values = covariances
             IsAnnualized = annualize
         }
-    
+
     // ========================================================================
     // PORTFOLIO LOADING
     // ========================================================================
-    
+
     /// Load portfolio from CSV
     let loadPortfolioFromCsv (filePath: string) (portfolioName: string) : QuantumResult<Portfolio> =
         try
             let lines = File.ReadAllLines(filePath)
+
             if lines.Length < 2 then
-                Error (QuantumError.ValidationError ("file", "CSV must have header and at least one position"))
+                Error(QuantumError.ValidationError("file", "CSV must have header and at least one position"))
             else
-                let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
-                
-                let symbolIdx = headers |> Array.tryFindIndex (fun h -> h = "symbol" || h = "ticker")
-                let quantityIdx = headers |> Array.tryFindIndex (fun h -> h = "quantity" || h = "shares")
-                let priceIdx = headers |> Array.tryFindIndex (fun h -> h = "price" || h = "current_price")
-                let assetClassIdx = headers |> Array.tryFindIndex (fun h -> h = "asset_class" || h = "type")
+                let headers =
+                    lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
+
+                let symbolIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "symbol" || h = "ticker")
+
+                let quantityIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "quantity" || h = "shares")
+
+                let priceIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "price" || h = "current_price")
+
+                let assetClassIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "asset_class" || h = "type")
+
                 let sectorIdx = headers |> Array.tryFindIndex (fun h -> h = "sector")
-                
+
                 match symbolIdx, quantityIdx, priceIdx with
                 | Some sIdx, Some qIdx, Some pIdx ->
                     let posArray =
                         lines.[1..]
                         |> Array.map (fun line ->
                             let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
-                            
+
                             let symbol = fields.[sIdx]
                             let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
                             let price = parseFloat fields.[pIdx] |> Option.defaultValue 0.0
-                            
+
                             let assetClass =
                                 assetClassIdx
-                                |> Option.map (fun idx -> 
+                                |> Option.map (fun idx ->
                                     match fields.[idx].ToLower() with
-                                    | "equity" | "stock" -> Equity
-                                    | "fixed_income" | "bond" -> FixedIncome
+                                    | "equity"
+                                    | "stock" -> Equity
+                                    | "fixed_income"
+                                    | "bond" -> FixedIncome
                                     | "commodity" -> Commodity
-                                    | "currency" | "fx" -> Currency
+                                    | "currency"
+                                    | "fx" -> Currency
                                     | "derivative" -> Derivative
                                     | "alternative" -> Alternative
                                     | "cash" -> Cash
                                     | _ -> Equity)
                                 |> Option.defaultValue Equity
-                            
+
                             let sector = sectorIdx |> Option.map (fun idx -> fields.[idx])
-                            
+
                             {
                                 Symbol = symbol
                                 Quantity = quantity
@@ -981,75 +1102,11 @@ module FinancialData =
                                 AssetClass = assetClass
                                 Sector = sector
                             })
+
                     let totalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
-                    
-                    Ok {
-                        Id = Guid.NewGuid().ToString()
-                        Name = portfolioName
-                        BaseCurrency = "USD"
-                        Positions = posArray
-                        TotalValue = totalValue
-                        ValuationDate = DateTime.UtcNow
-                    }
-                    
-                | _ ->
-                    Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
-        with ex ->
-            Error (QuantumError.Other ($"Failed to read portfolio CSV: %s{ex.Message}"))
-    
-    /// Load portfolio from CSV asynchronously
-    let loadPortfolioFromCsvAsync (filePath: string) (portfolioName: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Portfolio>> =
-            let processContent (allText:string) =
-                let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
-                if lines.Length < 2 then
-                    Error (QuantumError.ValidationError ("file", "CSV must have header and at least one position"))
-                else
-                    let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
-                    
-                    let symbolIdx = headers |> Array.tryFindIndex (fun h -> h = "symbol" || h = "ticker")
-                    let quantityIdx = headers |> Array.tryFindIndex (fun h -> h = "quantity" || h = "shares")
-                    let priceIdx = headers |> Array.tryFindIndex (fun h -> h = "price" || h = "current_price")
-                    let assetClassIdx = headers |> Array.tryFindIndex (fun h -> h = "asset_class" || h = "type")
-                    let sectorIdx = headers |> Array.tryFindIndex (fun h -> h = "sector")
-                    
-                    match symbolIdx, quantityIdx, priceIdx with
-                    | Some sIdx, Some qIdx, Some pIdx ->
-                        let posArray =
-                            lines.[1..]
-                            |> Array.map (fun line ->
-                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
-                                
-                                let symbol = fields.[sIdx]
-                                let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
-                                let price = parseFloat fields.[pIdx] |> Option.defaultValue 0.0
-                                
-                                let assetClass =
-                                    assetClassIdx
-                                    |> Option.map (fun idx -> 
-                                        match fields.[idx].ToLower() with
-                                        | "equity" | "stock" -> Equity
-                                        | "fixed_income" | "bond" -> FixedIncome
-                                        | "commodity" -> Commodity
-                                        | "currency" | "fx" -> Currency
-                                        | "derivative" -> Derivative
-                                        | "alternative" -> Alternative
-                                        | "cash" -> Cash
-                                        | _ -> Equity)
-                                    |> Option.defaultValue Equity
-                                
-                                let sector = sectorIdx |> Option.map (fun idx -> fields.[idx])
-                                
-                                {
-                                    Symbol = symbol
-                                    Quantity = quantity
-                                    CurrentPrice = price
-                                    MarketValue = quantity * price
-                                    AssetClass = assetClass
-                                    Sector = sector
-                                })
-                        let totalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
-                        
-                        Ok {
+
+                    Ok
+                        {
                             Id = Guid.NewGuid().ToString()
                             Name = portfolioName
                             BaseCurrency = "USD"
@@ -1057,28 +1114,114 @@ module FinancialData =
                             TotalValue = totalValue
                             ValuationDate = DateTime.UtcNow
                         }
-                        
-                    | _ ->
-                        Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
-            task {
-                // try/with must live INSIDE the task so exceptions from file I/O and
-                // row parsing (e.g. IndexOutOfRangeException on short rows) become
-                // Error results, matching the sync API, instead of faulting the task.
-                try
-                    let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
-                    return processContent allText
-                with
-                | :? OperationCanceledException ->
-                    // Preserve cancellation semantics: re-raise so the task is Canceled
-                    cancellationToken.ThrowIfCancellationRequested()
-                    return Error (QuantumError.Other "Operation was canceled")
-                | ex ->
-                    return Error (QuantumError.Other ($"Failed to read portfolio CSV: %s{ex.Message}"))
-            }
-    
+
+                | _ ->
+                    Error(QuantumError.ValidationError("columns", "CSV must have symbol, quantity, and price columns"))
+        with ex ->
+            Error(QuantumError.Other($"Failed to read portfolio CSV: %s{ex.Message}"))
+
+    /// Load portfolio from CSV asynchronously
+    let loadPortfolioFromCsvAsync
+        (filePath: string)
+        (portfolioName: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Portfolio>> =
+        let processContent (allText: string) =
+            let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+
+            if lines.Length < 2 then
+                Error(QuantumError.ValidationError("file", "CSV must have header and at least one position"))
+            else
+                let headers =
+                    lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
+
+                let symbolIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "symbol" || h = "ticker")
+
+                let quantityIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "quantity" || h = "shares")
+
+                let priceIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "price" || h = "current_price")
+
+                let assetClassIdx =
+                    headers |> Array.tryFindIndex (fun h -> h = "asset_class" || h = "type")
+
+                let sectorIdx = headers |> Array.tryFindIndex (fun h -> h = "sector")
+
+                match symbolIdx, quantityIdx, priceIdx with
+                | Some sIdx, Some qIdx, Some pIdx ->
+                    let posArray =
+                        lines.[1..]
+                        |> Array.map (fun line ->
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim '"')
+
+                            let symbol = fields.[sIdx]
+                            let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
+                            let price = parseFloat fields.[pIdx] |> Option.defaultValue 0.0
+
+                            let assetClass =
+                                assetClassIdx
+                                |> Option.map (fun idx ->
+                                    match fields.[idx].ToLower() with
+                                    | "equity"
+                                    | "stock" -> Equity
+                                    | "fixed_income"
+                                    | "bond" -> FixedIncome
+                                    | "commodity" -> Commodity
+                                    | "currency"
+                                    | "fx" -> Currency
+                                    | "derivative" -> Derivative
+                                    | "alternative" -> Alternative
+                                    | "cash" -> Cash
+                                    | _ -> Equity)
+                                |> Option.defaultValue Equity
+
+                            let sector = sectorIdx |> Option.map (fun idx -> fields.[idx])
+
+                            {
+                                Symbol = symbol
+                                Quantity = quantity
+                                CurrentPrice = price
+                                MarketValue = quantity * price
+                                AssetClass = assetClass
+                                Sector = sector
+                            })
+
+                    let totalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
+
+                    Ok
+                        {
+                            Id = Guid.NewGuid().ToString()
+                            Name = portfolioName
+                            BaseCurrency = "USD"
+                            Positions = posArray
+                            TotalValue = totalValue
+                            ValuationDate = DateTime.UtcNow
+                        }
+
+                | _ ->
+                    Error(QuantumError.ValidationError("columns", "CSV must have symbol, quantity, and price columns"))
+
+        task {
+            // try/with must live INSIDE the task so exceptions from file I/O and
+            // row parsing (e.g. IndexOutOfRangeException on short rows) become
+            // Error results, matching the sync API, instead of faulting the task.
+            try
+                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                return processContent allText
+            with
+            | :? OperationCanceledException ->
+                // Preserve cancellation semantics: re-raise so the task is Canceled
+                cancellationToken.ThrowIfCancellationRequested()
+                return Error(QuantumError.Other "Operation was canceled")
+            | ex -> return Error(QuantumError.Other($"Failed to read portfolio CSV: %s{ex.Message}"))
+        }
+
     /// Create portfolio from position list
     let createPortfolio (name: string) (positions: Position list) : Portfolio =
         let posArray = positions |> List.toArray
+
         {
             Id = Guid.NewGuid().ToString()
             Name = name
@@ -1087,219 +1230,278 @@ module FinancialData =
             TotalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
             ValuationDate = DateTime.UtcNow
         }
-    
+
     // ========================================================================
     // VAR CALCULATIONS (Classical baseline)
     // ========================================================================
-    
+
     /// Calculate parametric VaR (Normal, Student-t, or Log-normal distribution assumption;
     /// the Historical distribution has no parametric form — use calculateHistoricalVaR)
     let calculateParametricVaR
-        (portfolio: Portfolio) 
-        (covMatrix: CovarianceMatrix) 
-        (riskParams: RiskParameters) 
+        (portfolio: Portfolio)
+        (covMatrix: CovarianceMatrix)
+        (riskParams: RiskParameters)
         : QuantumResult<VaRResult> =
-        
+
         // Find portfolio weights
         let weights =
             covMatrix.Assets
             |> Array.map (fun symbol ->
                 match portfolio.Positions |> Array.tryFind (fun p -> p.Symbol = symbol) with
-                | Some pos -> if portfolio.TotalValue = 0.0 then 0.0 else pos.MarketValue / portfolio.TotalValue
+                | Some pos ->
+                    if portfolio.TotalValue = 0.0 then
+                        0.0
+                    else
+                        pos.MarketValue / portfolio.TotalValue
                 | None -> 0.0)
-        
+
         // Calculate portfolio variance: w' * Σ * w
         let portfolioVariance =
             let n = weights.Length
+
             seq {
                 for i in 0 .. n - 1 do
                     for j in 0 .. n - 1 do
                         yield weights.[i] * weights.[j] * covMatrix.Values.[i].[j]
             }
             |> Seq.sum
-        
+
         let portfolioStd = sqrt portfolioVariance
-        
+
         // Scale by time horizon (sqrt of time for variance)
-        let timeScaledStd = portfolioStd * sqrt(float riskParams.TimeHorizon / 252.0)
-        
+        let timeScaledStd = portfolioStd * sqrt (float riskParams.TimeHorizon / 252.0)
+
         // Standard normal quantile (Beasley-Springer-Moro approximation)
         let normalQuantile (p: float) =
             let a = [| 2.50662823884; -18.61500062529; 41.39119773534; -25.44106049637 |]
             let b = [| -8.47351093090; 23.08336743743; -21.06224101826; 3.13082909833 |]
-            let c = [| 0.3374754822726147; 0.9761690190917186; 0.1607979714918209;
-                       0.0276438810333863; 0.0038405729373609; 0.0003951896511919;
-                       0.0000321767881768; 0.0000002888167364; 0.0000003960315187 |]
+
+            let c =
+                [|
+                    0.3374754822726147
+                    0.9761690190917186
+                    0.1607979714918209
+                    0.0276438810333863
+                    0.0038405729373609
+                    0.0003951896511919
+                    0.0000321767881768
+                    0.0000002888167364
+                    0.0000003960315187
+                |]
 
             let y = p - 0.5
+
             if abs y < 0.42 then
                 let r = y * y
-                y * (((a.[3] * r + a.[2]) * r + a.[1]) * r + a.[0]) /
-                    ((((b.[3] * r + b.[2]) * r + b.[1]) * r + b.[0]) * r + 1.0)
+
+                y * (((a.[3] * r + a.[2]) * r + a.[1]) * r + a.[0])
+                / ((((b.[3] * r + b.[2]) * r + b.[1]) * r + b.[0]) * r + 1.0)
             else
                 let r = if y < 0.0 then p else 1.0 - p
-                let s = log(-log r)
+                let s = log (-log r)
                 let sign = if y < 0.0 then -1.0 else 1.0
-                sign * (c.[0] + s * (c.[1] + s * (c.[2] + s * (c.[3] + s * (c.[4] +
-                       s * (c.[5] + s * (c.[6] + s * (c.[7] + s * c.[8]))))))))
+
+                sign
+                * (c.[0]
+                   + s
+                     * (c.[1]
+                        + s
+                          * (c.[2]
+                             + s * (c.[3] + s * (c.[4] + s * (c.[5] + s * (c.[6] + s * (c.[7] + s * c.[8]))))))))
 
         // Distribution-specific quantile ("z-score") for the requested confidence level,
         // expressed so that VaR = V * σ * z, plus the method label for the result.
         let zScoreResult =
             match riskParams.Distribution with
-            | Normal ->
-                Ok (normalQuantile riskParams.ConfidenceLevel, "Parametric (Normal)")
+            | Normal -> Ok(normalQuantile riskParams.ConfidenceLevel, "Parametric (Normal)")
             | StudentT df ->
                 if df <= 0.0 then
-                    Error (QuantumError.ValidationError ("Distribution", "Student-t degrees of freedom must be > 0"))
+                    Error(QuantumError.ValidationError("Distribution", "Student-t degrees of freedom must be > 0"))
                 else
                     let tQuantile =
                         MathNet.Numerics.Distributions.StudentT.InvCDF(0.0, 1.0, df, riskParams.ConfidenceLevel)
                     // A standard Student-t has variance df/(df-2); the portfolio σ already
                     // carries the return variance, so rescale the quantile to unit variance
                     // when df > 2 (below that the variance is undefined; use the raw quantile).
-                    let z = if df > 2.0 then tQuantile * sqrt ((df - 2.0) / df) else tQuantile
-                    Ok (z, $"Parametric (Student-t, df=%g{df})")
+                    let z =
+                        if df > 2.0 then
+                            tQuantile * sqrt ((df - 2.0) / df)
+                        else
+                            tQuantile
+
+                    Ok(z, $"Parametric (Student-t, df=%g{df})")
             | LogNormal ->
                 // Log-normal prices: log-returns are normal with std σ, so the loss
                 // quantile is 1 - exp(-z·σ). Express as an effective z so VaR = V·σ·z_eff.
                 let z = normalQuantile riskParams.ConfidenceLevel
+
                 let zEff =
-                    if timeScaledStd > 0.0 then (1.0 - exp (-z * timeScaledStd)) / timeScaledStd
-                    else z
-                Ok (zEff, "Parametric (Log-normal)")
+                    if timeScaledStd > 0.0 then
+                        (1.0 - exp (-z * timeScaledStd)) / timeScaledStd
+                    else
+                        z
+
+                Ok(zEff, "Parametric (Log-normal)")
             | ReturnDistribution.Historical ->
-                Error (QuantumError.ValidationError (
-                    "Distribution",
-                    "Historical distribution has no parametric quantile; use calculateHistoricalVaR with return series data"))
+                Error(
+                    QuantumError.ValidationError(
+                        "Distribution",
+                        "Historical distribution has no parametric quantile; use calculateHistoricalVaR with return series data"
+                    )
+                )
 
         match zScoreResult with
         | Error e -> Error e
-        | Ok (zScore, methodName) ->
+        | Ok(zScore, methodName) ->
             let var = portfolio.TotalValue * timeScaledStd * zScore
 
             // Expected Shortfall: ES = V * σ * φ(z) / (1-p) where φ is the standard normal
             // PDF (note: no extra z factor — that is already reflected in VaR = V * σ * z,
             // not in ES). For Student-t/log-normal this normal-PDF form is an approximation.
-            let normalPdf z = exp(-z * z / 2.0) / sqrt(2.0 * Math.PI)
-            let tailProb = 1.0 - riskParams.ConfidenceLevel
-            let es =
-                if tailProb = 0.0 then var
-                else portfolio.TotalValue * timeScaledStd * (normalPdf zScore) / tailProb
+            let normalPdf z =
+                exp (-z * z / 2.0) / sqrt (2.0 * Math.PI)
 
-            Ok {
-                VaR = var
-                ExpectedShortfall = es
-                ConfidenceLevel = riskParams.ConfidenceLevel
-                TimeHorizon = riskParams.TimeHorizon
-                Method = methodName
-                PortfolioValue = portfolio.TotalValue
-                VaRPercent = if portfolio.TotalValue = 0.0 then 0.0 else var / portfolio.TotalValue
-            }
-    
+            let tailProb = 1.0 - riskParams.ConfidenceLevel
+
+            let es =
+                if tailProb = 0.0 then
+                    var
+                else
+                    portfolio.TotalValue * timeScaledStd * (normalPdf zScore) / tailProb
+
+            Ok
+                {
+                    VaR = var
+                    ExpectedShortfall = es
+                    ConfidenceLevel = riskParams.ConfidenceLevel
+                    TimeHorizon = riskParams.TimeHorizon
+                    Method = methodName
+                    PortfolioValue = portfolio.TotalValue
+                    VaRPercent =
+                        if portfolio.TotalValue = 0.0 then
+                            0.0
+                        else
+                            var / portfolio.TotalValue
+                }
+
     /// Calculate historical VaR (non-parametric)
     let calculateHistoricalVaR
         (portfolio: Portfolio)
         (returnSeries: ReturnSeries array)
         (riskParams: RiskParameters)
         : QuantumResult<VaRResult> =
-        
+
         // Align returns
         let (_, alignedReturns) = alignReturns returnSeries
-        
+
         if alignedReturns.Length = 0 || alignedReturns.[0].Length < 10 then
-            Error (QuantumError.ValidationError ("data", "Insufficient historical data for VaR calculation"))
+            Error(QuantumError.ValidationError("data", "Insufficient historical data for VaR calculation"))
         else
             // Calculate portfolio returns
             let weights =
                 returnSeries
                 |> Array.map (fun rs ->
                     match portfolio.Positions |> Array.tryFind (fun p -> p.Symbol = rs.Symbol) with
-                    | Some pos -> if portfolio.TotalValue = 0.0 then 0.0 else pos.MarketValue / portfolio.TotalValue
+                    | Some pos ->
+                        if portfolio.TotalValue = 0.0 then
+                            0.0
+                        else
+                            pos.MarketValue / portfolio.TotalValue
                     | None -> 0.0)
-            
+
             let nObs = alignedReturns.[0].Length
-            let portfolioReturns = 
+
+            let portfolioReturns =
                 Array.init nObs (fun t ->
                     Array.zip weights alignedReturns
                     |> Array.sumBy (fun (w, returns) -> w * returns.[t]))
-            
+
             // Scale returns by time horizon
-            let scaledReturns = 
-                portfolioReturns 
-                |> Array.map (fun r -> r * sqrt(float riskParams.TimeHorizon))
-            
+            let scaledReturns =
+                portfolioReturns |> Array.map (fun r -> r * sqrt (float riskParams.TimeHorizon))
+
             // Sort returns (ascending = worst first)
             let sortedReturns = scaledReturns |> Array.sort
-            
+
             // Find VaR percentile
             let percentileIndex = int (float nObs * (1.0 - riskParams.ConfidenceLevel))
             let varReturn = -sortedReturns.[max 0 percentileIndex]
             let var = portfolio.TotalValue * varReturn
-            
+
             // Expected Shortfall = average of returns worse than VaR
-            let tailReturns = sortedReturns.[0 .. percentileIndex]
+            let tailReturns = sortedReturns.[0..percentileIndex]
             let esReturn = -(tailReturns |> Array.average)
             let es = portfolio.TotalValue * esReturn
-            
-            Ok {
-                VaR = var
-                ExpectedShortfall = es
-                ConfidenceLevel = riskParams.ConfidenceLevel
-                TimeHorizon = riskParams.TimeHorizon
-                Method = "Historical Simulation"
-                PortfolioValue = portfolio.TotalValue
-                VaRPercent = if portfolio.TotalValue = 0.0 then 0.0 else var / portfolio.TotalValue
-            }
-    
+
+            Ok
+                {
+                    VaR = var
+                    ExpectedShortfall = es
+                    ConfidenceLevel = riskParams.ConfidenceLevel
+                    TimeHorizon = riskParams.TimeHorizon
+                    Method = "Historical Simulation"
+                    PortfolioValue = portfolio.TotalValue
+                    VaRPercent =
+                        if portfolio.TotalValue = 0.0 then
+                            0.0
+                        else
+                            var / portfolio.TotalValue
+                }
+
     // ========================================================================
     // STRESS TESTING
     // ========================================================================
-    
+
     /// Define common stress scenarios
-    let financialCrisis2008 : StressScenario = {
-        Name = "2008 Financial Crisis"
-        Type = Historical (DateTime(2008, 9, 15), DateTime(2009, 3, 9))
-        Shocks = Map.ofList [
-            ("Equity", -0.50)        // 50% equity decline
-            ("FixedIncome", -0.10)   // 10% bond decline (credit stress)
-            ("Commodity", -0.40)     // 40% commodity decline
-        ]
-        CorrelationShock = Some 1.5  // Correlations increase in crisis
-    }
-    
-    let covidCrash2020 : StressScenario = {
-        Name = "COVID-19 March 2020"
-        Type = Historical (DateTime(2020, 2, 19), DateTime(2020, 3, 23))
-        Shocks = Map.ofList [
-            ("Equity", -0.34)        // 34% equity decline
-            ("FixedIncome", 0.05)    // 5% bond gain (flight to quality)
-            ("Commodity", -0.30)     // 30% commodity decline
-        ]
-        CorrelationShock = Some 1.3
-    }
-    
-    let interestRateShock : StressScenario = {
-        Name = "Interest Rate Shock (+300bp)"
-        Type = Hypothetical
-        Shocks = Map.ofList [
-            ("Equity", -0.15)        // 15% equity decline
-            ("FixedIncome", -0.20)   // 20% bond decline (duration effect)
-        ]
-        CorrelationShock = None
-    }
-    
+    let financialCrisis2008: StressScenario =
+        {
+            Name = "2008 Financial Crisis"
+            Type = Historical(DateTime(2008, 9, 15), DateTime(2009, 3, 9))
+            Shocks =
+                Map.ofList
+                    [
+                        ("Equity", -0.50) // 50% equity decline
+                        ("FixedIncome", -0.10) // 10% bond decline (credit stress)
+                        ("Commodity", -0.40) // 40% commodity decline
+                    ]
+            CorrelationShock = Some 1.5 // Correlations increase in crisis
+        }
+
+    let covidCrash2020: StressScenario =
+        {
+            Name = "COVID-19 March 2020"
+            Type = Historical(DateTime(2020, 2, 19), DateTime(2020, 3, 23))
+            Shocks =
+                Map.ofList
+                    [
+                        ("Equity", -0.34) // 34% equity decline
+                        ("FixedIncome", 0.05) // 5% bond gain (flight to quality)
+                        ("Commodity", -0.30) // 30% commodity decline
+                    ]
+            CorrelationShock = Some 1.3
+        }
+
+    let interestRateShock: StressScenario =
+        {
+            Name = "Interest Rate Shock (+300bp)"
+            Type = Hypothetical
+            Shocks =
+                Map.ofList
+                    [
+                        ("Equity", -0.15) // 15% equity decline
+                        ("FixedIncome", -0.20) // 20% bond decline (duration effect)
+                    ]
+            CorrelationShock = None
+        }
+
     /// Apply stress scenario to portfolio
-    let applyStressScenario 
-        (portfolio: Portfolio) 
-        (scenario: StressScenario) 
-        : float =
-        
+    let applyStressScenario (portfolio: Portfolio) (scenario: StressScenario) : float =
+
         // Calculate stressed portfolio value
         let stressedPositions =
             portfolio.Positions
             |> Array.map (fun pos ->
-                let assetClassKey = 
+                let assetClassKey =
                     match pos.AssetClass with
                     | Equity -> "Equity"
                     | FixedIncome -> "FixedIncome"
@@ -1308,79 +1510,77 @@ module FinancialData =
                     | Derivative -> "Derivative"
                     | Alternative -> "Alternative"
                     | Cash -> "Cash"
-                
+
                 // Look up shock by asset class or symbol
                 let shock =
-                    scenario.Shocks 
+                    scenario.Shocks
                     |> Map.tryFind pos.Symbol
                     |> Option.orElse (scenario.Shocks |> Map.tryFind assetClassKey)
                     |> Option.defaultValue 0.0
-                
+
                 pos.MarketValue * (1.0 + shock))
-        
+
         stressedPositions |> Array.sum
-    
+
     // ========================================================================
     // FEATURE EXTRACTION (for quantum ML)
     // ========================================================================
-    
+
     /// Extract features from return series for ML
     let extractReturnFeatures (returns: ReturnSeries) : float array =
         let logRet = returns.LogReturns
         let n = logRet.Length
-        
+
         if n < 2 then
             Array.create 10 0.0
         else
             let mean = logRet |> Array.average
             let variance = Array.averageBy (fun r -> (r - mean) ** 2.0) logRet
             let std = sqrt variance
-            
+
             // Skewness
             let skewness =
-                if std = 0.0 then 0.0
+                if std = 0.0 then
+                    0.0
                 else
                     let m3 = Array.averageBy (fun r -> ((r - mean) / std) ** 3.0) logRet
                     m3
-            
+
             // Kurtosis
             let kurtosis =
-                if std = 0.0 then 0.0
+                if std = 0.0 then
+                    0.0
                 else
                     let m4 = Array.averageBy (fun r -> ((r - mean) / std) ** 4.0) logRet
-                    m4 - 3.0  // Excess kurtosis
-            
+                    m4 - 3.0 // Excess kurtosis
+
             // Max drawdown
-            let cumReturns = 
-                logRet 
-                |> Array.scan (fun acc r -> acc + r) 0.0
-                |> Array.tail
-            let peaks = 
-                cumReturns 
-                |> Array.scan max (cumReturns.[0])
-                |> Array.tail
+            let cumReturns = logRet |> Array.scan (fun acc r -> acc + r) 0.0 |> Array.tail
+            let peaks = cumReturns |> Array.scan max (cumReturns.[0]) |> Array.tail
             let drawdowns = Array.zip peaks cumReturns |> Array.map (fun (p, c) -> c - p)
             let maxDrawdown = drawdowns |> Array.min |> abs
-            
+
             // VaR 95%
             let sortedReturns = logRet |> Array.sort
             let var95Idx = int (0.05 * float n)
             let var95 = -sortedReturns.[max 0 var95Idx]
-            
+
             [|
-                mean * 252.0           // Annualized mean return
-                std * sqrt 252.0      // Annualized volatility
+                mean * 252.0 // Annualized mean return
+                std * sqrt 252.0 // Annualized volatility
                 skewness
                 kurtosis
                 maxDrawdown
                 var95
-                float n                // Sample size
-                mean / (std + 0.001)   // Sharpe ratio (simplified)
-                logRet.[n-1]           // Most recent return
-                (if n > 5 then logRet.[n-5..n-1] |> Array.average else 0.0)  // 5-day MA
+                float n // Sample size
+                mean / (std + 0.001) // Sharpe ratio (simplified)
+                logRet.[n - 1] // Most recent return
+                (if n > 5 then
+                     logRet.[n - 5 .. n - 1] |> Array.average
+                 else
+                     0.0) // 5-day MA
             |]
-    
+
     /// Convert portfolio weights to feature array
     let portfolioToFeatures (portfolio: Portfolio) : float array =
-        portfolio.Positions
-        |> Array.map (fun p -> p.MarketValue / portfolio.TotalValue)
+        portfolio.Positions |> Array.map (fun p -> p.MarketValue / portfolio.TotalValue)

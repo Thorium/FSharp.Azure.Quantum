@@ -6,12 +6,17 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.4.8</Version>
+    <Version>1.4.9</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.8: Maintenance release — fsharp-refactor code clean-up (no functional changes intended)
+    <PackageReleaseNotes>v1.4.9: Maintenance release — C# builder fix, property-test suite, formatting
+- FIXED: the FSharp.Azure.Quantum.Business.CSharp.dll bundled in 1.4.8 was a stale build against the pre-1.4.8 reference unions, so C# builder calls that touch the now-[&lt;Struct&gt;] types could fail at runtime; it is rebuilt from the current sources. PredictiveModelBuilder (C#) reads ProblemType.Item directly — ProblemType is a struct union since 1.4.8 (the 1.4.8 note saying it stayed a reference union was wrong)
+- NEW: tests/FSharp.Azure.Quantum.PropertyTests — FsCheck suite over random circuits: OpenQASM export/import round-trips in every version, exported text is a fixed point, comments never change a parse, invalid circuits are refused, angle expressions parse as written, damaged text yields Error not exceptions; GateTranspiler output for every backend and constraint set simulates to the same state up to global phase, uses only native gates, and is idempotent
+- Codebase-wide Fantomas formatting; no functional changes intended
+
+v1.4.8: Maintenance release — fsharp-refactor code clean-up (no functional changes intended)
 - CHANGED: ~50 small config/result unions and records are now [&lt;Struct&gt;] (e.g. QFTConfig, NoiseModel, RetryConfig, ConfusionMatrix, PortfolioConfig, AtomCoord, Edge). Source-compatible; binary-incompatible — recompile consumers against 1.4.8
 - CHANGED: OracleSpec.And/Or union fields are named (spec1, spec2)
 - Ordinal string comparisons, invariant-culture number parsing, use-bindings for disposables, and narrower exception catches throughout

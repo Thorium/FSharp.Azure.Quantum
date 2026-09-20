@@ -21,6 +21,7 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+
 open FSharp.Azure.Quantum.Examples.Common
 
 open System
@@ -32,13 +33,38 @@ open FSharp.Azure.Quantum.Business
 // --- CLI ---
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
-Cli.exitIfHelp "SocialNetworkAnalyzer_Example.fsx" "Quantum community detection in social networks" [
-    { Name = "example"; Description = "Which example: all, classical, quantum, fraud"; Default = Some "all" }
-    { Name = "shots"; Description = "Number of measurement shots"; Default = Some "1000" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress printed output"; Default = None }
-] args
+
+Cli.exitIfHelp
+    "SocialNetworkAnalyzer_Example.fsx"
+    "Quantum community detection in social networks"
+    [
+        {
+            Name = "example"
+            Description = "Which example: all, classical, quantum, fraud"
+            Default = Some "all"
+        }
+        {
+            Name = "shots"
+            Description = "Number of measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress printed output"
+            Default = None
+        }
+    ]
+    args
 
 let exampleName = Cli.getOr "example" "all" args
 let cliShots = Cli.getIntOr "shots" 1000 args
@@ -46,13 +72,18 @@ let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
 let csvPath = Cli.tryGet "csv" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let runAll = (exampleName = "all")
 
 // Accumulate results for JSON/CSV export
-let mutable jsonResults : obj list = []
-let mutable csvRows : string list list = []
+let mutable jsonResults: obj list = []
+let mutable csvRows: string list list = []
 
 // --- Quantum Backend (Rule 1) ---
 let quantumBackend = LocalBackend() :> IQuantumBackend
@@ -65,22 +96,23 @@ if runAll || exampleName = "classical" then
     pr "=== Example 1: Small Network (Classical) ==="
     pr ""
 
-    let classicalResult = SocialNetworkAnalyzer.socialNetwork {
-        person "Alice"
-        person "Bob"
-        person "Carol"
-        person "Dave"
+    let classicalResult =
+        SocialNetworkAnalyzer.socialNetwork {
+            person "Alice"
+            person "Bob"
+            person "Carol"
+            person "Dave"
 
-        connection "Alice" "Bob"
-        connection "Bob" "Carol"
-        connection "Carol" "Alice"
-        connection "Dave" "Alice"
+            connection "Alice" "Bob"
+            connection "Bob" "Carol"
+            connection "Carol" "Alice"
+            connection "Dave" "Alice"
 
-        findCommunities 3
+            findCommunities 3
 
-        // Explicit backend for Rule 1 compliance (classical fallback internally)
-        backend quantumBackend
-    }
+            // Explicit backend for Rule 1 compliance (classical fallback internally)
+            backend quantumBackend
+        }
 
     match classicalResult with
     | Ok result ->
@@ -91,22 +123,33 @@ if runAll || exampleName = "classical" then
         pr "  Message: %s" result.Message
         pr ""
 
-        result.Communities |> List.iter (fun comm ->
+        result.Communities
+        |> List.iter (fun comm ->
             pr "  Community: %A" comm.Members
             pr "    Strength: %.2f (%.0f%% connected)" comm.Strength (comm.Strength * 100.0)
             pr "    Internal Connections: %d" comm.InternalConnections
-            pr ""
-        )
+            pr "")
 
-        jsonResults <- (box {| example = "classical"; people = result.TotalPeople
-                               connections = result.TotalConnections
-                               communitiesFound = result.Communities.Length |}) :: jsonResults
-        result.Communities |> List.iter (fun c ->
-            csvRows <- [
-                "classical"; $"%A{c.Members}"; $"%.2f{c.Strength}";
-                $"%d{c.InternalConnections}"
-            ] :: csvRows
-        )
+        jsonResults <-
+            (box
+                {|
+                    example = "classical"
+                    people = result.TotalPeople
+                    connections = result.TotalConnections
+                    communitiesFound = result.Communities.Length
+                |})
+            :: jsonResults
+
+        result.Communities
+        |> List.iter (fun c ->
+            csvRows <-
+                [
+                    "classical"
+                    $"%A{c.Members}"
+                    $"%.2f{c.Strength}"
+                    $"%d{c.InternalConnections}"
+                ]
+                :: csvRows)
 
     | Error err ->
         pr "Error: %A" err
@@ -120,28 +163,21 @@ if runAll || exampleName = "quantum" then
     pr "=== Example 2: Larger Network (Quantum, %d shots) ===" cliShots
     pr ""
 
-    let quantumResult = SocialNetworkAnalyzer.socialNetwork {
-        people ["Alice"; "Bob"; "Carol"; "Dave"; "Eve"; "Frank"]
+    let quantumResult =
+        SocialNetworkAnalyzer.socialNetwork {
+            people [ "Alice"; "Bob"; "Carol"; "Dave"; "Eve"; "Frank" ]
 
-        connections [
-            ("Alice", "Bob")
-            ("Bob", "Carol")
-            ("Carol", "Alice")
-        ]
+            connections [ ("Alice", "Bob"); ("Bob", "Carol"); ("Carol", "Alice") ]
 
-        connections [
-            ("Dave", "Eve")
-            ("Eve", "Frank")
-            ("Frank", "Dave")
-        ]
+            connections [ ("Dave", "Eve"); ("Eve", "Frank"); ("Frank", "Dave") ]
 
-        connection "Carol" "Dave"
+            connection "Carol" "Dave"
 
-        findCommunities 3
+            findCommunities 3
 
-        backend quantumBackend
-        shots cliShots
-    }
+            backend quantumBackend
+            shots cliShots
+        }
 
     match quantumResult with
     | Ok result ->
@@ -153,25 +189,36 @@ if runAll || exampleName = "quantum" then
         pr ""
 
         if result.Communities.Length > 0 then
-            result.Communities |> List.iteri (fun i comm ->
+            result.Communities
+            |> List.iteri (fun i comm ->
                 pr "  Community %d: %A" (i + 1) comm.Members
                 pr "    Strength: %.2f (%.0f%% connected)" comm.Strength (comm.Strength * 100.0)
                 pr "    Internal Connections: %d" comm.InternalConnections
-                pr ""
-            )
+                pr "")
         else
             pr "  No communities of size 3 found. Try smaller minimum or add more connections."
             pr ""
 
-        jsonResults <- (box {| example = "quantum"; people = result.TotalPeople
-                               connections = result.TotalConnections
-                               communitiesFound = result.Communities.Length |}) :: jsonResults
-        result.Communities |> List.iter (fun c ->
-            csvRows <- [
-                "quantum"; $"%A{c.Members}"; $"%.2f{c.Strength}";
-                $"%d{c.InternalConnections}"
-            ] :: csvRows
-        )
+        jsonResults <-
+            (box
+                {|
+                    example = "quantum"
+                    people = result.TotalPeople
+                    connections = result.TotalConnections
+                    communitiesFound = result.Communities.Length
+                |})
+            :: jsonResults
+
+        result.Communities
+        |> List.iter (fun c ->
+            csvRows <-
+                [
+                    "quantum"
+                    $"%A{c.Members}"
+                    $"%.2f{c.Strength}"
+                    $"%d{c.InternalConnections}"
+                ]
+                :: csvRows)
 
     | Error err ->
         pr "Error: %A" err
@@ -185,24 +232,30 @@ if runAll || exampleName = "fraud" then
     pr "=== Example 3: Fraud Detection Scenario ==="
     pr ""
 
-    let fraudResult = SocialNetworkAnalyzer.socialNetwork {
-        people [
-            "Account_1001"; "Account_1002"; "Account_1003";
-            "Account_1004"; "Account_1005"
-        ]
+    let fraudResult =
+        SocialNetworkAnalyzer.socialNetwork {
+            people
+                [
+                    "Account_1001"
+                    "Account_1002"
+                    "Account_1003"
+                    "Account_1004"
+                    "Account_1005"
+                ]
 
-        connections [
-            ("Account_1001", "Account_1002")
-            ("Account_1002", "Account_1003")
-            ("Account_1003", "Account_1001")
-            ("Account_1004", "Account_1005")
-        ]
+            connections
+                [
+                    ("Account_1001", "Account_1002")
+                    ("Account_1002", "Account_1003")
+                    ("Account_1003", "Account_1001")
+                    ("Account_1004", "Account_1005")
+                ]
 
-        findCommunities 3
+            findCommunities 3
 
-        backend quantumBackend
-        shots (cliShots * 2)
-    }
+            backend quantumBackend
+            shots (cliShots * 2)
+        }
 
     match fraudResult with
     | Ok result ->
@@ -213,43 +266,51 @@ if runAll || exampleName = "fraud" then
 
         if result.Communities.Length > 0 then
             pr "  ALERT: Potential fraud rings detected!"
-            result.Communities |> List.iteri (fun i comm ->
+
+            result.Communities
+            |> List.iteri (fun i comm ->
                 pr ""
                 pr "  Fraud Ring %d:" (i + 1)
                 pr "    Accounts: %A" comm.Members
                 pr "    Ring Strength: %.2f" comm.Strength
-                pr "    Circular Transactions: %d" comm.InternalConnections
-            )
+                pr "    Circular Transactions: %d" comm.InternalConnections)
         else
             pr "  No suspicious circular patterns detected"
+
         pr ""
 
-        jsonResults <- (box {| example = "fraud"; accounts = result.TotalPeople
-                               transactions = result.TotalConnections
-                               fraudRings = result.Communities.Length |}) :: jsonResults
-        result.Communities |> List.iter (fun c ->
-            csvRows <- [
-                "fraud"; $"%A{c.Members}"; $"%.2f{c.Strength}";
-                $"%d{c.InternalConnections}"
-            ] :: csvRows
-        )
+        jsonResults <-
+            (box
+                {|
+                    example = "fraud"
+                    accounts = result.TotalPeople
+                    transactions = result.TotalConnections
+                    fraudRings = result.Communities.Length
+                |})
+            :: jsonResults
+
+        result.Communities
+        |> List.iter (fun c ->
+            csvRows <-
+                [ "fraud"; $"%A{c.Members}"; $"%.2f{c.Strength}"; $"%d{c.InternalConnections}" ]
+                :: csvRows)
 
     | Error err ->
         pr "Error: %A" err
         pr ""
 
 // --- JSON output ---
-outputPath |> Option.iter (fun path ->
+outputPath
+|> Option.iter (fun path ->
     Reporting.writeJson path (jsonResults |> List.rev)
-    pr "JSON written to %s" path
-)
+    pr "JSON written to %s" path)
 
 // --- CSV output ---
-csvPath |> Option.iter (fun path ->
-    let header = ["Example"; "Members"; "Strength"; "InternalConnections"]
+csvPath
+|> Option.iter (fun path ->
+    let header = [ "Example"; "Members"; "Strength"; "InternalConnections" ]
     Reporting.writeCsv path header (csvRows |> List.rev)
-    pr "CSV written to %s" path
-)
+    pr "CSV written to %s" path)
 
 // --- Usage hints ---
 if not quiet && outputPath.IsNone && csvPath.IsNone then

@@ -1,7 +1,7 @@
 namespace FSharp.Azure.Quantum.Topological
 
 /// Extension functions for quantum algorithms with topological backends
-/// 
+///
 /// Provides `*WithTopology` variants of standard algorithms that run on the
 /// topological (anyon-braiding) backend. This models topological execution and
 /// fault-tolerance properties — it is NOT faster than gate-based simulation on a
@@ -10,12 +10,12 @@ namespace FSharp.Azure.Quantum.Topological
 /// Architecture:
 /// - Standard path: Oracle → Gates → Backend
 /// - Topological path: Oracle → Gates → Braids → TopologicalBackend (models braiding)
-/// 
+///
 /// Usage:
 ///   let backend = TopologicalUnifiedBackendFactory.createIsing 10
 ///   let result = AlgorithmExtensions.searchWithTopology oracle 8 backend config
 module AlgorithmExtensions =
-    
+
     open FSharp.Azure.Quantum.Core
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Algorithms
@@ -25,26 +25,26 @@ module AlgorithmExtensions =
     // ============================================================================
     // GROVER SEARCH with Topological Backend
     // ============================================================================
-    
+
     /// Search using Grover's algorithm with Ising anyon topological backend
-    /// 
+    ///
     /// Runs the search through braid compilation on the topological backend. This models
     /// topological execution; on a classical simulator it is not faster than the gate path.
-    /// 
+    ///
     /// Parameters:
     ///   oracle - Compiled oracle defining search problem
     ///   topoBackend - Topological backend configured with Ising anyons
     ///   config - Search configuration (iterations, shots, thresholds)
-    /// 
+    ///
     /// Returns:
     ///   SearchResult with solutions and success probability
-    /// 
+    ///
     /// Example:
     ///   let oracle = Oracle.forValue 42 8
     ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
     ///   let config = { SearchConfig.Default with Shots = 1000 }
     ///   let result = Grover.searchWithTopology oracle backend config
-    /// 
+    ///
     /// Note: Only Ising anyons are currently supported for gate compilation.
     /// Use searchWithTopologyFibonacci for Fibonacci anyons (when implemented).
     let searchWithTopology
@@ -52,16 +52,16 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
+
         // Delegate to standard search API (zero code duplication)
         // TopologicalUnifiedBackend implements IQuantumBackend and handles gate-to-braid compilation internally
         Grover.search oracle topoBackend config
-    
+
     /// Search for single value with Ising anyon topological backend
-    /// 
+    ///
     /// Convenience function combining oracle creation and search.
     /// Uses Ising anyons (Majorana zero modes).
-    /// 
+    ///
     /// Example:
     ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
     ///   let result = Grover.searchSingleWithTopology 42 8 backend config
@@ -71,14 +71,15 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
-        (Oracle.forValue target numQubits) |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
-    
+
+        (Oracle.forValue target numQubits)
+        |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
+
     /// Search for multiple values with Ising anyon topological backend
-    /// 
+    ///
     /// Convenience function for multi-solution search.
     /// Uses Ising anyons (Majorana zero modes).
-    /// 
+    ///
     /// Example:
     ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
     ///   let result = Grover.searchMultipleWithTopology [1;42;99] 8 backend config
@@ -88,17 +89,18 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
+
         if List.isEmpty targets then
-            Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
+            Error(QuantumError.ValidationError("Targets", "list cannot be empty"))
         else
-            (Oracle.forValues targets numQubits) |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
-    
+            (Oracle.forValues targets numQubits)
+            |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
+
     /// Search with predicate function and Ising anyon topological backend
-    /// 
+    ///
     /// Most flexible search variant - define oracle as boolean predicate.
     /// Uses Ising anyons (Majorana zero modes).
-    /// 
+    ///
     /// Example:
     ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
     ///   let isPrime n = (* primality test *)
@@ -109,29 +111,30 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
-        (Oracle.fromPredicate predicate numQubits) |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
+
+        (Oracle.fromPredicate predicate numQubits)
+        |> Result.bind (fun oracle -> searchWithTopology oracle topoBackend config)
 
     // ============================================================================
     // GROVER SEARCH with Fibonacci Anyon Topological Backend
     // ============================================================================
-    
+
     /// Search using Grover's algorithm with Fibonacci anyon topological backend.
-    /// 
+    ///
     /// Fibonacci anyons are universal for quantum computation through braiding
     /// alone (unlike Ising anyons which require magic state distillation).
     /// This makes Fibonacci-based Grover search inherently fault-tolerant:
     /// all gates are compiled to braiding sequences via Solovay-Kitaev.
-    /// 
+    ///
     /// Trade-offs vs Ising:
     /// - Fibonacci: universal braiding (all gates native), but slower compilation
     /// - Ising: fast Clifford gates, but non-Clifford requires distillation
-    /// 
+    ///
     /// Parameters:
     ///   oracle - Compiled oracle defining search problem
     ///   topoBackend - Topological backend configured with Fibonacci anyons
     ///   config - Search configuration (iterations, shots, thresholds)
-    /// 
+    ///
     /// Returns:
     ///   SearchResult with solutions and success probability
     let searchWithTopologyFibonacci
@@ -139,17 +142,17 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
+
         // Fibonacci backend implements IQuantumBackend and handles
         // gate-to-braid compilation internally via Solovay-Kitaev.
         // No special handling needed - the backend interface is the same.
         Grover.search oracle topoBackend config
-    
+
     /// Search for single value with Fibonacci anyon topological backend.
-    /// 
+    ///
     /// Convenience function combining oracle creation and search.
     /// Uses Fibonacci anyons (universal braiding, inherently fault-tolerant).
-    /// 
+    ///
     /// Example:
     ///   let backend = TopologicalUnifiedBackendFactory.createFibonacci 16
     ///   let result = searchSingleWithTopologyFibonacci 42 8 backend config
@@ -159,11 +162,12 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
-        (Oracle.forValue target numQubits) |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
-    
+
+        (Oracle.forValue target numQubits)
+        |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
+
     /// Search for multiple values with Fibonacci anyon topological backend.
-    /// 
+    ///
     /// Convenience function for multi-solution search using Fibonacci anyons.
     let searchMultipleWithTopologyFibonacci
         (targets: int list)
@@ -171,14 +175,15 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
+
         if List.isEmpty targets then
-            Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
+            Error(QuantumError.ValidationError("Targets", "list cannot be empty"))
         else
-            (Oracle.forValues targets numQubits) |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
-    
+            (Oracle.forValues targets numQubits)
+            |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
+
     /// Search with predicate function and Fibonacci anyon topological backend.
-    /// 
+    ///
     /// Most flexible search variant - define oracle as boolean predicate.
     let searchWithPredicateTopologyFibonacci
         (predicate: int -> bool)
@@ -186,13 +191,14 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: Grover.GroverConfig)
         : Result<Grover.GroverResult, QuantumError> =
-        
-        (Oracle.fromPredicate predicate numQubits) |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
+
+        (Oracle.fromPredicate predicate numQubits)
+        |> Result.bind (fun oracle -> searchWithTopologyFibonacci oracle topoBackend config)
 
     // ============================================================================
     // QFT with Topological Backend
     // ============================================================================
-    
+
     /// Execute QFT with topological backend
     ///
     /// Uses topological braiding for QFT if supported, or compiles gates to braids.
@@ -206,7 +212,7 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: QFT.QFTConfig)
         : Result<QFT.QFTResult, QuantumError> =
-        
+
         QFT.execute numQubits topoBackend config
 
     /// Execute Inverse QFT with topological backend
@@ -217,13 +223,13 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (shots: int)
         : Result<QFT.QFTResult, QuantumError> =
-        
+
         QFT.executeInverse numQubits topoBackend shots
-    
+
     // ============================================================================
-    // SHOR'S ALGORITHM with Topological Backend  
+    // SHOR'S ALGORITHM with Topological Backend
     // ============================================================================
-    
+
     /// Factor integer using Shor's algorithm on topological backend
     ///
     /// Parameters:
@@ -235,7 +241,7 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: ShorsTypes.ShorsConfig option)
         : Result<ShorsTypes.ShorsResult, QuantumError> =
-        
+
         match config with
         | Some cfg -> Shor.execute cfg topoBackend
         | None -> Shor.factor number topoBackend
@@ -243,16 +249,14 @@ module AlgorithmExtensions =
     /// Factor 15 using topological backend (Demonstration)
     ///
     /// Optimized parameters for factoring 15 = 3 x 5.
-    let factor15WithTopology
-        (topoBackend: IQuantumBackend)
-        : Result<ShorsTypes.ShorsResult, QuantumError> =
-        
+    let factor15WithTopology (topoBackend: IQuantumBackend) : Result<ShorsTypes.ShorsResult, QuantumError> =
+
         Shor.factor15 topoBackend
 
     // ============================================================================
     // HHL ALGORITHM with Topological Backend
     // ============================================================================
-    
+
     /// Solve linear system Ax = b using HHL on topological backend
     ///
     /// Parameters:
@@ -266,23 +270,24 @@ module AlgorithmExtensions =
         (topoBackend: IQuantumBackend)
         (config: HHLTypes.HHLConfig option)
         : Result<HHLTypes.HHLResult, QuantumError> =
-        
+
         // HHL.execute is not directly exposed as static method in module,
         // so we need to instantiate or call via proper HHL module path.
         // Assuming HHL module structure similar to Shor/QFT.
-        
-        let hhlConfigResult = 
+
+        let hhlConfigResult =
             match config with
             | Some cfg -> Ok cfg
             | None -> HHLTypes.defaultConfig matrix vector
-            
+
         // Use HHL.execute
-        hhlConfigResult |> Result.bind (fun hhlConfig -> HHL.execute hhlConfig topoBackend)
+        hhlConfigResult
+        |> Result.bind (fun hhlConfig -> HHL.execute hhlConfig topoBackend)
 
     // ============================================================================
     // PERFORMANCE NOTES
     // ============================================================================
-    
+
     // The topological backend does NOT provide a speedup over gate-based simulation on a
     // classical computer. Each gate is compiled to a braid sequence and applied to the full
     // 2^n-dimensional state, so it is generally SLOWER than the gate simulator, not faster.

@@ -9,24 +9,28 @@ module GameLoop =
 
     /// Game configuration
     type GameConfig =
-        { Variant: GameVariant
-          PlayerCount: int
-          HumanCount: int  // 0 or 1
-          NoviceMode: bool  // true = show capture previews, false = cards only (advanced)
-          Seed: int option
-          TargetScore: int  // Game ends when a player reaches this (default 16)
-          Backend: BackendAbstraction.IQuantumBackend option }
+        {
+            Variant: GameVariant
+            PlayerCount: int
+            HumanCount: int // 0 or 1
+            NoviceMode: bool // true = show capture previews, false = cards only (advanced)
+            Seed: int option
+            TargetScore: int // Game ends when a player reaches this (default 16)
+            Backend: BackendAbstraction.IQuantumBackend option
+        }
 
     /// Full game state
     type GameState =
-        { Players: Player list
-          Table: Card list
-          Deck: Card list
-          CurrentPlayerIndex: int
-          DealRound: int
-          TotalDeals: int
-          LastCapturer: int option  // Index of last player who captured
-          Variant: GameVariant }
+        {
+            Players: Player list
+            Table: Card list
+            Deck: Card list
+            CurrentPlayerIndex: int
+            DealRound: int
+            TotalDeals: int
+            LastCapturer: int option // Index of last player who captured
+            Variant: GameVariant
+        }
 
     /// Calculate total deal rounds based on player count
     /// 52 cards, 4 per player per deal + 4 to table on first deal
@@ -43,19 +47,25 @@ module GameLoop =
     let createPlayers (config: GameConfig) : Player list =
         let quantumNames = [| "Quantum-1"; "Quantum-2"; "Quantum-3"; "Quantum-4" |]
         let humanCount = config.HumanCount
+
         let cpuSlots =
-            [ for i in 0 .. config.PlayerCount - 1 do
-                if i < humanCount then
-                    yield (i, "You", Human)
-                else
-                    yield (i, quantumNames.[i - humanCount], QuantumCPU) ]
+            [
+                for i in 0 .. config.PlayerCount - 1 do
+                    if i < humanCount then
+                        yield (i, "You", Human)
+                    else
+                        yield (i, quantumNames.[i - humanCount], QuantumCPU)
+            ]
+
         cpuSlots
         |> List.map (fun (_, name, ptype) ->
-            { Name = name
-              Type = ptype
-              Hand = []
-              CapturedCards = []
-              Sweeps = 0 })
+            {
+                Name = name
+                Type = ptype
+                Hand = []
+                CapturedCards = []
+                Sweeps = 0
+            })
 
     /// Deal cards to all players and optionally the table
     let dealRound (state: GameState) (isFirstDeal: bool) : GameState =
@@ -63,13 +73,15 @@ module GameLoop =
         let mutable players = state.Players |> Array.ofList
 
         // Deal 4 cards to each player (2 at a time, 2 rounds, as per Kasino tradition)
-        for _ in 1 .. 2 do
+        for _ in 1..2 do
             for i in 0 .. players.Length - 1 do
                 let (dealt, remaining) = Cards.deal 2 deck
                 deck <- remaining
+
                 players.[i] <-
                     { players.[i] with
-                        Hand = players.[i].Hand @ dealt }
+                        Hand = players.[i].Hand @ dealt
+                    }
 
         // Deal 4 cards to table (only on first deal)
         let table =
@@ -83,24 +95,33 @@ module GameLoop =
         { state with
             Players = players |> Array.toList
             Table = table
-            Deck = deck }
+            Deck = deck
+        }
 
     /// How a chosen hand card should be resolved when applied.
     type HumanPlay =
-        | TakeOption of Rules.CaptureOption  // capture with this specific option
-        | PlaceCard                          // place on the table without capturing
-        | AutoPlay                           // let Rules.playCard decide (capture if possible)
+        | TakeOption of Rules.CaptureOption // capture with this specific option
+        | PlaceCard // place on the table without capturing
+        | AutoPlay // let Rules.playCard decide (capture if possible)
 
     /// Get human player's card choice (returns None if player wants to quit).
     /// Returns (cardIndex, play) — cardIndex refers to the position in the
     /// original (unsorted) hand. In Standard Kasino capturing is optional, so
     /// the player may answer e.g. "3P" to place card 3 even when it captures.
-    let rec getHumanChoice (backend: BackendAbstraction.IQuantumBackend option) (player: Player) (playerIndex: int) (tableCards: Card list) (variant: GameVariant) (noviceMode: bool) : (int * HumanPlay) option =
+    let rec getHumanChoice
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (player: Player)
+        (playerIndex: int)
+        (tableCards: Card list)
+        (variant: GameVariant)
+        (noviceMode: bool)
+        : (int * HumanPlay) option =
         // Sort hand by handValue ascending for display; track original indices
         let sortedWithOrigIdx =
             player.Hand
             |> List.mapi (fun i c -> (i, c))
             |> List.sortBy (fun (_, c) -> Cards.handValue c)
+
         let sortedHand = sortedWithOrigIdx |> List.map snd
         let origIndices = sortedWithOrigIdx |> List.map fst
 
@@ -110,13 +131,20 @@ module GameLoop =
 
         // Build special card notes for hand cards
         let specialNote (card: Card) =
-            let notes = [
-                if Cards.isAce card then yield "Ace: 1pt"
-                if Cards.isDiamondTen card then yield "10\u2666: 2pts"
-                if Cards.isSpadeTwo card then yield "2\u2660: 1pt"
-            ]
-            if List.isEmpty notes then ""
-            else sprintf " [yellow on blue](%s)[/]" (String.concat ", " notes)
+            let notes =
+                [
+                    if Cards.isAce card then
+                        yield "Ace: 1pt"
+                    if Cards.isDiamondTen card then
+                        yield "10\u2666: 2pts"
+                    if Cards.isSpadeTwo card then
+                        yield "2\u2660: 1pt"
+                ]
+
+            if List.isEmpty notes then
+                ""
+            else
+                sprintf " [yellow on blue](%s)[/]" (String.concat ", " notes)
 
         // Precompute evaluations for sorted hand cards (needed for capture option detection in both modes)
         let evals = QuantumPlayer.evaluateAllPlays backend sortedHand tableCards
@@ -124,31 +152,43 @@ module GameLoop =
         if noviceMode then
             // Novice: show full capture previews inside a blue panel
             let lines = ResizeArray<string>()
+
             for i in 0 .. sortedHand.Length - 1 do
                 let card = sortedHand.[i]
                 let eval = evals.[i]
+
                 match eval.Result with
-                | Capture (_, captured, isSweep) ->
+                | Capture(_, captured, isSweep) ->
                     let optionNote =
                         if eval.CaptureOptions.Length > 1 then
                             sprintf " [yellow on blue](%d capture options)[/]" eval.CaptureOptions.Length
-                        else ""
+                        else
+                            ""
+
                     lines.Add(
-                        sprintf " [cyan on blue]%d:[/] %s [white on blue]->[/] [white on blue]captures[/] %s%s%s%s"
+                        sprintf
+                            " [cyan on blue]%d:[/] %s [white on blue]->[/] [white on blue]captures[/] %s%s%s%s"
                             (i + 1)
                             (Renderer.renderCardOnBlue card)
                             (Renderer.renderCardsOnBlue captured)
                             (if isSweep then " [bold yellow on blue]SWEEP![/]" else "")
                             optionNote
-                            (specialNote card))
+                            (specialNote card)
+                    )
                 | Place _ ->
                     lines.Add(
-                        sprintf " [cyan on blue]%d:[/] %s [white on blue]->[/] [silver on blue]place on table[/]%s"
+                        sprintf
+                            " [cyan on blue]%d:[/] %s [white on blue]->[/] [silver on blue]place on table[/]%s"
                             (i + 1)
                             (Renderer.renderCardOnBlue card)
-                            (specialNote card))
+                            (specialNote card)
+                    )
+
             let joined = String.concat "\n" lines
-            let padded = Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
+            let padded =
+                Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
             let markup = Markup(padded, Style(background = Color.Blue))
             let panel = Panel(markup)
             panel.Header <- PanelHeader("[bold white on blue] Your options [/]")
@@ -162,10 +202,16 @@ module GameLoop =
             match variant with
             | LaistoKasino ->
                 let nonCaptures = evals |> List.filter (fun e -> e.CardsCaptured = 0)
+
                 if List.isEmpty nonCaptures then
-                    AnsiConsole.MarkupLine("[red]All cards capture (capture is forced in Laisto)! Pick the one with fewest points.[/]")
+                    AnsiConsole.MarkupLine(
+                        "[red]All cards capture (capture is forced in Laisto)! Pick the one with fewest points.[/]"
+                    )
                 else
-                    AnsiConsole.MarkupLine("[green]Cards that capture are taken automatically — place a non-capturing card to stay safe.[/]")
+                    AnsiConsole.MarkupLine(
+                        "[green]Cards that capture are taken automatically — place a non-capturing card to stay safe.[/]"
+                    )
+
                 AnsiConsole.WriteLine()
             | StandardKasino ->
                 if evals |> List.exists (fun e -> e.CardsCaptured > 0) then
@@ -174,15 +220,19 @@ module GameLoop =
         else
             // Advanced: just show numbered cards, no previews, inside a blue panel
             let lines = ResizeArray<string>()
+
             for i in 0 .. sortedHand.Length - 1 do
                 let card = sortedHand.[i]
+
                 lines.Add(
-                    sprintf " [cyan on blue]%d:[/] %s%s"
-                        (i + 1)
-                        (Renderer.renderCardOnBlue card)
-                        (specialNote card))
+                    sprintf " [cyan on blue]%d:[/] %s%s" (i + 1) (Renderer.renderCardOnBlue card) (specialNote card)
+                )
+
             let joined = String.concat "\n" lines
-            let padded = Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
+            let padded =
+                Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
             let markup = Markup(padded, Style(background = Color.Blue))
             let panel = Panel(markup)
             panel.Header <- PanelHeader("[bold white on blue] Choose a card to play [/]")
@@ -194,13 +244,19 @@ module GameLoop =
 
         let rec getChoice () =
             let placeHint =
-                if variant = StandardKasino then ", add P to place instead," else ""
+                if variant = StandardKasino then
+                    ", add P to place instead,"
+                else
+                    ""
+
             AnsiConsole.Markup(sprintf "[cyan]Choose card (1-%d)%s or Q to quit:[/] " sortedHand.Length placeHint)
             let input = Console.ReadLine()
+
             if input = null then
-                None  // EOF / redirected input
+                None // EOF / redirected input
             else
                 let trimmed = input.Trim().ToUpperInvariant()
+
                 if trimmed = "Q" then
                     None
                 else
@@ -208,15 +264,21 @@ module GameLoop =
                     // on the table even when it could capture.
                     let placeInstead =
                         variant = StandardKasino && trimmed.Length > 1 && trimmed.EndsWith "P"
+
                     let numPart =
-                        if placeInstead then trimmed.Substring(0, trimmed.Length - 1) else trimmed
+                        if placeInstead then
+                            trimmed.Substring(0, trimmed.Length - 1)
+                        else
+                            trimmed
+
                     match Int32.TryParse(numPart) with
                     | true, n when n >= 1 && n <= sortedHand.Length ->
                         let sortedIdx = n - 1
                         let origIdx = origIndices.[sortedIdx]
                         let eval = evals.[sortedIdx]
+
                         if placeInstead then
-                            Some (origIdx, PlaceCard)
+                            Some(origIdx, PlaceCard)
                         else
                             match eval.CaptureOptions with
                             | [] ->
@@ -227,51 +289,69 @@ module GameLoop =
                                 // In Laisto capture is forced, so let the apply
                                 // step re-check.
                                 match variant with
-                                | StandardKasino -> Some (origIdx, PlaceCard)
-                                | LaistoKasino -> Some (origIdx, AutoPlay)
+                                | StandardKasino -> Some(origIdx, PlaceCard)
+                                | LaistoKasino -> Some(origIdx, AutoPlay)
                             | [ single ] ->
                                 // Resolve the previewed option deterministically.
-                                Some (origIdx, TakeOption single)
+                                Some(origIdx, TakeOption single)
                             | options ->
                                 match getCaptureOptionChoice options variant tableCards with
-                                | Some play -> Some (origIdx, play)
-                                | None -> None  // Player quit during sub-choice
+                                | Some play -> Some(origIdx, play)
+                                | None -> None // Player quit during sub-choice
                     | _ ->
                         AnsiConsole.MarkupLine("[red]Invalid choice![/]")
                         getChoice ()
+
         getChoice ()
 
     /// Ask the human to choose among multiple capture options. In Standard
     /// Kasino the player may also decline the capture and place the card ("0").
-    and private getCaptureOptionChoice (options: Rules.CaptureOption list) (variant: GameVariant) (tableCards: Card list) : HumanPlay option =
+    and private getCaptureOptionChoice
+        (options: Rules.CaptureOption list)
+        (variant: GameVariant)
+        (tableCards: Card list)
+        : HumanPlay option =
         AnsiConsole.WriteLine()
         // Single-letter labels only support A-Z; show the biggest captures first
         // and truncate the rest (findCaptureOptions can return up to 64 options).
         let maxShown = 24
+
         let shown =
             options
             |> List.sortByDescending (fun opt -> opt.Captured.Length)
             |> List.truncate maxShown
+
         let allowPlace = (variant = StandardKasino)
         let lines = ResizeArray<string>()
+
         for i in 0 .. shown.Length - 1 do
             let opt = shown.[i]
+
             let combosStr =
                 opt.Combos
                 |> List.map (fun combo ->
                     sprintf "[white on blue]{[/]%s[white on blue]}[/]" (Renderer.renderCardsOnBlue combo))
                 |> String.concat " [white on blue]+[/] "
+
             lines.Add(
-                sprintf " [yellow on blue]%c:[/] %s [white on blue]= %d cards[/]"
+                sprintf
+                    " [yellow on blue]%c:[/] %s [white on blue]= %d cards[/]"
                     (char (int 'A' + i))
                     combosStr
-                    opt.Captured.Length)
+                    opt.Captured.Length
+            )
+
         if options.Length > shown.Length then
             lines.Add(sprintf " [silver on blue](%d smaller options not shown)[/]" (options.Length - shown.Length))
+
         if allowPlace then
             lines.Add(" [yellow on blue]0:[/] [silver on blue]place on table instead (no capture)[/]")
+
         let joined = String.concat "\n" lines
-        let padded = Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
+        let padded =
+            Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
         let markup = Markup(padded, Style(background = Color.Blue))
         let panel = Panel(markup)
         panel.Header <- PanelHeader("[bold yellow on blue] Choose which cards to capture [/]")
@@ -283,12 +363,18 @@ module GameLoop =
 
         let rec getSubChoice () =
             let placeHint = if allowPlace then ", 0 to place," else ""
-            AnsiConsole.Markup(sprintf "[yellow]Choose option (A-%c)%s or Q to quit:[/] " (char (int 'A' + shown.Length - 1)) placeHint)
+
+            AnsiConsole.Markup(
+                sprintf "[yellow]Choose option (A-%c)%s or Q to quit:[/] " (char (int 'A' + shown.Length - 1)) placeHint
+            )
+
             let input = Console.ReadLine()
+
             if input = null then
                 None
             else
                 let trimmed = input.Trim().ToUpperInvariant()
+
                 if trimmed = "Q" then
                     None
                 elif allowPlace && trimmed = "0" then
@@ -297,14 +383,16 @@ module GameLoop =
                     match trimmed with
                     | s when s.Length = 1 ->
                         let idx = int s.[0] - int 'A'
+
                         if idx >= 0 && idx < shown.Length then
-                            Some (TakeOption shown.[idx])
+                            Some(TakeOption shown.[idx])
                         else
                             AnsiConsole.MarkupLine("[red]Invalid choice![/]")
                             getSubChoice ()
                     | _ ->
                         AnsiConsole.MarkupLine("[red]Invalid choice![/]")
                         getSubChoice ()
+
         getSubChoice ()
 
     /// Build game context for AI decision-making
@@ -312,41 +400,61 @@ module GameLoop =
         let player = state.Players.[playerIdx]
         let myCards = List.length player.CapturedCards
         let mySpades = player.CapturedCards |> List.filter Cards.isSpade |> List.length
-        let opponents = state.Players |> List.mapi (fun i p -> (i, p)) |> List.filter (fun (i, _) -> i <> playerIdx)
-        let opponentCards = opponents |> List.map (fun (_, p) -> List.length p.CapturedCards) |> List.max
+
+        let opponents =
+            state.Players
+            |> List.mapi (fun i p -> (i, p))
+            |> List.filter (fun (i, _) -> i <> playerIdx)
+
+        let opponentCards =
+            opponents |> List.map (fun (_, p) -> List.length p.CapturedCards) |> List.max
+
         let opponentSpades =
             opponents
             |> List.map (fun (_, p) -> p.CapturedCards |> List.filter Cards.isSpade |> List.length)
             |> List.max
+
         let cardsRemaining =
             List.length state.Deck
             + (state.Players |> List.sumBy (fun p -> List.length p.Hand))
-        { MyCards = myCards
-          MySpades = mySpades
-          OpponentCards = opponentCards
-          OpponentSpades = opponentSpades
-          CardsRemaining = cardsRemaining }
+
+        {
+            MyCards = myCards
+            MySpades = mySpades
+            OpponentCards = opponentCards
+            OpponentSpades = opponentSpades
+            CardsRemaining = cardsRemaining
+        }
 
     /// Play one turn for a player. Returns None if the human chose to quit.
-    let playTurn (backend: BackendAbstraction.IQuantumBackend option) (noviceMode: bool) (state: GameState) : GameState option =
+    let playTurn
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (noviceMode: bool)
+        (state: GameState)
+        : GameState option =
         let playerIdx = state.CurrentPlayerIndex
         let player = state.Players.[playerIdx]
 
         if List.isEmpty player.Hand then
             // No cards to play, skip
-            Some { state with
-                    CurrentPlayerIndex = (playerIdx + 1) % state.Players.Length }
+            Some
+                { state with
+                    CurrentPlayerIndex = (playerIdx + 1) % state.Players.Length
+                }
         else
             // Choose card and how to resolve it
             let choiceResult =
                 match player.Type with
-                | Human ->
-                    getHumanChoice backend player playerIdx state.Table state.Variant noviceMode
+                | Human -> getHumanChoice backend player playerIdx state.Table state.Variant noviceMode
                 | QuantumCPU ->
                     Renderer.displayQuantumThinking player.Name state.Players (List.length player.Hand)
                     let ctx = buildContext state playerIdx
-                    let eval = QuantumPlayer.chooseBest backend state.Variant ctx player.Hand state.Table
+
+                    let eval =
+                        QuantumPlayer.chooseBest backend state.Variant ctx player.Hand state.Table
+
                     let idx = player.Hand |> List.findIndex (fun c -> c = eval.HandCard)
+
                     let action =
                         match eval.ChosenOption with
                         | Some opt -> TakeOption opt
@@ -358,79 +466,87 @@ module GameLoop =
                             match state.Variant with
                             | StandardKasino -> PlaceCard
                             | LaistoKasino -> AutoPlay
-                    Some (idx, action)
+
+                    Some(idx, action)
 
             match choiceResult with
-            | None -> None  // Player quit
-            | Some (idx, action) ->
+            | None -> None // Player quit
+            | Some(idx, action) ->
 
-            let chosenCard = player.Hand.[idx]
-            let remainingHand = player.Hand |> List.removeAt idx
+                let chosenCard = player.Hand.[idx]
+                let remainingHand = player.Hand |> List.removeAt idx
 
-            // Resolve the play exactly once — the capture enumeration is
-            // stochastic (iterative QAOA), so it must not be re-run between
-            // choosing, applying, and displaying a play.
-            let result, newTable =
-                match action with
-                | TakeOption opt ->
-                    Rules.resolveCapture chosenCard opt state.Table
-                | PlaceCard ->
-                    (Place chosenCard, chosenCard :: state.Table)
-                | AutoPlay ->
-                    let r, t, _ = Rules.playCard backend chosenCard state.Table
-                    (r, t)
+                // Resolve the play exactly once — the capture enumeration is
+                // stochastic (iterative QAOA), so it must not be re-run between
+                // choosing, applying, and displaying a play.
+                let result, newTable =
+                    match action with
+                    | TakeOption opt -> Rules.resolveCapture chosenCard opt state.Table
+                    | PlaceCard -> (Place chosenCard, chosenCard :: state.Table)
+                    | AutoPlay ->
+                        let r, t, _ = Rules.playCard backend chosenCard state.Table
+                        (r, t)
 
-            // Build the display evaluation from the play that was actually
-            // applied. The played card is banked with the capture, so its
-            // points count too.
-            let eval =
-                match result with
-                | Capture (_, captured, isSweep) ->
-                    { QuantumPlayer.HandCard = chosenCard
-                      QuantumPlayer.Result = result
-                      QuantumPlayer.PointValue =
-                          Rules.capturePointValue (chosenCard :: captured)
-                          + (if isSweep then Rules.sweepBonus else 0.0)
-                      QuantumPlayer.CardsCaptured = captured.Length
-                      QuantumPlayer.IsSweep = isSweep
-                      QuantumPlayer.CaptureOptions = []
-                      QuantumPlayer.ChosenOption = (match action with TakeOption opt -> Some opt | _ -> None) }
-                | Place _ ->
-                    { QuantumPlayer.HandCard = chosenCard
-                      QuantumPlayer.Result = result
-                      QuantumPlayer.PointValue = 0.0
-                      QuantumPlayer.CardsCaptured = 0
-                      QuantumPlayer.IsSweep = false
-                      QuantumPlayer.CaptureOptions = []
-                      QuantumPlayer.ChosenOption = None }
-            Renderer.displayPlay player.Name state.Players eval
+                // Build the display evaluation from the play that was actually
+                // applied. The played card is banked with the capture, so its
+                // points count too.
+                let eval =
+                    match result with
+                    | Capture(_, captured, isSweep) ->
+                        {
+                            QuantumPlayer.HandCard = chosenCard
+                            QuantumPlayer.Result = result
+                            QuantumPlayer.PointValue =
+                                Rules.capturePointValue (chosenCard :: captured)
+                                + (if isSweep then Rules.sweepBonus else 0.0)
+                            QuantumPlayer.CardsCaptured = captured.Length
+                            QuantumPlayer.IsSweep = isSweep
+                            QuantumPlayer.CaptureOptions = []
+                            QuantumPlayer.ChosenOption =
+                                (match action with
+                                 | TakeOption opt -> Some opt
+                                 | _ -> None)
+                        }
+                    | Place _ ->
+                        {
+                            QuantumPlayer.HandCard = chosenCard
+                            QuantumPlayer.Result = result
+                            QuantumPlayer.PointValue = 0.0
+                            QuantumPlayer.CardsCaptured = 0
+                            QuantumPlayer.IsSweep = false
+                            QuantumPlayer.CaptureOptions = []
+                            QuantumPlayer.ChosenOption = None
+                        }
 
-            // Update player state
-            let updatedPlayer =
-                match result with
-                | Capture (_, captured, isSweep) ->
-                    { player with
-                        Hand = remainingHand
-                        CapturedCards = player.CapturedCards @ [chosenCard] @ captured
-                        Sweeps = player.Sweeps + (if isSweep then 1 else 0) }
-                | Place _ ->
-                    { player with
-                        Hand = remainingHand }
+                Renderer.displayPlay player.Name state.Players eval
 
-            let updatedPlayers =
-                state.Players
-                |> List.mapi (fun i p -> if i = playerIdx then updatedPlayer else p)
+                // Update player state
+                let updatedPlayer =
+                    match result with
+                    | Capture(_, captured, isSweep) ->
+                        { player with
+                            Hand = remainingHand
+                            CapturedCards = player.CapturedCards @ [ chosenCard ] @ captured
+                            Sweeps = player.Sweeps + (if isSweep then 1 else 0)
+                        }
+                    | Place _ -> { player with Hand = remainingHand }
 
-            let lastCapturer =
-                match result with
-                | Capture _ -> Some playerIdx
-                | Place _ -> state.LastCapturer
+                let updatedPlayers =
+                    state.Players
+                    |> List.mapi (fun i p -> if i = playerIdx then updatedPlayer else p)
 
-            Some { state with
-                    Players = updatedPlayers
-                    Table = newTable
-                    CurrentPlayerIndex = (playerIdx + 1) % state.Players.Length
-                    LastCapturer = lastCapturer }
+                let lastCapturer =
+                    match result with
+                    | Capture _ -> Some playerIdx
+                    | Place _ -> state.LastCapturer
+
+                Some
+                    { state with
+                        Players = updatedPlayers
+                        Table = newTable
+                        CurrentPlayerIndex = (playerIdx + 1) % state.Players.Length
+                        LastCapturer = lastCapturer
+                    }
 
     /// Check if all players have empty hands (time to deal or end)
     let allHandsEmpty (state: GameState) : bool =
@@ -452,7 +568,11 @@ module GameLoop =
         let freshPlayers =
             players
             |> List.map (fun p ->
-                { p with Hand = []; CapturedCards = []; Sweeps = 0 })
+                { p with
+                    Hand = []
+                    CapturedCards = []
+                    Sweeps = 0
+                })
 
         // Rotate dealer: shift starting player by (roundNumber - 1)
         let startIdx = (roundNumber - 1) % freshPlayers.Length
@@ -460,19 +580,22 @@ module GameLoop =
         Renderer.displayRoundHeader roundNumber cumulativeScores config.Variant config.TargetScore
 
         let mutable state =
-            { Players = freshPlayers
-              Table = []
-              Deck = deck
-              CurrentPlayerIndex = startIdx
-              DealRound = 0
-              TotalDeals = totalDeals
-              LastCapturer = None
-              Variant = config.Variant }
+            {
+                Players = freshPlayers
+                Table = []
+                Deck = deck
+                CurrentPlayerIndex = startIdx
+                DealRound = 0
+                TotalDeals = totalDeals
+                LastCapturer = None
+                Variant = config.Variant
+            }
 
         let mutable quit = false
 
         // Deal rounds within this round
         let mutable dealNum = 1
+
         while dealNum <= totalDeals && not quit do
             let isFirst = dealNum = 1
             state <- { state with DealRound = dealNum }
@@ -487,14 +610,14 @@ module GameLoop =
             // Play turns until all hands empty
             while not (allHandsEmpty state) && not quit do
                 Renderer.displayTable state.Table
+
                 match playTurn config.Backend config.NoviceMode state with
                 | Some newState ->
                     state <- newState
                     // Small pause between turns for readability
                     if config.HumanCount = 0 then
                         System.Threading.Thread.Sleep(300)
-                | None ->
-                    quit <- true
+                | None -> quit <- true
 
             dealNum <- dealNum + 1
 
@@ -502,44 +625,51 @@ module GameLoop =
             None
         else
 
-        // End of round: last capturer gets remaining table cards
-        match state.LastCapturer with
-        | Some idx ->
-            let lastPlayer = state.Players.[idx]
-            if not (List.isEmpty state.Table) then
+            // End of round: last capturer gets remaining table cards
+            match state.LastCapturer with
+            | Some idx ->
+                let lastPlayer = state.Players.[idx]
+
+                if not (List.isEmpty state.Table) then
+                    AnsiConsole.MarkupLine(
+                        sprintf
+                            "[grey]%s (last to capture) takes remaining table cards: %s[/]"
+                            lastPlayer.Name
+                            (Renderer.renderCards state.Table)
+                    )
+
+                    AnsiConsole.WriteLine()
+
+                    let updatedPlayer =
+                        { lastPlayer with
+                            CapturedCards = lastPlayer.CapturedCards @ state.Table
+                        }
+
+                    state <-
+                        { state with
+                            Players = state.Players |> List.mapi (fun i p -> if i = idx then updatedPlayer else p)
+                            Table = []
+                        }
+            | None -> ()
+
+            // Calculate and display round scores
+            AnsiConsole.WriteLine()
+            let scores = Scoring.calculateScores state.Players
+            Renderer.displayRoundScores scores roundNumber state.Players
+
+            // Show card count details
+            AnsiConsole.MarkupLine("[grey]Card counts:[/]")
+
+            for player in state.Players do
+                let spades = player.CapturedCards |> List.filter Cards.isSpade |> List.length
+
                 AnsiConsole.MarkupLine(
-                    sprintf "[grey]%s (last to capture) takes remaining table cards: %s[/]"
-                        lastPlayer.Name
-                        (Renderer.renderCards state.Table))
-                AnsiConsole.WriteLine()
-                let updatedPlayer =
-                    { lastPlayer with
-                        CapturedCards = lastPlayer.CapturedCards @ state.Table }
-                state <-
-                    { state with
-                        Players =
-                            state.Players
-                            |> List.mapi (fun i p -> if i = idx then updatedPlayer else p)
-                        Table = [] }
-        | None -> ()
+                    sprintf "  [grey]%s: %d cards (%d spades)[/]" player.Name (List.length player.CapturedCards) spades
+                )
 
-        // Calculate and display round scores
-        AnsiConsole.WriteLine()
-        let scores = Scoring.calculateScores state.Players
-        Renderer.displayRoundScores scores roundNumber state.Players
+            AnsiConsole.WriteLine()
 
-        // Show card count details
-        AnsiConsole.MarkupLine("[grey]Card counts:[/]")
-        for player in state.Players do
-            let spades = player.CapturedCards |> List.filter Cards.isSpade |> List.length
-            AnsiConsole.MarkupLine(
-                sprintf "  [grey]%s: %d cards (%d spades)[/]"
-                    player.Name
-                    (List.length player.CapturedCards)
-                    spades)
-        AnsiConsole.WriteLine()
-
-        Some scores
+            Some scores
 
     /// Run a complete multi-round game
     let runGame (config: GameConfig) : unit =
@@ -572,20 +702,22 @@ module GameLoop =
                 gameOver <- true
             | Some roundScores ->
 
-            // Accumulate scores
-            for (player, breakdown) in roundScores do
-                let prev = cumulativeScores.[player.Name]
-                cumulativeScores <- cumulativeScores |> Map.add player.Name (prev + breakdown.Total)
+                // Accumulate scores
+                for (player, breakdown) in roundScores do
+                    let prev = cumulativeScores.[player.Name]
+                    cumulativeScores <- cumulativeScores |> Map.add player.Name (prev + breakdown.Total)
 
-            // Display cumulative standings
-            Renderer.displayCumulativeScores cumulativeScores config.Variant config.TargetScore players
+                // Display cumulative standings
+                Renderer.displayCumulativeScores cumulativeScores config.Variant config.TargetScore players
 
-            // Check if anyone reached the target score
-            let reached =
-                cumulativeScores |> Map.toList |> List.filter (fun (_, s) -> s >= config.TargetScore)
+                // Check if anyone reached the target score
+                let reached =
+                    cumulativeScores
+                    |> Map.toList
+                    |> List.filter (fun (_, s) -> s >= config.TargetScore)
 
-            if not (List.isEmpty reached) then
-                gameOver <- true
-                Renderer.displayGameOver cumulativeScores config.Variant config.TargetScore
-            else
-                Renderer.waitForKey ()
+                if not (List.isEmpty reached) then
+                    gameOver <- true
+                    Renderer.displayGameOver cumulativeScores config.Variant config.TargetScore
+                else
+                    Renderer.waitForKey ()

@@ -26,32 +26,39 @@ let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
 // Helper: a unit-coefficient Pauli string, e.g. term [| 'X'; 'I' |] = X₀.
 let term (ops: char[]) coeff : TrotterSuzuki.PauliString =
-    { Operators = ops; Coefficient = Complex(coeff, 0.0) }
+    {
+        Operators = ops
+        Coefficient = Complex(coeff, 0.0)
+    }
 
 // H = X₀ + X₁ + ½ Z₀Z₁
-let hamiltonian : TrotterSuzuki.PauliHamiltonian =
-    { Terms =
-        [ term [| 'X'; 'I' |] 1.0
-          term [| 'I'; 'X' |] 1.0
-          term [| 'Z'; 'Z' |] 0.5 ]
-      NumQubits = 2 }
+let hamiltonian: TrotterSuzuki.PauliHamiltonian =
+    {
+        Terms = [ term [| 'X'; 'I' |] 1.0; term [| 'I'; 'X' |] 1.0; term [| 'Z'; 'Z' |] 0.5 ]
+        NumQubits = 2
+    }
 
 // Operator pool: single-qubit Y rotations plus a two-qubit entangler.
 let pool =
-    [ term [| 'Y'; 'I' |] 1.0
-      term [| 'I'; 'Y' |] 1.0
-      term [| 'Y'; 'X' |] 1.0
-      term [| 'X'; 'Y' |] 1.0 ]
+    [
+        term [| 'Y'; 'I' |] 1.0
+        term [| 'I'; 'Y' |] 1.0
+        term [| 'Y'; 'X' |] 1.0
+        term [| 'X'; 'Y' |] 1.0
+    ]
 
 printfn "ADAPT-VQE — H = X₀ + X₁ + ½ Z₀Z₁ (2 qubits)\n"
 
 match AdaptVqe.run backend hamiltonian pool 2 AdaptVqe.defaultConfig with
-| Error e -> eprintfn "ADAPT-VQE failed: %s" e.Message; exit 1
+| Error e ->
+    eprintfn "ADAPT-VQE failed: %s" e.Message
+    exit 1
 | Ok result ->
     printfn "Converged        : %b" result.Converged
     printfn "Operators added  : %d" result.SelectedOperators.Length
+
     result.SelectedOperators
     |> List.iteri (fun i op -> printfn "  #%d : %s" (i + 1) (System.String op.Operators))
+
     printfn "Ground energy    : %.6f" result.Energy
-    printfn "\nEnergy per step  : %s"
-        (result.EnergyHistory |> List.map (sprintf "%.4f") |> String.concat "  →  ")
+    printfn "\nEnergy per step  : %s" (result.EnergyHistory |> List.map (sprintf "%.4f") |> String.concat "  →  ")

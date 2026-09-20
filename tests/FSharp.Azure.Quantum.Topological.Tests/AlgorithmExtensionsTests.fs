@@ -8,32 +8,30 @@ open FSharp.Azure.Quantum.Topological
 open System.Numerics
 
 /// Tests for AlgorithmExtensions - Topological backend integration
-/// 
+///
 /// Verifies that *WithTopology functions provide convenient access to
 /// topological backends for basic integration testing.
-/// 
+///
 /// NOTE: Full Grover search generates gates beyond current GateToBraid support.
 /// These tests verify the integration architecture works correctly.
 module AlgorithmExtensionsTests =
-    
+
     [<Fact(Skip = "Shor on 30 Ising anyons compiles hundreds of gates through Solovay-Kitaev; >10 min")>]
     let ``AlgorithmExtensions - factorWithTopology accepts topological backend`` () =
         // Arrange
         // Factoring 15 needs 8 precision + 4 target qubits = 12 qubits
         // Ising anyons: 2n + 2 anyons -> 2*12 + 2 = 26 anyons
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 30
-        
+
         // Act
         // Use 15 as standard test case
         let result = AlgorithmExtensions.factorWithTopology 15 topoBackend None
-        
+
         // Assert
         match result with
         | Ok _ -> Assert.True(true)
-        | Error (QuantumError.OperationError (name, _)) ->
-            Assert.Equal("TopologicalBackend", name)
-        | Error err ->
-            Assert.True(false, $"Unexpected error: {err}")
+        | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+        | Error err -> Assert.True(false, $"Unexpected error: {err}")
 
     [<Fact>]
     let ``AlgorithmExtensions - solveLinearSystemTopology accepts topological backend`` () =
@@ -41,28 +39,27 @@ module AlgorithmExtensionsTests =
         // HHL: 1 qubit for eigenvalue (simple test) + 1 qubit for solution + 1 ancilla = 3 qubits
         // Ising anyons: 2n + 2 anyons -> 2*3 + 2 = 8 anyons
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
-        
+
         // Setup simple 2x2 identity system: I * x = b
         // x should equal b
         let vector = [| Complex.One; Complex.Zero |]
         let matrixRes = HHLTypes.createDiagonalMatrix [| 1.0; 1.0 |]
         let vectorRes = HHLTypes.createQuantumVector vector
-        
+
         match matrixRes, vectorRes with
         | Ok matrix, Ok qVector ->
             // Act
-            let result = AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
-            
+            let result =
+                AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
+
             // Assert
             match result with
             | Ok _ -> Assert.True(true)
-            | Error (QuantumError.OperationError (name, _)) ->
-                Assert.Equal("TopologicalBackend", name)
-            | Error (QuantumError.NotImplemented _) ->
+            | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+            | Error(QuantumError.NotImplemented _) ->
                 // Expected: GateBased-to-TopologicalBraiding conversion is not implemented in Core
                 Assert.True(true)
-            | Error err ->
-                Assert.True(false, $"Unexpected error: {err}")
+            | Error err -> Assert.True(false, $"Unexpected error: {err}")
         | _ -> Assert.True(false, "Failed to create HHL test data")
 
     [<Fact>]
@@ -70,35 +67,30 @@ module AlgorithmExtensionsTests =
         // Arrange: Create backend
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
         let config = Grover.defaultConfig
-        
+
         // Act: Try to search with empty target list
         let result = AlgorithmExtensions.searchMultipleWithTopology [] 4 topoBackend config
-        
+
         // Assert: Should fail with validation error
         match result with
-        | Ok _ ->
-            Assert.True(false, "Should reject empty target list")
-        | Error (QuantumError.ValidationError (param, _)) ->
-            Assert.Equal("Targets", param)
-        | Error err ->
-            Assert.True(false, $"Wrong error type: {err}")
-    
+        | Ok _ -> Assert.True(false, "Should reject empty target list")
+        | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Targets", param)
+        | Error err -> Assert.True(false, $"Wrong error type: {err}")
+
     [<Fact>]
     let ``AlgorithmExtensions - Empty target list rejected for Fibonacci`` () =
         // Fibonacci variant should also reject empty target lists
         let topoBackend = TopologicalUnifiedBackendFactory.createFibonacci 8
         let config = Grover.defaultConfig
-        
-        let result = AlgorithmExtensions.searchMultipleWithTopologyFibonacci [] 4 topoBackend config
-        
+
+        let result =
+            AlgorithmExtensions.searchMultipleWithTopologyFibonacci [] 4 topoBackend config
+
         match result with
-        | Ok _ ->
-            Assert.True(false, "Should reject empty target list")
-        | Error (QuantumError.ValidationError (param, _)) ->
-            Assert.Equal("Targets", param)
-        | Error err ->
-            Assert.True(false, $"Wrong error type: {err}")
-    
+        | Ok _ -> Assert.True(false, "Should reject empty target list")
+        | Error(QuantumError.ValidationError(param, _)) -> Assert.Equal("Targets", param)
+        | Error err -> Assert.True(false, $"Wrong error type: {err}")
+
     [<Fact>]
     let ``AlgorithmExtensions - searchWithTopologyFibonacci accepts Fibonacci backend`` () =
         // Verify that the Fibonacci Grover search function compiles and accepts
@@ -106,67 +98,76 @@ module AlgorithmExtensionsTests =
         // limits, but the API should be valid.
         let topoBackend = TopologicalUnifiedBackendFactory.createFibonacci 8
         let config = { Grover.defaultConfig with Shots = 10 }
-        
+
         match Oracle.forValue 1 3 with
         | Ok oracle ->
-            let result = AlgorithmExtensions.searchWithTopologyFibonacci oracle topoBackend config
-            result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun _ -> Assert.True(true))  // Backend execution error is acceptable
-        | Error err ->
-            Assert.True(false, $"Oracle creation failed: {err}")
-    
+            let result =
+                AlgorithmExtensions.searchWithTopologyFibonacci oracle topoBackend config
+
+            result
+            |> Result.map (fun _ -> Assert.True(true))
+            |> Result.defaultWith (fun _ -> Assert.True(true)) // Backend execution error is acceptable
+        | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
+
     [<Fact>]
     let ``AlgorithmExtensions - searchSingleWithTopologyFibonacci creates oracle and delegates`` () =
         let topoBackend = TopologicalUnifiedBackendFactory.createFibonacci 8
         let config = { Grover.defaultConfig with Shots = 10 }
-        
+
         // searchSingleWithTopologyFibonacci should create the oracle internally
-        let result = AlgorithmExtensions.searchSingleWithTopologyFibonacci 1 3 topoBackend config
-        result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun _ -> Assert.True(true))  // Backend error is acceptable
-    
+        let result =
+            AlgorithmExtensions.searchSingleWithTopologyFibonacci 1 3 topoBackend config
+
+        result
+        |> Result.map (fun _ -> Assert.True(true))
+        |> Result.defaultWith (fun _ -> Assert.True(true)) // Backend error is acceptable
+
     [<Fact>]
     let ``AlgorithmExtensions - searchWithPredicateTopologyFibonacci accepts predicate`` () =
         let topoBackend = TopologicalUnifiedBackendFactory.createFibonacci 8
         let config = { Grover.defaultConfig with Shots = 10 }
-        
+
         let isEven n = n % 2 = 0
-        let result = AlgorithmExtensions.searchWithPredicateTopologyFibonacci isEven 3 topoBackend config
-        result |> Result.map (fun _ -> Assert.True(true)) |> Result.defaultWith (fun _ -> Assert.True(true))  // Backend error is acceptable
-    
+
+        let result =
+            AlgorithmExtensions.searchWithPredicateTopologyFibonacci isEven 3 topoBackend config
+
+        result
+        |> Result.map (fun _ -> Assert.True(true))
+        |> Result.defaultWith (fun _ -> Assert.True(true)) // Backend error is acceptable
+
     [<Fact>]
     let ``AlgorithmExtensions - Adapter respects qubit count limits`` () =
         // Arrange: Create backend with strict qubit limit
         // 5 anyons is enough for 2 qubits (Ising needs 2n+2 generally, or specific fusion tree size)
         // 5 anyons < (3 qubits * 2 + 2) = 8 anyons
-        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 5  
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 5
         let config = { Grover.defaultConfig with Shots = 10 }
-        
+
         // Act: Try to create circuit requiring 3 qubits (which exceeds 5 anyon limit)
         let result = AlgorithmExtensions.searchSingleWithTopology 1 3 topoBackend config
-        
+
         // Assert: Should fail with validation or backend error
         match result with
-        | Ok _ ->
-            Assert.True(false, "Should reject circuit exceeding anyon limit")
+        | Ok _ -> Assert.True(false, "Should reject circuit exceeding anyon limit")
         | Error _ ->
             // Expected: validation or execution failure
             Assert.True(true)
-    
+
     [<Fact>]
     let ``AlgorithmExtensions - qftWithTopology accepts topological backend`` () =
         // Arrange
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
         let config = QFT.defaultConfig
-        
+
         // Act
         let result = AlgorithmExtensions.qftWithTopology 3 topoBackend config
-        
+
         // Assert
         match result with
         | Ok _ -> Assert.True(true)
-        | Error (QuantumError.OperationError (name, _)) ->
-            Assert.Equal("TopologicalBackend", name)
-        | Error err ->
-            Assert.True(false, $"Unexpected error: {err}")
+        | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+        | Error err -> Assert.True(false, $"Unexpected error: {err}")
 
     // ========================================================================
     // HHL ON TOPOLOGICAL BACKEND
@@ -193,23 +194,27 @@ module AlgorithmExtensionsTests =
 
         match matrixRes, vectorRes with
         | Ok matrix, Ok qVector ->
-            let result = AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
+            let result =
+                AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
 
             match result with
             | Ok hhlResult ->
                 Assert.Equal(2, hhlResult.Solution.Length)
-                Assert.True(hhlResult.Solution.[0].Magnitude > 1e-6,
-                    $"Expected non-zero first component, got %A{hhlResult.Solution}")
+
+                Assert.True(
+                    hhlResult.Solution.[0].Magnitude > 1e-6,
+                    $"Expected non-zero first component, got %A{hhlResult.Solution}"
+                )
                 // b has no overlap with the second eigenvector, so x_1 = 0
-                Assert.True(hhlResult.Solution.[1].Magnitude < 1e-6,
-                    $"Expected zero second component, got %A{hhlResult.Solution}")
-            | Error (QuantumError.NotImplemented _) ->
+                Assert.True(
+                    hhlResult.Solution.[1].Magnitude < 1e-6,
+                    $"Expected zero second component, got %A{hhlResult.Solution}"
+                )
+            | Error(QuantumError.NotImplemented _) ->
                 // Acceptable: conversion pipeline may change in future refactors
                 ()
-            | Error (QuantumError.OperationError (name, _)) ->
-                Assert.Equal("TopologicalBackend", name)
-            | Error err ->
-                Assert.Fail($"Unexpected error: {err}")
+            | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+            | Error err -> Assert.Fail($"Unexpected error: {err}")
         | _ -> Assert.Fail("Failed to create HHL test data")
 
     [<Fact>]
@@ -221,21 +226,22 @@ module AlgorithmExtensionsTests =
 
         match matrixRes, vectorRes with
         | Ok matrix, Ok qVector ->
-            let result = AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
+            let result =
+                AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
 
             match result with
             | Ok hhlResult ->
                 // With the exact RY intercept the ancilla rotation is applied
                 // faithfully, so post-selection on ancilla |1⟩ succeeds.
-                Assert.True(hhlResult.SuccessProbability > 0.0,
-                    $"Expected positive success probability, got {hhlResult.SuccessProbability}")
-                Assert.True(hhlResult.PostSelectionSuccess,
-                    "Post-selection should succeed for Ising diagonal HHL")
-            | Error (QuantumError.NotImplemented _) -> ()
-            | Error (QuantumError.OperationError (name, _)) ->
-                Assert.Equal("TopologicalBackend", name)
-            | Error err ->
-                Assert.Fail($"Unexpected error: {err}")
+                Assert.True(
+                    hhlResult.SuccessProbability > 0.0,
+                    $"Expected positive success probability, got {hhlResult.SuccessProbability}"
+                )
+
+                Assert.True(hhlResult.PostSelectionSuccess, "Post-selection should succeed for Ising diagonal HHL")
+            | Error(QuantumError.NotImplemented _) -> ()
+            | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+            | Error err -> Assert.Fail($"Unexpected error: {err}")
         | _ -> Assert.Fail("Failed to create HHL test data")
 
     [<Fact>]
@@ -247,7 +253,8 @@ module AlgorithmExtensionsTests =
 
         match matrixRes, vectorRes with
         | Ok matrix, Ok qVector ->
-            let result = AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
+            let result =
+                AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
 
             match result with
             | Ok hhlResult ->
@@ -256,11 +263,9 @@ module AlgorithmExtensionsTests =
                 Assert.Equal(2, hhlResult.EstimatedEigenvalues.Length)
                 Assert.Equal(2.0, hhlResult.EstimatedEigenvalues.[0])
                 Assert.Equal(3.0, hhlResult.EstimatedEigenvalues.[1])
-            | Error (QuantumError.NotImplemented _) -> ()
-            | Error (QuantumError.OperationError (name, _)) ->
-                Assert.Equal("TopologicalBackend", name)
-            | Error err ->
-                Assert.Fail($"Unexpected error: {err}")
+            | Error(QuantumError.NotImplemented _) -> ()
+            | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+            | Error err -> Assert.Fail($"Unexpected error: {err}")
         | _ -> Assert.Fail("Failed to create HHL test data")
 
     [<Fact>]
@@ -273,27 +278,36 @@ module AlgorithmExtensionsTests =
 
         match matrixRes, vectorRes with
         | Ok matrix, Ok qVector ->
-            let result = AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
+            let result =
+                AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
 
             match result with
             | Ok hhlResult ->
                 // With the exact RY intercept the solution is x = b (up to
                 // normalization): dominant first component, zero second.
                 Assert.Equal(2, hhlResult.Solution.Length)
-                Assert.True(hhlResult.Solution.[0].Magnitude > 1e-6,
-                    $"Expected non-zero first component, got %A{hhlResult.Solution}")
-                Assert.True(hhlResult.Solution.[1].Magnitude < 1e-6,
-                    $"Expected zero second component, got %A{hhlResult.Solution}")
-                Assert.True(hhlResult.SuccessProbability > 0.0,
-                    $"Expected positive success probability, got {hhlResult.SuccessProbability}")
+
+                Assert.True(
+                    hhlResult.Solution.[0].Magnitude > 1e-6,
+                    $"Expected non-zero first component, got %A{hhlResult.Solution}"
+                )
+
+                Assert.True(
+                    hhlResult.Solution.[1].Magnitude < 1e-6,
+                    $"Expected zero second component, got %A{hhlResult.Solution}"
+                )
+
+                Assert.True(
+                    hhlResult.SuccessProbability > 0.0,
+                    $"Expected positive success probability, got {hhlResult.SuccessProbability}"
+                )
+
                 Assert.Equal(2, hhlResult.EstimatedEigenvalues.Length)
                 Assert.Equal(1.0, hhlResult.EstimatedEigenvalues.[0])
                 Assert.Equal(1.0, hhlResult.EstimatedEigenvalues.[1])
-            | Error (QuantumError.NotImplemented _) -> ()
-            | Error (QuantumError.OperationError (name, _)) ->
-                Assert.Equal("TopologicalBackend", name)
-            | Error err ->
-                Assert.Fail($"Unexpected error: {err}")
+            | Error(QuantumError.NotImplemented _) -> ()
+            | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
+            | Error err -> Assert.Fail($"Unexpected error: {err}")
         | _ -> Assert.Fail("Failed to create HHL test data")
 
     // ========================================================================
@@ -324,13 +338,15 @@ module AlgorithmExtensionsTests =
 
         match Shor.estimateModExpPhase 2 3 1 topoBackend with
         | Ok result ->
-            Assert.True(result.EstimatedPhase >= 0.0 && result.EstimatedPhase < 1.0,
-                $"Phase {result.EstimatedPhase} out of range [0, 1)")
+            Assert.True(
+                result.EstimatedPhase >= 0.0 && result.EstimatedPhase < 1.0,
+                $"Phase {result.EstimatedPhase} out of range [0, 1)"
+            )
+
             Assert.Equal(1, result.CountingQubits)
             Assert.Equal(9, result.TotalQubits)
             Assert.Equal(1, result.ModularMultiplications)
-        | Error err ->
-            Assert.Fail($"estimateModExpPhase on Ising TopologicalBackend failed: {err}")
+        | Error err -> Assert.Fail($"estimateModExpPhase on Ising TopologicalBackend failed: {err}")
 
     [<Fact>]
     let ``estimateModExpPhase returns error for non-coprime inputs on TopologicalBackend`` () =
@@ -338,10 +354,8 @@ module AlgorithmExtensionsTests =
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 24
 
         match Shor.estimateModExpPhase 4 6 1 topoBackend with
-        | Error (QuantumError.ValidationError ("baseNum", msg)) ->
-            Assert.Contains("coprime", msg)
-        | other ->
-            Assert.Fail($"Expected coprime ValidationError, got: {other}")
+        | Error(QuantumError.ValidationError("baseNum", msg)) -> Assert.Contains("coprime", msg)
+        | other -> Assert.Fail($"Expected coprime ValidationError, got: {other}")
 
     [<Fact>]
     let ``estimateModExpPhase result fields are consistent on TopologicalBackend`` () =
@@ -351,12 +365,13 @@ module AlgorithmExtensionsTests =
 
         match Shor.estimateModExpPhase 2 3 1 topoBackend with
         | Ok result ->
-            let expectedPhase = float result.MeasurementOutcome / float (1 <<< result.CountingQubits)
+            let expectedPhase =
+                float result.MeasurementOutcome / float (1 <<< result.CountingQubits)
+
             Assert.Equal(expectedPhase, result.EstimatedPhase, 10)
             Assert.True(result.MeasurementOutcome >= 0)
             Assert.True(result.MeasurementOutcome < (1 <<< result.CountingQubits))
-        | Error err ->
-            Assert.Fail($"estimateModExpPhase on Ising TopologicalBackend failed: {err}")
+        | Error err -> Assert.Fail($"estimateModExpPhase on Ising TopologicalBackend failed: {err}")
 
     [<Fact>]
     let ``estimateModExpPhase validation works on TopologicalBackend`` () =
@@ -365,16 +380,15 @@ module AlgorithmExtensionsTests =
 
         // baseNum < 2
         match Shor.estimateModExpPhase 1 7 2 topoBackend with
-        | Error (QuantumError.ValidationError ("baseNum", _)) -> ()
+        | Error(QuantumError.ValidationError("baseNum", _)) -> ()
         | other -> Assert.Fail($"Expected ValidationError for baseNum, got: {other}")
 
         // modulus < 2
         match Shor.estimateModExpPhase 2 1 2 topoBackend with
-        | Error (QuantumError.ValidationError ("modulus", _)) -> ()
+        | Error(QuantumError.ValidationError("modulus", _)) -> ()
         | other -> Assert.Fail($"Expected ValidationError for modulus, got: {other}")
 
         // non-coprime
         match Shor.estimateModExpPhase 6 15 2 topoBackend with
-        | Error (QuantumError.ValidationError ("baseNum", msg)) ->
-            Assert.Contains("coprime", msg)
+        | Error(QuantumError.ValidationError("baseNum", msg)) -> Assert.Contains("coprime", msg)
         | other -> Assert.Fail($"Expected coprime ValidationError, got: {other}")

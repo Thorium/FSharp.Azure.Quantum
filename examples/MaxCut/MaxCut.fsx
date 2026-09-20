@@ -1,10 +1,10 @@
 ﻿/// MaxCut Example - Circuit Design Wire Minimization
-/// 
+///
 /// USE CASE: Partition circuit blocks to minimize wire crossings
-/// 
+///
 /// PROBLEM: Given a circuit design with interconnected blocks,
 /// partition them into two regions to minimize communication overhead.
-/// 
+///
 /// This is THE canonical QAOA problem - MaxCut is a fundamental
 /// graph partitioning problem with applications in:
 /// - VLSI circuit design (minimize wire crossings)
@@ -82,21 +82,33 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "MaxCut.fsx"
     "Solve Maximum Cut problems using quantum QAOA optimization."
-    [ { Cli.OptionSpec.Name = "example"
-        Description = "Example to run: circuit|helpers|social|triangle|k3|all"
-        Default = Some "all" }
-      { Cli.OptionSpec.Name = "input"
-        Description = "CSV file with graph edges (columns: source,target,weight)"
-        Default = None }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress printed output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "example"
+            Description = "Example to run: circuit|helpers|social|triangle|k3|all"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with graph edges (columns: source,target,weight)"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress printed output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -116,14 +128,16 @@ let resultRow
     (edgeCount: int)
     (solution: MaxCut.Solution)
     : Map<string, string> =
-    [ "example", example
-      "vertices", string vertices.Length
-      "edges", string edgeCount
-      "cut_value", $"%.1f{solution.CutValue}"
-      "cut_edges", string solution.CutEdges.Length
-      "partition_s", (solution.PartitionS |> String.concat ";")
-      "partition_t", (solution.PartitionT |> String.concat ";")
-      "backend", solution.BackendName ]
+    [
+        "example", example
+        "vertices", string vertices.Length
+        "edges", string edgeCount
+        "cut_value", $"%.1f{solution.CutValue}"
+        "cut_edges", string solution.CutEdges.Length
+        "partition_s", (solution.PartitionS |> String.concat ";")
+        "partition_t", (solution.PartitionT |> String.concat ";")
+        "backend", solution.BackendName
+    ]
     |> Map.ofList
 
 /// Solve a MaxCut problem and print results. Returns a result row on success.
@@ -140,18 +154,24 @@ let solveAndReport
             printfn "  Cut Value: %.1f" solution.CutValue
             printfn "  Cut Edges: %d" solution.CutEdges.Length
             printfn "  Backend: %s" solution.BackendName
+
             for edge in solution.CutEdges do
                 printfn "    %s <-> %s (weight: %.1f)" edge.Source edge.Target edge.Weight
+
             printfn ""
-        Some (resultRow example vertices problem.EdgeCount solution)
+
+        Some(resultRow example vertices problem.EdgeCount solution)
     | Error err ->
         if not quiet then
             printfn "  Failed: %s" err.Message
             printfn ""
+
         None
 
 let results = ResizeArray<Map<string, string>>()
-let shouldRun name = exampleName = "all" || exampleName = name
+
+let shouldRun name =
+    exampleName = "all" || exampleName = name
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 1: Small Circuit Design (4 blocks)
@@ -166,29 +186,32 @@ if shouldRun "circuit" then
         printfn "Example 1: Small Circuit with 4 Blocks"
         printfn "--------------------------------------"
 
-    let blocks = ["CPU"; "GPU"; "RAM"; "IO"]
+    let blocks = [ "CPU"; "GPU"; "RAM"; "IO" ]
 
-    let interconnects = [
-        ("CPU", "GPU", 5.0)
-        ("CPU", "RAM", 10.0)
-        ("CPU", "IO", 2.0)
-        ("GPU", "RAM", 7.0)
-        ("GPU", "IO", 1.0)
-        ("RAM", "IO", 3.0)
-    ]
+    let interconnects =
+        [
+            ("CPU", "GPU", 5.0)
+            ("CPU", "RAM", 10.0)
+            ("CPU", "IO", 2.0)
+            ("GPU", "RAM", 7.0)
+            ("GPU", "IO", 1.0)
+            ("RAM", "IO", 3.0)
+        ]
 
     let circuitProblem = MaxCut.createProblem blocks interconnects
 
     if not quiet then
         printfn "Circuit Blocks: %A" blocks
-        printfn "Interconnects: %d edges, total weight: %.1f"
+
+        printfn
+            "Interconnects: %d edges, total weight: %.1f"
             circuitProblem.EdgeCount
             (interconnects |> List.sumBy (fun (_, _, w) -> w))
+
         printfn ""
         printfn "Solving with quantum QAOA..."
 
-    solveAndReport "circuit" blocks circuitProblem
-    |> Option.iter results.Add
+    solveAndReport "circuit" blocks circuitProblem |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 2: Helper Functions - Common Graph Structures
@@ -200,38 +223,52 @@ if shouldRun "helpers" then
         printfn "----------------------------------------------"
 
     // Complete graph K4
-    if not quiet then printfn "Complete Graph (K4):"
-    let k4 = MaxCut.completeGraph ["A"; "B"; "C"; "D"] 1.0
+    if not quiet then
+        printfn "Complete Graph (K4):"
+
+    let k4 = MaxCut.completeGraph [ "A"; "B"; "C"; "D" ] 1.0
+
     if not quiet then
         printfn "  Vertices: %d, Edges: %d" k4.VertexCount k4.EdgeCount
-    solveAndReport "helpers_k4" ["A"; "B"; "C"; "D"] k4
-    |> Option.iter results.Add
+
+    solveAndReport "helpers_k4" [ "A"; "B"; "C"; "D" ] k4 |> Option.iter results.Add
 
     // Cycle graph C4
-    if not quiet then printfn "Cycle Graph (C4):"
-    let c4 = MaxCut.cycleGraph ["A"; "B"; "C"; "D"] 1.0
+    if not quiet then
+        printfn "Cycle Graph (C4):"
+
+    let c4 = MaxCut.cycleGraph [ "A"; "B"; "C"; "D" ] 1.0
+
     if not quiet then
         printfn "  Vertices: %d, Edges: %d" c4.VertexCount c4.EdgeCount
-    solveAndReport "helpers_c4" ["A"; "B"; "C"; "D"] c4
-    |> Option.iter results.Add
+
+    solveAndReport "helpers_c4" [ "A"; "B"; "C"; "D" ] c4 |> Option.iter results.Add
 
     // Star graph
-    if not quiet then printfn "Star Graph (1 center, 3 spokes):"
-    let star = MaxCut.starGraph "Hub" ["S1"; "S2"; "S3"] 1.0
+    if not quiet then
+        printfn "Star Graph (1 center, 3 spokes):"
+
+    let star = MaxCut.starGraph "Hub" [ "S1"; "S2"; "S3" ] 1.0
+
     if not quiet then
         printfn "  Vertices: %d, Edges: %d" star.VertexCount star.EdgeCount
-    solveAndReport "helpers_star" ["Hub"; "S1"; "S2"; "S3"] star
+
+    solveAndReport "helpers_star" [ "Hub"; "S1"; "S2"; "S3" ] star
     |> Option.iter results.Add
 
     // Grid graph 2x3
-    if not quiet then printfn "Grid Graph (2x3):"
+    if not quiet then
+        printfn "Grid Graph (2x3):"
+
     let grid = MaxCut.gridGraph 2 3 1.0
+
     if not quiet then
         printfn "  Vertices: %d, Edges: %d" grid.VertexCount grid.EdgeCount
     // Grid vertices are generated internally; use a placeholder list with the right count
-    let gridVertices = [ for i in 0 .. grid.VertexCount - 1 -> sprintf "(%d,%d)" (i / 3) (i % 3) ]
-    solveAndReport "helpers_grid" gridVertices grid
-    |> Option.iter results.Add
+    let gridVertices =
+        [ for i in 0 .. grid.VertexCount - 1 -> sprintf "(%d,%d)" (i / 3) (i % 3) ]
+
+    solveAndReport "helpers_grid" gridVertices grid |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 3: Social Network Community Detection
@@ -242,27 +279,26 @@ if shouldRun "social" then
         printfn "Example 3: Social Network Community Detection"
         printfn "---------------------------------------------"
 
-    let people = ["Alice"; "Bob"; "Charlie"; "David"; "Eve"; "Frank"]
+    let people = [ "Alice"; "Bob"; "Charlie"; "David"; "Eve"; "Frank" ]
 
-    let socialNetwork = [
-        ("Alice", "Bob", 5.0)
-        ("Alice", "Charlie", 3.0)
-        ("Bob", "Charlie", 4.0)
-        ("David", "Eve", 6.0)
-        ("David", "Frank", 5.0)
-        ("Eve", "Frank", 4.0)
-        ("Charlie", "David", 1.0)
-    ]
+    let socialNetwork =
+        [
+            ("Alice", "Bob", 5.0)
+            ("Alice", "Charlie", 3.0)
+            ("Bob", "Charlie", 4.0)
+            ("David", "Eve", 6.0)
+            ("David", "Frank", 5.0)
+            ("Eve", "Frank", 4.0)
+            ("Charlie", "David", 1.0)
+        ]
 
     let networkProblem = MaxCut.createProblem people socialNetwork
 
     if not quiet then
-        printfn "Social Network: %d people, %d connections"
-            networkProblem.VertexCount networkProblem.EdgeCount
+        printfn "Social Network: %d people, %d connections" networkProblem.VertexCount networkProblem.EdgeCount
         printfn ""
 
-    solveAndReport "social" people networkProblem
-    |> Option.iter results.Add
+    solveAndReport "social" people networkProblem |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 4: Simple Triangle Graph
@@ -273,12 +309,11 @@ if shouldRun "triangle" then
         printfn "Example 4: Simple Triangle Graph"
         printfn "---------------------------------"
 
-    let vertices = ["X"; "Y"; "Z"]
-    let edges = [("X", "Y", 2.0); ("Y", "Z", 3.0); ("Z", "X", 1.0)]
+    let vertices = [ "X"; "Y"; "Z" ]
+    let edges = [ ("X", "Y", 2.0); ("Y", "Z", 3.0); ("Z", "X", 1.0) ]
     let triangleProblem = MaxCut.createProblem vertices edges
 
-    solveAndReport "triangle" vertices triangleProblem
-    |> Option.iter results.Add
+    solveAndReport "triangle" vertices triangleProblem |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 5: Complete Graph K3
@@ -289,14 +324,13 @@ if shouldRun "k3" then
         printfn "Example 5: Complete Graph K3"
         printfn "-----------------------------"
 
-    let k3 = MaxCut.completeGraph ["A"; "B"; "C"] 1.0
+    let k3 = MaxCut.completeGraph [ "A"; "B"; "C" ] 1.0
 
     if not quiet then
         printfn "  Complete graph K3: 3 vertices, 3 edges (all connected)"
         printfn "  For K3, optimal MaxCut = 2 (any 2 edges can be cut)"
 
-    solveAndReport "k3" ["A"; "B"; "C"] k3
-    |> Option.iter results.Add
+    solveAndReport "k3" [ "A"; "B"; "C" ] k3 |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // Custom graph from CSV input
@@ -315,8 +349,10 @@ match inputPath with
     let vertices =
         rows
         |> List.collect (fun r ->
-            [ r.Values |> Map.tryFind "source" |> Option.defaultValue ""
-              r.Values |> Map.tryFind "target" |> Option.defaultValue "" ])
+            [
+                r.Values |> Map.tryFind "source" |> Option.defaultValue ""
+                r.Values |> Map.tryFind "target" |> Option.defaultValue ""
+            ])
         |> List.filter (fun s -> s <> "")
         |> List.distinct
 
@@ -333,15 +369,15 @@ match inputPath with
                         | true, d -> Some d
                         | _ -> None)
                     |> Option.defaultValue 1.0
-                Some (s, t, w)
+
+                Some(s, t, w)
             | _ -> None)
 
     if not quiet then
         printfn "  Loaded %d vertices, %d edges" vertices.Length edges.Length
 
     let customProblem = MaxCut.createProblem vertices edges
-    solveAndReport "custom" vertices customProblem
-    |> Option.iter results.Add
+    solveAndReport "custom" vertices customProblem |> Option.iter results.Add
 
 | None -> ()
 
@@ -357,11 +393,22 @@ match outputPath with
 
 match csvPath with
 | Some p ->
-    let header = ["example"; "vertices"; "edges"; "cut_value"; "cut_edges"; "partition_s"; "partition_t"; "backend"]
+    let header =
+        [
+            "example"
+            "vertices"
+            "edges"
+            "cut_value"
+            "cut_edges"
+            "partition_s"
+            "partition_t"
+            "backend"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv p header rows
 | None -> ()
 

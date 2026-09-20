@@ -47,18 +47,19 @@ module OpenQasmVersion =
 
     /// Version-specific configuration record.
     /// All version-dependent export/import behavior is driven by this record.
-    type QasmConfig = {
-        /// The OpenQASM version
-        Version: QasmVersion
-        /// Version string for the header (e.g., "2.0", "3.0")
-        VersionString: string
-        /// Include file name (e.g., "qelib1.inc", "stdgates.inc")
-        IncludeFile: string
-        /// Register declaration style
-        RegisterStyle: RegisterStyle
-        /// Measurement syntax style
-        MeasureStyle: MeasureStyle
-    }
+    type QasmConfig =
+        {
+            /// The OpenQASM version
+            Version: QasmVersion
+            /// Version string for the header (e.g., "2.0", "3.0")
+            VersionString: string
+            /// Include file name (e.g., "qelib1.inc", "stdgates.inc")
+            IncludeFile: string
+            /// Register declaration style
+            RegisterStyle: RegisterStyle
+            /// Measurement syntax style
+            MeasureStyle: MeasureStyle
+        }
 
     // ========================================================================
     // VERSION CONFIGURATION CONSTRUCTORS
@@ -72,23 +73,29 @@ module OpenQasmVersion =
     let configFor (version: QasmVersion) : QasmConfig =
         match version with
         | V1_0 ->
-            { Version = V1_0
-              VersionString = "1.0"
-              IncludeFile = "qelib1.inc"
-              RegisterStyle = QregCreg
-              MeasureStyle = ArrowSyntax }
+            {
+                Version = V1_0
+                VersionString = "1.0"
+                IncludeFile = "qelib1.inc"
+                RegisterStyle = QregCreg
+                MeasureStyle = ArrowSyntax
+            }
         | V2_0 ->
-            { Version = V2_0
-              VersionString = "2.0"
-              IncludeFile = "qelib1.inc"
-              RegisterStyle = QregCreg
-              MeasureStyle = ArrowSyntax }
+            {
+                Version = V2_0
+                VersionString = "2.0"
+                IncludeFile = "qelib1.inc"
+                RegisterStyle = QregCreg
+                MeasureStyle = ArrowSyntax
+            }
         | V3_0 ->
-            { Version = V3_0
-              VersionString = "3.0"
-              IncludeFile = "stdgates.inc"
-              RegisterStyle = QubitBit
-              MeasureStyle = AssignmentSyntax }
+            {
+                Version = V3_0
+                VersionString = "3.0"
+                IncludeFile = "stdgates.inc"
+                RegisterStyle = QubitBit
+                MeasureStyle = AssignmentSyntax
+            }
 
     // ========================================================================
     // VERSION DETECTION
@@ -102,11 +109,13 @@ module OpenQasmVersion =
     /// Returns Ok with detected version, or Error with message for unsupported versions.
     let detectVersion (qasm: string) : Result<QasmVersion, string> =
         let m = versionHeaderPattern.Match qasm
+
         if not m.Success then
             Error "Missing OPENQASM version declaration"
         else
             let major = m.Groups.[1].Value
             let minor = m.Groups.[2].Value
+
             match major, minor with
             | "1", "0" -> Ok V1_0
             | "2", "0" -> Ok V2_0
@@ -118,7 +127,8 @@ module OpenQasmVersion =
         match versionStr with
         | "1.0" -> Ok V1_0
         | "2.0" -> Ok V2_0
-        | "3.0" | "3" -> Ok V3_0
+        | "3.0"
+        | "3" -> Ok V3_0
         | _ -> Error $"Unsupported OpenQASM version {versionStr} (supported: 1.0, 2.0, 3.0)"
 
     // ========================================================================
@@ -126,12 +136,10 @@ module OpenQasmVersion =
     // ========================================================================
 
     /// Generate the OpenQASM header line for a version.
-    let headerLine (config: QasmConfig) : string =
-        $"OPENQASM {config.VersionString};"
+    let headerLine (config: QasmConfig) : string = $"OPENQASM {config.VersionString};"
 
     /// Generate the include line for a version.
-    let includeLine (config: QasmConfig) : string =
-        $"include \"{config.IncludeFile}\";"
+    let includeLine (config: QasmConfig) : string = $"include \"{config.IncludeFile}\";"
 
     /// Generate the qubit register declaration for a version.
     let qubitRegisterDecl (config: QasmConfig) (qubitCount: int) : string =

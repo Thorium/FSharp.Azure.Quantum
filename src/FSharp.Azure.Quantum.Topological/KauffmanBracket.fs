@@ -48,7 +48,7 @@ module KauffmanBracket =
     type Crossing =
         /// Positive crossing (+1 contribution to writhe)
         | Positive
-        /// Negative crossing (-1 contribution to writhe)  
+        /// Negative crossing (-1 contribution to writhe)
         | Negative
 
     /// <summary>
@@ -69,7 +69,11 @@ module KauffmanBracket =
 
     /// Position at a crossing (NW, NE, SW, SE in standard orientation)
     [<Struct>]
-    type CrossingPosition = NW | NE | SW | SE
+    type CrossingPosition =
+        | NW
+        | NE
+        | SW
+        | SE
 
     /// Arc endpoint - where an arc connects to
     [<Struct>]
@@ -79,24 +83,22 @@ module KauffmanBracket =
 
     /// Directed arc in a planar diagram
     [<Struct>]
-    type Arc = {
-        Id: int
-        Start: ArcEnd
-        End: ArcEnd
-    }
+    type Arc = { Id: int; Start: ArcEnd; End: ArcEnd }
 
     /// Crossing in a planar diagram with full connectivity
-    type PlanarCrossing = {
-        Id: int
-        Sign: Crossing
-        Connections: Map<CrossingPosition, int>  // position -> arc ID
-    }
+    type PlanarCrossing =
+        {
+            Id: int
+            Sign: Crossing
+            Connections: Map<CrossingPosition, int> // position -> arc ID
+        }
 
     /// Complete planar diagram with explicit arc-crossing connectivity
-    type PlanarDiagram = {
-        Crossings: Map<int, PlanarCrossing>
-        Arcs: Map<int, Arc>
-    }
+    type PlanarDiagram =
+        {
+            Crossings: Map<int, PlanarCrossing>
+            Arcs: Map<int, Arc>
+        }
 
     // ========================================
     // Core Kauffman Bracket Functions
@@ -106,8 +108,7 @@ module KauffmanBracket =
     /// The loop value d = -A^2 - A^(-2).
     /// Each simple loop contributes a factor of d.
     /// </summary>
-    let loopValue (a: Complex) : Complex =
-        -(a * a) - (Complex.One / (a * a))
+    let loopValue (a: Complex) : Complex = -(a * a) - (Complex.One / (a * a))
 
     // ========================================
     // Simplified Implementation (Crossing List)
@@ -192,25 +193,23 @@ module KauffmanBracket =
     // `KnotConstructors.figureEight`, `KnotConstructors.hopfLink`.
 
     /// Create unknot (simple loop, no crossings)
-    let unknot : KnotDiagram = []
+    let unknot: KnotDiagram = []
 
     /// Crossing-sign list of the standard trefoil diagram (3 crossings, writhe ±3).
     /// ⚠ Signs only — for the trefoil's actual invariants use `KnotConstructors.trefoil`.
     let trefoil (rightHanded: bool) : KnotDiagram =
         if rightHanded then
-            [Positive; Positive; Positive]
+            [ Positive; Positive; Positive ]
         else
-            [Negative; Negative; Negative]
+            [ Negative; Negative; Negative ]
 
     /// Crossing-sign list of the standard figure-eight diagram (4 crossings, writhe 0).
     /// ⚠ Signs only — for the figure-eight's actual invariants use `KnotConstructors.figureEight`.
-    let figureEight : KnotDiagram =
-        [Positive; Negative; Positive; Negative]
+    let figureEight: KnotDiagram = [ Positive; Negative; Positive; Negative ]
 
     /// Crossing-sign list of the positive Hopf link diagram (2 crossings, writhe +2).
     /// ⚠ Signs only — for the Hopf link's actual invariants use `KnotConstructors.hopfLink`.
-    let hopfLink : KnotDiagram =
-        [Positive; Positive]
+    let hopfLink: KnotDiagram = [ Positive; Positive ]
 
     // ========================================
     // Standard TQFT Values (simplified model — same curl-only caveat as above)
@@ -237,9 +236,9 @@ module KauffmanBracket =
     // ========================================
 
     module Planar =
-        
+
         /// Create empty planar diagram (unknot)
-        let emptyDiagram : PlanarDiagram =
+        let emptyDiagram: PlanarDiagram =
             {
                 Crossings = Map.empty
                 Arcs = Map.empty
@@ -257,10 +256,10 @@ module KauffmanBracket =
         /// Count connected components by following continuous strands through crossings
         let countComponents (diagram: PlanarDiagram) : int =
             if Map.isEmpty diagram.Arcs then
-                1  // Empty diagram = unknot = 1 component
+                1 // Empty diagram = unknot = 1 component
             else
                 let visited = HashSet<int>()
-                
+
                 // Get the arc that continues the strand at a crossing
                 // At a crossing, arcs pair up as continuous strands:
                 // Positive crossing: (NW,SE) over, (NE,SW) under
@@ -273,17 +272,17 @@ module KauffmanBracket =
                         match crossing.Sign with
                         | Positive ->
                             match position with
-                            | NW -> Map.tryFind SE crossing.Connections  // Over-strand: NW ↔ SE
+                            | NW -> Map.tryFind SE crossing.Connections // Over-strand: NW ↔ SE
                             | SE -> Map.tryFind NW crossing.Connections
-                            | NE -> Map.tryFind SW crossing.Connections  // Under-strand: NE ↔ SW
+                            | NE -> Map.tryFind SW crossing.Connections // Under-strand: NE ↔ SW
                             | SW -> Map.tryFind NE crossing.Connections
                         | Negative ->
                             match position with
-                            | NE -> Map.tryFind SW crossing.Connections  // Over-strand: NE ↔ SW
+                            | NE -> Map.tryFind SW crossing.Connections // Over-strand: NE ↔ SW
                             | SW -> Map.tryFind NE crossing.Connections
-                            | NW -> Map.tryFind SE crossing.Connections  // Under-strand: NW ↔ SE
+                            | NW -> Map.tryFind SE crossing.Connections // Under-strand: NW ↔ SE
                             | SE -> Map.tryFind NW crossing.Connections
-                
+
                 // Get arcs that continue the same strand at each endpoint
                 let getConnectedArcs (arcId: int) : int list =
                     match Map.tryFind arcId diagram.Arcs with
@@ -291,34 +290,36 @@ module KauffmanBracket =
                     | Some arc ->
                         let arcAtStart =
                             match arc.Start with
-                            | AtCrossing (crossingId, pos) ->
+                            | AtCrossing(crossingId, pos) ->
                                 match getStrandContinuation arcId crossingId pos with
-                                | Some aid when aid <> arcId -> [aid]
+                                | Some aid when aid <> arcId -> [ aid ]
                                 | _ -> []
                             | FreeEnd _ -> []
-                        
+
                         let arcAtEnd =
                             match arc.End with
-                            | AtCrossing (crossingId, pos) ->
+                            | AtCrossing(crossingId, pos) ->
                                 match getStrandContinuation arcId crossingId pos with
-                                | Some aid when aid <> arcId -> [aid]
+                                | Some aid when aid <> arcId -> [ aid ]
                                 | _ -> []
                             | FreeEnd _ -> []
-                        
+
                         arcAtStart @ arcAtEnd
-                
+
                 let rec traceComponent (arcId: int) =
                     if visited.Add arcId then
                         let connected = getConnectedArcs arcId
                         connected |> List.iter traceComponent
-                
+
                 diagram.Arcs.Keys
-                |> Seq.fold (fun count arcId ->
-                    if not (visited.Contains arcId) then
-                        traceComponent arcId
-                        count + 1
-                    else
-                        count) 0
+                |> Seq.fold
+                    (fun count arcId ->
+                        if not (visited.Contains arcId) then
+                            traceComponent arcId
+                            count + 1
+                        else
+                            count)
+                    0
 
         /// Resolve a crossing by applying the skein relation (with full arc reconnection).
         ///
@@ -346,170 +347,209 @@ module KauffmanBracket =
             | None -> (diagram, diagram)
             | Some crossing ->
 
-            // Build one smoothed diagram for the given junction pairs.
-            let smooth (pairs: (CrossingPosition * CrossingPosition) list) : PlanarDiagram =
-                let remainingCrossings = Map.remove crossingId diagram.Crossings
+                // Build one smoothed diagram for the given junction pairs.
+                let smooth (pairs: (CrossingPosition * CrossingPosition) list) : PlanarDiagram =
+                    let remainingCrossings = Map.remove crossingId diagram.Crossings
 
-                // The junction partner of a position under this smoothing.
-                let partner (pos: CrossingPosition) : CrossingPosition =
-                    pairs
-                    |> List.pick (fun (a, b) ->
-                        if a = pos then Some b
-                        elif b = pos then Some a
-                        else None)
+                    // The junction partner of a position under this smoothing.
+                    let partner (pos: CrossingPosition) : CrossingPosition =
+                        pairs
+                        |> List.pick (fun (a, b) ->
+                            if a = pos then Some b
+                            elif b = pos then Some a
+                            else None)
 
-                // The arc occupying a given position, and the endpoint reached by
-                // traversing that arc AWAY from this position (position-aware:
-                // an arc may have both endpoints on this crossing).
-                let farEndOf (pos: CrossingPosition) : int * ArcEnd =
-                    let arcId = crossing.Connections.[pos]
-                    let arc = diagram.Arcs.[arcId]
-                    let isHere (e: ArcEnd) =
-                        match e with
-                        | AtCrossing (cid, p) -> cid = crossingId && p = pos
-                        | FreeEnd _ -> false
-                    if isHere arc.Start then (arcId, arc.End)
-                    elif isHere arc.End then (arcId, arc.Start)
-                    else
-                        // Defensive fallback for diagrams whose endpoint metadata is
-                        // inconsistent with the crossing's connection map: prefer
-                        // the end that is not at this crossing.
-                        match arc.Start with
-                        | AtCrossing (cid, _) when cid = crossingId -> (arcId, arc.End)
-                        | _ -> (arcId, arc.Start)
+                    // The arc occupying a given position, and the endpoint reached by
+                    // traversing that arc AWAY from this position (position-aware:
+                    // an arc may have both endpoints on this crossing).
+                    let farEndOf (pos: CrossingPosition) : int * ArcEnd =
+                        let arcId = crossing.Connections.[pos]
+                        let arc = diagram.Arcs.[arcId]
 
-                let mutable visited : Set<CrossingPosition> = Set.empty
-                let mutable nextId =
-                    if Map.isEmpty diagram.Arcs then 0
-                    else (diagram.Arcs.Keys |> Seq.max) + 1
-                let mutable newArcs : Arc list = []
-                let mutable oldToNew : Map<int, int> = Map.empty
-                let mutable consumedArcs : Set<int> = Set.empty
+                        let isHere (e: ArcEnd) =
+                            match e with
+                            | AtCrossing(cid, p) -> cid = crossingId && p = pos
+                            | FreeEnd _ -> false
 
-                // Walk away from `pos` through its arc, hopping across further
-                // junctions of THIS crossing, until reaching an endpoint away from
-                // this crossing (Some ext) or closing onto an already-visited
-                // junction (None = the strand is a closed loop).
-                let rec walkFrom (pos: CrossingPosition) (acc: int list) : ArcEnd option * int list =
-                    visited <- Set.add pos visited
-                    let (arcId, far) = farEndOf pos
-                    let acc = arcId :: acc
-                    match far with
-                    | AtCrossing (cid, p) when cid = crossingId ->
-                        visited <- Set.add p visited
-                        let p2 = partner p
-                        if visited.Contains p2 then (None, acc)   // strand closed into a loop
-                        else walkFrom p2 acc
-                    | ext -> (Some ext, acc)
+                        if isHere arc.Start then
+                            (arcId, arc.End)
+                        elif isHere arc.End then
+                            (arcId, arc.Start)
+                        else
+                            // Defensive fallback for diagrams whose endpoint metadata is
+                            // inconsistent with the crossing's connection map: prefer
+                            // the end that is not at this crossing.
+                            match arc.Start with
+                            | AtCrossing(cid, _) when cid = crossingId -> (arcId, arc.End)
+                            | _ -> (arcId, arc.Start)
 
-                let registerStrand (endpoints: (ArcEnd * ArcEnd) option) (arcIds: int list) =
-                    let newArc =
-                        match endpoints with
-                        | Some (e1, e2) -> { Id = nextId; Start = e1; End = e2 }
-                        | None -> { Id = nextId; Start = FreeEnd 0; End = FreeEnd 0 }  // standalone loop
-                    newArcs <- newArc :: newArcs
-                    for a in arcIds do
-                        oldToNew <- Map.add a nextId oldToNew
-                        consumedArcs <- Set.add a consumedArcs
-                    nextId <- nextId + 1
+                    let mutable visited: Set<CrossingPosition> = Set.empty
 
-                for (u, v) in pairs do
-                    if not (visited.Contains u || visited.Contains v) then
-                        match walkFrom u [] with
-                        | (None, arcsU) ->
-                            // Closed loop through this junction (v was consumed by the walk)
-                            registerStrand None arcsU
-                        | (Some e1, arcsU) ->
-                            let (endV, arcsV) = walkFrom v []
-                            match endV with
-                            | Some e2 -> registerStrand (Some (e1, e2)) (arcsU @ arcsV)
+                    let mutable nextId =
+                        if Map.isEmpty diagram.Arcs then
+                            0
+                        else
+                            (diagram.Arcs.Keys |> Seq.max) + 1
+
+                    let mutable newArcs: Arc list = []
+                    let mutable oldToNew: Map<int, int> = Map.empty
+                    let mutable consumedArcs: Set<int> = Set.empty
+
+                    // Walk away from `pos` through its arc, hopping across further
+                    // junctions of THIS crossing, until reaching an endpoint away from
+                    // this crossing (Some ext) or closing onto an already-visited
+                    // junction (None = the strand is a closed loop).
+                    let rec walkFrom (pos: CrossingPosition) (acc: int list) : ArcEnd option * int list =
+                        visited <- Set.add pos visited
+                        let (arcId, far) = farEndOf pos
+                        let acc = arcId :: acc
+
+                        match far with
+                        | AtCrossing(cid, p) when cid = crossingId ->
+                            visited <- Set.add p visited
+                            let p2 = partner p
+
+                            if visited.Contains p2 then
+                                (None, acc) // strand closed into a loop
+                            else
+                                walkFrom p2 acc
+                        | ext -> (Some ext, acc)
+
+                    let registerStrand (endpoints: (ArcEnd * ArcEnd) option) (arcIds: int list) =
+                        let newArc =
+                            match endpoints with
+                            | Some(e1, e2) -> { Id = nextId; Start = e1; End = e2 }
                             | None ->
-                                // Unreachable for well-formed diagrams (the v-side
-                                // can only close onto positions already consumed,
-                                // in which case the u-side walk would have closed
-                                // first); treat defensively as a loop.
-                                registerStrand None (arcsU @ arcsV)
+                                {
+                                    Id = nextId
+                                    Start = FreeEnd 0
+                                    End = FreeEnd 0
+                                } // standalone loop
 
-                let arcsAfter =
-                    let survivors =
-                        diagram.Arcs |> Map.filter (fun id _ -> not (consumedArcs.Contains id))
-                    newArcs |> List.fold (fun acc (a: Arc) -> Map.add a.Id a acc) survivors
+                        newArcs <- newArc :: newArcs
 
-                let crossingsAfter =
-                    remainingCrossings
-                    |> Map.map (fun _ c ->
-                        { c with
-                            Connections =
-                                c.Connections
-                                |> Map.map (fun _ arcId ->
-                                    match Map.tryFind arcId oldToNew with
-                                    | Some newId -> newId
-                                    | None -> arcId) })
+                        for a in arcIds do
+                            oldToNew <- Map.add a nextId oldToNew
+                            consumedArcs <- Set.add a consumedArcs
 
-                { Crossings = crossingsAfter; Arcs = arcsAfter }
+                        nextId <- nextId + 1
 
-            let smoothing0 = smooth [ (NW, NE); (SW, SE) ]
-            let smoothing1 = smooth [ (NW, SW); (NE, SE) ]
-            (smoothing0, smoothing1)
+                    for (u, v) in pairs do
+                        if not (visited.Contains u || visited.Contains v) then
+                            match walkFrom u [] with
+                            | (None, arcsU) ->
+                                // Closed loop through this junction (v was consumed by the walk)
+                                registerStrand None arcsU
+                            | (Some e1, arcsU) ->
+                                let (endV, arcsV) = walkFrom v []
+
+                                match endV with
+                                | Some e2 -> registerStrand (Some(e1, e2)) (arcsU @ arcsV)
+                                | None ->
+                                    // Unreachable for well-formed diagrams (the v-side
+                                    // can only close onto positions already consumed,
+                                    // in which case the u-side walk would have closed
+                                    // first); treat defensively as a loop.
+                                    registerStrand None (arcsU @ arcsV)
+
+                    let arcsAfter =
+                        let survivors =
+                            diagram.Arcs |> Map.filter (fun id _ -> not (consumedArcs.Contains id))
+
+                        newArcs |> List.fold (fun acc (a: Arc) -> Map.add a.Id a acc) survivors
+
+                    let crossingsAfter =
+                        remainingCrossings
+                        |> Map.map (fun _ c ->
+                            { c with
+                                Connections =
+                                    c.Connections
+                                    |> Map.map (fun _ arcId ->
+                                        match Map.tryFind arcId oldToNew with
+                                        | Some newId -> newId
+                                        | None -> arcId)
+                            })
+
+                    {
+                        Crossings = crossingsAfter
+                        Arcs = arcsAfter
+                    }
+
+                let smoothing0 = smooth [ (NW, NE); (SW, SE) ]
+                let smoothing1 = smooth [ (NW, SW); (NE, SE) ]
+                (smoothing0, smoothing1)
 
         /// Memoization cache for bracket evaluation (thread-safe)
-        let private bracketCache = System.Collections.Concurrent.ConcurrentDictionary<string * Complex, Complex>()
+        let private bracketCache =
+            System.Collections.Concurrent.ConcurrentDictionary<string * Complex, Complex>()
 
         /// Compute a hash key for memoization that includes full connectivity.
         /// Must distinguish structurally different diagrams with same crossing signs.
         let private diagramHash (diagram: PlanarDiagram) : string =
-            let crossingStr = 
+            let crossingStr =
                 diagram.Crossings
                 |> Map.toList
                 |> List.sortBy fst
-                |> List.map (fun (id, c) -> 
-                    let sign = match c.Sign with Positive -> "+" | Negative -> "-"
+                |> List.map (fun (id, c) ->
+                    let sign =
+                        match c.Sign with
+                        | Positive -> "+"
+                        | Negative -> "-"
                     // Include arc connectivity, not just ID and sign
-                    let conns = 
+                    let conns =
                         c.Connections
                         |> Map.toList
                         |> List.sortBy (fun (pos, _) -> $"%A{pos}")
                         |> List.map (fun (pos, arcId) -> $"%A{pos}:%d{arcId}")
                         |> String.concat ";"
+
                     $"%d{id}%s{sign}(%s{conns})")
                 |> String.concat ","
+
             let arcStr =
                 diagram.Arcs
                 |> Map.toList
                 |> List.sortBy fst
                 |> List.map (fun (id, arc) -> $"%d{id}:%A{arc.Start}-%A{arc.End}")
                 |> String.concat ","
+
             $"C[%s{crossingStr}]A[%s{arcStr}]"
 
         /// Evaluate Kauffman bracket using skein relation (rigorous planar diagram version)
         let rec evaluateBracket (diagram: PlanarDiagram) (a: Complex) : Complex =
             let hash = diagramHash diagram
             let key = (hash, a)
-            
+
             match bracketCache.TryGetValue key with
             | (true, cached) -> cached
             | (false, _) ->
-                bracketCache.GetOrAdd(key, fun _ ->
-                    let result =
-                        if Map.isEmpty diagram.Crossings then
-                            // n loops → d^(n-1) where d = -A² - A⁻²
-                            // Convention: single unknot loop = 1, each ADDITIONAL loop multiplies by d
-                            let n = countComponents diagram
-                            if n <= 1 then Complex.One
-                            else Complex.Pow(loopValue a, float (n - 1))
-                        else
-                            let crossingId = diagram.Crossings |> Map.toList |> List.head |> fst
-                            let crossing = diagram.Crossings.[crossingId]
+                bracketCache.GetOrAdd(
+                    key,
+                    fun _ ->
+                        let result =
+                            if Map.isEmpty diagram.Crossings then
+                                // n loops → d^(n-1) where d = -A² - A⁻²
+                                // Convention: single unknot loop = 1, each ADDITIONAL loop multiplies by d
+                                let n = countComponents diagram
 
-                            let (smoothing0, smoothing1) = resolveCrossing diagram crossingId
-                            let value0 = evaluateBracket smoothing0 a
-                            let value1 = evaluateBracket smoothing1 a
+                                if n <= 1 then
+                                    Complex.One
+                                else
+                                    Complex.Pow(loopValue a, float (n - 1))
+                            else
+                                let crossingId = diagram.Crossings |> Map.toList |> List.head |> fst
+                                let crossing = diagram.Crossings.[crossingId]
 
-                            match crossing.Sign with
-                            | Positive -> a * value0 + (Complex.One / a) * value1
-                            | Negative -> (Complex.One / a) * value0 + a * value1
+                                let (smoothing0, smoothing1) = resolveCrossing diagram crossingId
+                                let value0 = evaluateBracket smoothing0 a
+                                let value1 = evaluateBracket smoothing1 a
 
-                    result)
+                                match crossing.Sign with
+                                | Positive -> a * value0 + (Complex.One / a) * value1
+                                | Negative -> (Complex.One / a) * value0 + a * value1
+
+                        result
+                )
 
         /// Compute Jones polynomial from planar diagram
         let jonesPolynomial (diagram: PlanarDiagram) (a: Complex) : Complex =
@@ -529,10 +569,11 @@ module KauffmanBracket =
         let generateAllStates (diagram: PlanarDiagram) : State list =
             let crossingIds = diagram.Crossings |> Map.toList |> List.map fst
             let n = crossingIds.Length
-            
-            if n = 0 then [Map.empty]
+
+            if n = 0 then
+                [ Map.empty ]
             else
-                [0 .. (1 <<< n) - 1]
+                [ 0 .. (1 <<< n) - 1 ]
                 |> List.map (fun stateNum ->
                     crossingIds
                     |> List.mapi (fun i cid ->
@@ -543,9 +584,11 @@ module KauffmanBracket =
         /// Apply a state to a diagram (resolve all crossings according to state)
         let applyState (diagram: PlanarDiagram) (state: State) : PlanarDiagram =
             state
-            |> Map.fold (fun d cid smoothing ->
-                let (d0, d1) = resolveCrossing d cid
-                if smoothing = 0 then d0 else d1) diagram
+            |> Map.fold
+                (fun d cid smoothing ->
+                    let (d0, d1) = resolveCrossing d cid
+                    if smoothing = 0 then d0 else d1)
+                diagram
 
         /// Calculate weight of a state: (product of per-crossing A/A⁻¹ factors) * d^(#loops - 1)
         ///
@@ -565,20 +608,26 @@ module KauffmanBracket =
             //   Negative: 0-smoothing → A⁻¹, 1-smoothing → A
             let smoothingFactor =
                 state
-                |> Map.fold (fun acc cid smoothing ->
-                    let factor =
-                        match Map.tryFind cid diagram.Crossings with
-                        | Some crossing ->
-                            match crossing.Sign, smoothing with
-                            | Positive, 0 | Negative, 1 -> a
-                            | _ -> Complex.One / a
-                        | None -> Complex.One  // state entry for a non-existent crossing
-                    acc * factor) Complex.One
+                |> Map.fold
+                    (fun acc cid smoothing ->
+                        let factor =
+                            match Map.tryFind cid diagram.Crossings with
+                            | Some crossing ->
+                                match crossing.Sign, smoothing with
+                                | Positive, 0
+                                | Negative, 1 -> a
+                                | _ -> Complex.One / a
+                            | None -> Complex.One // state entry for a non-existent crossing
+
+                        acc * factor)
+                    Complex.One
 
             // d^(n-1): single loop = 1, each additional loop contributes d
             let loopFactor =
-                if loops <= 1 then Complex.One
-                else Complex.Pow(loopValue a, float (loops - 1))
+                if loops <= 1 then
+                    Complex.One
+                else
+                    Complex.Pow(loopValue a, float (loops - 1))
 
             smoothingFactor * loopFactor
 
@@ -586,8 +635,11 @@ module KauffmanBracket =
         let evaluateBracketStateSum (diagram: PlanarDiagram) (a: Complex) : Complex =
             if Map.isEmpty diagram.Crossings then
                 let n = countComponents diagram
-                if n <= 1 then Complex.One
-                else Complex.Pow(loopValue a, float (n - 1))
+
+                if n <= 1 then
+                    Complex.One
+                else
+                    Complex.Pow(loopValue a, float (n - 1))
             else
                 generateAllStates diagram
                 |> List.map (fun state -> stateWeight diagram state a)
@@ -598,12 +650,10 @@ module KauffmanBracket =
         // ========================================
 
         /// Standard A value for generic quantum invariant (q = e^(iπ/4))
-        let standardA : Complex = 
-            Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
+        let standardA: Complex = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
 
         /// Ising anyon model A value: A^4 = -1, so A = e^(iπ/4)
-        let isingA : Complex = standardA
+        let isingA: Complex = standardA
 
         /// Fibonacci anyon model A value: d = φ (golden ratio), A = e^(iπ/5)
-        let fibonacciA : Complex =
-            Complex(Math.Cos(Math.PI / 5.0), Math.Sin(Math.PI / 5.0))
+        let fibonacciA: Complex = Complex(Math.Cos(Math.PI / 5.0), Math.Sin(Math.PI / 5.0))

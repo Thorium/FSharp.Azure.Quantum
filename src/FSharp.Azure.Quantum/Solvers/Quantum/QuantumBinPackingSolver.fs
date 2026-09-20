@@ -47,40 +47,43 @@ module QuantumBinPackingSolver =
     // ========================================================================
 
     /// An item to be packed
-    type Item = {
-        /// Unique identifier
-        Id: string
-        /// Size of the item (must be positive, must fit in a single bin)
-        Size: float
-    }
+    type Item =
+        {
+            /// Unique identifier
+            Id: string
+            /// Size of the item (must be positive, must fit in a single bin)
+            Size: float
+        }
 
     /// Bin packing problem definition
-    type Problem = {
-        /// Items to pack
-        Items: Item list
-        /// Capacity of each bin (all bins have same capacity)
-        BinCapacity: float
-    }
+    type Problem =
+        {
+            /// Items to pack
+            Items: Item list
+            /// Capacity of each bin (all bins have same capacity)
+            BinCapacity: float
+        }
 
     /// Bin packing solution
-    type Solution = {
-        /// Assignment: list of (item, bin index) pairs
-        Assignments: (Item * int) list
-        /// Number of bins used
-        BinsUsed: int
-        /// Whether all items are assigned and no bin exceeds capacity
-        IsValid: bool
-        /// Whether constraint repair was applied
-        WasRepaired: bool
-        /// Name of the quantum backend used
-        BackendName: string
-        /// Number of measurement shots
-        NumShots: int
-        /// Optimized QAOA (gamma, beta) parameters per layer
-        OptimizedParameters: (float * float)[] option
-        /// Whether Nelder-Mead converged
-        OptimizationConverged: bool option
-    }
+    type Solution =
+        {
+            /// Assignment: list of (item, bin index) pairs
+            Assignments: (Item * int) list
+            /// Number of bins used
+            BinsUsed: int
+            /// Whether all items are assigned and no bin exceeds capacity
+            IsValid: bool
+            /// Whether constraint repair was applied
+            WasRepaired: bool
+            /// Name of the quantum backend used
+            BackendName: string
+            /// Number of measurement shots
+            NumShots: int
+            /// Optimized QAOA (gamma, beta) parameters per layer
+            OptimizedParameters: (float * float)[] option
+            /// Whether Nelder-Mead converged
+            OptimizationConverged: bool option
+        }
 
     // ========================================================================
     // CONFIGURATION (type alias for unified config)
@@ -88,9 +91,9 @@ module QuantumBinPackingSolver =
 
     type Config = QaoaSolverConfig
 
-    let defaultConfig : Config = QaoaExecutionHelpers.defaultConfig
-    let fastConfig : Config = QaoaExecutionHelpers.fastConfig
-    let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
+    let defaultConfig: Config = QaoaExecutionHelpers.defaultConfig
+    let fastConfig: Config = QaoaExecutionHelpers.fastConfig
+    let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
     // QUBIT ESTIMATION (Decision 11)
@@ -100,8 +103,7 @@ module QuantumBinPackingSolver =
     /// B = n (number of items) — the worst case is each item in its own bin.
     /// Using ceil(totalSize / C) is only a *lower* bound and under-dimensions
     /// the QUBO for pathological inputs (e.g., items of size just over C/2).
-    let private computeMaxBins (problem: Problem) : int =
-        problem.Items.Length
+    let private computeMaxBins (problem: Problem) : int = problem.Items.Length
 
     /// Estimate the number of qubits required.
     /// n*B (item-bin assignment variables) + B (bin-used indicator variables).
@@ -115,12 +117,10 @@ module QuantumBinPackingSolver =
     // ========================================================================
 
     /// Get the QUBO variable index for "item i assigned to bin j".
-    let private itemBinIndex (numBins: int) (i: int) (j: int) : int =
-        i * numBins + j
+    let private itemBinIndex (numBins: int) (i: int) (j: int) : int = i * numBins + j
 
     /// Get the QUBO variable index for "bin j is used".
-    let private binUsedIndex (numItems: int) (numBins: int) (j: int) : int =
-        numItems * numBins + j
+    let private binUsedIndex (numItems: int) (numBins: int) (j: int) : int = numItems * numBins + j
 
     // ========================================================================
     // QUBO CONSTRUCTION (Decision 9: sparse internally, Decision 5: dense output)
@@ -132,18 +132,20 @@ module QuantumBinPackingSolver =
         let b = numBins
 
         // Penalty weights: must dominate objective (which is at most B)
-        let lambda1 = float b + 1.0   // Assignment constraint
-        let lambda2 = float b + 1.0   // Capacity constraint
-        let lambda3 = float b + 1.0   // Activation constraint
+        let lambda1 = float b + 1.0 // Assignment constraint
+        let lambda2 = float b + 1.0 // Capacity constraint
+        let lambda3 = float b + 1.0 // Activation constraint
 
         let empty = Map.empty<int * int, float>
 
         // --- Objective: Minimize sum_j y_j ---
         let objectiveTerms =
             [ 0 .. b - 1 ]
-            |> List.fold (fun acc j ->
-                let yj = binUsedIndex n b j
-                acc |> Qubo.combineTerms (yj, yj) 1.0) empty
+            |> List.fold
+                (fun acc j ->
+                    let yj = binUsedIndex n b j
+                    acc |> Qubo.combineTerms (yj, yj) 1.0)
+                empty
 
         // --- Constraint 1: Each item in exactly one bin (one-hot, symmetric) ---
         // (1 - Σ x_{ij})^2 = 1 - 2Σ x_{ij} + (Σ x_{ij})^2
@@ -151,21 +153,21 @@ module QuantumBinPackingSolver =
         //   Off-diagonal: λ * x_{ij1} * x_{ij2}  (symmetric split: λ/2 each side)
         let assignmentTerms =
             [ 0 .. n - 1 ]
-            |> List.fold (fun acc i ->
-                let varIndices = [ 0 .. b - 1 ] |> List.map (itemBinIndex b i)
-                // Linear: -lambda1 per variable
-                let acc =
+            |> List.fold
+                (fun acc i ->
+                    let varIndices = [ 0 .. b - 1 ] |> List.map (itemBinIndex b i)
+                    // Linear: -lambda1 per variable
+                    let acc =
+                        varIndices
+                        |> List.fold (fun a vi -> a |> Qubo.combineTerms (vi, vi) (-lambda1)) acc
+                    // Quadratic: symmetric split for each pair
                     varIndices
-                    |> List.fold (fun a vi ->
-                        a |> Qubo.combineTerms (vi, vi) (-lambda1)) acc
-                // Quadratic: symmetric split for each pair
-                varIndices
-                |> List.collect (fun vi ->
-                    varIndices
-                    |> List.filter (fun vj -> vj > vi)
-                    |> List.collect (fun vj ->
-                        [ ((vi, vj), lambda1); ((vj, vi), lambda1) ]))
-                |> List.fold (fun a (key, value) -> Qubo.combineTerms key value a) acc) empty
+                    |> List.collect (fun vi ->
+                        varIndices
+                        |> List.filter (fun vj -> vj > vi)
+                        |> List.collect (fun vj -> [ ((vi, vj), lambda1); ((vj, vi), lambda1) ]))
+                    |> List.fold (fun a (key, value) -> Qubo.combineTerms key value a) acc)
+                empty
 
         // --- Constraint 2: Bin capacity ---
         // For each bin j: lambda2 * (sum_i s_i * x_{ij} - C * y_j)^2
@@ -181,101 +183,116 @@ module QuantumBinPackingSolver =
         // Y^2 = C^2 * y_j  (since y_j^2 = y_j)
         let capacityTerms =
             [ 0 .. b - 1 ]
-            |> List.fold (fun acc j ->
-                let yj = binUsedIndex n b j
-                let c = problem.BinCapacity
+            |> List.fold
+                (fun acc j ->
+                    let yj = binUsedIndex n b j
+                    let c = problem.BinCapacity
 
-                // Y^2 = C^2 * y_j → diagonal on y_j
-                let acc = acc |> Qubo.combineTerms (yj, yj) (lambda2 * c * c)
+                    // Y^2 = C^2 * y_j → diagonal on y_j
+                    let acc = acc |> Qubo.combineTerms (yj, yj) (lambda2 * c * c)
 
-                // S_j^2 terms
-                let acc =
-                    [ 0 .. n - 1 ]
-                    |> List.fold (fun a i ->
-                        let xij = itemBinIndex b i j
-                        let si = problem.Items.[i].Size
-                        // s_i^2 * x_{ij} (diagonal)
-                        a |> Qubo.combineTerms (xij, xij) (lambda2 * si * si)) acc
+                    // S_j^2 terms
+                    let acc =
+                        [ 0 .. n - 1 ]
+                        |> List.fold
+                            (fun a i ->
+                                let xij = itemBinIndex b i j
+                                let si = problem.Items.[i].Size
+                                // s_i^2 * x_{ij} (diagonal)
+                                a |> Qubo.combineTerms (xij, xij) (lambda2 * si * si))
+                            acc
 
-                let acc =
-                    [ 0 .. n - 1 ]
-                    |> List.collect (fun i1 ->
-                        [ i1 + 1 .. n - 1 ]
-                        |> List.map (fun i2 -> (i1, i2)))
-                    |> List.fold (fun a (i1, i2) ->
-                        let xi1j = itemBinIndex b i1 j
-                        let xi2j = itemBinIndex b i2 j
-                        let s1 = problem.Items.[i1].Size
-                        let s2 = problem.Items.[i2].Size
-                        // 2 * s_{i1} * s_{i2} * x_{i1,j} * x_{i2,j}
-                        let value = lambda2 * 2.0 * s1 * s2
-                        a |> Qubo.combineTerms (xi1j, xi2j) (value / 2.0)
-                          |> Qubo.combineTerms (xi2j, xi1j) (value / 2.0)) acc
+                    let acc =
+                        [ 0 .. n - 1 ]
+                        |> List.collect (fun i1 -> [ i1 + 1 .. n - 1 ] |> List.map (fun i2 -> (i1, i2)))
+                        |> List.fold
+                            (fun a (i1, i2) ->
+                                let xi1j = itemBinIndex b i1 j
+                                let xi2j = itemBinIndex b i2 j
+                                let s1 = problem.Items.[i1].Size
+                                let s2 = problem.Items.[i2].Size
+                                // 2 * s_{i1} * s_{i2} * x_{i1,j} * x_{i2,j}
+                                let value = lambda2 * 2.0 * s1 * s2
 
-                // -2*S_j*Y terms: -2*C * s_i * x_{ij} * y_j
-                let acc =
-                    [ 0 .. n - 1 ]
-                    |> List.fold (fun a i ->
-                        let xij = itemBinIndex b i j
-                        let si = problem.Items.[i].Size
-                        let value = lambda2 * (-2.0) * c * si
-                        if xij = yj then
-                            a |> Qubo.combineTerms (xij, xij) value
-                        else
-                            a |> Qubo.combineTerms (xij, yj) (value / 2.0)
-                              |> Qubo.combineTerms (yj, xij) (value / 2.0)) acc
+                                a
+                                |> Qubo.combineTerms (xi1j, xi2j) (value / 2.0)
+                                |> Qubo.combineTerms (xi2j, xi1j) (value / 2.0))
+                            acc
 
-                acc) empty
+                    // -2*S_j*Y terms: -2*C * s_i * x_{ij} * y_j
+                    let acc =
+                        [ 0 .. n - 1 ]
+                        |> List.fold
+                            (fun a i ->
+                                let xij = itemBinIndex b i j
+                                let si = problem.Items.[i].Size
+                                let value = lambda2 * (-2.0) * c * si
+
+                                if xij = yj then
+                                    a |> Qubo.combineTerms (xij, xij) value
+                                else
+                                    a
+                                    |> Qubo.combineTerms (xij, yj) (value / 2.0)
+                                    |> Qubo.combineTerms (yj, xij) (value / 2.0))
+                            acc
+
+                    acc)
+                empty
 
         // --- Constraint 3: Activation: y_j >= x_{ij} ---
         // Penalty: lambda3 * x_{ij} * (1 - y_j)
         //        = lambda3 * x_{ij} - lambda3 * x_{ij} * y_j
         let activationTerms =
             [ 0 .. n - 1 ]
-            |> List.collect (fun i ->
-                [ 0 .. b - 1 ] |> List.map (fun j -> (i, j)))
-            |> List.fold (fun acc (i, j) ->
-                let xij = itemBinIndex b i j
-                let yj = binUsedIndex n b j
-                // lambda3 * x_{ij} → diagonal
-                let acc = acc |> Qubo.combineTerms (xij, xij) lambda3
-                // -lambda3 * x_{ij} * y_j → off-diagonal
-                let value = -lambda3
-                if xij = yj then
-                    acc |> Qubo.combineTerms (xij, xij) value
-                else
-                    acc |> Qubo.combineTerms (xij, yj) (value / 2.0)
-                      |> Qubo.combineTerms (yj, xij) (value / 2.0)) empty
+            |> List.collect (fun i -> [ 0 .. b - 1 ] |> List.map (fun j -> (i, j)))
+            |> List.fold
+                (fun acc (i, j) ->
+                    let xij = itemBinIndex b i j
+                    let yj = binUsedIndex n b j
+                    // lambda3 * x_{ij} → diagonal
+                    let acc = acc |> Qubo.combineTerms (xij, xij) lambda3
+                    // -lambda3 * x_{ij} * y_j → off-diagonal
+                    let value = -lambda3
+
+                    if xij = yj then
+                        acc |> Qubo.combineTerms (xij, xij) value
+                    else
+                        acc
+                        |> Qubo.combineTerms (xij, yj) (value / 2.0)
+                        |> Qubo.combineTerms (yj, xij) (value / 2.0))
+                empty
 
         // Combine all terms
         [ objectiveTerms; assignmentTerms; capacityTerms; activationTerms ]
-        |> List.fold (fun combined termMap ->
-            termMap |> Map.fold (fun acc key value ->
-                Qubo.combineTerms key value acc) combined) Map.empty
+        |> List.fold
+            (fun combined termMap ->
+                termMap
+                |> Map.fold (fun acc key value -> Qubo.combineTerms key value acc) combined)
+            Map.empty
 
     /// Validate a bin packing problem, returning Error if invalid.
     let private validateProblem (problem: Problem) : Result<unit, QuantumError> =
         if problem.Items.IsEmpty then
-            Error (QuantumError.ValidationError ("items", "Problem has no items"))
+            Error(QuantumError.ValidationError("items", "Problem has no items"))
         elif problem.BinCapacity <= 0.0 then
-            Error (QuantumError.ValidationError ("binCapacity", "Bin capacity must be positive"))
+            Error(QuantumError.ValidationError("binCapacity", "Bin capacity must be positive"))
         elif problem.Items |> List.exists (fun item -> item.Size <= 0.0) then
-            Error (QuantumError.ValidationError ("itemSize", "All item sizes must be positive"))
+            Error(QuantumError.ValidationError("itemSize", "All item sizes must be positive"))
         elif problem.Items |> List.exists (fun item -> item.Size > problem.BinCapacity) then
-            Error (QuantumError.ValidationError ("itemSize", "Item size exceeds bin capacity"))
+            Error(QuantumError.ValidationError("itemSize", "Item size exceeds bin capacity"))
         else
-            Ok ()
+            Ok()
 
     /// Convert problem to dense QUBO matrix.
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         match validateProblem problem with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             let b = computeMaxBins problem
             let totalVars = problem.Items.Length * b + b
             let quboMap = buildQuboMap problem b
-            Ok (Qubo.toDenseArray totalVars quboMap)
+            Ok(Qubo.toDenseArray totalVars quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -306,12 +323,11 @@ module QuantumBinPackingSolver =
         let b = computeMaxBins problem
         let n = problem.Items.Length
         let expectedLen = n * b + b
+
         bits.Length = expectedLen
-        && (
-            let assignments = decodeAssignments problem b bits
+        && (let assignments = decodeAssignments problem b bits
             // Each item must be assigned exactly once
-            assignments.Length = n
-            && binsWithinCapacity problem assignments)
+            assignments.Length = n && binsWithinCapacity problem assignments)
 
     /// Decode a bitstring into a Solution.
     let private decodeSolution (problem: Problem) (numBins: int) (bits: int[]) : Solution =
@@ -320,12 +336,10 @@ module QuantumBinPackingSolver =
         let withinCapacity = binsWithinCapacity problem assignments
 
         let binsUsed =
-            if assignments.IsEmpty then 0
+            if assignments.IsEmpty then
+                0
             else
-                assignments
-                |> List.map snd
-                |> List.distinct
-                |> List.length
+                assignments |> List.map snd |> List.distinct |> List.length
 
         {
             Assignments = assignments
@@ -367,9 +381,9 @@ module QuantumBinPackingSolver =
 
         // Compute bin loads from current assignments
         let binLoads = Array.zeroCreate<float> b
+
         currentAssignments
-        |> Map.iter (fun itemIdx binIdx ->
-            binLoads.[binIdx] <- binLoads.[binIdx] + problem.Items.[itemIdx].Size)
+        |> Map.iter (fun itemIdx binIdx -> binLoads.[binIdx] <- binLoads.[binIdx] + problem.Items.[itemIdx].Size)
 
         // Phase 1b: Assign unassigned items using first-fit decreasing
         let unassigned =
@@ -379,57 +393,57 @@ module QuantumBinPackingSolver =
 
         let phase1Assignments, _ =
             unassigned
-            |> List.fold (fun (assignments: Map<int, int>, loads: float[]) itemIdx ->
-                let itemSize = problem.Items.[itemIdx].Size
-                let targetBin =
-                    [ 0 .. b - 1 ]
-                    |> List.tryFind (fun j -> loads.[j] + itemSize <= cap + 1e-9)
-                match targetBin with
-                | Some j ->
-                    loads.[j] <- loads.[j] + itemSize
-                    (assignments |> Map.add itemIdx j, loads)
-                | None ->
-                    let leastLoaded =
-                        [ 0 .. b - 1 ]
-                        |> List.minBy (fun j -> loads.[j])
-                    loads.[leastLoaded] <- loads.[leastLoaded] + itemSize
-                    (assignments |> Map.add itemIdx leastLoaded, loads)
-            ) (currentAssignments, binLoads)
+            |> List.fold
+                (fun (assignments: Map<int, int>, loads: float[]) itemIdx ->
+                    let itemSize = problem.Items.[itemIdx].Size
+
+                    let targetBin =
+                        [ 0 .. b - 1 ] |> List.tryFind (fun j -> loads.[j] + itemSize <= cap + 1e-9)
+
+                    match targetBin with
+                    | Some j ->
+                        loads.[j] <- loads.[j] + itemSize
+                        (assignments |> Map.add itemIdx j, loads)
+                    | None ->
+                        let leastLoaded = [ 0 .. b - 1 ] |> List.minBy (fun j -> loads.[j])
+                        loads.[leastLoaded] <- loads.[leastLoaded] + itemSize
+                        (assignments |> Map.add itemIdx leastLoaded, loads))
+                (currentAssignments, binLoads)
 
         // Phase 2: Fix overloaded bins by evicting items
         // Recompute loads from phase1 assignments
         let loads2 = Array.zeroCreate<float> b
+
         phase1Assignments
-        |> Map.iter (fun itemIdx binIdx ->
-            loads2.[binIdx] <- loads2.[binIdx] + problem.Items.[itemIdx].Size)
+        |> Map.iter (fun itemIdx binIdx -> loads2.[binIdx] <- loads2.[binIdx] + problem.Items.[itemIdx].Size)
 
         // Find overloaded bins and evict smallest items until within capacity
         let evictedItems, updatedAssignments =
             [ 0 .. b - 1 ]
-            |> List.fold (fun (evicted: int list, assignments: Map<int, int>) binJ ->
-                if loads2.[binJ] <= cap + 1e-9 then
-                    (evicted, assignments)
-                else
-                    // Get items in this bin, sorted by size ascending (evict smallest first)
-                    let itemsInBin =
-                        assignments
-                        |> Map.toList
-                        |> List.filter (fun (_, bj) -> bj = binJ)
-                        |> List.sortBy (fun (iIdx, _) -> problem.Items.[iIdx].Size)
+            |> List.fold
+                (fun (evicted: int list, assignments: Map<int, int>) binJ ->
+                    if loads2.[binJ] <= cap + 1e-9 then
+                        (evicted, assignments)
+                    else
+                        // Get items in this bin, sorted by size ascending (evict smallest first)
+                        let itemsInBin =
+                            assignments
+                            |> Map.toList
+                            |> List.filter (fun (_, bj) -> bj = binJ)
+                            |> List.sortBy (fun (iIdx, _) -> problem.Items.[iIdx].Size)
 
-                    // Evict items until bin is within capacity
-                    let rec evictUntilFit remaining load evictAcc assignAcc =
-                        match remaining with
-                        | [] -> (evictAcc, assignAcc)
-                        | _ when load <= cap + 1e-9 ->
-                            (evictAcc, assignAcc)
-                        | (iIdx, _) :: rest ->
-                            let newLoad = load - problem.Items.[iIdx].Size
-                            loads2.[binJ] <- newLoad
-                            evictUntilFit rest newLoad (iIdx :: evictAcc) (Map.remove iIdx assignAcc)
+                        // Evict items until bin is within capacity
+                        let rec evictUntilFit remaining load evictAcc assignAcc =
+                            match remaining with
+                            | [] -> (evictAcc, assignAcc)
+                            | _ when load <= cap + 1e-9 -> (evictAcc, assignAcc)
+                            | (iIdx, _) :: rest ->
+                                let newLoad = load - problem.Items.[iIdx].Size
+                                loads2.[binJ] <- newLoad
+                                evictUntilFit rest newLoad (iIdx :: evictAcc) (Map.remove iIdx assignAcc)
 
-                    evictUntilFit itemsInBin loads2.[binJ] evicted assignments
-            ) ([], phase1Assignments)
+                        evictUntilFit itemsInBin loads2.[binJ] evicted assignments)
+                ([], phase1Assignments)
 
         // Re-assign evicted items using first-fit (sorted by size descending)
         let sortedEvicted =
@@ -437,22 +451,22 @@ module QuantumBinPackingSolver =
 
         let finalAssignments, _ =
             sortedEvicted
-            |> List.fold (fun (assignments: Map<int, int>, loads: float[]) itemIdx ->
-                let itemSize = problem.Items.[itemIdx].Size
-                let targetBin =
-                    [ 0 .. b - 1 ]
-                    |> List.tryFind (fun j -> loads.[j] + itemSize <= cap + 1e-9)
-                match targetBin with
-                | Some j ->
-                    loads.[j] <- loads.[j] + itemSize
-                    (assignments |> Map.add itemIdx j, loads)
-                | None ->
-                    let leastLoaded =
-                        [ 0 .. b - 1 ]
-                        |> List.minBy (fun j -> loads.[j])
-                    loads.[leastLoaded] <- loads.[leastLoaded] + itemSize
-                    (assignments |> Map.add itemIdx leastLoaded, loads)
-            ) (updatedAssignments, loads2)
+            |> List.fold
+                (fun (assignments: Map<int, int>, loads: float[]) itemIdx ->
+                    let itemSize = problem.Items.[itemIdx].Size
+
+                    let targetBin =
+                        [ 0 .. b - 1 ] |> List.tryFind (fun j -> loads.[j] + itemSize <= cap + 1e-9)
+
+                    match targetBin with
+                    | Some j ->
+                        loads.[j] <- loads.[j] + itemSize
+                        (assignments |> Map.add itemIdx j, loads)
+                    | None ->
+                        let leastLoaded = [ 0 .. b - 1 ] |> List.minBy (fun j -> loads.[j])
+                        loads.[leastLoaded] <- loads.[leastLoaded] + itemSize
+                        (assignments |> Map.add itemIdx leastLoaded, loads))
+                (updatedAssignments, loads2)
 
         // Phase 3: Build output bitstring
         let totalVars = n * b + b
@@ -462,19 +476,17 @@ module QuantumBinPackingSolver =
         finalAssignments
         |> Map.iter (fun itemIdx binIdx ->
             let idx = itemBinIndex b itemIdx binIdx
+
             if idx < totalVars then
                 result.[idx] <- 1)
 
         // Set bin-used indicator bits
-        let usedBins =
-            finalAssignments
-            |> Map.toSeq
-            |> Seq.map snd
-            |> Set.ofSeq
+        let usedBins = finalAssignments |> Map.toSeq |> Seq.map snd |> Set.ofSeq
 
         [ 0 .. b - 1 ]
         |> List.iter (fun j ->
             let idx = binUsedIndex n b j
+
             if usedBins |> Set.contains j && idx < totalVars then
                 result.[idx] <- 1)
 
@@ -522,25 +534,24 @@ module QuantumBinPackingSolver =
 
         match validateProblem problem with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             let solveSingle (subProblem: Problem) =
                 let b = computeMaxBins subProblem
+
                 match toQubo subProblem with
                 | Error err -> Error err
                 | Ok qubo ->
                     let result =
                         if config.EnableOptimization then
                             executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) ->
-                                (bits, Some optParams, Some converged))
+                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
                             executeQaoaWithGridSearch backend qubo config
-                            |> Result.map (fun (bits, optParams) ->
-                                (bits, Some optParams, None))
+                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
                     | Error err -> Error err
-                    | Ok (bits, optParams, converged) ->
+                    | Ok(bits, optParams, converged) ->
                         let decoded = decodeSolution subProblem b bits
                         let needsRepair = not decoded.IsValid
 
@@ -551,15 +562,17 @@ module QuantumBinPackingSolver =
                                 (bits, false)
 
                         let solution = decodeSolution subProblem b finalBits
-                        Ok { solution with
+
+                        Ok
+                            { solution with
                                 BackendName = backend.Name
                                 NumShots = config.FinalShots
                                 WasRepaired = wasRepaired
                                 OptimizedParameters = optParams
-                                OptimizationConverged = converged }
+                                OptimizationConverged = converged
+                            }
 
-            ProblemDecomposition.solveWithDecomposition
-                backend problem estimateQubits decompose recombine solveSingle
+            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve bin packing using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
@@ -569,10 +582,11 @@ module QuantumBinPackingSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Task<Result<Solution, QuantumError>> = task {
-        cancellationToken.ThrowIfCancellationRequested()
-        return solveWithConfig backend problem config
-    }
+        : Task<Result<Solution, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
 
     /// Solve bin packing using QAOA with default configuration.
     [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -582,7 +596,11 @@ module QuantumBinPackingSolver =
         (shots: int)
         : Result<Solution, QuantumError> =
 
-        let config = { defaultConfig with FinalShots = shots }
+        let config =
+            { defaultConfig with
+                FinalShots = shots
+            }
+
         solveWithConfigAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -614,24 +632,29 @@ module QuantumBinPackingSolver =
 
             let assignments, binLoads =
                 sorted
-                |> List.fold (fun (assigns: (Item * int) list, loads: Map<int, float>) (_, item) ->
-                    // Find first bin with enough space
-                    let targetBin =
-                        loads
-                        |> Map.toSeq
-                        |> Seq.tryFind (fun (_, load) ->
-                            load + item.Size <= problem.BinCapacity + 1e-9)
-                        |> Option.map fst
+                |> List.fold
+                    (fun (assigns: (Item * int) list, loads: Map<int, float>) (_, item) ->
+                        // Find first bin with enough space
+                        let targetBin =
+                            loads
+                            |> Map.toSeq
+                            |> Seq.tryFind (fun (_, load) -> load + item.Size <= problem.BinCapacity + 1e-9)
+                            |> Option.map fst
 
-                    match targetBin with
-                    | Some binIdx ->
-                        let newLoad = loads.[binIdx] + item.Size
-                        ((item, binIdx) :: assigns, loads |> Map.add binIdx newLoad)
-                    | None ->
-                        // Open a new bin
-                        let newBin = if loads.IsEmpty then 0 else (loads |> Map.toSeq |> Seq.map fst |> Seq.max) + 1
-                        ((item, newBin) :: assigns, loads |> Map.add newBin item.Size)
-                ) ([], Map.empty)
+                        match targetBin with
+                        | Some binIdx ->
+                            let newLoad = loads.[binIdx] + item.Size
+                            ((item, binIdx) :: assigns, loads |> Map.add binIdx newLoad)
+                        | None ->
+                            // Open a new bin
+                            let newBin =
+                                if loads.IsEmpty then
+                                    0
+                                else
+                                    (loads |> Map.toSeq |> Seq.map fst |> Seq.max) + 1
+
+                            ((item, newBin) :: assigns, loads |> Map.add newBin item.Size))
+                    ([], Map.empty)
 
             let reversed = assignments |> List.rev
 

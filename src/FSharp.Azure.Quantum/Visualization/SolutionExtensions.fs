@@ -6,10 +6,10 @@ open System.Text
 /// Extension methods for solution visualization
 [<AutoOpen>]
 module SolutionVisualizationExtensions =
-    
+
     /// Extension methods for Graph Coloring solutions
     type GraphColoring.ColoringSolution with
-        
+
         /// Generate Mermaid graph diagram showing colored nodes and edges
         member this.ToMermaid() : string =
             // Extract nodes and their colors
@@ -18,7 +18,7 @@ module SolutionVisualizationExtensions =
                 |> Map.toList
                 |> List.map (fun (nodeName, color) ->
                     // Convert color name to hex (simple mapping for common colors)
-                    let colorHex = 
+                    let colorHex =
                         match color.ToLower() with
                         | "red" -> "ff6b6b"
                         | "blue" -> "4ecdc4"
@@ -28,16 +28,16 @@ module SolutionVisualizationExtensions =
                         | "orange" -> "ff9f43"
                         | "pink" -> "fd79a8"
                         | "cyan" -> "00b894"
-                        | _ -> "cccccc"  // Default gray for unknown colors
-                    
+                        | _ -> "cccccc" // Default gray for unknown colors
+
                     MermaidRenderer.Graph.nodeWithColorAndLabel nodeName colorHex color)
-            
+
             // For now, we don't have edge information in the solution
             // In future, we could add edges from GraphColoringProblem
             let edges = []
-            
+
             MermaidRenderer.Graph.render nodes edges
-        
+
         /// Generate ASCII art representation
         member this.ToASCII() : string =
             let sb = StringBuilder()
@@ -48,131 +48,131 @@ module SolutionVisualizationExtensions =
             sb.AppendLine($"Valid: {this.IsValid}") |> ignore
             sb.AppendLine("") |> ignore
             sb.AppendLine("Node Assignments:") |> ignore
-            
+
             this.Assignments
             |> Map.toList
             |> List.sortBy fst
-            |> List.iter (fun (node, color) ->
-                sb.AppendLine($"  {node} → {color}") |> ignore)
-            
+            |> List.iter (fun (node, color) -> sb.AppendLine($"  {node} → {color}") |> ignore)
+
             sb.ToString()
-    
+
     /// Extension methods for Quantum Circuits
     type CircuitBuilder.Circuit with
-        
+
         /// Generate ASCII diagram of the quantum circuit
         member this.ToASCII() : string =
             // Convert CircuitBuilder.Gate to VisualizationGate
-            let vizGates = 
-                this.Gates
-                |> List.rev
-                |> List.map (fun gate -> CircuitGate gate)
-            
+            let vizGates = this.Gates |> List.rev |> List.map (fun gate -> CircuitGate gate)
+
             // Render using ASCII renderer
             ASCIIRenderer.render this.QubitCount vizGates
-        
+
         /// Generate Mermaid sequence diagram of the quantum circuit
         member this.ToMermaid() : string =
             // Convert CircuitBuilder.Gate to VisualizationGate
-            let vizGates = 
-                this.Gates
-                |> List.rev
-                |> List.map (fun gate -> CircuitGate gate)
-            
+            let vizGates = this.Gates |> List.rev |> List.map (fun gate -> CircuitGate gate)
+
             // Render using Mermaid sequence diagram
             MermaidRenderer.Sequence.render this.QubitCount vizGates
-    
+
     /// Extension methods for Graph Coloring Problems (before solving)
     type GraphColoring.GraphColoringProblem with
-        
+
         /// Generate Mermaid graph diagram showing the problem structure (nodes and conflicts)
         member this.ToMermaid() : string =
             // Create nodes
             let nodes =
                 this.Nodes
                 |> List.map (fun node ->
-                    let label = 
+                    let label =
                         match node.FixedColor with
                         | Some color -> $"Node %s{node.Id}<br/>(Fixed: %s{color})"
                         | None -> $"Node %s{node.Id}"
+
                     MermaidRenderer.Graph.nodeWithLabel node.Id label)
-            
+
             // Create edges from conflicts
             let edges =
                 this.Nodes
                 |> List.collect (fun node ->
                     node.ConflictsWith
                     |> List.filter (fun targetId -> targetId > node.Id) // Avoid duplicates
-                    |> List.map (fun targetId ->
-                        MermaidRenderer.Graph.edge node.Id targetId))
-            
+                    |> List.map (fun targetId -> MermaidRenderer.Graph.edge node.Id targetId))
+
             MermaidRenderer.Graph.render nodes edges
-        
+
         /// Generate ASCII representation of the problem
         member this.ToASCII() : string =
             let sb = StringBuilder()
             sb.AppendLine("Graph Coloring Problem") |> ignore
             sb.AppendLine("======================") |> ignore
             sb.AppendLine($"Nodes: %d{this.Nodes.Length}") |> ignore
-            sb.AppendLine(sprintf "Available Colors: %s" (String.concat ", " this.AvailableColors)) |> ignore
+
+            sb.AppendLine(sprintf "Available Colors: %s" (String.concat ", " this.AvailableColors))
+            |> ignore
+
             sb.AppendLine($"Objective: %A{this.Objective}") |> ignore
             sb.AppendLine("") |> ignore
             sb.AppendLine("Node Conflicts:") |> ignore
-            
+
             this.Nodes
             |> List.sortBy (fun n -> n.Id)
             |> List.iter (fun node ->
-                let fixedStr = 
+                let fixedStr =
                     match node.FixedColor with
                     | Some c -> $" (Fixed: %s{c})"
                     | None -> ""
-                let conflictsStr = 
-                    if node.ConflictsWith.IsEmpty then "none"
-                    else String.concat ", " node.ConflictsWith
-                sb.AppendLine($"  %s{node.Id}%s{fixedStr} → conflicts with: %s{conflictsStr}") |> ignore)
-            
+
+                let conflictsStr =
+                    if node.ConflictsWith.IsEmpty then
+                        "none"
+                    else
+                        String.concat ", " node.ConflictsWith
+
+                sb.AppendLine($"  %s{node.Id}%s{fixedStr} → conflicts with: %s{conflictsStr}")
+                |> ignore)
+
             sb.ToString()
-    
+
     /// Extension methods for QUBO Matrices
     type GraphOptimization.QuboMatrix with
-        
+
         /// Generate Mermaid diagram showing QUBO matrix structure
         member this.ToMermaid() : string =
             let sb = StringBuilder()
             sb.AppendLine("```mermaid") |> ignore
             sb.AppendLine("graph TD") |> ignore
             sb.AppendLine("    subgraph QUBO[\"QUBO Matrix Structure\"]") |> ignore
-            
+
             // Show variables as nodes
             for i in 0 .. this.NumVariables - 1 do
                 sb.AppendLine($"        v%d{i}[\"x_%d{i}\"]") |> ignore
-            
+
             sb.AppendLine("    end") |> ignore
             sb.AppendLine("") |> ignore
             sb.AppendLine("    subgraph Interactions[\"Non-zero Coefficients\"]") |> ignore
-            
+
             // Show non-zero coefficients as edges
-            let coefficients = 
-                this.Q 
-                |> Map.toList 
-                |> List.sortBy (fun ((i, j), _) -> (i, j))
-            
+            let coefficients = this.Q |> Map.toList |> List.sortBy (fun ((i, j), _) -> (i, j))
+
             for ((i, j), coef) in coefficients do
                 if abs coef > 1e-10 then // Ignore near-zero coefficients
                     if i = j then
                         // Diagonal term (linear coefficient)
                         let color = if coef > 0.0 then "red" else "green"
                         sb.AppendLine($"        v%d{i} -.\"%.2f{coef}\".-> v%d{i}") |> ignore
-                        sb.AppendLine($"        style v%d{i} stroke:%s{color},stroke-width:3px") |> ignore
+
+                        sb.AppendLine($"        style v%d{i} stroke:%s{color},stroke-width:3px")
+                        |> ignore
                     else
                         // Off-diagonal term (quadratic coefficient)
                         let style = if coef > 0.0 then "solid" else "dashed"
                         sb.AppendLine($"        v%d{i} ==\"%.2f{coef}\"==> v%d{j}") |> ignore
-            
+
             sb.AppendLine("    end") |> ignore
             sb.AppendLine("```") |> ignore
             sb.ToString()
-        
+
         /// Generate ASCII representation of QUBO matrix
         member this.ToASCII() : string =
             let sb = StringBuilder()
@@ -181,44 +181,49 @@ module SolutionVisualizationExtensions =
             sb.AppendLine($"Variables: %d{this.NumVariables}") |> ignore
             sb.AppendLine($"Non-zero coefficients: %d{this.Q.Count}") |> ignore
             sb.AppendLine("") |> ignore
-            
+
             // Separate linear and quadratic terms
-            let linearTerms = 
-                this.Q 
-                |> Map.toList 
+            let linearTerms =
+                this.Q
+                |> Map.toList
                 |> List.filter (fun ((i, j), _) -> i = j)
                 |> List.sortBy fst
-            
-            let quadraticTerms = 
-                this.Q 
-                |> Map.toList 
+
+            let quadraticTerms =
+                this.Q
+                |> Map.toList
                 |> List.filter (fun ((i, j), _) -> i <> j)
                 |> List.sortBy fst
-            
+
             // Display linear terms
             if not linearTerms.IsEmpty then
                 sb.AppendLine("Linear Terms (diagonal):") |> ignore
+
                 for ((i, _), coef) in linearTerms do
                     sb.AppendLine($"  x_%d{i}: %.4f{coef}") |> ignore
+
                 sb.AppendLine("") |> ignore
-            
+
             // Display quadratic terms
             if not quadraticTerms.IsEmpty then
                 sb.AppendLine("Quadratic Terms (off-diagonal):") |> ignore
+
                 for ((i, j), coef) in quadraticTerms do
                     sb.AppendLine($"  x_%d{i} * x_%d{j}: %.4f{coef}") |> ignore
+
                 sb.AppendLine("") |> ignore
-            
+
             // Summary statistics
             let allCoefs = this.Q |> Map.toList |> List.map snd
+
             if not allCoefs.IsEmpty then
                 let minCoef = List.min allCoefs
                 let maxCoef = List.max allCoefs
                 let avgCoef = List.average allCoefs
-                
+
                 sb.AppendLine("Statistics:") |> ignore
                 sb.AppendLine($"  Min coefficient: %.4f{minCoef}") |> ignore
                 sb.AppendLine($"  Max coefficient: %.4f{maxCoef}") |> ignore
                 sb.AppendLine($"  Avg coefficient: %.4f{avgCoef}") |> ignore
-            
+
             sb.ToString()

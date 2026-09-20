@@ -16,28 +16,29 @@ module SimilaritySearchBuilderTests =
     // ========================================================================
 
     /// Test items: fruit names with feature vectors
-    let private testItems : (string * float array) array =
+    let private testItems: (string * float array) array =
         [|
-            ("apple",  [| 1.0; 0.1; 0.0 |])
+            ("apple", [| 1.0; 0.1; 0.0 |])
             ("banana", [| 0.9; 0.2; 0.1 |])
             ("cherry", [| 0.8; 0.3; 0.0 |])
-            ("date",   [| 0.1; 0.9; 0.8 |])
-            ("elder",  [| 0.0; 0.8; 0.9 |])
+            ("date", [| 0.1; 0.9; 0.8 |])
+            ("elder", [| 0.0; 0.8; 0.9 |])
         |]
 
-    let private defaultProblem : SearchProblem<string> = {
-        Items = testItems
-        Metric = Cosine
-        Threshold = 0.5
-        Backend = None
-        Shots = 100
-        Verbose = false
-        SavePath = None
-        Note = None
-        ProgressReporter = None
-        CancellationToken = None
-        Logger = None
-    }
+    let private defaultProblem: SearchProblem<string> =
+        {
+            Items = testItems
+            Metric = Cosine
+            Threshold = 0.5
+            Backend = None
+            Shots = 100
+            Verbose = false
+            SavePath = None
+            Note = None
+            ProgressReporter = None
+            CancellationToken = None
+            Logger = None
+        }
 
     // ========================================================================
     // VALIDATION TESTS
@@ -46,45 +47,42 @@ module SimilaritySearchBuilderTests =
     [<Fact>]
     let ``build with empty items should return ValidationError`` () =
         let problem = { defaultProblem with Items = [||] }
+
         match build problem with
-        | Error (QuantumError.ValidationError ("Input", msg)) ->
-            Assert.Contains("empty", msg)
+        | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("empty", msg)
         | other -> failwith $"Expected ValidationError for empty items, got {other}"
 
     [<Fact>]
     let ``build with threshold below 0 should return ValidationError`` () =
         let problem = { defaultProblem with Threshold = -0.1 }
+
         match build problem with
-        | Error (QuantumError.ValidationError ("Input", msg)) ->
-            Assert.Contains("Threshold", msg)
+        | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("Threshold", msg)
         | other -> failwith $"Expected ValidationError for negative threshold, got {other}"
 
     [<Fact>]
     let ``build with threshold above 1 should return ValidationError`` () =
         let problem = { defaultProblem with Threshold = 1.5 }
+
         match build problem with
-        | Error (QuantumError.ValidationError ("Input", msg)) ->
-            Assert.Contains("Threshold", msg)
+        | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("Threshold", msg)
         | other -> failwith $"Expected ValidationError for threshold > 1, got {other}"
 
     [<Fact>]
     let ``build with zero shots should return ValidationError`` () =
         let problem = { defaultProblem with Shots = 0 }
+
         match build problem with
-        | Error (QuantumError.ValidationError ("Input", msg)) ->
-            Assert.Contains("Shots", msg)
+        | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("Shots", msg)
         | other -> failwith $"Expected ValidationError for zero shots, got {other}"
 
     [<Fact>]
     let ``build with mismatched feature lengths should return ValidationError`` () =
-        let items = [|
-            ("a", [| 1.0; 2.0 |])
-            ("b", [| 1.0; 2.0; 3.0 |])
-        |]
+        let items = [| ("a", [| 1.0; 2.0 |]); ("b", [| 1.0; 2.0; 3.0 |]) |]
         let problem = { defaultProblem with Items = items }
+
         match build problem with
-        | Error (QuantumError.ValidationError ("Input", msg)) ->
-            Assert.Contains("same length", msg)
+        | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("same length", msg)
         | other -> failwith $"Expected ValidationError for mismatched features, got {other}"
 
     // ========================================================================
@@ -106,7 +104,11 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``build with Euclidean metric should succeed`` () =
-        let problem = { defaultProblem with Metric = Euclidean }
+        let problem =
+            { defaultProblem with
+                Metric = Euclidean
+            }
+
         match build problem with
         | Ok index ->
             Assert.Equal(Euclidean, index.Metric)
@@ -115,23 +117,54 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``build with QuantumKernel metric should succeed`` () =
-        let problem = { defaultProblem with Metric = QuantumKernel }
+        let problem =
+            { defaultProblem with
+                Metric = QuantumKernel
+            }
+
         match build problem with
         | Ok index ->
             Assert.Equal(QuantumKernel, index.Metric)
             // Kernel matrix may or may not be computed depending on backend
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         | Error e -> failwith $"Expected Ok, got Error: {e}"
 
     [<Fact>]
     let ``build with explicit backend should succeed`` () =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
-        let problem = { defaultProblem with Backend = Some quantumBackend }
-        (build problem) |> Result.map (fun index -> Assert.Equal(5, index.Items.Length)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        let problem =
+            { defaultProblem with
+                Backend = Some quantumBackend
+            }
+
+        (build problem)
+        |> Result.map (fun index -> Assert.Equal(5, index.Items.Length))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``build with note should preserve note in metadata`` () =
-        let problem = { defaultProblem with Note = Some "test note" }
-        (build problem) |> Result.map (fun index -> Assert.Equal(Some "test note", index.Metadata.Note)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        let problem =
+            { defaultProblem with
+                Note = Some "test note"
+            }
+
+        (build problem)
+        |> Result.map (fun index -> Assert.Equal(Some "test note", index.Metadata.Note))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     // ========================================================================
     // FIND SIMILAR TESTS
@@ -141,6 +174,7 @@ module SimilaritySearchBuilderTests =
     let ``findSimilar should return matches ranked by similarity`` () =
         // Use threshold 0.0 so all items pass the filter (avoids Array.take bug when filtered < topN)
         let problem = { defaultProblem with Threshold = 0.0 }
+
         match build problem with
         | Ok index ->
             match findSimilar "apple" [| 1.0; 0.1; 0.0 |] 3 index with
@@ -159,6 +193,7 @@ module SimilaritySearchBuilderTests =
     let ``findSimilar should not include query item itself in results`` () =
         // Use threshold 0.0 so all items pass the filter
         let problem = { defaultProblem with Threshold = 0.0 }
+
         match build problem with
         | Ok index ->
             match findSimilar "apple" [| 1.0; 0.1; 0.0 |] 4 index with
@@ -170,20 +205,33 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``findSimilar with Euclidean metric should return valid similarities`` () =
-        let problem = { defaultProblem with Metric = Euclidean; Threshold = 0.0 }
+        let problem =
+            { defaultProblem with
+                Metric = Euclidean
+                Threshold = 0.0
+            }
+
         match build problem with
         | Ok index ->
             match findSimilar "apple" [| 1.0; 0.1; 0.0 |] 3 index with
             | Ok results ->
-                results.Matches |> Array.iter (fun m ->
-                    Assert.True(m.Similarity >= 0.0 && m.Similarity <= 1.0,
-                        $"Euclidean similarity should be in [0,1], got {m.Similarity}"))
+                results.Matches
+                |> Array.iter (fun m ->
+                    Assert.True(
+                        m.Similarity >= 0.0 && m.Similarity <= 1.0,
+                        $"Euclidean similarity should be in [0,1], got {m.Similarity}"
+                    ))
             | Error e -> failwith $"Expected Ok from findSimilar, got Error: {e}"
         | Error e -> failwith $"Expected Ok from build, got Error: {e}"
 
     [<Fact>]
     let ``findSimilar should record search time`` () =
-        (build defaultProblem) |> Result.map (fun index -> (findSimilar "apple" [| 1.0; 0.1; 0.0 |] 2 index) |> Result.map (fun results -> Assert.True(results.SearchTime >= TimeSpan.Zero)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")) |> Result.defaultWith (fun e -> failwith $"Expected Ok from build, got Error: {e}")
+        (build defaultProblem)
+        |> Result.map (fun index ->
+            (findSimilar "apple" [| 1.0; 0.1; 0.0 |] 2 index)
+            |> Result.map (fun results -> Assert.True(results.SearchTime >= TimeSpan.Zero))
+            |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}"))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok from build, got Error: {e}")
 
     // ========================================================================
     // FIND ALL SIMILAR TESTS
@@ -192,19 +240,24 @@ module SimilaritySearchBuilderTests =
     [<Fact>]
     let ``findAllSimilar should return all items above threshold`` () =
         let problem = { defaultProblem with Threshold = 0.9 }
+
         match build problem with
         | Ok index ->
             match findAllSimilar [| 1.0; 0.1; 0.0 |] index with
             | Ok matches ->
-                matches |> Array.iter (fun m ->
-                    Assert.True(m.Similarity >= 0.9,
-                        $"All matches should be >= threshold 0.9, got {m.Similarity}"))
+                matches
+                |> Array.iter (fun m ->
+                    Assert.True(m.Similarity >= 0.9, $"All matches should be >= threshold 0.9, got {m.Similarity}"))
             | Error e -> failwith $"Expected Ok, got Error: {e}"
         | Error e -> failwith $"Expected Ok from build, got Error: {e}"
 
     [<Fact>]
     let ``findAllSimilar with very high threshold should return few or no matches`` () =
-        let problem = { defaultProblem with Threshold = 0.999 }
+        let problem =
+            { defaultProblem with
+                Threshold = 0.999
+            }
+
         match build problem with
         | Ok index ->
             match findAllSimilar [| 0.5; 0.5; 0.5 |] index with
@@ -221,19 +274,27 @@ module SimilaritySearchBuilderTests =
     [<Fact>]
     let ``findDuplicates with high threshold should find near-identical items`` () =
         // Add near-duplicates to test
-        let items = [|
-            ("a", [| 1.0; 0.0; 0.0 |])
-            ("b", [| 0.99; 0.01; 0.0 |])  // near-duplicate of a
-            ("c", [| 0.0; 1.0; 0.0 |])
-            ("d", [| 0.0; 0.99; 0.01 |])  // near-duplicate of c
-        |]
-        let problem = { defaultProblem with Items = items; Threshold = 0.5 }
+        let items =
+            [|
+                ("a", [| 1.0; 0.0; 0.0 |])
+                ("b", [| 0.99; 0.01; 0.0 |]) // near-duplicate of a
+                ("c", [| 0.0; 1.0; 0.0 |])
+                ("d", [| 0.0; 0.99; 0.01 |]) // near-duplicate of c
+            |]
+
+        let problem =
+            { defaultProblem with
+                Items = items
+                Threshold = 0.5
+            }
+
         match build problem with
         | Ok index ->
             match findDuplicates 0.99 index with
             | Ok groups ->
                 // Should find at least one duplicate group
-                groups |> Array.iter (fun g ->
+                groups
+                |> Array.iter (fun g ->
                     Assert.True(g.Items.Length >= 2, "Duplicate groups should have >= 2 items")
                     Assert.True(g.AvgSimilarity >= 0.99))
             | Error e -> failwith $"Expected Ok, got Error: {e}"
@@ -244,7 +305,7 @@ module SimilaritySearchBuilderTests =
         match build defaultProblem with
         | Ok index ->
             match findDuplicates 1.5 index with
-            | Error (QuantumError.ValidationError ("Threshold", _)) -> ()
+            | Error(QuantumError.ValidationError("Threshold", _)) -> ()
             | other -> failwith $"Expected ValidationError for invalid threshold, got {other}"
         | Error e -> failwith $"Expected Ok from build, got Error: {e}"
 
@@ -255,8 +316,7 @@ module SimilaritySearchBuilderTests =
             match findDuplicates 0.5 index with
             | Ok groups ->
                 // With a low threshold, we may find groups (or not depending on data)
-                groups |> Array.iter (fun g ->
-                    Assert.True(g.Items.Length >= 2))
+                groups |> Array.iter (fun g -> Assert.True(g.Items.Length >= 2))
             | Error e -> failwith $"Expected Ok, got Error: {e}"
         | Error e -> failwith $"Expected Ok from build, got Error: {e}"
 
@@ -282,13 +342,17 @@ module SimilaritySearchBuilderTests =
         match build defaultProblem with
         | Ok index ->
             match cluster 0 10 index with
-            | Error (QuantumError.ValidationError ("Input", _)) -> ()
+            | Error(QuantumError.ValidationError("Input", _)) -> ()
             | other -> failwith $"Expected ValidationError for 0 clusters, got {other}"
         | Error e -> failwith $"Expected Ok from build, got Error: {e}"
 
     [<Fact>]
     let ``cluster with more clusters than items should return error`` () =
-        (build defaultProblem) |> Result.map (fun index -> (cluster 10 10 index) |> Result.iter (fun _ -> failwith "Expected error for numClusters > numItems")) |> Result.defaultWith (fun e -> failwith $"Expected Ok from build, got Error: {e}")
+        (build defaultProblem)
+        |> Result.map (fun index ->
+            (cluster 10 10 index)
+            |> Result.iter (fun _ -> failwith "Expected error for numClusters > numItems"))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok from build, got Error: {e}")
 
     // ========================================================================
     // COMPUTATION EXPRESSION TESTS
@@ -296,27 +360,29 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``CE similaritySearch with indexItems should build successfully`` () =
-        let result = similaritySearch<string> {
-            indexItems testItems
-        }
+        let result = similaritySearch<string> { indexItems testItems }
+
         match result with
         | Ok index ->
             Assert.Equal(5, index.Items.Length)
-            Assert.Equal(Cosine, index.Metric)  // default
-            Assert.Equal(0.7, index.Threshold)  // default
+            Assert.Equal(Cosine, index.Metric) // default
+            Assert.Equal(0.7, index.Threshold) // default
         | Error e -> failwith $"Expected Ok, got Error: {e}"
 
     [<Fact>]
     let ``CE similaritySearch with all options should succeed`` () =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
-        let result = similaritySearch<string> {
-            indexItems testItems
-            similarityMetric Euclidean
-            threshold 0.3
-            backend quantumBackend
-            shots 200
-            note "test similarity search"
-        }
+
+        let result =
+            similaritySearch<string> {
+                indexItems testItems
+                similarityMetric Euclidean
+                threshold 0.3
+                backend quantumBackend
+                shots 200
+                note "test similarity search"
+            }
+
         match result with
         | Ok index ->
             Assert.Equal(Euclidean, index.Metric)
@@ -326,28 +392,32 @@ module SimilaritySearchBuilderTests =
 
     [<Fact>]
     let ``CE similaritySearch with empty items should return error`` () =
-        let result = similaritySearch<string> {
-            indexItems [||]
-        }
+        let result = similaritySearch<string> { indexItems [||] }
+
         match result with
-        | Error (QuantumError.ValidationError ("Input", msg)) ->
-            Assert.Contains("empty", msg)
+        | Error(QuantumError.ValidationError("Input", msg)) -> Assert.Contains("empty", msg)
         | other -> failwith $"Expected ValidationError for empty items, got {other}"
 
     [<Fact>]
     let ``CE similaritySearch with QuantumKernel metric should succeed`` () =
-        let result = similaritySearch<string> {
-            indexItems testItems
-            similarityMetric QuantumKernel
-        }
-        result |> Result.map (fun index -> Assert.Equal(QuantumKernel, index.Metric)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        let result =
+            similaritySearch<string> {
+                indexItems testItems
+                similarityMetric QuantumKernel
+            }
+
+        result
+        |> Result.map (fun index -> Assert.Equal(QuantumKernel, index.Metric))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``CE similaritySearch with invalid threshold should return error`` () =
-        let result = similaritySearch<string> {
-            indexItems testItems
-            threshold 2.0
-        }
+        let result =
+            similaritySearch<string> {
+                indexItems testItems
+                threshold 2.0
+            }
+
         match result with
-        | Error (QuantumError.ValidationError _) -> ()
+        | Error(QuantumError.ValidationError _) -> ()
         | other -> failwith $"Expected ValidationError for invalid threshold, got {other}"

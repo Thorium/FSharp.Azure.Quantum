@@ -1,20 +1,20 @@
 ﻿/// Quantum Teleportation Protocol Example
-/// 
+///
 /// Demonstrates the canonical quantum teleportation protocol:
 /// - Transfer quantum state from Alice to Bob using entanglement
 /// - Uses pre-shared Bell pair + 2 classical bits
 /// - Original state destroyed (no-cloning theorem)
-/// 
+///
 /// **Textbook References**:
 /// - Nielsen & Chuang "Quantum Computation and Quantum Information" - Section 1.3.7
 /// - "Learn Quantum Computing with Python and Q#" (Kaiser, 2021) - Chapter 8
 /// - "Quantum Programming in Depth" (Manning, 2024) - Chapter 10
-/// 
+///
 /// **Production Use Cases**:
 /// - Quantum Networks (transfer states between nodes)
 /// - Quantum Repeaters (extend communication range)
 /// - Distributed Quantum Computing (move data between processors)
-/// 
+///
 /// **Real-World Deployments**:
 /// - Micius satellite: 1400 km teleportation (2017)
 /// - USTC China: 143 km fiber teleportation (2012)
@@ -96,21 +96,33 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "QuantumTeleportationExample.fsx"
     "Demonstrate quantum teleportation of various quantum states."
-    [ { Cli.OptionSpec.Name = "state"
-        Description = "State to teleport: zero|one|plus|minus|stats|all"
-        Default = Some "all" }
-      { Cli.OptionSpec.Name = "runs"
-        Description = "Number of runs for statistics test"
-        Default = Some "20" }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress printed output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "state"
+            Description = "State to teleport: zero|one|plus|minus|stats|all"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "runs"
+            Description = "Number of runs for statistics test"
+            Default = Some "20"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress printed output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -130,12 +142,14 @@ let shouldRun name = stateName = "all" || stateName = name
 
 /// Build a structured result row from a teleportation result.
 let resultRow (test: string) (result: TeleportationResult) : Map<string, string> =
-    [ "test", test
-      "alice_measurement", $"%A{result.AliceMeasurement}"
-      "bob_correction", $"%A{result.BobCorrection}"
-      "fidelity", $"%.4f{result.Fidelity}"
-      "num_qubits", string result.NumQubits
-      "backend", result.BackendName ]
+    [
+        "test", test
+        "alice_measurement", $"%A{result.AliceMeasurement}"
+        "bob_correction", $"%A{result.BobCorrection}"
+        "fidelity", $"%.4f{result.Fidelity}"
+        "num_qubits", string result.NumQubits
+        "backend", result.BackendName
+    ]
     |> Map.ofList
 
 // ---------------------------------------------------------------------------
@@ -174,9 +188,12 @@ if shouldRun "zero" then
         if not quiet then
             printfn "%s" (formatResult result)
             printfn ""
+
         results.Add(resultRow "zero" result)
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
+
         printfn ""
 
 // ---------------------------------------------------------------------------
@@ -193,9 +210,12 @@ if shouldRun "one" then
         if not quiet then
             printfn "%s" (formatResult result)
             printfn ""
+
         results.Add(resultRow "one" result)
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
+
         printfn ""
 
 // ---------------------------------------------------------------------------
@@ -214,9 +234,12 @@ if shouldRun "plus" then
         if not quiet then
             printfn "%s" (formatResult result)
             printfn ""
+
         results.Add(resultRow "plus" result)
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
+
         printfn ""
 
 // ---------------------------------------------------------------------------
@@ -235,9 +258,12 @@ if shouldRun "minus" then
         if not quiet then
             printfn "%s" (formatResult result)
             printfn ""
+
         results.Add(resultRow "minus" result)
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
+
         printfn ""
 
 // ---------------------------------------------------------------------------
@@ -252,7 +278,7 @@ if shouldRun "stats" then
     let prepareInputState (b: IQuantumBackend) =
         result {
             let! state = b.InitializeState 3
-            return! b.ApplyOperation (QuantumOperation.Gate (H 0)) state
+            return! b.ApplyOperation (QuantumOperation.Gate(H 0)) state
         }
 
     match runStatistics prepareInputState backend numRuns with
@@ -264,7 +290,9 @@ if shouldRun "stats" then
         for (i, r) in statsResults |> List.mapi (fun i r -> (i, r)) do
             results.Add(resultRow (sprintf "stats_run_%d" (i + 1)) r)
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
+
         printfn ""
 
 // ---------------------------------------------------------------------------
@@ -279,11 +307,20 @@ match outputPath with
 
 match csvPath with
 | Some p ->
-    let header = ["test"; "alice_measurement"; "bob_correction"; "fidelity"; "num_qubits"; "backend"]
+    let header =
+        [
+            "test"
+            "alice_measurement"
+            "bob_correction"
+            "fidelity"
+            "num_qubits"
+            "backend"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv p header rows
 | None -> ()
 

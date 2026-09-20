@@ -32,22 +32,33 @@ open FSharp.Azure.Quantum.Quantum
 
 let accounts =
     [ "A"; "B"; "C"; "D"; "E"; "F"; "G" ]
-    |> List.map (fun id -> { QuantumCliqueSolver.Id = id; QuantumCliqueSolver.Weight = 1.0 })
+    |> List.map (fun id ->
+        {
+            QuantumCliqueSolver.Id = id
+            QuantumCliqueSolver.Weight = 1.0
+        })
 
 let idx = accounts |> List.mapi (fun i v -> v.Id, i) |> Map.ofList
 
 // "transacted-with" links (undirected)
 let links =
-    [ "A","B"; "A","C"; "A","D"; "A","E"
-      "B","C"; "B","D"; "B","E"
-      "C","D"; "C","E"
-      "D","E"                         // A-B-C-D-E fully connected → the ring
-      "A","F"; "F","G" ]              // ordinary customers on the fringe
+    [
+        "A", "B"
+        "A", "C"
+        "A", "D"
+        "A", "E"
+        "B", "C"
+        "B", "D"
+        "B", "E"
+        "C", "D"
+        "C", "E"
+        "D", "E" // A-B-C-D-E fully connected → the ring
+        "A", "F"
+        "F", "G"
+    ] // ordinary customers on the fringe
     |> List.map (fun (a, b) -> idx.[a], idx.[b])
 
-let problem : QuantumCliqueSolver.Problem =
-    { Vertices = accounts
-      Edges = links }
+let problem: QuantumCliqueSolver.Problem = { Vertices = accounts; Edges = links }
 
 // ---------------------------------------------------------------------------
 // Solve on the local simulator (a real quantum backend). Pass a cloud backend
@@ -55,9 +66,14 @@ let problem : QuantumCliqueSolver.Problem =
 // ---------------------------------------------------------------------------
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
 [<Literal>]
 let shots = 1000
-let config = { QuantumCliqueSolver.defaultConfig with FinalShots = shots }
+
+let config =
+    { QuantumCliqueSolver.defaultConfig with
+        FinalShots = shots
+    }
 
 printfn "Fraud-Ring Detection — Maximum Clique (QAOA)\n"
 printfn "Accounts: %d, transaction links: %d\n" accounts.Length links.Length
@@ -75,6 +91,7 @@ match result with
     printfn "All pairs connected  : %b" solution.IsValid
     printfn "Constraint repaired  : %b" solution.WasRepaired
     printfn "Backend              : %s (%d shots)" solution.BackendName solution.NumShots
+
     if solution.CliqueSize >= 5 then
         printfn "\n⚠  A ring of %d fully-colluding accounts detected — flag for investigation." solution.CliqueSize
 | Error err ->

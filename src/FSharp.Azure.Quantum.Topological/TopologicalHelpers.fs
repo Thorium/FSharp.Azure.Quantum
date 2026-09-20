@@ -14,12 +14,10 @@ module TopologicalHelpers =
     // ========================================================================
 
     /// Create complex number from polar form: r * e^(iθ)
-    let inline polar (r: float) (theta: float) : Complex =
-        Complex(r * cos theta, r * sin theta)
+    let inline polar (r: float) (theta: float) : Complex = Complex(r * cos theta, r * sin theta)
 
     /// Create unit complex number: e^(iθ)
-    let inline expI (theta: float) : Complex =
-        polar 1.0 theta
+    let inline expI (theta: float) : Complex = polar 1.0 theta
 
     /// Pi constant for readability
     let π = Math.PI
@@ -40,6 +38,7 @@ module TopologicalHelpers =
     /// Format a complex number for display
     let formatComplex (z: Complex) : string =
         let re, im = z.Real, z.Imaginary
+
         match abs re < 1e-10, abs im < 1e-10 with
         | true, true -> "0"
         | true, false -> $"%.6f{im}i"

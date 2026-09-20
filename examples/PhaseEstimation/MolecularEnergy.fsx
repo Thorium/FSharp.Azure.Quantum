@@ -36,13 +36,43 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "MolecularEnergy.fsx"
     "Quantum Phase Estimation for molecular energy calculation"
-    [ { Name = "scenario"; Description = "Which scenario (all|tgate|molecular|crystal)"; Default = Some "all" }
-      { Name = "precision"; Description = "Precision qubits for estimation"; Default = Some "10" }
-      { Name = "theta"; Description = "Rotation angle for molecular scenario (radians)"; Default = Some "1.0472" }
-      { Name = "phase-angle"; Description = "Phase angle for crystal scenario (radians)"; Default = Some "0.7854" }
-      { Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    [
+        {
+            Name = "scenario"
+            Description = "Which scenario (all|tgate|molecular|crystal)"
+            Default = Some "all"
+        }
+        {
+            Name = "precision"
+            Description = "Precision qubits for estimation"
+            Default = Some "10"
+        }
+        {
+            Name = "theta"
+            Description = "Rotation angle for molecular scenario (radians)"
+            Default = Some "1.0472"
+        }
+        {
+            Name = "phase-angle"
+            Description = "Phase angle for crystal scenario (radians)"
+            Default = Some "0.7854"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -53,31 +83,51 @@ let cliPrecision = Cli.getIntOr "precision" 10 args
 let theta = Cli.getFloatOr "theta" (Math.PI / 3.0) args
 let phaseAngle = Cli.getFloatOr "phase-angle" (Math.PI / 4.0) args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
 let shouldRun key = scenario = "all" || scenario = key
 
 // --- Result Type ---
 
 type QPEResult =
-    { Scenario: string
-      Label: string
-      Phase: float
-      ExpectedPhase: float
-      PhaseError: float
-      Qubits: int
-      GateCount: int
-      PrecisionBits: int
-      Note: string }
+    {
+        Scenario: string
+        Label: string
+        Phase: float
+        ExpectedPhase: float
+        PhaseError: float
+        Qubits: int
+        GateCount: int
+        PrecisionBits: int
+        Note: string
+    }
 
-let mutable jsonResults : QPEResult list = []
-let mutable csvRows : string list list = []
+let mutable jsonResults: QPEResult list = []
+let mutable csvRows: string list list = []
 
 let record (r: QPEResult) =
     jsonResults <- jsonResults @ [ r ]
-    csvRows <- csvRows @ [
-        [ r.Scenario; r.Label; $"%.6f{r.Phase}"; $"%.6f{r.ExpectedPhase}"
-          $"%.6f{r.PhaseError}"; string r.Qubits; string r.GateCount
-          string r.PrecisionBits; r.Note ] ]
+
+    csvRows <-
+        csvRows
+        @ [
+            [
+                r.Scenario
+                r.Label
+                $"%.6f{r.Phase}"
+                $"%.6f{r.ExpectedPhase}"
+                $"%.6f{r.PhaseError}"
+                string r.Qubits
+                string r.GateCount
+                string r.PrecisionBits
+                r.Note
+            ]
+        ]
 
 // ============================================================================
 // SCENARIO 1: T-Gate Phase Estimation (Educational)
@@ -89,11 +139,12 @@ if shouldRun "tgate" then
     pr "The T-gate has eigenvalue e^(i*pi/4), so phase = 1/8 = 0.125"
     pr ""
 
-    let tGateProblem = phaseEstimator {
-        unitary TGate
-        precision cliPrecision
-        backend quantumBackend
-    }
+    let tGateProblem =
+        phaseEstimator {
+            unitary TGate
+            precision cliPrecision
+            backend quantumBackend
+        }
 
     match tGateProblem with
     | Ok prob ->
@@ -111,11 +162,17 @@ if shouldRun "tgate" then
             pr ""
 
             record
-                { Scenario = "tgate"; Label = "T-Gate Phase"
-                  Phase = result.Phase; ExpectedPhase = expected; PhaseError = err
-                  Qubits = result.TotalQubits; GateCount = result.GateCount
-                  PrecisionBits = result.Precision
-                  Note = $"eigenvalue magnitude=%.4f{result.Eigenvalue.Magnitude}" }
+                {
+                    Scenario = "tgate"
+                    Label = "T-Gate Phase"
+                    Phase = result.Phase
+                    ExpectedPhase = expected
+                    PhaseError = err
+                    Qubits = result.TotalQubits
+                    GateCount = result.GateCount
+                    PrecisionBits = result.Precision
+                    Note = $"eigenvalue magnitude=%.4f{result.Eigenvalue.Magnitude}"
+                }
 
         | Error err -> pr "  [ERROR] Execution: %s" err.Message
 
@@ -132,12 +189,13 @@ if shouldRun "molecular" then
     pr "  Rotation angle: %.4f radians (%.1f deg)" theta (theta * 180.0 / Math.PI)
     pr ""
 
-    let molecularProblem = phaseEstimator {
-        unitary (RotationZ theta)
-        precision (max cliPrecision 12)
-        targetQubits 1
-        backend quantumBackend
-    }
+    let molecularProblem =
+        phaseEstimator {
+            unitary (RotationZ theta)
+            precision (max cliPrecision 12)
+            targetQubits 1
+            backend quantumBackend
+        }
 
     match molecularProblem with
     | Ok prob ->
@@ -159,11 +217,17 @@ if shouldRun "molecular" then
             pr ""
 
             record
-                { Scenario = "molecular"; Label = "Molecular Rotation"
-                  Phase = result.Phase; ExpectedPhase = expectedPhase; PhaseError = err
-                  Qubits = result.TotalQubits; GateCount = result.GateCount
-                  PrecisionBits = prob.Precision
-                  Note = $"energy=%.6f{energyAU} a.u., theta=%.4f{theta}" }
+                {
+                    Scenario = "molecular"
+                    Label = "Molecular Rotation"
+                    Phase = result.Phase
+                    ExpectedPhase = expectedPhase
+                    PhaseError = err
+                    Qubits = result.TotalQubits
+                    GateCount = result.GateCount
+                    PrecisionBits = prob.Precision
+                    Note = $"energy=%.6f{energyAU} a.u., theta=%.4f{theta}"
+                }
 
         | Error err -> pr "  [ERROR] Execution: %s" err.Message
 
@@ -180,11 +244,12 @@ if shouldRun "crystal" then
     pr "  Application: Electronic band structure prediction"
     pr ""
 
-    let materialProblem = phaseEstimator {
-        unitary (PhaseGate phaseAngle)
-        precision (max cliPrecision 12)
-        backend quantumBackend
-    }
+    let materialProblem =
+        phaseEstimator {
+            unitary (PhaseGate phaseAngle)
+            precision (max cliPrecision 12)
+            backend quantumBackend
+        }
 
     match materialProblem with
     | Ok problem ->
@@ -203,11 +268,17 @@ if shouldRun "crystal" then
             pr ""
 
             record
-                { Scenario = "crystal"; Label = "Crystal Lattice"
-                  Phase = result.Phase; ExpectedPhase = expectedPhase; PhaseError = err
-                  Qubits = result.TotalQubits; GateCount = result.GateCount
-                  PrecisionBits = problem.Precision
-                  Note = $"phaseAngle=%.4f{phaseAngle} rad" }
+                {
+                    Scenario = "crystal"
+                    Label = "Crystal Lattice"
+                    Phase = result.Phase
+                    ExpectedPhase = expectedPhase
+                    PhaseError = err
+                    Qubits = result.TotalQubits
+                    GateCount = result.GateCount
+                    PrecisionBits = problem.Precision
+                    Note = $"phaseAngle=%.4f{phaseAngle} rad"
+                }
 
         | Error err -> pr "  [ERROR] %s" err.Message
 
@@ -220,23 +291,38 @@ outputPath
     let payload =
         jsonResults
         |> List.map (fun r ->
-            dict [
-                "scenario", box r.Scenario
-                "label", box r.Label
-                "phase", box r.Phase
-                "expectedPhase", box r.ExpectedPhase
-                "phaseError", box r.PhaseError
-                "qubits", box r.Qubits
-                "gateCount", box r.GateCount
-                "precisionBits", box r.PrecisionBits
-                "note", box r.Note ])
+            dict
+                [
+                    "scenario", box r.Scenario
+                    "label", box r.Label
+                    "phase", box r.Phase
+                    "expectedPhase", box r.ExpectedPhase
+                    "phaseError", box r.PhaseError
+                    "qubits", box r.Qubits
+                    "gateCount", box r.GateCount
+                    "precisionBits", box r.PrecisionBits
+                    "note", box r.Note
+                ])
+
     Reporting.writeJson path payload)
 
 // --- CSV output ---
 
 csvPath
 |> Option.iter (fun path ->
-    let header = [ "scenario"; "label"; "phase"; "expectedPhase"; "phaseError"; "qubits"; "gateCount"; "precisionBits"; "note" ]
+    let header =
+        [
+            "scenario"
+            "label"
+            "phase"
+            "expectedPhase"
+            "phaseError"
+            "qubits"
+            "gateCount"
+            "precisionBits"
+            "note"
+        ]
+
     Reporting.writeCsv path header csvRows)
 
 // --- Summary ---
@@ -244,9 +330,10 @@ csvPath
 if not quiet then
     pr ""
     pr "=== Summary ==="
+
     jsonResults
-    |> List.iter (fun r ->
-        pr "  [OK] %-25s phase=%.6f (err=%.6f) %d qubits" r.Label r.Phase r.PhaseError r.Qubits)
+    |> List.iter (fun r -> pr "  [OK] %-25s phase=%.6f (err=%.6f) %d qubits" r.Label r.Phase r.PhaseError r.Qubits)
+
     pr ""
     pr "Key: QPE extracts eigenvalues in O(poly(n)/eps) vs O(N^3) classical"
     pr ""

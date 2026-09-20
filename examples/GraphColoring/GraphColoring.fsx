@@ -91,21 +91,33 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "GraphColoring.fsx"
     "Solve graph coloring problems using quantum QAOA optimization."
-    [ { Cli.OptionSpec.Name = "example"
-        Description = "Example to run: registers|frequency|exams|cycle|dense|precolored|all"
-        Default = Some "all" }
-      { Cli.OptionSpec.Name = "colors"
-        Description = "Number of colors to try (where applicable)"
-        Default = Some "3" }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress printed output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "example"
+            Description = "Example to run: registers|frequency|exams|cycle|dense|precolored|all"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "colors"
+            Description = "Number of colors to try (where applicable)"
+            Default = Some "3"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress printed output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -125,12 +137,15 @@ let resultRow (example: string) (solution: GraphColoring.ColoringSolution) : Map
         |> Map.toList
         |> List.map (fun (k, v) -> $"%s{k}=%s{v}")
         |> String.concat ";"
-    [ "example", example
-      "colors_used", string solution.ColorsUsed
-      "conflicts", string solution.ConflictCount
-      "valid", string solution.IsValid
-      "assignments", assignments
-      "backend", solution.BackendName ]
+
+    [
+        "example", example
+        "colors_used", string solution.ColorsUsed
+        "conflicts", string solution.ConflictCount
+        "valid", string solution.IsValid
+        "assignments", assignments
+        "backend", solution.BackendName
+    ]
     |> Map.ofList
 
 /// Solve a graph coloring problem, print results, and return a result row on success.
@@ -146,22 +161,30 @@ let solveAndReport
             printfn "  Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
             printfn ""
             printfn "  Assignments:"
+
             for (node, color) in Map.toList solution.Assignments do
                 printfn "    %s -> %s" node color
+
             printfn ""
             printfn "  Color Distribution:"
+
             for (color, count) in Map.toList solution.ColorDistribution do
                 printfn "    %s: %d vertices" color count
+
             printfn ""
-        Some (resultRow example solution)
+
+        Some(resultRow example solution)
     | Error err ->
         if not quiet then
             printfn "  Error: %s" err.Message
             printfn ""
+
         None
 
 let results = ResizeArray<Map<string, string>>()
-let shouldRun name = exampleName = "all" || exampleName = name
+
+let shouldRun name =
+    exampleName = "all" || exampleName = name
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 1: Register Allocation (Compiler Optimization)
@@ -177,17 +200,17 @@ if shouldRun "registers" then
         printfn "Conflicts: R1<->R2, R1<->R3, R2<->R4, R3<->R4"
         printfn ""
 
-    let registerProblem = graphColoring {
-        node "R1" ["R2"; "R3"]
-        node "R2" ["R1"; "R4"]
-        node "R3" ["R1"; "R4"]
-        node "R4" ["R2"; "R3"]
-        colors ["EAX"; "EBX"; "ECX"; "EDX"]
-        objective MinimizeColors
-    }
+    let registerProblem =
+        graphColoring {
+            node "R1" [ "R2"; "R3" ]
+            node "R2" [ "R1"; "R4" ]
+            node "R3" [ "R1"; "R4" ]
+            node "R4" [ "R2"; "R3" ]
+            colors [ "EAX"; "EBX"; "ECX"; "EDX" ]
+            objective MinimizeColors
+        }
 
-    solveAndReport "registers" registerProblem 4
-    |> Option.iter results.Add
+    solveAndReport "registers" registerProblem 4 |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 2: Frequency Assignment (Wireless Network Planning)
@@ -203,16 +226,16 @@ if shouldRun "frequency" then
         printfn "Interference pairs: 3 edges (complete triangle)"
         printfn ""
 
-    let frequencyProblem = graphColoring {
-        node "Tower1" ["Tower2"; "Tower3"]
-        node "Tower2" ["Tower1"; "Tower3"]
-        node "Tower3" ["Tower1"; "Tower2"]
-        colors ["F1"; "F2"; "F3"]
-        objective MinimizeColors
-    }
+    let frequencyProblem =
+        graphColoring {
+            node "Tower1" [ "Tower2"; "Tower3" ]
+            node "Tower2" [ "Tower1"; "Tower3" ]
+            node "Tower3" [ "Tower1"; "Tower2" ]
+            colors [ "F1"; "F2"; "F3" ]
+            objective MinimizeColors
+        }
 
-    solveAndReport "frequency" frequencyProblem 3
-    |> Option.iter results.Add
+    solveAndReport "frequency" frequencyProblem 3 |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 3: Exam Scheduling (University Timetabling)
@@ -228,16 +251,16 @@ if shouldRun "exams" then
         printfn "Student conflicts: 2 pairs"
         printfn ""
 
-    let examProblem = graphColoring {
-        node "Math101" ["CS101"; "Physics101"]
-        node "CS101" ["Math101"]
-        node "Physics101" ["Math101"]
-        colors ["Morning"; "Afternoon"; "Evening"]
-        objective MinimizeColors
-    }
+    let examProblem =
+        graphColoring {
+            node "Math101" [ "CS101"; "Physics101" ]
+            node "CS101" [ "Math101" ]
+            node "Physics101" [ "Math101" ]
+            colors [ "Morning"; "Afternoon"; "Evening" ]
+            objective MinimizeColors
+        }
 
-    solveAndReport "exams" examProblem 3
-    |> Option.iter results.Add
+    solveAndReport "exams" examProblem 3 |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 4: Cycle Graph Coloring
@@ -253,17 +276,17 @@ if shouldRun "cycle" then
         printfn "Known chromatic number: 2 colors"
         printfn ""
 
-    let cycleGraph = graphColoring {
-        node "V1" ["V2"; "V4"]
-        node "V2" ["V1"; "V3"]
-        node "V3" ["V2"; "V4"]
-        node "V4" ["V3"; "V1"]
-        colors ["Red"; "Green"; "Blue"]
-        objective MinimizeColors
-    }
+    let cycleGraph =
+        graphColoring {
+            node "V1" [ "V2"; "V4" ]
+            node "V2" [ "V1"; "V3" ]
+            node "V3" [ "V2"; "V4" ]
+            node "V4" [ "V3"; "V1" ]
+            colors [ "Red"; "Green"; "Blue" ]
+            objective MinimizeColors
+        }
 
-    solveAndReport "cycle" cycleGraph 3
-    |> Option.iter results.Add
+    solveAndReport "cycle" cycleGraph 3 |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 5: Complex Dense Graph
@@ -278,17 +301,17 @@ if shouldRun "dense" then
         printfn "Problem: Color 4-vertex graph with dense edges"
         printfn ""
 
-    let comparisonGraph = graphColoring {
-        node "A" ["B"; "C"]
-        node "B" ["A"; "C"; "D"]
-        node "C" ["A"; "B"; "D"]
-        node "D" ["B"; "C"]
-        colors ["Color1"; "Color2"; "Color3"]
-        objective MinimizeColors
-    }
+    let comparisonGraph =
+        graphColoring {
+            node "A" [ "B"; "C" ]
+            node "B" [ "A"; "C"; "D" ]
+            node "C" [ "A"; "B"; "D" ]
+            node "D" [ "B"; "C" ]
+            colors [ "Color1"; "Color2"; "Color3" ]
+            objective MinimizeColors
+        }
 
-    solveAndReport "dense" comparisonGraph 3
-    |> Option.iter results.Add
+    solveAndReport "dense" comparisonGraph 3 |> Option.iter results.Add
 
 // ---------------------------------------------------------------------------
 // EXAMPLE 6: Pre-colored Vertices (Fixed Colors)
@@ -303,20 +326,23 @@ if shouldRun "precolored" then
         printfn "Problem: R1 is pre-assigned to EAX, color the rest"
         printfn ""
 
-    let precoloredProblem = graphColoring {
-        nodes [
-            coloredNode {
-                nodeId "R1"
-                conflictsWith ["R2"; "R3"]
-                fixedColor "EAX"
-            }
-        ]
-        node "R2" ["R1"; "R4"]
-        node "R3" ["R1"; "R4"]
-        node "R4" ["R2"; "R3"]
-        colors ["EAX"; "EBX"; "ECX"; "EDX"]
-        objective MinimizeColors
-    }
+    let precoloredProblem =
+        graphColoring {
+            nodes
+                [
+                    coloredNode {
+                        nodeId "R1"
+                        conflictsWith [ "R2"; "R3" ]
+                        fixedColor "EAX"
+                    }
+                ]
+
+            node "R2" [ "R1"; "R4" ]
+            node "R3" [ "R1"; "R4" ]
+            node "R4" [ "R2"; "R3" ]
+            colors [ "EAX"; "EBX"; "ECX"; "EDX" ]
+            objective MinimizeColors
+        }
 
     match GraphColoring.solve precoloredProblem 4 None with
     | Ok solution ->
@@ -325,10 +351,13 @@ if shouldRun "precolored" then
             printfn "  Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
             printfn ""
             printfn "  Assignments:"
+
             for (var, register) in Map.toList solution.Assignments do
                 let marker = if var = "R1" then " (fixed)" else ""
                 printfn "    %s -> %s%s" var register marker
+
             printfn ""
+
         results.Add(resultRow "precolored" solution)
     | Error err ->
         if not quiet then
@@ -347,11 +376,13 @@ match outputPath with
 
 match csvPath with
 | Some p ->
-    let header = ["example"; "colors_used"; "conflicts"; "valid"; "assignments"; "backend"]
+    let header =
+        [ "example"; "colors_used"; "conflicts"; "valid"; "assignments"; "backend" ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv p header rows
 | None -> ()
 

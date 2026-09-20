@@ -104,17 +104,63 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "OptionPricing.fsx"
     "Quantum Monte Carlo option pricing with amplitude estimation."
-    [ { Cli.OptionSpec.Name = "spot";              Description = "Spot price";                          Default = Some "100" }
-      { Cli.OptionSpec.Name = "strike";            Description = "Strike price";                        Default = Some "105" }
-      { Cli.OptionSpec.Name = "rate";              Description = "Risk-free rate";                      Default = Some "0.05" }
-      { Cli.OptionSpec.Name = "volatility";        Description = "Volatility (annualized)";             Default = Some "0.2" }
-      { Cli.OptionSpec.Name = "expiry";            Description = "Time to expiry in years";             Default = Some "1.0" }
-      { Cli.OptionSpec.Name = "qubits";            Description = "Qubits for amplitude estimation";     Default = Some "6" }
-      { Cli.OptionSpec.Name = "shots";             Description = "Quantum circuit shots";               Default = Some "500" }
-      { Cli.OptionSpec.Name = "grover-iterations"; Description = "Grover iterations for amplification"; Default = Some "2" }
-      { Cli.OptionSpec.Name = "output";            Description = "Write results to JSON file";          Default = None }
-      { Cli.OptionSpec.Name = "csv";               Description = "Write results to CSV file";           Default = None }
-      { Cli.OptionSpec.Name = "quiet";             Description = "Suppress informational output";       Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "spot"
+            Description = "Spot price"
+            Default = Some "100"
+        }
+        {
+            Cli.OptionSpec.Name = "strike"
+            Description = "Strike price"
+            Default = Some "105"
+        }
+        {
+            Cli.OptionSpec.Name = "rate"
+            Description = "Risk-free rate"
+            Default = Some "0.05"
+        }
+        {
+            Cli.OptionSpec.Name = "volatility"
+            Description = "Volatility (annualized)"
+            Default = Some "0.2"
+        }
+        {
+            Cli.OptionSpec.Name = "expiry"
+            Description = "Time to expiry in years"
+            Default = Some "1.0"
+        }
+        {
+            Cli.OptionSpec.Name = "qubits"
+            Description = "Qubits for amplitude estimation"
+            Default = Some "6"
+        }
+        {
+            Cli.OptionSpec.Name = "shots"
+            Description = "Quantum circuit shots"
+            Default = Some "500"
+        }
+        {
+            Cli.OptionSpec.Name = "grover-iterations"
+            Description = "Grover iterations for amplification"
+            Default = Some "2"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -141,10 +187,15 @@ let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 let resultRows = System.Collections.Generic.List<Map<string, string>>()
 
 if not quiet then
-    printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn
+        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
     printfn "â•‘   Quantum Monte Carlo Option Pricing                         â•‘"
     printfn "â•‘   Using FSharp.Azure.Quantum                                  â•‘"
-    printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+    printfn
+        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
     printfn ""
 
 // ============================================================================
@@ -186,31 +237,39 @@ match result with
         printfn "RESULTS:"
         printfn "  Option Price:          $%.4f" price.Price
         printfn "  Confidence Interval:   Â±$%.4f" price.ConfidenceInterval
-        printfn "  Price Range:           $%.4f - $%.4f"
+
+        printfn
+            "  Price Range:           $%.4f - $%.4f"
             (price.Price - price.ConfidenceInterval)
             (price.Price + price.ConfidenceInterval)
-        printfn "  Qubits Used:           %d (2^%d = %d price levels)"
+
+        printfn
+            "  Qubits Used:           %d (2^%d = %d price levels)"
             price.QubitsUsed
             price.QubitsUsed
             (1 <<< price.QubitsUsed)
+
         printfn "  Method:                %s" price.Method
         printfn "  Quantum Speedup:       %.1fx" price.Speedup
         printfn ""
 
     resultRows.Add(
-        [ "example", "European Call"
-          "spot", $"%.2f{spotPrice}"
-          "strike", $"%.2f{strikePrice}"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", $"%.4f{price.Price}"
-          "confidence_interval", $"%.4f{price.ConfidenceInterval}"
-          "qubits", $"%d{price.QubitsUsed}"
-          "method", price.Method
-          "speedup", $"%.1f{price.Speedup}"
-          "error", "" ]
-        |> Map.ofList)
+        [
+            "example", "European Call"
+            "spot", $"%.2f{spotPrice}"
+            "strike", $"%.2f{strikePrice}"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", $"%.4f{price.Price}"
+            "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+            "qubits", $"%d{price.QubitsUsed}"
+            "method", price.Method
+            "speedup", $"%.1f{price.Speedup}"
+            "error", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error err ->
     if not quiet then
@@ -218,19 +277,22 @@ match result with
         printfn ""
 
     resultRows.Add(
-        [ "example", "European Call"
-          "spot", $"%.2f{spotPrice}"
-          "strike", $"%.2f{strikePrice}"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", ""
-          "confidence_interval", ""
-          "qubits", ""
-          "method", ""
-          "speedup", ""
-          "error", $"%A{err}" ]
-        |> Map.ofList)
+        [
+            "example", "European Call"
+            "spot", $"%.2f{spotPrice}"
+            "strike", $"%.2f{strikePrice}"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", ""
+            "confidence_interval", ""
+            "qubits", ""
+            "method", ""
+            "speedup", ""
+            "error", $"%A{err}"
+        ]
+        |> Map.ofList
+    )
 
 // ============================================================================
 // EXAMPLE 2: Compare Call vs Put Options
@@ -243,16 +305,34 @@ if not quiet then
 let priceBothOptions spot strike =
     async {
         let! callResult =
-            OptionPricing.priceEuropeanCall spot strike riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
+            OptionPricing.priceEuropeanCall
+                spot
+                strike
+                riskFreeRate
+                volatility
+                timeToExpiry
+                numQubits
+                groverIterations
+                shots
+                backend
+
         let! putResult =
-            OptionPricing.priceEuropeanPut spot strike riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
+            OptionPricing.priceEuropeanPut
+                spot
+                strike
+                riskFreeRate
+                volatility
+                timeToExpiry
+                numQubits
+                groverIterations
+                shots
+                backend
 
         return (callResult, putResult)
     }
 
 let (callPrice, putPrice) =
-    priceBothOptions spotPrice strikePrice
-    |> Async.RunSynchronously
+    priceBothOptions spotPrice strikePrice |> Async.RunSynchronously
 
 if not quiet then
     printfn "Comparing European Call vs Put (Same strike):"
@@ -269,7 +349,7 @@ match callPrice, putPrice with
         // Put-Call Parity check (approximate due to quantum approximation)
         // C - P â‰ˆ S - K*e^(-rT)
         let parity = call.Price - put.Price
-        let expected = spotPrice - strikePrice * exp(-riskFreeRate * timeToExpiry)
+        let expected = spotPrice - strikePrice * exp (-riskFreeRate * timeToExpiry)
         printfn "  Put-Call Parity Check:"
         printfn "    Observed (C - P):   $%.4f" parity
         printfn "    Expected (S - Keâ»Ê³áµ€): $%.4f" expected
@@ -277,39 +357,47 @@ match callPrice, putPrice with
         printfn ""
 
     resultRows.Add(
-        [ "example", "European Call (Put-Call)"
-          "spot", $"%.2f{spotPrice}"
-          "strike", $"%.2f{strikePrice}"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", $"%.4f{call.Price}"
-          "confidence_interval", $"%.4f{call.ConfidenceInterval}"
-          "qubits", $"%d{call.QubitsUsed}"
-          "method", call.Method
-          "speedup", $"%.1f{call.Speedup}"
-          "error", "" ]
-        |> Map.ofList)
+        [
+            "example", "European Call (Put-Call)"
+            "spot", $"%.2f{spotPrice}"
+            "strike", $"%.2f{strikePrice}"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", $"%.4f{call.Price}"
+            "confidence_interval", $"%.4f{call.ConfidenceInterval}"
+            "qubits", $"%d{call.QubitsUsed}"
+            "method", call.Method
+            "speedup", $"%.1f{call.Speedup}"
+            "error", ""
+        ]
+        |> Map.ofList
+    )
 
     resultRows.Add(
-        [ "example", "European Put (Put-Call)"
-          "spot", $"%.2f{spotPrice}"
-          "strike", $"%.2f{strikePrice}"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", $"%.4f{put.Price}"
-          "confidence_interval", $"%.4f{put.ConfidenceInterval}"
-          "qubits", $"%d{put.QubitsUsed}"
-          "method", put.Method
-          "speedup", $"%.1f{put.Speedup}"
-          "error", "" ]
-        |> Map.ofList)
+        [
+            "example", "European Put (Put-Call)"
+            "spot", $"%.2f{spotPrice}"
+            "strike", $"%.2f{strikePrice}"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", $"%.4f{put.Price}"
+            "confidence_interval", $"%.4f{put.ConfidenceInterval}"
+            "qubits", $"%d{put.QubitsUsed}"
+            "method", put.Method
+            "speedup", $"%.1f{put.Speedup}"
+            "error", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error err, _ ->
-    if not quiet then printfn "  Call pricing error: %A" err
+    if not quiet then
+        printfn "  Call pricing error: %A" err
 | _, Error err ->
-    if not quiet then printfn "  Put pricing error: %A" err
+    if not quiet then
+        printfn "  Put pricing error: %A" err
 
 // ============================================================================
 // EXAMPLE 3: Different Strike Prices (Moneyness)
@@ -319,11 +407,12 @@ if not quiet then
     printfn "â•â•â• Example 3: Option Moneyness Analysis â•â•â•"
     printfn ""
 
-let strikes = [
-    (90.0, "Deep In-the-Money")
-    (100.0, "At-the-Money")
-    (110.0, "Out-of-the-Money")
-]
+let strikes =
+    [
+        (90.0, "Deep In-the-Money")
+        (100.0, "At-the-Money")
+        (110.0, "Out-of-the-Money")
+    ]
 
 if not quiet then
     printfn "European Call Options at Different Strikes:"
@@ -331,7 +420,16 @@ if not quiet then
 
 for (strike, description) in strikes do
     let strikeResult =
-        OptionPricing.priceEuropeanCall spotPrice strike riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
+        OptionPricing.priceEuropeanCall
+            spotPrice
+            strike
+            riskFreeRate
+            volatility
+            timeToExpiry
+            numQubits
+            groverIterations
+            shots
+            backend
         |> Async.RunSynchronously
 
     match strikeResult with
@@ -341,38 +439,46 @@ for (strike, description) in strikes do
             printfn "    Price: $%.4f Â± $%.4f" price.Price price.ConfidenceInterval
 
         resultRows.Add(
-            [ "example", $"Moneyness %s{description}"
-              "spot", $"%.2f{spotPrice}"
-              "strike", $"%.2f{strike}"
-              "rate", $"%.4f{riskFreeRate}"
-              "volatility", $"%.4f{volatility}"
-              "expiry", $"%.1f{timeToExpiry}"
-              "price", $"%.4f{price.Price}"
-              "confidence_interval", $"%.4f{price.ConfidenceInterval}"
-              "qubits", $"%d{price.QubitsUsed}"
-              "method", price.Method
-              "speedup", $"%.1f{price.Speedup}"
-              "error", "" ]
-            |> Map.ofList)
+            [
+                "example", $"Moneyness %s{description}"
+                "spot", $"%.2f{spotPrice}"
+                "strike", $"%.2f{strike}"
+                "rate", $"%.4f{riskFreeRate}"
+                "volatility", $"%.4f{volatility}"
+                "expiry", $"%.1f{timeToExpiry}"
+                "price", $"%.4f{price.Price}"
+                "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+                "qubits", $"%d{price.QubitsUsed}"
+                "method", price.Method
+                "speedup", $"%.1f{price.Speedup}"
+                "error", ""
+            ]
+            |> Map.ofList
+        )
     | Error err ->
-        if not quiet then printfn "  Strike $%.2f: Error %A" strike err
+        if not quiet then
+            printfn "  Strike $%.2f: Error %A" strike err
 
         resultRows.Add(
-            [ "example", $"Moneyness %s{description}"
-              "spot", $"%.2f{spotPrice}"
-              "strike", $"%.2f{strike}"
-              "rate", $"%.4f{riskFreeRate}"
-              "volatility", $"%.4f{volatility}"
-              "expiry", $"%.1f{timeToExpiry}"
-              "price", ""
-              "confidence_interval", ""
-              "qubits", ""
-              "method", ""
-              "speedup", ""
-              "error", $"%A{err}" ]
-            |> Map.ofList)
+            [
+                "example", $"Moneyness %s{description}"
+                "spot", $"%.2f{spotPrice}"
+                "strike", $"%.2f{strike}"
+                "rate", $"%.4f{riskFreeRate}"
+                "volatility", $"%.4f{volatility}"
+                "expiry", $"%.1f{timeToExpiry}"
+                "price", ""
+                "confidence_interval", ""
+                "qubits", ""
+                "method", ""
+                "speedup", ""
+                "error", $"%A{err}"
+            ]
+            |> Map.ofList
+        )
 
-if not quiet then printfn ""
+if not quiet then
+    printfn ""
 
 // ============================================================================
 // EXAMPLE 4: Volatility Smile
@@ -390,7 +496,16 @@ if not quiet then
 
 for vol in volatilities do
     let volResult =
-        OptionPricing.priceEuropeanCall spotPrice spotPrice riskFreeRate vol timeToExpiry numQubits groverIterations shots backend
+        OptionPricing.priceEuropeanCall
+            spotPrice
+            spotPrice
+            riskFreeRate
+            vol
+            timeToExpiry
+            numQubits
+            groverIterations
+            shots
+            backend
         |> Async.RunSynchronously
 
     match volResult with
@@ -399,21 +514,25 @@ for vol in volatilities do
             printfn "  Volatility %2.0f%%: $%.4f" (vol * 100.0) price.Price
 
         resultRows.Add(
-            [ "example", sprintf "Volatility %.0f%%" (vol * 100.0)
-              "spot", $"%.2f{spotPrice}"
-              "strike", $"%.2f{spotPrice}"
-              "rate", $"%.4f{riskFreeRate}"
-              "volatility", $"%.4f{vol}"
-              "expiry", $"%.1f{timeToExpiry}"
-              "price", $"%.4f{price.Price}"
-              "confidence_interval", $"%.4f{price.ConfidenceInterval}"
-              "qubits", $"%d{price.QubitsUsed}"
-              "method", price.Method
-              "speedup", $"%.1f{price.Speedup}"
-              "error", "" ]
-            |> Map.ofList)
+            [
+                "example", sprintf "Volatility %.0f%%" (vol * 100.0)
+                "spot", $"%.2f{spotPrice}"
+                "strike", $"%.2f{spotPrice}"
+                "rate", $"%.4f{riskFreeRate}"
+                "volatility", $"%.4f{vol}"
+                "expiry", $"%.1f{timeToExpiry}"
+                "price", $"%.4f{price.Price}"
+                "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+                "qubits", $"%d{price.QubitsUsed}"
+                "method", price.Method
+                "speedup", $"%.1f{price.Speedup}"
+                "error", ""
+            ]
+            |> Map.ofList
+        )
     | Error err ->
-        if not quiet then printfn "  Volatility %2.0f%%: Error" (vol * 100.0)
+        if not quiet then
+            printfn "  Volatility %2.0f%%: Error" (vol * 100.0)
 
 if not quiet then
     printfn ""
@@ -435,34 +554,48 @@ if not quiet then
 
 // Test negative spot
 let invalidResult =
-    OptionPricing.priceEuropeanCall (-100.0) 105.0 riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
+    OptionPricing.priceEuropeanCall
+        (-100.0)
+        105.0
+        riskFreeRate
+        volatility
+        timeToExpiry
+        numQubits
+        groverIterations
+        shots
+        backend
     |> Async.RunSynchronously
 
 match invalidResult with
-| Error (QuantumError.ValidationError (param, msg)) ->
+| Error(QuantumError.ValidationError(param, msg)) ->
     if not quiet then
         printfn "  âœ“ Correctly rejected negative spot price"
         printfn "    Parameter: %s" param
         printfn "    Message: %s" msg
 
     resultRows.Add(
-        [ "example", "Validation (negative spot)"
-          "spot", "-100.00"
-          "strike", "105.00"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", ""
-          "confidence_interval", ""
-          "qubits", ""
-          "method", ""
-          "speedup", ""
-          "error", $"ValidationError(%s{param}, %s{msg})" ]
-        |> Map.ofList)
+        [
+            "example", "Validation (negative spot)"
+            "spot", "-100.00"
+            "strike", "105.00"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", ""
+            "confidence_interval", ""
+            "qubits", ""
+            "method", ""
+            "speedup", ""
+            "error", $"ValidationError(%s{param}, %s{msg})"
+        ]
+        |> Map.ofList
+    )
 | _ ->
-    if not quiet then printfn "  âœ— Should have rejected negative spot"
+    if not quiet then
+        printfn "  âœ— Should have rejected negative spot"
 
-if not quiet then printfn ""
+if not quiet then
+    printfn ""
 
 // ============================================================================
 // EXAMPLE 6: Asian Options (Path-Dependent)
@@ -502,47 +635,60 @@ match asianResult with
         printfn "  Qubits:   %d" price.QubitsUsed
 
     resultRows.Add(
-        [ "example", "Asian Call"
-          "spot", $"%.2f{spotPrice}"
-          "strike", $"%.2f{strikePrice}"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", $"%.4f{price.Price}"
-          "confidence_interval", $"%.4f{price.ConfidenceInterval}"
-          "qubits", $"%d{price.QubitsUsed}"
-          "method", price.Method
-          "speedup", $"%.1f{price.Speedup}"
-          "error", "" ]
-        |> Map.ofList)
+        [
+            "example", "Asian Call"
+            "spot", $"%.2f{spotPrice}"
+            "strike", $"%.2f{strikePrice}"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", $"%.4f{price.Price}"
+            "confidence_interval", $"%.4f{price.ConfidenceInterval}"
+            "qubits", $"%d{price.QubitsUsed}"
+            "method", price.Method
+            "speedup", $"%.1f{price.Speedup}"
+            "error", ""
+        ]
+        |> Map.ofList
+    )
 | Error err ->
-    if not quiet then printfn "  Error: %A" err
+    if not quiet then
+        printfn "  Error: %A" err
 
     resultRows.Add(
-        [ "example", "Asian Call"
-          "spot", $"%.2f{spotPrice}"
-          "strike", $"%.2f{strikePrice}"
-          "rate", $"%.4f{riskFreeRate}"
-          "volatility", $"%.4f{volatility}"
-          "expiry", $"%.1f{timeToExpiry}"
-          "price", ""
-          "confidence_interval", ""
-          "qubits", ""
-          "method", ""
-          "speedup", ""
-          "error", $"%A{err}" ]
-        |> Map.ofList)
+        [
+            "example", "Asian Call"
+            "spot", $"%.2f{spotPrice}"
+            "strike", $"%.2f{strikePrice}"
+            "rate", $"%.4f{riskFreeRate}"
+            "volatility", $"%.4f{volatility}"
+            "expiry", $"%.1f{timeToExpiry}"
+            "price", ""
+            "confidence_interval", ""
+            "qubits", ""
+            "method", ""
+            "speedup", ""
+            "error", $"%A{err}"
+        ]
+        |> Map.ofList
+    )
 
-if not quiet then printfn ""
+if not quiet then
+    printfn ""
 
 // ============================================================================
 // SUMMARY
 // ============================================================================
 
 if not quiet then
-    printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn
+        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+
     printfn "â•‘   Summary                                                     â•‘"
-    printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
+    printfn
+        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+
     printfn ""
     printfn "QUANTUM ADVANTAGES:"
     printfn "  â€¢ Quadratic Speedup: O(1/Îµ) vs Classical O(1/ÎµÂ²)"
@@ -569,17 +715,37 @@ let results = resultRows |> Seq.toList
 match outputPath with
 | Some path ->
     Reporting.writeJson path results
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
-    let header = [ "example"; "spot"; "strike"; "rate"; "volatility"; "expiry"; "price"; "confidence_interval"; "qubits"; "method"; "speedup"; "error" ]
+    let header =
+        [
+            "example"
+            "spot"
+            "strike"
+            "rate"
+            "volatility"
+            "expiry"
+            "price"
+            "confidence_interval"
+            "qubits"
+            "method"
+            "speedup"
+            "error"
+        ]
+
     let rows =
-        results |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        results
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

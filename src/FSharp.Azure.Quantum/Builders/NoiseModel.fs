@@ -14,23 +14,27 @@ module NoiseModel =
     /// Per-qubit / per-edge error rates. Lookups fall back to the matching Default*
     /// when a specific qubit or coupling edge is not listed.
     type DeviceNoiseProfile =
-        { SingleQubitError: Map<int, float>
-          TwoQubitError: Map<int * int, float>
-          ReadoutError: Map<int, float>
-          DefaultSingleQubitError: float
-          DefaultTwoQubitError: float
-          DefaultReadoutError: float }
+        {
+            SingleQubitError: Map<int, float>
+            TwoQubitError: Map<int * int, float>
+            ReadoutError: Map<int, float>
+            DefaultSingleQubitError: float
+            DefaultTwoQubitError: float
+            DefaultReadoutError: float
+        }
 
     let private norm (a, b) = if a <= b then (a, b) else (b, a)
 
     /// A uniform noise profile (the same error everywhere).
     let uniform (singleQubitError: float) (twoQubitError: float) (readoutError: float) : DeviceNoiseProfile =
-        { SingleQubitError = Map.empty
-          TwoQubitError = Map.empty
-          ReadoutError = Map.empty
-          DefaultSingleQubitError = singleQubitError
-          DefaultTwoQubitError = twoQubitError
-          DefaultReadoutError = readoutError }
+        {
+            SingleQubitError = Map.empty
+            TwoQubitError = Map.empty
+            ReadoutError = Map.empty
+            DefaultSingleQubitError = singleQubitError
+            DefaultTwoQubitError = twoQubitError
+            DefaultReadoutError = readoutError
+        }
 
     /// Build a profile from explicit per-qubit / per-edge maps plus fallback defaults.
     let create
@@ -40,26 +44,39 @@ module NoiseModel =
         (defaults: float * float * float)
         : DeviceNoiseProfile =
         let ds, dt, dr = defaults
-        { SingleQubitError = singleQubit
-          TwoQubitError = twoQubit |> Map.toList |> List.map (fun (k, v) -> norm k, v) |> Map.ofList
-          ReadoutError = readout
-          DefaultSingleQubitError = ds
-          DefaultTwoQubitError = dt
-          DefaultReadoutError = dr }
+
+        {
+            SingleQubitError = singleQubit
+            TwoQubitError = twoQubit |> Map.toList |> List.map (fun (k, v) -> norm k, v) |> Map.ofList
+            ReadoutError = readout
+            DefaultSingleQubitError = ds
+            DefaultTwoQubitError = dt
+            DefaultReadoutError = dr
+        }
 
     let singleQubitError (profile: DeviceNoiseProfile) (q: int) : float =
-        profile.SingleQubitError |> Map.tryFind q |> Option.defaultValue profile.DefaultSingleQubitError
+        profile.SingleQubitError
+        |> Map.tryFind q
+        |> Option.defaultValue profile.DefaultSingleQubitError
 
     let twoQubitError (profile: DeviceNoiseProfile) (a: int) (b: int) : float =
-        profile.TwoQubitError |> Map.tryFind (norm (a, b)) |> Option.defaultValue profile.DefaultTwoQubitError
+        profile.TwoQubitError
+        |> Map.tryFind (norm (a, b))
+        |> Option.defaultValue profile.DefaultTwoQubitError
 
     let readoutError (profile: DeviceNoiseProfile) (q: int) : float =
-        profile.ReadoutError |> Map.tryFind q |> Option.defaultValue profile.DefaultReadoutError
+        profile.ReadoutError
+        |> Map.tryFind q
+        |> Option.defaultValue profile.DefaultReadoutError
 
     /// Noise-aware routing: insert SWAPs through the links with the lowest two-qubit
     /// error, rather than simply the fewest hops. Returns the routed circuit and the
     /// final logical->physical mapping.
-    let routeNoiseAware (cm: QubitRouting.CouplingMap) (noise: DeviceNoiseProfile) (circuit: Circuit) : Circuit * int[] =
+    let routeNoiseAware
+        (cm: QubitRouting.CouplingMap)
+        (noise: DeviceNoiseProfile)
+        (circuit: Circuit)
+        : Circuit * int[] =
         QubitRouting.routeWith (fun (a, b) -> twoQubitError noise a b) cm circuit
 
     /// First-order success-probability (fidelity) estimate: the product of
@@ -69,15 +86,17 @@ module NoiseModel =
     /// absolute prediction.
     let estimateSuccessProbability (noise: DeviceNoiseProfile) (circuit: Circuit) : float =
         getGates circuit
-        |> List.fold (fun acc gate ->
-            match getAffectedQubits gate with
-            | [ q ] ->
-                match gate with
-                | Measure _ -> acc * (1.0 - readoutError noise q)
-                | _ -> acc * (1.0 - singleQubitError noise q)
-            | [ a; b ] -> acc * (1.0 - twoQubitError noise a b)
-            | qs when not (List.isEmpty qs) ->
-                // Multi-qubit gate: approximate as a chain of two-qubit interactions.
-                let pairs = List.length qs - 1
-                acc * ((1.0 - noise.DefaultTwoQubitError) ** float pairs)
-            | _ -> acc) 1.0
+        |> List.fold
+            (fun acc gate ->
+                match getAffectedQubits gate with
+                | [ q ] ->
+                    match gate with
+                    | Measure _ -> acc * (1.0 - readoutError noise q)
+                    | _ -> acc * (1.0 - singleQubitError noise q)
+                | [ a; b ] -> acc * (1.0 - twoQubitError noise a b)
+                | qs when not (List.isEmpty qs) ->
+                    // Multi-qubit gate: approximate as a chain of two-qubit interactions.
+                    let pairs = List.length qs - 1
+                    acc * ((1.0 - noise.DefaultTwoQubitError) ** float pairs)
+                | _ -> acc)
+            1.0

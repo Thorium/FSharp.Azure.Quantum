@@ -70,14 +70,42 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "EkertQKDExample.fsx" "E91 entanglement-based QKD with CHSH eavesdropper detection." [
-    { Name = "pairs"; Description = "Number of entangled pairs per run"; Default = Some "200" }
-    { Name = "seed"; Description = "Random seed (omit for random)"; Default = Some "42" }
-    { Name = "scenario"; Description = "Scenario to run (basis/secure/chsh/eve/report/all)"; Default = Some "all" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "EkertQKDExample.fsx"
+    "E91 entanglement-based QKD with CHSH eavesdropper detection."
+    [
+        {
+            Name = "pairs"
+            Description = "Number of entangled pairs per run"
+            Default = Some "200"
+        }
+        {
+            Name = "seed"
+            Description = "Random seed (omit for random)"
+            Default = Some "42"
+        }
+        {
+            Name = "scenario"
+            Description = "Scenario to run (basis/secure/chsh/eve/report/all)"
+            Default = Some "all"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let numPairs = Cli.getIntOr "pairs" 200 args
 let seed = Cli.tryGet "seed" args |> Option.map int |> Option.orElse (Some 42)
@@ -98,7 +126,8 @@ let backend = LocalBackend() :> IQuantumBackend
 
 let results = System.Collections.Generic.List<Map<string, string>>()
 
-let runScenario name = scenarioArg = "all" || scenarioArg = name
+let runScenario name =
+    scenarioArg = "all" || scenarioArg = name
 
 // ============================================================================
 // Scenario 1: Basis Combination Table
@@ -120,11 +149,14 @@ if runScenario "basis" then
         printfn "%s" (formatBasisTable ())
 
     results.Add(
-        [ "scenario", "basis_table"
-          "description", "E91 basis combinations (Alice: 0/45/90 deg, Bob: 0/45/135 deg)"
-          "matching_bases", "2 of 9 combinations used for key sifting"
-          "test_bases", "4 combinations used for CHSH security test" ]
-        |> Map.ofList)
+        [
+            "scenario", "basis_table"
+            "description", "E91 basis combinations (Alice: 0/45/90 deg, Bob: 0/45/135 deg)"
+            "matching_bases", "2 of 9 combinations used for key sifting"
+            "test_bases", "4 combinations used for CHSH security test"
+        ]
+        |> Map.ofList
+    )
 
 // ============================================================================
 // Scenario 2: Secure Key Exchange (No Eavesdropper)
@@ -137,7 +169,9 @@ if runScenario "secure" then
 
     match run backend numPairs seed with
     | Error err ->
-        if not quiet then printfn "  ERROR: %A" err
+        if not quiet then
+            printfn "  ERROR: %A" err
+
         results.Add([ "scenario", "secure_exchange"; "error", $"%A{err}" ] |> Map.ofList)
 
     | Ok result ->
@@ -152,23 +186,24 @@ if runScenario "secure" then
             printfn ""
 
             let keyPreview =
-                result.KeyBits
-                |> List.truncate 20
-                |> List.map string
-                |> String.concat ""
+                result.KeyBits |> List.truncate 20 |> List.map string |> String.concat ""
+
             printfn "  Key bits (first 20): %s" keyPreview
             printfn ""
 
         results.Add(
-            [ "scenario", "secure_exchange"
-              "total_pairs", string result.TotalPairs
-              "sifted_key_length", string result.SiftedKeyLength
-              "key_rate", $"%.4f{result.KeyRate}"
-              "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
-              "quantum_bound", $"%.4f{result.CHSHTest.QuantumBound}"
-              "classical_bound", $"%.4f{result.CHSHTest.ClassicalBound}"
-              "is_secure", string result.IsSecure ]
-            |> Map.ofList)
+            [
+                "scenario", "secure_exchange"
+                "total_pairs", string result.TotalPairs
+                "sifted_key_length", string result.SiftedKeyLength
+                "key_rate", $"%.4f{result.KeyRate}"
+                "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
+                "quantum_bound", $"%.4f{result.CHSHTest.QuantumBound}"
+                "classical_bound", $"%.4f{result.CHSHTest.ClassicalBound}"
+                "is_secure", string result.IsSecure
+            ]
+            |> Map.ofList
+        )
 
 // ============================================================================
 // Scenario 3: CHSH Inequality Analysis
@@ -181,7 +216,9 @@ if runScenario "chsh" then
 
     match run backend (max numPairs 300) (Some 123) with
     | Error err ->
-        if not quiet then printfn "  ERROR: %A" err
+        if not quiet then
+            printfn "  ERROR: %A" err
+
         results.Add([ "scenario", "chsh_analysis"; "error", $"%A{err}" ] |> Map.ofList)
 
     | Ok result ->
@@ -190,12 +227,15 @@ if runScenario "chsh" then
 
         for (name, value) in result.CHSHTest.Correlations do
             results.Add(
-                [ "scenario", "chsh_analysis"
-                  "correlation_pair", name
-                  "correlation_value", $"%.4f{value}"
-                  "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
-                  "is_secure", string result.CHSHTest.IsSecure ]
-                |> Map.ofList)
+                [
+                    "scenario", "chsh_analysis"
+                    "correlation_pair", name
+                    "correlation_value", $"%.4f{value}"
+                    "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
+                    "is_secure", string result.CHSHTest.IsSecure
+                ]
+                |> Map.ofList
+            )
 
 // ============================================================================
 // Scenario 4: Eavesdropper Detection
@@ -237,31 +277,40 @@ if runScenario "eve" then
             else
                 printfn "  Result: Statistical fluctuations observed."
                 printfn "  In production, use more pairs for reliable detection."
+
             printfn ""
 
         results.Add(
-            [ "scenario", "eavesdropper_detection"
-              "condition", "no_eve"
-              "chsh_s", sprintf "%.4f" (abs noEve.CHSHTest.S)
-              "is_secure", string noEve.IsSecure
-              "sifted_key_length", string noEve.SiftedKeyLength
-              "key_rate", $"%.4f{noEve.KeyRate}" ]
-            |> Map.ofList)
+            [
+                "scenario", "eavesdropper_detection"
+                "condition", "no_eve"
+                "chsh_s", sprintf "%.4f" (abs noEve.CHSHTest.S)
+                "is_secure", string noEve.IsSecure
+                "sifted_key_length", string noEve.SiftedKeyLength
+                "key_rate", $"%.4f{noEve.KeyRate}"
+            ]
+            |> Map.ofList
+        )
 
         results.Add(
-            [ "scenario", "eavesdropper_detection"
-              "condition", "with_eve"
-              "chsh_s", sprintf "%.4f" (abs withEve.CHSHTest.S)
-              "is_secure", string withEve.IsSecure
-              "sifted_key_length", string withEve.SiftedKeyLength
-              "key_rate", $"%.4f{withEve.KeyRate}"
-              "eavesdropper_detected", string withEve.CHSHTest.EavesdropperDetected ]
-            |> Map.ofList)
+            [
+                "scenario", "eavesdropper_detection"
+                "condition", "with_eve"
+                "chsh_s", sprintf "%.4f" (abs withEve.CHSHTest.S)
+                "is_secure", string withEve.IsSecure
+                "sifted_key_length", string withEve.SiftedKeyLength
+                "key_rate", $"%.4f{withEve.KeyRate}"
+                "eavesdropper_detected", string withEve.CHSHTest.EavesdropperDetected
+            ]
+            |> Map.ofList
+        )
 
     | (Error err, _) ->
-        if not quiet then printfn "  ERROR (no Eve): %A" err
+        if not quiet then
+            printfn "  ERROR (no Eve): %A" err
     | (_, Error err) ->
-        if not quiet then printfn "  ERROR (with Eve): %A" err
+        if not quiet then
+            printfn "  ERROR (with Eve): %A" err
 
 // ============================================================================
 // Scenario 5: Full Formatted Report
@@ -274,20 +323,24 @@ if runScenario "report" then
 
     match run backend numPairs (Some 7) with
     | Error err ->
-        if not quiet then printfn "  ERROR: %A" err
+        if not quiet then
+            printfn "  ERROR: %A" err
     | Ok result ->
         if not quiet then
             printfn "%s" (formatResult result)
 
         results.Add(
-            [ "scenario", "full_report"
-              "total_pairs", string result.TotalPairs
-              "sifted_key_length", string result.SiftedKeyLength
-              "key_rate", $"%.4f{result.KeyRate}"
-              "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
-              "is_secure", string result.IsSecure
-              "backend", result.BackendName ]
-            |> Map.ofList)
+            [
+                "scenario", "full_report"
+                "total_pairs", string result.TotalPairs
+                "sifted_key_length", string result.SiftedKeyLength
+                "key_rate", $"%.4f{result.KeyRate}"
+                "chsh_s", sprintf "%.4f" (abs result.CHSHTest.S)
+                "is_secure", string result.IsSecure
+                "backend", result.BackendName
+            ]
+            |> Map.ofList
+        )
 
 if not quiet then
     printfn "--- Protocol Summary ---"
@@ -315,12 +368,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

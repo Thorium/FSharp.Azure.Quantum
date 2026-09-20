@@ -52,10 +52,28 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "HartreeFockInitialStateExample.fsx"
     "Hartree-Fock initial state preparation for quantum chemistry VQE."
-    [ { Cli.OptionSpec.Name = "molecule"; Description = "Molecule to prepare: H2, LiH, or both"; Default = Some "both" }
-      { Cli.OptionSpec.Name = "output";   Description = "Write results to JSON file";             Default = None }
-      { Cli.OptionSpec.Name = "csv";      Description = "Write results to CSV file";              Default = None }
-      { Cli.OptionSpec.Name = "quiet";    Description = "Suppress informational output";          Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "molecule"
+            Description = "Molecule to prepare: H2, LiH, or both"
+            Default = Some "both"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -66,39 +84,43 @@ let moleculeArg = Cli.getOr "molecule" "both" args
 // ==============================================================================
 
 /// A molecule configuration for HF state preparation
-type HFMolecule = {
-    Name: string
-    ShortName: string
-    Electrons: int
-    SpinOrbitals: int
-    ExpectedStateLabel: string
-}
+type HFMolecule =
+    {
+        Name: string
+        ShortName: string
+        Electrons: int
+        SpinOrbitals: int
+        ExpectedStateLabel: string
+    }
 
-let h2Config = {
-    Name = "H2 (Hydrogen)"
-    ShortName = "H2"
-    Electrons = 2
-    SpinOrbitals = 4
-    ExpectedStateLabel = "|1100>"
-}
+let h2Config =
+    {
+        Name = "H2 (Hydrogen)"
+        ShortName = "H2"
+        Electrons = 2
+        SpinOrbitals = 4
+        ExpectedStateLabel = "|1100>"
+    }
 
-let lihConfig = {
-    Name = "LiH (Lithium Hydride)"
-    ShortName = "LiH"
-    Electrons = 4
-    SpinOrbitals = 10
-    ExpectedStateLabel = "|1111000000>"
-}
+let lihConfig =
+    {
+        Name = "LiH (Lithium Hydride)"
+        ShortName = "LiH"
+        Electrons = 4
+        SpinOrbitals = 10
+        ExpectedStateLabel = "|1111000000>"
+    }
 
 let allMolecules = [ h2Config; lihConfig ]
 
 /// Molecules filtered by CLI --molecule argument
 let filteredMolecules =
     match moleculeArg.ToLowerInvariant() with
-    | "both" | "all" -> allMolecules
-    | "h2"           -> [ h2Config ]
-    | "lih"          -> [ lihConfig ]
-    | _              -> allMolecules
+    | "both"
+    | "all" -> allMolecules
+    | "h2" -> [ h2Config ]
+    | "lih" -> [ lihConfig ]
+    | _ -> allMolecules
 
 // ==============================================================================
 // QUANTUM BACKEND SETUP
@@ -136,17 +158,21 @@ let prepareAndVerify (mol: HFMolecule) : Map<string, string> =
 
     match prepareHartreeFockState mol.Electrons mol.SpinOrbitals backend with
     | Error err ->
-        if not quiet then printfn "  Error: %A" err; printfn ""
-        Map.ofList [
-            "molecule", mol.ShortName
-            "electrons", $"%d{mol.Electrons}"
-            "spin_orbitals", $"%d{mol.SpinOrbitals}"
-            "expected_state", mol.ExpectedStateLabel
-            "num_qubits", "N/A"
-            "hf_match", "N/A"
-            "probability", "N/A"
-            "status", $"Error: %A{err}"
-        ]
+        if not quiet then
+            printfn "  Error: %A" err
+            printfn ""
+
+        Map.ofList
+            [
+                "molecule", mol.ShortName
+                "electrons", $"%d{mol.Electrons}"
+                "spin_orbitals", $"%d{mol.SpinOrbitals}"
+                "expected_state", mol.ExpectedStateLabel
+                "num_qubits", "N/A"
+                "hf_match", "N/A"
+                "probability", "N/A"
+                "status", $"Error: %A{err}"
+            ]
     | Ok hfState ->
         let nQubits = numQubits hfState
         let isCorrect = isHartreeFockState mol.Electrons hfState
@@ -154,8 +180,8 @@ let prepareAndVerify (mol: HFMolecule) : Map<string, string> =
         // Construct expected bitstring (big-endian: [qN-1; ...; q1; q0])
         // HF state: lowest orbitals occupied -> q0..q(n-1) = 1, rest = 0
         let expectedBitstring =
-            Array.init mol.SpinOrbitals (fun i ->
-                if i >= mol.SpinOrbitals - mol.Electrons then 1 else 0)
+            Array.init mol.SpinOrbitals (fun i -> if i >= mol.SpinOrbitals - mol.Electrons then 1 else 0)
+
         let prob = probability expectedBitstring hfState
 
         if not quiet then
@@ -163,29 +189,31 @@ let prepareAndVerify (mol: HFMolecule) : Map<string, string> =
             printfn ""
             printfn "State Verification:"
             printfn "  Number of qubits: %d" nQubits
+
             if isCorrect then
                 printfn "  State matches expected HF configuration"
             else
                 printfn "  State does NOT match HF configuration"
+
             printfn ""
             printfn "Computational Basis Probability:"
             printfn "  %s: %.6f (expected: 1.0)" mol.ExpectedStateLabel prob
             printfn ""
 
-        Map.ofList [
-            "molecule", mol.ShortName
-            "electrons", $"%d{mol.Electrons}"
-            "spin_orbitals", $"%d{mol.SpinOrbitals}"
-            "expected_state", mol.ExpectedStateLabel
-            "num_qubits", $"%d{nQubits}"
-            "hf_match", $"%b{isCorrect}"
-            "probability", $"%.6f{prob}"
-            "status", "OK"
-        ]
+        Map.ofList
+            [
+                "molecule", mol.ShortName
+                "electrons", $"%d{mol.Electrons}"
+                "spin_orbitals", $"%d{mol.SpinOrbitals}"
+                "expected_state", mol.ExpectedStateLabel
+                "num_qubits", $"%d{nQubits}"
+                "hf_match", $"%b{isCorrect}"
+                "probability", $"%.6f{prob}"
+                "status", "OK"
+            ]
 
 /// Results from all configured molecules
-let moleculeResults =
-    filteredMolecules |> List.map prepareAndVerify
+let moleculeResults = filteredMolecules |> List.map prepareAndVerify
 
 // ==============================================================================
 // INPUT VALIDATION TESTS
@@ -201,27 +229,41 @@ if not quiet then
 let runValidationTest (testLabel: string) (electrons: int) (orbitals: int) : Map<string, string> =
     if not quiet then
         printfn "  %s (%d electrons, %d orbitals)" testLabel electrons orbitals
+
     match prepareHartreeFockState electrons orbitals backend with
     | Error err ->
-        if not quiet then printfn "    Correctly rejected: %A" err; printfn ""
-        Map.ofList [
-            "test", testLabel; "electrons", $"%d{electrons}"
-            "orbitals", $"%d{orbitals}"; "status", "Rejected"
-            "error", $"%A{err}"
-        ]
-    | Ok _ ->
-        if not quiet then printfn "    Unexpectedly accepted (should have been rejected!)"; printfn ""
-        Map.ofList [
-            "test", testLabel; "electrons", $"%d{electrons}"
-            "orbitals", $"%d{orbitals}"; "status", "Accepted (unexpected)"
-            "error", "N/A"
-        ]
+        if not quiet then
+            printfn "    Correctly rejected: %A" err
+            printfn ""
 
-let validationResults = [
-    runValidationTest "More electrons than orbitals" 6 4
-    runValidationTest "Negative electrons" -2 4
-    runValidationTest "Zero orbitals" 2 0
-]
+        Map.ofList
+            [
+                "test", testLabel
+                "electrons", $"%d{electrons}"
+                "orbitals", $"%d{orbitals}"
+                "status", "Rejected"
+                "error", $"%A{err}"
+            ]
+    | Ok _ ->
+        if not quiet then
+            printfn "    Unexpectedly accepted (should have been rejected!)"
+            printfn ""
+
+        Map.ofList
+            [
+                "test", testLabel
+                "electrons", $"%d{electrons}"
+                "orbitals", $"%d{orbitals}"
+                "status", "Accepted (unexpected)"
+                "error", "N/A"
+            ]
+
+let validationResults =
+    [
+        runValidationTest "More electrons than orbitals" 6 4
+        runValidationTest "Negative electrons" -2 4
+        runValidationTest "Zero orbitals" 2 0
+    ]
 
 // ==============================================================================
 // SUMMARY
@@ -259,27 +301,44 @@ if not quiet then
 // STRUCTURED OUTPUT
 // ==============================================================================
 
-let allResults : Map<string, obj> =
-    Map.ofList [
-        "script", box "HartreeFockInitialStateExample.fsx"
-        "molecule_arg", box moleculeArg
-        "molecule_results", box moleculeResults
-        "validation_results", box validationResults
-    ]
+let allResults: Map<string, obj> =
+    Map.ofList
+        [
+            "script", box "HartreeFockInitialStateExample.fsx"
+            "molecule_arg", box moleculeArg
+            "molecule_results", box moleculeResults
+            "validation_results", box validationResults
+        ]
 
-Cli.tryGet "output" args |> Option.iter (fun path ->
+Cli.tryGet "output" args
+|> Option.iter (fun path ->
     Reporting.writeJson path allResults
-    if not quiet then printfn "Results written to %s" path)
+
+    if not quiet then
+        printfn "Results written to %s" path)
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header = [ "molecule"; "electrons"; "spin_orbitals"; "expected_state"; "num_qubits"; "hf_match"; "probability"; "status" ]
+    let header =
+        [
+            "molecule"
+            "electrons"
+            "spin_orbitals"
+            "expected_state"
+            "num_qubits"
+            "hf_match"
+            "probability"
+            "status"
+        ]
+
     let rows =
         moleculeResults
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

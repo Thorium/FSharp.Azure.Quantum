@@ -74,46 +74,48 @@ module QPE =
         | ModularExponentiation of baseNum: int * modulus: int
 
     /// Configuration for Quantum Phase Estimation
-    type QPEConfig = {
-        /// Number of counting qubits (precision = n bits)
-        /// More counting qubits → higher precision
-        /// Typical: 2 * log₂(desired accuracy) + 3
-        CountingQubits: int
+    type QPEConfig =
+        {
+            /// Number of counting qubits (precision = n bits)
+            /// More counting qubits → higher precision
+            /// Typical: 2 * log₂(desired accuracy) + 3
+            CountingQubits: int
 
-        /// Number of target qubits (for eigenvector |ψ⟩)
-        /// For single-qubit gates (T, S, PhaseGate): use 1
-        TargetQubits: int
+            /// Number of target qubits (for eigenvector |ψ⟩)
+            /// For single-qubit gates (T, S, PhaseGate): use 1
+            TargetQubits: int
 
-        /// Unitary operator U to estimate phase of
-        UnitaryOperator: UnitaryOperator
+            /// Unitary operator U to estimate phase of
+            UnitaryOperator: UnitaryOperator
 
-        /// Initial eigenvector |ψ⟩ (must be eigenstate of U)
-        /// If None, assumes |1⟩ for phase gates (standard eigenvector)
-        EigenVector: QuantumState option
-    }
+            /// Initial eigenvector |ψ⟩ (must be eigenstate of U)
+            /// If None, assumes |1⟩ for phase gates (standard eigenvector)
+            EigenVector: QuantumState option
+        }
 
     /// Result of QPE execution
-    type QPEResult = {
-        /// Estimated phase φ (in range [0, 1))
-        /// For U|ψ⟩ = e^(2πiφ)|ψ⟩, this is φ
-        EstimatedPhase: float
+    type QPEResult =
+        {
+            /// Estimated phase φ (in range [0, 1))
+            /// For U|ψ⟩ = e^(2πiφ)|ψ⟩, this is φ
+            EstimatedPhase: float
 
-        /// Measurement outcome (binary representation of φ)
-        /// EstimatedPhase = MeasurementOutcome / 2^CountingQubits
-        MeasurementOutcome: int
+            /// Measurement outcome (binary representation of φ)
+            /// EstimatedPhase = MeasurementOutcome / 2^CountingQubits
+            MeasurementOutcome: int
 
-        /// Number of counting qubits used (precision)
-        Precision: int
+            /// Number of counting qubits used (precision)
+            Precision: int
 
-        /// Final quantum state after QPE
-        FinalState: QuantumState
+            /// Final quantum state after QPE
+            FinalState: QuantumState
 
-        /// Number of gates applied
-        GateCount: int
+            /// Number of gates applied
+            GateCount: int
 
-        /// Configuration used
-        Config: QPEConfig
-    }
+            /// Configuration used
+            Config: QPEConfig
+        }
 
     // ========================================================================
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
@@ -126,11 +128,12 @@ module QPE =
         | Approximate of epsilon: float
 
     /// Canonical, algorithm-level intent for QPE execution.
-    type QpeExecutionIntent = {
-        ApplyBitReversalSwaps: bool
-        Config: QPEConfig
-        Exactness: Exactness
-    }
+    type QpeExecutionIntent =
+        {
+            ApplyBitReversalSwaps: bool
+            Config: QPEConfig
+            Exactness: Exactness
+        }
 
     [<RequireQualifiedAccess>]
     type QpePlan =
@@ -151,7 +154,7 @@ module QPE =
         | UnitaryOperator.TGate -> QpeUnitary.TGate
         | UnitaryOperator.SGate -> QpeUnitary.SGate
         | UnitaryOperator.RotationZ theta -> QpeUnitary.RotationZ theta
-        | UnitaryOperator.ModularExponentiation (baseNum, modulus) -> QpeUnitary.ModularExponentiation (baseNum, modulus)
+        | UnitaryOperator.ModularExponentiation(baseNum, modulus) -> QpeUnitary.ModularExponentiation(baseNum, modulus)
 
     /// QPE does not require bit-reversal SWAPs; we can post-process classically.
     [<Literal>]
@@ -168,7 +171,10 @@ module QPE =
                 | Some _ -> false
                 | None ->
                     match intent.Config.UnitaryOperator with
-                    | TGate | SGate | PhaseGate _ | RotationZ _ when intent.Config.TargetQubits = 1 -> true
+                    | TGate
+                    | SGate
+                    | PhaseGate _
+                    | RotationZ _ when intent.Config.TargetQubits = 1 -> true
                     | _ -> false
             ApplySwaps = intent.ApplyBitReversalSwaps
         }
@@ -178,12 +184,25 @@ module QPE =
         //
         // Note: we model each controlled-U^(2^j) as a single controlled phase/rotation gate
         // with a scaled angle (not as 2^j repeated applications), so it counts as 1 per j.
-        let eigenPrep = if config.EigenVector.IsSome then 0 else (if config.TargetQubits = 1 then 1 else 0)
+        let eigenPrep =
+            if config.EigenVector.IsSome then
+                0
+            else
+                (if config.TargetQubits = 1 then 1 else 0)
+
         let controlled = config.CountingQubits
+
         let inverseQft =
             // Same as QFT: n Hadamards + n(n-1)/2 controlled phases.
-            config.CountingQubits + (config.CountingQubits * (config.CountingQubits - 1) / 2)
-        let swaps = if applyBitReversalSwaps then config.CountingQubits / 2 else 0
+            config.CountingQubits
+            + (config.CountingQubits * (config.CountingQubits - 1) / 2)
+
+        let swaps =
+            if applyBitReversalSwaps then
+                config.CountingQubits / 2
+            else
+                0
+
         config.CountingQubits + eigenPrep + controlled + inverseQft + swaps
 
     let private buildLoweringOps (intent: QpeExecutionIntent) : QuantumOperation list =
@@ -196,7 +215,7 @@ module QPE =
 
         // Step 2: Apply Hadamard to counting qubits: |+⟩^⊗n
         let hadamardOps =
-            [0 .. config.CountingQubits - 1]
+            [ 0 .. config.CountingQubits - 1 ]
             |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
 
         // Step 3: Prepare target qubits in eigenvector
@@ -205,79 +224,83 @@ module QPE =
         // (plan validates the eigenvector is a StateVector of the right dimension.)
         let eigenPrepOps =
             match config.EigenVector with
-            | Some (QuantumState.StateVector sv) ->
+            | Some(QuantumState.StateVector sv) ->
                 let targetQubits =
                     Array.init config.TargetQubits (fun i -> config.CountingQubits + i)
+
                 let amplitudes =
-                    Array.init
-                        (LocalSimulator.StateVector.dimension sv)
-                        (fun i -> LocalSimulator.StateVector.getAmplitude i sv)
+                    Array.init (LocalSimulator.StateVector.dimension sv) (fun i ->
+                        LocalSimulator.StateVector.getAmplitude i sv)
+
                 let prepCircuit =
                     CircuitBuilder.empty (config.CountingQubits + config.TargetQubits)
                     |> MottonenStatePreparation.prepareStateFromAmplitudes amplitudes targetQubits
                 // Circuit.Gates is stored most-recent-first; restore forward order
-                prepCircuit.Gates
-                |> List.rev
-                |> List.map QuantumOperation.Gate
+                prepCircuit.Gates |> List.rev |> List.map QuantumOperation.Gate
             | Some _ ->
                 // Non-StateVector eigenvectors are rejected by plan before lowering
                 []
             | None ->
                 match config.UnitaryOperator with
-                | TGate | SGate | PhaseGate _ | RotationZ _ when config.TargetQubits = 1 ->
+                | TGate
+                | SGate
+                | PhaseGate _
+                | RotationZ _ when config.TargetQubits = 1 ->
                     let targetQubit = config.CountingQubits
-                    [ QuantumOperation.Gate (CircuitBuilder.X targetQubit) ]
+                    [ QuantumOperation.Gate(CircuitBuilder.X targetQubit) ]
                 | _ -> []
 
         // Step 4: Apply controlled-U^(2^j) for each counting qubit j
         let controlledOps =
-            [0 .. config.CountingQubits - 1]
+            [ 0 .. config.CountingQubits - 1 ]
             |> List.map (fun j ->
                 let applications = 1 <<< j
 
                 match config.UnitaryOperator with
                 | PhaseGate theta ->
                     let totalTheta = float applications * theta
-                    QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
+                    QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta))
                 | TGate ->
                     let totalTheta = float applications * Math.PI / 4.0
-                    QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
+                    QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta))
                 | SGate ->
                     let totalTheta = float applications * Math.PI / 2.0
-                    QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
+                    QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta))
                 | RotationZ theta ->
                     let totalTheta = float applications * theta
-                    QuantumOperation.Gate (CircuitBuilder.CRZ (j, config.CountingQubits, totalTheta))
+                    QuantumOperation.Gate(CircuitBuilder.CRZ(j, config.CountingQubits, totalTheta))
                 | ModularExponentiation _ ->
                     // Unreachable: plan() rejects ModularExponentiation before buildLoweringOps is called.
-                    failwith $"ModularExponentiation cannot be lowered to gate ops; use Shor.estimateModExpPhase, calling buildLoweringOps with intent: {intent}")
+                    failwith
+                        $"ModularExponentiation cannot be lowered to gate ops; use Shor.estimateModExpPhase, calling buildLoweringOps with intent: {intent}")
 
         // Step 5: Apply inverse QFT to counting register manually
         // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)
         // For each qubit: controlled phases FIRST, then Hadamard LAST
         let inverseQftOps =
-            [(config.CountingQubits - 1) .. -1 .. 0]
+            [ (config.CountingQubits - 1) .. -1 .. 0 ]
             |> List.collect (fun targetQubit ->
                 let controlledPhaseOps =
-                    [targetQubit + 1 .. config.CountingQubits - 1]
+                    [ targetQubit + 1 .. config.CountingQubits - 1 ]
                     |> List.choose (fun k ->
                         let power = k - targetQubit + 1
                         let angle = -2.0 * Math.PI / float (1 <<< power)
+
                         if shouldIncludeControlledPhase angle then
-                            Some (QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                            Some(QuantumOperation.Gate(CircuitBuilder.CP(k, targetQubit, angle)))
                         else
                             None)
 
-                let hadamardOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                let hadamardOp = QuantumOperation.Gate(CircuitBuilder.H targetQubit)
                 controlledPhaseOps @ [ hadamardOp ])
 
         // Apply bit-reversal swaps to counting qubits (optional)
         let swapOps =
             if intent.ApplyBitReversalSwaps then
-                [0 .. config.CountingQubits / 2 - 1]
+                [ 0 .. config.CountingQubits / 2 - 1 ]
                 |> List.map (fun i ->
                     let j = config.CountingQubits - 1 - i
-                    QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+                    QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
             else
                 []
 
@@ -288,63 +311,84 @@ module QPE =
         // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
-            Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support QPE (native state type: {backend.NativeStateType})"))
+            Error(
+                QuantumError.OperationError(
+                    "QPE",
+                    $"Backend '{backend.Name}' does not support QPE (native state type: {backend.NativeStateType})"
+                )
+            )
         | _ ->
             if intent.Config.CountingQubits <= 0 then
-                Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
+                Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
             elif intent.Config.TargetQubits <= 0 then
-                Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
+                Error(QuantumError.ValidationError("TargetQubits", "must be positive"))
             else
                 match intent.Exactness with
                 | Approximate epsilon when epsilon <= 0.0 ->
-                    Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
+                    Error(QuantumError.ValidationError("Exactness", "epsilon must be positive"))
                 | _ ->
                     // ModularExponentiation cannot be lowered to simple gate ops by QPE;
                     // it requires multi-qubit Beauregard circuits from the Arithmetic module
                     // which compiles after QPE. Use Shor.estimateModExpPhase instead.
                     match intent.Config.UnitaryOperator with
                     | ModularExponentiation _ ->
-                        Error (QuantumError.OperationError (
-                            "QPE",
-                            "ModularExponentiation cannot be executed via QPE's built-in lowering. " +
-                            "Use Shor.estimateModExpPhase which has access to the Beauregard arithmetic circuits."))
+                        Error(
+                            QuantumError.OperationError(
+                                "QPE",
+                                "ModularExponentiation cannot be executed via QPE's built-in lowering. "
+                                + "Use Shor.estimateModExpPhase which has access to the Beauregard arithmetic circuits."
+                            )
+                        )
                     | _ ->
                         // Validate a custom eigenvector before planning. The native
                         // QpeIntent cannot carry an eigenvector, so a custom one also
                         // forces the lowered (gate-level) execution path.
                         let eigenVectorValidation =
                             match intent.Config.EigenVector with
-                            | None -> Ok ()
-                            | Some (QuantumState.StateVector sv) ->
+                            | None -> Ok()
+                            | Some(QuantumState.StateVector sv) ->
                                 let expectedDim = 1 <<< intent.Config.TargetQubits
                                 let actualDim = LocalSimulator.StateVector.dimension sv
+
                                 if actualDim <> expectedDim then
-                                    Error (QuantumError.ValidationError (
-                                        "EigenVector",
-                                        $"dimension {actualDim} does not match TargetQubits={intent.Config.TargetQubits} (expected {expectedDim})"))
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "EigenVector",
+                                            $"dimension {actualDim} does not match TargetQubits={intent.Config.TargetQubits} (expected {expectedDim})"
+                                        )
+                                    )
                                 elif LocalSimulator.StateVector.norm sv < 1e-10 then
-                                    Error (QuantumError.ValidationError ("EigenVector", "must be a non-zero state"))
+                                    Error(QuantumError.ValidationError("EigenVector", "must be a non-zero state"))
                                 else
-                                    Ok ()
+                                    Ok()
                             | Some other ->
-                                Error (QuantumError.ValidationError (
-                                    "EigenVector",
-                                    $"must be a StateVector, got {other.GetType().Name}"))
+                                Error(
+                                    QuantumError.ValidationError(
+                                        "EigenVector",
+                                        $"must be a StateVector, got {other.GetType().Name}"
+                                    )
+                                )
 
                         match eigenVectorValidation with
                         | Error e -> Error e
-                        | Ok () ->
+                        | Ok() ->
                             let coreIntent = toCoreIntent intent
-                            let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)
+                            let nativeOp = QuantumOperation.Algorithm(AlgorithmOperation.QPE coreIntent)
 
                             if intent.Config.EigenVector.IsNone && backend.SupportsOperation nativeOp then
-                                Ok (QpePlan.ExecuteNatively (coreIntent, intent.Exactness))
+                                Ok(QpePlan.ExecuteNatively(coreIntent, intent.Exactness))
                             else
                                 let lowerOps = buildLoweringOps intent
+
                                 if lowerOps |> List.forall backend.SupportsOperation then
-                                    Ok (QpePlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                                    Ok(QpePlan.ExecuteViaOps(lowerOps, intent.Exactness))
                                 else
-                                    Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "QPE",
+                                            $"Backend '{backend.Name}' does not support required operations for QPE"
+                                        )
+                                    )
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -353,11 +397,10 @@ module QPE =
         : Result<QuantumState, QuantumError> =
 
         match plan with
-        | QpePlan.ExecuteNatively (intent, _) ->
-            let op = QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)
+        | QpePlan.ExecuteNatively(intent, _) ->
+            let op = QuantumOperation.Algorithm(AlgorithmOperation.QPE intent)
             backend.ApplyOperation op state
-        | QpePlan.ExecuteViaOps (ops, _) ->
-            UnifiedBackend.applySequence backend ops state
+        | QpePlan.ExecuteViaOps(ops, _) -> UnifiedBackend.applySequence backend ops state
 
     let private executePlanned
         (backend: IQuantumBackend)
@@ -373,7 +416,8 @@ module QPE =
                 let gateCount =
                     match qpePlan with
                     | QpePlan.ExecuteNatively _ -> estimateGateCount intent.ApplyBitReversalSwaps intent.Config
-                    | QpePlan.ExecuteViaOps (ops, _) -> ops.Length
+                    | QpePlan.ExecuteViaOps(ops, _) -> ops.Length
+
                 return (preparedState, gateCount)
 
             | Error e when UnifiedBackend.isIncrementalUnsupported e ->
@@ -384,9 +428,12 @@ module QPE =
                 // statevector) — the terminal-use limitation of gate-based algorithms on cloud.
                 if not (UnifiedBackend.isZeroState initialState) then
                     return!
-                        Error (QuantumError.OperationError (
-                            "QPE",
-                            "Whole-circuit (cloud) execution supports QPE from the |0> state only. Running QPE on an arbitrary prepared state requires a simulator with state-vector access."))
+                        Error(
+                            QuantumError.OperationError(
+                                "QPE",
+                                "Whole-circuit (cloud) execution supports QPE from the |0> state only. Running QPE on an arbitrary prepared state requires a simulator with state-vector access."
+                            )
+                        )
                 else
                     let lowerOps = buildLoweringOps intent
                     let totalQubits = intent.Config.CountingQubits + intent.Config.TargetQubits
@@ -443,18 +490,28 @@ module QPE =
         result {
             // Validation
             if config.CountingQubits <= 0 then
-                return! Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
+                return! Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
             elif config.TargetQubits <= 0 then
-                return! Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
+                return! Error(QuantumError.ValidationError("TargetQubits", "must be positive"))
             elif config.CountingQubits > 16 then
-                return! Error (QuantumError.ValidationError ("CountingQubits", "more than 16 is not practical for local simulation"))
+                return!
+                    Error(
+                        QuantumError.ValidationError(
+                            "CountingQubits",
+                            "more than 16 is not practical for local simulation"
+                        )
+                    )
             else
                 match config.UnitaryOperator with
-                | ModularExponentiation (baseNum, modulus) ->
-                    return! Error (QuantumError.OperationError (
-                        "QPE",
-                        $"ModularExponentiation(base={baseNum}, N={modulus}) cannot be executed via QPE.execute. " +
-                        "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."))
+                | ModularExponentiation(baseNum, modulus) ->
+                    return!
+                        Error(
+                            QuantumError.OperationError(
+                                "QPE",
+                                $"ModularExponentiation(base={baseNum}, N={modulus}) cannot be executed via QPE.execute. "
+                                + "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."
+                            )
+                        )
                 | _ ->
 
                     let totalQubits = config.CountingQubits + config.TargetQubits
@@ -470,8 +527,7 @@ module QPE =
                             Exactness = exactness
                         }
 
-                    let! (preparedState, gateCount) =
-                        executePlanned backend executionIntent initialState
+                    let! (preparedState, gateCount) = executePlanned backend executionIntent initialState
 
                     // Step 3: Measure final state (all qubits)
                     let measurements = UnifiedBackend.measureState preparedState 1000
@@ -487,6 +543,7 @@ module QPE =
                     let outcomeOf (measurement: int[]) =
                         let bits = measurement |> Array.take config.CountingQubits
                         let canonical = if applyBitReversalSwaps then bits else Array.rev bits
+
                         canonical
                         |> Array.indexed
                         |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
@@ -495,22 +552,27 @@ module QPE =
                         measurements
                         |> Array.map outcomeOf
                         |> Array.countBy id
-                        |> Array.maxBy snd   // mode = peak of the QPE distribution
+                        |> Array.maxBy snd // mode = peak of the QPE distribution
                         |> fst
 
                     let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
 
-                    return {
-                        EstimatedPhase = estimatedPhase
-                        MeasurementOutcome = measurementOutcome
-                        Precision = config.CountingQubits
-                        FinalState = preparedState
-                        GateCount = gateCount
-                        Config = config
-                    }
+                    return
+                        {
+                            EstimatedPhase = estimatedPhase
+                            MeasurementOutcome = measurementOutcome
+                            Precision = config.CountingQubits
+                            FinalState = preparedState
+                            GateCount = gateCount
+                            Config = config
+                        }
         }
 
-    let executeWith (config: QPEConfig) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
+    let executeWith
+        (config: QPEConfig)
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        : Result<QPEResult, QuantumError> =
         executeWithExactness config backend applyBitReversalSwaps Exact
 
     let execute (config: QPEConfig) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
@@ -537,13 +599,19 @@ module QPE =
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~2 (0010 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimateTGatePhaseWith (countingQubits: int) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
-        let config = {
-            CountingQubits = countingQubits
-            TargetQubits = 1
-            UnitaryOperator = TGate
-            EigenVector = None
-        }
+    let estimateTGatePhaseWith
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        : Result<QPEResult, QuantumError> =
+        let config =
+            {
+                CountingQubits = countingQubits
+                TargetQubits = 1
+                UnitaryOperator = TGate
+                EigenVector = None
+            }
+
         executeWith config backend applyBitReversalSwaps
 
     let estimateTGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
@@ -566,13 +634,19 @@ module QPE =
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~4 (0100 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimateSGatePhaseWith (countingQubits: int) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
-        let config = {
-            CountingQubits = countingQubits
-            TargetQubits = 1
-            UnitaryOperator = SGate
-            EigenVector = None
-        }
+    let estimateSGatePhaseWith
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        : Result<QPEResult, QuantumError> =
+        let config =
+            {
+                CountingQubits = countingQubits
+                TargetQubits = 1
+                UnitaryOperator = SGate
+                EigenVector = None
+            }
+
         executeWith config backend applyBitReversalSwaps
 
     let estimateSGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
@@ -594,15 +668,25 @@ module QPE =
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~8 (1000 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimatePhaseGateWith (theta: float) (countingQubits: int) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
-        let config = {
-            CountingQubits = countingQubits
-            TargetQubits = 1
-            UnitaryOperator = PhaseGate theta
-            EigenVector = None
-        }
+    let estimatePhaseGateWith
+        (theta: float)
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        : Result<QPEResult, QuantumError> =
+        let config =
+            {
+                CountingQubits = countingQubits
+                TargetQubits = 1
+                UnitaryOperator = PhaseGate theta
+                EigenVector = None
+            }
+
         executeWith config backend applyBitReversalSwaps
 
-    let estimatePhaseGate (theta: float) (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimatePhaseGate
+        (theta: float)
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        : Result<QPEResult, QuantumError> =
         estimatePhaseGateWith theta countingQubits backend defaultApplyBitReversalSwaps
-

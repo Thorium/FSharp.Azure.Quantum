@@ -9,9 +9,11 @@ let private createLocalBackend () : IQuantumBackend =
     LocalBackend.LocalBackend() :> IQuantumBackend
 
 let private measureMany (state: FSharp.Azure.Quantum.Core.QuantumState) (backend: IQuantumBackend) shots =
-    [| 1 .. shots |]
+    [| 1..shots |]
     |> Array.choose (fun _ ->
-        (BellStates.measureBellBasis state backend) |> Result.map (fun measurement -> Some measurement) |> Result.defaultValue None)
+        (BellStates.measureBellBasis state backend)
+        |> Result.map (fun measurement -> Some measurement)
+        |> Result.defaultValue None)
 
 [<Fact>]
 let ``BellStates.create PhiPlus measures to PhiPlus in Bell basis`` () =

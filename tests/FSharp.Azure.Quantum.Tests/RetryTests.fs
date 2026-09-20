@@ -18,7 +18,7 @@ module RetryTests =
         Assert.Equal(3, defaultConfig.MaxAttempts)
         Assert.Equal(500, defaultConfig.InitialDelayMs)
         Assert.Equal(4000, defaultConfig.MaxDelayMs)
-        Assert.True(abs(defaultConfig.JitterFactor - 0.2) < 1e-10)
+        Assert.True(abs (defaultConfig.JitterFactor - 0.2) < 1e-10)
 
     // ========================================================================
     // IS TRANSIENT STATUS CODE
@@ -49,17 +49,19 @@ module RetryTests =
 
     [<Fact>]
     let ``isTransientError returns true for ServiceUnavailable`` () =
-        let err = QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None)
+        let err = QuantumError.AzureError(AzureQuantumError.ServiceUnavailable None)
         Assert.True(isTransientError err)
 
     [<Fact>]
     let ``isTransientError returns true for RateLimited`` () =
-        let err = QuantumError.AzureError (AzureQuantumError.RateLimited (System.TimeSpan.FromSeconds 60.0))
+        let err =
+            QuantumError.AzureError(AzureQuantumError.RateLimited(System.TimeSpan.FromSeconds 60.0))
+
         Assert.True(isTransientError err)
 
     [<Fact>]
     let ``isTransientError returns true for NetworkTimeout`` () =
-        let err = QuantumError.AzureError (AzureQuantumError.NetworkTimeout 0)
+        let err = QuantumError.AzureError(AzureQuantumError.NetworkTimeout 0)
         Assert.True(isTransientError err)
 
     [<Fact>]
@@ -84,7 +86,11 @@ module RetryTests =
     [<Fact>]
     let ``calculateDelay increases with attempt number`` () =
         // Use config with no jitter for deterministic results
-        let config = { defaultConfig with JitterFactor = 0.0 }
+        let config =
+            { defaultConfig with
+                JitterFactor = 0.0
+            }
+
         let delay1 = calculateDelay config 1
         let delay2 = calculateDelay config 2
         let delay3 = calculateDelay config 3
@@ -93,19 +99,35 @@ module RetryTests =
 
     [<Fact>]
     let ``calculateDelay caps at MaxDelayMs`` () =
-        let config = { defaultConfig with JitterFactor = 0.0; MaxDelayMs = 1000 }
-        let delay = calculateDelay config 100  // Very high attempt
+        let config =
+            { defaultConfig with
+                JitterFactor = 0.0
+                MaxDelayMs = 1000
+            }
+
+        let delay = calculateDelay config 100 // Very high attempt
         Assert.True(delay <= 1000, $"Delay ({delay}) should be capped at MaxDelayMs (1000)")
 
     [<Fact>]
     let ``calculateDelay with zero jitter equals base delay`` () =
-        let config = { defaultConfig with InitialDelayMs = 100; JitterFactor = 0.0 }
+        let config =
+            { defaultConfig with
+                InitialDelayMs = 100
+                JitterFactor = 0.0
+            }
+
         let delay = calculateDelay config 1
         Assert.Equal(100, delay)
 
     [<Fact>]
     let ``calculateDelay exponential backoff doubles each attempt`` () =
-        let config = { defaultConfig with InitialDelayMs = 100; MaxDelayMs = 100000; JitterFactor = 0.0 }
+        let config =
+            { defaultConfig with
+                InitialDelayMs = 100
+                MaxDelayMs = 100000
+                JitterFactor = 0.0
+            }
+
         let delay1 = calculateDelay config 1
         let delay2 = calculateDelay config 2
         let delay3 = calculateDelay config 3
@@ -132,38 +154,37 @@ module RetryTests =
     [<Fact>]
     let ``categorizeHttpError maps TooManyRequests to RateLimited`` () =
         match categorizeHttpError HttpStatusCode.TooManyRequests "" with
-        | QuantumError.AzureError (AzureQuantumError.RateLimited _) -> ()
+        | QuantumError.AzureError(AzureQuantumError.RateLimited _) -> ()
         | e -> failwith $"Expected RateLimited, got {e}"
 
     [<Fact>]
     let ``categorizeHttpError maps ServiceUnavailable`` () =
         match categorizeHttpError HttpStatusCode.ServiceUnavailable "" with
-        | QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _) -> ()
+        | QuantumError.AzureError(AzureQuantumError.ServiceUnavailable _) -> ()
         | e -> failwith $"Expected ServiceUnavailable, got {e}"
 
     [<Fact>]
     let ``categorizeHttpError maps RequestTimeout to NetworkTimeout`` () =
         match categorizeHttpError HttpStatusCode.RequestTimeout "" with
-        | QuantumError.AzureError (AzureQuantumError.NetworkTimeout _) -> ()
+        | QuantumError.AzureError(AzureQuantumError.NetworkTimeout _) -> ()
         | e -> failwith $"Expected NetworkTimeout, got {e}"
 
     [<Fact>]
     let ``categorizeHttpError maps GatewayTimeout to NetworkTimeout`` () =
         match categorizeHttpError HttpStatusCode.GatewayTimeout "" with
-        | QuantumError.AzureError (AzureQuantumError.NetworkTimeout _) -> ()
+        | QuantumError.AzureError(AzureQuantumError.NetworkTimeout _) -> ()
         | e -> failwith $"Expected NetworkTimeout, got {e}"
 
     [<Fact>]
     let ``categorizeHttpError maps BadRequest with InvalidCircuit to ValidationError`` () =
         match categorizeHttpError HttpStatusCode.BadRequest "InvalidCircuit detected" with
-        | QuantumError.ValidationError (field, _) ->
-            Assert.Equal("circuit", field)
+        | QuantumError.ValidationError(field, _) -> Assert.Equal("circuit", field)
         | e -> failwith $"Expected ValidationError, got {e}"
 
     [<Fact>]
     let ``categorizeHttpError maps BadRequest with quota to QuotaExceeded`` () =
         match categorizeHttpError HttpStatusCode.BadRequest "quota limit reached" with
-        | QuantumError.AzureError (AzureQuantumError.QuotaExceeded _) -> ()
+        | QuantumError.AzureError(AzureQuantumError.QuotaExceeded _) -> ()
         | e -> failwith $"Expected QuotaExceeded, got {e}"
 
     [<Fact>]
@@ -175,7 +196,7 @@ module RetryTests =
     [<Fact>]
     let ``categorizeHttpError maps unknown status to UnknownError`` () =
         match categorizeHttpError (enum<HttpStatusCode> 418) "I'm a teapot" with
-        | QuantumError.AzureError (AzureQuantumError.UnknownError (code, body)) ->
+        | QuantumError.AzureError(AzureQuantumError.UnknownError(code, body)) ->
             Assert.Equal(418, code)
             Assert.Equal("I'm a teapot", body)
         | e -> failwith $"Expected UnknownError, got {e}"
@@ -189,58 +210,99 @@ module RetryTests =
         task {
             let config = { defaultConfig with MaxAttempts = 3 }
             let operation (_ct: CancellationToken) = async { return Ok 42 }
-            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+
+            let! r =
+                executeWithRetry config operation CancellationToken.None
+                |> Async.StartImmediateAsTask
+
             Assert.Equal(Ok 42, r)
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``executeWithRetry returns Error for non-transient error`` () =
         task {
             let config = { defaultConfig with MaxAttempts = 3 }
             let mutable attempts = 0
-            let operation (_ct: CancellationToken) = async {
-                attempts <- attempts + 1
-                return Error (QuantumError.ValidationError("x", "bad"))
-            }
-            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+
+            let operation (_ct: CancellationToken) =
+                async {
+                    attempts <- attempts + 1
+                    return Error(QuantumError.ValidationError("x", "bad"))
+                }
+
+            let! r =
+                executeWithRetry config operation CancellationToken.None
+                |> Async.StartImmediateAsTask
+
             Assert.Equal(1, attempts)
+
             match r with
-            | Error (QuantumError.ValidationError _) -> ()
+            | Error(QuantumError.ValidationError _) -> ()
             | _ -> failwith "Expected ValidationError"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``executeWithRetry retries on transient error then succeeds`` () =
         task {
-            let config = { defaultConfig with MaxAttempts = 3; InitialDelayMs = 1; MaxDelayMs = 10 }
+            let config =
+                { defaultConfig with
+                    MaxAttempts = 3
+                    InitialDelayMs = 1
+                    MaxDelayMs = 10
+                }
+
             let mutable attempts = 0
-            let operation (_ct: CancellationToken) = async {
-                attempts <- attempts + 1
-                if attempts < 3 then
-                    return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None))
-                else
-                    return Ok "success"
-            }
-            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+
+            let operation (_ct: CancellationToken) =
+                async {
+                    attempts <- attempts + 1
+
+                    if attempts < 3 then
+                        return Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable None))
+                    else
+                        return Ok "success"
+                }
+
+            let! r =
+                executeWithRetry config operation CancellationToken.None
+                |> Async.StartImmediateAsTask
+
             Assert.Equal(3, attempts)
             Assert.Equal(Ok "success", r)
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``executeWithRetry stops after MaxAttempts`` () =
         task {
-            let config = { defaultConfig with MaxAttempts = 2; InitialDelayMs = 1; MaxDelayMs = 10 }
+            let config =
+                { defaultConfig with
+                    MaxAttempts = 2
+                    InitialDelayMs = 1
+                    MaxDelayMs = 10
+                }
+
             let mutable attempts = 0
-            let operation (_ct: CancellationToken) = async {
-                attempts <- attempts + 1
-                return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable None))
-            }
-            let! r = executeWithRetry config operation CancellationToken.None |> Async.StartImmediateAsTask
+
+            let operation (_ct: CancellationToken) =
+                async {
+                    attempts <- attempts + 1
+                    return Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable None))
+                }
+
+            let! r =
+                executeWithRetry config operation CancellationToken.None
+                |> Async.StartImmediateAsTask
+
             Assert.Equal(2, attempts)
+
             match r with
-            | Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _)) -> ()
+            | Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable _)) -> ()
             | _ -> failwith "Expected ServiceUnavailable error"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``executeWithRetry respects cancellation`` () =
@@ -249,8 +311,9 @@ module RetryTests =
             use cts = new CancellationTokenSource()
             do! cts.CancelAsync()
             let operation (_ct: CancellationToken) = async { return Ok 1 }
+
             match! executeWithRetry config operation cts.Token |> Async.StartImmediateAsTask with
-            | Error (QuantumError.OperationError (_, msg)) ->
-                Assert.Contains("cancelled", msg.ToLower())
+            | Error(QuantumError.OperationError(_, msg)) -> Assert.Contains("cancelled", msg.ToLower())
             | _ -> failwith "Expected cancellation error"
-        } :> Task
+        }
+        :> Task

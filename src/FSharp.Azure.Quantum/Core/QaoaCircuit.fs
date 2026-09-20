@@ -1,17 +1,17 @@
 namespace FSharp.Azure.Quantum.Core
 
 /// QAOA Circuit Generator Module
-/// 
+///
 /// Implements QAOA (Quantum Approximate Optimization Algorithm) circuit construction
 /// from QUBO matrices for Azure Quantum submission.
-/// 
+///
 /// ⚠️ CRITICAL: ALL QAOA circuit code in this SINGLE FILE for AI context optimization
 module QaoaCircuit =
-    
+
     // ============================================================================
     // 1. TYPES AND RECORDS (Primitives, no dependencies)
     // ============================================================================
-    
+
     /// Pauli operators for quantum gates
     [<Struct>]
     type PauliOperator =
@@ -23,26 +23,29 @@ module QaoaCircuit =
         | PauliY
         /// Pauli-Z (phase flip)
         | PauliZ
-    
+
     /// Hamiltonian term representing Pauli string with coefficient
-    type HamiltonianTerm = {
-        Coefficient: float
-        QubitsIndices: int[]
-        PauliOperators: PauliOperator[]
-    }
-    
+    type HamiltonianTerm =
+        {
+            Coefficient: float
+            QubitsIndices: int[]
+            PauliOperators: PauliOperator[]
+        }
+
     /// Problem Hamiltonian (cost function from QUBO)
-    type ProblemHamiltonian = {
-        NumQubits: int
-        Terms: HamiltonianTerm[]
-    }
-    
+    type ProblemHamiltonian =
+        {
+            NumQubits: int
+            Terms: HamiltonianTerm[]
+        }
+
     /// Mixer Hamiltonian (X rotations for exploration)
-    type MixerHamiltonian = {
-        NumQubits: int
-        Terms: HamiltonianTerm[]
-    }
-    
+    type MixerHamiltonian =
+        {
+            NumQubits: int
+            Terms: HamiltonianTerm[]
+        }
+
     /// Quantum gate types
     type QuantumGate =
         /// Hadamard gate
@@ -57,44 +60,46 @@ module QaoaCircuit =
         | RZZ of qubit1: int * qubit2: int * angle: float
         /// CNOT gate
         | CNOT of control: int * target: int
-    
+
     /// QAOA circuit layer
-    type QaoaLayer = {
-        /// Cost layer gates (apply e^(-iγH_problem))
-        CostGates: QuantumGate[]
-        
-        /// Mixer layer gates (apply e^(-iβH_mix))
-        MixerGates: QuantumGate[]
-        
-        /// Gamma parameter (cost layer angle)
-        Gamma: float
-        
-        /// Beta parameter (mixer layer angle)
-        Beta: float
-    }
-    
+    type QaoaLayer =
+        {
+            /// Cost layer gates (apply e^(-iγH_problem))
+            CostGates: QuantumGate[]
+
+            /// Mixer layer gates (apply e^(-iβH_mix))
+            MixerGates: QuantumGate[]
+
+            /// Gamma parameter (cost layer angle)
+            Gamma: float
+
+            /// Beta parameter (mixer layer angle)
+            Beta: float
+        }
+
     /// Complete QAOA circuit
-    type QaoaCircuit = {
-        /// Number of qubits
-        NumQubits: int
-        
-        /// Initial state preparation gates (Hadamard on all qubits)
-        InitialStateGates: QuantumGate[]
-        
-        /// QAOA layers (p layers for p-level QAOA)
-        Layers: QaoaLayer[]
-        
-        /// Problem and mixer Hamiltonians (for reference)
-        ProblemHamiltonian: ProblemHamiltonian
-        MixerHamiltonian: MixerHamiltonian
-    }
-    
+    type QaoaCircuit =
+        {
+            /// Number of qubits
+            NumQubits: int
+
+            /// Initial state preparation gates (Hadamard on all qubits)
+            InitialStateGates: QuantumGate[]
+
+            /// QAOA layers (p layers for p-level QAOA)
+            Layers: QaoaLayer[]
+
+            /// Problem and mixer Hamiltonians (for reference)
+            ProblemHamiltonian: ProblemHamiltonian
+            MixerHamiltonian: MixerHamiltonian
+        }
+
     // ============================================================================
     // 2. PROBLEM HAMILTONIAN CONSTRUCTION
     // ============================================================================
-    
+
     module ProblemHamiltonian =
-        
+
         /// Convert sparse QUBO (Map<int*int, float>) directly to ProblemHamiltonian
         /// without creating an intermediate dense float[,] array.
         ///
@@ -139,11 +144,12 @@ module QaoaCircuit =
                 |> Map.toArray
                 |> Array.choose (fun (i, hi) ->
                     if abs hi > 1e-10 then
-                        Some {
-                            Coefficient = hi
-                            QubitsIndices = [| i |]
-                            PauliOperators = [| PauliZ |]
-                        }
+                        Some
+                            {
+                                Coefficient = hi
+                                QubitsIndices = [| i |]
+                                PauliOperators = [| PauliZ |]
+                            }
                     else
                         None)
 
@@ -152,11 +158,12 @@ module QaoaCircuit =
                 |> Map.toArray
                 |> Array.choose (fun ((i, j), sumQij) ->
                     if abs sumQij > 1e-10 then
-                        Some {
-                            Coefficient = sumQij / 4.0
-                            QubitsIndices = [| i; j |]
-                            PauliOperators = [| PauliZ; PauliZ |]
-                        }
+                        Some
+                            {
+                                Coefficient = sumQij / 4.0
+                                QubitsIndices = [| i; j |]
+                                PauliOperators = [| PauliZ; PauliZ |]
+                            }
                     else
                         None)
 
@@ -196,6 +203,7 @@ module QaoaCircuit =
                     for i in 0 .. n - 1 do
                         for j in 0 .. n - 1 do
                             let v = quboMatrix[i, j]
+
                             if abs v > 1e-10 then
                                 yield ((i, j), v)
                 }
@@ -206,105 +214,122 @@ module QaoaCircuit =
     // ============================================================================
     // 3. MIXER HAMILTONIAN CONSTRUCTION
     // ============================================================================
-    
+
     module MixerHamiltonian =
-        
+
         /// Create standard mixer Hamiltonian (X rotations on all qubits)
-        /// 
+        ///
         /// The mixer Hamiltonian is: H_mix = Σ_i X_i
         /// This allows exploration of the solution space in QAOA
         let create (numQubits: int) : MixerHamiltonian =
-            let terms = Array.init numQubits (fun i ->
-                {
-                    Coefficient = 1.0
-                    QubitsIndices = [| i |]
-                    PauliOperators = [| PauliX |]
-                })
-            
-            {
-                NumQubits = numQubits
-                Terms = terms
-            }
-    
+            let terms =
+                Array.init numQubits (fun i ->
+                    {
+                        Coefficient = 1.0
+                        QubitsIndices = [| i |]
+                        PauliOperators = [| PauliX |]
+                    })
+
+            { NumQubits = numQubits; Terms = terms }
+
     // ============================================================================
     // 4. QAOA CIRCUIT CONSTRUCTION
     // ============================================================================
-    
+
     module QaoaCircuit =
-        
+
         /// Build a single QAOA layer from Hamiltonians and parameters
-        /// 
+        ///
         /// A QAOA layer consists of:
         /// 1. Cost layer: Apply e^(-iγH_problem) via parameterized rotations
         /// 2. Mixer layer: Apply e^(-iβH_mix) via parameterized X rotations
-        /// 
+        ///
         /// For Hamiltonian term with coefficient c and Pauli operator P:
-        /// - Single-qubit Z: RZ(2*c*γ) 
+        /// - Single-qubit Z: RZ(2*c*γ)
         /// - Two-qubit ZZ: RZZ(2*c*γ)
         /// - Single-qubit X: RX(2*c*β)
-        let buildLayer (problemHam: ProblemHamiltonian) (mixerHam: MixerHamiltonian) (gamma: float) (beta: float) : QaoaLayer =
+        let buildLayer
+            (problemHam: ProblemHamiltonian)
+            (mixerHam: MixerHamiltonian)
+            (gamma: float)
+            (beta: float)
+            : QaoaLayer =
             // Build cost layer gates from problem Hamiltonian
             let costGates =
                 problemHam.Terms
                 |> Array.map (fun term ->
                     let angle = 2.0 * term.Coefficient * gamma
-                    
+
                     match term.QubitsIndices.Length with
-                    | 1 -> 
+                    | 1 ->
                         // Single-qubit Z rotation
                         match term.PauliOperators[0] with
                         | PauliZ -> RZ(term.QubitsIndices[0], angle)
-                        | _ -> failwith $"Unsupported Pauli operator in problem Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
-                    
+                        | _ ->
+                            failwith
+                                $"Unsupported Pauli operator in problem Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
+
                     | 2 ->
                         // Two-qubit ZZ rotation
                         match term.PauliOperators[0], term.PauliOperators[1] with
-                        | PauliZ, PauliZ -> 
-                            RZZ(term.QubitsIndices[0], term.QubitsIndices[1], angle)
-                        | _ -> failwith $"Unsupported Pauli operators in problem Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
-                    
-                    | _ -> failwith $"Only single and two-qubit terms supported, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}")
-            
+                        | PauliZ, PauliZ -> RZZ(term.QubitsIndices[0], term.QubitsIndices[1], angle)
+                        | _ ->
+                            failwith
+                                $"Unsupported Pauli operators in problem Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
+
+                    | _ ->
+                        failwith
+                            $"Only single and two-qubit terms supported, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}")
+
             // Build mixer layer gates from mixer Hamiltonian
             let mixerGates =
                 mixerHam.Terms
                 |> Array.map (fun term ->
                     let angle = 2.0 * term.Coefficient * beta
-                    
+
                     match term.QubitsIndices.Length with
                     | 1 ->
                         // Single-qubit X rotation
                         match term.PauliOperators[0] with
                         | PauliX -> RX(term.QubitsIndices[0], angle)
-                        | _ -> failwith $"Unsupported Pauli operator in mixer Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
-                    
-                    | _ -> failwith $"Mixer should only have single-qubit terms, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}")
-            
+                        | _ ->
+                            failwith
+                                $"Unsupported Pauli operator in mixer Hamiltonian, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}"
+
+                    | _ ->
+                        failwith
+                            $"Mixer should only have single-qubit terms, calling buildLayer with problemHam: {problemHam}, mixerHam: {mixerHam}, gamma: {gamma}, beta: {beta}")
+
             {
                 CostGates = costGates
                 MixerGates = mixerGates
                 Gamma = gamma
                 Beta = beta
             }
-        
+
         /// Build complete QAOA circuit with p layers
-        /// 
+        ///
         /// Parameters: array of (gamma, beta) tuples, one per layer
         /// Returns: Complete QAOA circuit with initial state + p layers
-        let build (problemHam: ProblemHamiltonian) (mixerHam: MixerHamiltonian) (parameters: (float * float)[]) : QaoaCircuit =
+        let build
+            (problemHam: ProblemHamiltonian)
+            (mixerHam: MixerHamiltonian)
+            (parameters: (float * float)[])
+            : QaoaCircuit =
             if problemHam.NumQubits <> mixerHam.NumQubits then
-                failwith $"Problem and mixer Hamiltonians must have same number of qubits, calling build with problemHam: {problemHam}, mixerHam: {mixerHam}, parameters: {parameters}"
-            
+                failwith
+                    $"Problem and mixer Hamiltonians must have same number of qubits, calling build with problemHam: {problemHam}, mixerHam: {mixerHam}, parameters: {parameters}"
+
             let numQubits = problemHam.NumQubits
-            
+
             // Create initial state gates (Hadamard on all qubits)
             let initialStateGates = Array.init numQubits (fun i -> H(i))
-            
+
             // Build layers from parameters
-            let layers = 
+            let layers =
                 parameters
                 |> Array.map (fun (gamma, beta) -> buildLayer problemHam mixerHam gamma beta)
-            
+
             {
                 NumQubits = numQubits
                 InitialStateGates = initialStateGates
@@ -312,7 +337,7 @@ module QaoaCircuit =
                 ProblemHamiltonian = problemHam
                 MixerHamiltonian = mixerHam
             }
-        
+
         /// Format an angle for OpenQASM with InvariantCulture: on a locale with a comma
         /// decimal separator (e.g. fi-FI) interpolation would emit "rx(1,57...)", which is
         /// invalid OpenQASM (or misparses as two arguments) on the receiving backend.
@@ -323,65 +348,70 @@ module QaoaCircuit =
         let private gateToQasm (gate: QuantumGate) : string =
             match gate with
             | H qubit -> $"h q[{qubit}];"
-            | RX (qubit, angle) -> $"rx({formatAngle angle}) q[{qubit}];"
-            | RY (qubit, angle) -> $"ry({formatAngle angle}) q[{qubit}];"
-            | RZ (qubit, angle) -> $"rz({formatAngle angle}) q[{qubit}];"
-            | RZZ (qubit1, qubit2, angle) -> $"rzz({formatAngle angle}) q[{qubit1}],q[{qubit2}];"
-            | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
-        
+            | RX(qubit, angle) -> $"rx({formatAngle angle}) q[{qubit}];"
+            | RY(qubit, angle) -> $"ry({formatAngle angle}) q[{qubit}];"
+            | RZ(qubit, angle) -> $"rz({formatAngle angle}) q[{qubit}];"
+            | RZZ(qubit1, qubit2, angle) -> $"rzz({formatAngle angle}) q[{qubit1}],q[{qubit2}];"
+            | CNOT(control, target) -> $"cx q[{control}],q[{target}];"
+
         /// Serialize QAOA circuit to OpenQASM 2.0 format
-        /// 
+        ///
         /// OpenQASM 2.0 format:
         /// - Header: OPENQASM 2.0; include "qelib1.inc";
         /// - Register declaration: qreg q[n];
         /// - Gates: h q[0]; rx(0.5) q[1]; rzz(0.25) q[0],q[1];
         let toOpenQasm (circuit: QaoaCircuit) : string =
             let sb = System.Text.StringBuilder()
-            
+
             // Header
             sb.AppendLine("OPENQASM 2.0;") |> ignore
             sb.AppendLine("include \"qelib1.inc\";") |> ignore
             sb.AppendLine() |> ignore
-            
+
             // Register declaration
             sb.AppendLine($"qreg q[{circuit.NumQubits}];") |> ignore
             sb.AppendLine() |> ignore
-            
+
             // Initial state gates
             sb.AppendLine("// Initial state preparation") |> ignore
+
             for gate in circuit.InitialStateGates do
                 sb.AppendLine(gateToQasm gate) |> ignore
+
             sb.AppendLine() |> ignore
-            
+
             // QAOA layers
             for i, layer in Array.indexed circuit.Layers do
-                sb.AppendLine($"// QAOA Layer {i + 1} (γ={layer.Gamma}, β={layer.Beta})") |> ignore
-                
+                sb.AppendLine($"// QAOA Layer {i + 1} (γ={layer.Gamma}, β={layer.Beta})")
+                |> ignore
+
                 // Cost layer
                 sb.AppendLine("// Cost layer") |> ignore
+
                 for gate in layer.CostGates do
                     sb.AppendLine(gateToQasm gate) |> ignore
-                
+
                 // Mixer layer
                 sb.AppendLine("// Mixer layer") |> ignore
+
                 for gate in layer.MixerGates do
                     sb.AppendLine(gateToQasm gate) |> ignore
-                
+
                 sb.AppendLine() |> ignore
-            
+
             sb.ToString()
-        
+
         /// Convert QaoaCircuit to general-purpose CircuitBuilder.Circuit
-        /// 
+        ///
         /// ⚠️ WARNING: This conversion LOSES QAOA-specific information:
         /// - Layer structure (cost vs mixer)
         /// - Parameter meanings (γ vs β)
         /// - Hamiltonian information
         /// - RZZ gates are decomposed to CNOT + RZ + CNOT
-        /// 
+        ///
         /// Use this ONLY when you need CircuitBuilder operations (optimize, validate).
         /// For most use cases, work with QaoaCircuit directly or export to OpenQASM.
-        /// 
+        ///
         /// Example:
         /// ```fsharp
         /// let qaoa = QaoaCircuit.create quboMatrix parameters
@@ -394,35 +424,36 @@ module QaoaCircuit =
             /// RZZ(θ) = CNOT(q1,q2) + RZ(q2, θ) + CNOT(q1,q2)
             let convertGate (gate: QuantumGate) : FSharp.Azure.Quantum.CircuitBuilder.Gate list =
                 match gate with
-                | H q -> [FSharp.Azure.Quantum.CircuitBuilder.H q]
-                | RX (q, angle) -> [FSharp.Azure.Quantum.CircuitBuilder.RX (q, angle)]
-                | RY (q, angle) -> [FSharp.Azure.Quantum.CircuitBuilder.RY (q, angle)]
-                | RZ (q, angle) -> [FSharp.Azure.Quantum.CircuitBuilder.RZ (q, angle)]
-                | CNOT (c, t) -> [FSharp.Azure.Quantum.CircuitBuilder.CNOT (c, t)]
-                | RZZ (q1, q2, angle) ->
+                | H q -> [ FSharp.Azure.Quantum.CircuitBuilder.H q ]
+                | RX(q, angle) -> [ FSharp.Azure.Quantum.CircuitBuilder.RX(q, angle) ]
+                | RY(q, angle) -> [ FSharp.Azure.Quantum.CircuitBuilder.RY(q, angle) ]
+                | RZ(q, angle) -> [ FSharp.Azure.Quantum.CircuitBuilder.RZ(q, angle) ]
+                | CNOT(c, t) -> [ FSharp.Azure.Quantum.CircuitBuilder.CNOT(c, t) ]
+                | RZZ(q1, q2, angle) ->
                     // Standard RZZ decomposition from Nielsen & Chuang
                     // RZZ(θ) = exp(-i θ/2 Z⊗Z) = CNOT · RZ(θ) · CNOT
                     [
-                        FSharp.Azure.Quantum.CircuitBuilder.CNOT (q1, q2)
-                        FSharp.Azure.Quantum.CircuitBuilder.RZ (q2, angle)
-                        FSharp.Azure.Quantum.CircuitBuilder.CNOT (q1, q2)
+                        FSharp.Azure.Quantum.CircuitBuilder.CNOT(q1, q2)
+                        FSharp.Azure.Quantum.CircuitBuilder.RZ(q2, angle)
+                        FSharp.Azure.Quantum.CircuitBuilder.CNOT(q1, q2)
                     ]
-            
+
             // Collect all gates: initial state + all layers (cost + mixer)
-            let allGates = 
+            let allGates =
                 [
                     // Initial state preparation (Hadamards)
                     for gate in qaoa.InitialStateGates do
                         yield! convertGate gate
-                    
+
                     // All QAOA layers (cost + mixer gates)
                     for layer in qaoa.Layers do
                         for gate in layer.CostGates do
                             yield! convertGate gate
+
                         for gate in layer.MixerGates do
                             yield! convertGate gate
                 ]
-            
+
             {
                 FSharp.Azure.Quantum.CircuitBuilder.QubitCount = qaoa.NumQubits
                 FSharp.Azure.Quantum.CircuitBuilder.Gates = List.rev allGates

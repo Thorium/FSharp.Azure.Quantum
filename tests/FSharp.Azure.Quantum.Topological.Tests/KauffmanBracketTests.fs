@@ -13,6 +13,7 @@ open System.Numerics
 let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) =
     let diffReal = abs (expected.Real - actual.Real)
     let diffImag = abs (expected.Imaginary - actual.Imaginary)
+
     Assert.True(
         diffReal < tolerance && diffImag < tolerance,
         $"Expected: %A{expected}, Actual: %A{actual}, Tolerance: %f{tolerance}"
@@ -22,8 +23,7 @@ let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) 
 let standardA = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
 
 /// Calculate expected d value: d = -A^2 - A^(-2)
-let expectedD (a: Complex) : Complex =
-    -(a * a) - (Complex.One / (a * a))
+let expectedD (a: Complex) : Complex = -(a * a) - (Complex.One / (a * a))
 
 // ========================================
 // TDD Cycle 1: Unknot (Simple Loop)
@@ -33,10 +33,10 @@ let expectedD (a: Complex) : Complex =
 let ``Unknot has Kauffman bracket value 1`` () =
     // Arrange
     let a = standardA
-    
+
     // Act
     let actualValue = evaluateBracket unknot a
-    
+
     // Assert - unknot (empty diagram) evaluates to 1, not d
     assertComplexEqual Complex.One actualValue 1e-10
 
@@ -45,10 +45,10 @@ let ``Loop value function returns correct d`` () =
     // Arrange
     let a = standardA
     let expected = expectedD a
-    
+
     // Act
     let actual = loopValue a
-    
+
     // Assert
     assertComplexEqual expected actual 1e-10
 
@@ -56,7 +56,7 @@ let ``Loop value function returns correct d`` () =
 let ``Unknot constructor creates empty diagram`` () =
     // Arrange & Act
     let knot = unknot
-    
+
     // Assert
     Assert.Empty(knot)
 
@@ -68,7 +68,7 @@ let ``Unknot constructor creates empty diagram`` () =
 let ``Unknot has writhe zero`` () =
     // Arrange & Act
     let w = writhe unknot
-    
+
     // Assert
     Assert.Equal(0, w)
 
@@ -76,10 +76,10 @@ let ``Unknot has writhe zero`` () =
 let ``Right-handed trefoil has writhe +3`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let w = writhe knot
-    
+
     // Assert
     Assert.Equal(3, w)
 
@@ -87,10 +87,10 @@ let ``Right-handed trefoil has writhe +3`` () =
 let ``Left-handed trefoil has writhe -3`` () =
     // Arrange
     let knot = trefoil false
-    
+
     // Act
     let w = writhe knot
-    
+
     // Assert
     Assert.Equal(-3, w)
 
@@ -98,7 +98,7 @@ let ``Left-handed trefoil has writhe -3`` () =
 let ``Figure-eight knot has writhe zero`` () =
     // Arrange & Act
     let w = writhe figureEight
-    
+
     // Assert
     Assert.Equal(0, w)
 
@@ -110,7 +110,7 @@ let ``Figure-eight knot has writhe zero`` () =
 let ``Trefoil constructor creates 3 crossings`` () =
     // Arrange & Act
     let knot = trefoil true
-    
+
     // Assert
     Assert.Equal(3, List.length knot)
 
@@ -118,33 +118,39 @@ let ``Trefoil constructor creates 3 crossings`` () =
 let ``Right-handed trefoil has all positive crossings`` () =
     // Arrange & Act
     let knot = trefoil true
-    
+
     // Assert
-    Assert.All(knot, fun crossing ->
-        match crossing with
-        | Positive -> ()
-        | Negative -> Assert.Fail("Expected positive crossing"))
+    Assert.All(
+        knot,
+        fun crossing ->
+            match crossing with
+            | Positive -> ()
+            | Negative -> Assert.Fail("Expected positive crossing")
+    )
 
 [<Fact>]
 let ``Left-handed trefoil has all negative crossings`` () =
     // Arrange & Act
     let knot = trefoil false
-    
+
     // Assert
-    Assert.All(knot, fun crossing ->
-        match crossing with
-        | Negative -> ()
-        | Positive -> Assert.Fail("Expected negative crossing"))
+    Assert.All(
+        knot,
+        fun crossing ->
+            match crossing with
+            | Negative -> ()
+            | Positive -> Assert.Fail("Expected negative crossing")
+    )
 
 [<Fact>]
 let ``Trefoil Kauffman bracket is non-zero`` () =
     // Arrange
     let knot = trefoil true
     let a = standardA
-    
+
     // Act
     let bracket = evaluateBracket knot a
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
 
@@ -154,11 +160,11 @@ let ``Left and right trefoils have different Kauffman brackets`` () =
     let rightTrefoil = trefoil true
     let leftTrefoil = trefoil false
     let a = standardA
-    
+
     // Act
     let rightBracket = evaluateBracket rightTrefoil a
     let leftBracket = evaluateBracket leftTrefoil a
-    
+
     // Assert - they should be complex conjugates or at least different
     Assert.NotEqual(rightBracket, leftBracket)
 
@@ -172,30 +178,30 @@ let ``Jones polynomial of unknot equals 1 at standard value`` () =
     let a = standardA
     let w = writhe unknot
     let bracket = evaluateBracket unknot a
-    
+
     // Expected: (-A)^(-3*0) * bracket = 1 * d = d
     let expected = bracket
-    
+
     // Act
     let actual = jonesPolynomial unknot a
-    
+
     // Assert
     assertComplexEqual expected actual 1e-10
 
 [<Fact>]
 let ``Jones polynomial incorporates writhe normalization`` () =
     // Arrange
-    let knot = trefoil true  // writhe = +3
+    let knot = trefoil true // writhe = +3
     let a = standardA
-    
+
     // Act
     let jones = jonesPolynomial knot a
     let bracket = evaluateBracket knot a
-    
+
     // Expected: (-A)^(-9) * bracket
     let expectedNorm = Complex.Pow(-a, -9.0)
     let expected = expectedNorm * bracket
-    
+
     // Assert
     assertComplexEqual expected jones 1e-10
 
@@ -204,10 +210,10 @@ let ``Jones polynomial of trefoil is well-defined`` () =
     // Arrange
     let knot = trefoil true
     let a = standardA
-    
+
     // Act
     let jones = jonesPolynomial knot a
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, jones)
     Assert.False(Double.IsNaN(jones.Real))
@@ -223,10 +229,10 @@ let ``Ising evaluation uses correct A value`` () =
     let knot = unknot
     let expectedA = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
     let expectedBracket = evaluateBracket knot expectedA
-    
+
     // Act
     let actualBracket = evaluateIsing knot
-    
+
     // Assert
     assertComplexEqual expectedBracket actualBracket 1e-10
 
@@ -234,10 +240,10 @@ let ``Ising evaluation uses correct A value`` () =
 let ``Fibonacci evaluation returns complex number`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let bracket = evaluateFibonacci knot
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
     Assert.False(Double.IsNaN(bracket.Real))
@@ -247,10 +253,10 @@ let ``Fibonacci evaluation returns complex number`` () =
 let ``Jones at t=-1 is well-defined for trefoil`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let jones = evaluateJonesAtMinusOne knot
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, jones)
     Assert.False(Double.IsNaN(jones.Real))
@@ -264,7 +270,7 @@ let ``Jones at t=-1 is well-defined for trefoil`` () =
 let ``Figure-eight constructor creates 4 crossings`` () =
     // Arrange & Act
     let knot = figureEight
-    
+
     // Assert
     Assert.Equal(4, List.length knot)
 
@@ -272,9 +278,9 @@ let ``Figure-eight constructor creates 4 crossings`` () =
 let ``Figure-eight has alternating crossings`` () =
     // Arrange & Act
     let knot = figureEight
-    
+
     // Assert
-    Assert.Equal<KnotDiagram>([Positive; Negative; Positive; Negative], knot)
+    Assert.Equal<KnotDiagram>([ Positive; Negative; Positive; Negative ], knot)
 
 [<Fact>]
 let ``Figure-eight Kauffman bracket differs from trefoil`` () =
@@ -282,11 +288,11 @@ let ``Figure-eight Kauffman bracket differs from trefoil`` () =
     let fig8 = figureEight
     let tref = trefoil true
     let a = standardA
-    
+
     // Act
     let fig8Bracket = evaluateBracket fig8 a
     let trefBracket = evaluateBracket tref a
-    
+
     // Assert
     Assert.NotEqual(fig8Bracket, trefBracket)
 
@@ -297,9 +303,9 @@ let ``Figure-eight Kauffman bracket differs from trefoil`` () =
 [<Fact>]
 let ``Kauffman bracket is non-zero for all standard knots`` () =
     // Arrange
-    let knots = [unknot; trefoil true; trefoil false; figureEight; hopfLink]
+    let knots = [ unknot; trefoil true; trefoil false; figureEight; hopfLink ]
     let a = standardA
-    
+
     // Act & Assert
     for knot in knots do
         let bracket = evaluateBracket knot a
@@ -308,14 +314,14 @@ let ``Kauffman bracket is non-zero for all standard knots`` () =
 [<Fact>]
 let ``Writhe is additive for concatenated diagrams`` () =
     // Arrange
-    let diagram1 = [Positive; Negative]
-    let diagram2 = [Positive; Positive]
+    let diagram1 = [ Positive; Negative ]
+    let diagram2 = [ Positive; Positive ]
     let combined = diagram1 @ diagram2
-    
+
     // Act
     let w1 = writhe diagram1
     let w2 = writhe diagram2
     let wCombined = writhe combined
-    
+
     // Assert
     Assert.Equal(w1 + w2, wCombined)

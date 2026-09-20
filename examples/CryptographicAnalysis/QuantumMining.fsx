@@ -87,15 +87,47 @@ open NBitcoin
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "QuantumMining.fsx" "Quantum Proof-of-Work mining using Grover's algorithm to break simplified Bitcoin-like puzzles." [
-    { Name = "qubits"; Description = "Number of qubits (nonce search space = 2^qubits)"; Default = Some "10" }
-    { Name = "difficulty"; Description = "Leading zero bits required in hash (1-8)"; Default = Some "2" }
-    { Name = "block-data"; Description = "Block data string to hash with nonce"; Default = Some "QuantumBlock:1" }
-    { Name = "shots"; Description = "Number of measurement shots"; Default = Some "1000" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "QuantumMining.fsx"
+    "Quantum Proof-of-Work mining using Grover's algorithm to break simplified Bitcoin-like puzzles."
+    [
+        {
+            Name = "qubits"
+            Description = "Number of qubits (nonce search space = 2^qubits)"
+            Default = Some "10"
+        }
+        {
+            Name = "difficulty"
+            Description = "Leading zero bits required in hash (1-8)"
+            Default = Some "2"
+        }
+        {
+            Name = "block-data"
+            Description = "Block data string to hash with nonce"
+            Default = Some "QuantumBlock:1"
+        }
+        {
+            Name = "shots"
+            Description = "Number of measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let numQubitsRaw = Cli.getIntOr "qubits" 10 args
 let difficultyRaw = Cli.getIntOr "difficulty" 2 args
@@ -131,8 +163,10 @@ let hasLeadingZeroBits (hash: byte[]) (zeroBits: int) : bool =
     let mutable bitsChecked = 0
     let mutable allZero = true
     let mutable byteIndex = 0
+
     while allZero && bitsChecked < zeroBits && byteIndex < hash.Length do
         let remainingBits = zeroBits - bitsChecked
+
         if remainingBits >= 8 then
             // Check entire byte
             allZero <- hash.[byteIndex] = 0uy
@@ -142,7 +176,9 @@ let hasLeadingZeroBits (hash: byte[]) (zeroBits: int) : bool =
             let mask = 0xFFuy <<< (8 - remainingBits)
             allZero <- (hash.[byteIndex] &&& mask) = 0uy
             bitsChecked <- bitsChecked + remainingBits
+
         byteIndex <- byteIndex + 1
+
     allZero
 
 /// Format hash bytes as hex string
@@ -197,35 +233,45 @@ let classicalTimeMs = sw.Elapsed.TotalMilliseconds
 
 if not quiet then
     printfn "Classical miner checked all %d nonces in %.2f ms" searchSpace classicalTimeMs
-    printfn "Valid nonces found: %d out of %d (%.1f%%)"
-        validNonces.Length searchSpace
+
+    printfn
+        "Valid nonces found: %d out of %d (%.1f%%)"
+        validNonces.Length
+        searchSpace
         (100.0 * float validNonces.Length / float searchSpace)
+
     printfn ""
 
     if validNonces.Length > 0 then
         let showCount = min 5 validNonces.Length
         printfn "First %d valid nonces:" showCount
+
         for i in 0 .. showCount - 1 do
             let nonce = validNonces.[i]
             let hash = computeHash blockData nonce
             printfn "  Nonce %4d -> %s" nonce (hashToHex hash)
+
         if validNonces.Length > showCount then
             printfn "  ... and %d more" (validNonces.Length - showCount)
     else
         printfn "  No valid nonces found! Try lowering --difficulty"
+
     printfn ""
 
 results.Add(
-    [ "scenario", "Classical Mining"
-      "qubits", string numQubits
-      "search_space", string searchSpace
-      "difficulty_bits", string difficulty
-      "valid_nonces", string validNonces.Length
-      "solution_density", sprintf "%.4f" (float validNonces.Length / float searchSpace)
-      "time_ms", $"%.2f{classicalTimeMs}"
-      "method", "brute_force"
-      "queries", string searchSpace ]
-    |> Map.ofList)
+    [
+        "scenario", "Classical Mining"
+        "qubits", string numQubits
+        "search_space", string searchSpace
+        "difficulty_bits", string difficulty
+        "valid_nonces", string validNonces.Length
+        "solution_density", sprintf "%.4f" (float validNonces.Length / float searchSpace)
+        "time_ms", $"%.2f{classicalTimeMs}"
+        "method", "brute_force"
+        "queries", string searchSpace
+    ]
+    |> Map.ofList
+)
 
 // ============================================================================
 // Scenario 2: Quantum Mining with Grover's Algorithm
@@ -242,42 +288,52 @@ if validNonces.Length = 0 then
         printfn ""
 
     results.Add(
-        [ "scenario", "Quantum Mining"
-          "qubits", string numQubits
-          "search_space", string searchSpace
-          "difficulty_bits", string difficulty
-          "valid_nonces", "0"
-          "status", "no_solutions"
-          "method", "grover" ]
-        |> Map.ofList)
+        [
+            "scenario", "Quantum Mining"
+            "qubits", string numQubits
+            "search_space", string searchSpace
+            "difficulty_bits", string difficulty
+            "valid_nonces", "0"
+            "status", "no_solutions"
+            "method", "grover"
+        ]
+        |> Map.ofList
+    )
 else
     let backend = LocalBackend() :> IQuantumBackend
 
     if not quiet then
         let expectedIters =
             int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace / float validNonces.Length)))
+
         printfn "Grover's algorithm setup:"
         printfn "  Search space:     N = %d nonces" searchSpace
         printfn "  Valid solutions:  M = %d" validNonces.Length
         printfn "  Classical avg:    N/M = %d queries" (searchSpace / max 1 validNonces.Length)
         printfn "  Grover optimal:   pi/4 * sqrt(N/M) ~ %d iterations" expectedIters
-        printfn "  Speedup factor:   %.1fx fewer queries"
-            (float searchSpace / float (max 1 validNonces.Length) / float (max 1 expectedIters))
+
+        printfn
+            "  Speedup factor:   %.1fx fewer queries"
+            (float searchSpace
+             / float (max 1 validNonces.Length)
+             / float (max 1 expectedIters))
+
         printfn ""
-        printfn "Creating quantum oracle: SHA256(blockData || nonce) has >=%d leading zero bits..."
-            difficulty
+        printfn "Creating quantum oracle: SHA256(blockData || nonce) has >=%d leading zero bits..." difficulty
 
     // Create oracle from predicate -- the core of the quantum mining attack
-    let oracleResult = Oracle.fromPredicate (miningPredicate blockData difficulty) numQubits
+    let oracleResult =
+        Oracle.fromPredicate (miningPredicate blockData difficulty) numQubits
 
     match oracleResult with
     | Error err ->
         if not quiet then
             printfn "  Oracle creation failed: %A" err
+
         results.Add(
-            [ "scenario", "Quantum Mining"
-              "status", $"oracle_error: %A{err}" ]
-            |> Map.ofList)
+            [ "scenario", "Quantum Mining"; "status", $"oracle_error: %A{err}" ]
+            |> Map.ofList
+        )
     | Ok oracle ->
         if not quiet then
             printfn "  Oracle compiled (%d qubits)" oracle.NumQubits
@@ -291,21 +347,29 @@ else
         // uniformly amplified, each gets ~shots/M hits, so threshold = 1/(2*M).
         let solutionThresh =
             let m = float validNonces.Length
-            if m > 1.0 then 0.5 / m else Grover.defaultConfig.SolutionThreshold
+
+            if m > 1.0 then
+                0.5 / m
+            else
+                Grover.defaultConfig.SolutionThreshold
+
         let config =
             { Grover.defaultConfig with
                 Shots = shots
-                SolutionThreshold = solutionThresh }
+                SolutionThreshold = solutionThresh
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
             sw2.Stop()
+
             if not quiet then
                 printfn "  Grover search failed: %A" err
+
             results.Add(
-                [ "scenario", "Quantum Mining"
-                  "status", $"search_error: %A{err}" ]
-                |> Map.ofList)
+                [ "scenario", "Quantum Mining"; "status", $"search_error: %A{err}" ]
+                |> Map.ofList
+            )
         | Ok result ->
             sw2.Stop()
             let quantumTimeMs = sw2.Elapsed.TotalMilliseconds
@@ -323,19 +387,23 @@ else
                 if result.Solutions.Length > 0 then
                     let showCount = min 5 result.Solutions.Length
                     printfn "Verification (SHA-256 hash of found nonces):"
+
                     for i in 0 .. showCount - 1 do
                         let nonce = result.Solutions.[i]
                         let hash = computeHash blockData nonce
                         let valid = hasLeadingZeroBits hash difficulty
                         let mark = if valid then "VALID" else "INVALID"
                         printfn "  Nonce %4d -> %s [%s]" nonce (hashToHex hash) mark
+
                     if result.Solutions.Length > showCount then
                         printfn "  ... and %d more" (result.Solutions.Length - showCount)
+
                     printfn ""
 
                 // Show measurement distribution (top values)
                 if result.Measurements.Count > 0 then
                     printfn "Top measured nonces (by frequency):"
+
                     result.Measurements
                     |> Map.toList
                     |> List.sortByDescending snd
@@ -344,32 +412,39 @@ else
                         let hash = computeHash blockData nonce
                         let valid = hasLeadingZeroBits hash difficulty
                         let mark = if valid then "*" else " "
-                        printfn "  %s Nonce %4d: %4d hits (%.1f%%) hash=%s"
-                            mark nonce count
+
+                        printfn
+                            "  %s Nonce %4d: %4d hits (%.1f%%) hash=%s"
+                            mark
+                            nonce
+                            count
                             (100.0 * float count / float shots)
                             (hashToHex hash |> fun s -> s.[0..15] + "..."))
+
                     printfn "  (* = valid mining solution)"
                     printfn ""
 
             // Verify all quantum solutions are actually valid
             let verifiedSolutions =
-                result.Solutions
-                |> List.filter (miningPredicate blockData difficulty)
+                result.Solutions |> List.filter (miningPredicate blockData difficulty)
 
             results.Add(
-                [ "scenario", "Quantum Mining"
-                  "qubits", string numQubits
-                  "search_space", string searchSpace
-                  "difficulty_bits", string difficulty
-                  "valid_nonces_classical", string validNonces.Length
-                  "solutions_found", string result.Solutions.Length
-                  "solutions_verified", string verifiedSolutions.Length
-                  "iterations", string result.Iterations
-                  "success_probability", $"%.4f{result.SuccessProbability}"
-                  "time_ms", $"%.2f{quantumTimeMs}"
-                  "method", "grover"
-                  "shots", string shots ]
-                |> Map.ofList)
+                [
+                    "scenario", "Quantum Mining"
+                    "qubits", string numQubits
+                    "search_space", string searchSpace
+                    "difficulty_bits", string difficulty
+                    "valid_nonces_classical", string validNonces.Length
+                    "solutions_found", string result.Solutions.Length
+                    "solutions_verified", string verifiedSolutions.Length
+                    "iterations", string result.Iterations
+                    "success_probability", $"%.4f{result.SuccessProbability}"
+                    "time_ms", $"%.2f{quantumTimeMs}"
+                    "method", "grover"
+                    "shots", string shots
+                ]
+                |> Map.ofList
+            )
 
 // ============================================================================
 // Scenario 3: Classical vs Quantum Comparison
@@ -380,11 +455,18 @@ if not quiet then
     printfn ""
 
 let numSolutions = validNonces.Length
-let classicalQueries = if numSolutions > 0 then searchSpace / numSolutions else searchSpace
+
+let classicalQueries =
+    if numSolutions > 0 then
+        searchSpace / numSolutions
+    else
+        searchSpace
+
 let groverIters =
     if numSolutions > 0 then
         int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace / float numSolutions)))
-    else 0
+    else
+        0
 
 if not quiet then
     printfn "  Search space:      N = %d" searchSpace
@@ -392,8 +474,10 @@ if not quiet then
     printfn ""
     printfn "  Classical mining:  %d queries (avg N/M)" classicalQueries
     printfn "  Quantum mining:    %d iterations (pi/4 * sqrt(N/M))" groverIters
+
     if groverIters > 0 then
         printfn "  Speedup:           %.1fx" (float classicalQueries / float groverIters)
+
     printfn ""
 
     // Scale analysis for different qubit counts
@@ -404,25 +488,31 @@ if not quiet then
 
     let expectedSolutionFraction = float numSolutions / float searchSpace
 
-    for q in [4; 6; 8; 10; 12; 14; 16; 18; 20] do
+    for q in [ 4; 6; 8; 10; 12; 14; 16; 18; 20 ] do
         let n = 1 <<< q
         let m = max 1 (int (float n * expectedSolutionFraction))
         let classical = n / m
         let grover = int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float n / float m)))
         let speedup = float classical / float (max 1 grover)
-        printfn "  %2d       %8d         %8d         %8d         %.1fx"
-            q n classical grover speedup
+        printfn "  %2d       %8d         %8d         %8d         %.1fx" q n classical grover speedup
 
     printfn ""
 
 results.Add(
-    [ "scenario", "Comparison"
-      "search_space", string searchSpace
-      "solutions", string numSolutions
-      "classical_queries", string classicalQueries
-      "grover_iterations", string groverIters
-      "speedup", if groverIters > 0 then sprintf "%.1f" (float classicalQueries / float groverIters) else "N/A" ]
-    |> Map.ofList)
+    [
+        "scenario", "Comparison"
+        "search_space", string searchSpace
+        "solutions", string numSolutions
+        "classical_queries", string classicalQueries
+        "grover_iterations", string groverIters
+        "speedup",
+        if groverIters > 0 then
+            sprintf "%.1f" (float classicalQueries / float groverIters)
+        else
+            "N/A"
+    ]
+    |> Map.ofList
+)
 
 // ============================================================================
 // Scenario 4: Multiple Difficulty Levels
@@ -431,15 +521,14 @@ results.Add(
 if not quiet then
     printfn "--- Scenario 4: Mining at Multiple Difficulty Levels ---"
     printfn ""
-    printfn "Block data: \"%s\" | Search space: %d nonces (%d qubits)"
-        blockDataStr searchSpace numQubits
+    printfn "Block data: \"%s\" | Search space: %d nonces (%d qubits)" blockDataStr searchSpace numQubits
     printfn ""
     printfn "  Difficulty   Valid Nonces   Density      Classical    Grover     Speedup"
     printfn "  ----------   -----------   ---------    ---------    ------     -------"
 
 let maxDiffToTest = min 8 (numQubits - 1)
 
-for d in 1 .. maxDiffToTest do
+for d in 1..maxDiffToTest do
     let count =
         [| 0 .. searchSpace - 1 |]
         |> Array.filter (miningPredicate blockData d)
@@ -447,26 +536,41 @@ for d in 1 .. maxDiffToTest do
 
     let density = float count / float searchSpace
     let classicalAvg = if count > 0 then searchSpace / count else searchSpace
+
     let groverOpt =
         if count > 0 then
             int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace / float count)))
-        else 0
+        else
+            0
+
     let speedup =
-        if groverOpt > 0 then float classicalAvg / float groverOpt else 0.0
+        if groverOpt > 0 then
+            float classicalAvg / float groverOpt
+        else
+            0.0
 
     if not quiet then
-        printfn "  %2d bits       %5d         %.4f       %6d       %5d       %.1fx"
-            d count density classicalAvg groverOpt speedup
+        printfn
+            "  %2d bits       %5d         %.4f       %6d       %5d       %.1fx"
+            d
+            count
+            density
+            classicalAvg
+            groverOpt
+            speedup
 
     results.Add(
-        [ "scenario", $"Difficulty_%d{d}"
-          "difficulty_bits", string d
-          "valid_nonces", string count
-          "density", $"%.4f{density}"
-          "classical_queries", string classicalAvg
-          "grover_iterations", string groverOpt
-          "speedup", if groverOpt > 0 then $"%.1f{speedup}" else "N/A" ]
-        |> Map.ofList)
+        [
+            "scenario", $"Difficulty_%d{d}"
+            "difficulty_bits", string d
+            "valid_nonces", string count
+            "density", $"%.4f{density}"
+            "classical_queries", string classicalAvg
+            "grover_iterations", string groverOpt
+            "speedup", if groverOpt > 0 then $"%.1f{speedup}" else "N/A"
+        ]
+        |> Map.ofList
+    )
 
 if not quiet then
     printfn ""
@@ -522,9 +626,9 @@ if not quiet then
     printfn ""
 
     // Real-world quantum mining analysis
-    let bitcoinDifficulty = 70.0  // ~70 leading zero bits
-    let bitcoinSearchSpace = Math.Pow(2.0, 32.0)  // 2^32 nonces per header
-    let effectiveSearchSpace = Math.Pow(2.0, bitcoinDifficulty)  // effective search per solution
+    let bitcoinDifficulty = 70.0 // ~70 leading zero bits
+    let bitcoinSearchSpace = Math.Pow(2.0, 32.0) // 2^32 nonces per header
+    let effectiveSearchSpace = Math.Pow(2.0, bitcoinDifficulty) // effective search per solution
 
     let classicalOps = effectiveSearchSpace
     let groverOps = Math.Sqrt(effectiveSearchSpace)
@@ -558,8 +662,8 @@ if not quiet then
     printfn "    Gap:               ~25-100x more qubits needed"
     printfn ""
 
-    let opsPerSec = 1e6  // Optimistic quantum gate rate
-    let totalOps = Math.Pow(2.0, 35.0) * 1e6  // iterations * gates_per_iteration
+    let opsPerSec = 1e6 // Optimistic quantum gate rate
+    let totalOps = Math.Pow(2.0, 35.0) * 1e6 // iterations * gates_per_iteration
     let timeSeconds = totalOps / opsPerSec
     let timeYears = timeSeconds / (365.25 * 24.0 * 3600.0)
 
@@ -569,7 +673,7 @@ if not quiet then
     printfn "    Time required:     ~%.2e years" timeYears
     printfn ""
 
-    let classicalMiningCost = 2e10  // ~$20B/year in electricity for Bitcoin mining
+    let classicalMiningCost = 2e10 // ~$20B/year in electricity for Bitcoin mining
     printfn "  Economic comparison:"
     printfn "    Classical mining:  ~$%.0f billion/year (global electricity)" (classicalMiningCost / 1e9)
     printfn "    Quantum advantage: Would need quantum ops at <$%.2e per op" (classicalMiningCost / Math.Pow(2.0, 35.0))
@@ -583,15 +687,18 @@ if not quiet then
     printfn ""
 
 results.Add(
-    [ "scenario", "Bitcoin Threat Assessment"
-      "bitcoin_difficulty_bits", "70"
-      "classical_ops_log2", "70"
-      "grover_ops_log2", "35"
-      "sha256_qubits_needed", "2500-3000"
-      "current_qubits_available", "20-100"
-      "near_term_threat", "false"
-      "greater_threat", "Shor on ECDSA signatures" ]
-    |> Map.ofList)
+    [
+        "scenario", "Bitcoin Threat Assessment"
+        "bitcoin_difficulty_bits", "70"
+        "classical_ops_log2", "70"
+        "grover_ops_log2", "35"
+        "sha256_qubits_needed", "2500-3000"
+        "current_qubits_available", "20-100"
+        "near_term_threat", "false"
+        "greater_threat", "Shor on ECDSA signatures"
+    ]
+    |> Map.ofList
+)
 
 // ============================================================================
 // Scenario 7: Quantum vs Classical Mining Cost Scaling
@@ -605,19 +712,25 @@ if not quiet then
     printfn "  Difficulty   Classical Ops     Grover Ops       Speedup      Feasible?"
     printfn "  ----------   -------------     ----------       -------      ---------"
 
-    let difficulties = [4; 8; 16; 32; 48; 64; 70; 80; 128]
+    let difficulties = [ 4; 8; 16; 32; 48; 64; 70; 80; 128 ]
 
     for d in difficulties do
         let classicalLog2 = float d
         let groverLog2 = float d / 2.0
+
         let feasible =
             if groverLog2 <= 20.0 then "Now (demo)"
             elif groverLog2 <= 35.0 then "5-10 years"
             elif groverLog2 <= 50.0 then "15-25 years"
             else "Not foreseeable"
 
-        printfn "  %3d bits     2^%-5.0f            2^%-5.0f          2^%-3.0f        %s"
-            d classicalLog2 groverLog2 (classicalLog2 - groverLog2) feasible
+        printfn
+            "  %3d bits     2^%-5.0f            2^%-5.0f          2^%-3.0f        %s"
+            d
+            classicalLog2
+            groverLog2
+            (classicalLog2 - groverLog2)
+            feasible
 
     printfn ""
     printfn "KEY INSIGHT: Grover halves the exponent. Bitcoin's 2^70 becomes 2^35,"
@@ -632,16 +745,20 @@ if not quiet then
     printfn "--- Key Takeaways ---"
     printfn ""
 
-    let takeaways = [
-        "Grover's algorithm provides QUADRATIC speedup for mining (2^n -> 2^(n/2))"
-        "Our 10-qubit demo mines a toy puzzle; real Bitcoin needs ~3000 qubits for SHA-256"
-        "At Bitcoin difficulty (~70 bits), Grover reduces search from 2^70 to 2^35"
-        "But 2^35 iterations of a quantum SHA-256 circuit is still enormously expensive"
-        "Quantum mining is NOT an imminent threat -- ECDSA key recovery (Shor) is far worse"
-        "Bitcoin could add post-quantum defenses: larger nonce space, PQ hash functions"
-        sprintf "Demo: %d-qubit Grover searched %d nonces, found %d valid solutions"
-            numQubits searchSpace validNonces.Length
-    ]
+    let takeaways =
+        [
+            "Grover's algorithm provides QUADRATIC speedup for mining (2^n -> 2^(n/2))"
+            "Our 10-qubit demo mines a toy puzzle; real Bitcoin needs ~3000 qubits for SHA-256"
+            "At Bitcoin difficulty (~70 bits), Grover reduces search from 2^70 to 2^35"
+            "But 2^35 iterations of a quantum SHA-256 circuit is still enormously expensive"
+            "Quantum mining is NOT an imminent threat -- ECDSA key recovery (Shor) is far worse"
+            "Bitcoin could add post-quantum defenses: larger nonce space, PQ hash functions"
+            sprintf
+                "Demo: %d-qubit Grover searched %d nonces, found %d valid solutions"
+                numQubits
+                searchSpace
+                validNonces.Length
+        ]
 
     takeaways |> List.iter (printfn "- %s")
     printfn ""
@@ -659,12 +776,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

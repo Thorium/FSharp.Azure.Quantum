@@ -5,89 +5,106 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
-open FSharp.Azure.Quantum.Algorithms.QPE  // For UnitaryOperator types
+open FSharp.Azure.Quantum.Algorithms.QPE // For UnitaryOperator types
 
 /// Unit tests for QuantumPhaseEstimatorBuilder
 /// Tests QPE for eigenvalue extraction and phase estimation
 module QuantumPhaseEstimatorBuilderTests =
-    
+
     // ========================================================================
     // BUILDER VALIDATION TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``phaseEstimator builder rejects insufficient precision`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 0  // Must be at least 1
-        }
-        
-        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision < 1")) |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
-    
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 0 // Must be at least 1
+            }
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision < 1"))
+        |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
+
     [<Fact>]
     let ``phaseEstimator builder rejects excessive precision`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 25  // Exceeds NISQ limit
-        }
-        
-        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision > 20")) |> Result.defaultWith (fun err -> Assert.Contains("20 qubits", err.Message))
-    
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 25 // Exceeds NISQ limit
+            }
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected precision > 20"))
+        |> Result.defaultWith (fun err -> Assert.Contains("20 qubits", err.Message))
+
     [<Fact>]
     let ``phaseEstimator builder rejects insufficient target qubits`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 8
-            targetQubits 0  // Must be at least 1
-        }
-        
-        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected targetQubits < 1")) |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
-    
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+                targetQubits 0 // Must be at least 1
+            }
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected targetQubits < 1"))
+        |> Result.defaultWith (fun err -> Assert.Contains("at least 1", err.Message))
+
     [<Fact>]
     let ``phaseEstimator builder rejects excessive target qubits`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 8
-            targetQubits 15  // Exceeds simulation limit
-        }
-        
-        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected targetQubits > 10")) |> Result.defaultWith (fun err -> Assert.Contains("10 qubits", err.Message))
-    
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+                targetQubits 15 // Exceeds simulation limit
+            }
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected targetQubits > 10"))
+        |> Result.defaultWith (fun err -> Assert.Contains("10 qubits", err.Message))
+
     [<Fact>]
     let ``phaseEstimator builder rejects excessive total qubits`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 20
-            targetQubits 10  // Total = 30 > 25 limit
-        }
-        
-        result |> Result.map (fun _ -> Assert.True(false, "Should have rejected total > 25 qubits")) |> Result.defaultWith (fun err -> Assert.Contains("25 qubits", err.Message))
-    
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 20
+                targetQubits 10 // Total = 30 > 25 limit
+            }
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected total > 25 qubits"))
+        |> Result.defaultWith (fun err -> Assert.Contains("25 qubits", err.Message))
+
     [<Fact>]
     let ``phaseEstimator builder accepts valid minimal configuration`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 8
-        }
-        
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+            }
+
         match result with
         | Ok problem ->
             Assert.Equal(8, problem.Precision)
-            Assert.Equal(1, problem.TargetQubits)  // Default
+            Assert.Equal(1, problem.TargetQubits) // Default
             Assert.True(problem.EigenVector.IsNone)
-            Assert.False(problem.ApplySwaps)       // Default
+            Assert.False(problem.ApplySwaps) // Default
             Assert.Equal(Exact, problem.Exactness)
         | Error err -> Assert.True(false, $"Should have succeeded: %s{err.Message}")
-    
+
     [<Fact>]
     let ``phaseEstimator builder accepts full configuration`` () =
-        let result = phaseEstimator {
-            unitary (PhaseGate (Math.PI / 4.0))
-            precision 12
-            targetQubits 2
-            applySwaps true
-        }
-        
+        let result =
+            phaseEstimator {
+                unitary (PhaseGate(Math.PI / 4.0))
+                precision 12
+                targetQubits 2
+                applySwaps true
+            }
+
         match result with
         | Ok problem ->
             Assert.Equal(12, problem.Precision)
@@ -98,22 +115,26 @@ module QuantumPhaseEstimatorBuilderTests =
 
     [<Fact>]
     let ``phaseEstimator builder supports swaps alias`` () =
-        let result = phaseEstimator {
-            unitary (PhaseGate (Math.PI / 4.0))
-            precision 12
-            targetQubits 2
-            swaps true
-        }
+        let result =
+            phaseEstimator {
+                unitary (PhaseGate(Math.PI / 4.0))
+                precision 12
+                targetQubits 2
+                swaps true
+            }
 
-        result |> Result.map (fun problem -> Assert.True(problem.ApplySwaps)) |> Result.defaultWith (fun err -> Assert.True(false, $"Should have succeeded: %s{err.Message}"))
+        result
+        |> Result.map (fun problem -> Assert.True(problem.ApplySwaps))
+        |> Result.defaultWith (fun err -> Assert.True(false, $"Should have succeeded: %s{err.Message}"))
 
     [<Fact>]
     let ``phaseEstimator builder supports exactness operation`` () =
-        let result = phaseEstimator {
-            unitary TGate
-            precision 8
-            exactness (Approximate 0.001)
-        }
+        let result =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+                exactness (Approximate 0.001)
+            }
 
         match result with
         | Ok problem ->
@@ -121,18 +142,19 @@ module QuantumPhaseEstimatorBuilderTests =
             | Approximate epsilon -> Assert.Equal(0.001, epsilon, 3)
             | Exact -> Assert.True(false, "Should have preserved Approximate exactness")
         | Error err -> Assert.True(false, $"Should have succeeded: %s{err.Message}")
-    
+
     // ========================================================================
     // PHASE ESTIMATION CORRECTNESS TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``estimate should calculate T gate phase (π/8)`` () =
-        let problem = phaseEstimator {
-            unitary TGate
-            precision 8
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
@@ -141,18 +163,23 @@ module QuantumPhaseEstimatorBuilderTests =
                 // T gate: e^(iπ/4) → phase = 1/8
                 let expectedPhase = 1.0 / 8.0
                 Assert.True(result.Success, $"Estimation failed: %s{result.Message}")
-                Assert.True(abs (result.Phase - expectedPhase) < 0.01, 
-                           $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase} (1/8)")
+
+                Assert.True(
+                    abs (result.Phase - expectedPhase) < 0.01,
+                    $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase} (1/8)"
+                )
+
                 Assert.Contains("T Gate", result.Unitary)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimate should calculate S gate phase (π/2)`` () =
-        let problem = phaseEstimator {
-            unitary SGate
-            precision 8
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary SGate
+                precision 8
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
@@ -161,19 +188,25 @@ module QuantumPhaseEstimatorBuilderTests =
                 // S gate: e^(iπ/2) → phase = 1/4
                 let expectedPhase = 1.0 / 4.0
                 Assert.True(result.Success)
-                Assert.True(abs (result.Phase - expectedPhase) < 0.01,
-                           $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase} (1/4)")
+
+                Assert.True(
+                    abs (result.Phase - expectedPhase) < 0.01,
+                    $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase} (1/4)"
+                )
+
                 Assert.Contains("S Gate", result.Unitary)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimate should calculate custom phase gate`` () =
-        let theta = Math.PI / 3.0  // 60 degrees
-        let problem = phaseEstimator {
-            unitary (PhaseGate theta)
-            precision 10
-        }
-        
+        let theta = Math.PI / 3.0 // 60 degrees
+
+        let problem =
+            phaseEstimator {
+                unitary (PhaseGate theta)
+                precision 10
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
@@ -182,52 +215,64 @@ module QuantumPhaseEstimatorBuilderTests =
                 // PhaseGate(π/3): e^(iπ/3) → phase = 1/6
                 let expectedPhase = 1.0 / 6.0
                 Assert.True(result.Success)
-                Assert.True(abs (result.Phase - expectedPhase) < 0.02,
-                           $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase} (1/6)")
+
+                Assert.True(
+                    abs (result.Phase - expectedPhase) < 0.02,
+                    $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase} (1/6)"
+                )
+
                 Assert.Contains("Phase Gate", result.Unitary)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     [<Fact(Skip = "Known issue, don't affect to this library functionality.")>]
     let ``estimate should calculate rotation gate`` () =
-        let theta = Math.PI / 4.0  // 45 degrees
-        let problem = phaseEstimator {
-            unitary (RotationZ theta)
-            precision 10
-        }
-        
+        let theta = Math.PI / 4.0 // 45 degrees
+
+        let problem =
+            phaseEstimator {
+                unitary (RotationZ theta)
+                precision 10
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
             match estimate prob with
             | Ok result ->
                 // Rz(π/4) on |0⟩: e^(-i(π/4)/2) = e^(-iπ/8) → phase = -1/16 = 15/16 (mod 1)
-                let expectedPhase1 = 15.0 / 16.0  // Negative phase wraps to 1 - 1/16
-                let expectedPhase2 = 1.0 / 16.0   // Or positive phase
+                let expectedPhase1 = 15.0 / 16.0 // Negative phase wraps to 1 - 1/16
+                let expectedPhase2 = 1.0 / 16.0 // Or positive phase
                 Assert.True(result.Success)
                 let error1 = abs (result.Phase - expectedPhase1)
                 let error2 = abs (result.Phase - expectedPhase2)
                 let minError = min error1 error2
-                Assert.True(minError < 0.02,
-                           $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase1} (15/16) or %.6f{expectedPhase2} (1/16)")
+
+                Assert.True(
+                    minError < 0.02,
+                    $"Phase %.6f{result.Phase} should be close to %.6f{expectedPhase1} (15/16) or %.6f{expectedPhase2} (1/16)"
+                )
+
                 Assert.Contains("Rz Gate", result.Unitary)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     // ========================================================================
     // PRECISION TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``estimate should improve accuracy with higher precision`` () =
-        let lowPrecision = phaseEstimator {
-            unitary TGate
-            precision 4  // 4 bits: resolution 1/16
-        }
-        
-        let highPrecision = phaseEstimator {
-            unitary TGate
-            precision 10  // 10 bits: resolution 1/1024
-        }
-        
+        let lowPrecision =
+            phaseEstimator {
+                unitary TGate
+                precision 4 // 4 bits: resolution 1/16
+            }
+
+        let highPrecision =
+            phaseEstimator {
+                unitary TGate
+                precision 10 // 10 bits: resolution 1/1024
+            }
+
         match lowPrecision, highPrecision with
         | Ok lowProb, Ok highProb ->
             match estimate lowProb, estimate highProb with
@@ -235,96 +280,113 @@ module QuantumPhaseEstimatorBuilderTests =
                 let expectedPhase = 1.0 / 8.0
                 let lowError = abs (lowResult.Phase - expectedPhase)
                 let highError = abs (highResult.Phase - expectedPhase)
-                
+
                 // Higher precision should have lower or equal error
-                Assert.True(highError <= lowError + 0.01,
-                           $"High precision error %.6f{highError} should be ≤ low precision error %.6f{lowError}")
+                Assert.True(
+                    highError <= lowError + 0.01,
+                    $"High precision error %.6f{highError} should be ≤ low precision error %.6f{lowError}"
+                )
             | _ -> Assert.True(true, "One estimation may fail")
         | _ -> Assert.True(false, "Problem creation should succeed")
-    
+
     [<Fact>]
     let ``estimate should report measurement outcome`` () =
-        let problem = phaseEstimator {
-            unitary TGate
-            precision 8
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
             match estimate prob with
             | Ok result ->
                 Assert.True(result.MeasurementOutcome >= 0)
-                Assert.True(result.MeasurementOutcome < pown 2 8)  // Should be in [0, 2^8)
+                Assert.True(result.MeasurementOutcome < pown 2 8) // Should be in [0, 2^8)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     // ========================================================================
     // EIGENVALUE TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``estimate should calculate eigenvalue from phase`` () =
-        let problem = phaseEstimator {
-            unitary TGate
-            precision 8
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
             match estimate prob with
             | Ok result ->
                 // Eigenvalue λ = e^(2πiφ), should have magnitude 1
-                Assert.True(abs (result.Eigenvalue.Magnitude - 1.0) < 0.01,
-                           $"Eigenvalue magnitude %.6f{result.Eigenvalue.Magnitude} should be ≈ 1.0")
-                
+                Assert.True(
+                    abs (result.Eigenvalue.Magnitude - 1.0) < 0.01,
+                    $"Eigenvalue magnitude %.6f{result.Eigenvalue.Magnitude} should be ≈ 1.0"
+                )
+
                 // For T gate (phase = 1/8), angle should be 2π/8 = π/4
                 let expectedAngle = Math.PI / 4.0
                 let actualAngle = result.Eigenvalue.Phase
-                Assert.True(abs (actualAngle - expectedAngle) < 0.2,
-                           $"Eigenvalue angle %.6f{actualAngle} should be close to %.6f{expectedAngle} (π/4)")
+
+                Assert.True(
+                    abs (actualAngle - expectedAngle) < 0.2,
+                    $"Eigenvalue angle %.6f{actualAngle} should be close to %.6f{expectedAngle} (π/4)"
+                )
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     // ========================================================================
     // CONVENIENCE HELPER TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``estimateTGate should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimateTGate 8 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> =
+            QuantumPhaseEstimator.estimateTGate 8 None
+
         match result with
         | Ok problem ->
             Assert.Equal(8, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
         | Error err -> Assert.True(false, $"Should succeed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimateSGate should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimateSGate 10 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> =
+            QuantumPhaseEstimator.estimateSGate 10 None
+
         match result with
         | Ok problem ->
             Assert.Equal(10, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
         | Error err -> Assert.True(false, $"Should succeed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimatePhaseGate should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimatePhaseGate (Math.PI / 4.0) 12 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> =
+            QuantumPhaseEstimator.estimatePhaseGate (Math.PI / 4.0) 12 None
+
         match result with
         | Ok problem ->
             Assert.Equal(12, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
         | Error err -> Assert.True(false, $"Should succeed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimateRotationZ should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimateRotationZ (Math.PI / 3.0) 10 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> =
+            QuantumPhaseEstimator.estimateRotationZ (Math.PI / 3.0) 10 None
+
         match result with
         | Ok problem ->
             Assert.Equal(10, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
         | Error err -> Assert.True(false, $"Should succeed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimateResources should return resource estimates`` () =
         let estimate = estimateResources 8 1
@@ -332,14 +394,15 @@ module QuantumPhaseEstimatorBuilderTests =
         Assert.Contains("Qubits", estimate)
         Assert.Contains("Gates", estimate)
         Assert.Contains("resolution", estimate.ToLower())
-    
+
     [<Fact>]
     let ``describeResult should format human-readable output`` () =
-        let problem = phaseEstimator {
-            unitary TGate
-            precision 8
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
@@ -350,19 +413,20 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.Contains("Eigenvalue", description)
                 Assert.Contains("T Gate", description)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     // ========================================================================
     // RESULT METADATA TESTS
     // ========================================================================
-    
+
     [<Fact>]
     let ``estimate should populate result metadata`` () =
-        let problem = phaseEstimator {
-            unitary TGate
-            precision 8
-            targetQubits 1
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+                targetQubits 1
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->
@@ -377,14 +441,15 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.NotEmpty(result.Message)
                 Assert.NotEmpty(result.Unitary)
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
-    
+
     [<Fact>]
     let ``estimate should track gate count`` () =
-        let problem = phaseEstimator {
-            unitary TGate
-            precision 8
-        }
-        
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 8
+            }
+
         match problem with
         | Error err -> Assert.True(false, $"Problem creation failed: %s{err.Message}")
         | Ok prob ->

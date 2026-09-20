@@ -16,16 +16,20 @@ type Compound = { CompoundId: string; Smiles: string }
 
 module private Csv =
     let tryGetRequired (name: string) (row: Data.CsvRow) =
-        row.Values |> Map.tryFind name |> Option.map (fun s -> s.Trim()) |> Option.filter (fun s -> s <> "")
+        row.Values
+        |> Map.tryFind name
+        |> Option.map (fun s -> s.Trim())
+        |> Option.filter (fun s -> s <> "")
 
     let readCompounds (path: string) : Compound list * (string list) =
         let rows, structuralErrors = Data.readCsvWithHeaderWithErrors path
+
         let compounds, bad =
             rows
             |> List.mapi (fun i row ->
                 match tryGetRequired "compound_id" row, tryGetRequired "smiles" row with
                 | Some id, Some smiles -> Ok { CompoundId = id; Smiles = smiles }
-                | _ -> Error (sprintf "row=%d missing compound_id/smiles" (i + 2)))
+                | _ -> Error(sprintf "row=%d missing compound_id/smiles" (i + 2)))
             |> List.fold
                 (fun (goods, bads) r ->
                     match r with
@@ -52,11 +56,13 @@ module private Features =
         |]
 
 type ParsedMolecule =
-    { Compound: Compound
-      Molecule: MolecularData.Molecule
-      Descriptors: MolecularData.MolecularDescriptors
-      Fingerprint: MolecularData.MolecularFingerprint
-      KernelFeatures: float array }
+    {
+        Compound: Compound
+        Molecule: MolecularData.Molecule
+        Descriptors: MolecularData.MolecularDescriptors
+        Fingerprint: MolecularData.MolecularFingerprint
+        KernelFeatures: float array
+    }
 
 module private Screening =
     let parseAndFeaturize (fingerprintBits: int) (compound: Compound) : Result<ParsedMolecule, string> =
@@ -65,13 +71,16 @@ module private Screening =
             let desc = MolecularData.calculateDescriptors mol
             let fp = MolecularData.generateFingerprint mol fingerprintBits
             let feats = Features.extractForKernel desc
+
             Ok
-                { Compound = compound
-                  Molecule = mol
-                  Descriptors = desc
-                  Fingerprint = fp
-                  KernelFeatures = feats }
-        | Error e -> Error (sprintf "%s (%s)" compound.CompoundId e.Message)
+                {
+                    Compound = compound
+                    Molecule = mol
+                    Descriptors = desc
+                    Fingerprint = fp
+                    KernelFeatures = feats
+                }
+        | Error e -> Error(sprintf "%s (%s)" compound.CompoundId e.Message)
 
     let averageTanimoto (actives: ParsedMolecule array) (candidateFp: MolecularData.MolecularFingerprint) =
         actives
@@ -86,6 +95,7 @@ module private Screening =
         (x2: float array)
         =
         let data = [| x1; x2 |]
+
         match QuantumKernels.computeKernelMatrix backend featureMap data shots with
         | Ok m -> m.[0, 1]
         | Error _ -> 0.0
@@ -98,34 +108,38 @@ module private Screening =
         (candidate: ParsedMolecule)
         =
         actives
-        |> Array.map (fun a -> quantumKernelSimilarity backend featureMap shots candidate.KernelFeatures a.KernelFeatures)
+        |> Array.map (fun a ->
+            quantumKernelSimilarity backend featureMap shots candidate.KernelFeatures a.KernelFeatures)
         |> Array.average
 
 type Metrics =
-    { run_id: string
-      library_path: string
-      actives_path: string
-      library_sha256: string
-      actives_sha256: string
-      parsed_library: int
-      parsed_actives: int
-      failed_library: int
-      failed_actives: int
-      fingerprint_bits: int
-      quantum_shots: int
-      feature_map: string
-      top_n: int
-      similarity_threshold: float
-      classical_hits: int
-      quantum_hits: int
-      elapsed_ms_total: int64
-      elapsed_ms_classical: int64
-      elapsed_ms_quantum: int64 }
+    {
+        run_id: string
+        library_path: string
+        actives_path: string
+        library_sha256: string
+        actives_sha256: string
+        parsed_library: int
+        parsed_actives: int
+        failed_library: int
+        failed_actives: int
+        fingerprint_bits: int
+        quantum_shots: int
+        feature_map: string
+        top_n: int
+        similarity_threshold: float
+        classical_hits: int
+        quantum_hits: int
+        elapsed_ms_total: int64
+        elapsed_ms_classical: int64
+        elapsed_ms_quantum: int64
+    }
 
 module Program =
     [<EntryPoint>]
     let main argv =
         let args = Cli.parse argv
+
         if Cli.hasFlag "help" args || Cli.hasFlag "h" args then
             printfn "MolecularSimilarity"
             printfn "  --library <path>   (CSV: compound_id,smiles)"
@@ -139,30 +153,40 @@ module Program =
         else
             let swTotal = Stopwatch.StartNew()
 
-            let libraryPath = Cli.getOr "library" "examples/DrugDiscovery/_data/library_tiny.csv" args
-            let activesPath = Cli.getOr "actives" "examples/DrugDiscovery/_data/actives_tiny.csv" args
+            let libraryPath =
+                Cli.getOr "library" "examples/DrugDiscovery/_data/library_tiny.csv" args
+
+            let activesPath =
+                Cli.getOr "actives" "examples/DrugDiscovery/_data/actives_tiny.csv" args
+
             let outDir = Cli.getOr "out" (Path.Combine("runs", "drugdiscovery", "molsim")) args
 
             let topN = Cli.getIntOr "top" 5 args
             let shots = Cli.getIntOr "shots" 1000 args
-            let fingerprintBits = Cli.getIntOr "fingerprint-bits" Features.fingerprintBitsDefault args
+
+            let fingerprintBits =
+                Cli.getIntOr "fingerprint-bits" Features.fingerprintBitsDefault args
+
             let threshold = Cli.getFloatOr "threshold" 0.7 args
             let featureMap = FeatureMapType.ZZFeatureMap 2
 
             Data.ensureDirectory outDir
 
             let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
+
             let runConfig =
-                {| run_id = runId
-                   utc = DateTimeOffset.UtcNow
-                   library = libraryPath
-                   actives = activesPath
-                   out = outDir
-                   top = topN
-                   shots = shots
-                   fingerprint_bits = fingerprintBits
-                   threshold = threshold
-                   feature_map = featureMap.ToString() |}
+                {|
+                    run_id = runId
+                    utc = DateTimeOffset.UtcNow
+                    library = libraryPath
+                    actives = activesPath
+                    out = outDir
+                    top = topN
+                    shots = shots
+                    fingerprint_bits = fingerprintBits
+                    threshold = threshold
+                    feature_map = featureMap.ToString()
+                |}
 
             Reporting.writeJson (Path.Combine(outDir, "run-config.json")) runConfig
 
@@ -201,54 +225,65 @@ module Program =
                 Reporting.writeTextFile
                     (Path.Combine(outDir, "run-report.md"))
                     "# Molecular Similarity\n\nNo actives or no library molecules parsed; see bad_rows.csv.\n"
+
                 2
             else
                 let swClassical = Stopwatch.StartNew()
+
                 let classicalResults =
                     library
                     |> Array.map (fun c ->
                         let s = Screening.averageTanimoto actives c.Fingerprint
                         (c, s))
                     |> Array.sortByDescending snd
+
                 swClassical.Stop()
 
-                let classicalHits = classicalResults |> Array.filter (fun (_, s) -> s >= threshold) |> Array.length
+                let classicalHits =
+                    classicalResults |> Array.filter (fun (_, s) -> s >= threshold) |> Array.length
 
                 let swQuantum = Stopwatch.StartNew()
                 let backend = LocalBackend() :> IQuantumBackend
+
                 let quantumResults =
                     library
                     |> Array.map (fun c ->
                         let s = Screening.averageQuantum backend featureMap shots actives c
                         (c, s))
                     |> Array.sortByDescending snd
+
                 swQuantum.Stop()
 
-                let quantumHits = quantumResults |> Array.filter (fun (_, s) -> s >= threshold) |> Array.length
+                let quantumHits =
+                    quantumResults |> Array.filter (fun (_, s) -> s >= threshold) |> Array.length
 
                 let toCsvRows (results: (ParsedMolecule * float) array) =
                     results
                     |> Array.truncate topN
                     |> Array.toList
                     |> List.map (fun (c, sim) ->
-                        [ c.Compound.CompoundId
-                          c.Compound.Smiles
-                          sprintf "%.6f" sim
-                          sprintf "%.2f" c.Descriptors.MolecularWeight
-                          sprintf "%.3f" c.Descriptors.LogP
-                          string c.Descriptors.HydrogenBondDonors
-                          string c.Descriptors.HydrogenBondAcceptors
-                          sprintf "%.2f" c.Descriptors.TPSA ])
+                        [
+                            c.Compound.CompoundId
+                            c.Compound.Smiles
+                            sprintf "%.6f" sim
+                            sprintf "%.2f" c.Descriptors.MolecularWeight
+                            sprintf "%.3f" c.Descriptors.LogP
+                            string c.Descriptors.HydrogenBondDonors
+                            string c.Descriptors.HydrogenBondAcceptors
+                            sprintf "%.2f" c.Descriptors.TPSA
+                        ])
 
                 let header =
-                    [ "compound_id"
-                      "smiles"
-                      "avg_similarity"
-                      "mw"
-                      "logp"
-                      "hbd"
-                      "hba"
-                      "tpsa" ]
+                    [
+                        "compound_id"
+                        "smiles"
+                        "avg_similarity"
+                        "mw"
+                        "logp"
+                        "hbd"
+                        "hba"
+                        "tpsa"
+                    ]
 
                 Reporting.writeCsv (Path.Combine(outDir, "neighbors_classical.csv")) header (toCsvRows classicalResults)
                 Reporting.writeCsv (Path.Combine(outDir, "neighbors_quantum.csv")) header (toCsvRows quantumResults)
@@ -256,25 +291,27 @@ module Program =
                 swTotal.Stop()
 
                 let metrics: Metrics =
-                    { run_id = runId
-                      library_path = libraryPath
-                      actives_path = activesPath
-                      library_sha256 = librarySha
-                      actives_sha256 = activesSha
-                      parsed_library = library.Length
-                      parsed_actives = actives.Length
-                      failed_library = libraryParseErrors.Length + libraryBadSchema.Length
-                      failed_actives = activesParseErrors.Length + activesBadSchema.Length
-                      fingerprint_bits = fingerprintBits
-                      quantum_shots = shots
-                      feature_map = featureMap.ToString()
-                      top_n = topN
-                      similarity_threshold = threshold
-                      classical_hits = classicalHits
-                      quantum_hits = quantumHits
-                      elapsed_ms_total = swTotal.ElapsedMilliseconds
-                      elapsed_ms_classical = swClassical.ElapsedMilliseconds
-                      elapsed_ms_quantum = swQuantum.ElapsedMilliseconds }
+                    {
+                        run_id = runId
+                        library_path = libraryPath
+                        actives_path = activesPath
+                        library_sha256 = librarySha
+                        actives_sha256 = activesSha
+                        parsed_library = library.Length
+                        parsed_actives = actives.Length
+                        failed_library = libraryParseErrors.Length + libraryBadSchema.Length
+                        failed_actives = activesParseErrors.Length + activesBadSchema.Length
+                        fingerprint_bits = fingerprintBits
+                        quantum_shots = shots
+                        feature_map = featureMap.ToString()
+                        top_n = topN
+                        similarity_threshold = threshold
+                        classical_hits = classicalHits
+                        quantum_hits = quantumHits
+                        elapsed_ms_total = swTotal.ElapsedMilliseconds
+                        elapsed_ms_classical = swClassical.ElapsedMilliseconds
+                        elapsed_ms_quantum = swQuantum.ElapsedMilliseconds
+                    }
 
                 Reporting.writeJson (Path.Combine(outDir, "metrics.json")) metrics
 

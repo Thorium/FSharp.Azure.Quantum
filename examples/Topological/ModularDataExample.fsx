@@ -36,21 +36,54 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "ModularDataExample.fsx" "Modular data (S/T matrices) for anyon theories"
-    [ { Name = "example"; Description = "Which example: 1-5|all"; Default = Some "all" }
-      { Name = "genus";   Description = "Max genus for degeneracy calc"; Default = Some "3" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "ModularDataExample.fsx"
+    "Modular data (S/T matrices) for anyon theories"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-5|all"
+            Default = Some "all"
+        }
+        {
+            Name = "genus"
+            Description = "Max genus for degeneracy calc"
+            Default = Some "3"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
-let maxGenus   = Cli.getIntOr "genus" 3 args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
+let maxGenus = Cli.getIntOr "genus" 3 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
@@ -65,19 +98,26 @@ let printMatrix name (matrix: Complex[,]) =
     let rows = Array2D.length1 matrix
     let cols = Array2D.length2 matrix
     pr "  %s (%dx%d):" name rows cols
+
     for i in 0 .. rows - 1 do
         let cells =
-            [| for j in 0 .. cols - 1 do
-                let c = matrix.[i, j]
-                if abs c.Imaginary < 1e-10 then $"%7.4f{c.Real}"
-                else $"%6.3f{c.Real}%+6.3f{c.Imaginary}i" |]
+            [|
+                for j in 0 .. cols - 1 do
+                    let c = matrix.[i, j]
+
+                    if abs c.Imaginary < 1e-10 then
+                        $"%7.4f{c.Real}"
+                    else
+                        $"%6.3f{c.Real}%+6.3f{c.Imaginary}i"
+            |]
+
         pr "    %s" (String.Join("  ", cells))
 
 let fmtCheck ok = if ok then "PASS" else "FAIL"
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 -- Ising Anyon Modular Data
@@ -88,8 +128,7 @@ if shouldRun 1 then
     separator ()
 
     match ModularData.computeModularData AnyonSpecies.Ising with
-    | Error err ->
-        pr "  Failed: %s" err.Message
+    | Error err -> pr "  Failed: %s" err.Message
     | Ok isingData ->
         pr "  Particles: [1, sigma, psi]"
         pr "  Central charge: c = %.2f" isingData.CentralCharge
@@ -112,13 +151,32 @@ if shouldRun 1 then
         | Error _ -> ()
 
         pr "  Ground state degeneracies:"
-        for g in 0 .. maxGenus do
+
+        for g in 0..maxGenus do
             match ModularData.groundStateDegeneracy isingData g with
             | Ok dim -> pr "    g=%d: dim=%d" g dim
             | Error err -> pr "    g=%d: error %s" g err.Message
 
-        jsonResults <- ("1_ising", box {| charge = isingData.CentralCharge; sUnitary = sU; tDiag = tD; stRel = st |}) :: jsonResults
-        csvRows <- [ "1_ising"; $"%.2f{isingData.CentralCharge}"; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
+        jsonResults <-
+            ("1_ising",
+             box
+                 {|
+                     charge = isingData.CentralCharge
+                     sUnitary = sU
+                     tDiag = tD
+                     stRel = st
+                 |})
+            :: jsonResults
+
+        csvRows <-
+            [
+                "1_ising"
+                $"%.2f{isingData.CentralCharge}"
+                fmtCheck sU
+                fmtCheck tD
+                fmtCheck st
+            ]
+            :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Fibonacci Anyon Modular Data
@@ -129,8 +187,7 @@ if shouldRun 2 then
     separator ()
 
     match ModularData.computeModularData AnyonSpecies.Fibonacci with
-    | Error err ->
-        pr "  Failed: %s" err.Message
+    | Error err -> pr "  Failed: %s" err.Message
     | Ok fibData ->
         let phi = (1.0 + sqrt 5.0) / 2.0
         pr "  Particles: [1, tau]"
@@ -152,13 +209,32 @@ if shouldRun 2 then
         | Error _ -> ()
 
         pr "  Ground state degeneracies:"
-        for g in 0 .. maxGenus do
+
+        for g in 0..maxGenus do
             match ModularData.groundStateDegeneracy fibData g with
             | Ok dim -> pr "    g=%d: dim=%d" g dim
             | Error err -> pr "    g=%d: error %s" g err.Message
 
-        jsonResults <- ("2_fibonacci", box {| charge = fibData.CentralCharge; sUnitary = sU; tDiag = tD; stRel = st |}) :: jsonResults
-        csvRows <- [ "2_fibonacci"; $"%.4f{fibData.CentralCharge}"; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
+        jsonResults <-
+            ("2_fibonacci",
+             box
+                 {|
+                     charge = fibData.CentralCharge
+                     sUnitary = sU
+                     tDiag = tD
+                     stRel = st
+                 |})
+            :: jsonResults
+
+        csvRows <-
+            [
+                "2_fibonacci"
+                $"%.4f{fibData.CentralCharge}"
+                fmtCheck sU
+                fmtCheck tD
+                fmtCheck st
+            ]
+            :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 3 -- SU(2)_3 Modular Data
@@ -169,15 +245,15 @@ if shouldRun 3 then
     separator ()
 
     match ModularData.computeModularData (AnyonSpecies.SU2Level 3) with
-    | Error err ->
-        pr "  Failed: %s" err.Message
+    | Error err -> pr "  Failed: %s" err.Message
     | Ok su2Data ->
         pr "  Particles: j in {0, 1/2, 1, 3/2}"
         pr "  Central charge: c = %.4f" su2Data.CentralCharge
         printMatrix "S-matrix" su2Data.SMatrix
 
         pr "  T-matrix (diagonal phases):"
-        for i in 0 .. 3 do
+
+        for i in 0..3 do
             let t = su2Data.TMatrix.[i, i]
             let phase = atan2 t.Imaginary t.Real
             pr "    T[%d,%d] = e^(i*%.4f) = %.4f%+.4fi" i i phase t.Real t.Imaginary
@@ -191,8 +267,9 @@ if shouldRun 3 then
         match AnyonSpecies.particles (AnyonSpecies.SU2Level 3) with
         | Ok particles ->
             pr "  Quantum dimensions:"
-            particles |> List.iteri (fun i p ->
-                pr "    d[j=%d/2] = %.4f" i (AnyonSpecies.quantumDimension p))
+
+            particles
+            |> List.iteri (fun i p -> pr "    d[j=%d/2] = %.4f" i (AnyonSpecies.quantumDimension p))
         | Error _ -> ()
 
         match ModularData.totalQuantumDimension (AnyonSpecies.SU2Level 3) with
@@ -200,13 +277,32 @@ if shouldRun 3 then
         | Error _ -> ()
 
         pr "  Ground state degeneracies:"
+
         for g in 0 .. min maxGenus 2 do
             match ModularData.groundStateDegeneracy su2Data g with
             | Ok dim -> pr "    g=%d: dim=%d" g dim
             | Error err -> pr "    g=%d: error %s" g err.Message
 
-        jsonResults <- ("3_su2_3", box {| charge = su2Data.CentralCharge; sUnitary = sU; tDiag = tD; stRel = st |}) :: jsonResults
-        csvRows <- [ "3_su2_3"; $"%.4f{su2Data.CentralCharge}"; fmtCheck sU; fmtCheck tD; fmtCheck st ] :: csvRows
+        jsonResults <-
+            ("3_su2_3",
+             box
+                 {|
+                     charge = su2Data.CentralCharge
+                     sUnitary = sU
+                     tDiag = tD
+                     stRel = st
+                 |})
+            :: jsonResults
+
+        csvRows <-
+            [
+                "3_su2_3"
+                $"%.4f{su2Data.CentralCharge}"
+                fmtCheck sU
+                fmtCheck tD
+                fmtCheck st
+            ]
+            :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 4 -- Theory comparison table
@@ -216,11 +312,12 @@ if shouldRun 4 then
     pr "EXAMPLE 4: Comparing Anyon Theories"
     separator ()
 
-    let theories = [
-        ("Ising",     AnyonSpecies.Ising,       "[1,s,p]",       "No (Clifford)")
-        ("Fibonacci", AnyonSpecies.Fibonacci,    "[1,tau]",       "Yes")
-        ("SU(2)_3",   AnyonSpecies.SU2Level 3,   "[0,1/2,1,3/2]", "No")
-    ]
+    let theories =
+        [
+            ("Ising", AnyonSpecies.Ising, "[1,s,p]", "No (Clifford)")
+            ("Fibonacci", AnyonSpecies.Fibonacci, "[1,tau]", "Yes")
+            ("SU(2)_3", AnyonSpecies.SU2Level 3, "[0,1/2,1,3/2]", "No")
+        ]
 
     pr "  %-11s  %-14s  %14s  %8s  %-14s" "Theory" "Particles" "Central Charge" "Total D" "Universal?"
     pr "  %s" (String.replicate 68 "-")
@@ -267,21 +364,22 @@ if shouldRun 5 then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "ModularDataExample.fsx"
-           backend   = quantumBackend.Name
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "ModularDataExample.fsx"
+            backend = quantumBackend.Name
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

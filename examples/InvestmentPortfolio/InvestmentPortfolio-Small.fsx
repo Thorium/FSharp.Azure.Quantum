@@ -46,14 +46,48 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "InvestmentPortfolio-Small.fsx"
     "Direct quantum portfolio optimization with QuantumPortfolioSolver (QAOA)."
-    [ { Cli.OptionSpec.Name = "symbols";       Description = "Comma-separated stock symbols to include"; Default = None }
-      { Cli.OptionSpec.Name = "input";         Description = "CSV file with custom stock definitions";   Default = None }
-      { Cli.OptionSpec.Name = "shots";         Description = "Number of measurement shots";               Default = Some "1000" }
-      { Cli.OptionSpec.Name = "budget";        Description = "Investment budget in dollars";               Default = Some "10000" }
-      { Cli.OptionSpec.Name = "risk-aversion"; Description = "Risk aversion factor (0.0-1.0)";            Default = Some "0.5" }
-      { Cli.OptionSpec.Name = "output";        Description = "Write results to JSON file";                 Default = None }
-      { Cli.OptionSpec.Name = "csv";           Description = "Write results to CSV file";                  Default = None }
-      { Cli.OptionSpec.Name = "quiet";         Description = "Suppress informational output";              Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "symbols"
+            Description = "Comma-separated stock symbols to include"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with custom stock definitions"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "shots"
+            Description = "Number of measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Cli.OptionSpec.Name = "budget"
+            Description = "Investment budget in dollars"
+            Default = Some "10000"
+        }
+        {
+            Cli.OptionSpec.Name = "risk-aversion"
+            Description = "Risk aversion factor (0.0-1.0)"
+            Default = Some "0.5"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -68,37 +102,62 @@ let riskAversion = Cli.getFloatOr "risk-aversion" 0.5 args
 // ==============================================================================
 
 /// A stock with historical performance data
-type StockInfo = {
-    Symbol: string
-    Name: string
-    ExpectedReturn: float
-    Risk: float
-    Price: float
-}
+type StockInfo =
+    {
+        Symbol: string
+        Name: string
+        ExpectedReturn: float
+        Risk: float
+        Price: float
+    }
 
 /// Per-stock result from quantum portfolio optimization
-type StockResult = {
-    Stock: StockInfo
-    Shares: float
-    Value: float
-    PctOfPortfolio: float
-    SharpeRatio: float
-    PortfolioReturn: float
-    PortfolioRisk: float
-    PortfolioSharpe: float
-    BestEnergy: float
-    BackendName: string
-    SolverElapsedMs: float
-    HasQuantumFailure: bool
-}
+type StockResult =
+    {
+        Stock: StockInfo
+        Shares: float
+        Value: float
+        PctOfPortfolio: float
+        SharpeRatio: float
+        PortfolioReturn: float
+        PortfolioRisk: float
+        PortfolioSharpe: float
+        BestEnergy: float
+        BackendName: string
+        SolverElapsedMs: float
+        HasQuantumFailure: bool
+    }
 
 // ==============================================================================
 // BUILT-IN STOCK PRESETS
 // ==============================================================================
 
-let private presetAapl  = { Symbol = "AAPL";  Name = "Apple Inc.";      ExpectedReturn = 0.15; Risk = 0.20; Price = 175.0 }
-let private presetMsft  = { Symbol = "MSFT";  Name = "Microsoft Corp."; ExpectedReturn = 0.18; Risk = 0.22; Price = 380.0 }
-let private presetGoogl = { Symbol = "GOOGL"; Name = "Alphabet Inc.";   ExpectedReturn = 0.12; Risk = 0.25; Price = 140.0 }
+let private presetAapl =
+    {
+        Symbol = "AAPL"
+        Name = "Apple Inc."
+        ExpectedReturn = 0.15
+        Risk = 0.20
+        Price = 175.0
+    }
+
+let private presetMsft =
+    {
+        Symbol = "MSFT"
+        Name = "Microsoft Corp."
+        ExpectedReturn = 0.18
+        Risk = 0.22
+        Price = 380.0
+    }
+
+let private presetGoogl =
+    {
+        Symbol = "GOOGL"
+        Name = "Alphabet Inc."
+        ExpectedReturn = 0.12
+        Risk = 0.25
+        Price = 140.0
+    }
 
 let private builtInStocks =
     [ presetAapl; presetMsft; presetGoogl ]
@@ -112,23 +171,53 @@ let private builtInStocks =
 let private loadStocksFromCsv (filePath: string) : StockInfo list =
     let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
     let rows, errors = Data.readCsvWithHeaderWithErrors resolved
+
     if not (List.isEmpty errors) then
         eprintfn "WARNING: CSV parse errors in %s:" filePath
         errors |> List.iter (eprintfn "  %s")
-    if rows.IsEmpty then failwithf "No valid rows in CSV %s" filePath
-    rows |> List.mapi (fun i row ->
-        let get key = row.Values |> Map.tryFind key |> Option.defaultValue ""
+
+    if rows.IsEmpty then
+        failwithf "No valid rows in CSV %s" filePath
+
+    rows
+    |> List.mapi (fun i row ->
+        let get key =
+            row.Values |> Map.tryFind key |> Option.defaultValue ""
+
         match get "preset" with
         | p when not (String.IsNullOrWhiteSpace p) ->
             match builtInStocks |> Map.tryFind (p.Trim().ToUpperInvariant()) with
             | Some s -> s
             | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
         | _ ->
-            { Symbol         = let s = get "symbol" in if s = "" then failwithf "Missing symbol in CSV row %d" (i + 1) else s.ToUpperInvariant()
-              Name           = let n = get "name" in if n = "" then get "symbol" else n
-              ExpectedReturn = get "expected_return" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.15
-              Risk           = get "risk"            |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.20
-              Price          = get "price"           |> fun s -> match Double.TryParse s with true, v -> v | _ -> 100.0 })
+            {
+                Symbol =
+                    let s = get "symbol" in
+
+                    if s = "" then
+                        failwithf "Missing symbol in CSV row %d" (i + 1)
+                    else
+                        s.ToUpperInvariant()
+                Name = let n = get "name" in if n = "" then get "symbol" else n
+                ExpectedReturn =
+                    get "expected_return"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 0.15
+                Risk =
+                    get "risk"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 0.20
+                Price =
+                    get "price"
+                    |> fun s ->
+                        match Double.TryParse s with
+                        | true, v -> v
+                        | _ -> 100.0
+            })
 
 // ==============================================================================
 // STOCK SELECTION
@@ -155,58 +244,114 @@ if selectedStocks.IsEmpty then
 // ==============================================================================
 
 if not quiet then
-    printfn "Quantum portfolio optimization: %d assets, budget $%s, shots %d, risk-aversion %.2f"
-        selectedStocks.Length (budget.ToString "N0") shots riskAversion
+    printfn
+        "Quantum portfolio optimization: %d assets, budget $%s, shots %d, risk-aversion %.2f"
+        selectedStocks.Length
+        (budget.ToString "N0")
+        shots
+        riskAversion
+
     printfn ""
 
 let backend = LocalBackend() :> IQuantumBackend
 
 let toAsset (s: StockInfo) : Asset =
-    { Symbol = s.Symbol; ExpectedReturn = s.ExpectedReturn; Risk = s.Risk; Price = s.Price }
+    {
+        Symbol = s.Symbol
+        ExpectedReturn = s.ExpectedReturn
+        Risk = s.Risk
+        Price = s.Price
+    }
 
 let assets = selectedStocks |> List.map toAsset
-let constraints : Constraints = { Budget = budget; MinHolding = 0.0; MaxHolding = budget }
-let config : QuantumPortfolioSolver.QuantumPortfolioConfig =
-    { NumShots = shots; RiskAversion = riskAversion; InitialParameters = (0.5, 0.5) }
+
+let constraints: Constraints =
+    {
+        Budget = budget
+        MinHolding = 0.0
+        MaxHolding = budget
+    }
+
+let config: QuantumPortfolioSolver.QuantumPortfolioConfig =
+    {
+        NumShots = shots
+        RiskAversion = riskAversion
+        InitialParameters = (0.5, 0.5)
+    }
 
 let sortedResults =
     match QuantumPortfolioSolver.solve backend assets constraints config with
     | Ok solution ->
         let totalValue = solution.Allocations |> List.sumBy (fun a -> a.Value)
-        let pSharpe = if solution.Risk > 0.0 then solution.ExpectedReturn / solution.Risk else 0.0
 
-        selectedStocks |> List.map (fun stock ->
-            let alloc = solution.Allocations |> List.tryFind (fun a -> a.Asset.Symbol = stock.Symbol)
+        let pSharpe =
+            if solution.Risk > 0.0 then
+                solution.ExpectedReturn / solution.Risk
+            else
+                0.0
+
+        selectedStocks
+        |> List.map (fun stock ->
+            let alloc =
+                solution.Allocations |> List.tryFind (fun a -> a.Asset.Symbol = stock.Symbol)
+
             let shares = alloc |> Option.map (fun a -> a.Shares) |> Option.defaultValue 0.0
             let value = alloc |> Option.map (fun a -> a.Value) |> Option.defaultValue 0.0
             let pct = if totalValue > 0.0 then value / totalValue * 100.0 else 0.0
             // Sharpe uses EXCESS return over the risk-free rate, not raw return.
-            let riskFreeRate = 0.02  // annualized; ~short-term T-bill proxy
-            let sharpe = if stock.Risk > 0.0 then (stock.ExpectedReturn - riskFreeRate) / stock.Risk else 0.0
-            { Stock = stock
-              Shares = shares
-              Value = value
-              PctOfPortfolio = pct
-              SharpeRatio = sharpe
-              PortfolioReturn = solution.ExpectedReturn
-              PortfolioRisk = solution.Risk
-              PortfolioSharpe = pSharpe
-              BestEnergy = solution.BestEnergy
-              BackendName = solution.BackendName
-              SolverElapsedMs = solution.ElapsedMs
-              HasQuantumFailure = false })
+            let riskFreeRate = 0.02 // annualized; ~short-term T-bill proxy
+
+            let sharpe =
+                if stock.Risk > 0.0 then
+                    (stock.ExpectedReturn - riskFreeRate) / stock.Risk
+                else
+                    0.0
+
+            {
+                Stock = stock
+                Shares = shares
+                Value = value
+                PctOfPortfolio = pct
+                SharpeRatio = sharpe
+                PortfolioReturn = solution.ExpectedReturn
+                PortfolioRisk = solution.Risk
+                PortfolioSharpe = pSharpe
+                BestEnergy = solution.BestEnergy
+                BackendName = solution.BackendName
+                SolverElapsedMs = solution.ElapsedMs
+                HasQuantumFailure = false
+            })
         |> List.sortByDescending (fun r -> r.Value)
 
     | Error err ->
-        if not quiet then eprintfn "Quantum optimization failed: %s" err.Message
-        selectedStocks |> List.map (fun stock ->
+        if not quiet then
+            eprintfn "Quantum optimization failed: %s" err.Message
+
+        selectedStocks
+        |> List.map (fun stock ->
             // Sharpe uses EXCESS return over the risk-free rate, not raw return.
-            let riskFreeRate = 0.02  // annualized; ~short-term T-bill proxy
-            let sharpe = if stock.Risk > 0.0 then (stock.ExpectedReturn - riskFreeRate) / stock.Risk else 0.0
-            { Stock = stock; Shares = 0.0; Value = 0.0; PctOfPortfolio = 0.0
-              SharpeRatio = sharpe; PortfolioReturn = 0.0; PortfolioRisk = 0.0
-              PortfolioSharpe = 0.0; BestEnergy = 0.0; BackendName = "N/A"
-              SolverElapsedMs = 0.0; HasQuantumFailure = true })
+            let riskFreeRate = 0.02 // annualized; ~short-term T-bill proxy
+
+            let sharpe =
+                if stock.Risk > 0.0 then
+                    (stock.ExpectedReturn - riskFreeRate) / stock.Risk
+                else
+                    0.0
+
+            {
+                Stock = stock
+                Shares = 0.0
+                Value = 0.0
+                PctOfPortfolio = 0.0
+                SharpeRatio = sharpe
+                PortfolioReturn = 0.0
+                PortfolioRisk = 0.0
+                PortfolioSharpe = 0.0
+                BestEnergy = 0.0
+                BackendName = "N/A"
+                SolverElapsedMs = 0.0
+                HasQuantumFailure = true
+            })
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
@@ -214,25 +359,50 @@ let sortedResults =
 
 let printTable () =
     let first = sortedResults |> List.tryHead
-    let pReturn = first |> Option.map (fun r -> r.PortfolioReturn) |> Option.defaultValue 0.0
-    let pRisk = first |> Option.map (fun r -> r.PortfolioRisk) |> Option.defaultValue 0.0
-    let pSharpe = first |> Option.map (fun r -> r.PortfolioSharpe) |> Option.defaultValue 0.0
+
+    let pReturn =
+        first |> Option.map (fun r -> r.PortfolioReturn) |> Option.defaultValue 0.0
+
+    let pRisk =
+        first |> Option.map (fun r -> r.PortfolioRisk) |> Option.defaultValue 0.0
+
+    let pSharpe =
+        first |> Option.map (fun r -> r.PortfolioSharpe) |> Option.defaultValue 0.0
+
     let energy = first |> Option.map (fun r -> r.BestEnergy) |> Option.defaultValue 0.0
-    let backendName = first |> Option.map (fun r -> r.BackendName) |> Option.defaultValue "N/A"
+
+    let backendName =
+        first |> Option.map (fun r -> r.BackendName) |> Option.defaultValue "N/A"
 
     let divider = String('-', 96)
     printfn ""
-    printfn "  Quantum Portfolio (budget $%s, shots %d, risk-aversion %.2f)"
-        (budget.ToString "N0") shots riskAversion
+    printfn "  Quantum Portfolio (budget $%s, shots %d, risk-aversion %.2f)" (budget.ToString "N0") shots riskAversion
     printfn "  %s" divider
-    printfn "  %-6s %-18s %6s %6s %8s %10s %7s %7s %8s"
-        "Symbol" "Name" "Return" "Risk" "Sharpe" "Value" "Shares" "Pct" "Status"
+
+    printfn
+        "  %-6s %-18s %6s %6s %8s %10s %7s %7s %8s"
+        "Symbol"
+        "Name"
+        "Return"
+        "Risk"
+        "Sharpe"
+        "Value"
+        "Shares"
+        "Pct"
+        "Status"
+
     printfn "  %s" divider
+
     for r in sortedResults do
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
-        printfn "  %-6s %-18s %5.1f%% %5.1f%% %8.2f $%9s %7.2f %5.1f%% %8s"
+
+        printfn
+            "  %-6s %-18s %5.1f%% %5.1f%% %8.2f $%9s %7.2f %5.1f%% %8s"
             r.Stock.Symbol
-            (if r.Stock.Name.Length > 18 then r.Stock.Name.[..17] else r.Stock.Name)
+            (if r.Stock.Name.Length > 18 then
+                 r.Stock.Name.[..17]
+             else
+                 r.Stock.Name)
             (r.Stock.ExpectedReturn * 100.0)
             (r.Stock.Risk * 100.0)
             r.SharpeRatio
@@ -240,10 +410,17 @@ let printTable () =
             r.Shares
             r.PctOfPortfolio
             status
+
     printfn "  %s" divider
     printfn ""
-    printfn "  Portfolio: Return=%.2f%%  Risk=%.2f%%  Sharpe=%.2f  Energy=%.4f  Backend=%s"
-        (pReturn * 100.0) (pRisk * 100.0) pSharpe energy backendName
+
+    printfn
+        "  Portfolio: Return=%.2f%%  Risk=%.2f%%  Sharpe=%.2f  Energy=%.4f  Backend=%s"
+        (pReturn * 100.0)
+        (pRisk * 100.0)
+        pSharpe
+        energy
+        backendName
 
 printTable ()
 
@@ -251,47 +428,71 @@ printTable ()
 // STRUCTURED OUTPUT (JSON / CSV)
 // ==============================================================================
 
-let resultMaps : Map<string, string> list =
+let resultMaps: Map<string, string> list =
     sortedResults
     |> List.map (fun r ->
-        [ "symbol",              r.Stock.Symbol
-          "name",                r.Stock.Name
-          "expected_return",     $"%.4f{r.Stock.ExpectedReturn}"
-          "risk",                $"%.4f{r.Stock.Risk}"
-          "price",               $"%.2f{r.Stock.Price}"
-          "shares",              $"%.4f{r.Shares}"
-          "value",               $"%.2f{r.Value}"
-          "pct_of_portfolio",    $"%.2f{r.PctOfPortfolio}"
-          "sharpe_ratio",        $"%.4f{r.SharpeRatio}"
-          "portfolio_return",    $"%.4f{r.PortfolioReturn}"
-          "portfolio_risk",      $"%.4f{r.PortfolioRisk}"
-          "portfolio_sharpe",    $"%.4f{r.PortfolioSharpe}"
-          "best_energy",         $"%.4f{r.BestEnergy}"
-          "backend_name",        r.BackendName
-          "solver_elapsed_ms",   $"%.1f{r.SolverElapsedMs}"
-          "budget",              $"%.2f{budget}"
-          "shots",               $"%d{shots}"
-          "risk_aversion",       $"%.2f{riskAversion}"
-          "has_quantum_failure", $"%b{r.HasQuantumFailure}" ]
+        [
+            "symbol", r.Stock.Symbol
+            "name", r.Stock.Name
+            "expected_return", $"%.4f{r.Stock.ExpectedReturn}"
+            "risk", $"%.4f{r.Stock.Risk}"
+            "price", $"%.2f{r.Stock.Price}"
+            "shares", $"%.4f{r.Shares}"
+            "value", $"%.2f{r.Value}"
+            "pct_of_portfolio", $"%.2f{r.PctOfPortfolio}"
+            "sharpe_ratio", $"%.4f{r.SharpeRatio}"
+            "portfolio_return", $"%.4f{r.PortfolioReturn}"
+            "portfolio_risk", $"%.4f{r.PortfolioRisk}"
+            "portfolio_sharpe", $"%.4f{r.PortfolioSharpe}"
+            "best_energy", $"%.4f{r.BestEnergy}"
+            "backend_name", r.BackendName
+            "solver_elapsed_ms", $"%.1f{r.SolverElapsedMs}"
+            "budget", $"%.2f{budget}"
+            "shots", $"%d{shots}"
+            "risk_aversion", $"%.2f{riskAversion}"
+            "has_quantum_failure", $"%b{r.HasQuantumFailure}"
+        ]
         |> Map.ofList)
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultMaps
-    if not quiet then printfn "\nResults written to %s" path
+
+    if not quiet then
+        printfn "\nResults written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
     let header =
-        [ "symbol"; "name"; "expected_return"; "risk"; "price"
-          "shares"; "value"; "pct_of_portfolio"; "sharpe_ratio"
-          "portfolio_return"; "portfolio_risk"; "portfolio_sharpe"
-          "best_energy"; "backend_name"; "solver_elapsed_ms"
-          "budget"; "shots"; "risk_aversion"; "has_quantum_failure" ]
+        [
+            "symbol"
+            "name"
+            "expected_return"
+            "risk"
+            "price"
+            "shares"
+            "value"
+            "pct_of_portfolio"
+            "sharpe_ratio"
+            "portfolio_return"
+            "portfolio_risk"
+            "portfolio_sharpe"
+            "best_energy"
+            "backend_name"
+            "solver_elapsed_ms"
+            "budget"
+            "shots"
+            "risk_aversion"
+            "has_quantum_failure"
+        ]
+
     let rows =
-        resultMaps |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        resultMaps
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()

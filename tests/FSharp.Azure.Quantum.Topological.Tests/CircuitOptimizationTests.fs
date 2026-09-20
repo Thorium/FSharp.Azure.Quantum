@@ -15,6 +15,7 @@ module CircuitOptimizationTests =
     let ``Z-axis gates commute with each other`` () =
         // All Z-axis gates: T, TDagger, S, SDagger, Z
         let zGates = [ T; TDagger; S; SDagger; Z ]
+
         for g1 in zGates do
             for g2 in zGates do
                 Assert.True(commutes g1 g2, $"{g1} and {g2} should commute (both Z-axis)")
@@ -22,6 +23,7 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``Identity commutes with everything`` () =
         let allGates = [ T; TDagger; S; SDagger; H; X; Y; Z; I ]
+
         for g in allGates do
             Assert.True(commutes I g, $"I should commute with {g}")
             Assert.True(commutes g I, $"{g} should commute with I")
@@ -29,6 +31,7 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``X and Y do not commute with Z-axis gates`` () =
         let zGates = [ T; TDagger; S; SDagger; Z ]
+
         for zg in zGates do
             Assert.False(commutes X zg, $"X should not commute with {zg}")
             Assert.False(commutes Y zg, $"Y should not commute with {zg}")
@@ -38,6 +41,7 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``H does not commute with Z-axis gates`` () =
         let zGates = [ T; TDagger; S; SDagger; Z ]
+
         for zg in zGates do
             Assert.False(commutes H zg, $"H should not commute with {zg}")
             Assert.False(commutes zg H, $"{zg} should not commute with H")
@@ -64,6 +68,7 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``Clifford gates are correctly identified`` () =
         let cliffords = [ H; S; SDagger; X; Y; Z; I ]
+
         for g in cliffords do
             Assert.True(isClifford g, $"{g} should be Clifford")
 
@@ -80,6 +85,7 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``Non-T gates are not T gates`` () =
         let nonT = [ H; S; SDagger; X; Y; Z; I ]
+
         for g in nonT do
             Assert.False(isTGate g, $"{g} should not be a T gate")
 
@@ -307,8 +313,7 @@ module CircuitOptimizationTests =
         Assert.Equal(4, countTGates gates)
 
     [<Fact>]
-    let ``countTGates on empty list is zero`` () =
-        Assert.Equal(0, countTGates [])
+    let ``countTGates on empty list is zero`` () = Assert.Equal(0, countTGates [])
 
     [<Fact>]
     let ``countTGates on Clifford-only is zero`` () =
@@ -320,8 +325,7 @@ module CircuitOptimizationTests =
         Assert.Equal(4, calculateDepth gates)
 
     [<Fact>]
-    let ``calculateDepth of empty is zero`` () =
-        Assert.Equal(0, calculateDepth [])
+    let ``calculateDepth of empty is zero`` () = Assert.Equal(0, calculateDepth [])
 
     // ========================================================================
     // OPTIMIZATION PIPELINE TESTS
@@ -346,11 +350,13 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``optimizeAggressive applies all techniques`` () =
         // Create a sequence that benefits from commutation + template matching
-        let gates = [ T; T; T; T; T; T; T ]  // T^7
+        let gates = [ T; T; T; T; T; T; T ] // T^7
         let result = optimizeAggressive gates
         // Should reduce T-count significantly
-        Assert.True(countTGates result < countTGates gates,
-            $"T-count should decrease: original={countTGates gates}, optimized={countTGates result}")
+        Assert.True(
+            countTGates result < countTGates gates,
+            $"T-count should decrease: original={countTGates gates}, optimized={countTGates result}"
+        )
 
     [<Fact>]
     let ``optimizeAggressive handles empty list`` () =
@@ -386,8 +392,12 @@ module CircuitOptimizationTests =
     let ``optimize level 2 applies aggressive optimizations`` () =
         let gates = List.replicate 7 T @ [ H ]
         let (result, stats) = optimize gates 2
-        Assert.True(stats.OptimizedTCount < stats.OriginalTCount,
-            $"T-count should decrease: {stats.OriginalTCount} -> {stats.OptimizedTCount}")
+
+        Assert.True(
+            stats.OptimizedTCount < stats.OriginalTCount,
+            $"T-count should decrease: {stats.OriginalTCount} -> {stats.OptimizedTCount}"
+        )
+
         Assert.Contains("Template matching", stats.OptimizationsApplied)
         Assert.Contains("Commutation-based reordering", stats.OptimizationsApplied)
 
@@ -405,29 +415,33 @@ module CircuitOptimizationTests =
 
     [<Fact>]
     let ``displayStats handles zero original counts without division by zero`` () =
-        let stats = {
-            OriginalGateCount = 0
-            OptimizedGateCount = 0
-            OriginalTCount = 0
-            OptimizedTCount = 0
-            OriginalDepth = 0
-            OptimizedDepth = 0
-            OptimizationsApplied = []
-        }
+        let stats =
+            {
+                OriginalGateCount = 0
+                OptimizedGateCount = 0
+                OriginalTCount = 0
+                OptimizedTCount = 0
+                OriginalDepth = 0
+                OptimizedDepth = 0
+                OptimizationsApplied = []
+            }
+
         let output = displayStats stats
         Assert.Contains("0.0%", output)
 
     [<Fact>]
     let ``displayStats shows reduction percentages`` () =
-        let stats = {
-            OriginalGateCount = 10
-            OptimizedGateCount = 5
-            OriginalTCount = 6
-            OptimizedTCount = 2
-            OriginalDepth = 10
-            OptimizedDepth = 5
-            OptimizationsApplied = [ "Gate cancellation"; "Template matching" ]
-        }
+        let stats =
+            {
+                OriginalGateCount = 10
+                OptimizedGateCount = 5
+                OriginalTCount = 6
+                OptimizedTCount = 2
+                OriginalDepth = 10
+                OptimizedDepth = 5
+                OptimizationsApplied = [ "Gate cancellation"; "Template matching" ]
+            }
+
         let output = displayStats stats
         Assert.Contains("50.0%", output)
         Assert.Contains("Gate cancellation", output)
@@ -435,15 +449,17 @@ module CircuitOptimizationTests =
 
     [<Fact>]
     let ``displayStats contains section headers`` () =
-        let stats = {
-            OriginalGateCount = 5
-            OptimizedGateCount = 3
-            OriginalTCount = 2
-            OptimizedTCount = 1
-            OriginalDepth = 5
-            OptimizedDepth = 3
-            OptimizationsApplied = [ "Gate cancellation" ]
-        }
+        let stats =
+            {
+                OriginalGateCount = 5
+                OptimizedGateCount = 3
+                OriginalTCount = 2
+                OptimizedTCount = 1
+                OriginalDepth = 5
+                OptimizedDepth = 3
+                OptimizationsApplied = [ "Gate cancellation" ]
+            }
+
         let output = displayStats stats
         Assert.Contains("Circuit Optimization Results", output)
         Assert.Contains("Reductions:", output)
@@ -460,8 +476,7 @@ module CircuitOptimizationTests =
         let gates = [ T; T; T; I; T; TDagger; H; T; T; I; S; SDagger; T ]
         let (result, stats) = optimize gates 2
         // Should remove identities, cancel inverses, and template-match
-        Assert.True(result.Length < gates.Length,
-            $"Gate count should decrease: {gates.Length} -> {result.Length}")
+        Assert.True(result.Length < gates.Length, $"Gate count should decrease: {gates.Length} -> {result.Length}")
         Assert.True(stats.OptimizedTCount <= stats.OriginalTCount)
 
     [<Fact>]

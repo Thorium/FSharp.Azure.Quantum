@@ -9,7 +9,7 @@ namespace FSharp.Azure.Quantum.Topological
 ///    F[a,b,c;e] · F[a,e,d;f] = Σ_g F[b,c,d;g] · F[a,b,g;f] · F[g,c,d;f]
 ///
 /// 2. **Hexagon Equation** (F and R matrices):
-///    R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d] = 
+///    R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d] =
 ///        Σ_g F[b,a,c;d;g,f] · R[a,b;g] · F[a,b,c;d;e,g]
 ///
 /// These equations ensure that different ways of computing the same physical
@@ -23,51 +23,53 @@ namespace FSharp.Azure.Quantum.Topological
 /// - Turaev "Quantum Invariants of Knots and 3-Manifolds" (1994)
 /// - Bakalov & Kirillov "Lectures on Tensor Categories" (2001)
 module BraidingConsistency =
-    
+
     open System.Numerics
-    
+
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// Result of consistency check
-    type ConsistencyCheckResult = {
-        Equation: string
-        IsSatisfied: bool
-        MaxDeviation: float
-        Details: string
-    }
-    
+    type ConsistencyCheckResult =
+        {
+            Equation: string
+            IsSatisfied: bool
+            MaxDeviation: float
+            Details: string
+        }
+
     /// Summary of all consistency checks for an anyon type
-    type ConsistencySummary = {
-        AnyonType: AnyonSpecies.AnyonType
-        PentagonChecks: ConsistencyCheckResult list
-        HexagonChecks: ConsistencyCheckResult list
-        AllSatisfied: bool
-    }
-    
+    type ConsistencySummary =
+        {
+            AnyonType: AnyonSpecies.AnyonType
+            PentagonChecks: ConsistencyCheckResult list
+            HexagonChecks: ConsistencyCheckResult list
+            AllSatisfied: bool
+        }
+
     // ========================================================================
     // HELPERS
     // ========================================================================
-    
+
     /// Get all particles in a theory, returning empty list for unsupported types
     [<TailCall>]
     let rec private getParticles (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle list =
         match anyonType with
         | AnyonSpecies.AnyonType.Ising ->
-            [ AnyonSpecies.Particle.Vacuum
-              AnyonSpecies.Particle.Sigma
-              AnyonSpecies.Particle.Psi ]
-        | AnyonSpecies.AnyonType.Fibonacci ->
-            [ AnyonSpecies.Particle.Vacuum
-              AnyonSpecies.Particle.Tau ]
-        | AnyonSpecies.AnyonType.SU2Level 2 ->
-            getParticles AnyonSpecies.AnyonType.Ising
+            [
+                AnyonSpecies.Particle.Vacuum
+                AnyonSpecies.Particle.Sigma
+                AnyonSpecies.Particle.Psi
+            ]
+        | AnyonSpecies.AnyonType.Fibonacci -> [ AnyonSpecies.Particle.Vacuum; AnyonSpecies.Particle.Tau ]
+        | AnyonSpecies.AnyonType.SU2Level 2 -> getParticles AnyonSpecies.AnyonType.Ising
         | AnyonSpecies.AnyonType.SU2Level k ->
             // General SU(2)_k: particles are spins j=0, 1/2, ..., k/2
             // represented as SpinJ(j_doubled, k) with j_doubled from 0 to k
-            [0 .. k] |> List.map (fun j_doubled -> AnyonSpecies.Particle.SpinJ(j_doubled, k))
-    
+            [ 0..k ]
+            |> List.map (fun j_doubled -> AnyonSpecies.Particle.SpinJ(j_doubled, k))
+
     /// Get fusion channels a×b, returning empty list when fusion is undefined.
     ///
     /// Returning [] on Error is intentional: FusionRules.channels returns Error for
@@ -81,18 +83,26 @@ module BraidingConsistency =
         (anyonType: AnyonSpecies.AnyonType)
         : AnyonSpecies.Particle list =
         (FusionRules.channels a b anyonType) |> Result.defaultValue []
-    
+
     /// Look up F-symbol value, returning None if fusion constraints are violated
-    let private tryGetF
-        (fData: FMatrix.FMatrixData)
-        (a, b, c, d, e, f)
-        : Complex option =
-        (FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f }) |> Result.map (fun value -> Some value) |> Result.defaultValue None
-    
+    let private tryGetF (fData: FMatrix.FMatrixData) (a, b, c, d, e, f) : Complex option =
+        (FMatrix.getFSymbol
+            fData
+            {
+                FMatrix.A = a
+                FMatrix.B = b
+                FMatrix.C = c
+                FMatrix.D = d
+                FMatrix.E = e
+                FMatrix.F = f
+            })
+        |> Result.map (fun value -> Some value)
+        |> Result.defaultValue None
+
     // ========================================================================
     // PENTAGON EQUATION VERIFICATION
     // ========================================================================
-    
+
     /// Verify the pentagon equation for four fusing anyons (a,b,c,d) with total charge e.
     ///
     /// The pentagon identity (Kitaev 2006, Appendix C) states that two distinct
@@ -113,77 +123,88 @@ module BraidingConsistency =
         (d: AnyonSpecies.Particle)
         (e: AnyonSpecies.Particle)
         : ConsistencyCheckResult =
-        
+
         let anyonType = fData.AnyonType
         let tolerance = 1e-10
-        
+
         let channelsAB = fusionChannels a b anyonType
         let channelsBC = fusionChannels b c anyonType
         let channelsCD = fusionChannels c d anyonType
-        
+
         // For each valid combination of free indices (f,g,l,h), compare LHS and RHS
         let deviations =
-            [ for f in channelsAB do
-                for g in fusionChannels f c anyonType do
-                    for l in channelsCD do
-                        for h in fusionChannels b l anyonType do
-                            // LHS: F[f,c,d,e; g,l] · F[a,b,l,e; f,h]
-                            match tryGetF fData (f,c,d,e,g,l), tryGetF fData (a,b,l,e,f,h) with
-                            | Some lhs1, Some lhs2 ->
-                                let lhs = lhs1 * lhs2
-                                
-                                // RHS: Σ_k F[a,b,c,g; f,k] · F[a,k,d,e; g,h] · F[b,c,d,h; k,l]
-                                let rhs =
-                                    channelsBC
-                                    |> List.choose (fun k ->
-                                        match tryGetF fData (a,b,c,g,f,k),
-                                              tryGetF fData (a,k,d,e,g,h),
-                                              tryGetF fData (b,c,d,h,k,l) with
-                                        | Some v1, Some v2, Some v3 -> Some (v1 * v2 * v3)
-                                        | _ -> None)
-                                    |> List.fold (+) Complex.Zero
-                                
-                                (lhs - rhs).Magnitude
-                            // F-symbol lookup returned None — the index combination violates
-                            // fusion constraints and does not correspond to a valid fusion tree.
-                            // Skipping is correct: absent paths contribute nothing to the equation.
-                            | _ -> () ]
-        
+            [
+                for f in channelsAB do
+                    for g in fusionChannels f c anyonType do
+                        for l in channelsCD do
+                            for h in fusionChannels b l anyonType do
+                                // LHS: F[f,c,d,e; g,l] · F[a,b,l,e; f,h]
+                                match tryGetF fData (f, c, d, e, g, l), tryGetF fData (a, b, l, e, f, h) with
+                                | Some lhs1, Some lhs2 ->
+                                    let lhs = lhs1 * lhs2
+
+                                    // RHS: Σ_k F[a,b,c,g; f,k] · F[a,k,d,e; g,h] · F[b,c,d,h; k,l]
+                                    let rhs =
+                                        channelsBC
+                                        |> List.choose (fun k ->
+                                            match
+                                                tryGetF fData (a, b, c, g, f, k),
+                                                tryGetF fData (a, k, d, e, g, h),
+                                                tryGetF fData (b, c, d, h, k, l)
+                                            with
+                                            | Some v1, Some v2, Some v3 -> Some(v1 * v2 * v3)
+                                            | _ -> None)
+                                        |> List.fold (+) Complex.Zero
+
+                                    (lhs - rhs).Magnitude
+                                // F-symbol lookup returned None — the index combination violates
+                                // fusion constraints and does not correspond to a valid fusion tree.
+                                // Skipping is correct: absent paths contribute nothing to the equation.
+                                | _ -> ()
+            ]
+
         let label = $"Pentagon({a},{b},{c},{d};{e})"
-        
+
         match deviations with
         | [] ->
-            { Equation = label
-              IsSatisfied = true
-              MaxDeviation = 0.0
-              Details = "No valid fusion paths" }
+            {
+                Equation = label
+                IsSatisfied = true
+                MaxDeviation = 0.0
+                Details = "No valid fusion paths"
+            }
         | _ ->
             let maxDev = List.max deviations
             let satisfied = deviations |> List.forall (fun d -> d < tolerance)
-            { Equation = label
-              IsSatisfied = satisfied
-              MaxDeviation = maxDev
-              Details =
-                  if satisfied then
-                      $"Verified {deviations.Length} index combinations (max deviation: {maxDev:E3})"
-                  else
-                      $"FAILED: max deviation {maxDev:E3} exceeds tolerance {tolerance:E3}" }
-    
+
+            {
+                Equation = label
+                IsSatisfied = satisfied
+                MaxDeviation = maxDev
+                Details =
+                    if satisfied then
+                        $"Verified {deviations.Length} index combinations (max deviation: {maxDev:E3})"
+                    else
+                        $"FAILED: max deviation {maxDev:E3} exceeds tolerance {tolerance:E3}"
+            }
+
     /// Verify pentagon equation for all particle 5-tuples (a,b,c,d,e) in the theory.
     /// Returns one ConsistencyCheckResult per combination.
     let verifyAllPentagons (fData: FMatrix.FMatrixData) : ConsistencyCheckResult list =
         let particles = getParticles fData.AnyonType
-        [ for a in particles do
-          for b in particles do
-          for c in particles do
-          for d in particles do
-          for e in particles ->
-              verifyPentagonForParticles fData a b c d e ]
-    
+
+        [
+            for a in particles do
+                for b in particles do
+                    for c in particles do
+                        for d in particles do
+                            for e in particles -> verifyPentagonForParticles fData a b c d e
+        ]
+
     // ========================================================================
     // HEXAGON EQUATION VERIFICATION
     // ========================================================================
-    
+
     /// Verify hexagon equation H1 for specific particles (a,b,c,d).
     ///
     /// Correct hexagon H1 (derived from nCat Lab braided monoidal category axiom):
@@ -211,36 +232,39 @@ module BraidingConsistency =
         (c: AnyonSpecies.Particle)
         (d: AnyonSpecies.Particle)
         : ConsistencyCheckResult =
-        
+
         let anyonType = fData.AnyonType
         let tolerance = 1e-10
-        
+
         // Get possible intermediate fusion channels
         let channelsAB = fusionChannels a b anyonType
         let channelsBC = fusionChannels b c anyonType
         let channelsCA = fusionChannels c a anyonType
-        
+
         // Valid e: e ∈ channels(a×b) with e×c→d
-        let validE = channelsAB |> List.filter (fun e ->
-            match FusionRules.isPossible e c d anyonType with
-            | Ok true -> true
-            | _ -> false
-        )
-        
+        let validE =
+            channelsAB
+            |> List.filter (fun e ->
+                match FusionRules.isPossible e c d anyonType with
+                | Ok true -> true
+                | _ -> false)
+
         // Valid g: g ∈ channels(c×a) with b×g→d
-        let validG = channelsCA |> List.filter (fun g ->
-            match FusionRules.isPossible b g d anyonType with
-            | Ok true -> true
-            | _ -> false
-        )
-        
+        let validG =
+            channelsCA
+            |> List.filter (fun g ->
+                match FusionRules.isPossible b g d anyonType with
+                | Ok true -> true
+                | _ -> false)
+
         // Valid f (for sum): f ∈ channels(b×c) with a×f→d
-        let validF = channelsBC |> List.filter (fun f ->
-            match FusionRules.isPossible a f d anyonType with
-            | Ok true -> true
-            | _ -> false
-        )
-        
+        let validF =
+            channelsBC
+            |> List.filter (fun f ->
+                match FusionRules.isPossible a f d anyonType with
+                | Ok true -> true
+                | _ -> false)
+
         if validE.IsEmpty || validG.IsEmpty then
             // No valid fusion paths - equation trivially satisfied
             {
@@ -253,58 +277,84 @@ module BraidingConsistency =
             let deviations =
                 [
                     for e in validE do
-                    for g in validG do
-                        // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
-                        let lhsTerms =
-                            validF
-                            |> List.choose (fun f ->
-                                match tryGetF fData (b,c,a,d,f,g),
-                                      tryGetF fData (a,b,c,d,e,f) with
-                                | Some fBCA, Some fABC ->
-                                    let rAF_D = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = f; RMatrix.C = d }
-                                    rAF_D |> Result.map (fun r -> Some (fBCA * r * fABC)) |> Result.defaultValue None
-                                | _ -> None)
-                        
-                        let lhs = lhsTerms |> List.fold (+) Complex.Zero
-                        
-                        // RHS: R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
-                        let rhsOpt =
-                            match tryGetF fData (b,a,c,d,e,g) with
-                            | Some fBAC ->
-                                let rAC_G = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = c; RMatrix.C = g }
-                                let rAB_E = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = b; RMatrix.C = e }
-                                match rAC_G, rAB_E with
-                                | Ok r1, Ok r2 -> Some (r1 * fBAC * r2)
-                                | _ -> None
-                            | None -> None
-                        
-                        match rhsOpt with
-                        | Some rhs ->
-                            let deviation = (lhs - rhs).Magnitude
-                            yield deviation
-                        | None ->
-                            // F-symbol or R-symbol lookup failed — the index combination
-                            // violates fusion constraints and is not a valid braiding path.
-                            // Skipping is correct: absent paths contribute nothing.
-                            ()
+                        for g in validG do
+                            // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
+                            let lhsTerms =
+                                validF
+                                |> List.choose (fun f ->
+                                    match tryGetF fData (b, c, a, d, f, g), tryGetF fData (a, b, c, d, e, f) with
+                                    | Some fBCA, Some fABC ->
+                                        let rAF_D =
+                                            RMatrix.getRSymbol
+                                                rData
+                                                {
+                                                    RMatrix.A = a
+                                                    RMatrix.B = f
+                                                    RMatrix.C = d
+                                                }
+
+                                        rAF_D
+                                        |> Result.map (fun r -> Some(fBCA * r * fABC))
+                                        |> Result.defaultValue None
+                                    | _ -> None)
+
+                            let lhs = lhsTerms |> List.fold (+) Complex.Zero
+
+                            // RHS: R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
+                            let rhsOpt =
+                                match tryGetF fData (b, a, c, d, e, g) with
+                                | Some fBAC ->
+                                    let rAC_G =
+                                        RMatrix.getRSymbol
+                                            rData
+                                            {
+                                                RMatrix.A = a
+                                                RMatrix.B = c
+                                                RMatrix.C = g
+                                            }
+
+                                    let rAB_E =
+                                        RMatrix.getRSymbol
+                                            rData
+                                            {
+                                                RMatrix.A = a
+                                                RMatrix.B = b
+                                                RMatrix.C = e
+                                            }
+
+                                    match rAC_G, rAB_E with
+                                    | Ok r1, Ok r2 -> Some(r1 * fBAC * r2)
+                                    | _ -> None
+                                | None -> None
+
+                            match rhsOpt with
+                            | Some rhs ->
+                                let deviation = (lhs - rhs).Magnitude
+                                yield deviation
+                            | None ->
+                                // F-symbol or R-symbol lookup failed — the index combination
+                                // violates fusion constraints and is not a valid braiding path.
+                                // Skipping is correct: absent paths contribute nothing.
+                                ()
                 ]
-            
+
             let maxDeviation = if deviations.IsEmpty then 0.0 else List.max deviations
             let allSatisfied = deviations |> List.forall (fun d -> d < tolerance)
-            
+
             {
                 Equation = $"Hexagon: {a},{b},{c}→{d}"
                 IsSatisfied = allSatisfied
                 MaxDeviation = maxDeviation
-                Details = if allSatisfied then "Satisfied within tolerance" else $"Deviation: {maxDeviation}"
+                Details =
+                    if allSatisfied then
+                        "Satisfied within tolerance"
+                    else
+                        $"Deviation: {maxDeviation}"
             }
-    
+
     /// Verify hexagon equation for all valid particle combinations
-    let verifyAllHexagons 
-        (fData: FMatrix.FMatrixData) 
-        (rData: RMatrix.RMatrixData) 
-        : ConsistencyCheckResult list =
-        
+    let verifyAllHexagons (fData: FMatrix.FMatrixData) (rData: RMatrix.RMatrixData) : ConsistencyCheckResult list =
+
         if fData.AnyonType <> rData.AnyonType then
             [
                 {
@@ -316,71 +366,84 @@ module BraidingConsistency =
             ]
         else
             let particles = getParticles fData.AnyonType
-            
+
             // Check all valid 4-tuples (a,b,c,d)
             [
                 for a in particles do
-                for b in particles do
-                for c in particles do
-                for d in particles ->
-                    verifyHexagonForParticles fData rData a b c d
+                    for b in particles do
+                        for c in particles do
+                            for d in particles -> verifyHexagonForParticles fData rData a b c d
             ]
-    
+
     // ========================================================================
     // FULL CONSISTENCY CHECK
     // ========================================================================
-    
+
     /// Perform complete consistency check for an anyon type
     let verifyConsistency (anyonType: AnyonSpecies.AnyonType) : TopologicalResult<ConsistencySummary> =
         // Compute F and R matrices
         match FMatrix.computeFMatrix anyonType, RMatrix.computeRMatrix anyonType with
-        | Error err, _ | _, Error err -> Error err
+        | Error err, _
+        | _, Error err -> Error err
         | Ok fData, Ok rData ->
-        
-        // Verify pentagon equations
-        let pentagonChecks = verifyAllPentagons fData
-        
-        // Verify hexagon equations
-        let hexagonChecks = verifyAllHexagons fData rData
-        
-        // Check if all tests passed
-        let allPentagonsSatisfied = pentagonChecks |> List.forall (fun c -> c.IsSatisfied)
-        let allHexagonsSatisfied = hexagonChecks |> List.forall (fun c -> c.IsSatisfied)
-        
-        Ok {
-            AnyonType = anyonType
-            PentagonChecks = pentagonChecks
-            HexagonChecks = hexagonChecks
-            AllSatisfied = allPentagonsSatisfied && allHexagonsSatisfied
-        }
-    
+
+            // Verify pentagon equations
+            let pentagonChecks = verifyAllPentagons fData
+
+            // Verify hexagon equations
+            let hexagonChecks = verifyAllHexagons fData rData
+
+            // Check if all tests passed
+            let allPentagonsSatisfied = pentagonChecks |> List.forall (fun c -> c.IsSatisfied)
+            let allHexagonsSatisfied = hexagonChecks |> List.forall (fun c -> c.IsSatisfied)
+
+            Ok
+                {
+                    AnyonType = anyonType
+                    PentagonChecks = pentagonChecks
+                    HexagonChecks = hexagonChecks
+                    AllSatisfied = allPentagonsSatisfied && allHexagonsSatisfied
+                }
+
     // ========================================================================
     // DISPLAY UTILITIES
     // ========================================================================
-    
+
     /// Display consistency check summary
     let displayConsistencySummary (summary: ConsistencySummary) : string =
         let header = $"Consistency Verification for {summary.AnyonType} Anyons\n"
-        let overall = if summary.AllSatisfied then "✓ ALL CHECKS PASSED" else "✗ SOME CHECKS FAILED"
-        
+
+        let overall =
+            if summary.AllSatisfied then
+                "✓ ALL CHECKS PASSED"
+            else
+                "✗ SOME CHECKS FAILED"
+
         let pentagons =
             summary.PentagonChecks
             |> List.map (fun check ->
                 let status = if check.IsSatisfied then "✓" else "✗"
-                $"  {status} {check.Equation} (dev: {check.MaxDeviation:E3})"
-            )
+                $"  {status} {check.Equation} (dev: {check.MaxDeviation:E3})")
             |> String.concat "\n"
-        
+
         let hexagons =
             summary.HexagonChecks
-            |> List.filter (fun c -> not (c.Details.Contains "No valid"))  // Filter trivial cases
+            |> List.filter (fun c -> not (c.Details.Contains "No valid")) // Filter trivial cases
             |> List.map (fun check ->
                 let status = if check.IsSatisfied then "✓" else "✗"
-                $"  {status} {check.Equation} (dev: {check.MaxDeviation:E3})"
-            )
+                $"  {status} {check.Equation} (dev: {check.MaxDeviation:E3})")
             |> String.concat "\n"
-        
-        let pentagonSection = if pentagons = "" then "" else $"\nPentagon Equations:\n{pentagons}"
-        let hexagonSection = if hexagons = "" then "" else $"\nHexagon Equations:\n{hexagons}"
-        
+
+        let pentagonSection =
+            if pentagons = "" then
+                ""
+            else
+                $"\nPentagon Equations:\n{pentagons}"
+
+        let hexagonSection =
+            if hexagons = "" then
+                ""
+            else
+                $"\nHexagon Equations:\n{hexagons}"
+
         header + overall + pentagonSection + hexagonSection

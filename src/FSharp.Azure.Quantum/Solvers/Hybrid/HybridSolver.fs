@@ -32,7 +32,7 @@ open FSharp.Azure.Quantum.Core
 /// Example:
 ///   // TSP
 ///   match HybridSolver.solveTsp distances None None None with
-///   | Ok solution -> 
+///   | Ok solution ->
 ///       printfn "Method: %A" solution.Method  // Classical or Quantum
 ///       printfn "Reasoning: %s" solution.Reasoning
 ///
@@ -69,64 +69,67 @@ module HybridSolver =
         | Rigetti of targetId: string
 
     /// Configuration for quantum execution
-    type QuantumExecutionConfig = {
-        /// Backend selection (IonQ or Rigetti)
-        Backend: QuantumBackend
+    type QuantumExecutionConfig =
+        {
+            /// Backend selection (IonQ or Rigetti)
+            Backend: QuantumBackend
 
-        /// Azure Quantum workspace ID
-        WorkspaceId: string
+            /// Azure Quantum workspace ID
+            WorkspaceId: string
 
-        /// Azure location (e.g., "eastus")
-        Location: string
+            /// Azure location (e.g., "eastus")
+            Location: string
 
-        /// Azure resource group name
-        ResourceGroup: string
+            /// Azure resource group name
+            ResourceGroup: string
 
-        /// Azure subscription ID
-        SubscriptionId: string
+            /// Azure subscription ID
+            SubscriptionId: string
 
-        /// Maximum cost limit in USD (optional guard)
-        MaxCostUSD: float voption
+            /// Maximum cost limit in USD (optional guard)
+            MaxCostUSD: float voption
 
-        /// Enable comparison with classical solver
-        EnableComparison: bool
-    }
+            /// Enable comparison with classical solver
+            EnableComparison: bool
+        }
 
     /// Unified solution result from hybrid solver
-    type Solution<'TResult> = {
-        /// Method used to solve the problem (Classical or Quantum)
-        Method: SolverMethod
+    type Solution<'TResult> =
+        {
+            /// Method used to solve the problem (Classical or Quantum)
+            Method: SolverMethod
 
-        /// The actual solution result
-        Result: 'TResult
+            /// The actual solution result
+            Result: 'TResult
 
-        /// Human-readable reasoning for the solver selection
-        Reasoning: string
+            /// Human-readable reasoning for the solver selection
+            Reasoning: string
 
-        /// Time elapsed during solving (milliseconds)
-        ElapsedMs: float
+            /// Time elapsed during solving (milliseconds)
+            ElapsedMs: float
 
-        /// Quantum Advisor recommendation (if available)
-        Recommendation: QuantumAdvisor.Recommendation option
-    }
+            /// Quantum Advisor recommendation (if available)
+            Recommendation: QuantumAdvisor.Recommendation option
+        }
 
     /// Comparison result between quantum and classical solutions
-    type SolutionComparison<'TResult> = {
-        /// Quantum solution
-        QuantumSolution: Solution<'TResult>
+    type SolutionComparison<'TResult> =
+        {
+            /// Quantum solution
+            QuantumSolution: Solution<'TResult>
 
-        /// Classical solution (for comparison)
-        ClassicalSolution: Solution<'TResult>
+            /// Classical solution (for comparison)
+            ClassicalSolution: Solution<'TResult>
 
-        /// Quantum cost in USD
-        QuantumCost: float
+            /// Quantum cost in USD
+            QuantumCost: float
 
-        /// Whether quantum showed advantage over classical
-        QuantumAdvantageObserved: bool
+            /// Whether quantum showed advantage over classical
+            QuantumAdvantageObserved: bool
 
-        /// Quality comparison notes
-        ComparisonNotes: string
-    }
+            /// Quality comparison notes
+            ComparisonNotes: string
+        }
 
     // ================================================================================
     // HELPER FUNCTIONS
@@ -180,15 +183,17 @@ module HybridSolver =
     /// specific gate-based or topological cloud backend, use solveTspWithBackend and pass it in.
     let private runQuantumTspCore (distances: float[,]) : QuantumResult<TspSolver.TspSolution> =
         let backend = defaultHybridBackend ()
+
         match QuantumTspSolver.solve backend distances QuantumTspSolver.defaultConfig with
         | Error err -> Error err
         | Ok quantumResult ->
-            Ok {
-                Tour = quantumResult.Tour
-                TourLength = quantumResult.TourLength
-                Iterations = 0  // Quantum solver doesn't track classical iterations
-                ElapsedMs = quantumResult.ElapsedMs
-            }
+            Ok
+                {
+                    Tour = quantumResult.Tour
+                    TourLength = quantumResult.TourLength
+                    Iterations = 0 // Quantum solver doesn't track classical iterations
+                    ElapsedMs = quantumResult.ElapsedMs
+                }
 
     /// Execute TSP on the unified quantum backend using real QAOA (see runQuantumTspCore).
     let private executeQuantumTsp
@@ -218,18 +223,17 @@ module HybridSolver =
     /// Models a single QAOA layer on a dense QUBO at 1000 shots: one Hadamard
     /// plus one mixer rotation per qubit, one two-qubit cost-Hamiltonian
     /// interaction per variable pair, and a full-register measurement.
-    let internal estimateQaoaCostUSD
-        (costBackend: CostEstimation.CostBackend)
-        (numVariables: int)
-        : float =
+    let internal estimateQaoaCostUSD (costBackend: CostEstimation.CostBackend) (numVariables: int) : float =
 
         let n = max 1 numVariables
-        let profile: CostEstimation.CircuitCostProfile = {
-            SingleQubitGates = (2 * n) * 1<CostEstimation.gate>
-            TwoQubitGates = (n * (n - 1) / 2) * 1<CostEstimation.gate>
-            Measurements = n * 1<CostEstimation.gate>
-            QubitCount = n * 1<CostEstimation.qubit>
-        }
+
+        let profile: CostEstimation.CircuitCostProfile =
+            {
+                SingleQubitGates = (2 * n) * 1<CostEstimation.gate>
+                TwoQubitGates = (n * (n - 1) / 2) * 1<CostEstimation.gate>
+                Measurements = n * 1<CostEstimation.gate>
+                QubitCount = n * 1<CostEstimation.qubit>
+            }
 
         match CostEstimation.estimateCost costBackend profile 1000<CostEstimation.shot> with
         | Ok estimate -> float (estimate.ExpectedCost / 1.0M<CostEstimation.USD>)
@@ -248,6 +252,7 @@ module HybridSolver =
     /// treated as local simulation, which costs nothing.
     let internal estimateBackendCostUSD (backend: BackendAbstraction.IQuantumBackend) (numVariables: int) : float =
         let name = backend.Name.ToLowerInvariant()
+
         if name.Contains "ionq" then
             estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables
         elif name.Contains "rigetti" then
@@ -276,33 +281,35 @@ module HybridSolver =
         (timeout: float option)
         (forceMethod: SolverMethod option)
         : QuantumResult<Solution<TspSolver.TspSolution>> =
-        
+
         let startTime = DateTime.UtcNow
         let config = TspSolver.defaultConfig
-        let solveClassical () = TspSolver.solveWithDistances distances config
+
+        let solveClassical () =
+            TspSolver.solveWithDistances distances config
 
         match forceMethod with
         | Some Classical ->
-            solveClassical ()
-            |> createClassicalSolution
-                <| "Classical solver forced by user override. Quantum Advisor bypassed."
-                <| startTime
-                <| None
+            solveClassical () |> createClassicalSolution
+            <| "Classical solver forced by user override. Quantum Advisor bypassed."
+            <| startTime
+            <| None
             |> Ok
 
         | Some Quantum when quantumConfig.IsNone ->
-            Error (QuantumError.ValidationError ("Configuration", "Quantum method forced but no quantum configuration provided."))
+            Error(
+                QuantumError.ValidationError(
+                    "Configuration",
+                    "Quantum method forced but no quantum configuration provided."
+                )
+            )
 
         | Some Quantum ->
             // Execute legacy quantum path
-            match Async.RunSynchronously (executeQuantumTsp distances quantumConfig.Value) with
+            match Async.RunSynchronously(executeQuantumTsp distances quantumConfig.Value) with
             | Ok quantumResult ->
                 // Legacy path returns a classical solver result, so adapt to the expected type
-                createQuantumSolution
-                    quantumResult
-                    "Quantum solver forced by user override."
-                    startTime
-                    None
+                createQuantumSolution quantumResult "Quantum solver forced by user override." startTime None
                 |> Ok
             | Error err -> Error err
 
@@ -315,15 +322,23 @@ module HybridSolver =
                     // Check cost limit
                     match qConfig.MaxCostUSD with
                     | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
-                        let estimatedCost = estimateQuantumConfigCostUSD qConfig.Backend ((Array2D.length1 distances) * (Array2D.length1 distances))
+                        let estimatedCost =
+                            estimateQuantumConfigCostUSD
+                                qConfig.Backend
+                                ((Array2D.length1 distances) * (Array2D.length1 distances))
+
                         if estimatedCost > limit then
-                            let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            let reasoning =
+                                $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
+                            solveClassical () |> createClassicalSolution
+                            <| reasoning
+                            <| startTime
+                            <| Some recommendation
                             |> Ok
                         else
                             // Execute legacy quantum path
-                            match Async.RunSynchronously (executeQuantumTsp distances qConfig) with
+                            match Async.RunSynchronously(executeQuantumTsp distances qConfig) with
                             | Ok quantumResult ->
                                 createQuantumSolution
                                     quantumResult
@@ -334,7 +349,7 @@ module HybridSolver =
                             | Error err -> Error err
                     | _ ->
                         // No cost limit or execute quantum
-                        match Async.RunSynchronously (executeQuantumTsp distances qConfig) with
+                        match Async.RunSynchronously(executeQuantumTsp distances qConfig) with
                         | Ok quantumResult ->
                             createQuantumSolution
                                 quantumResult
@@ -346,18 +361,24 @@ module HybridSolver =
 
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
                     // Quantum recommended but no config - fallback to classical
-                    let reasoning = $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
-                    solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                    let reasoning =
+                        $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
+
+                    solveClassical () |> createClassicalSolution
+                    <| reasoning
+                    <| startTime
+                    <| Some recommendation
                     |> Ok
 
                 | _ ->
                     // Classical recommended or borderline - use classical
                     let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
-                    solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                    |> Ok
-            )
+
+                    solveClassical () |> createClassicalSolution
+                    <| reasoning
+                    <| startTime
+                    <| Some recommendation
+                    |> Ok)
 
     /// Solve TSP problem using hybrid solver with quantum execution support (task-based, non-blocking).
     ///
@@ -374,74 +395,77 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (cancellationToken: System.Threading.CancellationToken)
         : System.Threading.Tasks.Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
-            let startTime = DateTime.UtcNow
-            let config = TspSolver.defaultConfig
-            let solveClassical () = TspSolver.solveWithDistances distances config
+        let startTime = DateTime.UtcNow
+        let config = TspSolver.defaultConfig
 
-            match forceMethod with
-            | Some Classical ->
-                let res =
-                    solveClassical ()
-                    |> createClassicalSolution
-                        <| "Classical solver forced by user override. Quantum Advisor bypassed."
-                        <| startTime
-                        <| None
-                    |> Ok
-                task { return res }
+        let solveClassical () =
+            TspSolver.solveWithDistances distances config
 
-            | Some Quantum when quantumConfig.IsNone ->
-                task {
-                    return Error (QuantumError.ValidationError ("Configuration", "Quantum method forced but no quantum configuration provided."))
-                }
+        match forceMethod with
+        | Some Classical ->
+            let res =
+                solveClassical () |> createClassicalSolution
+                <| "Classical solver forced by user override. Quantum Advisor bypassed."
+                <| startTime
+                <| None
+                |> Ok
 
-            | Some Quantum ->
-                task {
-                    let! quantumResult = executeQuantumTspTask distances quantumConfig.Value cancellationToken
-                    match quantumResult with
-                    | Ok quantumResult ->
-                        return
-                            createQuantumSolution
-                                quantumResult
-                                "Quantum solver forced by user override."
-                                startTime
-                                None
-                            |> Ok
-                    | Error err -> return Error err
-                }
-            | None ->
-                let recommendation = QuantumAdvisor.getRecommendation distances
-                match recommendation with
-                | Error err -> task { return Error err }
-                | Ok recommendation ->
-                    match recommendation.RecommendationType, quantumConfig with
-                    | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
-                        match qConfig.MaxCostUSD with
-                        | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
-                            let estimatedCost = estimateQuantumConfigCostUSD qConfig.Backend ((Array2D.length1 distances) * (Array2D.length1 distances))
-                            if estimatedCost > limit then
-                                let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                                let res = 
-                                        solveClassical ()
-                                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                                        |> Ok
-                                task { return res }
-                            else
-                                task {
-                                    let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
-                                    match quantumResult with
-                                    | Ok quantumResult ->
-                                        return
-                                            createQuantumSolution
-                                                quantumResult
-                                                $"{recommendation.Reasoning} Routing to quantum backend."
-                                                startTime
-                                                (Some recommendation)
-                                            |> Ok
-                                    | Error err -> return Error err
-                                }
-                        | _ ->
+            task { return res }
+
+        | Some Quantum when quantumConfig.IsNone ->
+            task {
+                return
+                    Error(
+                        QuantumError.ValidationError(
+                            "Configuration",
+                            "Quantum method forced but no quantum configuration provided."
+                        )
+                    )
+            }
+
+        | Some Quantum ->
+            task {
+                let! quantumResult =
+                    executeQuantumTspTask distances quantumConfig.Value cancellationToken
+
+                match quantumResult with
+                | Ok quantumResult ->
+                    return
+                        createQuantumSolution quantumResult "Quantum solver forced by user override." startTime None
+                        |> Ok
+                | Error err -> return Error err
+            }
+        | None ->
+            let recommendation = QuantumAdvisor.getRecommendation distances
+
+            match recommendation with
+            | Error err -> task { return Error err }
+            | Ok recommendation ->
+                match recommendation.RecommendationType, quantumConfig with
+                | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
+                    match qConfig.MaxCostUSD with
+                    | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
+                        let estimatedCost =
+                            estimateQuantumConfigCostUSD
+                                qConfig.Backend
+                                ((Array2D.length1 distances) * (Array2D.length1 distances))
+
+                        if estimatedCost > limit then
+                            let reasoning =
+                                $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
+                            let res =
+                                solveClassical () |> createClassicalSolution
+                                <| reasoning
+                                <| startTime
+                                <| Some recommendation
+                                |> Ok
+
+                            task { return res }
+                        else
                             task {
                                 let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
+
                                 match quantumResult with
                                 | Ok quantumResult ->
                                     return
@@ -453,21 +477,45 @@ module HybridSolver =
                                         |> Ok
                                 | Error err -> return Error err
                             }
-                    | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
-                        let reasoning = $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
-                        let res = 
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                            |> Ok
-                        task { return res }
-
                     | _ ->
-                        let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
-                        let res =
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                            |> Ok
-                        task { return res }
+                        task {
+                            let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
+
+                            match quantumResult with
+                            | Ok quantumResult ->
+                                return
+                                    createQuantumSolution
+                                        quantumResult
+                                        $"{recommendation.Reasoning} Routing to quantum backend."
+                                        startTime
+                                        (Some recommendation)
+                                    |> Ok
+                            | Error err -> return Error err
+                        }
+                | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
+                    let reasoning =
+                        $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
+
+                    let res =
+                        solveClassical () |> createClassicalSolution
+                        <| reasoning
+                        <| startTime
+                        <| Some recommendation
+                        |> Ok
+
+                    task { return res }
+
+                | _ ->
+                    let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
+
+                    let res =
+                        solveClassical () |> createClassicalSolution
+                        <| reasoning
+                        <| startTime
+                        <| Some recommendation
+                        |> Ok
+
+                    task { return res }
 
     /// Solve TSP problem using hybrid solver with optional backend override.
     ///
@@ -487,41 +535,39 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (backend: IQuantumBackend option)
         : QuantumResult<Solution<TspSolver.TspSolution>> =
-        
+
         let startTime = DateTime.UtcNow
         let config = TspSolver.defaultConfig
-        let solveClassical () = TspSolver.solveWithDistances distances config
+
+        let solveClassical () =
+            TspSolver.solveWithDistances distances config
 
         match forceMethod with
         | Some Classical ->
-            solveClassical ()
-            |> createClassicalSolution
-                <| "Classical solver forced by user override. Quantum Advisor bypassed."
-                <| startTime
-                <| None
+            solveClassical () |> createClassicalSolution
+            <| "Classical solver forced by user override. Quantum Advisor bypassed."
+            <| startTime
+            <| None
             |> Ok
 
         | Some Quantum ->
             // Execute quantum TSP solver using provided backend (or default LocalBackend)
             let quantumConfig = QuantumTspSolver.defaultConfig
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
-            
+
             match QuantumTspSolver.solve actualBackend distances quantumConfig with
-            | Error err -> Error (QuantumError.OperationError ("Quantum TSP solver", QuantumResult.toString err))
+            | Error err -> Error(QuantumError.OperationError("Quantum TSP solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 // Convert quantum result to classical TSP solution format
-                let classicalSolution : TspSolver.TspSolution = {
-                    Tour = quantumResult.Tour
-                    TourLength = quantumResult.TourLength
-                    Iterations = 0  // Quantum solver doesn't track iterations
-                    ElapsedMs = quantumResult.ElapsedMs
-                }
+                let classicalSolution: TspSolver.TspSolution =
+                    {
+                        Tour = quantumResult.Tour
+                        TourLength = quantumResult.TourLength
+                        Iterations = 0 // Quantum solver doesn't track iterations
+                        ElapsedMs = quantumResult.ElapsedMs
+                    }
 
-                createQuantumSolution
-                    classicalSolution
-                    "Quantum TSP solver forced by user override."
-                    startTime
-                    None
+                createQuantumSolution classicalSolution "Quantum TSP solver forced by user override." startTime None
                 |> Ok
 
         | None ->
@@ -531,33 +577,46 @@ module HybridSolver =
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
                     match backend with
                     | None ->
-                        let reasoning = $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
-                        solveClassical ()
-                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                        let reasoning =
+                            $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
+
+                        solveClassical () |> createClassicalSolution
+                        <| reasoning
+                        <| startTime
+                        <| Some recommendation
                         |> Ok
 
                     | Some actualBackend ->
-                        let estimatedCost = estimateBackendCostUSD actualBackend ((Array2D.length1 distances) * (Array2D.length1 distances))
+                        let estimatedCost =
+                            estimateBackendCostUSD
+                                actualBackend
+                                ((Array2D.length1 distances) * (Array2D.length1 distances))
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
-                            let reasoning = $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            let reasoning =
+                                $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
+                            solveClassical () |> createClassicalSolution
+                            <| reasoning
+                            <| startTime
+                            <| Some recommendation
                             |> Ok
 
                         | _ ->
                             let quantumConfig = QuantumTspSolver.defaultConfig
 
                             match QuantumTspSolver.solve actualBackend distances quantumConfig with
-                            | Error err -> Error (QuantumError.OperationError ("Quantum TSP solver", QuantumResult.toString err))
+                            | Error err ->
+                                Error(QuantumError.OperationError("Quantum TSP solver", QuantumResult.toString err))
                             | Ok quantumResult ->
-                                let classicalSolution : TspSolver.TspSolution = {
-                                    Tour = quantumResult.Tour
-                                    TourLength = quantumResult.TourLength
-                                    Iterations = 0
-                                    ElapsedMs = quantumResult.ElapsedMs
-                                }
+                                let classicalSolution: TspSolver.TspSolution =
+                                    {
+                                        Tour = quantumResult.Tour
+                                        TourLength = quantumResult.TourLength
+                                        Iterations = 0
+                                        ElapsedMs = quantumResult.ElapsedMs
+                                    }
 
                                 createQuantumSolution
                                     classicalSolution
@@ -566,15 +625,18 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
+                | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
-                    solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                    |> Ok
-            )
+
+                    solveClassical () |> createClassicalSolution
+                    <| reasoning
+                    <| startTime
+                    <| Some recommendation
+                    |> Ok)
 
     /// Solve TSP problem using hybrid solver with automatic quantum vs classical selection
-    /// 
+    ///
     /// Parameters:
     ///   distances - Distance matrix for TSP problem
     ///   budget - Optional budget limit for quantum execution (USD)
@@ -583,7 +645,7 @@ module HybridSolver =
     ///
     /// Returns:
     ///   Result with Solution containing TSP result, method used, and reasoning
-    let solveTsp 
+    let solveTsp
         (distances: float[,])
         (budget: float option)
         (timeout: float option)
@@ -607,18 +669,19 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (backend: IQuantumBackend option)
         : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
-        
+
         let startTime = DateTime.UtcNow
         let config = PortfolioSolver.defaultConfig
-        let solveClassical () = PortfolioSolver.solveGreedyByRatio assets constraints config
+
+        let solveClassical () =
+            PortfolioSolver.solveGreedyByRatio assets constraints config
 
         match forceMethod with
         | Some Classical ->
-            solveClassical ()
-            |> createClassicalSolution
-                <| "Classical solver forced by user override. Quantum Advisor bypassed."
-                <| startTime
-                <| None
+            solveClassical () |> createClassicalSolution
+            <| "Classical solver forced by user override. Quantum Advisor bypassed."
+            <| startTime
+            <| None
             |> Ok
 
         | Some Quantum ->
@@ -627,17 +690,18 @@ module HybridSolver =
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
             match QuantumPortfolioSolver.solve actualBackend assets constraints quantumConfig with
-            | Error err -> Error (QuantumError.OperationError ("Quantum portfolio solver", QuantumResult.toString err))
+            | Error err -> Error(QuantumError.OperationError("Quantum portfolio solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 // Convert quantum result to classical portfolio solution format
-                let classicalSolution : PortfolioSolver.PortfolioSolution = {
-                    Allocations = quantumResult.Allocations
-                    TotalValue = quantumResult.TotalValue
-                    ExpectedReturn = quantumResult.ExpectedReturn
-                    Risk = quantumResult.Risk
-                    SharpeRatio = quantumResult.SharpeRatio
-                    ElapsedMs = quantumResult.ElapsedMs
-                }
+                let classicalSolution: PortfolioSolver.PortfolioSolution =
+                    {
+                        Allocations = quantumResult.Allocations
+                        TotalValue = quantumResult.TotalValue
+                        ExpectedReturn = quantumResult.ExpectedReturn
+                        Risk = quantumResult.Risk
+                        SharpeRatio = quantumResult.SharpeRatio
+                        ElapsedMs = quantumResult.ElapsedMs
+                    }
 
                 {
                     Method = Quantum
@@ -652,7 +716,9 @@ module HybridSolver =
             // Create problem representation for Quantum Advisor
             // Use asset count as approximation of problem complexity
             let numAssets = List.length assets
-            let problemRepresentation = Array2D.init numAssets numAssets (fun i j -> if i = j then 0.0 else 1.0)
+
+            let problemRepresentation =
+                Array2D.init numAssets numAssets (fun i j -> if i = j then 0.0 else 1.0)
 
             QuantumAdvisor.getRecommendation problemRepresentation
             |> Result.bind (fun recommendation ->
@@ -660,9 +726,13 @@ module HybridSolver =
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
                     match backend with
                     | None ->
-                        let reasoning = $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
-                        solveClassical ()
-                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                        let reasoning =
+                            $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
+
+                        solveClassical () |> createClassicalSolution
+                        <| reasoning
+                        <| startTime
+                        <| Some recommendation
                         |> Ok
 
                     | Some actualBackend ->
@@ -670,25 +740,33 @@ module HybridSolver =
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
-                            let reasoning = $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            let reasoning =
+                                $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
+                            solveClassical () |> createClassicalSolution
+                            <| reasoning
+                            <| startTime
+                            <| Some recommendation
                             |> Ok
 
                         | _ ->
                             let quantumConfig = QuantumPortfolioSolver.defaultConfig
 
                             match QuantumPortfolioSolver.solve actualBackend assets constraints quantumConfig with
-                            | Error err -> Error (QuantumError.OperationError ("Quantum portfolio solver", QuantumResult.toString err))
+                            | Error err ->
+                                Error(
+                                    QuantumError.OperationError("Quantum portfolio solver", QuantumResult.toString err)
+                                )
                             | Ok quantumResult ->
-                                let classicalSolution : PortfolioSolver.PortfolioSolution = {
-                                    Allocations = quantumResult.Allocations
-                                    TotalValue = quantumResult.TotalValue
-                                    ExpectedReturn = quantumResult.ExpectedReturn
-                                    Risk = quantumResult.Risk
-                                    SharpeRatio = quantumResult.SharpeRatio
-                                    ElapsedMs = quantumResult.ElapsedMs
-                                }
+                                let classicalSolution: PortfolioSolver.PortfolioSolution =
+                                    {
+                                        Allocations = quantumResult.Allocations
+                                        TotalValue = quantumResult.TotalValue
+                                        ExpectedReturn = quantumResult.ExpectedReturn
+                                        Risk = quantumResult.Risk
+                                        SharpeRatio = quantumResult.SharpeRatio
+                                        ElapsedMs = quantumResult.ElapsedMs
+                                    }
 
                                 createQuantumSolution
                                     classicalSolution
@@ -697,12 +775,15 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
+                | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical Portfolio solver."
-                    solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                    |> Ok
-            )
+
+                    solveClassical () |> createClassicalSolution
+                    <| reasoning
+                    <| startTime
+                    <| Some recommendation
+                    |> Ok)
 
     /// Solve Portfolio optimization using hybrid solver with automatic quantum vs classical selection
     ///
@@ -741,17 +822,18 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (backend: IQuantumBackend option)
         : QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>> =
-        
+
         let startTime = DateTime.UtcNow
-        let solveClassical () = QuantumMaxCutSolver.solveClassical problem
+
+        let solveClassical () =
+            QuantumMaxCutSolver.solveClassical problem
 
         match forceMethod with
         | Some Classical ->
-            solveClassical ()
-            |> createClassicalSolution
-                <| "Classical MaxCut solver forced by user override. Quantum Advisor bypassed."
-                <| startTime
-                <| None
+            solveClassical () |> createClassicalSolution
+            <| "Classical MaxCut solver forced by user override. Quantum Advisor bypassed."
+            <| startTime
+            <| None
             |> Ok
 
         | Some Quantum ->
@@ -760,7 +842,7 @@ module HybridSolver =
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
             match QuantumMaxCutSolver.solve actualBackend problem quantumConfig with
-            | Error err -> Error (QuantumError.OperationError ("Quantum MaxCut solver", QuantumResult.toString err))
+            | Error err -> Error(QuantumError.OperationError("Quantum MaxCut solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
                     Method = Quantum
@@ -775,7 +857,9 @@ module HybridSolver =
             // Create problem representation for Quantum Advisor
             // Use vertex count as approximation of problem complexity
             let numVertices = problem.Vertices.Length
-            let problemRepresentation = Array2D.init numVertices numVertices (fun i j -> if i = j then 0.0 else 1.0)
+
+            let problemRepresentation =
+                Array2D.init numVertices numVertices (fun i j -> if i = j then 0.0 else 1.0)
 
             QuantumAdvisor.getRecommendation problemRepresentation
             |> Result.bind (fun recommendation ->
@@ -783,9 +867,13 @@ module HybridSolver =
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
                     match backend with
                     | None ->
-                        let reasoning = $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
-                        solveClassical ()
-                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                        let reasoning =
+                            $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
+
+                        solveClassical () |> createClassicalSolution
+                        <| reasoning
+                        <| startTime
+                        <| Some recommendation
                         |> Ok
 
                     | Some actualBackend ->
@@ -793,16 +881,21 @@ module HybridSolver =
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
-                            let reasoning = $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            let reasoning =
+                                $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
+                            solveClassical () |> createClassicalSolution
+                            <| reasoning
+                            <| startTime
+                            <| Some recommendation
                             |> Ok
 
                         | _ ->
                             let quantumConfig = QuantumMaxCutSolver.defaultConfig
 
                             match QuantumMaxCutSolver.solve actualBackend problem quantumConfig with
-                            | Error err -> Error (QuantumError.OperationError ("Quantum MaxCut solver", QuantumResult.toString err))
+                            | Error err ->
+                                Error(QuantumError.OperationError("Quantum MaxCut solver", QuantumResult.toString err))
                             | Ok quantumResult ->
                                 createQuantumSolution
                                     quantumResult
@@ -811,12 +904,15 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
+                | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical MaxCut solver."
-                    solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                    |> Ok
-            )
+
+                    solveClassical () |> createClassicalSolution
+                    <| reasoning
+                    <| startTime
+                    <| Some recommendation
+                    |> Ok)
 
     /// Solve MaxCut problem using hybrid solver with automatic quantum vs classical selection
     ///
@@ -853,17 +949,18 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (backend: IQuantumBackend option)
         : QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>> =
-        
+
         let startTime = DateTime.UtcNow
-        let solveClassical () = QuantumKnapsackSolver.solveClassical problem
+
+        let solveClassical () =
+            QuantumKnapsackSolver.solveClassical problem
 
         match forceMethod with
         | Some Classical ->
-            solveClassical ()
-            |> createClassicalSolution
-                <| "Classical Knapsack solver forced by user override. Quantum Advisor bypassed."
-                <| startTime
-                <| None
+            solveClassical () |> createClassicalSolution
+            <| "Classical Knapsack solver forced by user override. Quantum Advisor bypassed."
+            <| startTime
+            <| None
             |> Ok
 
         | Some Quantum ->
@@ -872,7 +969,7 @@ module HybridSolver =
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
             match QuantumKnapsackSolver.solve actualBackend problem quantumConfig with
-            | Error err -> Error (QuantumError.OperationError ("Quantum Knapsack solver", QuantumResult.toString err))
+            | Error err -> Error(QuantumError.OperationError("Quantum Knapsack solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
                     Method = Quantum
@@ -887,7 +984,9 @@ module HybridSolver =
             // Create problem representation for Quantum Advisor
             // Use item count as approximation of problem complexity
             let numItems = problem.Items.Length
-            let problemRepresentation = Array2D.init numItems numItems (fun i j -> if i = j then 0.0 else 1.0)
+
+            let problemRepresentation =
+                Array2D.init numItems numItems (fun i j -> if i = j then 0.0 else 1.0)
 
             QuantumAdvisor.getRecommendation problemRepresentation
             |> Result.bind (fun recommendation ->
@@ -895,9 +994,13 @@ module HybridSolver =
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
                     match backend with
                     | None ->
-                        let reasoning = $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
-                        solveClassical ()
-                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                        let reasoning =
+                            $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
+
+                        solveClassical () |> createClassicalSolution
+                        <| reasoning
+                        <| startTime
+                        <| Some recommendation
                         |> Ok
 
                     | Some actualBackend ->
@@ -905,16 +1008,23 @@ module HybridSolver =
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
-                            let reasoning = $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                            solveClassical ()
-                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            let reasoning =
+                                $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
+                            solveClassical () |> createClassicalSolution
+                            <| reasoning
+                            <| startTime
+                            <| Some recommendation
                             |> Ok
 
                         | _ ->
                             let quantumConfig = QuantumKnapsackSolver.defaultConfig
 
                             match QuantumKnapsackSolver.solve actualBackend problem quantumConfig with
-                            | Error err -> Error (QuantumError.OperationError ("Quantum Knapsack solver", QuantumResult.toString err))
+                            | Error err ->
+                                Error(
+                                    QuantumError.OperationError("Quantum Knapsack solver", QuantumResult.toString err)
+                                )
                             | Ok quantumResult ->
                                 createQuantumSolution
                                     quantumResult
@@ -923,12 +1033,15 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
+                | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
                     let reasoning = $"{recommendation.Reasoning} Routing to classical Knapsack solver."
-                    solveClassical ()
-                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                    |> Ok
-            )
+
+                    solveClassical () |> createClassicalSolution
+                    <| reasoning
+                    <| startTime
+                    <| Some recommendation
+                    |> Ok)
 
     /// Solve Knapsack problem using hybrid solver with automatic quantum vs classical selection
     ///
@@ -966,9 +1079,11 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (backend: IQuantumBackend option)
         : QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>> =
-        
+
         let startTime = DateTime.UtcNow
-        let solveClassical () = QuantumGraphColoringSolver.solveClassical problem
+
+        let solveClassical () =
+            QuantumGraphColoringSolver.solveClassical problem
 
         match forceMethod with
         | Some Classical ->
@@ -986,7 +1101,8 @@ module HybridSolver =
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
             match QuantumGraphColoringSolver.solve actualBackend problem quantumConfig with
-            | Error err -> Error (QuantumError.OperationError ("Quantum Graph Coloring solver", QuantumResult.toString err))
+            | Error err ->
+                Error(QuantumError.OperationError("Quantum Graph Coloring solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
                     Method = Quantum
@@ -1001,7 +1117,9 @@ module HybridSolver =
             // Create problem representation for Quantum Advisor
             // Use vertex count as approximation of problem complexity
             let numVertices = problem.Vertices.Length
-            let problemRepresentation = Array2D.init numVertices numVertices (fun i j -> if i = j then 0.0 else 1.0)
+
+            let problemRepresentation =
+                Array2D.init numVertices numVertices (fun i j -> if i = j then 0.0 else 1.0)
 
             QuantumAdvisor.getRecommendation problemRepresentation
             |> Result.bind (fun recommendation ->
@@ -1009,7 +1127,9 @@ module HybridSolver =
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
                     match backend with
                     | None ->
-                        let reasoning = $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
+                        let reasoning =
+                            $"{recommendation.Reasoning} Quantum recommended but no quantum backend was provided - using classical fallback."
+
                         solveClassical ()
                         |> Result.map (fun classicalResult ->
                             createClassicalSolution classicalResult reasoning startTime (Some recommendation))
@@ -1019,7 +1139,9 @@ module HybridSolver =
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
-                            let reasoning = $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+                            let reasoning =
+                                $"{recommendation.Reasoning} Quantum recommended but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+
                             solveClassical ()
                             |> Result.map (fun classicalResult ->
                                 createClassicalSolution classicalResult reasoning startTime (Some recommendation))
@@ -1028,7 +1150,13 @@ module HybridSolver =
                             let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
 
                             match QuantumGraphColoringSolver.solve actualBackend problem quantumConfig with
-                            | Error err -> Error (QuantumError.OperationError ("Quantum Graph Coloring solver", QuantumResult.toString err))
+                            | Error err ->
+                                Error(
+                                    QuantumError.OperationError(
+                                        "Quantum Graph Coloring solver",
+                                        QuantumResult.toString err
+                                    )
+                                )
                             | Ok quantumResult ->
                                 createQuantumSolution
                                     quantumResult
@@ -1037,12 +1165,14 @@ module HybridSolver =
                                     (Some recommendation)
                                 |> Ok
 
-                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
-                    let reasoning = $"{recommendation.Reasoning} Routing to classical Graph Coloring solver."
+                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
+                | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
+                    let reasoning =
+                        $"{recommendation.Reasoning} Routing to classical Graph Coloring solver."
+
                     solveClassical ()
                     |> Result.map (fun classicalResult ->
-                        createClassicalSolution classicalResult reasoning startTime (Some recommendation))
-            )
+                        createClassicalSolution classicalResult reasoning startTime (Some recommendation)))
 
     /// Solve Graph Coloring problem using hybrid solver with automatic quantum vs classical selection
     ///
@@ -1071,5 +1201,4 @@ module HybridSolver =
     // ================================================================================
 
     /// Legacy solve function for backward compatibility (TSP only, no optional parameters)
-    let solve (distances: float[,]) : QuantumResult<Solution<TspSolver.TspSolution>> =
-        solveTsp distances None None None
+    let solve (distances: float[,]) : QuantumResult<Solution<TspSolver.TspSolution>> = solveTsp distances None None None

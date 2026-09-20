@@ -34,19 +34,48 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "FormatDemo.fsx" ".tqp file format import, export, and execution"
-    [ { Name = "example"; Description = "Which example: 1-5|all"; Default = Some "all" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "FormatDemo.fsx"
+    ".tqp file format import, export, and execution"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-5|all"
+            Default = Some "all"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
@@ -55,11 +84,11 @@ let separator () = pr "%s" (String.replicate 60 "-")
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // Temp file tracking for cleanup
-let mutable tempFiles : string list = []
+let mutable tempFiles: string list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 -- Create and save a .tqp program
@@ -69,14 +98,16 @@ if shouldRun 1 then
     pr "EXAMPLE 1: Create and save .tqp file"
     separator ()
 
-    let program = {
-        AnyonType = AnyonSpecies.AnyonType.Fibonacci
-        Operations = [ Initialize 2; Braid 0; Measure 0 ]
-    }
+    let program =
+        {
+            AnyonType = AnyonSpecies.AnyonType.Fibonacci
+            Operations = [ Initialize 2; Braid 0; Measure 0 ]
+        }
 
     let tqpPath = "fibonacci-simple.tqp"
+
     match Serializer.serializeToFile program tqpPath with
-    | Ok () ->
+    | Ok() ->
         tempFiles <- tqpPath :: tempFiles
         let content = File.ReadAllText(tqpPath)
         let lineCount = content.Split('\n').Length
@@ -84,10 +115,18 @@ if shouldRun 1 then
         pr "  Anyon type: Fibonacci"
         pr "  Operations: Init 2, Braid 0, Measure 0"
 
-        jsonResults <- ("1_save", box {| file = tqpPath; lines = lineCount; anyon = "Fibonacci" |}) :: jsonResults
+        jsonResults <-
+            ("1_save",
+             box
+                 {|
+                     file = tqpPath
+                     lines = lineCount
+                     anyon = "Fibonacci"
+                 |})
+            :: jsonResults
+
         csvRows <- [ "1_save"; tqpPath; string lineCount; "Fibonacci" ] :: csvRows
-    | Error msg ->
-        pr "Failed: %s" msg
+    | Error msg -> pr "Failed: %s" msg
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Load and parse a .tqp file
@@ -98,28 +137,43 @@ if shouldRun 2 then
     separator ()
 
     let bellPath = "bell-state.tqp"
+
     match Parser.parseFile bellPath with
     | Ok program ->
         let opCount = program.Operations.Length
+
         let nonComment =
             program.Operations
-            |> List.filter (fun op -> match op with Comment _ -> false | _ -> true)
+            |> List.filter (fun op ->
+                match op with
+                | Comment _ -> false
+                | _ -> true)
             |> List.length
+
         pr "Loaded: %s" bellPath
         pr "  Anyon type:  %A" program.AnyonType
         pr "  Operations:  %d total (%d non-comment)" opCount nonComment
+
         for op in program.Operations do
             match op with
-            | Comment _   -> ()
+            | Comment _ -> ()
             | Initialize c -> pr "    INIT %d" c
-            | Braid i      -> pr "    BRAID %d" i
-            | Measure i    -> pr "    MEASURE %d" i
-            | FMove (d,n)  -> pr "    FMOVE %A %d" d n
+            | Braid i -> pr "    BRAID %d" i
+            | Measure i -> pr "    MEASURE %d" i
+            | FMove(d, n) -> pr "    FMOVE %A %d" d n
 
-        jsonResults <- ("2_load", box {| file = bellPath; ops = opCount; nonComment = nonComment |}) :: jsonResults
+        jsonResults <-
+            ("2_load",
+             box
+                 {|
+                     file = bellPath
+                     ops = opCount
+                     nonComment = nonComment
+                 |})
+            :: jsonResults
+
         csvRows <- [ "2_load"; bellPath; string opCount; string nonComment ] :: csvRows
-    | Error msg ->
-        pr "Parse failed: %s" msg
+    | Error msg -> pr "Parse failed: %s" msg
 
 // ---------------------------------------------------------------------------
 // Example 3 -- Round-trip (program -> string -> program)
@@ -129,33 +183,53 @@ if shouldRun 3 then
     pr "EXAMPLE 3: Round-trip serialization"
     separator ()
 
-    let original = {
-        AnyonType = AnyonSpecies.AnyonType.Ising
-        Operations = [
-            Comment "# Ising algorithm"
-            Initialize 6; Braid 0; Braid 2; Braid 4
-            FMove (FMoveDirection.Left, 1)
-            Measure 1; Measure 3
-        ]
-    }
+    let original =
+        {
+            AnyonType = AnyonSpecies.AnyonType.Ising
+            Operations =
+                [
+                    Comment "# Ising algorithm"
+                    Initialize 6
+                    Braid 0
+                    Braid 2
+                    Braid 4
+                    FMove(FMoveDirection.Left, 1)
+                    Measure 1
+                    Measure 3
+                ]
+        }
 
     let serialized = Serializer.serializeProgram original
+
     match Parser.parseProgram serialized with
     | Ok parsed ->
         let typeMatch = original.AnyonType = parsed.AnyonType
         let origOps = original.Operations.Length
+
         let parsedOps =
             parsed.Operations
-            |> List.filter (fun op -> match op with Comment c when c.Contains "Generated:" -> false | _ -> true)
+            |> List.filter (fun op ->
+                match op with
+                | Comment c when c.Contains "Generated:" -> false
+                | _ -> true)
             |> List.length
+
         pr "Round-trip: %s" (if typeMatch then "SUCCESS" else "TYPE MISMATCH")
         pr "  Original ops:  %d" origOps
         pr "  Parsed ops:    %d" parsedOps
 
-        jsonResults <- ("3_roundtrip", box {| typeMatch = typeMatch; origOps = origOps; parsedOps = parsedOps |}) :: jsonResults
+        jsonResults <-
+            ("3_roundtrip",
+             box
+                 {|
+                     typeMatch = typeMatch
+                     origOps = origOps
+                     parsedOps = parsedOps
+                 |})
+            :: jsonResults
+
         csvRows <- [ "3_roundtrip"; string typeMatch; string origOps; string parsedOps ] :: csvRows
-    | Error msg ->
-        pr "Round-trip failed: %s" msg
+    | Error msg -> pr "Round-trip failed: %s" msg
 
 // ---------------------------------------------------------------------------
 // Example 4 -- Different anyon types
@@ -165,25 +239,30 @@ if shouldRun 4 then
     pr "EXAMPLE 4: Programs for different anyon types"
     separator ()
 
-    let types = [
-        ("Ising",     AnyonSpecies.AnyonType.Ising)
-        ("Fibonacci", AnyonSpecies.AnyonType.Fibonacci)
-        ("SU(2)_3",   AnyonSpecies.AnyonType.SU2Level 3)
-    ]
+    let types =
+        [
+            ("Ising", AnyonSpecies.AnyonType.Ising)
+            ("Fibonacci", AnyonSpecies.AnyonType.Fibonacci)
+            ("SU(2)_3", AnyonSpecies.AnyonType.SU2Level 3)
+        ]
 
     for (name, anyonType) in types do
-        let program = {
-            AnyonType = anyonType
-            Operations = [ Comment $"# {name} example"; Initialize 4; Braid 0; Braid 1; Measure 0 ]
-        }
-        let cleanName = name.ToLowerInvariant().Replace("(","").Replace(")","").Replace("_","-")
+        let program =
+            {
+                AnyonType = anyonType
+                Operations = [ Comment $"# {name} example"; Initialize 4; Braid 0; Braid 1; Measure 0 ]
+            }
+
+        let cleanName =
+            name.ToLowerInvariant().Replace("(", "").Replace(")", "").Replace("_", "-")
+
         let filename = $"{cleanName}-example.tqp"
+
         match Serializer.serializeToFile program filename with
-        | Ok () ->
+        | Ok() ->
             tempFiles <- filename :: tempFiles
             pr "  Created: %s (%s)" filename name
-        | Error msg ->
-            pr "  Failed %s: %s" filename msg
+        | Error msg -> pr "  Failed %s: %s" filename msg
 
     jsonResults <- ("4_types", box {| count = types.Length |}) :: jsonResults
     csvRows <- [ "4_types"; string types.Length ] :: csvRows
@@ -198,11 +277,14 @@ if shouldRun 5 then
 
     // Ensure we have the file (create if example 1 was skipped)
     let tqpPath = "fibonacci-simple.tqp"
+
     if not (File.Exists tqpPath) then
-        let program = {
-            AnyonType = AnyonSpecies.AnyonType.Fibonacci
-            Operations = [ Initialize 2; Braid 0; Measure 0 ]
-        }
+        let program =
+            {
+                AnyonType = AnyonSpecies.AnyonType.Fibonacci
+                Operations = [ Initialize 2; Braid 0; Measure 0 ]
+            }
+
         Serializer.serializeToFile program tqpPath |> ignore
         tempFiles <- tqpPath :: tempFiles
 
@@ -210,30 +292,37 @@ if shouldRun 5 then
 
     let execResult =
         match Parser.parseFile tqpPath with
-        | Ok program ->
-            Some (Executor.executeProgram fibBackend program)
+        | Ok program -> Some(Executor.executeProgram fibBackend program)
         | Error _ -> None
 
     match execResult with
-    | Some (Ok result) ->
+    | Some(Ok result) ->
         let measCount = result.MeasurementOutcomes.Length
         pr "Execution: SUCCESS"
         pr "  Measurements: %d" measCount
+
         for (outcome, prob) in result.MeasurementOutcomes do
             pr "    %A (prob: %.4f)" outcome prob
 
-        jsonResults <- ("5_execute", box {| status = "ok"; measurements = measCount |}) :: jsonResults
+        jsonResults <-
+            ("5_execute",
+             box
+                 {|
+                     status = "ok"
+                     measurements = measCount
+                 |})
+            :: jsonResults
+
         csvRows <- [ "5_execute"; "ok"; string measCount ] :: csvRows
-    | Some (Error err) ->
-        pr "Execution failed: %A" err
-    | None ->
-        pr "Parse failed"
+    | Some(Error err) -> pr "Execution failed: %A" err
+    | None -> pr "Parse failed"
 
 // ---------------------------------------------------------------------------
 // Cleanup temp files
 // ---------------------------------------------------------------------------
 for f in tempFiles do
-    if File.Exists f then File.Delete f
+    if File.Exists f then
+        File.Delete f
 
 // ---------------------------------------------------------------------------
 // Output
@@ -241,21 +330,22 @@ for f in tempFiles do
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "FormatDemo.fsx"
-           backend   = "Topological (Ising)"
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "FormatDemo.fsx"
+            backend = "Topological (Ising)"
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

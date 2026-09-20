@@ -16,62 +16,77 @@ module ResourceEstimation =
 
     /// Algorithm-level (logical) resource counts.
     type LogicalResources =
-        { LogicalQubits: int
-          TotalGates: int
-          SingleQubitGates: int
-          TwoQubitGates: int
-          /// T + T-dagger gates — the dominant cost in fault-tolerant computing.
-          TCount: int
-          MeasurementCount: int
-          Depth: int
-          GateTypeCounts: Map<string, int> }
+        {
+            LogicalQubits: int
+            TotalGates: int
+            SingleQubitGates: int
+            TwoQubitGates: int
+            /// T + T-dagger gates — the dominant cost in fault-tolerant computing.
+            TCount: int
+            MeasurementCount: int
+            Depth: int
+            GateTypeCounts: Map<string, int>
+        }
 
     /// Physical fault-tolerant resource estimate under a surface-code model.
     type PhysicalResources =
-        { /// Surface-code distance chosen to meet the target error budget.
-          CodeDistance: int
-          /// Physical qubits per logical qubit (~2·d² for a rotated surface-code patch).
-          PhysicalQubitsPerLogical: int
-          TotalPhysicalQubits: int
-          EstimatedRuntimeSeconds: float
-          /// Per-logical-qubit, per-cycle logical error actually achieved at this distance.
-          LogicalErrorRateAchieved: float }
+        {
+            /// Surface-code distance chosen to meet the target error budget.
+            CodeDistance: int
+            /// Physical qubits per logical qubit (~2·d² for a rotated surface-code patch).
+            PhysicalQubitsPerLogical: int
+            TotalPhysicalQubits: int
+            EstimatedRuntimeSeconds: float
+            /// Per-logical-qubit, per-cycle logical error actually achieved at this distance.
+            LogicalErrorRateAchieved: float
+        }
 
     /// Hardware / fault-tolerance assumptions used for the physical estimate.
     [<Struct>]
     type FaultToleranceParams =
-        { /// Physical error rate per physical operation (e.g. 1e-3).
-          PhysicalErrorRate: float
-          /// Surface-code error threshold (~1e-2).
-          ErrorThreshold: float
-          /// Acceptable total failure probability for the whole computation.
-          TargetErrorRate: float
-          /// Syndrome-extraction cycle time in seconds (e.g. 1e-6).
-          CycleTimeSeconds: float }
+        {
+            /// Physical error rate per physical operation (e.g. 1e-3).
+            PhysicalErrorRate: float
+            /// Surface-code error threshold (~1e-2).
+            ErrorThreshold: float
+            /// Acceptable total failure probability for the whole computation.
+            TargetErrorRate: float
+            /// Syndrome-extraction cycle time in seconds (e.g. 1e-6).
+            CycleTimeSeconds: float
+        }
 
     /// Reasonable defaults for a superconducting-style device.
     let defaultFaultToleranceParams =
-        { PhysicalErrorRate = 1e-3
-          ErrorThreshold = 1e-2
-          TargetErrorRate = 1e-2
-          CycleTimeSeconds = 1e-6 }
+        {
+            PhysicalErrorRate = 1e-3
+            ErrorThreshold = 1e-2
+            TargetErrorRate = 1e-2
+            CycleTimeSeconds = 1e-6
+        }
 
     type ResourceEstimate =
-        { Logical: LogicalResources
-          Physical: PhysicalResources }
+        {
+            Logical: LogicalResources
+            Physical: PhysicalResources
+        }
 
     /// Estimate the logical (algorithm-level) resources for a circuit.
     let estimateLogical (circuit: Circuit) : LogicalResources =
         let stats = statistics circuit
-        let countOf name = stats.GateTypeCounts |> Map.tryFind name |> Option.defaultValue 0
-        { LogicalQubits = max circuit.QubitCount (stats.MaxQubitIndex + 1)
-          TotalGates = stats.TotalGates
-          SingleQubitGates = stats.SingleQubitGates
-          TwoQubitGates = stats.TwoQubitGates
-          TCount = countOf "T" + countOf "TDG"
-          MeasurementCount = stats.MeasurementCount
-          Depth = depth circuit
-          GateTypeCounts = stats.GateTypeCounts }
+
+        let countOf name =
+            stats.GateTypeCounts |> Map.tryFind name |> Option.defaultValue 0
+
+        {
+            LogicalQubits = max circuit.QubitCount (stats.MaxQubitIndex + 1)
+            TotalGates = stats.TotalGates
+            SingleQubitGates = stats.SingleQubitGates
+            TwoQubitGates = stats.TwoQubitGates
+            TCount = countOf "T" + countOf "TDG"
+            MeasurementCount = stats.MeasurementCount
+            Depth = depth circuit
+            GateTypeCounts = stats.GateTypeCounts
+        }
 
     /// Estimate physical fault-tolerant resources from logical resources under a
     /// surface-code model. The required per-cycle logical error is the total error
@@ -88,21 +103,30 @@ module ResourceEstimation =
         // Smallest odd distance meeting the budget (capped; if p >= threshold the
         // code does not suppress and we report the capped distance honestly).
         let rec advanceD d =
-            if logicalErrorAt d > requiredLogicalError && d < 101 then advanceD (d + 2) else d
+            if logicalErrorAt d > requiredLogicalError && d < 101 then
+                advanceD (d + 2)
+            else
+                d
 
         let d = advanceD 3
         let perLogical = 2 * d * d
-        { CodeDistance = d
-          PhysicalQubitsPerLogical = perLogical
-          TotalPhysicalQubits = nLogical * perLogical
-          EstimatedRuntimeSeconds = float cycles * float d * ftp.CycleTimeSeconds
-          LogicalErrorRateAchieved = logicalErrorAt d }
+
+        {
+            CodeDistance = d
+            PhysicalQubitsPerLogical = perLogical
+            TotalPhysicalQubits = nLogical * perLogical
+            EstimatedRuntimeSeconds = float cycles * float d * ftp.CycleTimeSeconds
+            LogicalErrorRateAchieved = logicalErrorAt d
+        }
 
     /// Full estimate (logical + physical) for a circuit with explicit assumptions.
     let estimate (ftp: FaultToleranceParams) (circuit: Circuit) : ResourceEstimate =
         let logical = estimateLogical circuit
-        { Logical = logical
-          Physical = estimatePhysical ftp logical }
+
+        {
+            Logical = logical
+            Physical = estimatePhysical ftp logical
+        }
 
     /// Full estimate using the default fault-tolerance assumptions.
     let estimateDefault (circuit: Circuit) : ResourceEstimate =
@@ -112,6 +136,7 @@ module ResourceEstimation =
     let describe (est: ResourceEstimate) : string =
         let l = est.Logical
         let p = est.Physical
+
         sprintf
             "Resource Estimate\n\
              ─────────────────\n\
@@ -124,6 +149,14 @@ module ResourceEstimation =
              Physical qubits:       %d (%d per logical)\n\
              Est. runtime:          %.3e s\n\
              Logical error/cycle:   %.3e"
-            l.LogicalQubits l.TotalGates l.SingleQubitGates l.TwoQubitGates l.TCount l.Depth
-            p.CodeDistance p.TotalPhysicalQubits p.PhysicalQubitsPerLogical
-            p.EstimatedRuntimeSeconds p.LogicalErrorRateAchieved
+            l.LogicalQubits
+            l.TotalGates
+            l.SingleQubitGates
+            l.TwoQubitGates
+            l.TCount
+            l.Depth
+            p.CodeDistance
+            p.TotalPhysicalQubits
+            p.PhysicalQubitsPerLogical
+            p.EstimatedRuntimeSeconds
+            p.LogicalErrorRateAchieved

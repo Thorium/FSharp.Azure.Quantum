@@ -13,7 +13,7 @@ let ``PeriodicTable.bySymbol returns correct data for hydrogen`` () =
     Assert.Equal("H", h.Symbol)
     Assert.Equal("Hydrogen", h.Name)
     Assert.Equal(1, h.AtomicNumber)
-    Assert.True(abs(h.AtomicMass - 1.008) < 0.001)
+    Assert.True(abs (h.AtomicMass - 1.008) < 0.001)
 
 [<Fact>]
 let ``PeriodicTable.bySymbol returns correct data for carbon`` () =
@@ -21,7 +21,7 @@ let ``PeriodicTable.bySymbol returns correct data for carbon`` () =
     Assert.Equal("C", c.Symbol)
     Assert.Equal("Carbon", c.Name)
     Assert.Equal(6, c.AtomicNumber)
-    Assert.True(abs(c.AtomicMass - 12.011) < 0.001)
+    Assert.True(abs (c.AtomicMass - 12.011) < 0.001)
 
 [<Fact>]
 let ``PeriodicTable.bySymbol returns correct data for iron`` () =
@@ -69,8 +69,7 @@ let ``PeriodicTable.all returns at least 100 elements`` () =
 let ``PeriodicTable.all length is consistent`` () =
     let all = PeriodicTable.all ()
     // Verify we have a reasonable number of elements
-    Assert.True(all.Length >= 100 && all.Length <= 120, 
-        $"Expected 100-120 elements, got {all.Length}")
+    Assert.True(all.Length >= 100 && all.Length <= 120, $"Expected 100-120 elements, got {all.Length}")
 
 [<Fact>]
 let ``PeriodicTable elements have unique atomic numbers`` () =
@@ -92,7 +91,7 @@ let ``PeriodicTable elements have unique symbols`` () =
 
 [<Fact>]
 let ``PeriodicTable.tryByNumber returns correct element`` () =
-    let result = PeriodicTable.tryByNumber 79  // Gold
+    let result = PeriodicTable.tryByNumber 79 // Gold
     Assert.True(result.IsSome)
     Assert.Equal("Au", result.Value.Symbol)
     Assert.Equal("Gold", result.Value.Name)
@@ -121,11 +120,11 @@ let ``PeriodicTable.covalentRadius returns value for common elements`` () =
     let hRadius = PeriodicTable.covalentRadius "H"
     let cRadius = PeriodicTable.covalentRadius "C"
     let oRadius = PeriodicTable.covalentRadius "O"
-    
+
     Assert.True(hRadius.IsSome)
     Assert.True(cRadius.IsSome)
     Assert.True(oRadius.IsSome)
-    
+
     // H should be smallest, C larger than H
     Assert.True(hRadius.Value < cRadius.Value)
 
@@ -158,19 +157,19 @@ let ``PeriodicTable.estimateBondLength is symmetric`` () =
 [<Fact>]
 let ``PeriodicTable includes transition metals`` () =
     // Check some transition metals are present
-    Assert.True(PeriodicTable.isValidSymbol "Fe")  // Iron
-    Assert.True(PeriodicTable.isValidSymbol "Cu")  // Copper
-    Assert.True(PeriodicTable.isValidSymbol "Zn")  // Zinc
-    Assert.True(PeriodicTable.isValidSymbol "Pt")  // Platinum
-    Assert.True(PeriodicTable.isValidSymbol "Au")  // Gold
+    Assert.True(PeriodicTable.isValidSymbol "Fe") // Iron
+    Assert.True(PeriodicTable.isValidSymbol "Cu") // Copper
+    Assert.True(PeriodicTable.isValidSymbol "Zn") // Zinc
+    Assert.True(PeriodicTable.isValidSymbol "Pt") // Platinum
+    Assert.True(PeriodicTable.isValidSymbol "Au") // Gold
 
 [<Fact>]
 let ``PeriodicTable includes quantum dot elements`` () =
     // Elements commonly used in quantum dots
-    Assert.True(PeriodicTable.isValidSymbol "Cd")  // Cadmium
-    Assert.True(PeriodicTable.isValidSymbol "Se")  // Selenium
-    Assert.True(PeriodicTable.isValidSymbol "Te")  // Tellurium
-    Assert.True(PeriodicTable.isValidSymbol "Pb")  // Lead
+    Assert.True(PeriodicTable.isValidSymbol "Cd") // Cadmium
+    Assert.True(PeriodicTable.isValidSymbol "Se") // Selenium
+    Assert.True(PeriodicTable.isValidSymbol "Te") // Tellurium
+    Assert.True(PeriodicTable.isValidSymbol "Pb") // Lead
 
 [<Fact>]
 let ``PeriodicTable includes common organic elements`` () =

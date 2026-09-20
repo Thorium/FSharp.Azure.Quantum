@@ -10,7 +10,7 @@ open FSharp.Azure.Quantum.Core
 ///
 /// This file implements the 4-layer provider architecture for chemistry data:
 /// 1. Element Provider - symbol → atomic properties
-/// 2. Topology Parser - SMILES/SDF → atoms/bonds graph  
+/// 2. Topology Parser - SMILES/SDF → atoms/bonds graph
 /// 3. Geometry Provider - topology → 3D coordinates
 /// 4. Dataset Provider - collections of molecules with labels/metadata
 ///
@@ -24,12 +24,14 @@ module ChemistryDataProviders =
 
     /// Element properties for quantum chemistry calculations.
     type ElementProperties =
-        { AtomicNumber: int
-          Symbol: string
-          Name: string
-          AtomicMass: float
-          CovalentRadius: float option
-          Electronegativity: float option }
+        {
+            AtomicNumber: int
+            Symbol: string
+            Name: string
+            AtomicMass: float
+            CovalentRadius: float option
+            Electronegativity: float option
+        }
 
     /// Provider interface for element data (atomic properties).
     /// Replaces hardcoded atomic mass/number tables scattered across codebase.
@@ -50,25 +52,28 @@ module ChemistryDataProviders =
             member _.TryGetBySymbol(symbol: string) =
                 PeriodicTable.tryBySymbol symbol
                 |> Option.map (fun e ->
-                    { AtomicNumber = e.AtomicNumber
-                      Symbol = e.Symbol
-                      Name = e.Name
-                      AtomicMass = e.AtomicMass
-                      CovalentRadius = e.CovalentRadius
-                      Electronegativity = e.Electronegativity })
+                    {
+                        AtomicNumber = e.AtomicNumber
+                        Symbol = e.Symbol
+                        Name = e.Name
+                        AtomicMass = e.AtomicMass
+                        CovalentRadius = e.CovalentRadius
+                        Electronegativity = e.Electronegativity
+                    })
 
             member _.TryGetByAtomicNumber(atomicNumber: int) =
                 PeriodicTable.tryByNumber atomicNumber
                 |> Option.map (fun e ->
-                    { AtomicNumber = e.AtomicNumber
-                      Symbol = e.Symbol
-                      Name = e.Name
-                      AtomicMass = e.AtomicMass
-                      CovalentRadius = e.CovalentRadius
-                      Electronegativity = e.Electronegativity })
+                    {
+                        AtomicNumber = e.AtomicNumber
+                        Symbol = e.Symbol
+                        Name = e.Name
+                        AtomicMass = e.AtomicMass
+                        CovalentRadius = e.CovalentRadius
+                        Electronegativity = e.Electronegativity
+                    })
 
-            member _.IsValidSymbol(symbol: string) =
-                PeriodicTable.isValidSymbol symbol
+            member _.IsValidSymbol(symbol: string) = PeriodicTable.isValidSymbol symbol
 
             member _.EstimateBondLength symbol1 symbol2 =
                 PeriodicTable.estimateBondLength symbol1 symbol2
@@ -83,16 +88,18 @@ module ChemistryDataProviders =
     /// Molecular topology (atoms + bonds graph, no 3D geometry required).
     /// This is the output of SMILES/SDF parsing before geometry generation.
     type MoleculeTopology =
-        { /// Element symbols for each atom
-          Atoms: string array
-          /// Bonds as (atom1Index, atom2Index, bondOrder option)
-          Bonds: (int * int * float option) array
-          /// Total molecular charge
-          Charge: int option
-          /// Spin multiplicity (2S+1)
-          Multiplicity: int option
-          /// Additional metadata (e.g., stereochemistry hints, source format)
-          Metadata: Map<string, string> }
+        {
+            /// Element symbols for each atom
+            Atoms: string array
+            /// Bonds as (atom1Index, atom2Index, bondOrder option)
+            Bonds: (int * int * float option) array
+            /// Total molecular charge
+            Charge: int option
+            /// Spin multiplicity (2S+1)
+            Multiplicity: int option
+            /// Additional metadata (e.g., stereochemistry hints, source format)
+            Metadata: Map<string, string>
+        }
 
     /// Interface for parsing molecular topology from string formats.
     type IMoleculeTopologyParser =
@@ -109,17 +116,16 @@ module ChemistryDataProviders =
 
     /// 3D coordinates for a single atom.
     [<Struct>]
-    type AtomGeometry =
-        { X: float
-          Y: float
-          Z: float }
+    type AtomGeometry = { X: float; Y: float; Z: float }
 
     /// Full 3D geometry for a molecule.
     type MoleculeGeometry =
-        { /// 3D coordinates for each atom (same order as topology atoms)
-          Coordinates: AtomGeometry array
-          /// Coordinate units ("angstrom" or "bohr")
-          Units: string }
+        {
+            /// 3D coordinates for each atom (same order as topology atoms)
+            Coordinates: AtomGeometry array
+            /// Coordinate units ("angstrom" or "bohr")
+            Units: string
+        }
 
     /// Provider interface for generating/retrieving 3D molecular geometry.
     /// This is the CRITICAL piece for making QC usable with real molecules.
@@ -147,25 +153,29 @@ module ChemistryDataProviders =
 
     /// A molecule with optional geometry (the unified instance type).
     type MoleculeInstance =
-        { /// Unique identifier (optional)
-          Id: string option
-          /// Human-readable name
-          Name: string option
-          /// Molecular topology (atoms/bonds)
-          Topology: MoleculeTopology
-          /// 3D geometry (optional - may be None for topology-only)
-          Geometry: MoleculeGeometry option }
+        {
+            /// Unique identifier (optional)
+            Id: string option
+            /// Human-readable name
+            Name: string option
+            /// Molecular topology (atoms/bonds)
+            Topology: MoleculeTopology
+            /// 3D geometry (optional - may be None for topology-only)
+            Geometry: MoleculeGeometry option
+        }
 
     /// A dataset of molecules with optional labels and metadata.
     type MoleculeDataset =
-        { /// All molecules in the dataset
-          Molecules: MoleculeInstance array
-          /// Optional integer labels (e.g., activity class)
-          Labels: int array option
-          /// Name of the label column (for provenance)
-          LabelColumn: string option
-          /// Dataset-level metadata
-          Metadata: Map<string, string> }
+        {
+            /// All molecules in the dataset
+            Molecules: MoleculeInstance array
+            /// Optional integer labels (e.g., activity class)
+            Labels: int array option
+            /// Name of the label column (for provenance)
+            LabelColumn: string option
+            /// Dataset-level metadata
+            Metadata: Map<string, string>
+        }
 
     /// Query type for dataset lookups.
     type DatasetQuery =
@@ -203,11 +213,13 @@ module ChemistryDataProviders =
     /// Legacy molecule entry type for backward compatibility.
     /// Maps to MoleculeLibrary's internal representation.
     type MoleculeEntry =
-        { Name: string
-          Atoms: MoleculeLibrary.Atom list
-          Bonds: MoleculeLibrary.Bond list
-          Charge: int
-          Multiplicity: int }
+        {
+            Name: string
+            Atoms: MoleculeLibrary.Atom list
+            Bonds: MoleculeLibrary.Bond list
+            Charge: int
+            Multiplicity: int
+        }
 
     // ========================================================================
     // BUILT-IN PROVIDERS
@@ -217,27 +229,41 @@ module ChemistryDataProviders =
     /// Provides the "batteries included" curated molecule set.
     type BuiltInMoleculeDatasetProvider() =
 
-        let toTopology (atoms: MoleculeLibrary.Atom list) (bonds: MoleculeLibrary.Bond list) (charge: int) (mult: int) : MoleculeTopology =
-            { Atoms = atoms |> List.map (fun a -> a.Element) |> List.toArray
-              Bonds = bonds |> List.map (fun b -> (b.Atom1, b.Atom2, Some b.BondOrder)) |> List.toArray
-              Charge = Some charge
-              Multiplicity = Some mult
-              Metadata = Map.empty }
+        let toTopology
+            (atoms: MoleculeLibrary.Atom list)
+            (bonds: MoleculeLibrary.Bond list)
+            (charge: int)
+            (mult: int)
+            : MoleculeTopology =
+            {
+                Atoms = atoms |> List.map (fun a -> a.Element) |> List.toArray
+                Bonds =
+                    bonds
+                    |> List.map (fun b -> (b.Atom1, b.Atom2, Some b.BondOrder))
+                    |> List.toArray
+                Charge = Some charge
+                Multiplicity = Some mult
+                Metadata = Map.empty
+            }
 
         let toGeometry (atoms: MoleculeLibrary.Atom list) : MoleculeGeometry =
-            { Coordinates =
-                atoms
-                |> List.map (fun a ->
-                    let (x, y, z) = a.Position
-                    { X = x; Y = y; Z = z })
-                |> List.toArray
-              Units = "angstrom" }
+            {
+                Coordinates =
+                    atoms
+                    |> List.map (fun a ->
+                        let (x, y, z) = a.Position
+                        { X = x; Y = y; Z = z })
+                    |> List.toArray
+                Units = "angstrom"
+            }
 
         let toInstance (m: MoleculeLibrary.Molecule) : MoleculeInstance =
-            { Id = Some m.Name
-              Name = Some m.Name
-              Topology = toTopology m.Atoms m.Bonds m.Charge m.Multiplicity
-              Geometry = Some (toGeometry m.Atoms) }
+            {
+                Id = Some m.Name
+                Name = Some m.Name
+                Topology = toTopology m.Atoms m.Bonds m.Charge m.Multiplicity
+                Geometry = Some(toGeometry m.Atoms)
+            }
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -248,54 +274,71 @@ module ChemistryDataProviders =
                 | ByName name ->
                     match MoleculeLibrary.tryGet name with
                     | Some m ->
-                        Ok { Molecules = [| toInstance m |]
-                             Labels = None
-                             LabelColumn = None
-                             Metadata = Map.empty }
+                        Ok
+                            {
+                                Molecules = [| toInstance m |]
+                                Labels = None
+                                LabelColumn = None
+                                Metadata = Map.empty
+                            }
                     | None ->
-                        Error (QuantumError.ValidationError("MoleculeNotFound", $"Molecule '{name}' not found in library"))
+                        Error(
+                            QuantumError.ValidationError("MoleculeNotFound", $"Molecule '{name}' not found in library")
+                        )
 
                 | ByCategory category ->
-                    let molecules =
-                        MoleculeLibrary.byCategory category
-                        |> Array.map toInstance
+                    let molecules = MoleculeLibrary.byCategory category |> Array.map toInstance
+
                     if molecules.Length = 0 then
-                        Error (QuantumError.ValidationError("CategoryNotFound", $"No molecules in category '{category}'"))
+                        Error(
+                            QuantumError.ValidationError("CategoryNotFound", $"No molecules in category '{category}'")
+                        )
                     else
-                        Ok { Molecules = molecules
-                             Labels = None
-                             LabelColumn = None
-                             Metadata = Map.ofList ["category", category] }
+                        Ok
+                            {
+                                Molecules = molecules
+                                Labels = None
+                                LabelColumn = None
+                                Metadata = Map.ofList [ "category", category ]
+                            }
 
                 | All ->
-                    let molecules =
-                        MoleculeLibrary.all()
-                        |> Array.map toInstance
-                    Ok { Molecules = molecules
-                         Labels = None
-                         LabelColumn = None
-                         Metadata = Map.empty }
+                    let molecules = MoleculeLibrary.all () |> Array.map toInstance
+
+                    Ok
+                        {
+                            Molecules = molecules
+                            Labels = None
+                            LabelColumn = None
+                            Metadata = Map.empty
+                        }
 
                 | ByPath _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "BuiltInMoleculeDatasetProvider does not support file paths"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "BuiltInMoleculeDatasetProvider does not support file paths"
+                        )
+                    )
 
             member _.ListNames() =
-                MoleculeLibrary.all()
-                |> Array.map (fun m -> m.Name)
-                |> Array.toList
+                MoleculeLibrary.all () |> Array.map (fun m -> m.Name) |> Array.toList
 
         /// Legacy interface for backward compatibility
         member this.TryGet(name: string) : MoleculeEntry option =
             MoleculeLibrary.tryGet name
             |> Option.map (fun m ->
-                { Name = m.Name
-                  Atoms = m.Atoms
-                  Bonds = m.Bonds
-                  Charge = m.Charge
-                  Multiplicity = m.Multiplicity })
+                {
+                    Name = m.Name
+                    Atoms = m.Atoms
+                    Bonds = m.Bonds
+                    Charge = m.Charge
+                    Multiplicity = m.Multiplicity
+                })
 
     /// Singleton instance for convenience
-    let defaultDatasetProvider = BuiltInMoleculeDatasetProvider() :> IMoleculeDatasetProvider
+    let defaultDatasetProvider =
+        BuiltInMoleculeDatasetProvider() :> IMoleculeDatasetProvider
 
     // ========================================================================
     // XYZ IMPORTER (DELEGATES TO MoleculeFormats.Xyz)
@@ -304,9 +347,11 @@ module ChemistryDataProviders =
     /// Represents a parsed XYZ file.
     /// Note: Consider using MoleculeFormats.Xyz directly for new code.
     type XyzMolecule =
-        { Name: string
-          Atoms: MoleculeLibrary.Atom list
-          Bonds: MoleculeLibrary.Bond list }
+        {
+            Name: string
+            Atoms: MoleculeLibrary.Atom list
+            Bonds: MoleculeLibrary.Bond list
+        }
 
     /// XYZ file importer. Delegates to MoleculeFormats.Xyz internally.
     /// For new code, consider using MoleculeFormats.Xyz directly.
@@ -314,19 +359,25 @@ module ChemistryDataProviders =
 
         /// Convert MoleculeFormats.MoleculeData to MoleculeInstance (inline to avoid forward reference).
         let private toMoleculeInstance (data: MoleculeFormats.MoleculeData) : MoleculeInstance =
-            { Id = data.Id
-              Name = data.Name
-              Topology =
-                { Atoms = data.Topology.Atoms
-                  Bonds = data.Topology.Bonds
-                  Charge = data.Topology.Charge
-                  Multiplicity = data.Topology.Multiplicity
-                  Metadata = data.Topology.Metadata }
-              Geometry =
-                data.Geometry
-                |> Option.map (fun g ->
-                    { Coordinates = g.Coordinates |> Array.map (fun c -> { X = c.X; Y = c.Y; Z = c.Z })
-                      Units = g.Units }) }
+            {
+                Id = data.Id
+                Name = data.Name
+                Topology =
+                    {
+                        Atoms = data.Topology.Atoms
+                        Bonds = data.Topology.Bonds
+                        Charge = data.Topology.Charge
+                        Multiplicity = data.Topology.Multiplicity
+                        Metadata = data.Topology.Metadata
+                    }
+                Geometry =
+                    data.Geometry
+                    |> Option.map (fun g ->
+                        {
+                            Coordinates = g.Coordinates |> Array.map (fun c -> { X = c.X; Y = c.Y; Z = c.Z })
+                            Units = g.Units
+                        })
+            }
 
         /// Convert MoleculeFormats.MoleculeData to legacy XyzMolecule type.
         let private fromMoleculeData (data: MoleculeFormats.MoleculeData) : XyzMolecule =
@@ -335,27 +386,35 @@ module ChemistryDataProviders =
                 | Some geom ->
                     Array.zip data.Topology.Atoms geom.Coordinates
                     |> Array.map (fun (elem, c) ->
-                        { MoleculeLibrary.Atom.Element = elem
-                          MoleculeLibrary.Atom.Position = (c.X, c.Y, c.Z) })
+                        {
+                            MoleculeLibrary.Atom.Element = elem
+                            MoleculeLibrary.Atom.Position = (c.X, c.Y, c.Z)
+                        })
                     |> Array.toList
                 | None ->
                     data.Topology.Atoms
                     |> Array.mapi (fun i elem ->
-                        { MoleculeLibrary.Atom.Element = elem
-                          MoleculeLibrary.Atom.Position = (float i, 0.0, 0.0) })
+                        {
+                            MoleculeLibrary.Atom.Element = elem
+                            MoleculeLibrary.Atom.Position = (float i, 0.0, 0.0)
+                        })
                     |> Array.toList
 
             let bonds =
                 data.Topology.Bonds
                 |> Array.map (fun (a1, a2, order) ->
-                    { MoleculeLibrary.Bond.Atom1 = a1
-                      MoleculeLibrary.Bond.Atom2 = a2
-                      MoleculeLibrary.Bond.BondOrder = order |> Option.defaultValue 1.0 })
+                    {
+                        MoleculeLibrary.Bond.Atom1 = a1
+                        MoleculeLibrary.Bond.Atom2 = a2
+                        MoleculeLibrary.Bond.BondOrder = order |> Option.defaultValue 1.0
+                    })
                 |> Array.toList
 
-            { Name = data.Name |> Option.defaultValue "Molecule"
-              Atoms = atoms
-              Bonds = bonds }
+            {
+                Name = data.Name |> Option.defaultValue "Molecule"
+                Atoms = atoms
+                Bonds = bonds
+            }
 
         /// Parse molecule geometry from an XYZ file.
         /// Delegates to MoleculeFormats.Xyz.readAsync.
@@ -374,6 +433,7 @@ module ChemistryDataProviders =
                 molecule.Atoms
                 |> List.map (fun atom ->
                     let (x, y, z) = atom.Position
+
                     String.Format(
                         CultureInfo.InvariantCulture,
                         "{0,-2}  {1,10:0.000000}  {2,10:0.000000}  {3,10:0.000000}",
@@ -383,7 +443,8 @@ module ChemistryDataProviders =
                         z
                     ))
 
-            String.concat Environment.NewLine ([ header; molecule.Name ] @ body) + Environment.NewLine
+            String.concat Environment.NewLine ([ header; molecule.Name ] @ body)
+            + Environment.NewLine
 
         /// Save `XyzMolecule` to a file.
         let saveToFileAsync (filePath: string) (molecule: XyzMolecule) : Async<QuantumResult<unit>> =
@@ -391,45 +452,67 @@ module ChemistryDataProviders =
                 try
                     let content = toXyz molecule
                     do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
-                    return Ok ()
+                    return Ok()
                 with ex ->
-                    return Error (QuantumError.IOError("WriteXYZ", filePath, ex.Message))
+                    return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
             }
 
         /// Convert XyzMolecule to the new MoleculeInstance type.
-        let toMoleculeInstanceFromXyz (xyz: XyzMolecule) (charge: int option) (multiplicity: int option) : MoleculeInstance =
+        let toMoleculeInstanceFromXyz
+            (xyz: XyzMolecule)
+            (charge: int option)
+            (multiplicity: int option)
+            : MoleculeInstance =
             let topology =
-                { Atoms = xyz.Atoms |> List.map (fun a -> a.Element) |> List.toArray
-                  Bonds = xyz.Bonds |> List.map (fun b -> (b.Atom1, b.Atom2, Some b.BondOrder)) |> List.toArray
-                  Charge = charge
-                  Multiplicity = multiplicity
-                  Metadata = Map.ofList ["source", "xyz"] }
+                {
+                    Atoms = xyz.Atoms |> List.map (fun a -> a.Element) |> List.toArray
+                    Bonds =
+                        xyz.Bonds
+                        |> List.map (fun b -> (b.Atom1, b.Atom2, Some b.BondOrder))
+                        |> List.toArray
+                    Charge = charge
+                    Multiplicity = multiplicity
+                    Metadata = Map.ofList [ "source", "xyz" ]
+                }
 
             let geometry =
-                { Coordinates =
-                    xyz.Atoms
-                    |> List.map (fun a ->
-                        let (x, y, z) = a.Position
-                        { X = x; Y = y; Z = z })
-                    |> List.toArray
-                  Units = "angstrom" }
+                {
+                    Coordinates =
+                        xyz.Atoms
+                        |> List.map (fun a ->
+                            let (x, y, z) = a.Position
+                            { X = x; Y = y; Z = z })
+                        |> List.toArray
+                    Units = "angstrom"
+                }
 
-            { Id = Some xyz.Name
-              Name = Some xyz.Name
-              Topology = topology
-              Geometry = Some geometry }
+            {
+                Id = Some xyz.Name
+                Name = Some xyz.Name
+                Topology = topology
+                Geometry = Some geometry
+            }
 
         /// Load XYZ file and return as MoleculeInstance.
         /// For new code, prefer MoleculeFormats.Xyz.readAsync directly.
-        let loadAsMoleculeInstanceAsync (filePath: string) (charge: int option) (multiplicity: int option) : Async<QuantumResult<MoleculeInstance>> =
+        let loadAsMoleculeInstanceAsync
+            (filePath: string)
+            (charge: int option)
+            (multiplicity: int option)
+            : Async<QuantumResult<MoleculeInstance>> =
             async {
                 let! ct = Async.CancellationToken
                 let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
-                return result |> Result.map (fun data ->
-                    let instance = toMoleculeInstance data
-                    // Override charge/multiplicity if provided
-                    { instance with
-                        Topology.Charge = charge |> Option.orElse instance.Topology.Charge; Topology.Multiplicity = multiplicity |> Option.orElse instance.Topology.Multiplicity })
+
+                return
+                    result
+                    |> Result.map (fun data ->
+                        let instance = toMoleculeInstance data
+                        // Override charge/multiplicity if provided
+                        { instance with
+                            Topology.Charge = charge |> Option.orElse instance.Topology.Charge
+                            Topology.Multiplicity = multiplicity |> Option.orElse instance.Topology.Multiplicity
+                        })
             }
 
     // ========================================================================
@@ -442,19 +525,25 @@ module ChemistryDataProviders =
 
         /// Convert MoleculeFormats.MoleculeData to MoleculeInstance (inline).
         let toMoleculeInstance (data: MoleculeFormats.MoleculeData) : MoleculeInstance =
-            { Id = data.Id
-              Name = data.Name
-              Topology =
-                { Atoms = data.Topology.Atoms
-                  Bonds = data.Topology.Bonds
-                  Charge = data.Topology.Charge
-                  Multiplicity = data.Topology.Multiplicity
-                  Metadata = data.Topology.Metadata }
-              Geometry =
-                data.Geometry
-                |> Option.map (fun g ->
-                    { Coordinates = g.Coordinates |> Array.map (fun c -> { X = c.X; Y = c.Y; Z = c.Z })
-                      Units = g.Units }) }
+            {
+                Id = data.Id
+                Name = data.Name
+                Topology =
+                    {
+                        Atoms = data.Topology.Atoms
+                        Bonds = data.Topology.Bonds
+                        Charge = data.Topology.Charge
+                        Multiplicity = data.Topology.Multiplicity
+                        Metadata = data.Topology.Metadata
+                    }
+                Geometry =
+                    data.Geometry
+                    |> Option.map (fun g ->
+                        {
+                            Coordinates = g.Coordinates |> Array.map (fun c -> { X = c.X; Y = c.Y; Z = c.Z })
+                            Units = g.Units
+                        })
+            }
 
         let loadFile (filePath: string) : Async<QuantumResult<MoleculeInstance>> =
             async {
@@ -472,49 +561,69 @@ module ChemistryDataProviders =
                     match query with
                     | ByName name ->
                         let filePath = Path.Combine(directory, name + ".xyz")
+
                         if File.Exists filePath then
                             let! result = loadFile filePath
-                            return result |> Result.map (fun m ->
-                                { Molecules = [| m |]
-                                  Labels = None
-                                  LabelColumn = None
-                                  Metadata = Map.ofList ["source", filePath] })
+
+                            return
+                                result
+                                |> Result.map (fun m ->
+                                    {
+                                        Molecules = [| m |]
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", filePath ]
+                                    })
                         else
-                            return Error (QuantumError.IOError("LoadXYZ", filePath, "File not found"))
+                            return Error(QuantumError.IOError("LoadXYZ", filePath, "File not found"))
 
                     | ByPath path ->
                         if File.Exists path then
                             let! result = loadFile path
-                            return result |> Result.map (fun m ->
-                                { Molecules = [| m |]
-                                  Labels = None
-                                  LabelColumn = None
-                                  Metadata = Map.ofList ["source", path] })
+
+                            return
+                                result
+                                |> Result.map (fun m ->
+                                    {
+                                        Molecules = [| m |]
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", path ]
+                                    })
                         else
-                            return Error (QuantumError.IOError("LoadXYZ", path, "File not found"))
+                            return Error(QuantumError.IOError("LoadXYZ", path, "File not found"))
 
                     | All ->
                         if Directory.Exists directory then
                             let files = Directory.GetFiles(directory, "*.xyz")
                             // Sequential loading - simplicity over micro-optimization for small QC datasets
-                            let! results =
-                                files
-                                |> Array.map loadFile
-                                |> Async.Sequential
+                            let! results = files |> Array.map loadFile |> Async.Sequential
 
                             let molecules =
                                 results
-                                |> Array.choose (function Ok m -> Some m | Error _ -> None)
+                                |> Array.choose (function
+                                    | Ok m -> Some m
+                                    | Error _ -> None)
 
-                            return Ok { Molecules = molecules
+                            return
+                                Ok
+                                    {
+                                        Molecules = molecules
                                         Labels = None
                                         LabelColumn = None
-                                        Metadata = Map.ofList ["source", directory; "file_count", string files.Length] }
+                                        Metadata = Map.ofList [ "source", directory; "file_count", string files.Length ]
+                                    }
                         else
-                            return Error (QuantumError.IOError("LoadXYZ", directory, "Directory not found"))
+                            return Error(QuantumError.IOError("LoadXYZ", directory, "Directory not found"))
 
                     | ByCategory _ ->
-                        return Error (QuantumError.ValidationError("UnsupportedQuery", "XyzFileDatasetProvider does not support category queries"))
+                        return
+                            Error(
+                                QuantumError.ValidationError(
+                                    "UnsupportedQuery",
+                                    "XyzFileDatasetProvider does not support category queries"
+                                )
+                            )
                 }
 
             member _.ListNamesAsync() =
@@ -535,7 +644,8 @@ module ChemistryDataProviders =
     /// Caching wrapper for any dataset provider.
     /// Caches loaded datasets by query to avoid repeated I/O.
     type CachingDatasetProvider(inner: IMoleculeDatasetProvider) =
-        let cache = System.Collections.Concurrent.ConcurrentDictionary<string, MoleculeDataset>()
+        let cache =
+            System.Collections.Concurrent.ConcurrentDictionary<string, MoleculeDataset>()
 
         let queryToKey (query: DatasetQuery) =
             match query with
@@ -550,6 +660,7 @@ module ChemistryDataProviders =
 
             member _.Load(query: DatasetQuery) =
                 let key = queryToKey query
+
                 match cache.TryGetValue key with
                 | true, dataset -> Ok dataset
                 | false, _ ->
@@ -559,8 +670,7 @@ module ChemistryDataProviders =
                         Ok dataset
                     | Error e -> Error e
 
-            member _.ListNames() =
-                inner.ListNames()
+            member _.ListNames() = inner.ListNames()
 
         /// Clear the cache
         member _.ClearCache() = cache.Clear()
@@ -577,95 +687,132 @@ module ChemistryDataProviders =
 
         /// Convert MoleculeFormats.MoleculeData to MoleculeInstance.
         let fromMoleculeData (data: MoleculeFormats.MoleculeData) : MoleculeInstance =
-            { Id = data.Id
-              Name = data.Name
-              Topology =
-                { Atoms = data.Topology.Atoms
-                  Bonds = data.Topology.Bonds
-                  Charge = data.Topology.Charge
-                  Multiplicity = data.Topology.Multiplicity
-                  Metadata = data.Topology.Metadata }
-              Geometry =
-                data.Geometry
-                |> Option.map (fun g ->
-                    { Coordinates = g.Coordinates |> Array.map (fun c -> { X = c.X; Y = c.Y; Z = c.Z })
-                      Units = g.Units }) }
+            {
+                Id = data.Id
+                Name = data.Name
+                Topology =
+                    {
+                        Atoms = data.Topology.Atoms
+                        Bonds = data.Topology.Bonds
+                        Charge = data.Topology.Charge
+                        Multiplicity = data.Topology.Multiplicity
+                        Metadata = data.Topology.Metadata
+                    }
+                Geometry =
+                    data.Geometry
+                    |> Option.map (fun g ->
+                        {
+                            Coordinates = g.Coordinates |> Array.map (fun c -> { X = c.X; Y = c.Y; Z = c.Z })
+                            Units = g.Units
+                        })
+            }
 
         /// Convert MoleculeInstance to MoleculeFormats.MoleculeData.
         let toMoleculeData (instance: MoleculeInstance) : MoleculeFormats.MoleculeData =
-            let topology : MoleculeFormats.Topology =
-                { Atoms = instance.Topology.Atoms
-                  Bonds = instance.Topology.Bonds
-                  Charge = instance.Topology.Charge
-                  Multiplicity = instance.Topology.Multiplicity
-                  Metadata = instance.Topology.Metadata }
-            let geometry : MoleculeFormats.Geometry option =
+            let topology: MoleculeFormats.Topology =
+                {
+                    Atoms = instance.Topology.Atoms
+                    Bonds = instance.Topology.Bonds
+                    Charge = instance.Topology.Charge
+                    Multiplicity = instance.Topology.Multiplicity
+                    Metadata = instance.Topology.Metadata
+                }
+
+            let geometry: MoleculeFormats.Geometry option =
                 instance.Geometry
                 |> Option.map (fun g ->
-                    { Coordinates = g.Coordinates |> Array.map (fun c -> { MoleculeFormats.AtomCoord.X = c.X; Y = c.Y; Z = c.Z })
-                      Units = g.Units })
-            { Id = instance.Id
-              Name = instance.Name
-              Topology = topology
-              Geometry = geometry }
+                    {
+                        Coordinates =
+                            g.Coordinates
+                            |> Array.map (fun c ->
+                                {
+                                    MoleculeFormats.AtomCoord.X = c.X
+                                    Y = c.Y
+                                    Z = c.Z
+                                })
+                        Units = g.Units
+                    })
+
+            {
+                Id = instance.Id
+                Name = instance.Name
+                Topology = topology
+                Geometry = geometry
+            }
 
         /// Convert MoleculeInstance to legacy MoleculeEntry (loses geometry).
         let toMoleculeEntry (instance: MoleculeInstance) : MoleculeEntry option =
-            instance.Geometry |> Option.map (fun geom ->
+            instance.Geometry
+            |> Option.map (fun geom ->
                 let atoms =
                     Array.zip instance.Topology.Atoms geom.Coordinates
                     |> Array.map (fun (element, coord) ->
-                        { MoleculeLibrary.Atom.Element = element
-                          MoleculeLibrary.Atom.Position = (coord.X, coord.Y, coord.Z) })
+                        {
+                            MoleculeLibrary.Atom.Element = element
+                            MoleculeLibrary.Atom.Position = (coord.X, coord.Y, coord.Z)
+                        })
                     |> Array.toList
 
                 let bonds =
                     instance.Topology.Bonds
                     |> Array.map (fun (a1, a2, order) ->
-                        { MoleculeLibrary.Bond.Atom1 = a1
-                          MoleculeLibrary.Bond.Atom2 = a2
-                          MoleculeLibrary.Bond.BondOrder = order |> Option.defaultValue 1.0 })
+                        {
+                            MoleculeLibrary.Bond.Atom1 = a1
+                            MoleculeLibrary.Bond.Atom2 = a2
+                            MoleculeLibrary.Bond.BondOrder = order |> Option.defaultValue 1.0
+                        })
                     |> Array.toList
 
-                { MoleculeEntry.Name = instance.Name |> Option.defaultValue "Unknown"
-                  Atoms = atoms
-                  Bonds = bonds
-                  Charge = instance.Topology.Charge |> Option.defaultValue 0
-                  Multiplicity = instance.Topology.Multiplicity |> Option.defaultValue 1 })
+                {
+                    MoleculeEntry.Name = instance.Name |> Option.defaultValue "Unknown"
+                    Atoms = atoms
+                    Bonds = bonds
+                    Charge = instance.Topology.Charge |> Option.defaultValue 0
+                    Multiplicity = instance.Topology.Multiplicity |> Option.defaultValue 1
+                })
 
         /// Convert MoleculeEntry to MoleculeInstance.
         let fromMoleculeEntry (entry: MoleculeEntry) : MoleculeInstance =
             let topology =
-                { Atoms = entry.Atoms |> List.map (fun a -> a.Element) |> List.toArray
-                  Bonds = entry.Bonds |> List.map (fun b -> (b.Atom1, b.Atom2, Some b.BondOrder)) |> List.toArray
-                  Charge = Some entry.Charge
-                  Multiplicity = Some entry.Multiplicity
-                  Metadata = Map.empty }
+                {
+                    Atoms = entry.Atoms |> List.map (fun a -> a.Element) |> List.toArray
+                    Bonds =
+                        entry.Bonds
+                        |> List.map (fun b -> (b.Atom1, b.Atom2, Some b.BondOrder))
+                        |> List.toArray
+                    Charge = Some entry.Charge
+                    Multiplicity = Some entry.Multiplicity
+                    Metadata = Map.empty
+                }
 
             let geometry =
-                { Coordinates =
-                    entry.Atoms
-                    |> List.map (fun a ->
-                        let (x, y, z) = a.Position
-                        { X = x; Y = y; Z = z })
-                    |> List.toArray
-                  Units = "angstrom" }
+                {
+                    Coordinates =
+                        entry.Atoms
+                        |> List.map (fun a ->
+                            let (x, y, z) = a.Position
+                            { X = x; Y = y; Z = z })
+                        |> List.toArray
+                    Units = "angstrom"
+                }
 
-            { Id = Some entry.Name
-              Name = Some entry.Name
-              Topology = topology
-              Geometry = Some geometry }
+            {
+                Id = Some entry.Name
+                Name = Some entry.Name
+                Topology = topology
+                Geometry = Some geometry
+            }
 
     // ========================================================================
     // SDF/MOL FILE PARSER AND PROVIDER
     // ========================================================================
 
     /// Module for parsing MDL MOL and SDF (Structure-Data File) formats.
-    /// 
+    ///
     /// Supports:
     /// - MOL V2000 format (the most common version)
     /// - SDF files (multiple MOL records with associated data)
-    /// 
+    ///
     /// The parser extracts:
     /// - 3D atomic coordinates (in Angstroms)
     /// - Bond connectivity and types
@@ -687,34 +834,37 @@ module ChemistryDataProviders =
             | Any = 8
 
         /// Parsed atom from MOL file
-        type MolAtom = {
-            X: float
-            Y: float
-            Z: float
-            Symbol: string
-            MassDifference: int
-            Charge: int
-            StereoParity: int
-        }
+        type MolAtom =
+            {
+                X: float
+                Y: float
+                Z: float
+                Symbol: string
+                MassDifference: int
+                Charge: int
+                StereoParity: int
+            }
 
         /// Parsed bond from MOL file
         [<Struct>]
-        type MolBond = {
-            Atom1: int  // 1-indexed
-            Atom2: int  // 1-indexed
-            BondType: int
-            Stereo: int
-        }
+        type MolBond =
+            {
+                Atom1: int // 1-indexed
+                Atom2: int // 1-indexed
+                BondType: int
+                Stereo: int
+            }
 
         /// Parsed MOL record
-        type MolRecord = {
-            Name: string
-            Comment: string
-            Atoms: MolAtom array
-            Bonds: MolBond array
-            Charges: (int * int) list  // (atom index 1-based, charge)
-            Properties: Map<string, string>  // Associated data from SDF
-        }
+        type MolRecord =
+            {
+                Name: string
+                Comment: string
+                Atoms: MolAtom array
+                Bonds: MolBond array
+                Charges: (int * int) list // (atom index 1-based, charge)
+                Properties: Map<string, string> // Associated data from SDF
+            }
 
         /// Parse a single MOL block (V2000 format)
         let parseMolBlock (lines: string array) : Result<MolRecord * int, string> =
@@ -724,151 +874,200 @@ module ChemistryDataProviders =
                 else
                     // Line 1: Molecule name (can be empty)
                     let name = if lines.Length > 0 then lines.[0].Trim() else ""
-                    
+
                     // Line 2: Program/timestamp (ignored)
                     // Line 3: Comment (can be empty)
                     let comment = if lines.Length > 2 then lines.[2].Trim() else ""
-                    
+
                     // Line 4: Counts line - "aaabbblllfff...V2000"
                     let countsLine = lines.[3]
+
                     if countsLine.Length < 6 then
                         Error $"Counts line too short: '{countsLine}'"
                     else
                         // Parse atom and bond counts (first 6 characters, 3 each)
                         let atomCountStr = countsLine.Substring(0, 3).Trim()
                         let bondCountStr = countsLine.Substring(3, 3).Trim()
-                        
+
                         match Int32.TryParse atomCountStr, Int32.TryParse bondCountStr with
                         | (false, _), _ -> Error $"Cannot parse atom count: '{atomCountStr}'"
                         | _, (false, _) -> Error $"Cannot parse bond count: '{bondCountStr}'"
                         | (true, atomCount), (true, bondCount) ->
-                            
+
                             let atomStartLine = 4
                             let bondStartLine = atomStartLine + atomCount
                             let endLine = bondStartLine + bondCount
-                            
+
                             if lines.Length < endLine then
                                 Error $"MOL block too short: need {endLine} lines, got {lines.Length}"
                             else
                                 // Parse atoms
-                                let atoms = 
-                                    [| for i in 0 .. atomCount - 1 do
-                                        let line = lines.[atomStartLine + i]
-                                        // Format: xxxxx.xxxxyyyyy.yyyyzzzzz.zzzz aaaddcccssshhhbbbvvvHHHrrriiimmmnnneee
-                                        // x,y,z: 10.4 format each (but often space-separated)
-                                        // aaa: atom symbol (3 chars)
-                                        // dd: mass difference
-                                        // ccc: charge (0=uncharged, 1=+3, 2=+2, 3=+1, 4=doublet radical, 5=-1, 6=-2, 7=-3)
-                                        
-                                        let parts = line.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
-                                        if parts.Length >= 4 then
-                                            let x = Double.Parse(parts.[0], CultureInfo.InvariantCulture)
-                                            let y = Double.Parse(parts.[1], CultureInfo.InvariantCulture)
-                                            let z = Double.Parse(parts.[2], CultureInfo.InvariantCulture)
-                                            let symbol = parts.[3].Trim()
-                                            
-                                            // Parse optional fields
-                                            let massDiff = if parts.Length > 4 then Int32.Parse parts.[4] else 0
-                                            let chargeCode = if parts.Length > 5 then Int32.Parse parts.[5] else 0
-                                            
-                                            // Convert charge code to actual charge
-                                            let charge = 
-                                                match chargeCode with
-                                                | 0 -> 0
-                                                | 1 -> 3
-                                                | 2 -> 2
-                                                | 3 -> 1
-                                                | 4 -> 0  // doublet radical
-                                                | 5 -> -1
-                                                | 6 -> -2
-                                                | 7 -> -3
-                                                | _ -> 0
-                                            
-                                            { X = x; Y = y; Z = z
-                                              Symbol = symbol
-                                              MassDifference = massDiff
-                                              Charge = charge
-                                              StereoParity = 0 }
-                                        else
-                                            // Try fixed-width parsing as fallback
-                                            let x = Double.Parse(line.Substring(0, 10).Trim(), CultureInfo.InvariantCulture)
-                                            let y = Double.Parse(line.Substring(10, 10).Trim(), CultureInfo.InvariantCulture)
-                                            let z = Double.Parse(line.Substring(20, 10).Trim(), CultureInfo.InvariantCulture)
-                                            let symbol = line.Substring(31, 3).Trim()
-                                            
-                                            { X = x; Y = y; Z = z
-                                              Symbol = symbol
-                                              MassDifference = 0
-                                              Charge = 0
-                                              StereoParity = 0 }
+                                let atoms =
+                                    [|
+                                        for i in 0 .. atomCount - 1 do
+                                            let line = lines.[atomStartLine + i]
+                                            // Format: xxxxx.xxxxyyyyy.yyyyzzzzz.zzzz aaaddcccssshhhbbbvvvHHHrrriiimmmnnneee
+                                            // x,y,z: 10.4 format each (but often space-separated)
+                                            // aaa: atom symbol (3 chars)
+                                            // dd: mass difference
+                                            // ccc: charge (0=uncharged, 1=+3, 2=+2, 3=+1, 4=doublet radical, 5=-1, 6=-2, 7=-3)
+
+                                            let parts = line.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
+
+                                            if parts.Length >= 4 then
+                                                let x = Double.Parse(parts.[0], CultureInfo.InvariantCulture)
+                                                let y = Double.Parse(parts.[1], CultureInfo.InvariantCulture)
+                                                let z = Double.Parse(parts.[2], CultureInfo.InvariantCulture)
+                                                let symbol = parts.[3].Trim()
+
+                                                // Parse optional fields
+                                                let massDiff = if parts.Length > 4 then Int32.Parse parts.[4] else 0
+                                                let chargeCode = if parts.Length > 5 then Int32.Parse parts.[5] else 0
+
+                                                // Convert charge code to actual charge
+                                                let charge =
+                                                    match chargeCode with
+                                                    | 0 -> 0
+                                                    | 1 -> 3
+                                                    | 2 -> 2
+                                                    | 3 -> 1
+                                                    | 4 -> 0 // doublet radical
+                                                    | 5 -> -1
+                                                    | 6 -> -2
+                                                    | 7 -> -3
+                                                    | _ -> 0
+
+                                                {
+                                                    X = x
+                                                    Y = y
+                                                    Z = z
+                                                    Symbol = symbol
+                                                    MassDifference = massDiff
+                                                    Charge = charge
+                                                    StereoParity = 0
+                                                }
+                                            else
+                                                // Try fixed-width parsing as fallback
+                                                let x =
+                                                    Double.Parse(
+                                                        line.Substring(0, 10).Trim(),
+                                                        CultureInfo.InvariantCulture
+                                                    )
+
+                                                let y =
+                                                    Double.Parse(
+                                                        line.Substring(10, 10).Trim(),
+                                                        CultureInfo.InvariantCulture
+                                                    )
+
+                                                let z =
+                                                    Double.Parse(
+                                                        line.Substring(20, 10).Trim(),
+                                                        CultureInfo.InvariantCulture
+                                                    )
+
+                                                let symbol = line.Substring(31, 3).Trim()
+
+                                                {
+                                                    X = x
+                                                    Y = y
+                                                    Z = z
+                                                    Symbol = symbol
+                                                    MassDifference = 0
+                                                    Charge = 0
+                                                    StereoParity = 0
+                                                }
                                     |]
-                                
+
                                 // Parse bonds
                                 let bonds =
-                                    [| for i in 0 .. bondCount - 1 do
-                                        let line = lines.[bondStartLine + i]
-                                        // Format: 111222tttsssxxxrrrccc
-                                        // 111: first atom (3 chars)
-                                        // 222: second atom (3 chars)
-                                        // ttt: bond type
-                                        // sss: stereo
-                                        
-                                        let parts = line.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
-                                        if parts.Length >= 3 then
-                                            let atom1 = Int32.Parse parts.[0]
-                                            let atom2 = Int32.Parse parts.[1]
-                                            let bondType = Int32.Parse parts.[2]
-                                            let stereo = if parts.Length > 3 then Int32.Parse parts.[3] else 0
-                                            
-                                            { Atom1 = atom1
-                                              Atom2 = atom2
-                                              BondType = bondType
-                                              Stereo = stereo }
-                                        else
-                                            // Fixed-width fallback
-                                            let atom1 = Int32.Parse(line.Substring(0, 3).Trim())
-                                            let atom2 = Int32.Parse(line.Substring(3, 3).Trim())
-                                            let bondType = Int32.Parse(line.Substring(6, 3).Trim())
-                                            
-                                            { Atom1 = atom1
-                                              Atom2 = atom2
-                                              BondType = bondType
-                                              Stereo = 0 }
+                                    [|
+                                        for i in 0 .. bondCount - 1 do
+                                            let line = lines.[bondStartLine + i]
+                                            // Format: 111222tttsssxxxrrrccc
+                                            // 111: first atom (3 chars)
+                                            // 222: second atom (3 chars)
+                                            // ttt: bond type
+                                            // sss: stereo
+
+                                            let parts = line.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
+
+                                            if parts.Length >= 3 then
+                                                let atom1 = Int32.Parse parts.[0]
+                                                let atom2 = Int32.Parse parts.[1]
+                                                let bondType = Int32.Parse parts.[2]
+                                                let stereo = if parts.Length > 3 then Int32.Parse parts.[3] else 0
+
+                                                {
+                                                    Atom1 = atom1
+                                                    Atom2 = atom2
+                                                    BondType = bondType
+                                                    Stereo = stereo
+                                                }
+                                            else
+                                                // Fixed-width fallback
+                                                let atom1 = Int32.Parse(line.Substring(0, 3).Trim())
+                                                let atom2 = Int32.Parse(line.Substring(3, 3).Trim())
+                                                let bondType = Int32.Parse(line.Substring(6, 3).Trim())
+
+                                                {
+                                                    Atom1 = atom1
+                                                    Atom2 = atom2
+                                                    BondType = bondType
+                                                    Stereo = 0
+                                                }
                                     |]
-                                
+
                                 // Parse properties block (M  CHG, etc.) and find M  END
                                 let rec parseProperties lineIdx chargesAcc =
                                     if lineIdx >= lines.Length then
                                         (List.rev chargesAcc, lineIdx)
                                     else
                                         let line = lines.[lineIdx]
+
                                         if line.StartsWith "M  END" then
                                             (List.rev chargesAcc, lineIdx + 1)
                                         elif line.StartsWith "M  CHG" then
                                             // Format: M  CHG  n  aaa vvv  aaa vvv ...
-                                            let parts = line.Substring(6).Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
+                                            let parts =
+                                                line
+                                                    .Substring(6)
+                                                    .Trim()
+                                                    .Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
+
                                             let newCharges =
                                                 if parts.Length >= 3 then
                                                     let count = Int32.Parse parts.[0]
-                                                    [ for i in 0 .. count - 1 do
-                                                        if parts.Length > 1 + i * 2 + 1 then
-                                                            yield (Int32.Parse parts.[1 + i * 2], Int32.Parse parts.[2 + i * 2]) ]
+
+                                                    [
+                                                        for i in 0 .. count - 1 do
+                                                            if parts.Length > 1 + i * 2 + 1 then
+                                                                yield
+                                                                    (Int32.Parse parts.[1 + i * 2],
+                                                                     Int32.Parse parts.[2 + i * 2])
+                                                    ]
                                                 else
                                                     []
+
                                             parseProperties (lineIdx + 1) (List.rev newCharges @ chargesAcc)
                                         else
                                             parseProperties (lineIdx + 1) chargesAcc
-                                
+
                                 let (charges, linesConsumed) = parseProperties endLine []
-                                
-                                Ok ({ Name = name
-                                      Comment = comment
-                                      Atoms = atoms
-                                      Bonds = bonds
-                                      Charges = charges
-                                      Properties = Map.empty }, linesConsumed)
-            with
-            | ex -> Error $"Failed to parse MOL block: {ex.Message}"
+
+                                Ok(
+                                    {
+                                        Name = name
+                                        Comment = comment
+                                        Atoms = atoms
+                                        Bonds = bonds
+                                        Charges = charges
+                                        Properties = Map.empty
+                                    },
+                                    linesConsumed
+                                )
+            with ex ->
+                Error $"Failed to parse MOL block: {ex.Message}"
 
         /// Parse associated data fields from SDF format
         let parseDataFields (lines: string array) (startLine: int) : Map<string, string> * int =
@@ -876,54 +1075,72 @@ module ChemistryDataProviders =
                 match fieldOpt with
                 | Some fieldName -> props |> Map.add fieldName (valueBuilder.ToString().Trim())
                 | None -> props
-            
+
             let rec loop lineIdx props currentField (currentValue: System.Text.StringBuilder) =
                 if lineIdx >= lines.Length || lines.[lineIdx].StartsWith("$$$$") then
                     // Save last field and skip $$$$ delimiter
                     let finalProps = saveField props currentField currentValue
-                    let finalLine = if lineIdx < lines.Length && lines.[lineIdx].StartsWith("$$$$") then lineIdx + 1 else lineIdx
+
+                    let finalLine =
+                        if lineIdx < lines.Length && lines.[lineIdx].StartsWith("$$$$") then
+                            lineIdx + 1
+                        else
+                            lineIdx
+
                     (finalProps, finalLine)
                 else
                     let line = lines.[lineIdx]
+
                     if line.StartsWith("> ") || line.StartsWith(">  ") then
                         // Save previous field, start new one
                         let updatedProps = saveField props currentField currentValue
                         let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
+
                         if fieldMatch.Success then
-                            loop (lineIdx + 1) updatedProps (Some fieldMatch.Groups.[1].Value) (System.Text.StringBuilder())
+                            loop
+                                (lineIdx + 1)
+                                updatedProps
+                                (Some fieldMatch.Groups.[1].Value)
+                                (System.Text.StringBuilder())
                         else
                             loop (lineIdx + 1) updatedProps None (System.Text.StringBuilder())
                     elif currentField.IsSome && line.Trim().Length > 0 then
                         if currentValue.Length > 0 then
                             currentValue.AppendLine() |> ignore
+
                         currentValue.Append(line.Trim()) |> ignore
                         loop (lineIdx + 1) props currentField currentValue
                     else
                         loop (lineIdx + 1) props currentField currentValue
-            
+
             loop startLine Map.empty None (System.Text.StringBuilder())
 
         /// Parse a complete SDF file (multiple MOL records with data)
         let parseSdfFile (content: string) : Result<MolRecord array, string> =
             let lines = content.Replace("\r\n", "\n").Split '\n'
-            
+
             let rec skipEmpty lineIdx =
-                if lineIdx >= lines.Length || lines.[lineIdx].Trim().Length > 0 then lineIdx
-                else skipEmpty (lineIdx + 1)
-            
+                if lineIdx >= lines.Length || lines.[lineIdx].Trim().Length > 0 then
+                    lineIdx
+                else
+                    skipEmpty (lineIdx + 1)
+
             let rec skipToDelimiter lineIdx =
                 if lineIdx >= lines.Length || lines.[lineIdx].StartsWith("$$$$") then
                     if lineIdx < lines.Length then lineIdx + 1 else lineIdx
-                else skipToDelimiter (lineIdx + 1)
-            
+                else
+                    skipToDelimiter (lineIdx + 1)
+
             let rec loop lineIdx recordsAcc errorsAcc =
                 let lineIdx = skipEmpty lineIdx
+
                 if lineIdx >= lines.Length then
                     (List.rev recordsAcc, List.rev errorsAcc)
                 else
                     let remainingLines = lines.[lineIdx..]
+
                     match parseMolBlock remainingLines with
-                    | Ok (record, linesConsumed) ->
+                    | Ok(record, linesConsumed) ->
                         let nextLine = lineIdx + linesConsumed
                         let (properties, finalLine) = parseDataFields lines nextLine
                         let recordWithProps = { record with Properties = properties }
@@ -931,13 +1148,13 @@ module ChemistryDataProviders =
                     | Error e ->
                         let nextLine = skipToDelimiter lineIdx
                         loop nextLine recordsAcc (e :: errorsAcc)
-            
+
             let (records, errors) = loop 0 [] []
-            
+
             if records.IsEmpty && not errors.IsEmpty then
-                Error (String.concat "; " errors)
+                Error(String.concat "; " errors)
             else
-                Ok (records |> List.toArray)
+                Ok(records |> List.toArray)
 
         /// Parse a single MOL file
         let parseMolFile (content: string) : Result<MolRecord, string> =
@@ -949,54 +1166,58 @@ module ChemistryDataProviders =
         /// Convert MolRecord to MoleculeInstance
         let toMoleculeInstance (record: MolRecord) : MoleculeInstance =
             // Apply M  CHG charges to atoms
-            let chargeMap = record.Charges |> List.map (fun (idx, chg) -> (idx, chg)) |> Map.ofList
-            
+            let chargeMap =
+                record.Charges |> List.map (fun (idx, chg) -> (idx, chg)) |> Map.ofList
+
             let topology: MoleculeTopology =
-                { Atoms = record.Atoms |> Array.map (fun a -> a.Symbol)
-                  Bonds = 
-                    record.Bonds 
-                    |> Array.map (fun b -> 
-                        // Convert 1-indexed to 0-indexed
-                        let bondOrder = float b.BondType
-                        (b.Atom1 - 1, b.Atom2 - 1, Some bondOrder))
-                  Charge = 
-                    // Sum of inline charges + M  CHG charges
-                    let inlineCharge = record.Atoms |> Array.sumBy (fun a -> a.Charge)
-                    let mChgCharge = record.Charges |> List.sumBy snd
-                    Some (inlineCharge + mChgCharge)
-                  Multiplicity = Some 1  // Not specified in MOL format
-                  Metadata = 
-                    record.Properties
-                    |> Map.toList
-                    |> List.map (fun (k, v) -> (k, v))
-                    |> Map.ofList }
-            
+                {
+                    Atoms = record.Atoms |> Array.map (fun a -> a.Symbol)
+                    Bonds =
+                        record.Bonds
+                        |> Array.map (fun b ->
+                            // Convert 1-indexed to 0-indexed
+                            let bondOrder = float b.BondType
+                            (b.Atom1 - 1, b.Atom2 - 1, Some bondOrder))
+                    Charge =
+                        // Sum of inline charges + M  CHG charges
+                        let inlineCharge = record.Atoms |> Array.sumBy (fun a -> a.Charge)
+                        let mChgCharge = record.Charges |> List.sumBy snd
+                        Some(inlineCharge + mChgCharge)
+                    Multiplicity = Some 1 // Not specified in MOL format
+                    Metadata = record.Properties |> Map.toList |> List.map (fun (k, v) -> (k, v)) |> Map.ofList
+                }
+
             let geometry: MoleculeGeometry =
-                { Coordinates = 
-                    record.Atoms 
-                    |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
-                  Units = "angstrom" }
-            
-            let name = 
+                {
+                    Coordinates = record.Atoms |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
+                    Units = "angstrom"
+                }
+
+            let name =
                 if String.IsNullOrWhiteSpace record.Name then
-                    record.Properties.TryFind "Name" 
+                    record.Properties.TryFind "Name"
                     |> Option.orElse (record.Properties.TryFind "PUBCHEM_IUPAC_NAME")
-                    |> Option.orElse (record.Properties.TryFind "PUBCHEM_COMPOUND_CID" |> Option.map (fun cid -> $"CID_{cid}"))
+                    |> Option.orElse (
+                        record.Properties.TryFind "PUBCHEM_COMPOUND_CID"
+                        |> Option.map (fun cid -> $"CID_{cid}")
+                    )
                 else
                     Some record.Name
-            
-            { Id = name
-              Name = name
-              Topology = topology
-              Geometry = Some geometry }
+
+            {
+                Id = name
+                Name = name
+                Topology = topology
+                Geometry = Some geometry
+            }
 
     /// Dataset provider that loads molecules from SDF files.
-    /// 
+    ///
     /// SDF (Structure-Data File) is a common format for molecular structures,
     /// especially for datasets from PubChem, ChEMBL, and other databases.
-    /// 
+    ///
     /// Delegates to MoleculeFormats.Sdf for parsing.
-    /// 
+    ///
     /// Example:
     ///   let provider = SdfFileDatasetProvider("molecules.sdf")
     ///   match provider.Load All with
@@ -1007,26 +1228,27 @@ module ChemistryDataProviders =
         let loadDataset () : QuantumResult<MoleculeDataset> =
             try
                 if not (File.Exists filePath) then
-                    Error (QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
+                    Error(QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
                 else
                     let content = File.ReadAllText(filePath)
+
                     match MoleculeFormats.Sdf.parseAll content with
                     | Ok moleculeDataArray ->
-                        let molecules = 
-                            moleculeDataArray 
-                            |> Array.map Conversions.fromMoleculeData
-                        Ok { Molecules = molecules
-                             Labels = None
-                             LabelColumn = None
-                             Metadata = Map.ofList ["source", filePath; "format", "sdf"] }
-                    | Error e ->
-                        Error e
-            with
-            | ex -> Error (QuantumError.OperationError("SdfLoading", $"Failed to load SDF file: {ex.Message}"))
+                        let molecules = moleculeDataArray |> Array.map Conversions.fromMoleculeData
+
+                        Ok
+                            {
+                                Molecules = molecules
+                                Labels = None
+                                LabelColumn = None
+                                Metadata = Map.ofList [ "source", filePath; "format", "sdf" ]
+                            }
+                    | Error e -> Error e
+            with ex ->
+                Error(QuantumError.OperationError("SdfLoading", $"Failed to load SDF file: {ex.Message}"))
 
         interface IMoleculeDatasetProvider with
-            member _.Describe() =
-                $"SDF file provider (file: {filePath})"
+            member _.Describe() = $"SDF file provider (file: {filePath})"
 
             member _.Load(query: DatasetQuery) =
                 match query with
@@ -1034,31 +1256,42 @@ module ChemistryDataProviders =
                 | ByName name ->
                     loadDataset ()
                     |> Result.bind (fun ds ->
-                        let matching = 
-                            ds.Molecules 
-                            |> Array.filter (fun m -> 
-                                m.Name = Some name || m.Id = Some name)
+                        let matching =
+                            ds.Molecules |> Array.filter (fun m -> m.Name = Some name || m.Id = Some name)
+
                         if matching.Length > 0 then
                             Ok { ds with Molecules = matching }
                         else
-                            Error (QuantumError.ValidationError("MoleculeNotFound", $"No molecule named '{name}' found in SDF file")))
+                            Error(
+                                QuantumError.ValidationError(
+                                    "MoleculeNotFound",
+                                    $"No molecule named '{name}' found in SDF file"
+                                )
+                            ))
                 | ByPath _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "SdfFileDatasetProvider does not support path queries"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "SdfFileDatasetProvider does not support path queries"
+                        )
+                    )
                 | ByCategory _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "SdfFileDatasetProvider does not support category queries"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "SdfFileDatasetProvider does not support category queries"
+                        )
+                    )
 
             member _.ListNames() =
                 match loadDataset () with
-                | Ok ds -> 
-                    ds.Molecules 
-                    |> Array.choose (fun m -> m.Name)
-                    |> Array.toList
+                | Ok ds -> ds.Molecules |> Array.choose (fun m -> m.Name) |> Array.toList
                 | Error _ -> []
 
     /// Dataset provider that loads molecules from a directory of MOL/SDF files.
-    /// 
+    ///
     /// Delegates to MoleculeFormats.Sdf for parsing.
-    /// 
+    ///
     /// Example:
     ///   let provider = MolDirectoryDatasetProvider("/path/to/molecules")
     ///   match provider.Load (ByName "aspirin") with
@@ -1070,9 +1303,12 @@ module ChemistryDataProviders =
         let loadMolFile (path: string) : MoleculeInstance option =
             try
                 let content = File.ReadAllText(path)
-                (MoleculeFormats.Sdf.parse content) |> Result.map (Conversions.fromMoleculeData >> Some) |> Result.defaultValue None
-            with
-            | _ -> None
+
+                (MoleculeFormats.Sdf.parse content)
+                |> Result.map (Conversions.fromMoleculeData >> Some)
+                |> Result.defaultValue None
+            with _ ->
+                None
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1080,86 +1316,111 @@ module ChemistryDataProviders =
 
             member _.Load(query: DatasetQuery) =
                 if not (Directory.Exists directoryPath) then
-                    Error (QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
+                    Error(QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
                 else
                     match query with
                     | All ->
                         let files = Directory.GetFiles(directoryPath, pattern)
                         let sdfFiles = Directory.GetFiles(directoryPath, "*.sdf")
-                        
-                        let molMolecules = 
-                            files |> Array.choose loadMolFile
-                        
+
+                        let molMolecules = files |> Array.choose loadMolFile
+
                         let sdfMolecules =
                             sdfFiles
                             |> Array.collect (fun path ->
                                 let content = File.ReadAllText(path)
-                                (MoleculeFormats.Sdf.parseAll content) |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData) |> Result.defaultValue [||])
-                        
+
+                                (MoleculeFormats.Sdf.parseAll content)
+                                |> Result.map (fun moleculeDataArray ->
+                                    moleculeDataArray |> Array.map Conversions.fromMoleculeData)
+                                |> Result.defaultValue [||])
+
                         let allMolecules = Array.append molMolecules sdfMolecules
-                        
+
                         if allMolecules.Length = 0 then
-                            Error (QuantumError.ValidationError("NoMolecules", "No valid MOL/SDF files found in directory"))
+                            Error(
+                                QuantumError.ValidationError("NoMolecules", "No valid MOL/SDF files found in directory")
+                            )
                         else
-                            Ok { Molecules = allMolecules
-                                 Labels = None
-                                 LabelColumn = None
-                                 Metadata = Map.ofList ["source", directoryPath; "format", "mol_directory"] }
-                    
+                            Ok
+                                {
+                                    Molecules = allMolecules
+                                    Labels = None
+                                    LabelColumn = None
+                                    Metadata = Map.ofList [ "source", directoryPath; "format", "mol_directory" ]
+                                }
+
                     | ByName name ->
                         // Try to find file by name
                         let molPath = Path.Combine(directoryPath, $"{name}.mol")
                         let sdfPath = Path.Combine(directoryPath, $"{name}.sdf")
-                        
+
                         if File.Exists molPath then
                             match loadMolFile molPath with
-                            | Some mol -> 
-                                Ok { Molecules = [| mol |]
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", molPath; "format", "mol"] }
-                            | None ->
-                                Error (QuantumError.ValidationError("ParseError", $"Failed to parse {molPath}"))
+                            | Some mol ->
+                                Ok
+                                    {
+                                        Molecules = [| mol |]
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", molPath; "format", "mol" ]
+                                    }
+                            | None -> Error(QuantumError.ValidationError("ParseError", $"Failed to parse {molPath}"))
                         elif File.Exists sdfPath then
                             let content = File.ReadAllText(sdfPath)
+
                             match MoleculeFormats.Sdf.parseAll content with
                             | Ok moleculeDataArray when moleculeDataArray.Length > 0 ->
-                                Ok { Molecules = moleculeDataArray |> Array.map Conversions.fromMoleculeData
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", sdfPath; "format", "sdf"] }
-                            | Ok _ ->
-                                Error (QuantumError.ValidationError("EmptyFile", $"No molecules in {sdfPath}"))
-                            | Error e ->
-                                Error e
+                                Ok
+                                    {
+                                        Molecules = moleculeDataArray |> Array.map Conversions.fromMoleculeData
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", sdfPath; "format", "sdf" ]
+                                    }
+                            | Ok _ -> Error(QuantumError.ValidationError("EmptyFile", $"No molecules in {sdfPath}"))
+                            | Error e -> Error e
                         else
-                            Error (QuantumError.ValidationError("MoleculeNotFound", $"No file named '{name}.mol' or '{name}.sdf' found"))
-                    
+                            Error(
+                                QuantumError.ValidationError(
+                                    "MoleculeNotFound",
+                                    $"No file named '{name}.mol' or '{name}.sdf' found"
+                                )
+                            )
+
                     | ByPath subPath ->
                         let fullPath = Path.Combine(directoryPath, subPath)
+
                         if File.Exists fullPath then
                             match loadMolFile fullPath with
                             | Some mol ->
-                                Ok { Molecules = [| mol |]
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", fullPath; "format", "mol"] }
-                            | None ->
-                                Error (QuantumError.ValidationError("ParseError", $"Failed to parse {fullPath}"))
+                                Ok
+                                    {
+                                        Molecules = [| mol |]
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", fullPath; "format", "mol" ]
+                                    }
+                            | None -> Error(QuantumError.ValidationError("ParseError", $"Failed to parse {fullPath}"))
                         else
-                            Error (QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
-                    
+                            Error(QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
+
                     | ByCategory _ ->
-                        Error (QuantumError.ValidationError("UnsupportedQuery", "MolDirectoryDatasetProvider does not support category queries"))
+                        Error(
+                            QuantumError.ValidationError(
+                                "UnsupportedQuery",
+                                "MolDirectoryDatasetProvider does not support category queries"
+                            )
+                        )
 
             member _.ListNames() =
                 if Directory.Exists directoryPath then
                     let molFiles = Directory.GetFiles(directoryPath, pattern)
                     let sdfFiles = Directory.GetFiles(directoryPath, "*.sdf")
-                    
+
                     let molNames = molFiles |> Array.map (fun p -> Path.GetFileNameWithoutExtension p)
                     let sdfNames = sdfFiles |> Array.map (fun p -> Path.GetFileNameWithoutExtension p)
-                    
+
                     Array.append molNames sdfNames |> Array.distinct |> Array.toList
                 else
                     []
@@ -1169,15 +1430,15 @@ module ChemistryDataProviders =
     // ========================================================================
 
     /// Parser for FCIDump (Full Configuration Interaction Dump) files.
-    /// 
+    ///
     /// FCIDump is a standard format for molecular orbital integrals used by
     /// quantum chemistry programs. It contains:
     /// - Header: NORB (orbitals), NELEC (electrons), MS2 (2*spin)
     /// - Body: one/two-electron integrals (not parsed here)
-    /// 
+    ///
     /// This parser extracts header metadata only. Full integral parsing
     /// requires specialized quantum chemistry software.
-    /// 
+    ///
     /// NOTE: FCIDump doesn't contain molecular geometry, so MoleculeInstance
     /// created from FCIDump will have Geometry = None and placeholder atoms.
     module FciDumpParser =
@@ -1185,77 +1446,89 @@ module ChemistryDataProviders =
 
         /// Parsed FCIDump header information.
         type FciDumpHeader =
-            { /// Number of molecular orbitals
-              NumOrbitals: int
-              /// Number of electrons
-              NumElectrons: int
-              /// 2 * total spin (MS2); multiplicity = MS2 + 1
-              MS2: int option
-              /// Orbital symmetries (if present)
-              OrbSym: int array option
-              /// Number of irreducible representations (if present)
-              NumIrrep: int option
-              /// Raw header line for reference
-              RawHeader: string }
+            {
+                /// Number of molecular orbitals
+                NumOrbitals: int
+                /// Number of electrons
+                NumElectrons: int
+                /// 2 * total spin (MS2); multiplicity = MS2 + 1
+                MS2: int option
+                /// Orbital symmetries (if present)
+                OrbSym: int array option
+                /// Number of irreducible representations (if present)
+                NumIrrep: int option
+                /// Raw header line for reference
+                RawHeader: string
+            }
 
         /// Parse FCIDump header from file content.
         let parseHeader (content: string) : Result<FciDumpHeader, string> =
             let lines = content.Replace("\r\n", "\n").Split '\n'
-            
+
             // Find header start line (&FCI or $FCI)
-            let headerStartIdx = 
-                lines 
-                |> Array.tryFindIndex (fun line -> 
+            let headerStartIdx =
+                lines
+                |> Array.tryFindIndex (fun line ->
                     let trimmed = line.Trim().ToUpperInvariant()
                     trimmed.StartsWith("&FCI") || trimmed.StartsWith("$FCI"))
-            
+
             match headerStartIdx with
             | None -> Error "No FCIDump header found (&FCI line)"
             | Some startIdx ->
                 // Collect all header lines until we find '/' or '&END' or '$END'
-                let headerLines = 
+                let headerLines =
                     lines.[startIdx..]
                     |> Array.takeWhile (fun line ->
                         let trimmed = line.Trim()
                         // Stop at end of header markers, but include lines containing the marker
-                        not (trimmed = "/" || trimmed = "&END" || trimmed = "$END" || 
-                             trimmed = "&" || trimmed = "$"))
+                        not (
+                            trimmed = "/"
+                            || trimmed = "&END"
+                            || trimmed = "$END"
+                            || trimmed = "&"
+                            || trimmed = "$"
+                        ))
                     |> Array.toList
-                
+
                 // Join all header lines into one string for regex matching
                 let header = String.concat " " headerLines
-                
+
                 // Extract integer parameter from header
                 let extractInt name =
                     let pattern = $"{name}\\s*=\\s*(\\d+)"
                     let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
-                    if m.Success then Some (int m.Groups.[1].Value) else None
-                
+                    if m.Success then Some(int m.Groups.[1].Value) else None
+
                 // Extract array parameter (e.g., ORBSYM=1,1,1,...)
                 let extractIntArray name =
                     let pattern = $"{name}\\s*=\\s*([\\d,\\s]+)"
                     let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
+
                     if m.Success then
-                        let values = 
-                            m.Groups.[1].Value.Split([|','; ' '|], StringSplitOptions.RemoveEmptyEntries)
-                            |> Array.choose (fun s -> 
+                        let values =
+                            m.Groups.[1].Value.Split([| ','; ' ' |], StringSplitOptions.RemoveEmptyEntries)
+                            |> Array.choose (fun s ->
                                 match Int32.TryParse(s.Trim()) with
                                 | true, v -> Some v
                                 | false, _ -> None)
+
                         if values.Length > 0 then Some values else None
                     else
                         None
-                
+
                 match extractInt "NORB", extractInt "NELEC" with
                 | None, _ -> Error "NORB (number of orbitals) not found in FCIDump header"
                 | _, None -> Error "NELEC (number of electrons) not found in FCIDump header"
                 | Some norb, Some nelec ->
-                    Ok { NumOrbitals = norb
-                         NumElectrons = nelec
-                         MS2 = extractInt "MS2"
-                         OrbSym = extractIntArray "ORBSYM"
-                         NumIrrep = extractInt "NIRREP"
-                         RawHeader = header }
+                    Ok
+                        {
+                            NumOrbitals = norb
+                            NumElectrons = nelec
+                            MS2 = extractInt "MS2"
+                            OrbSym = extractIntArray "ORBSYM"
+                            NumIrrep = extractInt "NIRREP"
+                            RawHeader = header
+                        }
 
         /// Parse FCIDump file and return header information.
         let parseFile (filePath: string) : Result<FciDumpHeader, string> =
@@ -1265,56 +1538,73 @@ module ChemistryDataProviders =
                 else
                     let content = File.ReadAllText(filePath)
                     parseHeader content
-            with
-            | ex -> Error $"Failed to read FCIDump file: {ex.Message}"
+            with ex ->
+                Error $"Failed to read FCIDump file: {ex.Message}"
 
         /// Convert FCIDump header to MoleculeInstance.
-        /// 
+        ///
         /// NOTE: FCIDump doesn't contain geometry, so we create placeholder
         /// atoms based on electron count. This is useful for tracking
         /// electronic structure information but NOT for geometric calculations.
         let toMoleculeInstance (header: FciDumpHeader) (sourcePath: string option) : MoleculeInstance =
-            let multiplicity = match header.MS2 with | Some ms2 -> ms2 + 1 | None -> 1
-            
+            let multiplicity =
+                match header.MS2 with
+                | Some ms2 -> ms2 + 1
+                | None -> 1
+
             // Create placeholder topology (no real atoms, just electron count)
             let topology: MoleculeTopology =
-                { Atoms = 
-                    // Use "X" as placeholder for unknown atoms
-                    // One "atom" per pair of electrons (very rough approximation)
-                    Array.init (max 1 (header.NumElectrons / 2)) (fun _ -> "X")
-                  Bonds = [||]  // No bonds known
-                  Charge = Some (header.NumOrbitals - header.NumElectrons)  // Rough estimate
-                  Multiplicity = Some multiplicity
-                  Metadata = 
-                    [ "format", "fcidump"
-                      "norb", string header.NumOrbitals
-                      "nelec", string header.NumElectrons
-                      yield! match header.MS2 with | Some ms2 -> ["ms2", string ms2] | None -> []
-                      yield! match header.NumIrrep with | Some n -> ["nirrep", string n] | None -> []
-                      yield! match sourcePath with | Some p -> ["source", p] | None -> [] ]
-                    |> Map.ofList }
-            
-            { Id = sourcePath |> Option.map Path.GetFileNameWithoutExtension
-              Name = sourcePath |> Option.map (fun p -> $"FCIDump: {Path.GetFileName p}")
-              Topology = topology
-              Geometry = None  // FCIDump doesn't contain geometry!
+                {
+                    Atoms =
+                        // Use "X" as placeholder for unknown atoms
+                        // One "atom" per pair of electrons (very rough approximation)
+                        Array.init (max 1 (header.NumElectrons / 2)) (fun _ -> "X")
+                    Bonds = [||] // No bonds known
+                    Charge = Some(header.NumOrbitals - header.NumElectrons) // Rough estimate
+                    Multiplicity = Some multiplicity
+                    Metadata =
+                        [
+                            "format", "fcidump"
+                            "norb", string header.NumOrbitals
+                            "nelec", string header.NumElectrons
+                            yield!
+                                match header.MS2 with
+                                | Some ms2 -> [ "ms2", string ms2 ]
+                                | None -> []
+                            yield!
+                                match header.NumIrrep with
+                                | Some n -> [ "nirrep", string n ]
+                                | None -> []
+                            yield!
+                                match sourcePath with
+                                | Some p -> [ "source", p ]
+                                | None -> []
+                        ]
+                        |> Map.ofList
+                }
+
+            {
+                Id = sourcePath |> Option.map Path.GetFileNameWithoutExtension
+                Name = sourcePath |> Option.map (fun p -> $"FCIDump: {Path.GetFileName p}")
+                Topology = topology
+                Geometry = None // FCIDump doesn't contain geometry!
             }
 
     /// Dataset provider for FCIDump files.
-    /// 
+    ///
     /// FCIDump (Full Configuration Interaction Dump) is a format for molecular
     /// orbital integrals used by quantum chemistry programs like PySCF, Psi4, etc.
-    /// 
+    ///
     /// IMPORTANT: FCIDump files do NOT contain molecular geometry. The provider
     /// extracts electronic structure metadata (orbitals, electrons, spin) but
     /// the resulting MoleculeInstance will have `Geometry = None`.
-    /// 
+    ///
     /// For quantum chemistry workflows, FCIDump is typically used AFTER
     /// geometry optimization, providing pre-computed integrals for correlation
     /// energy calculations.
-    /// 
+    ///
     /// Delegates to MoleculeFormats.FciDump for parsing.
-    /// 
+    ///
     /// Example:
     ///   let provider = FciDumpFileDatasetProvider("h2o.fcidump")
     ///   match provider.Load All with
@@ -1328,21 +1618,25 @@ module ChemistryDataProviders =
         let loadDataset () : QuantumResult<MoleculeDataset> =
             try
                 if not (File.Exists filePath) then
-                    Error (QuantumError.IOError("ReadFciDump", filePath, "File not found"))
+                    Error(QuantumError.IOError("ReadFciDump", filePath, "File not found"))
                 else
                     let content = File.ReadAllText(filePath)
+
                     match MoleculeFormats.FciDump.parseHeader content with
                     | Ok header ->
                         let moleculeData = MoleculeFormats.FciDump.toMoleculeData header (Some filePath)
                         let molecule = Conversions.fromMoleculeData moleculeData
-                        Ok { Molecules = [| molecule |]
-                             Labels = None
-                             LabelColumn = None
-                             Metadata = Map.ofList ["source", filePath; "format", "fcidump"] }
-                    | Error e ->
-                        Error e
-            with
-            | ex -> Error (QuantumError.OperationError("FciDumpLoading", $"Failed to load FCIDump file: {ex.Message}"))
+
+                        Ok
+                            {
+                                Molecules = [| molecule |]
+                                Labels = None
+                                LabelColumn = None
+                                Metadata = Map.ofList [ "source", filePath; "format", "fcidump" ]
+                            }
+                    | Error e -> Error e
+            with ex ->
+                Error(QuantumError.OperationError("FciDumpLoading", $"Failed to load FCIDump file: {ex.Message}"))
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1351,24 +1645,31 @@ module ChemistryDataProviders =
             member _.Load(query: DatasetQuery) =
                 match query with
                 | All -> loadDataset ()
-                | ByName _ -> loadDataset ()  // Only one molecule per FCIDump
+                | ByName _ -> loadDataset () // Only one molecule per FCIDump
                 | ByPath _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "FciDumpFileDatasetProvider does not support path queries"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "FciDumpFileDatasetProvider does not support path queries"
+                        )
+                    )
                 | ByCategory _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "FciDumpFileDatasetProvider does not support category queries"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "FciDumpFileDatasetProvider does not support category queries"
+                        )
+                    )
 
             member _.ListNames() =
                 match loadDataset () with
-                | Ok ds -> 
-                    ds.Molecules 
-                    |> Array.choose (fun m -> m.Name)
-                    |> Array.toList
+                | Ok ds -> ds.Molecules |> Array.choose (fun m -> m.Name) |> Array.toList
                 | Error _ -> []
 
     /// Dataset provider that loads FCIDump files from a directory.
-    /// 
+    ///
     /// Delegates to MoleculeFormats.FciDump for parsing.
-    /// 
+    ///
     /// Example:
     ///   let provider = FciDumpDirectoryDatasetProvider("/path/to/fcidumps")
     ///   match provider.Load All with
@@ -1380,13 +1681,14 @@ module ChemistryDataProviders =
         let loadFciDump (path: string) : MoleculeInstance option =
             try
                 let content = File.ReadAllText(path)
+
                 match MoleculeFormats.FciDump.parseHeader content with
                 | Ok header ->
                     let moleculeData = MoleculeFormats.FciDump.toMoleculeData header (Some path)
-                    Some (Conversions.fromMoleculeData moleculeData)
+                    Some(Conversions.fromMoleculeData moleculeData)
                 | Error _ -> None
-            with
-            | _ -> None
+            with _ ->
+                None
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1394,62 +1696,85 @@ module ChemistryDataProviders =
 
             member _.Load(query: DatasetQuery) =
                 if not (Directory.Exists directoryPath) then
-                    Error (QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
+                    Error(QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
                 else
                     match query with
                     | All ->
                         let files = Directory.GetFiles(directoryPath, pattern)
                         let molecules = files |> Array.choose loadFciDump
-                        
+
                         if molecules.Length = 0 then
-                            Error (QuantumError.ValidationError("NoFciDumps", "No valid FCIDump files found in directory"))
+                            Error(
+                                QuantumError.ValidationError("NoFciDumps", "No valid FCIDump files found in directory")
+                            )
                         else
-                            Ok { Molecules = molecules
-                                 Labels = None
-                                 LabelColumn = None
-                                 Metadata = Map.ofList ["source", directoryPath; "format", "fcidump_directory"] }
-                    
+                            Ok
+                                {
+                                    Molecules = molecules
+                                    Labels = None
+                                    LabelColumn = None
+                                    Metadata = Map.ofList [ "source", directoryPath; "format", "fcidump_directory" ]
+                                }
+
                     | ByName name ->
                         let fcidumpPath = Path.Combine(directoryPath, $"{name}.fcidump")
-                        let altPath = Path.Combine(directoryPath, name)  // Try without extension
-                        
+                        let altPath = Path.Combine(directoryPath, name) // Try without extension
+
                         let tryPath path =
                             if File.Exists path then
                                 match loadFciDump path with
-                                | Some mol -> 
-                                    Some (Ok { Molecules = [| mol |]
-                                               Labels = None
-                                               LabelColumn = None
-                                               Metadata = Map.ofList ["source", path; "format", "fcidump"] })
+                                | Some mol ->
+                                    Some(
+                                        Ok
+                                            {
+                                                Molecules = [| mol |]
+                                                Labels = None
+                                                LabelColumn = None
+                                                Metadata = Map.ofList [ "source", path; "format", "fcidump" ]
+                                            }
+                                    )
                                 | None ->
-                                    Some (Error (QuantumError.ValidationError("ParseError", $"Failed to parse {path}")))
+                                    Some(Error(QuantumError.ValidationError("ParseError", $"Failed to parse {path}")))
                             else
                                 None
-                        
+
                         match tryPath fcidumpPath with
                         | Some result -> result
                         | None ->
                             match tryPath altPath with
                             | Some result -> result
                             | None ->
-                                Error (QuantumError.ValidationError("FileNotFound", $"No FCIDump file named '{name}' found"))
-                    
+                                Error(
+                                    QuantumError.ValidationError(
+                                        "FileNotFound",
+                                        $"No FCIDump file named '{name}' found"
+                                    )
+                                )
+
                     | ByPath subPath ->
                         let fullPath = Path.Combine(directoryPath, subPath)
+
                         if File.Exists fullPath then
                             match loadFciDump fullPath with
                             | Some mol ->
-                                Ok { Molecules = [| mol |]
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", fullPath; "format", "fcidump"] }
-                            | None ->
-                                Error (QuantumError.ValidationError("ParseError", $"Failed to parse {fullPath}"))
+                                Ok
+                                    {
+                                        Molecules = [| mol |]
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", fullPath; "format", "fcidump" ]
+                                    }
+                            | None -> Error(QuantumError.ValidationError("ParseError", $"Failed to parse {fullPath}"))
                         else
-                            Error (QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
-                    
+                            Error(QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
+
                     | ByCategory _ ->
-                        Error (QuantumError.ValidationError("UnsupportedQuery", "FciDumpDirectoryDatasetProvider does not support category queries"))
+                        Error(
+                            QuantumError.ValidationError(
+                                "UnsupportedQuery",
+                                "FciDumpDirectoryDatasetProvider does not support category queries"
+                            )
+                        )
 
             member _.ListNames() =
                 if Directory.Exists directoryPath then
@@ -1464,261 +1789,325 @@ module ChemistryDataProviders =
     // ========================================================================
 
     /// Parser for PDB (Protein Data Bank) format files.
-    /// 
+    ///
     /// PDB is the standard format for macromolecular structures. This parser
     /// focuses on extracting small molecule ligands (HETATM records) which are
     /// relevant for quantum chemistry calculations.
-    /// 
+    ///
     /// Key features:
     /// - Extracts HETATM records (ligands, cofactors, small molecules)
     /// - Optionally extracts ATOM records (protein/nucleic acid)
     /// - Groups atoms by residue name and chain
     /// - Supports multiple models (NMR ensembles)
-    /// 
+    ///
     /// PDB Format Reference: https://www.wwpdb.org/documentation/file-format
     module PdbParser =
-        
+
         /// A single atom from a PDB file.
         type PdbAtom =
-            { /// Atom serial number (columns 7-11)
-              Serial: int
-              /// Atom name (columns 13-16)
-              Name: string
-              /// Alternate location indicator (column 17)
-              AltLoc: char option
-              /// Residue name (columns 18-20)
-              ResName: string
-              /// Chain identifier (column 22)
-              ChainId: char option
-              /// Residue sequence number (columns 23-26)
-              ResSeq: int
-              /// Insertion code (column 27)
-              ICode: char option
-              /// X coordinate in Angstroms (columns 31-38)
-              X: float
-              /// Y coordinate in Angstroms (columns 39-46)
-              Y: float
-              /// Z coordinate in Angstroms (columns 47-54)
-              Z: float
-              /// Occupancy (columns 55-60)
-              Occupancy: float option
-              /// Temperature factor (columns 61-66)
-              TempFactor: float option
-              /// Element symbol (columns 77-78)
-              Element: string
-              /// Charge (columns 79-80)
-              Charge: string option
-              /// True if HETATM, false if ATOM
-              IsHetAtom: bool }
+            {
+                /// Atom serial number (columns 7-11)
+                Serial: int
+                /// Atom name (columns 13-16)
+                Name: string
+                /// Alternate location indicator (column 17)
+                AltLoc: char option
+                /// Residue name (columns 18-20)
+                ResName: string
+                /// Chain identifier (column 22)
+                ChainId: char option
+                /// Residue sequence number (columns 23-26)
+                ResSeq: int
+                /// Insertion code (column 27)
+                ICode: char option
+                /// X coordinate in Angstroms (columns 31-38)
+                X: float
+                /// Y coordinate in Angstroms (columns 39-46)
+                Y: float
+                /// Z coordinate in Angstroms (columns 47-54)
+                Z: float
+                /// Occupancy (columns 55-60)
+                Occupancy: float option
+                /// Temperature factor (columns 61-66)
+                TempFactor: float option
+                /// Element symbol (columns 77-78)
+                Element: string
+                /// Charge (columns 79-80)
+                Charge: string option
+                /// True if HETATM, false if ATOM
+                IsHetAtom: bool
+            }
 
         /// A group of atoms forming a residue/molecule.
         type PdbResidue =
-            { /// Residue name (3-letter code)
-              Name: string
-              /// Chain identifier
-              ChainId: char option
-              /// Residue sequence number
-              ResSeq: int
-              /// Atoms in this residue
-              Atoms: PdbAtom array
-              /// True if this is a heteroatom residue (ligand)
-              IsHet: bool }
+            {
+                /// Residue name (3-letter code)
+                Name: string
+                /// Chain identifier
+                ChainId: char option
+                /// Residue sequence number
+                ResSeq: int
+                /// Atoms in this residue
+                Atoms: PdbAtom array
+                /// True if this is a heteroatom residue (ligand)
+                IsHet: bool
+            }
 
         /// Parsed PDB structure.
         type PdbStructure =
-            { /// PDB ID (from HEADER or filename)
-              PdbId: string option
-              /// Title (from TITLE record)
-              Title: string option
-              /// All residues in the structure
-              Residues: PdbResidue array
-              /// Model number (for NMR ensembles)
-              ModelNumber: int option
-              /// Source file path
-              SourcePath: string option }
+            {
+                /// PDB ID (from HEADER or filename)
+                PdbId: string option
+                /// Title (from TITLE record)
+                Title: string option
+                /// All residues in the structure
+                Residues: PdbResidue array
+                /// Model number (for NMR ensembles)
+                ModelNumber: int option
+                /// Source file path
+                SourcePath: string option
+            }
 
         /// Parse a single ATOM or HETATM line.
         let private parseAtomLine (line: string) (isHetatm: bool) : PdbAtom option =
-            if line.Length < 54 then None
+            if line.Length < 54 then
+                None
             else
                 try
                     // PDB format is fixed-column, 1-indexed in documentation
                     // We use 0-indexed substrings
                     let serial = line.[6..10].Trim() |> int
                     let name = line.[12..15].Trim()
-                    let altLoc = 
+
+                    let altLoc =
                         let c = line.[16]
                         if c = ' ' then None else Some c
+
                     let resName = line.[17..19].Trim()
-                    let chainId = 
+
+                    let chainId =
                         let c = line.[21]
                         if c = ' ' then None else Some c
+
                     let resSeq = line.[22..25].Trim() |> int
-                    let iCode = 
+
+                    let iCode =
                         if line.Length > 26 then
                             let c = line.[26]
                             if c = ' ' then None else Some c
-                        else None
+                        else
+                            None
+
                     let x = Double.Parse(line.[30..37].Trim(), CultureInfo.InvariantCulture)
                     let y = Double.Parse(line.[38..45].Trim(), CultureInfo.InvariantCulture)
                     let z = Double.Parse(line.[46..53].Trim(), CultureInfo.InvariantCulture)
-                    
-                    let occupancy = 
+
+                    let occupancy =
                         if line.Length >= 60 then
-                            match Double.TryParse(line.[54..59].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture) with
+                            match
+                                Double.TryParse(line.[54..59].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture)
+                            with
                             | true, v -> Some v
                             | _ -> None
-                        else None
-                    
+                        else
+                            None
+
                     let tempFactor =
                         if line.Length >= 66 then
-                            match Double.TryParse(line.[60..65].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture) with
+                            match
+                                Double.TryParse(line.[60..65].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture)
+                            with
                             | true, v -> Some v
                             | _ -> None
-                        else None
-                    
+                        else
+                            None
+
                     let element =
                         if line.Length >= 78 then
                             line.[76..77].Trim()
                         else
                             // Infer from atom name
-                            name.TrimStart([|'0'..'9'|]).[0..0]
-                    
+                            name.TrimStart([| '0' .. '9' |]).[0..0]
+
                     let charge =
                         if line.Length >= 80 then
                             let ch = line.[78..79].Trim()
                             if String.IsNullOrEmpty ch then None else Some ch
-                        else None
-                    
-                    Some {
-                        Serial = serial
-                        Name = name
-                        AltLoc = altLoc
-                        ResName = resName
-                        ChainId = chainId
-                        ResSeq = resSeq
-                        ICode = iCode
-                        X = x
-                        Y = y
-                        Z = z
-                        Occupancy = occupancy
-                        TempFactor = tempFactor
-                        Element = element
-                        Charge = charge
-                        IsHetAtom = isHetatm
-                    }
-                with
-                | _ -> None
+                        else
+                            None
+
+                    Some
+                        {
+                            Serial = serial
+                            Name = name
+                            AltLoc = altLoc
+                            ResName = resName
+                            ChainId = chainId
+                            ResSeq = resSeq
+                            ICode = iCode
+                            X = x
+                            Y = y
+                            Z = z
+                            Occupancy = occupancy
+                            TempFactor = tempFactor
+                            Element = element
+                            Charge = charge
+                            IsHetAtom = isHetatm
+                        }
+                with _ ->
+                    None
 
         /// Options for parsing PDB files.
         type PdbParseOptions =
-            { /// Include ATOM records (protein/nucleic acid atoms)
-              IncludeAtom: bool
-              /// Include HETATM records (ligands, water, etc.)
-              IncludeHetatm: bool
-              /// Exclude water molecules (HOH, WAT, H2O)
-              ExcludeWater: bool
-              /// Only include specific residue names (empty = all)
-              ResidueFilter: string list
-              /// Only include first model (for NMR ensembles)
-              FirstModelOnly: bool }
+            {
+                /// Include ATOM records (protein/nucleic acid atoms)
+                IncludeAtom: bool
+                /// Include HETATM records (ligands, water, etc.)
+                IncludeHetatm: bool
+                /// Exclude water molecules (HOH, WAT, H2O)
+                ExcludeWater: bool
+                /// Only include specific residue names (empty = all)
+                ResidueFilter: string list
+                /// Only include first model (for NMR ensembles)
+                FirstModelOnly: bool
+            }
 
         /// Default parse options: HETATM only, no water.
         let defaultOptions =
-            { IncludeAtom = false
-              IncludeHetatm = true
-              ExcludeWater = true
-              ResidueFilter = []
-              FirstModelOnly = true }
+            {
+                IncludeAtom = false
+                IncludeHetatm = true
+                ExcludeWater = true
+                ResidueFilter = []
+                FirstModelOnly = true
+            }
 
         /// Internal state for PDB line-by-line fold parsing.
         type private PdbParseState =
-            { Atoms: PdbAtom list
-              PdbId: string option
-              Title: string option
-              InModel: bool
-              ModelNumber: int option
-              FirstModelEnded: bool }
+            {
+                Atoms: PdbAtom list
+                PdbId: string option
+                Title: string option
+                InModel: bool
+                ModelNumber: int option
+                FirstModelEnded: bool
+            }
 
         /// Parse PDB content with options.
         let parseWithOptions (options: PdbParseOptions) (content: string) : Result<PdbStructure, string> =
             let lines = content.Replace("\r\n", "\n").Split '\n'
-            let waterNames = set ["HOH"; "WAT"; "H2O"; "DOD"; "DIS"]
-            
-            let initialState : PdbParseState = 
-                { Atoms = []; PdbId = None; Title = None; InModel = false; ModelNumber = None; FirstModelEnded = false }
-            
+            let waterNames = set [ "HOH"; "WAT"; "H2O"; "DOD"; "DIS" ]
+
+            let initialState: PdbParseState =
+                {
+                    Atoms = []
+                    PdbId = None
+                    Title = None
+                    InModel = false
+                    ModelNumber = None
+                    FirstModelEnded = false
+                }
+
             let finalState =
                 lines
-                |> Array.fold (fun (state: PdbParseState) line ->
-                    if line.Length < 6 || state.FirstModelEnded && (line.[0..4] = "ATOM " || line.[0..5] = "HETATM") then
-                        state
-                    else
-                        let recordType = line.[0..5].TrimEnd()
-                        match recordType with
-                        | "HEADER" when line.Length >= 66 ->
-                            { state with PdbId = Some (line.[62..65].Trim()) }
-                        | "TITLE" when line.Length > 10 ->
-                            let titlePart = line.[10..].Trim()
-                            let newTitle = match state.Title with
-                                           | Some t -> Some $"{t} {titlePart}"
-                                           | None -> Some titlePart
-                            { state with Title = newTitle }
-                        | "MODEL" ->
-                            if not state.InModel then
-                                let modelNum = 
-                                    if line.Length >= 14 then
-                                        match Int32.TryParse(line.[10..13].Trim()) with
-                                        | true, n -> Some n
-                                        | _ -> Some 1
-                                    else Some 1
-                                { state with InModel = true; ModelNumber = modelNum }
-                            else state
-                        | "ENDMDL" ->
-                            { state with InModel = false; FirstModelEnded = options.FirstModelOnly }
-                        | "ATOM" when options.IncludeAtom && not state.FirstModelEnded ->
-                            match parseAtomLine line false with
-                            | Some atom -> { state with Atoms = atom :: state.Atoms }
-                            | None -> state
-                        | "HETATM" when options.IncludeHetatm && not state.FirstModelEnded ->
-                            match parseAtomLine line true with
-                            | Some atom ->
-                                let shouldInclude =
-                                    (not (options.ExcludeWater && (waterNames.Contains atom.ResName))) &&
-                                    (options.ResidueFilter.IsEmpty || 
-                                     options.ResidueFilter |> List.exists (fun r -> 
-                                         r.Equals(atom.ResName, StringComparison.OrdinalIgnoreCase)))
-                                if shouldInclude then
-                                    { state with Atoms = atom :: state.Atoms }
-                                else state
-                            | None -> state
-                        | _ -> state
-                ) initialState
-            
+                |> Array.fold
+                    (fun (state: PdbParseState) line ->
+                        if
+                            line.Length < 6
+                            || state.FirstModelEnded && (line.[0..4] = "ATOM " || line.[0..5] = "HETATM")
+                        then
+                            state
+                        else
+                            let recordType = line.[0..5].TrimEnd()
+
+                            match recordType with
+                            | "HEADER" when line.Length >= 66 ->
+                                { state with
+                                    PdbId = Some(line.[62..65].Trim())
+                                }
+                            | "TITLE" when line.Length > 10 ->
+                                let titlePart = line.[10..].Trim()
+
+                                let newTitle =
+                                    match state.Title with
+                                    | Some t -> Some $"{t} {titlePart}"
+                                    | None -> Some titlePart
+
+                                { state with Title = newTitle }
+                            | "MODEL" ->
+                                if not state.InModel then
+                                    let modelNum =
+                                        if line.Length >= 14 then
+                                            match Int32.TryParse(line.[10..13].Trim()) with
+                                            | true, n -> Some n
+                                            | _ -> Some 1
+                                        else
+                                            Some 1
+
+                                    { state with
+                                        InModel = true
+                                        ModelNumber = modelNum
+                                    }
+                                else
+                                    state
+                            | "ENDMDL" ->
+                                { state with
+                                    InModel = false
+                                    FirstModelEnded = options.FirstModelOnly
+                                }
+                            | "ATOM" when options.IncludeAtom && not state.FirstModelEnded ->
+                                match parseAtomLine line false with
+                                | Some atom ->
+                                    { state with
+                                        Atoms = atom :: state.Atoms
+                                    }
+                                | None -> state
+                            | "HETATM" when options.IncludeHetatm && not state.FirstModelEnded ->
+                                match parseAtomLine line true with
+                                | Some atom ->
+                                    let shouldInclude =
+                                        (not (options.ExcludeWater && (waterNames.Contains atom.ResName)))
+                                        && (options.ResidueFilter.IsEmpty
+                                            || options.ResidueFilter
+                                               |> List.exists (fun r ->
+                                                   r.Equals(atom.ResName, StringComparison.OrdinalIgnoreCase)))
+
+                                    if shouldInclude then
+                                        { state with
+                                            Atoms = atom :: state.Atoms
+                                        }
+                                    else
+                                        state
+                                | None -> state
+                            | _ -> state)
+                    initialState
+
             // Group atoms into residues
             let residues =
                 finalState.Atoms
                 |> List.rev
                 |> List.groupBy (fun a -> (a.ResName, a.ChainId, a.ResSeq))
                 |> List.map (fun ((resName, chainId, resSeq), resAtoms) ->
-                    { Name = resName
-                      ChainId = chainId
-                      ResSeq = resSeq
-                      Atoms = resAtoms |> List.toArray
-                      IsHet = resAtoms |> List.exists (fun a -> a.IsHetAtom) })
+                    {
+                        Name = resName
+                        ChainId = chainId
+                        ResSeq = resSeq
+                        Atoms = resAtoms |> List.toArray
+                        IsHet = resAtoms |> List.exists (fun a -> a.IsHetAtom)
+                    })
                 |> List.toArray
-            
-            Ok {
-                PdbId = finalState.PdbId
-                Title = finalState.Title
-                Residues = residues
-                ModelNumber = finalState.ModelNumber
-                SourcePath = None
-            }
+
+            Ok
+                {
+                    PdbId = finalState.PdbId
+                    Title = finalState.Title
+                    Residues = residues
+                    ModelNumber = finalState.ModelNumber
+                    SourcePath = None
+                }
 
         /// Parse PDB content with default options (HETATM only, no water).
-        let parse (content: string) : Result<PdbStructure, string> =
-            parseWithOptions defaultOptions content
+        let parse (content: string) : Result<PdbStructure, string> = parseWithOptions defaultOptions content
 
         /// Parse PDB file.
         let parseFile (filePath: string) : Result<PdbStructure, string> =
@@ -1727,40 +2116,57 @@ module ChemistryDataProviders =
                     Error $"File not found: {filePath}"
                 else
                     let content = File.ReadAllText(filePath)
-                    (parse content) |> Result.map (fun structure -> { structure with SourcePath = Some filePath })
-            with
-            | ex -> Error $"Failed to read PDB file: {ex.Message}"
+
+                    (parse content)
+                    |> Result.map (fun structure ->
+                        { structure with
+                            SourcePath = Some filePath
+                        })
+            with ex ->
+                Error $"Failed to read PDB file: {ex.Message}"
 
         /// Convert a PDB residue to MoleculeInstance.
         let residueToMoleculeInstance (residue: PdbResidue) (pdbId: string option) : MoleculeInstance =
             let topology: MoleculeTopology =
-                { Atoms = residue.Atoms |> Array.map (fun a -> a.Element)
-                  Bonds = [||]  // PDB doesn't include bond information for HETATM
-                  Charge = None  // Would need to sum individual charges
-                  Multiplicity = Some 1
-                  Metadata = 
-                    [ "format", "pdb"
-                      "residue_name", residue.Name
-                      "residue_seq", string residue.ResSeq
-                      yield! match residue.ChainId with | Some c -> ["chain_id", string c] | None -> []
-                      yield! match pdbId with | Some id -> ["pdb_id", id] | None -> [] ]
-                    |> Map.ofList }
-            
+                {
+                    Atoms = residue.Atoms |> Array.map (fun a -> a.Element)
+                    Bonds = [||] // PDB doesn't include bond information for HETATM
+                    Charge = None // Would need to sum individual charges
+                    Multiplicity = Some 1
+                    Metadata =
+                        [
+                            "format", "pdb"
+                            "residue_name", residue.Name
+                            "residue_seq", string residue.ResSeq
+                            yield!
+                                match residue.ChainId with
+                                | Some c -> [ "chain_id", string c ]
+                                | None -> []
+                            yield!
+                                match pdbId with
+                                | Some id -> [ "pdb_id", id ]
+                                | None -> []
+                        ]
+                        |> Map.ofList
+                }
+
             let geometry: MoleculeGeometry =
-                { Coordinates = 
-                    residue.Atoms 
-                    |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
-                  Units = "angstrom" }
-            
-            let name = 
+                {
+                    Coordinates = residue.Atoms |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
+                    Units = "angstrom"
+                }
+
+            let name =
                 match pdbId with
                 | Some id -> $"{id}_{residue.Name}_{residue.ResSeq}"
                 | None -> $"{residue.Name}_{residue.ResSeq}"
-            
-            { Id = Some name
-              Name = Some name
-              Topology = topology
-              Geometry = Some geometry }
+
+            {
+                Id = Some name
+                Name = Some name
+                Topology = topology
+                Geometry = Some geometry
+            }
 
         /// Convert all non-water HETATM residues to MoleculeInstances.
         let structureToMoleculeInstances (structure: PdbStructure) : MoleculeInstance array =
@@ -1769,17 +2175,17 @@ module ChemistryDataProviders =
             |> Array.map (fun r -> residueToMoleculeInstance r structure.PdbId)
 
     /// Dataset provider for PDB files, focusing on ligand extraction.
-    /// 
+    ///
     /// PDB files typically contain protein structures with bound ligands.
     /// This provider extracts the ligand molecules (HETATM records) which
     /// are suitable for quantum chemistry calculations.
-    /// 
+    ///
     /// Example:
     ///   let provider = PdbLigandDatasetProvider("1ATP.pdb")
     ///   match provider.Load All with
     ///   | Ok dataset ->
     ///       for mol in dataset.Molecules do
-    ///           printfn "Ligand: %s (%d atoms)" 
+    ///           printfn "Ligand: %s (%d atoms)"
     ///               (mol.Name |> Option.defaultValue "?")
     ///               mol.Topology.Atoms.Length
     ///   | Error e -> printfn "Error: %A" e
@@ -1789,24 +2195,27 @@ module ChemistryDataProviders =
         let loadDataset () : QuantumResult<MoleculeDataset> =
             try
                 if not (File.Exists filePath) then
-                    Error (QuantumError.IOError("ReadPdb", filePath, "File not found"))
+                    Error(QuantumError.IOError("ReadPdb", filePath, "File not found"))
                 else
                     let content = File.ReadAllText(filePath)
+
                     match MoleculeFormats.Pdb.parseLigands content with
                     | Ok moleculeDataArray ->
                         let molecules = moleculeDataArray |> Array.map Conversions.fromMoleculeData
-                        
+
                         if molecules.Length = 0 then
-                            Error (QuantumError.ValidationError("NoLigands", "No ligand molecules found in PDB file"))
+                            Error(QuantumError.ValidationError("NoLigands", "No ligand molecules found in PDB file"))
                         else
-                            Ok { Molecules = molecules
-                                 Labels = None
-                                 LabelColumn = None
-                                 Metadata = Map.ofList ["source", filePath; "format", "pdb"] }
-                    | Error e ->
-                        Error e
-            with
-            | ex -> Error (QuantumError.OperationError("PdbLoading", $"Failed to load PDB file: {ex.Message}"))
+                            Ok
+                                {
+                                    Molecules = molecules
+                                    Labels = None
+                                    LabelColumn = None
+                                    Metadata = Map.ofList [ "source", filePath; "format", "pdb" ]
+                                }
+                    | Error e -> Error e
+            with ex ->
+                Error(QuantumError.OperationError("PdbLoading", $"Failed to load PDB file: {ex.Message}"))
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1818,49 +2227,67 @@ module ChemistryDataProviders =
                 | ByName name ->
                     loadDataset ()
                     |> Result.bind (fun ds ->
-                        let matching = 
-                            ds.Molecules 
-                            |> Array.filter (fun m -> 
-                                m.Name = Some name || 
-                                m.Id = Some name ||
+                        let matching =
+                            ds.Molecules
+                            |> Array.filter (fun m ->
+                                m.Name = Some name
+                                || m.Id = Some name
+                                ||
                                 // Also match by residue name
                                 m.Topology.Metadata.TryFind "residue_name" = Some name)
+
                         if matching.Length > 0 then
                             Ok { ds with Molecules = matching }
                         else
-                            Error (QuantumError.ValidationError("LigandNotFound", $"No ligand named '{name}' found in PDB file")))
+                            Error(
+                                QuantumError.ValidationError(
+                                    "LigandNotFound",
+                                    $"No ligand named '{name}' found in PDB file"
+                                )
+                            ))
                 | ByPath _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "PdbLigandDatasetProvider does not support path queries"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "PdbLigandDatasetProvider does not support path queries"
+                        )
+                    )
                 | ByCategory _ ->
-                    Error (QuantumError.ValidationError("UnsupportedQuery", "PdbLigandDatasetProvider does not support category queries"))
+                    Error(
+                        QuantumError.ValidationError(
+                            "UnsupportedQuery",
+                            "PdbLigandDatasetProvider does not support category queries"
+                        )
+                    )
 
             member _.ListNames() =
                 match loadDataset () with
-                | Ok ds -> 
-                    ds.Molecules 
-                    |> Array.choose (fun m -> m.Name)
-                    |> Array.toList
+                | Ok ds -> ds.Molecules |> Array.choose (fun m -> m.Name) |> Array.toList
                 | Error _ -> []
 
     /// Dataset provider that loads ligands from a directory of PDB files.
-    /// 
+    ///
     /// Delegates to MoleculeFormats.Pdb for parsing.
-    /// 
+    ///
     /// Example:
     ///   let provider = PdbDirectoryDatasetProvider("/path/to/pdb_files")
     ///   match provider.Load All with
     ///   | Ok dataset -> printfn "Found %d ligands" dataset.Molecules.Length
     ///   | Error e -> printfn "Error: %A" e
-    type PdbDirectoryDatasetProvider(directoryPath: string, ?searchPattern: string, ?options: PdbParser.PdbParseOptions) =
+    type PdbDirectoryDatasetProvider(directoryPath: string, ?searchPattern: string, ?options: PdbParser.PdbParseOptions)
+        =
         let pattern = defaultArg searchPattern "*.pdb"
         let parseOptions = defaultArg options PdbParser.defaultOptions
 
         let loadPdbFile (path: string) : MoleculeInstance array =
             try
                 let content = File.ReadAllText(path)
-                (MoleculeFormats.Pdb.parseLigands content) |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData) |> Result.defaultValue [||]
-            with
-            | _ -> [||]
+
+                (MoleculeFormats.Pdb.parseLigands content)
+                |> Result.map (fun moleculeDataArray -> moleculeDataArray |> Array.map Conversions.fromMoleculeData)
+                |> Result.defaultValue [||]
+            with _ ->
+                [||]
 
         interface IMoleculeDatasetProvider with
             member _.Describe() =
@@ -1868,72 +2295,95 @@ module ChemistryDataProviders =
 
             member _.Load(query: DatasetQuery) =
                 if not (Directory.Exists directoryPath) then
-                    Error (QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
+                    Error(QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
                 else
                     match query with
                     | All ->
                         let files = Directory.GetFiles(directoryPath, pattern)
                         let molecules = files |> Array.collect loadPdbFile
-                        
+
                         if molecules.Length = 0 then
-                            Error (QuantumError.ValidationError("NoLigands", "No ligands found in PDB files"))
+                            Error(QuantumError.ValidationError("NoLigands", "No ligands found in PDB files"))
                         else
-                            Ok { Molecules = molecules
-                                 Labels = None
-                                 LabelColumn = None
-                                 Metadata = Map.ofList ["source", directoryPath; "format", "pdb_directory"] }
-                    
+                            Ok
+                                {
+                                    Molecules = molecules
+                                    Labels = None
+                                    LabelColumn = None
+                                    Metadata = Map.ofList [ "source", directoryPath; "format", "pdb_directory" ]
+                                }
+
                     | ByName name ->
                         // First try to find a PDB file with that name
                         let pdbPath = Path.Combine(directoryPath, $"{name}.pdb")
+
                         if File.Exists pdbPath then
                             let molecules = loadPdbFile pdbPath
+
                             if molecules.Length > 0 then
-                                Ok { Molecules = molecules
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", pdbPath; "format", "pdb"] }
+                                Ok
+                                    {
+                                        Molecules = molecules
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", pdbPath; "format", "pdb" ]
+                                    }
                             else
-                                Error (QuantumError.ValidationError("NoLigands", $"No ligands found in {pdbPath}"))
+                                Error(QuantumError.ValidationError("NoLigands", $"No ligands found in {pdbPath}"))
                         else
                             // Search all PDB files for a ligand with that name
                             let files = Directory.GetFiles(directoryPath, pattern)
+
                             let matching =
                                 files
                                 |> Array.collect loadPdbFile
                                 |> Array.filter (fun m ->
-                                    m.Name = Some name ||
-                                    m.Id = Some name ||
-                                    m.Topology.Metadata.TryFind "residue_name" = Some name)
-                            
+                                    m.Name = Some name
+                                    || m.Id = Some name
+                                    || m.Topology.Metadata.TryFind "residue_name" = Some name)
+
                             if matching.Length > 0 then
-                                Ok { Molecules = matching
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", directoryPath; "format", "pdb_directory"] }
+                                Ok
+                                    {
+                                        Molecules = matching
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", directoryPath; "format", "pdb_directory" ]
+                                    }
                             else
-                                Error (QuantumError.ValidationError("LigandNotFound", $"No ligand named '{name}' found"))
-                    
+                                Error(QuantumError.ValidationError("LigandNotFound", $"No ligand named '{name}' found"))
+
                     | ByPath subPath ->
                         let fullPath = Path.Combine(directoryPath, subPath)
+
                         if File.Exists fullPath then
                             let molecules = loadPdbFile fullPath
+
                             if molecules.Length > 0 then
-                                Ok { Molecules = molecules
-                                     Labels = None
-                                     LabelColumn = None
-                                     Metadata = Map.ofList ["source", fullPath; "format", "pdb"] }
+                                Ok
+                                    {
+                                        Molecules = molecules
+                                        Labels = None
+                                        LabelColumn = None
+                                        Metadata = Map.ofList [ "source", fullPath; "format", "pdb" ]
+                                    }
                             else
-                                Error (QuantumError.ValidationError("NoLigands", $"No ligands found in {fullPath}"))
+                                Error(QuantumError.ValidationError("NoLigands", $"No ligands found in {fullPath}"))
                         else
-                            Error (QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
-                    
+                            Error(QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
+
                     | ByCategory _ ->
-                        Error (QuantumError.ValidationError("UnsupportedQuery", "PdbDirectoryDatasetProvider does not support category queries"))
+                        Error(
+                            QuantumError.ValidationError(
+                                "UnsupportedQuery",
+                                "PdbDirectoryDatasetProvider does not support category queries"
+                            )
+                        )
 
             member _.ListNames() =
                 if Directory.Exists directoryPath then
                     let files = Directory.GetFiles(directoryPath, pattern)
+
                     files
                     |> Array.collect loadPdbFile
                     |> Array.choose (fun m -> m.Name)

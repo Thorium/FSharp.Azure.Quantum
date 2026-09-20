@@ -69,14 +69,42 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "QuantumErrorCorrectionExample.fsx" "QEC codes: encode, inject error, measure syndrome, correct, verify." [
-    { Name = "code"; Description = "Code to test (bitflip/phaseflip/shor/steane/all)"; Default = Some "all" }
-    { Name = "error-qubit"; Description = "Qubit index for error injection (default varies by code)"; Default = None }
-    { Name = "logical-bit"; Description = "Logical bit to encode (0 or 1)"; Default = Some "0" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "QuantumErrorCorrectionExample.fsx"
+    "QEC codes: encode, inject error, measure syndrome, correct, verify."
+    [
+        {
+            Name = "code"
+            Description = "Code to test (bitflip/phaseflip/shor/steane/all)"
+            Default = Some "all"
+        }
+        {
+            Name = "error-qubit"
+            Description = "Qubit index for error injection (default varies by code)"
+            Default = None
+        }
+        {
+            Name = "logical-bit"
+            Description = "Logical bit to encode (0 or 1)"
+            Default = Some "0"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let codeArg = Cli.getOr "code" "all" args
 let errorQubitOverride = Cli.tryGet "error-qubit" args |> Option.map int
@@ -101,16 +129,19 @@ let results = System.Collections.Generic.List<Map<string, string>>()
 
 let addRoundTripResult (codeName: string) (errorType: string) (errorQubit: int) (r: RoundTripResult) =
     results.Add(
-        [ "code", codeName
-          "logical_bit", string r.LogicalBit
-          "error_type", errorType
-          "error_qubit", string errorQubit
-          "syndrome", (r.Syndrome.SyndromeBits |> List.map string |> String.concat ",")
-          "correction_applied", string r.CorrectionApplied
-          "decoded_bit", string r.DecodedBit
-          "success", string r.Success
-          "backend", r.BackendName ]
-        |> Map.ofList)
+        [
+            "code", codeName
+            "logical_bit", string r.LogicalBit
+            "error_type", errorType
+            "error_qubit", string errorQubit
+            "syndrome", (r.Syndrome.SyndromeBits |> List.map string |> String.concat ",")
+            "correction_applied", string r.CorrectionApplied
+            "decoded_bit", string r.DecodedBit
+            "success", string r.Success
+            "backend", r.BackendName
+        ]
+        |> Map.ofList
+    )
 
 // ============================================================================
 // Scenario 1: Code Parameters
@@ -132,6 +163,7 @@ let codes = [ BitFlipCode3; PhaseFlipCode3; ShorCode9; SteaneCode7 ]
 
 for code in codes do
     let p = codeParameters code
+
     let codeName =
         match code with
         | BitFlipCode3 -> "BitFlip"
@@ -143,15 +175,19 @@ for code in codes do
         printfn "  %s" (formatCodeParameters code)
 
     results.Add(
-        [ "scenario", "parameters"
-          "code", codeName
-          "physical_qubits", string p.PhysicalQubits
-          "logical_qubits", string p.LogicalQubits
-          "distance", string p.Distance
-          "correctable_errors", string p.CorrectableErrors ]
-        |> Map.ofList)
+        [
+            "scenario", "parameters"
+            "code", codeName
+            "physical_qubits", string p.PhysicalQubits
+            "logical_qubits", string p.LogicalQubits
+            "distance", string p.Distance
+            "correctable_errors", string p.CorrectableErrors
+        ]
+        |> Map.ofList
+    )
 
-if not quiet then printfn ""
+if not quiet then
+    printfn ""
 
 // ============================================================================
 // Scenario 2: Bit-Flip Code [[3,1,1]]
@@ -167,28 +203,44 @@ if runCode "bitflip" then
     // No error
     match BitFlip.roundTrip backend logicalBit None with
     | Error err ->
-        if not quiet then printfn "  ERROR: %A" err
+        if not quiet then
+            printfn "  ERROR: %A" err
     | Ok r ->
         if not quiet then
-            printfn "  No error:   encoded |%d> -> decoded |%d>  [%s]"
-                r.LogicalBit r.DecodedBit (if r.Success then "OK" else "FAIL")
+            printfn
+                "  No error:   encoded |%d> -> decoded |%d>  [%s]"
+                r.LogicalBit
+                r.DecodedBit
+                (if r.Success then "OK" else "FAIL")
+
         addRoundTripResult "BitFlip" "none" -1 r
 
     // Error on each data qubit
-    let testQubits = match errorQubitOverride with Some q -> [q] | None -> [0; 1; 2]
+    let testQubits =
+        match errorQubitOverride with
+        | Some q -> [ q ]
+        | None -> [ 0; 1; 2 ]
+
     for q in testQubits do
-        for lb in [0; 1] do
+        for lb in [ 0; 1 ] do
             match BitFlip.roundTrip backend lb (Some q) with
             | Error err ->
-                if not quiet then printfn "  ERROR: %A" err
+                if not quiet then
+                    printfn "  ERROR: %A" err
             | Ok r ->
                 if not quiet then
-                    printfn "  X on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  [%s]"
-                        q r.LogicalBit r.Syndrome.SyndromeBits r.DecodedBit
+                    printfn
+                        "  X on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  [%s]"
+                        q
+                        r.LogicalBit
+                        r.Syndrome.SyndromeBits
+                        r.DecodedBit
                         (if r.Success then "OK" else "FAIL")
+
                 addRoundTripResult "BitFlip" "X" q r
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
 // ============================================================================
 // Scenario 3: Phase-Flip Code [[3,1,1]]
@@ -201,20 +253,31 @@ if runCode "phaseflip" then
         printfn "  Corrects: Single Z (phase-flip) errors"
         printfn ""
 
-    let testQubits = match errorQubitOverride with Some q -> [q] | None -> [0; 1; 2]
+    let testQubits =
+        match errorQubitOverride with
+        | Some q -> [ q ]
+        | None -> [ 0; 1; 2 ]
+
     for q in testQubits do
-        for lb in [0; 1] do
+        for lb in [ 0; 1 ] do
             match PhaseFlip.roundTrip backend lb (Some q) with
             | Error err ->
-                if not quiet then printfn "  ERROR: %A" err
+                if not quiet then
+                    printfn "  ERROR: %A" err
             | Ok r ->
                 if not quiet then
-                    printfn "  Z on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  [%s]"
-                        q r.LogicalBit r.Syndrome.SyndromeBits r.DecodedBit
+                    printfn
+                        "  Z on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  [%s]"
+                        q
+                        r.LogicalBit
+                        r.Syndrome.SyndromeBits
+                        r.DecodedBit
                         (if r.Success then "OK" else "FAIL")
+
                 addRoundTripResult "PhaseFlip" "Z" q r
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
 // ============================================================================
 // Scenario 4: Shor 9-Qubit Code [[9,1,3]]
@@ -230,19 +293,26 @@ if runCode "shor" then
 
     let errQubit = errorQubitOverride |> Option.defaultValue 1
 
-    for (errType, errLabel) in [(BitFlipError, "X"); (PhaseFlipError, "Z"); (CombinedError, "Y")] do
-        for lb in [0; 1] do
+    for (errType, errLabel) in [ (BitFlipError, "X"); (PhaseFlipError, "Z"); (CombinedError, "Y") ] do
+        for lb in [ 0; 1 ] do
             match Shor.roundTrip backend lb errType errQubit with
             | Error err ->
-                if not quiet then printfn "  ERROR: %A" err
+                if not quiet then
+                    printfn "  ERROR: %A" err
             | Ok r ->
                 if not quiet then
-                    printfn "  %s on q%d:    encoded |%d> -> decoded |%d>  [%s]"
-                        errLabel errQubit r.LogicalBit r.DecodedBit
+                    printfn
+                        "  %s on q%d:    encoded |%d> -> decoded |%d>  [%s]"
+                        errLabel
+                        errQubit
+                        r.LogicalBit
+                        r.DecodedBit
                         (if r.Success then "OK" else "FAIL")
+
                 addRoundTripResult "Shor" errLabel errQubit r
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
 // ============================================================================
 // Scenario 5: Steane 7-Qubit Code [[7,1,3]]
@@ -257,19 +327,26 @@ if runCode "steane" then
 
     let errQubit = errorQubitOverride |> Option.defaultValue 3
 
-    for (errType, errLabel) in [(BitFlipError, "X"); (PhaseFlipError, "Z"); (CombinedError, "Y")] do
-        for lb in [0; 1] do
+    for (errType, errLabel) in [ (BitFlipError, "X"); (PhaseFlipError, "Z"); (CombinedError, "Y") ] do
+        for lb in [ 0; 1 ] do
             match Steane.roundTrip backend lb errType errQubit with
             | Error err ->
-                if not quiet then printfn "  ERROR: %A" err
+                if not quiet then
+                    printfn "  ERROR: %A" err
             | Ok r ->
                 if not quiet then
-                    printfn "  %s on q%d:    encoded |%d> -> decoded |%d>  [%s]"
-                        errLabel errQubit r.LogicalBit r.DecodedBit
+                    printfn
+                        "  %s on q%d:    encoded |%d> -> decoded |%d>  [%s]"
+                        errLabel
+                        errQubit
+                        r.LogicalBit
+                        r.DecodedBit
                         (if r.Success then "OK" else "FAIL")
+
                 addRoundTripResult "Steane" errLabel errQubit r
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
 // ============================================================================
 // Summary: Code Comparison
@@ -281,23 +358,25 @@ if not quiet then
     printfn "  %-20s  %-8s  %-8s  %-10s  %-12s" "Code" "Qubits" "Dist." "Corrects" "Error Types"
     printfn "  %-20s  %-8s  %-8s  %-10s  %-12s" "--------------------" "--------" "--------" "----------" "------------"
 
-    let codeInfo = [
-        (BitFlipCode3,   "X only")
-        (PhaseFlipCode3, "Z only")
-        (ShorCode9,      "X, Z, Y")
-        (SteaneCode7,    "X, Z, Y")
-    ]
+    let codeInfo =
+        [
+            (BitFlipCode3, "X only")
+            (PhaseFlipCode3, "Z only")
+            (ShorCode9, "X, Z, Y")
+            (SteaneCode7, "X, Z, Y")
+        ]
 
     for (code, errorTypes) in codeInfo do
         let p = codeParameters code
+
         let name =
             match code with
             | BitFlipCode3 -> "Bit-Flip [[3,1,1]]"
             | PhaseFlipCode3 -> "Phase-Flip [[3,1,1]]"
             | ShorCode9 -> "Shor [[9,1,3]]"
             | SteaneCode7 -> "Steane [[7,1,3]]"
-        printfn "  %-20s  %-8d  %-8d  %-10d  %-12s"
-            name p.PhysicalQubits p.Distance p.CorrectableErrors errorTypes
+
+        printfn "  %-20s  %-8d  %-8d  %-10d  %-12s" name p.PhysicalQubits p.Distance p.CorrectableErrors errorTypes
 
     printfn ""
     printfn "  Key insight: Correcting {X, Z, Y} covers ALL single-qubit errors"
@@ -317,12 +396,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

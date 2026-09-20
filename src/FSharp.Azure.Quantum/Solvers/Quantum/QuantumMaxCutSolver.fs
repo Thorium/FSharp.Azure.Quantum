@@ -9,15 +9,15 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
 
 /// Quantum MaxCut Solver using QAOA and Backend Abstraction
-/// 
+///
 /// ALGORITHM-LEVEL API (for advanced users):
 /// This module provides direct access to quantum MaxCut solving via QAOA.
 /// MaxCut is THE canonical QAOA benchmark problem - finding a partition
 /// of graph vertices that maximizes edges crossing the partition.
-/// 
+///
 /// RULE 1 COMPLIANCE:
 /// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
-/// 
+///
 /// TECHNICAL DETAILS:
 /// - Execution: Quantum hardware/simulator via backend
 /// - Algorithm: QAOA (Quantum Approximate Optimization Algorithm)
@@ -35,7 +35,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// MaxCut Problem:
 ///   Given graph G = (V, E) with edge weights w_ij,
 ///   partition V into two sets S and T to maximize:
-///   
+///
 ///   MaxCut = Σ w_ij  where i ∈ S, j ∈ T
 ///
 /// Example:
@@ -51,110 +51,115 @@ module QuantumMaxCutSolver =
     // ================================================================================
 
     /// MaxCut problem specification (undirected weighted graph)
-    type MaxCutProblem = {
-        /// Graph vertices (nodes)
-        Vertices: string list
-        
-        /// Graph edges with weights (undirected)
-        Edges: Edge<float> list
-    }
-    
+    type MaxCutProblem =
+        {
+            /// Graph vertices (nodes)
+            Vertices: string list
+
+            /// Graph edges with weights (undirected)
+            Edges: Edge<float> list
+        }
+
     /// MaxCut solution result
-    type MaxCutSolution = {
-        /// Vertices in partition S
-        PartitionS: string list
-        
-        /// Vertices in partition T (complement of S)
-        PartitionT: string list
-        
-        /// Total cut value (sum of edge weights crossing partition)
-        CutValue: float
-        
-        /// Edges that cross the partition
-        CutEdges: Edge<float> list
-        
-        /// Backend used for execution
-        BackendName: string
-        
-        /// Number of measurement shots
-        NumShots: int
-        
-        /// Execution time in milliseconds
-        ElapsedMs: float
-        
-        /// QUBO objective value (energy)
-        BestEnergy: float
-    }
+    type MaxCutSolution =
+        {
+            /// Vertices in partition S
+            PartitionS: string list
+
+            /// Vertices in partition T (complement of S)
+            PartitionT: string list
+
+            /// Total cut value (sum of edge weights crossing partition)
+            CutValue: float
+
+            /// Edges that cross the partition
+            CutEdges: Edge<float> list
+
+            /// Backend used for execution
+            BackendName: string
+
+            /// Number of measurement shots
+            NumShots: int
+
+            /// Execution time in milliseconds
+            ElapsedMs: float
+
+            /// QUBO objective value (energy)
+            BestEnergy: float
+        }
 
     // ================================================================================
     // QUBO ENCODING FOR MAXCUT
     // ================================================================================
 
     /// Encode MaxCut problem as QUBO
-    /// 
+    ///
     /// MaxCut QUBO formulation (THE canonical QAOA problem):
-    /// 
+    ///
     /// Variables: x_i ∈ {0, 1} where x_i = 1 means vertex i is in partition S
-    /// 
+    ///
     /// Objective (to MAXIMIZE):
     ///   MaxCut = Σ_{(i,j) ∈ E} w_ij * (x_i + x_j - 2*x_i*x_j)
     ///          = Σ_{(i,j) ∈ E} w_ij * (x_i XOR x_j)
-    /// 
+    ///
     /// QUBO form (to MINIMIZE for QAOA, so we negate):
     ///   Minimize: -Σ_{(i,j) ∈ E} w_ij * (x_i + x_j - 2*x_i*x_j)
-    /// 
+    ///
     /// Expanded to QUBO matrix Q:
     ///   Q_ii = -Σ_{j: (i,j) ∈ E} w_ij         (linear terms)
     ///   Q_ij = 2*w_ij for edge (i,j)           (quadratic terms)
     let toQubo (problem: MaxCutProblem) : Result<QuboMatrix, QuantumError> =
         try
             // Create vertex index mapping
-            let vertexIndexMap = 
-                problem.Vertices 
-                |> List.mapi (fun i vertex -> vertex, i)
-                |> Map.ofList
-            
+            let vertexIndexMap =
+                problem.Vertices |> List.mapi (fun i vertex -> vertex, i) |> Map.ofList
+
             let numVars = problem.Vertices.Length
-            
+
             if numVars = 0 then
-                Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
+                Error(QuantumError.ValidationError("numVertices", "MaxCut problem has no vertices"))
             elif problem.Edges.Length = 0 then
-                Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
+                Error(QuantumError.ValidationError("numEdges", "MaxCut problem has no edges"))
             else
                 // Build QUBO terms as Map<(int * int), float> using functional fold
                 let quboTerms =
                     problem.Edges
-                    |> List.fold (fun terms edge ->
-                        let i = vertexIndexMap.[edge.Source]
-                        let j = vertexIndexMap.[edge.Target]
-                        let weight = edge.Weight
-                        
-                        // MaxCut QUBO formulation: 
-                        // For edge (i,j) with weight w:
-                        //   Minimize: -w * (x_i + x_j - 2*x_i*x_j)
-                        //           = -w*x_i - w*x_j + 2*w*x_i*x_j
-                        
-                        // Linear terms: Q_ii and Q_jj
-                        let existingQii = terms |> Map.tryFind (i, i) |> Option.defaultValue 0.0
-                        let existingQjj = terms |> Map.tryFind (j, j) |> Option.defaultValue 0.0
-                        
-                        let termsWithLinear = 
-                            terms 
-                            |> Map.add (i, i) (existingQii - weight)
-                            |> Map.add (j, j) (existingQjj - weight)
-                        
-                        // Quadratic term: Q_ij (only upper triangle for symmetry)
-                        let (row, col) = if i <= j then (i, j) else (j, i)
-                        let existingQij = termsWithLinear |> Map.tryFind (row, col) |> Option.defaultValue 0.0
-                        termsWithLinear |> Map.add (row, col) (existingQij + 2.0 * weight)
-                    ) Map.empty
-                
-                Ok {
-                    Q = quboTerms
-                    NumVariables = numVars
-                }
+                    |> List.fold
+                        (fun terms edge ->
+                            let i = vertexIndexMap.[edge.Source]
+                            let j = vertexIndexMap.[edge.Target]
+                            let weight = edge.Weight
+
+                            // MaxCut QUBO formulation:
+                            // For edge (i,j) with weight w:
+                            //   Minimize: -w * (x_i + x_j - 2*x_i*x_j)
+                            //           = -w*x_i - w*x_j + 2*w*x_i*x_j
+
+                            // Linear terms: Q_ii and Q_jj
+                            let existingQii = terms |> Map.tryFind (i, i) |> Option.defaultValue 0.0
+                            let existingQjj = terms |> Map.tryFind (j, j) |> Option.defaultValue 0.0
+
+                            let termsWithLinear =
+                                terms
+                                |> Map.add (i, i) (existingQii - weight)
+                                |> Map.add (j, j) (existingQjj - weight)
+
+                            // Quadratic term: Q_ij (only upper triangle for symmetry)
+                            let (row, col) = if i <= j then (i, j) else (j, i)
+
+                            let existingQij =
+                                termsWithLinear |> Map.tryFind (row, col) |> Option.defaultValue 0.0
+
+                            termsWithLinear |> Map.add (row, col) (existingQij + 2.0 * weight))
+                        Map.empty
+
+                Ok
+                    {
+                        Q = quboTerms
+                        NumVariables = numVars
+                    }
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", $"MaxCut QUBO encoding failed: %s{ex.Message}"))
+            Error(QuantumError.OperationError("QuboEncoding", $"MaxCut QUBO encoding failed: %s{ex.Message}"))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -162,33 +167,28 @@ module QuantumMaxCutSolver =
 
     /// Decode binary solution to MaxCut partition
     let private decodeSolution (problem: MaxCutProblem) (bitstring: int[]) : MaxCutSolution =
-        let vertexPartitions = 
-            problem.Vertices 
-            |> List.mapi (fun i vertex -> vertex, bitstring.[i])
-        
+        let vertexPartitions =
+            problem.Vertices |> List.mapi (fun i vertex -> vertex, bitstring.[i])
+
         // Partition S: vertices with bit = 1
-        let partitionS = 
-            vertexPartitions 
-            |> List.filter (fun (_, bit) -> bit = 1)
-            |> List.map fst
-        
+        let partitionS =
+            vertexPartitions |> List.filter (fun (_, bit) -> bit = 1) |> List.map fst
+
         // Partition T: vertices with bit = 0 (complement)
-        let partitionT = 
-            vertexPartitions 
-            |> List.filter (fun (_, bit) -> bit = 0)
-            |> List.map fst
-        
+        let partitionT =
+            vertexPartitions |> List.filter (fun (_, bit) -> bit = 0) |> List.map fst
+
         // Calculate cut value: sum weights of edges crossing partition
-        let cutEdges = 
+        let cutEdges =
             problem.Edges
             |> List.filter (fun edge ->
                 let sourcePartition = List.contains edge.Source partitionS
                 let targetPartition = List.contains edge.Target partitionS
-                sourcePartition <> targetPartition  // Edge crosses partition
+                sourcePartition <> targetPartition // Edge crosses partition
             )
-        
+
         let cutValue = cutEdges |> List.sumBy (fun edge -> edge.Weight)
-        
+
         {
             PartitionS = partitionS
             PartitionT = partitionT
@@ -197,18 +197,18 @@ module QuantumMaxCutSolver =
             BackendName = ""
             NumShots = 0
             ElapsedMs = 0.0
-            BestEnergy = -cutValue  // QUBO minimizes -cutValue
+            BestEnergy = -cutValue // QUBO minimizes -cutValue
         }
 
     /// Calculate cut value for a given partition (for validation)
     let calculateCutValue (problem: MaxCutProblem) (partitionS: string list) : float =
         let partitionSSet = Set.ofList partitionS
-        
+
         problem.Edges
         |> List.filter (fun edge ->
             let sourceInS = partitionSSet.Contains edge.Source
             let targetInS = partitionSSet.Contains edge.Target
-            sourceInS <> targetInS  // Edge crosses partition
+            sourceInS <> targetInS // Edge crosses partition
         )
         |> List.sumBy (fun edge -> edge.Weight)
 
@@ -217,34 +217,36 @@ module QuantumMaxCutSolver =
     // ================================================================================
 
     /// QAOA configuration parameters
-    type QaoaConfig = {
-        /// Number of measurement shots
-        NumShots: int
-        
-        /// Initial QAOA parameters (gamma, beta) for single layer
-        /// Typical values: (0.5, 0.5) or (π/4, π/2)
-        InitialParameters: float * float
-    }
-    
+    type QaoaConfig =
+        {
+            /// Number of measurement shots
+            NumShots: int
+
+            /// Initial QAOA parameters (gamma, beta) for single layer
+            /// Typical values: (0.5, 0.5) or (π/4, π/2)
+            InitialParameters: float * float
+        }
+
     /// Default QAOA configuration for MaxCut
-    let defaultConfig : QaoaConfig = {
-        NumShots = 1000
-        InitialParameters = (0.5, 0.5)  // Reasonable starting point
-    }
+    let defaultConfig: QaoaConfig =
+        {
+            NumShots = 1000
+            InitialParameters = (0.5, 0.5) // Reasonable starting point
+        }
 
     // ================================================================================
     // MAIN SOLVER
     // ================================================================================
 
     /// Solve MaxCut problem using quantum QAOA (async version)
-    /// 
+    ///
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
     ///   - problem: MaxCut problem (graph with vertices and weighted edges)
     ///   - config: QAOA configuration (shots, initial parameters)
-    /// 
+    ///
     /// Returns: Async<Result<MaxCutSolution, QuantumError>> - Async computation with result or error
-    /// 
+    ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
@@ -254,81 +256,89 @@ module QuantumMaxCutSolver =
     ///       | Ok solution -> printfn "Cut: %f" solution.CutValue
     ///       | Error msg -> printfn "Error: %s" msg
     ///   }
-    let solveAsync 
-        (backend: BackendAbstraction.IQuantumBackend) 
-        (problem: MaxCutProblem) 
-        (config: QaoaConfig) 
+    let solveAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: MaxCutProblem)
+        (config: QaoaConfig)
         (cancellationToken: CancellationToken)
-        : Task<Result<MaxCutSolution, QuantumError>> = 
-        
+        : Task<Result<MaxCutSolution, QuantumError>> =
+
         let startTime = DateTime.Now
-        
+
         try
             // Step 1: Validate problem size against backend
             let numQubits = problem.Vertices.Length
-            
+
             // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
             // Backends will return errors if qubit count exceeded
             if numQubits = 0 then
-                task {
-                    return Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
-                }
+                task { return Error(QuantumError.ValidationError("numVertices", "MaxCut problem has no vertices")) }
             elif problem.Edges.Length = 0 then
-                task {
-                    return Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
-                }
+                task { return Error(QuantumError.ValidationError("numEdges", "MaxCut problem has no edges")) }
             else
                 // Step 2: Encode MaxCut as QUBO
                 match toQubo problem with
                 | Error err -> task { return Error err }
                 | Ok quboMatrix ->
-                    
+
                     // Step 3: Convert QUBO to dense array and execute QAOA pipeline
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
 
-                    let handleMeasurements (measurements : int array array) = 
+                    let handleMeasurements (measurements: int array array) =
                         // Step 7: Decode measurements to partitions
-                        let solutions = 
+                        let solutions =
                             measurements
                             |> Array.map (fun measurement -> decodeSolution problem measurement)
-                        
+
                         // Step 8: Find best solution (maximum cut value)
-                        let bestSolution = 
-                            solutions
-                            |> Array.maxBy (fun sol -> sol.CutValue)
-                        
+                        let bestSolution = solutions |> Array.maxBy (fun sol -> sol.CutValue)
+
                         let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
-                        
-                        Ok {
-                            bestSolution with
+
+                        Ok
+                            { bestSolution with
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
-                        }
+                            }
 
                     task {
-                        match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
+                        match!
+                            QaoaExecutionHelpers.executeFromQuboAsync
+                                backend
+                                quboArray
+                                parameters
+                                config.NumShots
+                                cancellationToken
+                        with
                         | Error err -> return Error err
-                        | Ok measurements ->
-                            return handleMeasurements measurements
+                        | Ok measurements -> return handleMeasurements measurements
                     }
         with ex ->
-            task { return Error (QuantumError.OperationError ("QuantumMaxCutSolver", $"Quantum MaxCut solve failed: %s{ex.Message}")) }
+            task {
+                return
+                    Error(
+                        QuantumError.OperationError(
+                            "QuantumMaxCutSolver",
+                            $"Quantum MaxCut solve failed: %s{ex.Message}"
+                        )
+                    )
+            }
 
     /// Solve MaxCut problem using quantum QAOA (synchronous wrapper)
-    /// 
+    ///
     /// This is a synchronous wrapper around solveAsync for backward compatibility.
     /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
-    /// 
+    ///
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
     ///   - problem: MaxCut problem (graph with vertices and weighted edges)
     ///   - config: QAOA configuration (shots, initial parameters)
-    /// 
+    ///
     /// Returns: Ok with best partition found, or Error with QuantumError
-    /// 
+    ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
@@ -337,10 +347,10 @@ module QuantumMaxCutSolver =
     ///   | Ok solution -> printfn "Cut: %f" solution.CutValue
     ///   | Error msg -> printfn "Error: %s" msg
     [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve 
-        (backend: BackendAbstraction.IQuantumBackend) 
-        (problem: MaxCutProblem) 
-        (config: QaoaConfig) 
+    let solve
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: MaxCutProblem)
+        (config: QaoaConfig)
         : Result<MaxCutSolution, QuantumError> =
         solveAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
@@ -351,60 +361,62 @@ module QuantumMaxCutSolver =
     // ================================================================================
 
     /// Solve MaxCut using greedy local search (classical algorithm)
-    /// 
+    ///
     /// This provides a classical baseline for comparison with quantum QAOA.
     /// Uses random initial partition with local improvement.
-    /// 
+    ///
     /// Typical performance: 80-90% of optimal for random graphs
     let internal solveClassical (problem: MaxCutProblem) : MaxCutSolution =
         let rng = Random()
-        
+
         // Start with random partition
-        let initialPartitionS = 
-            problem.Vertices
-            |> List.filter (fun _ -> rng.NextDouble() > 0.5)
-        
+        let initialPartitionS =
+            problem.Vertices |> List.filter (fun _ -> rng.NextDouble() > 0.5)
+
         // Local search: try moving each vertex to improve cut
         let rec improvePartition (currentS: string list) (improved: bool) =
             if not improved then
-                currentS  // No improvement found, done
+                currentS // No improvement found, done
             else
                 // Try moving each vertex and find best improvement
                 let currentCut = calculateCutValue problem currentS
+
                 let (bestS, bestCut, foundImprovement) =
                     problem.Vertices
-                    |> List.fold (fun (accS, accCut, accImproved) vertex ->
-                        let inS = List.contains vertex currentS
-                        let newS = 
-                            if inS then
-                                currentS |> List.filter ((<>) vertex)  // Remove from S
+                    |> List.fold
+                        (fun (accS, accCut, accImproved) vertex ->
+                            let inS = List.contains vertex currentS
+
+                            let newS =
+                                if inS then
+                                    currentS |> List.filter ((<>) vertex) // Remove from S
+                                else
+                                    vertex :: currentS // Add to S
+
+                            let newCut = calculateCutValue problem newS
+
+                            if newCut > accCut then
+                                (newS, newCut, true)
                             else
-                                vertex :: currentS  // Add to S
-                        
-                        let newCut = calculateCutValue problem newS
-                        
-                        if newCut > accCut then
-                            (newS, newCut, true)
-                        else
-                            (accS, accCut, accImproved)
-                    ) (currentS, currentCut, false)
-                
+                                (accS, accCut, accImproved))
+                        (currentS, currentCut, false)
+
                 improvePartition bestS foundImprovement
-        
+
         let finalPartitionS = improvePartition initialPartitionS true
-        let finalPartitionT = 
+
+        let finalPartitionT =
             problem.Vertices |> List.filter (fun v -> not (List.contains v finalPartitionS))
-        
-        let cutEdges = 
+
+        let cutEdges =
             problem.Edges
             |> List.filter (fun edge ->
                 let sourceInS = List.contains edge.Source finalPartitionS
                 let targetInS = List.contains edge.Target finalPartitionS
-                sourceInS <> targetInS
-            )
-        
+                sourceInS <> targetInS)
+
         let cutValue = cutEdges |> List.sumBy (fun edge -> edge.Weight)
-        
+
         {
             PartitionS = finalPartitionS
             PartitionT = finalPartitionT

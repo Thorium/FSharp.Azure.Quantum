@@ -27,29 +27,31 @@ module TspSolver =
 
     /// TSP solver configuration
     [<Struct>]
-    type TspConfig = {
-        /// Maximum number of 2-opt iterations (default: 1000)
-        MaxIterations: int
+    type TspConfig =
+        {
+            /// Maximum number of 2-opt iterations (default: 1000)
+            MaxIterations: int
 
-        /// Whether to use nearest neighbor initialization (default: true)
-        UseNearestNeighbor: bool
-    }
+            /// Whether to use nearest neighbor initialization (default: true)
+            UseNearestNeighbor: bool
+        }
 
     /// Create default TSP configuration
-    let defaultConfig = {
-        MaxIterations = 1000
-        UseNearestNeighbor = true
-    }
-    
+    let defaultConfig =
+        {
+            MaxIterations = 1000
+            UseNearestNeighbor = true
+        }
+
     /// Maximum number of cities allowed (prevents memory exhaustion)
     [<Literal>]
     let maxCities = 10000
-    
+
     /// Validate distance matrix dimensions and values
     let private validateDistanceMatrix (distances: DistanceMatrix) : Result<unit, string> =
         let n = distances.GetLength 0
         let m = distances.GetLength 1
-        
+
         // Check matrix size (allow 1 city as trivial case)
         if n < 1 then
             Error "Distance matrix must have at least 1 city"
@@ -59,43 +61,50 @@ module TspSolver =
             Error $"Distance matrix must be square (NxN): got {n}x{m}"
         else
             // Check for negative distances
-            let hasNegative = 
-                seq { for i in 0..n-1 do
-                        for j in 0..n-1 do
-                            yield distances.[i,j] }
+            let hasNegative =
+                seq {
+                    for i in 0 .. n - 1 do
+                        for j in 0 .. n - 1 do
+                            yield distances.[i, j]
+                }
                 |> Seq.exists (fun d -> d < 0.0 || Double.IsNaN(d) || Double.IsInfinity(d))
-            
+
             if hasNegative then
                 Error "Distance matrix contains invalid values (negative, NaN, or Infinity)"
             else
-                Ok ()
+                Ok()
 
     /// TSP solution result
-    type TspSolution = {
-        /// Tour as sequence of city indices
-        Tour: Tour
+    type TspSolution =
+        {
+            /// Tour as sequence of city indices
+            Tour: Tour
 
-        /// Total tour length
-        TourLength: float
+            /// Total tour length
+            TourLength: float
 
-        /// Number of iterations performed
-        Iterations: int
+            /// Number of iterations performed
+            Iterations: int
 
-        /// Time taken to solve (milliseconds)
-        ElapsedMs: float
-    }
+            /// Time taken to solve (milliseconds)
+            ElapsedMs: float
+        }
 
     /// Build distance matrix from city coordinates
     let buildDistanceMatrix (cities: City array) : DistanceMatrix =
         let n = cities.Length
+
         Array2D.init n n (fun i j ->
-            if i = j then 0.0
-            else TspTypes.distance cities.[i] cities.[j])
+            if i = j then
+                0.0
+            else
+                TspTypes.distance cities.[i] cities.[j])
 
     /// Calculate total tour length given distance matrix
     let calculateTourLength (distances: DistanceMatrix) (tour: Tour) : float =
         let n = tour.Length
-        [0 .. n - 1]
+
+        [ 0 .. n - 1 ]
         |> List.sumBy (fun i ->
             let fromCity = tour.[i]
             let toCity = tour.[(i + 1) % n]
@@ -103,7 +112,7 @@ module TspSolver =
 
     /// Find nearest unvisited city
     let private findNearestCity (distances: DistanceMatrix) (currentCity: int) (visited: Set<int>) (n: int) : int =
-        [0 .. n - 1]
+        [ 0 .. n - 1 ]
         |> List.filter (fun candidate -> not (Set.contains candidate visited))
         |> List.minBy (fun candidate -> distances.[currentCity, candidate])
 
@@ -111,23 +120,23 @@ module TspSolver =
     /// Returns a tour starting from city 0, always visiting the nearest unvisited city
     let internal nearestNeighborTour (distances: DistanceMatrix) : Tour =
         let n = distances.GetLength 0
-        
+
         let rec buildTour (currentCity: int) (visited: Set<int>) (tour: int list) : int list =
             if Set.count visited = n then
                 List.rev tour
             else
                 let nearestCity = findNearestCity distances currentCity visited n
                 buildTour nearestCity (Set.add nearestCity visited) (nearestCity :: tour)
-        
+
         let initialCity = 0
-        let tour = buildTour initialCity (Set.singleton initialCity) [initialCity]
+        let tour = buildTour initialCity (Set.singleton initialCity) [ initialCity ]
         List.toArray tour
 
     /// Reverse array segment between indices (inclusive, with wrapping)
     let private reverseSegment (arr: 'T array) (start: int) (finish: int) : 'T array =
         let n = arr.Length
         let newArr = Array.copy arr
-        
+
         let rec swapElements left right =
             if left = right || (left - 1 + n) % n = right then
                 ()
@@ -136,7 +145,7 @@ module TspSolver =
                 newArr.[left] <- newArr.[right]
                 newArr.[right] <- temp
                 swapElements ((left + 1) % n) ((right - 1 + n) % n)
-        
+
         swapElements start finish
         newArr
 
@@ -157,13 +166,14 @@ module TspSolver =
 
         if improvement > 1e-10 then
             let newTour = reverseSegment tour ((i + 1) % n) j
-            Some (newTour, improvement)
+            Some(newTour, improvement)
         else
             None
 
     /// Try all 2-opt swaps and return first improvement found
     let private tryAllSwaps (distances: DistanceMatrix) (tour: Tour) : Tour option =
         let n = tour.Length
+
         let rec tryPairs i j =
             if i >= n - 2 then
                 None
@@ -171,9 +181,9 @@ module TspSolver =
                 tryPairs (i + 1) (i + 3)
             else
                 match tryTwoOptSwap distances tour i j with
-                | Some (newTour, _) -> Some newTour
+                | Some(newTour, _) -> Some newTour
                 | None -> tryPairs i (j + 1)
-        
+
         tryPairs 0 2
 
     /// 2-opt local search algorithm
@@ -186,12 +196,13 @@ module TspSolver =
                 match tryAllSwaps distances tour with
                 | Some improvedTour -> improve improvedTour (iteration + 1)
                 | None -> (tour, iteration)
-        
+
         improve initialTour 0
 
     /// Create initial tour based on configuration
     let private createInitialTour (distances: DistanceMatrix) (config: TspConfig) : Tour =
         let n = distances.GetLength 0
+
         if config.UseNearestNeighbor then
             nearestNeighborTour distances
         else
@@ -201,7 +212,10 @@ module TspSolver =
     let private solveTsp (distances: DistanceMatrix) (config: TspConfig) : TspSolution =
         let startTime = DateTime.UtcNow
         let initialTour = createInitialTour distances config
-        let (finalTour, iterations) = twoOptImprove distances initialTour config.MaxIterations
+
+        let (finalTour, iterations) =
+            twoOptImprove distances initialTour config.MaxIterations
+
         let tourLength = calculateTourLength distances finalTour
         let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
 
@@ -219,7 +233,7 @@ module TspSolver =
             failwith $"Need at least 1 city, calling solve with cities: {cities}, config: {config}"
         elif cities.Length > maxCities then
             failwith $"Too many cities: {cities.Length} exceeds maximum {maxCities}"
-        
+
         let distances = buildDistanceMatrix cities
         solveTsp distances config
 
@@ -228,4 +242,4 @@ module TspSolver =
         // Validate input (throws on invalid input to maintain backward compatibility)
         match validateDistanceMatrix distances with
         | Error msg -> failwith msg
-        | Ok () -> solveTsp distances config
+        | Ok() -> solveTsp distances config

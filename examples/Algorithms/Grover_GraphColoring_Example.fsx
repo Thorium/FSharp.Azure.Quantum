@@ -65,13 +65,36 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "Grover_GraphColoring_Example.fsx" "Solve graph coloring problems using Grover's quantum search." [
-    { Name = "example"; Description = "Which example to run (1/2/3/4/all)"; Default = Some "all" }
-    { Name = "shots"; Description = "Number of measurement shots"; Default = Some "1000" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-]
+Cli.exitIfHelp
+    "Grover_GraphColoring_Example.fsx"
+    "Solve graph coloring problems using Grover's quantum search."
+    [
+        {
+            Name = "example"
+            Description = "Which example to run (1/2/3/4/all)"
+            Default = Some "all"
+        }
+        {
+            Name = "shots"
+            Description = "Number of measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
 
 let exampleChoice = Cli.getOr "example" "all" args
 let shots = Cli.getIntOr "shots" 1000 args
@@ -88,8 +111,10 @@ let shouldRun (ex: string) =
 
 /// Calculate qubits per vertex for k colors
 let qubitsPerVertex (numColors: int) =
-    if numColors <= 1 then 1
-    else int (Math.Ceiling(Math.Log(float numColors) / Math.Log(2.0)))
+    if numColors <= 1 then
+        1
+    else
+        int (Math.Ceiling(Math.Log(float numColors) / Math.Log(2.0)))
 
 /// Extract color for a vertex from a bit pattern
 let extractColor (assignment: int) (vertexIndex: int) (bitsPerVertex: int) =
@@ -106,19 +131,20 @@ let extractColors (assignment: int) (numVertices: int) (numColors: int) =
 let allColorsValid (colors: int array) (numColors: int) =
     colors |> Array.forall (fun c -> c < numColors)
 
-type ExampleResult = {
-    Example: string
-    GraphType: string
-    NumVertices: int
-    NumEdges: int
-    NumColors: int
-    Qubits: int
-    QuantumColorings: int array array
-    SuccessProbability: float
-    Iterations: int
-    Shots: int
-    Status: string
-}
+type ExampleResult =
+    {
+        Example: string
+        GraphType: string
+        NumVertices: int
+        NumEdges: int
+        NumColors: int
+        Qubits: int
+        QuantumColorings: int array array
+        SuccessProbability: float
+        Iterations: int
+        Shots: int
+        Status: string
+    }
 
 let allResults = System.Collections.Generic.List<ExampleResult>()
 
@@ -136,42 +162,72 @@ if shouldRun "1" then
         printfn "Graph: 0 -- 1 -- 2 (path/bipartite)"
         printfn ""
 
-    let pathGraph = graph 3 [(0, 1); (1, 2)]
+    let pathGraph = graph 3 [ (0, 1); (1, 2) ]
     let pathConfig = { Graph = pathGraph; NumColors = 2 }
 
     match graphColoringOracle pathConfig with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "1-Path-2Color"; GraphType = "Path (bipartite)"
-            NumVertices = 3; NumEdges = 2; NumColors = 2; Qubits = 0
-            QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "1-Path-2Color"
+                GraphType = "Path (bipartite)"
+                NumVertices = 3
+                NumEdges = 2
+                NumColors = 2
+                Qubits = 0
+                QuantumColorings = [||]
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
-            printfn "Oracle created: %d vertices, %d edges, %d colors, %d qubits"
-                pathConfig.Graph.NumVertices pathConfig.Graph.Edges.Length pathConfig.NumColors oracle.NumQubits
+            printfn
+                "Oracle created: %d vertices, %d edges, %d colors, %d qubits"
+                pathConfig.Graph.NumVertices
+                pathConfig.Graph.Edges.Length
+                pathConfig.NumColors
+                oracle.NumQubits
+
             printfn ""
             printfn "Running Grover's algorithm (%d shots)..." shots
 
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "1-Path-2Color"; GraphType = "Path (bipartite)"
-                NumVertices = 3; NumEdges = 2; NumColors = 2; Qubits = oracle.NumQubits
-                QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "1-Path-2Color"
+                    GraphType = "Path (bipartite)"
+                    NumVertices = 3
+                    NumEdges = 2
+                    NumColors = 2
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = [||]
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
             // Filter to only valid solutions (satisfy oracle)
             let validSolutions =
-                result.Solutions
-                |> List.filter (fun sol -> Oracle.isSolution oracle.Spec sol)
+                result.Solutions |> List.filter (fun sol -> Oracle.isSolution oracle.Spec sol)
 
             let colorings =
                 validSolutions
@@ -184,18 +240,28 @@ if shouldRun "1" then
                     printfn "  No valid coloring found"
                 else
                     printfn "  Found %d valid coloring(s):" colorings.Length
+
                     for c in colorings do
                         printfn "    v0=%d v1=%d v2=%d" c.[0] c.[1] c.[2]
+
                     printfn "  Success probability: %.2f%%" (result.SuccessProbability * 100.0)
                     printfn "  Iterations used: %d" result.Iterations
 
-            allResults.Add({
-                Example = "1-Path-2Color"; GraphType = "Path (bipartite)"
-                NumVertices = 3; NumEdges = 2; NumColors = 2; Qubits = oracle.NumQubits
-                QuantumColorings = colorings
-                SuccessProbability = result.SuccessProbability; Iterations = result.Iterations
-                Shots = shots; Status = if colorings.Length = 0 then "No solution" else "OK"
-            })
+            allResults.Add(
+                {
+                    Example = "1-Path-2Color"
+                    GraphType = "Path (bipartite)"
+                    NumVertices = 3
+                    NumEdges = 2
+                    NumColors = 2
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = colorings
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status = if colorings.Length = 0 then "No solution" else "OK"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -221,37 +287,68 @@ if shouldRun "2" then
         printfn "Graph: Complete K3 (all vertices connected)"
         printfn ""
 
-    let triangleGraph = graph 3 [(0, 1); (1, 2); (2, 0)]
+    let triangleGraph = graph 3 [ (0, 1); (1, 2); (2, 0) ]
     let triangleConfig = { Graph = triangleGraph; NumColors = 3 }
 
     match graphColoringOracle triangleConfig with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "2-Triangle-3Color"; GraphType = "Complete K3"
-            NumVertices = 3; NumEdges = 3; NumColors = 3; Qubits = 0
-            QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "2-Triangle-3Color"
+                GraphType = "Complete K3"
+                NumVertices = 3
+                NumEdges = 3
+                NumColors = 3
+                Qubits = 0
+                QuantumColorings = [||]
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
-            printfn "Oracle created: %d vertices, %d edges, %d colors, %d qubits (2 bits/vertex for 3 colors)"
-                triangleConfig.Graph.NumVertices triangleConfig.Graph.Edges.Length triangleConfig.NumColors oracle.NumQubits
+            printfn
+                "Oracle created: %d vertices, %d edges, %d colors, %d qubits (2 bits/vertex for 3 colors)"
+                triangleConfig.Graph.NumVertices
+                triangleConfig.Graph.Edges.Length
+                triangleConfig.NumColors
+                oracle.NumQubits
+
             printfn ""
             printfn "Running Grover's algorithm (%d shots)..." shots
 
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "2-Triangle-3Color"; GraphType = "Complete K3"
-                NumVertices = 3; NumEdges = 3; NumColors = 3; Qubits = oracle.NumQubits
-                QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "2-Triangle-3Color"
+                    GraphType = "Complete K3"
+                    NumVertices = 3
+                    NumEdges = 3
+                    NumColors = 3
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = [||]
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
             let colorings =
                 result.Solutions
@@ -264,18 +361,28 @@ if shouldRun "2" then
                     printfn "  No valid coloring found"
                 else
                     printfn "  Found %d valid coloring(s):" colorings.Length
+
                     for c in colorings |> Array.truncate 5 do
                         printfn "    v0=%d v1=%d v2=%d (all different)" c.[0] c.[1] c.[2]
+
                     printfn "  Success probability: %.2f%%" (result.SuccessProbability * 100.0)
                     printfn "  Iterations used: %d" result.Iterations
 
-            allResults.Add({
-                Example = "2-Triangle-3Color"; GraphType = "Complete K3"
-                NumVertices = 3; NumEdges = 3; NumColors = 3; Qubits = oracle.NumQubits
-                QuantumColorings = colorings
-                SuccessProbability = result.SuccessProbability; Iterations = result.Iterations
-                Shots = shots; Status = if colorings.Length = 0 then "No solution" else "OK"
-            })
+            allResults.Add(
+                {
+                    Example = "2-Triangle-3Color"
+                    GraphType = "Complete K3"
+                    NumVertices = 3
+                    NumEdges = 3
+                    NumColors = 3
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = colorings
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status = if colorings.Length = 0 then "No solution" else "OK"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -300,37 +407,68 @@ if shouldRun "3" then
         printfn "Graph: 4-cycle (square), chromatic number = 2"
         printfn ""
 
-    let squareGraph = graph 4 [(0, 1); (1, 2); (2, 3); (3, 0)]
+    let squareGraph = graph 4 [ (0, 1); (1, 2); (2, 3); (3, 0) ]
     let squareConfig = { Graph = squareGraph; NumColors = 3 }
 
     match graphColoringOracle squareConfig with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "3-Square-C4"; GraphType = "4-cycle (square)"
-            NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = 0
-            QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "3-Square-C4"
+                GraphType = "4-cycle (square)"
+                NumVertices = 4
+                NumEdges = 4
+                NumColors = 3
+                Qubits = 0
+                QuantumColorings = [||]
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
-            printfn "Oracle created: %d vertices, %d edges, %d colors, %d qubits"
-                squareConfig.Graph.NumVertices squareConfig.Graph.Edges.Length squareConfig.NumColors oracle.NumQubits
+            printfn
+                "Oracle created: %d vertices, %d edges, %d colors, %d qubits"
+                squareConfig.Graph.NumVertices
+                squareConfig.Graph.Edges.Length
+                squareConfig.NumColors
+                oracle.NumQubits
+
             printfn ""
             printfn "Running Grover's algorithm (%d shots)..." shots
 
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "3-Square-C4"; GraphType = "4-cycle (square)"
-                NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = oracle.NumQubits
-                QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "3-Square-C4"
+                    GraphType = "4-cycle (square)"
+                    NumVertices = 4
+                    NumEdges = 4
+                    NumColors = 3
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = [||]
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
             let colorings =
                 result.Solutions
@@ -343,19 +481,29 @@ if shouldRun "3" then
                     printfn "  No valid coloring found"
                 else
                     printfn "  Found %d valid coloring(s):" colorings.Length
+
                     for c in colorings |> Array.truncate 5 do
                         let uniqueColors = c |> Array.distinct |> Array.length
                         printfn "    [%d,%d,%d,%d] uses %d colors" c.[0] c.[1] c.[2] c.[3] uniqueColors
+
                     printfn "  Success probability: %.2f%%" (result.SuccessProbability * 100.0)
                     printfn "  Iterations used: %d" result.Iterations
 
-            allResults.Add({
-                Example = "3-Square-C4"; GraphType = "4-cycle (square)"
-                NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = oracle.NumQubits
-                QuantumColorings = colorings
-                SuccessProbability = result.SuccessProbability; Iterations = result.Iterations
-                Shots = shots; Status = if colorings.Length = 0 then "No solution" else "OK"
-            })
+            allResults.Add(
+                {
+                    Example = "3-Square-C4"
+                    GraphType = "4-cycle (square)"
+                    NumVertices = 4
+                    NumEdges = 4
+                    NumColors = 3
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = colorings
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status = if colorings.Length = 0 then "No solution" else "OK"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -383,44 +531,79 @@ if shouldRun "4" then
         printfn "Conflicts: R1<->R2, R1<->R3, R2<->R4, R3<->R4"
         printfn ""
 
-    let registerGraph = graph 4 [
-        (0, 1)  // R1 conflicts with R2
-        (0, 2)  // R1 conflicts with R3
-        (1, 3)  // R2 conflicts with R4
-        (2, 3)  // R3 conflicts with R4
-    ]
+    let registerGraph =
+        graph
+            4
+            [
+                (0, 1) // R1 conflicts with R2
+                (0, 2) // R1 conflicts with R3
+                (1, 3) // R2 conflicts with R4
+                (2, 3) // R3 conflicts with R4
+            ]
+
     let registerConfig = { Graph = registerGraph; NumColors = 3 }
 
     match graphColoringOracle registerConfig with
     | Error err ->
-        if not quiet then printfn "Failed to create oracle: %A" err
-        allResults.Add({
-            Example = "4-RegisterAlloc"; GraphType = "Interference graph"
-            NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = 0
-            QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-            Shots = shots; Status = $"Oracle error: %A{err}"
-        })
+        if not quiet then
+            printfn "Failed to create oracle: %A" err
+
+        allResults.Add(
+            {
+                Example = "4-RegisterAlloc"
+                GraphType = "Interference graph"
+                NumVertices = 4
+                NumEdges = 4
+                NumColors = 3
+                Qubits = 0
+                QuantumColorings = [||]
+                SuccessProbability = 0.0
+                Iterations = 0
+                Shots = shots
+                Status = $"Oracle error: %A{err}"
+            }
+        )
     | Ok oracle ->
         if not quiet then
-            printfn "Oracle created: %d variables, %d conflicts, %d registers (EAX/EBX/ECX), %d qubits"
-                registerConfig.Graph.NumVertices registerConfig.Graph.Edges.Length registerConfig.NumColors oracle.NumQubits
+            printfn
+                "Oracle created: %d variables, %d conflicts, %d registers (EAX/EBX/ECX), %d qubits"
+                registerConfig.Graph.NumVertices
+                registerConfig.Graph.Edges.Length
+                registerConfig.NumColors
+                oracle.NumQubits
+
             printfn ""
             printfn "Running Grover's algorithm (%d shots)..." shots
 
         let backend = LocalBackend() :> IQuantumBackend
-        let config = { Grover.defaultConfig with Shots = shots }
+
+        let config =
+            { Grover.defaultConfig with
+                Shots = shots
+            }
 
         match Grover.search oracle backend config with
         | Error err ->
-            if not quiet then printfn "Search failed: %A" err
-            allResults.Add({
-                Example = "4-RegisterAlloc"; GraphType = "Interference graph"
-                NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = oracle.NumQubits
-                QuantumColorings = [||]; SuccessProbability = 0.0; Iterations = 0
-                Shots = shots; Status = $"Search error: %A{err}"
-            })
+            if not quiet then
+                printfn "Search failed: %A" err
+
+            allResults.Add(
+                {
+                    Example = "4-RegisterAlloc"
+                    GraphType = "Interference graph"
+                    NumVertices = 4
+                    NumEdges = 4
+                    NumColors = 3
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = [||]
+                    SuccessProbability = 0.0
+                    Iterations = 0
+                    Shots = shots
+                    Status = $"Search error: %A{err}"
+                }
+            )
         | Ok result ->
-            let registers = [|"EAX"; "EBX"; "ECX"|]
+            let registers = [| "EAX"; "EBX"; "ECX" |]
 
             let colorings =
                 result.Solutions
@@ -433,6 +616,7 @@ if shouldRun "4" then
                     printfn "  No valid allocation found"
                 else
                     printfn "  Found %d valid register allocation(s):" colorings.Length
+
                     match colorings |> Array.tryHead with
                     | Some c ->
                         printfn ""
@@ -445,16 +629,25 @@ if shouldRun "4" then
                         printfn ""
                         printfn "  Registers used: %d (chromatic number)" uniqueRegs
                     | None -> ()
+
                     printfn "  Success probability: %.2f%%" (result.SuccessProbability * 100.0)
                     printfn "  Iterations used: %d" result.Iterations
 
-            allResults.Add({
-                Example = "4-RegisterAlloc"; GraphType = "Interference graph"
-                NumVertices = 4; NumEdges = 4; NumColors = 3; Qubits = oracle.NumQubits
-                QuantumColorings = colorings
-                SuccessProbability = result.SuccessProbability; Iterations = result.Iterations
-                Shots = shots; Status = if colorings.Length = 0 then "No solution" else "OK"
-            })
+            allResults.Add(
+                {
+                    Example = "4-RegisterAlloc"
+                    GraphType = "Interference graph"
+                    NumVertices = 4
+                    NumEdges = 4
+                    NumColors = 3
+                    Qubits = oracle.NumQubits
+                    QuantumColorings = colorings
+                    SuccessProbability = result.SuccessProbability
+                    Iterations = result.Iterations
+                    Shots = shots
+                    Status = if colorings.Length = 0 then "No solution" else "OK"
+                }
+            )
 
     if not quiet then
         printfn ""
@@ -468,6 +661,7 @@ if shouldRun "4" then
 if not quiet then
     printfn "Graph Coloring Summary"
     printfn "====================="
+
     for r in allResults do
         printfn ""
         printfn "  %s (%s)" r.Example r.GraphType
@@ -475,6 +669,7 @@ if not quiet then
         printfn "    Valid colorings found: %d" r.QuantumColorings.Length
         printfn "    Probability: %.2f%%, Iterations: %d" (r.SuccessProbability * 100.0) r.Iterations
         printfn "    Status: %s" r.Status
+
     printfn ""
     printfn "Key Takeaways:"
     printfn "  1. Grover finds valid graph colorings using quantum search"
@@ -496,37 +691,68 @@ let resultRecords =
     allResults
     |> Seq.toList
     |> List.map (fun r ->
-        {| Example = r.Example
-           GraphType = r.GraphType
-           NumVertices = r.NumVertices
-           NumEdges = r.NumEdges
-           NumColors = r.NumColors
-           Qubits = r.Qubits
-           NumColoringsFound = r.QuantumColorings.Length
-           Colorings = r.QuantumColorings |> Array.map (fun c -> c |> Array.toList) |> Array.toList
-           SuccessProbability = r.SuccessProbability
-           Iterations = r.Iterations
-           Shots = r.Shots
-           Status = r.Status |})
+        {|
+            Example = r.Example
+            GraphType = r.GraphType
+            NumVertices = r.NumVertices
+            NumEdges = r.NumEdges
+            NumColors = r.NumColors
+            Qubits = r.Qubits
+            NumColoringsFound = r.QuantumColorings.Length
+            Colorings = r.QuantumColorings |> Array.map (fun c -> c |> Array.toList) |> Array.toList
+            SuccessProbability = r.SuccessProbability
+            Iterations = r.Iterations
+            Shots = r.Shots
+            Status = r.Status
+        |})
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultRecords
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
-    let header = ["Example"; "GraphType"; "NumVertices"; "NumEdges"; "NumColors"; "Qubits"; "NumColoringsFound"; "SuccessProbability"; "Iterations"; "Shots"; "Status"]
+    let header =
+        [
+            "Example"
+            "GraphType"
+            "NumVertices"
+            "NumEdges"
+            "NumColors"
+            "Qubits"
+            "NumColoringsFound"
+            "SuccessProbability"
+            "Iterations"
+            "Shots"
+            "Status"
+        ]
+
     let rows =
         allResults
         |> Seq.toList
         |> List.map (fun r ->
-            [ r.Example; r.GraphType; string r.NumVertices; string r.NumEdges; string r.NumColors
-              string r.Qubits; string r.QuantumColorings.Length
-              $"%.4f{r.SuccessProbability}"; string r.Iterations; string r.Shots; r.Status ])
+            [
+                r.Example
+                r.GraphType
+                string r.NumVertices
+                string r.NumEdges
+                string r.NumColors
+                string r.Qubits
+                string r.QuantumColorings.Length
+                $"%.4f{r.SuccessProbability}"
+                string r.Iterations
+                string r.Shots
+                r.Status
+            ])
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "CSV written to %s" path
+
+    if not quiet then
+        printfn "CSV written to %s" path
 | None -> ()
 
 // ============================================================================

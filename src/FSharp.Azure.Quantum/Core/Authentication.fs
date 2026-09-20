@@ -13,27 +13,25 @@ module Authentication =
     /// Quantum API scope for Azure AD
     [<Literal>]
     let private quantumScope = "https://quantum.microsoft.com/.default"
-    
+
     /// Credential provider factory functions
     module CredentialProviders =
-        
+
         /// Create DefaultAzureCredential (tries multiple auth methods)
-        let createDefaultCredential () : TokenCredential =
-            upcast DefaultAzureCredential()
-        
+        let createDefaultCredential () : TokenCredential = upcast DefaultAzureCredential()
+
         /// Create AzureCliCredential (uses az login credentials)
-        let createCliCredential () : TokenCredential =
-            upcast AzureCliCredential()
-        
+        let createCliCredential () : TokenCredential = upcast AzureCliCredential()
+
         /// Create ManagedIdentityCredential (for Azure VM/App Service)
-        let createManagedIdentityCredential () : TokenCredential =
-            upcast ManagedIdentityCredential()
+        let createManagedIdentityCredential () : TokenCredential = upcast ManagedIdentityCredential()
 
     /// Cached token state (immutable record for thread-safety)
-    type private TokenCache = {
-        Token: AccessToken
-        ExpiresOn: DateTimeOffset
-    }
+    type private TokenCache =
+        {
+            Token: AccessToken
+            ExpiresOn: DateTimeOffset
+        }
 
     /// Manages Azure AD token acquisition and caching
     type TokenManager(credential: TokenCredential) =
@@ -58,21 +56,25 @@ module Authentication =
                 | _ ->
                     // Token needs refresh - use semaphore for async coordination
                     do! refreshSemaphore.WaitAsync(ct) |> Async.AwaitTask
+
                     try
                         // Double-check after acquiring semaphore (another thread may have refreshed)
                         match cachedToken with
-                        | Some cache when cache.ExpiresOn > now.AddMinutes(5.0) ->
-                            return cache.Token.Token
+                        | Some cache when cache.ExpiresOn > now.AddMinutes(5.0) -> return cache.Token.Token
                         | _ ->
                             // Acquire new token
                             let tokenRequestContext = TokenRequestContext([| quantumScope |])
-                            let! accessToken = credential.GetTokenAsync(tokenRequestContext, ct).AsTask() |> Async.AwaitTask
+
+                            let! accessToken =
+                                credential.GetTokenAsync(tokenRequestContext, ct).AsTask() |> Async.AwaitTask
 
                             // Cache the token (immutable update)
-                            cachedToken <- Some {
-                                Token = accessToken
-                                ExpiresOn = accessToken.ExpiresOn
-                            }
+                            cachedToken <-
+                                Some
+                                    {
+                                        Token = accessToken
+                                        ExpiresOn = accessToken.ExpiresOn
+                                    }
 
                             return accessToken.Token
                     finally
@@ -85,6 +87,7 @@ module Authentication =
         /// before clearing the cache.
         member this.ClearCache() =
             refreshSemaphore.Wait()
+
             try
                 cachedToken <- None
             finally
@@ -110,14 +113,20 @@ module Authentication =
     type AuthenticationHandler(tokenManager: TokenManager) =
         inherit DelegatingHandler()
 
-        member private this.SendAsyncCore(request: HttpRequestMessage, cancellationToken: CancellationToken, token: string) : Task<HttpResponseMessage> =
+        member private this.SendAsyncCore
+            (request: HttpRequestMessage, cancellationToken: CancellationToken, token: string)
+            : Task<HttpResponseMessage> =
             request.Headers.Authorization <- AuthenticationHeaderValue("Bearer", token)
             base.SendAsync(request, cancellationToken)
 
-        member private this.SendAsyncNoAuth(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
+        member private this.SendAsyncNoAuth
+            (request: HttpRequestMessage, cancellationToken: CancellationToken)
+            : Task<HttpResponseMessage> =
             base.SendAsync(request, cancellationToken)
 
-        override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
+        override this.SendAsync
+            (request: HttpRequestMessage, cancellationToken: CancellationToken)
+            : Task<HttpResponseMessage> =
             match request.Options.TryGetValue noAuthOptionKey with
             | true, true ->
                 // Pre-signed request (e.g. SAS blob download) — pass through untouched
@@ -127,11 +136,13 @@ module Authentication =
                 async {
                     let! token = tokenManager.GetAccessTokenAsync cancellationToken
                     return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
-                } |> Async.StartAsTask
+                }
+                |> Async.StartAsTask
 
         override this.Dispose(disposing: bool) =
             if disposing then
                 (tokenManager :> IDisposable).Dispose()
+
             base.Dispose disposing
 
     /// Create an authenticated HttpClient for Azure Quantum API calls
@@ -153,8 +164,10 @@ module Authentication =
         // and exponential backoff on 429 / x-ms-ratelimit headers) → sockets.
         // DelegatingHandler requires an inner handler to forward requests to;
         // without one, the first SendAsync throws InvalidOperationException.
-        let throttlingHandler = new RateLimiting.ThrottlingHandler(new HttpClientHandler() :> HttpMessageHandler)
-        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = throttlingHandler)
+        let throttlingHandler =
+            new RateLimiting.ThrottlingHandler(new HttpClientHandler() :> HttpMessageHandler)
+
+        let authHandler =
+            new AuthenticationHandler(tokenManager, InnerHandler = throttlingHandler)
         // disposeHandler = true: disposing the client disposes the whole handler chain
         new HttpClient(authHandler, true)
-

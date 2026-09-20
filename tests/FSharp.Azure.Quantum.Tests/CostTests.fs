@@ -74,7 +74,9 @@ let ``estimateCost should return error for invalid shot count`` () =
     let result = estimateCostSimple target shots
 
     // Assert
-    result |> Result.map (fun _ -> Assert.True(false, "Expected error for zero shots")) |> Result.defaultWith (fun err -> Assert.Contains("Shot count must be at least 1", err.Message))
+    result
+    |> Result.map (fun _ -> Assert.True(false, "Expected error for zero shots"))
+    |> Result.defaultWith (fun err -> Assert.Contains("Shot count must be at least 1", err.Message))
 
 [<Fact>]
 let ``estimateCost should return error for empty target`` () =
@@ -86,7 +88,9 @@ let ``estimateCost should return error for empty target`` () =
     let result = estimateCostSimple target shots
 
     // Assert
-    result |> Result.map (fun _ -> Assert.True(false, "Expected error for empty target")) |> Result.defaultWith (fun err -> Assert.Contains("Target backend cannot be empty", err.Message))
+    result
+    |> Result.map (fun _ -> Assert.True(false, "Expected error for empty target"))
+    |> Result.defaultWith (fun err -> Assert.Contains("Target backend cannot be empty", err.Message))
 
 [<Fact>]
 let ``estimateCost should add warning for high-cost jobs`` () =

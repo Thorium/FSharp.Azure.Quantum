@@ -13,16 +13,18 @@ open FSharp.Azure.Quantum.Core.Retry
 
 // Helper to create test config - no retries for predictable tests
 let makeConfig httpClient =
-    { SubscriptionId = "sub-123"
-      ResourceGroup = "rg-test"
-      WorkspaceName = "ws-test"
-      Location = "eastus"
-      HttpClient = httpClient
-      RetryConfig = None
-      Logger = None
-      CostEstimationEnabled = false // Disable cost checking in tests
-      PerJobCostLimit = None
-      DailyCostLimit = None }
+    {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        Location = "eastus"
+        HttpClient = httpClient
+        RetryConfig = None
+        Logger = None
+        CostEstimationEnabled = false // Disable cost checking in tests
+        PerJobCostLimit = None
+        DailyCostLimit = None
+    }
 
 // Mock HTTP message handler for testing
 type MockHttpMessageHandler(responseFunc: HttpRequestMessage -> Task<HttpResponseMessage>) =
@@ -58,13 +60,15 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () =
         let client = QuantumClient(config)
 
         let submission =
-            { JobId = "job-123"
-              Target = "ionq.simulator"
-              Name = Some "Test Job"
-              InputData = box "circuit-data"
-              InputDataFormat = CircuitFormat.QIR_V1
-              InputParams = Map.empty
-              Tags = Map.empty }
+            {
+                JobId = "job-123"
+                Target = "ionq.simulator"
+                Name = Some "Test Job"
+                InputData = box "circuit-data"
+                InputDataFormat = CircuitFormat.QIR_V1
+                InputParams = Map.empty
+                Tags = Map.empty
+            }
 
 
         match! client.SubmitJobAsync submission with
@@ -122,9 +126,12 @@ let ``GetJobStatusAsync should handle 404 error`` () =
     async {
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
-                let response = new HttpResponseMessage(HttpStatusCode.NotFound,
-                                   Content = (new StringContent("""{"error": {"code": "JobNotFound", "message": "Job not found"}}"""))
-                               )
+                let response =
+                    new HttpResponseMessage(
+                        HttpStatusCode.NotFound,
+                        Content =
+                            (new StringContent("""{"error": {"code": "JobNotFound", "message": "Job not found"}}"""))
+                    )
 
                 Task.FromResult(response))
 
@@ -147,7 +154,10 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () =
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 capturedRequest <- Some request
-                let response = new HttpResponseMessage(HttpStatusCode.OK, Content = (new StringContent("{}")))
+
+                let response =
+                    new HttpResponseMessage(HttpStatusCode.OK, Content = (new StringContent("{}")))
+
                 Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
@@ -315,33 +325,39 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () =
         let httpClient = new HttpClient(mockHandler)
 
         let retryConfig =
-            { MaxAttempts = 3
-              InitialDelayMs = 10
-              MaxDelayMs = 100
-              JitterFactor = 0.1 }
+            {
+                MaxAttempts = 3
+                InitialDelayMs = 10
+                MaxDelayMs = 100
+                JitterFactor = 0.1
+            }
 
         let config =
-            { SubscriptionId = "sub-123"
-              ResourceGroup = "rg-test"
-              WorkspaceName = "ws-test"
-              Location = "eastus"
-              HttpClient = httpClient
-              RetryConfig = Some retryConfig
-              Logger = None
-              CostEstimationEnabled = false
-              PerJobCostLimit = None
-              DailyCostLimit = None }
+            {
+                SubscriptionId = "sub-123"
+                ResourceGroup = "rg-test"
+                WorkspaceName = "ws-test"
+                Location = "eastus"
+                HttpClient = httpClient
+                RetryConfig = Some retryConfig
+                Logger = None
+                CostEstimationEnabled = false
+                PerJobCostLimit = None
+                DailyCostLimit = None
+            }
 
         let client = QuantumClient(config)
 
         let submission =
-            { JobId = "job-retry-success"
-              Target = "ionq.simulator"
-              Name = Some "Retry Test"
-              InputData = box "circuit-data"
-              InputDataFormat = CircuitFormat.QIR_V1
-              InputParams = Map.empty
-              Tags = Map.empty }
+            {
+                JobId = "job-retry-success"
+                Target = "ionq.simulator"
+                Name = Some "Retry Test"
+                InputData = box "circuit-data"
+                InputDataFormat = CircuitFormat.QIR_V1
+                InputParams = Map.empty
+                Tags = Map.empty
+            }
 
 
         match! client.SubmitJobAsync submission with
@@ -373,33 +389,39 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
         let httpClient = new HttpClient(mockHandler)
 
         let retryConfig =
-            { MaxAttempts = 2
-              InitialDelayMs = 10
-              MaxDelayMs = 50
-              JitterFactor = 0.1 }
+            {
+                MaxAttempts = 2
+                InitialDelayMs = 10
+                MaxDelayMs = 50
+                JitterFactor = 0.1
+            }
 
         let config =
-            { SubscriptionId = "sub-123"
-              ResourceGroup = "rg-test"
-              WorkspaceName = "ws-test"
-              Location = "eastus"
-              HttpClient = httpClient
-              RetryConfig = Some retryConfig
-              Logger = None
-              CostEstimationEnabled = false
-              PerJobCostLimit = None
-              DailyCostLimit = None }
+            {
+                SubscriptionId = "sub-123"
+                ResourceGroup = "rg-test"
+                WorkspaceName = "ws-test"
+                Location = "eastus"
+                HttpClient = httpClient
+                RetryConfig = Some retryConfig
+                Logger = None
+                CostEstimationEnabled = false
+                PerJobCostLimit = None
+                DailyCostLimit = None
+            }
 
         let client = QuantumClient(config)
 
         let submission =
-            { JobId = "job-max-retries"
-              Target = "ionq.simulator"
-              Name = Some "Max Retry Test"
-              InputData = box "circuit-data"
-              InputDataFormat = CircuitFormat.QIR_V1
-              InputParams = Map.empty
-              Tags = Map.empty }
+            {
+                JobId = "job-max-retries"
+                Target = "ionq.simulator"
+                Name = Some "Max Retry Test"
+                InputData = box "circuit-data"
+                InputDataFormat = CircuitFormat.QIR_V1
+                InputParams = Map.empty
+                Tags = Map.empty
+            }
 
 
         match! client.SubmitJobAsync submission with
@@ -418,52 +440,60 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
             new MockHttpMessageHandler(fun request ->
                 attemptCount <- attemptCount + 1
                 // Return 400 Bad Request (non-transient)
-                let response = new HttpResponseMessage(HttpStatusCode.BadRequest,
-                                   Content = (new StringContent("""{"error": {"code": "InvalidInput", "message": "Invalid quantum circuit"}}"""))
-                               )
+                let response =
+                    new HttpResponseMessage(
+                        HttpStatusCode.BadRequest,
+                        Content =
+                            (new StringContent(
+                                """{"error": {"code": "InvalidInput", "message": "Invalid quantum circuit"}}"""
+                            ))
+                    )
 
                 Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)
 
         let retryConfig =
-            { MaxAttempts = 3
-              InitialDelayMs = 10
-              MaxDelayMs = 100
-              JitterFactor = 0.1 }
+            {
+                MaxAttempts = 3
+                InitialDelayMs = 10
+                MaxDelayMs = 100
+                JitterFactor = 0.1
+            }
 
         let config =
-            { SubscriptionId = "sub-123"
-              ResourceGroup = "rg-test"
-              WorkspaceName = "ws-test"
-              Location = "eastus"
-              HttpClient = httpClient
-              RetryConfig = Some retryConfig
-              Logger = None
-              CostEstimationEnabled = false
-              PerJobCostLimit = None
-              DailyCostLimit = None }
+            {
+                SubscriptionId = "sub-123"
+                ResourceGroup = "rg-test"
+                WorkspaceName = "ws-test"
+                Location = "eastus"
+                HttpClient = httpClient
+                RetryConfig = Some retryConfig
+                Logger = None
+                CostEstimationEnabled = false
+                PerJobCostLimit = None
+                DailyCostLimit = None
+            }
 
         let client = QuantumClient(config)
 
         let submission =
-            { JobId = "job-no-retry"
-              Target = "ionq.simulator"
-              Name = Some "No Retry Test"
-              InputData = box "invalid-data"
-              InputDataFormat = CircuitFormat.QIR_V1
-              InputParams = Map.empty
-              Tags = Map.empty }
+            {
+                JobId = "job-no-retry"
+                Target = "ionq.simulator"
+                Name = Some "No Retry Test"
+                InputData = box "invalid-data"
+                InputDataFormat = CircuitFormat.QIR_V1
+                InputParams = Map.empty
+                Tags = Map.empty
+            }
 
 
         match! client.SubmitJobAsync submission with
         | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) ->
             Assert.Equal(400, statusCode)
             // Should only make 1 attempt (no retries for non-transient errors)
-            Assert.True(
-                (attemptCount = 1),
-                $"Expected only 1 attempt for non-transient error, got %d{attemptCount}"
-            )
+            Assert.True((attemptCount = 1), $"Expected only 1 attempt for non-transient error, got %d{attemptCount}")
         | _ -> Assert.True(false, "Expected BadRequest error without retries")
     }
 
@@ -614,7 +644,7 @@ let ``ListJobsAsync should parse jobs and follow nextLink pagination`` () =
         | Error err -> Assert.True(false, $"Expected job list, got error: %A{err}")
         | Ok jobs ->
             Assert.Equal(2, jobs.Length)
-            Assert.Equal<string list>(["job-1"; "job-2"], jobs |> List.map (fun j -> j.JobId))
+            Assert.Equal<string list>([ "job-1"; "job-2" ], jobs |> List.map (fun j -> j.JobId))
             Assert.Equal(JobStatus.Succeeded, jobs.[0].Status)
             Assert.Equal("rigetti.qpu", jobs.[1].Target)
     }
@@ -627,9 +657,10 @@ let ``ListJobsAsync hits the workspace jobs endpoint`` () =
         let mockHandler =
             new MockHttpMessageHandler(fun request ->
                 capturedUrl <- request.RequestUri.ToString()
-                let response = new HttpResponseMessage(HttpStatusCode.OK,
-                                   Content = (new StringContent("""{ "value": [] }"""))
-                               )
+
+                let response =
+                    new HttpResponseMessage(HttpStatusCode.OK, Content = (new StringContent("""{ "value": [] }""")))
+
                 Task.FromResult(response))
 
         let httpClient = new HttpClient(mockHandler)

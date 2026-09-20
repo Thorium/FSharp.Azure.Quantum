@@ -10,27 +10,29 @@ open FSharp.Azure.Quantum.Business.BinaryClassifier
 open FSharp.Azure.Quantum.Examples.Common
 
 type RunMetrics =
-    { run_id: string
-      train_path: string
-      train_sha256: string
-      arch: string
-      shots: int
-      seed: int
-      test_fraction: float
-      train_rows: int
-      train_pos_rate: float
-      test_rows: int
-      test_pos_rate: float
-      accuracy: float
-      precision: float
-      recall: float
-      f1: float
-      auprc: float
-      psi_score_train_vs_test: float
-      elapsed_ms_total: int64
-      elapsed_ms_train: int64
-      elapsed_ms_eval: int64
-      elapsed_ms_score: int64 }
+    {
+        run_id: string
+        train_path: string
+        train_sha256: string
+        arch: string
+        shots: int
+        seed: int
+        test_fraction: float
+        train_rows: int
+        train_pos_rate: float
+        test_rows: int
+        test_pos_rate: float
+        accuracy: float
+        precision: float
+        recall: float
+        f1: float
+        auprc: float
+        psi_score_train_vs_test: float
+        elapsed_ms_total: int64
+        elapsed_ms_train: int64
+        elapsed_ms_eval: int64
+        elapsed_ms_score: int64
+    }
 
 module App =
     let private defaultTrainPath =
@@ -38,7 +40,10 @@ module App =
 
     let private printHelp () =
         printfn "TransactionFraudBatchScoring"
-        printfn "  --train <path>        (CSV: transaction_id,amount,hour,merchant_category,distance_km,txn_count_24h,label)"
+
+        printfn
+            "  --train <path>        (CSV: transaction_id,amount,hour,merchant_category,distance_km,txn_count_24h,label)"
+
         printfn "  --score <path>        (optional CSV without label; or with label for scoring metrics)"
         printfn "  --out <dir>           (output folder)"
         printfn "  --arch quantum|hybrid (default: hybrid)"
@@ -52,8 +57,10 @@ module App =
         | _ -> Architecture.Hybrid
 
     let private posRate (ys: int array) =
-        if ys.Length = 0 then 0.0
-        else float (ys |> Array.sumBy id) / float ys.Length
+        if ys.Length = 0 then
+            0.0
+        else
+            float (ys |> Array.sumBy id) / float ys.Length
 
     let run (argv: string array) : int =
         let args = Cli.parse argv
@@ -75,17 +82,20 @@ module App =
             Data.ensureDirectory outDir
 
             let runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
+
             Reporting.writeJson
                 (Path.Combine(outDir, "run-config.json"))
-                {| run_id = runId
-                   utc = DateTimeOffset.UtcNow
-                   train = trainPath
-                   score = scorePathOpt
-                   out = outDir
-                   arch = arch.ToString()
-                   shots = numShots
-                   seed = seed
-                   test_fraction = testFraction |}
+                {|
+                    run_id = runId
+                    utc = DateTimeOffset.UtcNow
+                    train = trainPath
+                    score = scorePathOpt
+                    out = outDir
+                    arch = arch.ToString()
+                    shots = numShots
+                    seed = seed
+                    test_fraction = testFraction
+                |}
 
             let trainSha = Data.fileSha256Hex trainPath
 
@@ -99,14 +109,23 @@ module App =
                     Some rows, errs
 
             let allErrors = trainErrors @ scoreErrors
-            if not allErrors.IsEmpty then
-                Reporting.writeCsv (Path.Combine(outDir, "bad_rows.csv")) [ "error" ] (allErrors |> List.map (fun e -> [ e ]))
 
-            let labeledTrain = trainRows |> List.choose (fun t -> t.Label |> Option.map (fun _ -> t)) |> List.toArray
+            if not allErrors.IsEmpty then
+                Reporting.writeCsv
+                    (Path.Combine(outDir, "bad_rows.csv"))
+                    [ "error" ]
+                    (allErrors |> List.map (fun e -> [ e ]))
+
+            let labeledTrain =
+                trainRows
+                |> List.choose (fun t -> t.Label |> Option.map (fun _ -> t))
+                |> List.toArray
+
             if labeledTrain.Length = 0 then
                 Reporting.writeTextFile
                     (Path.Combine(outDir, "run-report.md"))
                     "# Transaction Fraud\n\nNo labeled training rows found (label column missing/empty).\n"
+
                 2
             else
                 let trainSet, testSet = Split.stratifiedHoldout seed testFraction labeledTrain
@@ -117,6 +136,7 @@ module App =
                 let testY = testSet |> Array.map Transaction.labelOrZero
 
                 let swTrain = Stopwatch.StartNew()
+
                 let trained =
                     binaryClassification {
                         trainWith trainX trainY
@@ -125,6 +145,7 @@ module App =
                         maxEpochs 50
                         convergenceThreshold 0.001
                     }
+
                 swTrain.Stop()
 
                 let swEval = Stopwatch.StartNew()
@@ -157,10 +178,14 @@ module App =
                                 match BinaryClassifier.predict (Transaction.toVector t) model with
                                 | Error _ -> [ t.TransactionId; "0"; "0.0"; "ALLOW" ]
                                 | Ok p ->
-                                    let recText = Recommendation.ofPrediction p.IsPositive p.Confidence |> Recommendation.toString
+                                    let recText =
+                                        Recommendation.ofPrediction p.IsPositive p.Confidence
+                                        |> Recommendation.toString
+
                                     [ t.TransactionId; string p.Label; sprintf "%.6f" p.Confidence; recText ])
 
                         let expected = trainScores |> Array.map fst
+
                         let actual =
                             scoreRows
                             |> List.toArray
@@ -186,35 +211,40 @@ module App =
                     Reporting.writeTextFile
                         (Path.Combine(outDir, "run-report.md"))
                         ("# Transaction Fraud\n\nTraining/evaluation failed: " + e.Message + "\n")
+
                     3
                 | Ok _, Ok m ->
                     let auprc = Metrics.auprc testScores
-                    let psiTrainVsTest = Metrics.psi (trainScores |> Array.map fst) (testScores |> Array.map fst) 10
+
+                    let psiTrainVsTest =
+                        Metrics.psi (trainScores |> Array.map fst) (testScores |> Array.map fst) 10
 
                     swTotal.Stop()
 
                     let metrics: RunMetrics =
-                        { run_id = runId
-                          train_path = trainPath
-                          train_sha256 = trainSha
-                          arch = arch.ToString()
-                          shots = numShots
-                          seed = seed
-                          test_fraction = testFraction
-                          train_rows = trainSet.Length
-                          train_pos_rate = posRate trainY
-                          test_rows = testSet.Length
-                          test_pos_rate = posRate testY
-                          accuracy = m.Accuracy
-                          precision = m.Precision
-                          recall = m.Recall
-                          f1 = m.F1Score
-                          auprc = auprc
-                          psi_score_train_vs_test = psiTrainVsTest
-                          elapsed_ms_total = swTotal.ElapsedMilliseconds
-                          elapsed_ms_train = swTrain.ElapsedMilliseconds
-                          elapsed_ms_eval = swEval.ElapsedMilliseconds
-                          elapsed_ms_score = swScore.ElapsedMilliseconds }
+                        {
+                            run_id = runId
+                            train_path = trainPath
+                            train_sha256 = trainSha
+                            arch = arch.ToString()
+                            shots = numShots
+                            seed = seed
+                            test_fraction = testFraction
+                            train_rows = trainSet.Length
+                            train_pos_rate = posRate trainY
+                            test_rows = testSet.Length
+                            test_pos_rate = posRate testY
+                            accuracy = m.Accuracy
+                            precision = m.Precision
+                            recall = m.Recall
+                            f1 = m.F1Score
+                            auprc = auprc
+                            psi_score_train_vs_test = psiTrainVsTest
+                            elapsed_ms_total = swTotal.ElapsedMilliseconds
+                            elapsed_ms_train = swTrain.ElapsedMilliseconds
+                            elapsed_ms_eval = swEval.ElapsedMilliseconds
+                            elapsed_ms_score = swScore.ElapsedMilliseconds
+                        }
 
                     Reporting.writeJson (Path.Combine(outDir, "metrics.json")) metrics
 

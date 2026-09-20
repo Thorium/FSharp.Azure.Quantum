@@ -12,7 +12,7 @@ module ResourceEstimationTests =
         |> addGate (H 0)
         |> addGate (T 0)
         |> addGate (T 1)
-        |> addGate (TDG 2)   // T-dagger must also count toward T-count
+        |> addGate (TDG 2) // T-dagger must also count toward T-count
         |> addGate (CNOT(0, 1))
 
     [<Fact>]
@@ -20,8 +20,8 @@ module ResourceEstimationTests =
         let l = ResourceEstimation.estimateLogical (sample ())
         Assert.Equal(3, l.LogicalQubits)
         Assert.Equal(5, l.TotalGates)
-        Assert.Equal(3, l.TCount)          // two T + one T-dagger
-        Assert.Equal(1, l.TwoQubitGates)   // one CNOT
+        Assert.Equal(3, l.TCount) // two T + one T-dagger
+        Assert.Equal(1, l.TwoQubitGates) // one CNOT
 
     [<Fact>]
     let ``physical estimate uses an odd code distance >= 3 and 2 d^2 qubits per logical`` () =
@@ -36,10 +36,25 @@ module ResourceEstimationTests =
     [<Fact>]
     let ``lower physical error rate never needs a larger code distance`` () =
         let l = ResourceEstimation.estimateLogical (sample ())
-        let noisy = ResourceEstimation.estimatePhysical { ResourceEstimation.defaultFaultToleranceParams with PhysicalErrorRate = 5e-3 } l
-        let clean = ResourceEstimation.estimatePhysical { ResourceEstimation.defaultFaultToleranceParams with PhysicalErrorRate = 1e-4 } l
-        Assert.True(clean.CodeDistance <= noisy.CodeDistance,
-            $"clean d=%d{clean.CodeDistance} should be <= noisy d=%d{noisy.CodeDistance}")
+
+        let noisy =
+            ResourceEstimation.estimatePhysical
+                { ResourceEstimation.defaultFaultToleranceParams with
+                    PhysicalErrorRate = 5e-3
+                }
+                l
+
+        let clean =
+            ResourceEstimation.estimatePhysical
+                { ResourceEstimation.defaultFaultToleranceParams with
+                    PhysicalErrorRate = 1e-4
+                }
+                l
+
+        Assert.True(
+            clean.CodeDistance <= noisy.CodeDistance,
+            $"clean d=%d{clean.CodeDistance} should be <= noisy d=%d{noisy.CodeDistance}"
+        )
 
     [<Fact>]
     let ``more logical qubits require more physical qubits`` () =

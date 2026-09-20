@@ -50,15 +50,53 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "QuantumVaRStressTest.fsx"
     "Quantum VaR stress testing across confidence levels using the RiskEngine DSL."
-    [ { Cli.OptionSpec.Name = "levels";            Description = "Comma-separated confidence levels (%) to include"; Default = None }
-      { Cli.OptionSpec.Name = "input";             Description = "CSV file with custom confidence level definitions";  Default = None }
-      { Cli.OptionSpec.Name = "shots";             Description = "Quantum circuit shots";                             Default = Some "10000" }
-      { Cli.OptionSpec.Name = "qubits";            Description = "Qubits for amplitude estimation";                   Default = Some "5" }
-      { Cli.OptionSpec.Name = "grover-iterations"; Description = "Grover iterations for amplification";               Default = Some "2" }
-      { Cli.OptionSpec.Name = "paths";             Description = "Monte Carlo simulation paths";                      Default = Some "1000000" }
-      { Cli.OptionSpec.Name = "output";            Description = "Write results to JSON file";                        Default = None }
-      { Cli.OptionSpec.Name = "csv";               Description = "Write results to CSV file";                         Default = None }
-      { Cli.OptionSpec.Name = "quiet";             Description = "Suppress informational output";                     Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "levels"
+            Description = "Comma-separated confidence levels (%) to include"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "input"
+            Description = "CSV file with custom confidence level definitions"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "shots"
+            Description = "Quantum circuit shots"
+            Default = Some "10000"
+        }
+        {
+            Cli.OptionSpec.Name = "qubits"
+            Description = "Qubits for amplitude estimation"
+            Default = Some "5"
+        }
+        {
+            Cli.OptionSpec.Name = "grover-iterations"
+            Description = "Grover iterations for amplification"
+            Default = Some "2"
+        }
+        {
+            Cli.OptionSpec.Name = "paths"
+            Description = "Monte Carlo simulation paths"
+            Default = Some "1000000"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -70,23 +108,25 @@ let csvPath = Cli.tryGet "csv" args
 // ==============================================================================
 
 /// A confidence level configuration for risk analysis
-type LevelInfo = {
-    Key: string
-    Label: string
-    Confidence: float
-}
+type LevelInfo =
+    {
+        Key: string
+        Label: string
+        Confidence: float
+    }
 
 /// Result of risk engine execution at a specific confidence level
-type LevelResult = {
-    Level: LevelInfo
-    Method: string
-    VaR: float option
-    CVaR: float option
-    ExpectedShortfall: float option
-    Volatility: float option
-    ExecutionTimeMs: float
-    HasQuantumFailure: bool
-}
+type LevelResult =
+    {
+        Level: LevelInfo
+        Method: string
+        VaR: float option
+        CVaR: float option
+        ExpectedShortfall: float option
+        Volatility: float option
+        ExecutionTimeMs: float
+        HasQuantumFailure: bool
+    }
 
 // ==============================================================================
 // CONFIGURATION
@@ -101,10 +141,33 @@ let simulationPaths = Cli.getIntOr "paths" 1_000_000 args
 // BUILT-IN CONFIDENCE LEVEL PRESETS
 // ==============================================================================
 
-let private preset90  = { Key = "90";   Label = "90% Confidence";   Confidence = 0.90 }
-let private preset95  = { Key = "95";   Label = "95% Confidence";   Confidence = 0.95 }
-let private preset99  = { Key = "99";   Label = "99% Confidence";   Confidence = 0.99 }
-let private preset995 = { Key = "99.5"; Label = "99.5% Confidence"; Confidence = 0.995 }
+let private preset90 =
+    {
+        Key = "90"
+        Label = "90% Confidence"
+        Confidence = 0.90
+    }
+
+let private preset95 =
+    {
+        Key = "95"
+        Label = "95% Confidence"
+        Confidence = 0.95
+    }
+
+let private preset99 =
+    {
+        Key = "99"
+        Label = "99% Confidence"
+        Confidence = 0.99
+    }
+
+let private preset995 =
+    {
+        Key = "99.5"
+        Label = "99.5% Confidence"
+        Confidence = 0.995
+    }
 
 let private builtInLevels =
     [ preset90; preset95; preset99; preset995 ]
@@ -118,12 +181,19 @@ let private builtInLevels =
 let private loadLevelsFromCsv (filePath: string) : LevelInfo list =
     let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
     let rows, errors = Data.readCsvWithHeaderWithErrors resolved
+
     if not (List.isEmpty errors) then
         eprintfn "WARNING: CSV parse errors in %s:" filePath
         errors |> List.iter (eprintfn "  %s")
-    if rows.IsEmpty then failwithf "No valid rows in CSV %s" filePath
-    rows |> List.mapi (fun i row ->
-        let get key = row.Values |> Map.tryFind key |> Option.defaultValue ""
+
+    if rows.IsEmpty then
+        failwithf "No valid rows in CSV %s" filePath
+
+    rows
+    |> List.mapi (fun i row ->
+        let get key =
+            row.Values |> Map.tryFind key |> Option.defaultValue ""
+
         match get "preset" with
         | p when not (String.IsNullOrWhiteSpace p) ->
             match builtInLevels |> Map.tryFind (p.Trim().ToLowerInvariant()) with
@@ -131,14 +201,28 @@ let private loadLevelsFromCsv (filePath: string) : LevelInfo list =
             | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
         | _ ->
             let confStr = get "confidence"
+
             let conf =
                 match Double.TryParse confStr with
-                | true, v when v > 1.0 -> v / 100.0   // Accept percentages like 95 or 99.5
+                | true, v when v > 1.0 -> v / 100.0 // Accept percentages like 95 or 99.5
                 | true, v -> v
                 | _ -> failwithf "Invalid confidence '%s' in CSV row %d" confStr (i + 1)
+
             let key = get "key" |> fun k -> if k = "" then sprintf "%.1f" (conf * 100.0) else k
-            let label = get "label" |> fun l -> if l = "" then sprintf "%.1f%% Confidence" (conf * 100.0) else l
-            { Key = key; Label = label; Confidence = conf })
+
+            let label =
+                get "label"
+                |> fun l ->
+                    if l = "" then
+                        sprintf "%.1f%% Confidence" (conf * 100.0)
+                    else
+                        l
+
+            {
+                Key = key
+                Label = label
+                Confidence = conf
+            })
 
 // ==============================================================================
 // LEVEL SELECTION
@@ -175,8 +259,7 @@ let backend = LocalBackend() :> IQuantumBackend
 
 if not quiet then
     printfn "Quantum VaR Stress Test â€” RiskEngine DSL"
-    printfn "Levels: %d  Qubits: %d  Shots: %d  Paths: %s"
-        levels.Length numQubits shots (simulationPaths.ToString "N0")
+    printfn "Levels: %d  Qubits: %d  Shots: %d  Paths: %s" levels.Length numQubits shots (simulationPaths.ToString "N0")
     printfn ""
 
 let mutable anyFailure = false
@@ -186,45 +269,64 @@ let results =
     |> List.map (fun level ->
         if not quiet then
             printfn "  Running %.1f%% confidence..." (level.Confidence * 100.0)
+
         try
             let report =
-                RiskEngine.execute {
-                    MarketDataPath = None
-                    ConfidenceLevel = level.Confidence
-                    SimulationPaths = simulationPaths
-                    UseAmplitudeEstimation = true
-                    UseErrorMitigation = true
-                    Metrics = [ RiskMetric.ValueAtRisk; RiskMetric.ConditionalVaR; RiskMetric.ExpectedShortfall; RiskMetric.Volatility ]
-                    NumQubits = numQubits
-                    GroverIterations = groverIterations
-                    Shots = shots
-                    Backend = Some backend
-                    CancellationToken = None
-                }
+                RiskEngine.execute
+                    {
+                        MarketDataPath = None
+                        ConfidenceLevel = level.Confidence
+                        SimulationPaths = simulationPaths
+                        UseAmplitudeEstimation = true
+                        UseErrorMitigation = true
+                        Metrics =
+                            [
+                                RiskMetric.ValueAtRisk
+                                RiskMetric.ConditionalVaR
+                                RiskMetric.ExpectedShortfall
+                                RiskMetric.Volatility
+                            ]
+                        NumQubits = numQubits
+                        GroverIterations = groverIterations
+                        Shots = shots
+                        Backend = Some backend
+                        CancellationToken = None
+                    }
+
             let toOption (v: float voption) =
-                match v with ValueSome x -> Some x | ValueNone -> None
-            { Level = level
-              Method = report.Method
-              VaR = toOption report.VaR
-              CVaR = toOption report.CVaR
-              ExpectedShortfall = toOption report.ExpectedShortfall
-              Volatility = toOption report.Volatility
-              ExecutionTimeMs = report.ExecutionTimeMs
-              HasQuantumFailure = false }
+                match v with
+                | ValueSome x -> Some x
+                | ValueNone -> None
+
+            {
+                Level = level
+                Method = report.Method
+                VaR = toOption report.VaR
+                CVaR = toOption report.CVaR
+                ExpectedShortfall = toOption report.ExpectedShortfall
+                Volatility = toOption report.Volatility
+                ExecutionTimeMs = report.ExecutionTimeMs
+                HasQuantumFailure = false
+            }
         with ex ->
             anyFailure <- true
+
             if not quiet then
                 eprintfn "  FAILED at %.1f%%: %s" (level.Confidence * 100.0) ex.Message
-            { Level = level
-              Method = "Error"
-              VaR = None
-              CVaR = None
-              ExpectedShortfall = None
-              Volatility = None
-              ExecutionTimeMs = 0.0
-              HasQuantumFailure = true })
 
-if not quiet then printfn ""
+            {
+                Level = level
+                Method = "Error"
+                VaR = None
+                CVaR = None
+                ExpectedShortfall = None
+                Volatility = None
+                ExecutionTimeMs = 0.0
+                HasQuantumFailure = true
+            })
+
+if not quiet then
+    printfn ""
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
@@ -233,7 +335,7 @@ if not quiet then printfn ""
 let private fmtPct (v: float option) =
     match v with
     | Some x -> sprintf "%8.4f%%" (x * 100.0)
-    | None   -> sprintf "%9s" "â€”"
+    | None -> sprintf "%9s" "â€”"
 
 let private fmtMs (ms: float) = $"%8.1f{ms}"
 
@@ -242,16 +344,19 @@ let printTable () =
     printfn ""
     printfn "  VaR Stress Test â€” Risk Metrics by Confidence Level"
     printfn "  %s" divider
-    printfn "  %-20s %9s %9s %9s %9s %8s %8s %8s"
-        "Level" "VaR" "CVaR" "ES" "Vol" "Time(ms)" "Method" "Status"
+    printfn "  %-20s %9s %9s %9s %9s %8s %8s %8s" "Level" "VaR" "CVaR" "ES" "Vol" "Time(ms)" "Method" "Status"
     printfn "  %s" divider
+
     for r in results do
         let methodShort =
             if r.Method.Contains "Quantum" then "QAE"
             elif r.Method.Contains "Classical" then "CMC"
             else r.Method
+
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
-        printfn "  %-20s %s %s %s %s %s %8s %8s"
+
+        printfn
+            "  %-20s %s %s %s %s %s %8s %8s"
             r.Level.Label
             (fmtPct r.VaR)
             (fmtPct r.CVaR)
@@ -260,6 +365,7 @@ let printTable () =
             (fmtMs r.ExecutionTimeMs)
             methodShort
             status
+
     printfn "  %s" divider
     printfn ""
 
@@ -270,42 +376,65 @@ printTable ()
 // ==============================================================================
 
 let private metricStr (v: float option) =
-    match v with Some x -> $"%.6f{x}" | None -> ""
+    match v with
+    | Some x -> $"%.6f{x}"
+    | None -> ""
 
-let resultMaps : Map<string, string> list =
+let resultMaps: Map<string, string> list =
     results
     |> List.map (fun r ->
-        [ "key",                    r.Level.Key
-          "label",                  r.Level.Label
-          "confidence",             $"%.4f{r.Level.Confidence}"
-          "method",                 r.Method
-          "var",                    metricStr r.VaR
-          "cvar",                   metricStr r.CVaR
-          "expected_shortfall",     metricStr r.ExpectedShortfall
-          "volatility",             metricStr r.Volatility
-          "execution_time_ms",      $"%.2f{r.ExecutionTimeMs}"
-          "qubits",                 $"%d{numQubits}"
-          "grover_iterations",      $"%d{groverIterations}"
-          "shots",                  $"%d{shots}"
-          "simulation_paths",       $"%d{simulationPaths}"
-          "has_quantum_failure",    $"%b{r.HasQuantumFailure}" ]
+        [
+            "key", r.Level.Key
+            "label", r.Level.Label
+            "confidence", $"%.4f{r.Level.Confidence}"
+            "method", r.Method
+            "var", metricStr r.VaR
+            "cvar", metricStr r.CVaR
+            "expected_shortfall", metricStr r.ExpectedShortfall
+            "volatility", metricStr r.Volatility
+            "execution_time_ms", $"%.2f{r.ExecutionTimeMs}"
+            "qubits", $"%d{numQubits}"
+            "grover_iterations", $"%d{groverIterations}"
+            "shots", $"%d{shots}"
+            "simulation_paths", $"%d{simulationPaths}"
+            "has_quantum_failure", $"%b{r.HasQuantumFailure}"
+        ]
         |> Map.ofList)
 
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultMaps
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
     let header =
-        [ "key"; "label"; "confidence"; "method"; "var"; "cvar"; "expected_shortfall"
-          "volatility"; "execution_time_ms"; "qubits"; "grover_iterations"; "shots"
-          "simulation_paths"; "has_quantum_failure" ]
+        [
+            "key"
+            "label"
+            "confidence"
+            "method"
+            "var"
+            "cvar"
+            "expected_shortfall"
+            "volatility"
+            "execution_time_ms"
+            "qubits"
+            "grover_iterations"
+            "shots"
+            "simulation_paths"
+            "has_quantum_failure"
+        ]
+
     let rows =
-        resultMaps |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        resultMaps
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()

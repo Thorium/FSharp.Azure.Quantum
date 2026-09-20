@@ -10,8 +10,10 @@ module Reporting =
 
     let writeTextFile (path: string) (content: string) =
         let dir = Path.GetDirectoryName path
+
         if not (String.IsNullOrWhiteSpace dir) then
             Directory.CreateDirectory(dir) |> ignore
+
         File.WriteAllText(path, content, utf8NoBom)
 
     let writeJson<'T> (path: string) (value: 'T) =
@@ -31,6 +33,7 @@ module Reporting =
 
         let sb = StringBuilder()
         sb.AppendLine(line header) |> ignore
+
         for r in rows do
             sb.AppendLine(line r) |> ignore
 

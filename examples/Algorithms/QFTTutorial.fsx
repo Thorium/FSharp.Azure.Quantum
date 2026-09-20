@@ -1,8 +1,8 @@
 ﻿/// Quantum Fourier Transform (QFT) Tutorial
-/// 
+///
 /// A Li Tan-style pedagogical tutorial with worked numerical examples,
 /// classical comparisons, and progressive exercises.
-/// 
+///
 /// Inspired by "Digital Signal Processing: Fundamentals and Applications" (Li Tan)
 /// - Practical-first approach with real numbers
 /// - Step-by-step worked examples with solutions
@@ -108,21 +108,33 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "QFTTutorial.fsx"
     "Quantum Fourier Transform tutorial with worked examples."
-    [ { Cli.OptionSpec.Name = "example"
-        Description = "Example to run: gates|qft0|qft1|qft5|roundtrip|complexity|exercises|all"
-        Default = Some "all" }
-      { Cli.OptionSpec.Name = "qubits"
-        Description = "Number of qubits for QFT examples"
-        Default = Some "3" }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress printed output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "example"
+            Description = "Example to run: gates|qft0|qft1|qft5|roundtrip|complexity|exercises|all"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "qubits"
+            Description = "Number of qubits for QFT examples"
+            Default = Some "3"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress printed output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -133,7 +145,9 @@ let csvPath = Cli.tryGet "csv" args
 
 let backend = LocalBackend() :> IQuantumBackend
 let results = ResizeArray<Map<string, string>>()
-let shouldRun name = exampleName = "all" || exampleName = name
+
+let shouldRun name =
+    exampleName = "all" || exampleName = name
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -147,10 +161,13 @@ let bitsToIndex (bits: int[]) : int =
 let measureCounts (state: QuantumState) (nStates: int) (shots: int) : int[] =
     let measurements = QuantumState.measure state shots
     let counts = Array.zeroCreate nStates
+
     for bits in measurements do
         let idx = bitsToIndex bits
+
         if idx < nStates then
             counts.[idx] <- counts.[idx] + 1
+
     counts
 
 if not quiet then
@@ -225,6 +242,7 @@ if shouldRun "gates" then
         printfn ""
 
     let gateCount4 = estimateGateCount 4 true
+
     if not quiet then
         printfn "  Library verification: estimateGateCount 4 true = %d gates" gateCount4
         printfn ""
@@ -235,11 +253,14 @@ if shouldRun "gates" then
         printfn ""
 
     results.Add(
-        [ "example", "gates"
-          "qubits", "4"
-          "gate_count", string gateCount4
-          "detail", "Gate count calculation for 4 qubits" ]
-        |> Map.ofList)
+        [
+            "example", "gates"
+            "qubits", "4"
+            "gate_count", string gateCount4
+            "detail", "Gate count calculation for 4 qubits"
+        ]
+        |> Map.ofList
+    )
 
 (*
 ===============================================================================
@@ -285,26 +306,33 @@ if shouldRun "qft0" then
     match execute n backend defaultConfig with
     | Ok result ->
         let counts = measureCounts result.FinalState nStates 1000
+
         if not quiet then
             printfn "  LIBRARY VERIFICATION:"
             printfn "    Measurement results (1000 shots):"
+
             for k in 0 .. nStates - 1 do
                 let pct = float counts.[k] / 10.0
                 printfn "      |%d>: %3d shots (%.1f%%)" k counts.[k] pct
+
             printfn ""
             printfn "    Gate count: %d" result.GateCount
             printfn "    Execution time: %.2f ms" result.ExecutionTimeMs
             printfn ""
 
         results.Add(
-            [ "example", "qft0"
-              "qubits", string n
-              "gate_count", string result.GateCount
-              "execution_time_ms", $"%.2f{result.ExecutionTimeMs}"
-              "detail", $"QFT on |0> with %d{n} qubits" ]
-            |> Map.ofList)
+            [
+                "example", "qft0"
+                "qubits", string n
+                "gate_count", string result.GateCount
+                "execution_time_ms", $"%.2f{result.ExecutionTimeMs}"
+                "detail", $"QFT on |0> with %d{n} qubits"
+            ]
+            |> Map.ofList
+        )
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
 
 // ===========================================================================
 // EXAMPLE: QFT on |1âŸ©
@@ -328,11 +356,13 @@ if shouldRun "qft1" then
         printfn "  Output amplitudes (equal magnitude, varying phase):"
 
     let omega = Complex.Exp(Complex(0.0, 2.0 * Math.PI / float (1 <<< numQubits)))
+
     if not quiet then
         for k in 0 .. (1 <<< numQubits) - 1 do
             let phase_k = omega ** float k
             let angleDegrees = phase_k.Phase * 180.0 / Math.PI
             printfn "    |%d>: phase = %.0f degrees" k angleDegrees
+
         printfn ""
         printfn "  Key observation: Amplitudes form a spiral in the complex plane!"
         printfn ""
@@ -340,24 +370,31 @@ if shouldRun "qft1" then
     match transformBasisState n 1 backend defaultConfig with
     | Ok result ->
         let counts = measureCounts result.FinalState nStates 1000
+
         if not quiet then
             printfn "  LIBRARY VERIFICATION:"
             printfn "    Measurement results (1000 shots):"
+
             for k in 0 .. nStates - 1 do
                 let pct = float counts.[k] / 10.0
                 printfn "      |%d>: %3d shots (%.1f%%)" k counts.[k] pct
+
             printfn ""
             printfn "    Note: Equal probabilities despite different phases!"
             printfn ""
 
         results.Add(
-            [ "example", "qft1"
-              "qubits", string n
-              "gate_count", string result.GateCount
-              "detail", $"QFT on |1> with %d{n} qubits" ]
-            |> Map.ofList)
+            [
+                "example", "qft1"
+                "qubits", string n
+                "gate_count", string result.GateCount
+                "detail", $"QFT on |1> with %d{n} qubits"
+            ]
+            |> Map.ofList
+        )
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
 
 // ===========================================================================
 // EXAMPLE: QFT on |5âŸ©
@@ -384,12 +421,21 @@ if shouldRun "qft5" then
             printfn "    QFT|5> = (1/sqrt(%d)) Sum_k e^{2pi i * 5 * k/%d} |k>" nStates nStates
             printfn ""
             printfn "  Phase calculation for each output state:"
+
             for k in 0 .. nStates - 1 do
                 let totalPhase = (2.0 * Math.PI * 5.0 * float k / float nStates) % (2.0 * Math.PI)
+
                 let angleDeg =
-                    let a = if totalPhase > Math.PI then totalPhase - 2.0 * Math.PI else totalPhase
+                    let a =
+                        if totalPhase > Math.PI then
+                            totalPhase - 2.0 * Math.PI
+                        else
+                            totalPhase
+
                     a * 180.0 / Math.PI
+
                 printfn "    |%d>: phase = %.0f degrees" k angleDeg
+
             printfn ""
 
         match transformBasisState n 5 backend defaultConfig with
@@ -402,13 +448,17 @@ if shouldRun "qft5" then
                 printfn ""
 
             results.Add(
-                [ "example", "qft5"
-                  "qubits", string n
-                  "gate_count", string result.GateCount
-                  "detail", $"QFT on |5> with %d{n} qubits" ]
-                |> Map.ofList)
+                [
+                    "example", "qft5"
+                    "qubits", string n
+                    "gate_count", string result.GateCount
+                    "detail", $"QFT on |5> with %d{n} qubits"
+                ]
+                |> Map.ofList
+            )
         | Error err ->
-            if not quiet then printfn "  Error: %A" err
+            if not quiet then
+                printfn "  Error: %A" err
 
 (*
 ===============================================================================
@@ -449,30 +499,47 @@ if shouldRun "roundtrip" then
             else
                 printfn "  Result: FAILED"
                 printfn "  Some measurements were not |%s>" (String.replicate n "0")
+
             printfn ""
 
         results.Add(
-            [ "example", "roundtrip"
-              "qubits", string n
-              "passed", string isIdentity
-              "detail", "QFT round-trip identity verification" ]
-            |> Map.ofList)
+            [
+                "example", "roundtrip"
+                "qubits", string n
+                "passed", string isIdentity
+                "detail", "QFT round-trip identity verification"
+            ]
+            |> Map.ofList
+        )
     | Error err ->
-        if not quiet then printfn "  Error: %A" err
+        if not quiet then
+            printfn "  Error: %A" err
 
     if not quiet then
         printfn "  UNITARITY VERIFICATION (with config options):"
-    for applySwaps in [true; false] do
-        for inverse in [true; false] do
-            let config = { defaultConfig with ApplySwaps = applySwaps; Inverse = inverse }
+
+    for applySwaps in [ true; false ] do
+        for inverse in [ true; false ] do
+            let config =
+                { defaultConfig with
+                    ApplySwaps = applySwaps
+                    Inverse = inverse
+                }
+
             let desc = $"ApplySwaps=%b{applySwaps}, Inverse=%b{inverse}"
+
             match verifyUnitarity n backend config with
             | Ok isUnitary ->
                 let status = if isUnitary then "PASS" else "FAIL"
-                if not quiet then printfn "    %s: %s" desc status
+
+                if not quiet then
+                    printfn "    %s: %s" desc status
             | Error err ->
-                if not quiet then printfn "    %s: ERROR - %A" desc err
-    if not quiet then printfn ""
+                if not quiet then
+                    printfn "    %s: ERROR - %A" desc err
+
+    if not quiet then
+        printfn ""
 
 (*
 ===============================================================================
@@ -495,21 +562,41 @@ if shouldRun "complexity" then
         printfn "  | n qubits |    N states   | Classical DFT | Classical FFT | Quantum QFT |"
         printfn "  |----------|---------------|---------------|---------------|-------------|"
 
-    for n in [4; 8; 16; 20; 30] do
+    for n in [ 4; 8; 16; 20; 30 ] do
         let N = 1L <<< n
-        let dft = if n <= 16 then (N * N).ToString "N0" else sprintf "~10^%d" (2 * n / 3)
-        let fft = if n <= 30 then (N * int64 n).ToString "N0" else sprintf "~10^%d" (n / 3)
+
+        let dft =
+            if n <= 16 then
+                (N * N).ToString "N0"
+            else
+                sprintf "~10^%d" (2 * n / 3)
+
+        let fft =
+            if n <= 30 then
+                (N * int64 n).ToString "N0"
+            else
+                sprintf "~10^%d" (n / 3)
+
         let qft = estimateGateCount n true
-        let nStr = if n <= 20 then N.ToString("N0") else sprintf "~10^%d" (n / 3)
+
+        let nStr =
+            if n <= 20 then
+                N.ToString("N0")
+            else
+                sprintf "~10^%d" (n / 3)
+
         if not quiet then
             printfn "  |    %2d    | %13s | %13s | %13s | %11d |" n nStr dft fft qft
 
         results.Add(
-            [ "example", "complexity"
-              "qubits", string n
-              "gate_count", string qft
-              "detail", $"Complexity comparison for n=%d{n}" ]
-            |> Map.ofList)
+            [
+                "example", "complexity"
+                "qubits", string n
+                "gate_count", string qft
+                "detail", $"Complexity comparison for n=%d{n}"
+            ]
+            |> Map.ofList
+        )
 
     if not quiet then
         printfn ""
@@ -550,16 +637,20 @@ if shouldRun "exercises" then
         printfn ""
 
     let answer1 = estimateGateCount 5 true
+
     if not quiet then
         printfn "  Library answer: %d gates" answer1
         printfn ""
 
     results.Add(
-        [ "example", "exercise_1"
-          "qubits", "5"
-          "gate_count", string answer1
-          "detail", "Gate count for 5 qubits" ]
-        |> Map.ofList)
+        [
+            "example", "exercise_1"
+            "qubits", "5"
+            "gate_count", string answer1
+            "detail", "Gate count for 5 qubits"
+        ]
+        |> Map.ofList
+    )
 
     if not quiet then
         printfn "Exercise 2 (Intermediate): Phase Calculation"
@@ -567,10 +658,12 @@ if shouldRun "exercises" then
         printfn "For QFT|3> with 2 qubits (N=4), calculate the phase of each output amplitude."
         printfn ""
         printfn "  SOLUTION:"
+
         for k in 0..3 do
             let phase = (2.0 * Math.PI * 3.0 * float k / 4.0) % (2.0 * Math.PI)
             let phasePi = phase / Math.PI
             printfn "    k=%d: phase = %.2f*pi radians = %.0f degrees" k phasePi (phase * 180.0 / Math.PI)
+
         printfn ""
 
         printfn "Exercise 3 (Advanced): Verify QFT on All 2-Qubit Basis States"
@@ -578,18 +671,22 @@ if shouldRun "exercises" then
         printfn ""
 
     for j in 0..3 do
-        if not quiet then printfn "  QFT|%d>:" j
+        if not quiet then
+            printfn "  QFT|%d>:" j
+
         match transformBasisState 2 j backend defaultConfig with
         | Ok result ->
             let counts = measureCounts result.FinalState 4 400
+
             if not quiet then
-                printfn "    Measurements: |0>=%d, |1>=%d, |2>=%d, |3>=%d"
-                    counts.[0] counts.[1] counts.[2] counts.[3]
+                printfn "    Measurements: |0>=%d, |1>=%d, |2>=%d, |3>=%d" counts.[0] counts.[1] counts.[2] counts.[3]
                 printfn "    Expected: ~100 each (25%%)"
         | Error err ->
-            if not quiet then printfn "    Error: %A" err
+            if not quiet then
+                printfn "    Error: %A" err
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
 // ---------------------------------------------------------------------------
 // Summary
@@ -625,11 +722,13 @@ match outputPath with
 
 match csvPath with
 | Some p ->
-    let header = ["example"; "qubits"; "gate_count"; "execution_time_ms"; "passed"; "detail"]
+    let header =
+        [ "example"; "qubits"; "gate_count"; "execution_time_ms"; "passed"; "detail" ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv p header rows
 | None -> ()
 

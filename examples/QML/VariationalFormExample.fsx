@@ -68,22 +68,53 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "VariationalFormExample.fsx"
     "Variational form (ansatz) architectures for QML"
-    [ { Name = "example"; Description = "Which example: 1-9|all";     Default = Some "all" }
-      { Name = "qubits";  Description = "Number of qubits";           Default = Some "4" }
-      { Name = "depth";   Description = "Ansatz depth (layers)";      Default = Some "1" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ]
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-9|all"
+            Default = Some "all"
+        }
+        {
+            Name = "qubits"
+            Description = "Number of qubits"
+            Default = Some "4"
+        }
+        {
+            Name = "depth"
+            Description = "Ansatz depth (layers)"
+            Default = Some "1"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
+let csvPath = Cli.tryGet "csv" args
 let exampleArg = Cli.getOr "example" "all" args
-let numQubits  = Cli.getIntOr "qubits" 4 args
-let cliDepth   = Cli.getIntOr "depth" 1 args
+let numQubits = Cli.getIntOr "qubits" 4 args
+let cliDepth = Cli.getIntOr "depth" 1 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let section title =
     pr ""
@@ -95,37 +126,81 @@ let section title =
 let quantumBackend = LocalBackend() :> IQuantumBackend
 
 // â”€â”€ Result accumulators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-let mutable results : Map<string, obj> list = []
-let mutable csvRows : string list list = []
+let mutable results: Map<string, obj> list = []
+let mutable csvRows: string list list = []
 
-let shouldRun ex = exampleArg = "all" || exampleArg = string ex
+let shouldRun ex =
+    exampleArg = "all" || exampleArg = string ex
 
 let analyzeCircuit name (circ: Circuit) nParams =
     let gates = getGates circ
-    let ryCount  = gates |> List.filter (function RY _ -> true | _ -> false) |> List.length
-    let rzCount  = gates |> List.filter (function RZ _ -> true | _ -> false) |> List.length
-    let rxCount  = gates |> List.filter (function RX _ -> true | _ -> false) |> List.length
-    let czCount  = gates |> List.filter (function CZ _ -> true | _ -> false) |> List.length
-    let cnotCount = gates |> List.filter (function CNOT _ -> true | _ -> false) |> List.length
+
+    let ryCount =
+        gates
+        |> List.filter (function
+            | RY _ -> true
+            | _ -> false)
+        |> List.length
+
+    let rzCount =
+        gates
+        |> List.filter (function
+            | RZ _ -> true
+            | _ -> false)
+        |> List.length
+
+    let rxCount =
+        gates
+        |> List.filter (function
+            | RX _ -> true
+            | _ -> false)
+        |> List.length
+
+    let czCount =
+        gates
+        |> List.filter (function
+            | CZ _ -> true
+            | _ -> false)
+        |> List.length
+
+    let cnotCount =
+        gates
+        |> List.filter (function
+            | CNOT _ -> true
+            | _ -> false)
+        |> List.length
+
     let rotCount = ryCount + rzCount + rxCount
     let entCount = czCount + cnotCount
     (rotCount, entCount, ryCount, rzCount, rxCount, czCount, cnotCount)
 
 let addRow name nParams totalGates rotGates entGates =
-    results <- results @ [
-        Map.ofList [
-            "example", box name
-            "qubits", box numQubits
-            "parameters", box nParams
-            "total_gates", box totalGates
-            "rotation_gates", box rotGates
-            "entangling_gates", box entGates
+    results <-
+        results
+        @ [
+            Map.ofList
+                [
+                    "example", box name
+                    "qubits", box numQubits
+                    "parameters", box nParams
+                    "total_gates", box totalGates
+                    "rotation_gates", box rotGates
+                    "entangling_gates", box entGates
+                ]
         ]
-    ]
-    csvRows <- csvRows @ [
-        [ name; string numQubits; string nParams; string totalGates
-          string rotGates; string entGates ]
-    ]
+
+    csvRows <-
+        csvRows
+        @ [
+            [
+                name
+                string numQubits
+                string nParams
+                string totalGates
+                string rotGates
+                string entGates
+            ]
+        ]
 
 // â”€â”€ EXAMPLE 1: RealAmplitudes (depth from CLI) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 1 then
@@ -142,8 +217,7 @@ if shouldRun 1 then
         pr "Circuit: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Ry: %d, CZ: %d" ry cz
         addRow "1_real_amplitudes" vParams.Length (gateCount circ) rot ent
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 2: RealAmplitudes (depth 2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 2 then
@@ -160,8 +234,7 @@ if shouldRun 2 then
         pr "Circuit: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Ry: %d, CZ: %d" ry cz
         addRow "2_real_amp_d2" vParams.Length (gateCount circ) rot ent
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 3: TwoLocal (Ry + CZ) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 3 then
@@ -174,12 +247,13 @@ if shouldRun 3 then
 
     match buildVariationalForm (TwoLocal("Ry", "CZ", 1)) vParams numQubits with
     | Ok circ ->
-        let (rot, ent, ry, _, _, cz, _) = analyzeCircuit "3_twolocal_rycz" circ vParams.Length
+        let (rot, ent, ry, _, _, cz, _) =
+            analyzeCircuit "3_twolocal_rycz" circ vParams.Length
+
         pr "Circuit: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Ry: %d, CZ: %d" ry cz
         addRow "3_twolocal_rycz" vParams.Length (gateCount circ) rot ent
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 4: TwoLocal (Rx + CNOT) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 4 then
@@ -192,12 +266,13 @@ if shouldRun 4 then
 
     match buildVariationalForm (TwoLocal("Rx", "CNOT", 1)) vParams numQubits with
     | Ok circ ->
-        let (rot, ent, _, _, rx, _, cnot) = analyzeCircuit "4_twolocal_rxcnot" circ vParams.Length
+        let (rot, ent, _, _, rx, _, cnot) =
+            analyzeCircuit "4_twolocal_rxcnot" circ vParams.Length
+
         pr "Circuit: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Rx: %d, CNOT: %d" rx cnot
         addRow "4_twolocal_rxcnot" vParams.Length (gateCount circ) rot ent
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 5: EfficientSU2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 5 then
@@ -215,34 +290,32 @@ if shouldRun 5 then
         pr "Circuit: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Ry: %d, Rz: %d, CZ: %d" ry rz cz
         addRow "5_efficient_su2" vParams.Length (gateCount circ) rot ent
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 6: Ansatz Comparison â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 6 then
     section "EXAMPLE 6: Ansatz Comparison (all architectures)"
 
-    let ansatze = [
-        ("RealAmplitudes",   RealAmplitudes 1)
-        ("TwoLocal(Ry+CZ)",  TwoLocal("Ry", "CZ", 1))
-        ("TwoLocal(Rx+CNOT)", TwoLocal("Rx", "CNOT", 1))
-        ("EfficientSU2",     EfficientSU2 1)
-    ]
+    let ansatze =
+        [
+            ("RealAmplitudes", RealAmplitudes 1)
+            ("TwoLocal(Ry+CZ)", TwoLocal("Ry", "CZ", 1))
+            ("TwoLocal(Rx+CNOT)", TwoLocal("Rx", "CNOT", 1))
+            ("EfficientSU2", EfficientSU2 1)
+        ]
 
     pr "%-22s | %6s | %5s | %8s | %8s" "Ansatz" "Params" "Gates" "Rotation" "Entangle"
     pr "%s" (String.replicate 60 "-")
 
     for (name, ansatz) in ansatze do
         let vParams = randomParameters ansatz numQubits (Some 42)
+
         match buildVariationalForm ansatz vParams numQubits with
         | Ok circ ->
             let (rot, ent, _, _, _, _, _) = analyzeCircuit name circ vParams.Length
-            pr "%-22s | %6d | %5d | %8d | %8d"
-                name vParams.Length (gateCount circ) rot ent
-            addRow (sprintf "6_%s" (name.Replace("(","").Replace(")","")))
-                vParams.Length (gateCount circ) rot ent
-        | Error _ ->
-            pr "%-22s | %6s | %5s | %8s | %8s" name "Err" "Err" "Err" "Err"
+            pr "%-22s | %6d | %5d | %8d | %8d" name vParams.Length (gateCount circ) rot ent
+            addRow (sprintf "6_%s" (name.Replace("(", "").Replace(")", ""))) vParams.Length (gateCount circ) rot ent
+        | Error _ -> pr "%-22s | %6s | %5s | %8s | %8s" name "Err" "Err" "Err" "Err"
 
 // â”€â”€ EXAMPLE 7: Parameter Initialization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 7 then
@@ -260,14 +333,17 @@ if shouldRun 7 then
     pr "2. Constant pi/4: %A" (cnst |> Array.take (min 5 cnst.Length) |> Array.map (fun p -> Math.Round(p, 3)))
     pr "3. Random (seed): %A" (rand |> Array.take (min 5 rand.Length) |> Array.map (fun p -> Math.Round(p, 3)))
 
-    results <- results @ [
-        Map.ofList [
-            "example", box "7_init_strategies"
-            "zero_params", box zero.Length
-            "constant_value", box (Math.PI / 4.0)
-            "random_seed", box 42
+    results <-
+        results
+        @ [
+            Map.ofList
+                [
+                    "example", box "7_init_strategies"
+                    "zero_params", box zero.Length
+                    "constant_value", box (Math.PI / 4.0)
+                    "random_seed", box 42
+                ]
         ]
-    ]
 
 // â”€â”€ EXAMPLE 8: Feature Map + Ansatz Composition â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 8 then
@@ -285,24 +361,33 @@ if shouldRun 8 then
     match FeatureMap.buildFeatureMap fmType feat with
     | Ok fmCircuit ->
         pr "1. Feature map:  %d gates" (gateCount fmCircuit)
+
         match buildVariationalForm vfType vParams numQubits with
         | Ok vfCircuit ->
             pr "2. Ansatz:       %d gates" (gateCount vfCircuit)
+
             match composeWithFeatureMap fmCircuit vfCircuit with
             | Ok composed ->
-                pr "3. Composed:     %d gates (= %d + %d)"
-                    (gateCount composed) (gateCount fmCircuit) (gateCount vfCircuit)
+                pr
+                    "3. Composed:     %d gates (= %d + %d)"
+                    (gateCount composed)
+                    (gateCount fmCircuit)
+                    (gateCount vfCircuit)
+
                 pr ""
                 pr "This is the complete VQC forward pass circuit!"
 
-                results <- results @ [
-                    Map.ofList [
-                        "example", box "8_composition"
-                        "feature_map_gates", box (gateCount fmCircuit)
-                        "ansatz_gates", box (gateCount vfCircuit)
-                        "composed_gates", box (gateCount composed)
+                results <-
+                    results
+                    @ [
+                        Map.ofList
+                            [
+                                "example", box "8_composition"
+                                "feature_map_gates", box (gateCount fmCircuit)
+                                "ansatz_gates", box (gateCount vfCircuit)
+                                "composed_gates", box (gateCount composed)
+                            ]
                     ]
-                ]
             | Error err -> pr "Composition error: %s" err.Message
         | Error err -> pr "Ansatz error: %s" err.Message
     | Error err -> pr "Feature map error: %s" err.Message
@@ -314,35 +399,59 @@ if shouldRun 9 then
     pr "%-5s | %6s | %5s | %4s | %4s" "Depth" "Params" "Gates" "Ry" "CZ"
     pr "%s" (String.replicate 35 "-")
 
-    for d in [1; 2; 3; 5] do
+    for d in [ 1; 2; 3; 5 ] do
         let ansatz = RealAmplitudes d
         let vParams = randomParameters ansatz numQubits (Some 42)
+
         match buildVariationalForm ansatz vParams numQubits with
         | Ok circ ->
             let gates = getGates circ
-            let ry = gates |> List.filter (function RY _ -> true | _ -> false) |> List.length
-            let cz = gates |> List.filter (function CZ _ -> true | _ -> false) |> List.length
+
+            let ry =
+                gates
+                |> List.filter (function
+                    | RY _ -> true
+                    | _ -> false)
+                |> List.length
+
+            let cz =
+                gates
+                |> List.filter (function
+                    | CZ _ -> true
+                    | _ -> false)
+                |> List.length
+
             pr "%5d | %6d | %5d | %4d | %4d" d vParams.Length (gateCount circ) ry cz
             addRow $"9_depth_%d{d}" vParams.Length (gateCount circ) ry cz
-        | Error _ ->
-            pr "%5d | %6s | %5s | %4s | %4s" d "Err" "Err" "--" "--"
+        | Error _ -> pr "%5d | %6s | %5s | %4s | %4s" d "Err" "Err" "--" "--"
 
 // â”€â”€ Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let payload =
-    Map.ofList [
-        "script", box "VariationalFormExample.fsx"
-        "timestamp", box (DateTime.UtcNow.ToString("o"))
-        "qubits", box numQubits
-        "depth", box cliDepth
-        "example", box exampleArg
-        "backend", box (quantumBackend.Name)
-        "results", box results
-    ]
+    Map.ofList
+        [
+            "script", box "VariationalFormExample.fsx"
+            "timestamp", box (DateTime.UtcNow.ToString("o"))
+            "qubits", box numQubits
+            "depth", box cliDepth
+            "example", box exampleArg
+            "backend", box (quantumBackend.Name)
+            "results", box results
+        ]
 
 outputPath |> Option.iter (fun p -> Reporting.writeJson p payload)
-csvPath    |> Option.iter (fun p ->
-    Reporting.writeCsv p
-        [ "example"; "qubits"; "parameters"; "total_gates"; "rotation_gates"; "entangling_gates" ]
+
+csvPath
+|> Option.iter (fun p ->
+    Reporting.writeCsv
+        p
+        [
+            "example"
+            "qubits"
+            "parameters"
+            "total_gates"
+            "rotation_gates"
+            "entangling_gates"
+        ]
         csvRows)
 
 // â”€â”€ Usage hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

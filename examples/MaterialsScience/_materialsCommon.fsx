@@ -82,23 +82,26 @@ let backend = LocalBackend() :> IQuantumBackend
 let calculateVQEEnergy (backend: IQuantumBackend) (molecule: Molecule) : Result<float * int * float, string> =
     let startTime = DateTime.Now
 
-    let config = {
-        Method = GroundStateMethod.VQE
-        Backend = Some backend
-        MaxIterations = 50
-        Tolerance = 1e-5
-        InitialParameters = None
-        ProgressReporter = None
-        ErrorMitigation = None
-        IntegralProvider = None
-    }
+    let config =
+        {
+            Method = GroundStateMethod.VQE
+            Backend = Some backend
+            MaxIterations = 50
+            Tolerance = 1e-5
+            InitialParameters = None
+            ProgressReporter = None
+            ErrorMitigation = None
+            IntegralProvider = None
+        }
 
     try
-        let result = GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+        let result =
+            GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+
         let elapsed = (DateTime.Now - startTime).TotalSeconds
 
         match result with
-        | Ok vqeResult -> Ok (vqeResult.Energy, vqeResult.Iterations, elapsed)
+        | Ok vqeResult -> Ok(vqeResult.Energy, vqeResult.Iterations, elapsed)
         | Error err -> Error err.Message
-    with
-    | ex -> Error ex.Message
+    with ex ->
+        Error ex.Message

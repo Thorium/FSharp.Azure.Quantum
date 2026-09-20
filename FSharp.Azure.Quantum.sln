@@ -41,6 +41,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Azure.Quantum.Braket
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Azure.Quantum.Braket.Tests", "tests\FSharp.Azure.Quantum.Braket.Tests\FSharp.Azure.Quantum.Braket.Tests.fsproj", "{ADAB844F-849A-48F1-98A6-9BECA5DF5D54}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Azure.Quantum.PropertyTests", "tests\FSharp.Azure.Quantum.PropertyTests\FSharp.Azure.Quantum.PropertyTests.fsproj", "{27C83270-A455-41E9-9A8D-A79363B5B7EF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -171,6 +173,18 @@ Global
 		{ADAB844F-849A-48F1-98A6-9BECA5DF5D54}.Release|x64.Build.0 = Release|Any CPU
 		{ADAB844F-849A-48F1-98A6-9BECA5DF5D54}.Release|x86.ActiveCfg = Release|Any CPU
 		{ADAB844F-849A-48F1-98A6-9BECA5DF5D54}.Release|x86.Build.0 = Release|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Debug|x64.Build.0 = Debug|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Debug|x86.Build.0 = Debug|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Release|x64.ActiveCfg = Release|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Release|x64.Build.0 = Release|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Release|x86.ActiveCfg = Release|Any CPU
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -192,5 +206,6 @@ Global
 		{2A3AF713-C810-461B-9FDF-28208389664D} = {FEAE7EE0-D34D-EF61-4539-D4F77D19D234}
 		{E30FD226-7107-45D9-B928-1A41563DF96B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{ADAB844F-849A-48F1-98A6-9BECA5DF5D54} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{27C83270-A455-41E9-9A8D-A79363B5B7EF} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

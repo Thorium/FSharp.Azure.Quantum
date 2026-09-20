@@ -21,7 +21,7 @@ let createSimpleCircuit singleQubitGates twoQubitGates measurements qubits : Cir
 /// Convert decimal<USD> to float for string formatting
 let usdToFloat (cost: decimal<USD>) : float = float (cost / 1.0M<USD>)
 
-/// Convert float<ms> to float for string formatting  
+/// Convert float<ms> to float for string formatting
 let msToFloat (time: float<ms>) : float = float (time / 1.0<ms>)
 
 // ============================================================================
@@ -34,10 +34,10 @@ let ``IonQ cost calculation - simple circuit with error mitigation`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    
+
     // Act
     let result = estimateCost backend circuit shots
-    
+
     // Assert
     match result with
     | Ok estimate ->
@@ -49,8 +49,7 @@ let ``IonQ cost calculation - simple circuit with error mitigation`` () =
         Assert.Equal("USD", estimate.Currency)
         Assert.Equal(backend, estimate.Backend)
         Assert.True(estimate.Breakdown.IsSome, "Breakdown should be provided")
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - without error mitigation is cheaper`` () =
@@ -59,26 +58,27 @@ let ``IonQ cost calculation - without error mitigation is cheaper`` () =
     let shots = 1000<shot>
     let withEM = IonQ true
     let withoutEM = IonQ false
-    
+
     // Act
     let resultWithEM = estimateCost withEM circuit shots
     let resultWithoutEM = estimateCost withoutEM circuit shots
-    
+
     // Assert
     match resultWithEM, resultWithoutEM with
     | Ok estimateWithEM, Ok estimateWithoutEM ->
-        Assert.True(estimateWithoutEM.ExpectedCost < estimateWithEM.ExpectedCost,
-            sprintf "Without EM ($%.2f) should be cheaper than with EM ($%.2f)" 
-                (usdToFloat estimateWithoutEM.ExpectedCost) (usdToFloat estimateWithEM.ExpectedCost))
+        Assert.True(
+            estimateWithoutEM.ExpectedCost < estimateWithEM.ExpectedCost,
+            sprintf
+                "Without EM ($%.2f) should be cheaper than with EM ($%.2f)"
+                (usdToFloat estimateWithoutEM.ExpectedCost)
+                (usdToFloat estimateWithEM.ExpectedCost)
+        )
         // Base cost difference: $97.50 - $12.42 = $85.08
         let costDiff = estimateWithEM.ExpectedCost - estimateWithoutEM.ExpectedCost
         Assert.InRange(costDiff, 80.0M<USD>, 90.0M<USD>)
-    | Error err1, Ok _ ->
-        Assert.Fail($"With EM estimate failed: %s{err1.Message}")
-    | Ok _, Error err2 ->
-        Assert.Fail($"Without EM estimate failed: %s{err2.Message}")
-    | Error err1, Error err2 ->
-        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
+    | Error err1, Ok _ -> Assert.Fail($"With EM estimate failed: %s{err1.Message}")
+    | Ok _, Error err2 -> Assert.Fail($"Without EM estimate failed: %s{err2.Message}")
+    | Error err1, Error err2 -> Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - cost increases with shot count`` () =
@@ -87,23 +87,24 @@ let ``IonQ cost calculation - cost increases with shot count`` () =
     let lowShots = 100<shot>
     let highShots = 10000<shot>
     let backend = IonQ true
-    
+
     // Act
     let lowResult = estimateCost backend circuit lowShots
     let highResult = estimateCost backend circuit highShots
-    
+
     // Assert
     match lowResult, highResult with
     | Ok lowEstimate, Ok highEstimate ->
-        Assert.True(highEstimate.ExpectedCost > lowEstimate.ExpectedCost,
-            sprintf "Higher shot count should cost more: $%.2f vs $%.2f" 
-                (usdToFloat highEstimate.ExpectedCost) (usdToFloat lowEstimate.ExpectedCost))
-    | Error err, Ok _ ->
-        Assert.Fail($"Low shot estimate failed: %s{err.Message}")
-    | Ok _, Error err ->
-        Assert.Fail($"High shot estimate failed: %s{err.Message}")
-    | Error err1, Error err2 ->
-        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
+        Assert.True(
+            highEstimate.ExpectedCost > lowEstimate.ExpectedCost,
+            sprintf
+                "Higher shot count should cost more: $%.2f vs $%.2f"
+                (usdToFloat highEstimate.ExpectedCost)
+                (usdToFloat lowEstimate.ExpectedCost)
+        )
+    | Error err, Ok _ -> Assert.Fail($"Low shot estimate failed: %s{err.Message}")
+    | Ok _, Error err -> Assert.Fail($"High shot estimate failed: %s{err.Message}")
+    | Error err1, Error err2 -> Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - cost increases with gate count`` () =
@@ -112,23 +113,24 @@ let ``IonQ cost calculation - cost increases with gate count`` () =
     let largeCircuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    
+
     // Act
     let smallResult = estimateCost backend smallCircuit shots
     let largeResult = estimateCost backend largeCircuit shots
-    
+
     // Assert
     match smallResult, largeResult with
     | Ok smallEstimate, Ok largeEstimate ->
-        Assert.True(largeEstimate.ExpectedCost > smallEstimate.ExpectedCost,
-            sprintf "Larger circuit should cost more: $%.2f vs $%.2f" 
-                (usdToFloat largeEstimate.ExpectedCost) (usdToFloat smallEstimate.ExpectedCost))
-    | Error err, Ok _ ->
-        Assert.Fail($"Small circuit estimate failed: %s{err.Message}")
-    | Ok _, Error err ->
-        Assert.Fail($"Large circuit estimate failed: %s{err.Message}")
-    | Error err1, Error err2 ->
-        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
+        Assert.True(
+            largeEstimate.ExpectedCost > smallEstimate.ExpectedCost,
+            sprintf
+                "Larger circuit should cost more: $%.2f vs $%.2f"
+                (usdToFloat largeEstimate.ExpectedCost)
+                (usdToFloat smallEstimate.ExpectedCost)
+        )
+    | Error err, Ok _ -> Assert.Fail($"Small circuit estimate failed: %s{err.Message}")
+    | Ok _, Error err -> Assert.Fail($"Large circuit estimate failed: %s{err.Message}")
+    | Error err1, Error err2 -> Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - two-qubit gates cost more than single-qubit`` () =
@@ -137,24 +139,25 @@ let ``IonQ cost calculation - two-qubit gates cost more than single-qubit`` () =
     let twoQubitCircuit = createSimpleCircuit 0 100 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    
+
     // Act
     let singleQubitResult = estimateCost backend singleQubitCircuit shots
     let twoQubitResult = estimateCost backend twoQubitCircuit shots
-    
+
     // Assert
     match singleQubitResult, twoQubitResult with
     | Ok singleEstimate, Ok twoEstimate ->
         // Two-qubit gates (0.000975) cost ~4.4x more than single-qubit (0.000220)
-        Assert.True(twoEstimate.ExpectedCost > singleEstimate.ExpectedCost,
-            sprintf "Two-qubit gates should cost more: $%.2f vs $%.2f" 
-                (usdToFloat twoEstimate.ExpectedCost) (usdToFloat singleEstimate.ExpectedCost))
-    | Error err, Ok _ ->
-        Assert.Fail($"Single-qubit estimate failed: %s{err.Message}")
-    | Ok _, Error err ->
-        Assert.Fail($"Two-qubit estimate failed: %s{err.Message}")
-    | Error err1, Error err2 ->
-        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
+        Assert.True(
+            twoEstimate.ExpectedCost > singleEstimate.ExpectedCost,
+            sprintf
+                "Two-qubit gates should cost more: $%.2f vs $%.2f"
+                (usdToFloat twoEstimate.ExpectedCost)
+                (usdToFloat singleEstimate.ExpectedCost)
+        )
+    | Error err, Ok _ -> Assert.Fail($"Single-qubit estimate failed: %s{err.Message}")
+    | Ok _, Error err -> Assert.Fail($"Two-qubit estimate failed: %s{err.Message}")
+    | Error err1, Error err2 -> Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``IonQ cost calculation - warning for high-cost jobs`` () =
@@ -162,18 +165,17 @@ let ``IonQ cost calculation - warning for high-cost jobs`` () =
     let circuit = createSimpleCircuit 1000 500 2 2
     let shots = 5000<shot>
     let backend = IonQ true
-    
+
     // Act
     let result = estimateCost backend circuit shots
-    
+
     // Assert
     match result with
     | Ok estimate ->
         Assert.True(estimate.ExpectedCost > 200.0M<USD>, "High-cost job should exceed $200")
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("$200", String.concat " " estimate.Warnings)
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``IonQ cost breakdown - validates component costs`` () =
@@ -181,10 +183,10 @@ let ``IonQ cost breakdown - validates component costs`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    
+
     // Act
     let result = estimateCost backend circuit shots
-    
+
     // Assert
     match result with
     | Ok estimate ->
@@ -194,8 +196,7 @@ let ``IonQ cost breakdown - validates component costs`` () =
         Assert.True(breakdown.SingleQubitGateCost > 0.0M<USD>)
         Assert.True(breakdown.TwoQubitGateCost > 0.0M<USD>)
         Assert.Equal(breakdown.TotalCost, estimate.ExpectedCost)
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 // ============================================================================
 // QUANTINUUM COST CALCULATION TESTS
@@ -207,19 +208,18 @@ let ``Quantinuum cost calculation - HQC quota consumption`` () =
     let circuit = createSimpleCircuit 50 30 10 2
     let shots = 1000<shot>
     let backend = Quantinuum
-    
+
     // Act
     let result = estimateCost backend circuit shots
-    
+
     // Assert
     match result with
     | Ok estimate ->
         Assert.Equal("HQC", estimate.Currency)
-        Assert.Equal(0.0M<USD>, estimate.ExpectedCost)  // Subscription model
+        Assert.Equal(0.0M<USD>, estimate.ExpectedCost) // Subscription model
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("HQC", String.concat " " estimate.Warnings)
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``Quantinuum HQC calculation - increases with circuit complexity`` () =
@@ -227,25 +227,28 @@ let ``Quantinuum HQC calculation - increases with circuit complexity`` () =
     let simpleCircuit = createSimpleCircuit 10 5 2 2
     let complexCircuit = createSimpleCircuit 100 50 10 2
     let shots = 1000<shot>
-    
+
     // Act
     let simpleHQC = calculateQuantinuumHQC QuantinuumPricing.Default simpleCircuit shots
-    let complexHQC = calculateQuantinuumHQC QuantinuumPricing.Default complexCircuit shots
-    
+
+    let complexHQC =
+        calculateQuantinuumHQC QuantinuumPricing.Default complexCircuit shots
+
     // Assert
-    Assert.True(int complexHQC > int simpleHQC,
-        sprintf "Complex circuit should consume more HQC: %d vs %d" 
-            (int complexHQC) (int simpleHQC))
+    Assert.True(
+        int complexHQC > int simpleHQC,
+        sprintf "Complex circuit should consume more HQC: %d vs %d" (int complexHQC) (int simpleHQC)
+    )
 
 [<Fact>]
 let ``Quantinuum HQC calculation - minimum cost enforced`` () =
     // Arrange
     let tinyCircuit = createSimpleCircuit 1 1 1 1
     let shots = 1<shot>
-    
+
     // Act
     let hqc = calculateQuantinuumHQC QuantinuumPricing.Default tinyCircuit shots
-    
+
     // Assert
     Assert.True(int hqc >= 5, sprintf "Should have minimum 5 HQC, got %d" (int hqc))
 
@@ -253,13 +256,16 @@ let ``Quantinuum HQC calculation - minimum cost enforced`` () =
 let ``Quantinuum HQC calculation - two-qubit gates weighted more heavily`` () =
     // Arrange
     let singleQubitCircuit = createSimpleCircuit 100 0 10 2
-    let twoQubitCircuit = createSimpleCircuit 0 10 10 2  // 10 two-qubit gates instead of 100 single-qubit
+    let twoQubitCircuit = createSimpleCircuit 0 10 10 2 // 10 two-qubit gates instead of 100 single-qubit
     let shots = 1000<shot>
-    
+
     // Act
-    let singleQubitHQC = calculateQuantinuumHQC QuantinuumPricing.Default singleQubitCircuit shots
-    let twoQubitHQC = calculateQuantinuumHQC QuantinuumPricing.Default twoQubitCircuit shots
-    
+    let singleQubitHQC =
+        calculateQuantinuumHQC QuantinuumPricing.Default singleQubitCircuit shots
+
+    let twoQubitHQC =
+        calculateQuantinuumHQC QuantinuumPricing.Default twoQubitCircuit shots
+
     // Assert
     // Two-qubit weight (10.0) vs single-qubit weight (1.0) means 10 two-qubit gates ~ 100 single-qubit gates
     let diff = abs (int twoQubitHQC - int singleQubitHQC)
@@ -275,10 +281,10 @@ let ``Rigetti cost calculation - time-based pricing`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
     let backend = Rigetti
-    
+
     // Act
     let result = estimateCost backend circuit shots
-    
+
     // Assert
     match result with
     | Ok estimate ->
@@ -286,10 +292,9 @@ let ``Rigetti cost calculation - time-based pricing`` () =
         Assert.True(estimate.ExpectedCost > 0.0M<USD>)
         Assert.True(estimate.Breakdown.IsSome)
         let breakdown = estimate.Breakdown.Value
-        Assert.Equal(0.0M<USD>, breakdown.BaseCost)  // No base cost for Rigetti
-        Assert.True(breakdown.ShotCost > 0.0M<USD>)  // All cost is execution time
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+        Assert.Equal(0.0M<USD>, breakdown.BaseCost) // No base cost for Rigetti
+        Assert.True(breakdown.ShotCost > 0.0M<USD>) // All cost is execution time
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``Rigetti cost calculation - cost scales with execution time`` () =
@@ -298,37 +303,40 @@ let ``Rigetti cost calculation - cost scales with execution time`` () =
     let longCircuit = createSimpleCircuit 1000 500 2 2
     let shots = 1000<shot>
     let backend = Rigetti
-    
+
     // Act
     let shortResult = estimateCost backend shortCircuit shots
     let longResult = estimateCost backend longCircuit shots
-    
+
     // Assert
     match shortResult, longResult with
     | Ok shortEstimate, Ok longEstimate ->
-        Assert.True(longEstimate.ExpectedCost > shortEstimate.ExpectedCost,
-            sprintf "Longer circuit should cost more: $%.2f vs $%.2f" 
-                (usdToFloat longEstimate.ExpectedCost) (usdToFloat shortEstimate.ExpectedCost))
-    | Error err, Ok _ ->
-        Assert.Fail($"Short circuit estimate failed: %s{err.Message}")
-    | Ok _, Error err ->
-        Assert.Fail($"Long circuit estimate failed: %s{err.Message}")
-    | Error err1, Error err2 ->
-        Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
+        Assert.True(
+            longEstimate.ExpectedCost > shortEstimate.ExpectedCost,
+            sprintf
+                "Longer circuit should cost more: $%.2f vs $%.2f"
+                (usdToFloat longEstimate.ExpectedCost)
+                (usdToFloat shortEstimate.ExpectedCost)
+        )
+    | Error err, Ok _ -> Assert.Fail($"Short circuit estimate failed: %s{err.Message}")
+    | Ok _, Error err -> Assert.Fail($"Long circuit estimate failed: %s{err.Message}")
+    | Error err1, Error err2 -> Assert.Fail($"Both estimates failed: %s{err1.Message}, %s{err2.Message}")
 
 [<Fact>]
 let ``Rigetti execution time estimation - includes all gates`` () =
     // Arrange
     let circuit = createSimpleCircuit 100 50 2 2
     let timing = GateTiming.RigettiDefault
-    
+
     // Act
     let execTime = estimateRigettiExecutionTime timing circuit
-    
+
     // Assert
     // 100 single-qubit (0.05 us each) + 50 two-qubit (0.20 us each) = 5 us + 10 us = 15 us = 0.015 ms
-    Assert.True(msToFloat execTime > 0.01 && msToFloat execTime < 0.02,
-        sprintf "Expected ~0.015 ms, got %.6f ms" (msToFloat execTime))
+    Assert.True(
+        msToFloat execTime > 0.01 && msToFloat execTime < 0.02,
+        sprintf "Expected ~0.015 ms, got %.6f ms" (msToFloat execTime)
+    )
 
 // ============================================================================
 // CROSS-BACKEND COMPARISON TESTS
@@ -339,18 +347,17 @@ let ``compareCosts - returns estimates for all backends`` () =
     // Arrange
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
-    let backends = [IonQ true; Quantinuum; Rigetti]
-    
+    let backends = [ IonQ true; Quantinuum; Rigetti ]
+
     // Act
     let result = compareCosts backends circuit shots
-    
+
     // Assert
     match result with
     | Ok estimates ->
         Assert.Equal(3, List.length estimates)
         Assert.True(estimates |> List.forall (fun e -> e.Currency <> ""), "All estimates should have currency")
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``compareCosts - handles empty backend list`` () =
@@ -358,12 +365,14 @@ let ``compareCosts - handles empty backend list`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
     let backends = []
-    
+
     // Act
     let result = compareCosts backends circuit shots
-    
+
     // Assert
-    result |> Result.map (fun estimates -> Assert.Empty(estimates)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected empty list but got error: %s{err.Message}"))
+    result
+    |> Result.map (fun estimates -> Assert.Empty(estimates))
+    |> Result.defaultWith (fun err -> Assert.Fail($"Expected empty list but got error: %s{err.Message}"))
 
 // ============================================================================
 // BUDGET ENFORCEMENT TESTS
@@ -373,39 +382,51 @@ let ``compareCosts - handles empty backend list`` () =
 let ``Budget check - approves job within limits`` () =
     // Arrange
     // Use custom policy with higher limits to accommodate IonQ's base cost (~$98)
-    let policy = { BudgetPolicy.Development with 
-                    PerJobLimit = Some 200.0M<USD>
-                    DailyLimit = Some 500.0M<USD> }
+    let policy =
+        { BudgetPolicy.Development with
+            PerJobLimit = Some 200.0M<USD>
+            DailyLimit = Some 500.0M<USD>
+        }
+
     let circuit = createSimpleCircuit 10 5 2 2
     let shots = 100<shot>
     let backend = IonQ true
-    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
-    
+
+    let estimate =
+        (estimateCost backend circuit shots)
+        |> Result.defaultWith (fun _ -> failwith "Setup failed")
+
     // Act
     let result = checkBudget policy estimate 0.0M<USD> 0.0M<USD>
-    
+
     // Assert
     match result with
-    | Approved -> ()  // Success - no need for Assert.True(true)
+    | Approved -> () // Success - no need for Assert.True(true)
     | Warning msg -> Assert.Fail($"Expected approval but got warning: %s{msg}")
     | Denied reason -> Assert.Fail($"Expected approval but got denial: %s{reason}")
 
 [<Fact>]
 let ``Budget check - denies job exceeding per-job limit`` () =
     // Arrange
-    let policy = { BudgetPolicy.Development with PerJobLimit = Some 10.0M<USD> }
+    let policy =
+        { BudgetPolicy.Development with
+            PerJobLimit = Some 10.0M<USD>
+        }
+
     let circuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
-    
+
+    let estimate =
+        (estimateCost backend circuit shots)
+        |> Result.defaultWith (fun _ -> failwith "Setup failed")
+
     // Act
     let result = checkBudget policy estimate 0.0M<USD> 0.0M<USD>
-    
+
     // Assert
     match result with
-    | Denied reason ->
-        Assert.Contains("per-job limit", reason)
+    | Denied reason -> Assert.Contains("per-job limit", reason)
     | Approved -> Assert.Fail("Expected denial for per-job limit but got approval")
     | Warning msg -> Assert.Fail($"Expected denial for per-job limit but got warning: %s{msg}")
 
@@ -413,20 +434,28 @@ let ``Budget check - denies job exceeding per-job limit`` () =
 let ``Budget check - denies job exceeding daily limit`` () =
     // Arrange
     // Use very high per-job limit so we test daily limit instead
-    let policy = { BudgetPolicy.Development with DailyLimit = Some 100.0M<USD>; PerJobLimit = Some 300.0M<USD> }
+    let policy =
+        { BudgetPolicy.Development with
+            DailyLimit = Some 100.0M<USD>
+            PerJobLimit = Some 300.0M<USD>
+        }
+
     let circuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
-    let dailySpent = 20.0M<USD>  // Low spending but job will push over limit
-    
+
+    let estimate =
+        (estimateCost backend circuit shots)
+        |> Result.defaultWith (fun _ -> failwith "Setup failed")
+
+    let dailySpent = 20.0M<USD> // Low spending but job will push over limit
+
     // Act
     let result = checkBudget policy estimate dailySpent 0.0M<USD>
-    
+
     // Assert
     match result with
-    | Denied reason ->
-        Assert.Contains("daily limit", reason)
+    | Denied reason -> Assert.Contains("daily limit", reason)
     | Approved -> Assert.Fail("Expected denial for daily limit but got approval")
     | Warning msg -> Assert.Fail($"Expected denial for daily limit but got warning: %s{msg}")
 
@@ -434,20 +463,29 @@ let ``Budget check - denies job exceeding daily limit`` () =
 let ``Budget check - denies job exceeding monthly limit`` () =
     // Arrange
     // Use very high per-job and daily limits so we test monthly limit instead
-    let policy = { BudgetPolicy.Development with MonthlyLimit = Some 200.0M<USD>; DailyLimit = Some 300.0M<USD>; PerJobLimit = Some 300.0M<USD> }
+    let policy =
+        { BudgetPolicy.Development with
+            MonthlyLimit = Some 200.0M<USD>
+            DailyLimit = Some 300.0M<USD>
+            PerJobLimit = Some 300.0M<USD>
+        }
+
     let circuit = createSimpleCircuit 100 50 2 2
     let shots = 1000<shot>
     let backend = IonQ true
-    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
-    let monthlySpent = 100.0M<USD>  // Spent $100, job will push over $200 limit
-    
+
+    let estimate =
+        (estimateCost backend circuit shots)
+        |> Result.defaultWith (fun _ -> failwith "Setup failed")
+
+    let monthlySpent = 100.0M<USD> // Spent $100, job will push over $200 limit
+
     // Act
     let result = checkBudget policy estimate 0.0M<USD> monthlySpent
-    
+
     // Assert
     match result with
-    | Denied reason ->
-        Assert.Contains("monthly limit", reason)
+    | Denied reason -> Assert.Contains("monthly limit", reason)
     | Approved -> Assert.Fail("Expected denial for monthly limit but got approval")
     | Warning msg -> Assert.Fail($"Expected denial for monthly limit but got warning: %s{msg}")
 
@@ -455,21 +493,30 @@ let ``Budget check - denies job exceeding monthly limit`` () =
 let ``Budget check - warns when approaching limit`` () =
     // Arrange
     // Use high per-job limit, and configure daily limit for warning test
-    let policy = { BudgetPolicy.Development with DailyLimit = Some 200.0M<USD>; PerJobLimit = Some 300.0M<USD>; WarnAtPercent = 80.0 }
+    let policy =
+        { BudgetPolicy.Development with
+            DailyLimit = Some 200.0M<USD>
+            PerJobLimit = Some 300.0M<USD>
+            WarnAtPercent = 80.0
+        }
+
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 100<shot>
-    let backend = IonQ false  // Without EM for lower cost (~$12 base + gates)
-    let estimate = (estimateCost backend circuit shots) |> Result.defaultWith (fun _ -> failwith "Setup failed")
-    let dailySpent = 130.0M<USD>  // $130 + estimate will be > 80% of $200
-    
+    let backend = IonQ false // Without EM for lower cost (~$12 base + gates)
+
+    let estimate =
+        (estimateCost backend circuit shots)
+        |> Result.defaultWith (fun _ -> failwith "Setup failed")
+
+    let dailySpent = 130.0M<USD> // $130 + estimate will be > 80% of $200
+
     // Act
     let result = checkBudget policy estimate dailySpent 0.0M<USD>
-    
+
     // Assert
     match result with
-    | Warning msg ->
-        Assert.Contains("daily budget", msg)
-    | Approved -> 
+    | Warning msg -> Assert.Contains("daily budget", msg)
+    | Approved ->
         // This is also acceptable if the estimate is small enough
         ()
     | Denied reason -> Assert.Fail($"Should warn, not deny: %s{reason}")
@@ -481,8 +528,8 @@ let ``Budget check - warns when approaching limit`` () =
 [<Fact>]
 let ``Cost tracker - creates empty tracker`` () =
     // Act
-    let tracker = CostTracker.create()
-    
+    let tracker = CostTracker.create ()
+
     // Assert
     Assert.Empty(tracker.Records)
     Assert.Equal(0.0M<USD>, tracker.DailySpent)
@@ -491,20 +538,22 @@ let ``Cost tracker - creates empty tracker`` () =
 [<Fact>]
 let ``Cost tracker - adds record and updates spending`` () =
     // Arrange
-    let tracker = CostTracker.create()
-    let record = {
-        JobId = "job-123"
-        Backend = IonQ true
-        EstimatedCost = 100.0M<USD>
-        ActualCost = Some 105.0M<USD>
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 50 30 2 2
-        Shots = 1000<shot>
-    }
-    
+    let tracker = CostTracker.create ()
+
+    let record =
+        {
+            JobId = "job-123"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 105.0M<USD>
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 50 30 2 2
+            Shots = 1000<shot>
+        }
+
     // Act
     let updatedTracker = CostTracker.addRecord record tracker
-    
+
     // Assert
     let itm = Assert.Single(updatedTracker.Records)
     Assert.Equal(105.0M<USD>, updatedTracker.DailySpent)
@@ -513,97 +562,108 @@ let ``Cost tracker - adds record and updates spending`` () =
 [<Fact>]
 let ``Cost tracker - uses estimated cost when actual cost unavailable`` () =
     // Arrange
-    let tracker = CostTracker.create()
-    let record = {
-        JobId = "job-123"
-        Backend = IonQ true
-        EstimatedCost = 100.0M<USD>
-        ActualCost = None  // No actual cost available
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 50 30 2 2
-        Shots = 1000<shot>
-    }
-    
+    let tracker = CostTracker.create ()
+
+    let record =
+        {
+            JobId = "job-123"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = None // No actual cost available
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 50 30 2 2
+            Shots = 1000<shot>
+        }
+
     // Act
     let updatedTracker = CostTracker.addRecord record tracker
-    
+
     // Assert
     Assert.Equal(100.0M<USD>, updatedTracker.DailySpent)
 
 [<Fact>]
 let ``Cost tracker - tracks multiple records`` () =
     // Arrange
-    let tracker = CostTracker.create()
-    let record1 = {
-        JobId = "job-1"
-        Backend = IonQ true
-        EstimatedCost = 100.0M<USD>
-        ActualCost = Some 105.0M<USD>
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 50 30 2 2
-        Shots = 1000<shot>
-    }
-    let record2 = {
-        JobId = "job-2"
-        Backend = Rigetti
-        EstimatedCost = 50.0M<USD>
-        ActualCost = Some 48.0M<USD>
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 30 15 2 2
-        Shots = 500<shot>
-    }
-    
+    let tracker = CostTracker.create ()
+
+    let record1 =
+        {
+            JobId = "job-1"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 105.0M<USD>
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 50 30 2 2
+            Shots = 1000<shot>
+        }
+
+    let record2 =
+        {
+            JobId = "job-2"
+            Backend = Rigetti
+            EstimatedCost = 50.0M<USD>
+            ActualCost = Some 48.0M<USD>
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 30 15 2 2
+            Shots = 500<shot>
+        }
+
     // Act
-    let updatedTracker = 
-        tracker
-        |> CostTracker.addRecord record1
-        |> CostTracker.addRecord record2
-    
+    let updatedTracker =
+        tracker |> CostTracker.addRecord record1 |> CostTracker.addRecord record2
+
     // Assert
     Assert.Equal(2, List.length updatedTracker.Records)
-    Assert.Equal(153.0M<USD>, updatedTracker.DailySpent)  // 105 + 48
+    Assert.Equal(153.0M<USD>, updatedTracker.DailySpent) // 105 + 48
     Assert.Equal(153.0M<USD>, updatedTracker.MonthlySpent)
 
 [<Fact>]
 let ``Cost tracker - getSpendingByBackend groups correctly`` () =
     // Arrange
-    let tracker = CostTracker.create()
-    let record1 = {
-        JobId = "job-1"
-        Backend = IonQ true
-        EstimatedCost = 100.0M<USD>
-        ActualCost = Some 100.0M<USD>
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 50 30 2 2
-        Shots = 1000<shot>
-    }
-    let record2 = {
-        JobId = "job-2"
-        Backend = IonQ true
-        EstimatedCost = 50.0M<USD>
-        ActualCost = Some 50.0M<USD>
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 30 15 2 2
-        Shots = 500<shot>
-    }
-    let record3 = {
-        JobId = "job-3"
-        Backend = Rigetti
-        EstimatedCost = 30.0M<USD>
-        ActualCost = Some 30.0M<USD>
-        Timestamp = DateTimeOffset.UtcNow
-        Circuit = createSimpleCircuit 20 10 2 2
-        Shots = 300<shot>
-    }
-    
+    let tracker = CostTracker.create ()
+
+    let record1 =
+        {
+            JobId = "job-1"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 100.0M<USD>
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 50 30 2 2
+            Shots = 1000<shot>
+        }
+
+    let record2 =
+        {
+            JobId = "job-2"
+            Backend = IonQ true
+            EstimatedCost = 50.0M<USD>
+            ActualCost = Some 50.0M<USD>
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 30 15 2 2
+            Shots = 500<shot>
+        }
+
+    let record3 =
+        {
+            JobId = "job-3"
+            Backend = Rigetti
+            EstimatedCost = 30.0M<USD>
+            ActualCost = Some 30.0M<USD>
+            Timestamp = DateTimeOffset.UtcNow
+            Circuit = createSimpleCircuit 20 10 2 2
+            Shots = 300<shot>
+        }
+
     // Act
-    let updatedTracker = 
+    let updatedTracker =
         tracker
         |> CostTracker.addRecord record1
         |> CostTracker.addRecord record2
         |> CostTracker.addRecord record3
+
     let spendingByBackend = CostTracker.getSpendingByBackend updatedTracker
-    
+
     // Assert
     Assert.Equal(150.0M<USD>, spendingByBackend.[IonQ true])
     Assert.Equal(30.0M<USD>, spendingByBackend.[Rigetti])
@@ -618,12 +678,17 @@ let ``estimateCost - returns error for invalid shot count`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 0<shot>
     let backend = IonQ true
-    
+
     // Act
     let result = estimateCost backend circuit shots
-    
+
     // Assert
-    result |> Result.map (fun estimate -> Assert.Fail(sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost))) |> Result.defaultWith (fun err -> Assert.Contains("Shot count must be at least 1", err.Message))
+    result
+    |> Result.map (fun estimate ->
+        Assert.Fail(
+            sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost)
+        ))
+    |> Result.defaultWith (fun err -> Assert.Contains("Shot count must be at least 1", err.Message))
 
 // ============================================================================
 // COST OPTIMIZATION TESTS (TKT-48)
@@ -634,50 +699,47 @@ let ``findCheapestBackend returns backend with lowest cost`` () =
     // Arrange
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
-    let backends = [IonQ true; IonQ false; Rigetti]
-    
+    let backends = [ IonQ true; IonQ false; Rigetti ]
+
     // Act
     let result = findCheapestBackend backends circuit shots
-    
+
     // Assert
     match result with
-    | Ok (cheapest, estimate) ->
+    | Ok(cheapest, estimate) ->
         // Should return one of the backends
         Assert.Contains(cheapest, backends)
         Assert.True(estimate.ExpectedCost > 0.0M<USD>)
-        
+
         // Verify it's actually the cheapest by comparing with all backends
         match compareCosts backends circuit shots with
         | Ok allEstimates ->
             let minCost = allEstimates |> List.map (fun e -> e.ExpectedCost) |> List.min
             Assert.Equal(minCost, estimate.ExpectedCost)
-        | Error err ->
-            Assert.Fail($"compareCosts failed: %s{err.Message}")
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+        | Error err -> Assert.Fail($"compareCosts failed: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``recommendCostOptimization suggests cheaper backend`` () =
     // Arrange
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
-    let currentBackend = IonQ true  // Most expensive option
-    let availableBackends = [IonQ true; IonQ false; Rigetti]
-    
+    let currentBackend = IonQ true // Most expensive option
+    let availableBackends = [ IonQ true; IonQ false; Rigetti ]
+
     // Act
-    let result = recommendCostOptimization currentBackend availableBackends circuit shots
-    
+    let result =
+        recommendCostOptimization currentBackend availableBackends circuit shots
+
     // Assert
     match result with
-    | Ok (Some recommendation) ->
+    | Ok(Some recommendation) ->
         // Should recommend switching to a cheaper backend
         Assert.NotEqual(currentBackend, recommendation.RecommendedBackend)
         Assert.True(recommendation.PotentialSavings > 0.0M<USD>)
         Assert.False(String.IsNullOrWhiteSpace(recommendation.Reasoning))
-    | Ok None ->
-        Assert.Fail("Expected recommendation for expensive backend but got None")
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Ok None -> Assert.Fail("Expected recommendation for expensive backend but got None")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 // ============================================================================
 // CLI DASHBOARD TESTS (TKT-48)
@@ -688,27 +750,29 @@ let ``displayCostDashboard shows spending summary`` () =
     // Arrange
     let now = DateTimeOffset.UtcNow
     let circuit = createSimpleCircuit 50 30 2 2
-    let records = [
-        {
-            JobId = "job-1"
-            Backend = IonQ false
-            EstimatedCost = 50.0M<USD>
-            ActualCost = Some 52.0M<USD>
-            Timestamp = now
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-        {
-            JobId = "job-2"
-            Backend = Rigetti
-            EstimatedCost = 30.0M<USD>
-            ActualCost = Some 28.0M<USD>
-            Timestamp = now.AddHours(-1.0)
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-    ]
-    
+
+    let records =
+        [
+            {
+                JobId = "job-1"
+                Backend = IonQ false
+                EstimatedCost = 50.0M<USD>
+                ActualCost = Some 52.0M<USD>
+                Timestamp = now
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+            {
+                JobId = "job-2"
+                Backend = Rigetti
+                EstimatedCost = 30.0M<USD>
+                ActualCost = Some 28.0M<USD>
+                Timestamp = now.AddHours(-1.0)
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+        ]
+
     // Act - exercise the logging path (must not throw) and inspect the rendered dashboard
     displayCostDashboard records None
     let dashboard = formatCostDashboard records
@@ -722,7 +786,7 @@ let ``displayCostDashboard shows spending summary`` () =
 let ``displayCostDashboard handles empty records`` () =
     // Arrange
     let records = []
-    
+
     // Act - exercise the logging path (must not throw) and inspect the rendered dashboard
     displayCostDashboard records None
     let dashboard = formatCostDashboard records
@@ -736,36 +800,39 @@ let ``findCheapestBackend returns error for empty backend list`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
     let backends = []
-    
+
     // Act
     let result = findCheapestBackend backends circuit shots
-    
+
     // Assert
-    result |> Result.map (fun _ -> Assert.Fail("Expected error for empty backend list")) |> Result.defaultWith (fun err -> Assert.Contains("No backends provided", err.Message))
+    result
+    |> Result.map (fun _ -> Assert.Fail("Expected error for empty backend list"))
+    |> Result.defaultWith (fun err -> Assert.Contains("No backends provided", err.Message))
 
 [<Fact>]
 let ``recommendCostOptimization returns None when already using cheapest`` () =
     // Arrange
-    let circuit = createSimpleCircuit 10 5 2 2  // Small circuit
+    let circuit = createSimpleCircuit 10 5 2 2 // Small circuit
     let shots = 1000<shot>
     // Rigetti is typically cheapest for small circuits
     let currentBackend = Rigetti
-    let availableBackends = [IonQ true; IonQ false; Rigetti]
-    
+    let availableBackends = [ IonQ true; IonQ false; Rigetti ]
+
     // Act
-    let result = recommendCostOptimization currentBackend availableBackends circuit shots
-    
+    let result =
+        recommendCostOptimization currentBackend availableBackends circuit shots
+
     // Assert
     match result with
-    | Ok None ->
-        Assert.True(true)  // Expected: no recommendation when already optimal
-    | Ok (Some recommendation) ->
+    | Ok None -> Assert.True(true) // Expected: no recommendation when already optimal
+    | Ok(Some recommendation) ->
         // If there is a recommendation, savings should be minimal (< 20%)
-        let savingsPercent = (float (recommendation.PotentialSavings / recommendation.CurrentCost.ExpectedCost)) * 100.0
-        Assert.True(savingsPercent < 20.0, 
-            $"Expected no recommendation or < 20%% savings, got %.1f{savingsPercent}%%")
-    | Error err ->
-        Assert.Fail($"Unexpected error: %s{err.Message}")
+        let savingsPercent =
+            (float (recommendation.PotentialSavings / recommendation.CurrentCost.ExpectedCost))
+            * 100.0
+
+        Assert.True(savingsPercent < 20.0, $"Expected no recommendation or < 20%% savings, got %.1f{savingsPercent}%%")
+    | Error err -> Assert.Fail($"Unexpected error: %s{err.Message}")
 
 [<Fact>]
 let ``recommendCostOptimization provides detailed reasoning`` () =
@@ -773,39 +840,37 @@ let ``recommendCostOptimization provides detailed reasoning`` () =
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
     let currentBackend = IonQ true
-    let availableBackends = [IonQ true; Rigetti]
-    
+    let availableBackends = [ IonQ true; Rigetti ]
+
     // Act
-    let result = recommendCostOptimization currentBackend availableBackends circuit shots
-    
+    let result =
+        recommendCostOptimization currentBackend availableBackends circuit shots
+
     // Assert
     match result with
-    | Ok (Some recommendation) ->
+    | Ok(Some recommendation) ->
         Assert.NotEmpty(recommendation.Reasoning)
         Assert.Contains("Save", recommendation.Reasoning)
         Assert.Contains("reduction", recommendation.Reasoning)
-    | Ok None ->
-        () // No recommendation is also valid
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Ok None -> () // No recommendation is also valid
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 [<Fact>]
 let ``findCheapestBackend works with single backend`` () =
     // Arrange
     let circuit = createSimpleCircuit 50 30 2 2
     let shots = 1000<shot>
-    let backends = [Rigetti]
-    
+    let backends = [ Rigetti ]
+
     // Act
     let result = findCheapestBackend backends circuit shots
-    
+
     // Assert
     match result with
-    | Ok (cheapest, estimate) ->
+    | Ok(cheapest, estimate) ->
         Assert.Equal(Rigetti, cheapest)
         Assert.True(estimate.ExpectedCost > 0.0M<USD>)
-    | Error err ->
-        Assert.Fail($"Expected success but got error: %s{err.Message}")
+    | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
 
 // ============================================================================
 // CSV PERSISTENCE TESTS (TKT-48)
@@ -815,30 +880,32 @@ let ``findCheapestBackend works with single backend`` () =
 let ``saveCostRecordToCsv saves record to CSV file`` () =
     // Arrange
     let tempFile = Path.GetTempFileName()
+
     try
         let circuit = createSimpleCircuit 50 30 2 2
-        let record = {
-            JobId = "job-123"
-            Backend = IonQ true
-            EstimatedCost = 100.0M<USD>
-            ActualCost = Some 105.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-        
+
+        let record =
+            {
+                JobId = "job-123"
+                Backend = IonQ true
+                EstimatedCost = 100.0M<USD>
+                ActualCost = Some 105.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+
         // Act
         let result = saveCostRecordToCsv tempFile record
-        
+
         // Assert
         match result with
-        | Ok () ->
+        | Ok() ->
             Assert.True(File.Exists(tempFile), "CSV file should exist")
             let lines = File.ReadAllLines(tempFile)
             Assert.True(lines.Length >= 1, "CSV should have at least one line")
             Assert.Contains("job-123", lines.[0])
-        | Error err ->
-            Assert.Fail($"Expected success but got error: %s{err.Message}")
+        | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if File.Exists(tempFile) then
             File.Delete(tempFile)
@@ -847,42 +914,46 @@ let ``saveCostRecordToCsv saves record to CSV file`` () =
 let ``loadCostHistoryFromCsv loads records from CSV file`` () =
     // Arrange
     let tempFile = Path.GetTempFileName()
+
     try
         let circuit = createSimpleCircuit 50 30 2 2
-        let record1 = {
-            JobId = "job-1"
-            Backend = IonQ false
-            EstimatedCost = 50.0M<USD>
-            ActualCost = Some 52.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-        let record2 = {
-            JobId = "job-2"
-            Backend = Rigetti
-            EstimatedCost = 30.0M<USD>
-            ActualCost = Some 28.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 13, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 500<shot>
-        }
-        
+
+        let record1 =
+            {
+                JobId = "job-1"
+                Backend = IonQ false
+                EstimatedCost = 50.0M<USD>
+                ActualCost = Some 52.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+
+        let record2 =
+            {
+                JobId = "job-2"
+                Backend = Rigetti
+                EstimatedCost = 30.0M<USD>
+                ActualCost = Some 28.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 13, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 500<shot>
+            }
+
         // Save records
         saveCostRecordToCsv tempFile record1 |> ignore
         saveCostRecordToCsv tempFile record2 |> ignore
-        
+
         // Act
         let result = loadCostHistoryFromCsv tempFile
-        
+
         // Assert
         match result with
         | Ok records ->
             Assert.Equal(2, List.length records)
             Assert.Contains(records, fun r -> r.JobId = "job-1")
             Assert.Contains(records, fun r -> r.JobId = "job-2")
-        | Error err ->
-            Assert.Fail($"Expected success but got error: %s{err.Message}")
+        | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if File.Exists(tempFile) then
             File.Delete(tempFile)
@@ -891,46 +962,55 @@ let ``loadCostHistoryFromCsv loads records from CSV file`` () =
 let ``loadCostHistoryFromCsv returns empty list for non-existent file`` () =
     // Arrange
     let nonExistentFile = "nonexistent-" + Guid.NewGuid().ToString() + ".csv"
-    
+
     // Act
     let result = loadCostHistoryFromCsv nonExistentFile
-    
+
     // Assert
-    result |> Result.map (fun records -> Assert.Empty(records)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected empty list but got error: %s{err.Message}"))
+    result
+    |> Result.map (fun records -> Assert.Empty(records))
+    |> Result.defaultWith (fun err -> Assert.Fail($"Expected empty list but got error: %s{err.Message}"))
 
 [<Fact>]
 let ``saveCostRecordToCsv appends to existing file`` () =
     // Arrange
     let tempFile = Path.GetTempFileName()
+
     try
         let circuit = createSimpleCircuit 50 30 2 2
-        let record1 = {
-            JobId = "job-1"
-            Backend = IonQ true
-            EstimatedCost = 100.0M<USD>
-            ActualCost = Some 105.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-        let record2 = {
-            JobId = "job-2"
-            Backend = Rigetti
-            EstimatedCost = 50.0M<USD>
-            ActualCost = Some 48.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 13, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 500<shot>
-        }
-        
+
+        let record1 =
+            {
+                JobId = "job-1"
+                Backend = IonQ true
+                EstimatedCost = 100.0M<USD>
+                ActualCost = Some 105.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+
+        let record2 =
+            {
+                JobId = "job-2"
+                Backend = Rigetti
+                EstimatedCost = 50.0M<USD>
+                ActualCost = Some 48.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 13, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 500<shot>
+            }
+
         // Act - save first record
         saveCostRecordToCsv tempFile record1 |> ignore
-        
+
         // Act - save second record (should append)
         saveCostRecordToCsv tempFile record2 |> ignore
-        
+
         // Assert - load and verify both records exist
-        (loadCostHistoryFromCsv tempFile) |> Result.map (fun records -> Assert.Equal(2, List.length records)) |> Result.defaultWith (fun err -> Assert.Fail($"Expected 2 records but got error: %s{err.Message}"))
+        (loadCostHistoryFromCsv tempFile)
+        |> Result.map (fun records -> Assert.Equal(2, List.length records))
+        |> Result.defaultWith (fun err -> Assert.Fail($"Expected 2 records but got error: %s{err.Message}"))
     finally
         if File.Exists(tempFile) then
             File.Delete(tempFile)
@@ -939,29 +1019,31 @@ let ``saveCostRecordToCsv appends to existing file`` () =
 let ``CSV persistence handles special characters in job IDs`` () =
     // Arrange
     let tempFile = Path.GetTempFileName()
+
     try
         let circuit = createSimpleCircuit 50 30 2 2
-        let record = {
-            JobId = "job-with-commas,quotes\"and:colons"
-            Backend = IonQ true
-            EstimatedCost = 100.0M<USD>
-            ActualCost = Some 105.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-        
+
+        let record =
+            {
+                JobId = "job-with-commas,quotes\"and:colons"
+                Backend = IonQ true
+                EstimatedCost = 100.0M<USD>
+                ActualCost = Some 105.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+
         // Act - save and reload
         saveCostRecordToCsv tempFile record |> ignore
         let result = loadCostHistoryFromCsv tempFile
-        
+
         // Assert
         match result with
         | Ok records ->
             Assert.Single(records) |> ignore
             Assert.Equal("job-with-commas,quotes\"and:colons", records.[0].JobId)
-        | Error err ->
-            Assert.Fail($"Expected success but got error: %s{err.Message}")
+        | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if File.Exists(tempFile) then
             File.Delete(tempFile)
@@ -970,29 +1052,31 @@ let ``CSV persistence handles special characters in job IDs`` () =
 let ``CSV persistence preserves backend information`` () =
     // Arrange
     let tempFile = Path.GetTempFileName()
+
     try
         let circuit = createSimpleCircuit 50 30 2 2
-        let record = {
-            JobId = "job-123"
-            Backend = IonQ true
-            EstimatedCost = 100.0M<USD>
-            ActualCost = Some 105.0M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 1000<shot>
-        }
-        
+
+        let record =
+            {
+                JobId = "job-123"
+                Backend = IonQ true
+                EstimatedCost = 100.0M<USD>
+                ActualCost = Some 105.0M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 1000<shot>
+            }
+
         // Act - save and reload
         saveCostRecordToCsv tempFile record |> ignore
         let result = loadCostHistoryFromCsv tempFile
-        
+
         // Assert
         match result with
         | Ok records ->
             Assert.Single(records) |> ignore
             Assert.Equal(IonQ true, records.[0].Backend)
-        | Error err ->
-            Assert.Fail($"Expected success but got error: %s{err.Message}")
+        | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if File.Exists(tempFile) then
             File.Delete(tempFile)
@@ -1001,22 +1085,25 @@ let ``CSV persistence preserves backend information`` () =
 let ``CSV persistence preserves cost accuracy`` () =
     // Arrange
     let tempFile = Path.GetTempFileName()
+
     try
         let circuit = createSimpleCircuit 50 30 2 2
-        let record = {
-            JobId = "job-123"
-            Backend = IonQ true
-            EstimatedCost = 123.45M<USD>
-            ActualCost = Some 130.67M<USD>
-            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
-            Circuit = circuit
-            Shots = 1234<shot>
-        }
-        
+
+        let record =
+            {
+                JobId = "job-123"
+                Backend = IonQ true
+                EstimatedCost = 123.45M<USD>
+                ActualCost = Some 130.67M<USD>
+                Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+                Circuit = circuit
+                Shots = 1234<shot>
+            }
+
         // Act - save and reload
         saveCostRecordToCsv tempFile record |> ignore
         let result = loadCostHistoryFromCsv tempFile
-        
+
         // Assert
         match result with
         | Ok records ->
@@ -1024,8 +1111,7 @@ let ``CSV persistence preserves cost accuracy`` () =
             Assert.Equal(123.45M<USD>, records.[0].EstimatedCost)
             Assert.Equal(Some 130.67M<USD>, records.[0].ActualCost)
             Assert.Equal(1234<shot>, records.[0].Shots)
-        | Error err ->
-            Assert.Fail($"Expected success but got error: %s{err.Message}")
+        | Error err -> Assert.Fail($"Expected success but got error: %s{err.Message}")
     finally
         if File.Exists(tempFile) then
             File.Delete(tempFile)

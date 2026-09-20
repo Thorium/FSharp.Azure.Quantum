@@ -6,35 +6,35 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 
 /// High-level Knapsack Domain Builder - Quantum-First API
-/// 
+///
 /// DESIGN PHILOSOPHY:
 /// This is a BUSINESS DOMAIN API for users who want to solve Knapsack problems
 /// without understanding quantum computing internals (QAOA, QUBO, backends).
-/// 
+///
 /// QUANTUM-FIRST:
 /// - Uses quantum optimization (QAOA) by default via LocalBackend (simulation)
 /// - Optional backend parameter for cloud quantum hardware (IonQ, Rigetti)
 /// - For algorithm-level control, use QuantumKnapsackSolver directly
-/// 
+///
 /// WHAT IS KNAPSACK:
 /// The 0/1 Knapsack Problem is a fundamental combinatorial optimization problem:
 /// select items with weights and values to maximize total value without exceeding capacity.
-/// 
+///
 /// USE CASES:
 /// - Resource allocation: Select projects within budget constraint
 /// - Portfolio optimization: Choose investments within capital limit
 /// - Cargo loading: Maximize value of goods on truck/ship
 /// - Task scheduling: Select tasks within time/resource constraints
 /// - Budget planning: Choose features to implement within sprint capacity
-/// 
+///
 /// EXAMPLE USAGE:
 ///   // Simple: Uses quantum simulation automatically
 ///   let solution = Knapsack.solve problem None
-///   
+///
 ///   // Advanced: Specify cloud quantum backend
 ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
 ///   let solution = Knapsack.solve problem (Some ionqBackend)
-///   
+///
 ///   // Expert: Direct quantum solver access
 ///   open FSharp.Azure.Quantum.Quantum
 ///   let result = QuantumKnapsackSolver.solve backend problem config
@@ -50,63 +50,65 @@ module Knapsack =
     type Item = QuantumKnapsackSolver.KnapsackItem
 
     /// Knapsack Problem representation
-    type Problem = {
-        /// Available items to choose from
-        Items: Item list
-        
-        /// Knapsack capacity (maximum total weight)
-        Capacity: float
-        
-        /// Number of items
-        ItemCount: int
-        
-        /// Total value if all items selected (upper bound)
-        TotalValue: float
-        
-        /// Total weight if all items selected
-        TotalWeight: float
-    }
+    type Problem =
+        {
+            /// Available items to choose from
+            Items: Item list
+
+            /// Knapsack capacity (maximum total weight)
+            Capacity: float
+
+            /// Number of items
+            ItemCount: int
+
+            /// Total value if all items selected (upper bound)
+            TotalValue: float
+
+            /// Total weight if all items selected
+            TotalWeight: float
+        }
 
     /// Knapsack Solution with selected items and metrics
-    type Solution = {
-        /// Selected items
-        SelectedItems: Item list
-        
-        /// Total weight of selected items
-        TotalWeight: float
-        
-        /// Total value of selected items
-        TotalValue: float
-        
-        /// Whether solution satisfies capacity constraint
-        IsFeasible: bool
-        
-        /// Value-to-weight ratio (efficiency metric)
-        Efficiency: float
-        
-        /// Capacity utilization percentage (0-100%)
-        CapacityUtilization: float
-        
-        /// Backend used (LocalBackend, IonQ, etc.)
-        BackendName: string
-        
-        /// Whether quantum or classical solver was used
-        IsQuantum: bool
-    }
+    type Solution =
+        {
+            /// Selected items
+            SelectedItems: Item list
+
+            /// Total weight of selected items
+            TotalWeight: float
+
+            /// Total value of selected items
+            TotalValue: float
+
+            /// Whether solution satisfies capacity constraint
+            IsFeasible: bool
+
+            /// Value-to-weight ratio (efficiency metric)
+            Efficiency: float
+
+            /// Capacity utilization percentage (0-100%)
+            CapacityUtilization: float
+
+            /// Backend used (LocalBackend, IonQ, etc.)
+            BackendName: string
+
+            /// Whether quantum or classical solver was used
+            IsQuantum: bool
+        }
 
     // ============================================================================
     // PROBLEM CREATION
     // ============================================================================
 
     /// Create Knapsack problem from items and capacity
-    /// 
+    ///
     /// PARAMETERS:
     ///   items - List of (id, weight, value) tuples
     ///   capacity - Maximum total weight allowed
-    /// 
+    ///
     /// RETURNS:
     ///   Problem ready for solving
-    /// 
+    ///
     /// EXAMPLE:
     ///   let items = [
     ///       ("laptop", 3.0, 1000.0)
@@ -115,14 +117,18 @@ module Knapsack =
     ///   ]
     ///   let problem = Knapsack.createProblem items 5.0
     let createProblem (items: (string * float * float) list) (capacity: float) : Problem =
-        let itemList : Item list =
+        let itemList: Item list =
             items
             |> List.map (fun (id, weight, value) ->
-                { Id = id; Weight = weight; Value = value })
-        
+                {
+                    Id = id
+                    Weight = weight
+                    Value = value
+                })
+
         let totalValue = itemList |> List.sumBy (fun item -> item.Value)
         let totalWeight = itemList |> List.sumBy (fun item -> item.Weight)
-        
+
         {
             Items = itemList
             Capacity = capacity
@@ -136,11 +142,11 @@ module Knapsack =
     // ============================================================================
 
     /// Create a budget allocation problem
-    /// 
+    ///
     /// PARAMETERS:
     ///   projects - List of (name, cost, benefit) tuples
     ///   budget - Total available budget
-    /// 
+    ///
     /// EXAMPLE:
     ///   let projects = [
     ///       ("Feature A", 10000.0, 25000.0)
@@ -152,11 +158,11 @@ module Knapsack =
         createProblem projects budget
 
     /// Create a cargo loading problem
-    /// 
+    ///
     /// PARAMETERS:
     ///   cargo - List of (name, weight_kg, value_usd) tuples
     ///   capacity_kg - Maximum cargo weight in kilograms
-    /// 
+    ///
     /// EXAMPLE:
     ///   let cargo = [
     ///       ("Electronics", 100.0, 50000.0)
@@ -168,11 +174,11 @@ module Knapsack =
         createProblem cargo capacity_kg
 
     /// Create a task scheduling problem
-    /// 
+    ///
     /// PARAMETERS:
     ///   tasks - List of (name, time_hours, priority) tuples
     ///   available_hours - Total time available
-    /// 
+    ///
     /// EXAMPLE:
     ///   let tasks = [
     ///       ("Critical Bug Fix", 4.0, 100.0)
@@ -184,28 +190,28 @@ module Knapsack =
         createProblem tasks available_hours
 
     /// Create a random knapsack instance (for testing/benchmarking)
-    /// 
+    ///
     /// PARAMETERS:
     ///   numItems - Number of items to generate
     ///   maxWeight - Maximum weight per item
     ///   maxValue - Maximum value per item
     ///   capacityRatio - Capacity as fraction of total weight (0.0-1.0)
-    /// 
+    ///
     /// EXAMPLE:
     ///   let problem = Knapsack.randomInstance 10 100.0 500.0 0.5
     let randomInstance (numItems: int) (maxWeight: float) (maxValue: float) (capacityRatio: float) : Problem =
         let rng = System.Random()
-        
-        let items = 
-            [1 .. numItems]
+
+        let items =
+            [ 1..numItems ]
             |> List.map (fun i ->
                 let weight = rng.NextDouble() * maxWeight
                 let value = rng.NextDouble() * maxValue
                 ($"Item%d{i}", weight, value))
-        
+
         let totalWeight = items |> List.sumBy (fun (_, w, _) -> w)
         let capacity = totalWeight * capacityRatio
-        
+
         createProblem items capacity
 
     // ============================================================================
@@ -213,103 +219,116 @@ module Knapsack =
     // ============================================================================
 
     /// Solve Knapsack problem using quantum optimization (QAOA)
-    /// 
+    ///
     /// QUANTUM-FIRST API:
     /// - Uses quantum backend by default (LocalBackend for simulation)
     /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
     /// - Returns business-domain Solution result (not low-level QAOA output)
-    /// 
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem with items and capacity
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    /// 
+    ///
     /// EXAMPLES:
     ///   // Simple: Automatic quantum simulation
     ///   let solution = Knapsack.solve problem None
-    ///   
+    ///
     ///   // Cloud execution: Specify IonQ backend
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
     ///   let solution = Knapsack.solve problem (Some ionqBackend)
-    /// 
+    ///
     /// RETURNS:
     ///   Result with Solution (selected items, value, feasibility) or error message
     let solve (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
         try
             // Use provided backend or create LocalBackend for simulation
-            let actualBackend = 
-                backend 
+            let actualBackend =
+                backend
                 |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
-            
+
             // Convert to quantum solver format
-            let quantumProblem : QuantumKnapsackSolver.KnapsackProblem =
-                { Items = problem.Items; Capacity = problem.Capacity }
-            
+            let quantumProblem: QuantumKnapsackSolver.KnapsackProblem =
+                {
+                    Items = problem.Items
+                    Capacity = problem.Capacity
+                }
+
             // Create quantum Knapsack solver configuration
-            let quantumConfig : QuantumKnapsackSolver.QaoaConfig = {
-                NumShots = 1000
-                InitialParameters = (0.5, 0.5)
-            }
-            
+            let quantumConfig: QuantumKnapsackSolver.QaoaConfig =
+                {
+                    NumShots = 1000
+                    InitialParameters = (0.5, 0.5)
+                }
+
             // Call quantum Knapsack solver directly using computation expression
             quantumResult {
-                let! quantumResult = QuantumKnapsackSolver.solve actualBackend quantumProblem quantumConfig
-                
-                let efficiency = 
+                let! quantumResult =
+                    QuantumKnapsackSolver.solve actualBackend quantumProblem quantumConfig
+
+                let efficiency =
                     if quantumResult.TotalWeight > 0.0 then
                         quantumResult.TotalValue / quantumResult.TotalWeight
-                    else 0.0
-                
-                let capacityUtilization = 
+                    else
+                        0.0
+
+                let capacityUtilization =
                     if problem.Capacity > 0.0 then
                         (quantumResult.TotalWeight / problem.Capacity) * 100.0
-                    else 0.0
-                
+                    else
+                        0.0
+
                 // Convert back to domain types
                 let selectedItems = quantumResult.SelectedItems
-                
-                return {
-                    SelectedItems = selectedItems
-                    TotalWeight = quantumResult.TotalWeight
-                    TotalValue = quantumResult.TotalValue
-                    IsFeasible = quantumResult.IsFeasible
-                    Efficiency = efficiency
-                    CapacityUtilization = capacityUtilization
-                    BackendName = quantumResult.BackendName
-                    IsQuantum = true
-                }
+
+                return
+                    {
+                        SelectedItems = selectedItems
+                        TotalWeight = quantumResult.TotalWeight
+                        TotalValue = quantumResult.TotalValue
+                        IsFeasible = quantumResult.IsFeasible
+                        Efficiency = efficiency
+                        CapacityUtilization = capacityUtilization
+                        BackendName = quantumResult.BackendName
+                        IsQuantum = true
+                    }
             }
-        with
-        | ex -> Error (QuantumError.OperationError ("Knapsack solve failed: ", $"Failed: {ex.Message}"))
+        with ex ->
+            Error(QuantumError.OperationError("Knapsack solve failed: ", $"Failed: {ex.Message}"))
 
     /// Solve Knapsack using classical greedy algorithm (for comparison)
-    /// 
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem with items and capacity
-    /// 
+    ///
     /// RETURNS:
     ///   Solution using classical value-to-weight ratio heuristic
-    /// 
+    ///
     /// EXAMPLE:
     ///   let classicalSolution = Knapsack.solveClassicalGreedy problem
     let internal solveClassicalGreedy (problem: Problem) : Solution =
         // Convert to quantum solver format
-        let quantumProblem : QuantumKnapsackSolver.KnapsackProblem =
-            { Items = problem.Items; Capacity = problem.Capacity }
-        
+        let quantumProblem: QuantumKnapsackSolver.KnapsackProblem =
+            {
+                Items = problem.Items
+                Capacity = problem.Capacity
+            }
+
         let classicalResult = QuantumKnapsackSolver.solveClassical quantumProblem
-        
-        let efficiency = 
+
+        let efficiency =
             if classicalResult.TotalWeight > 0.0 then
                 classicalResult.TotalValue / classicalResult.TotalWeight
-            else 0.0
-        
-        let capacityUtilization = 
+            else
+                0.0
+
+        let capacityUtilization =
             if problem.Capacity > 0.0 then
                 (classicalResult.TotalWeight / problem.Capacity) * 100.0
-            else 0.0
-        
+            else
+                0.0
+
         let selectedItems = classicalResult.SelectedItems
-        
+
         {
             SelectedItems = selectedItems
             TotalWeight = classicalResult.TotalWeight
@@ -340,6 +359,7 @@ module Knapsack =
     /// table budget, in which case the caller should fall back to a heuristic.
     let private trySolveDpExact (items: Item list) (capacity: float) : Item list option =
         let n = items.Length
+
         if n = 0 || capacity <= 0.0 then
             Some []
         else
@@ -361,24 +381,31 @@ module Knapsack =
                     itemsArr
                     |> Array.map (fun item ->
                         let scaled = ceil (item.Weight * float s - 1e-9)
+
                         if scaled <= 0.0 then 0
                         elif scaled > float cap then cap + 1
                         else int scaled)
 
                 // dp.[i].[w] = best value using the first i items with weight budget w
-                let dp = Array.init (n + 1) (fun _ -> Array.zeroCreate<float> (cap + 1))
-                for i in 1 .. n do
+                let dp = Array.init (n + 1) (fun _ -> Array.zeroCreate<float>(cap + 1))
+
+                for i in 1..n do
                     let wi = weights.[i - 1]
                     let vi = itemsArr.[i - 1].Value
-                    for w in 0 .. cap do
+
+                    for w in 0..cap do
                         let without = dp.[i - 1].[w]
+
                         dp.[i].[w] <-
-                            if wi <= w then max without (dp.[i - 1].[w - wi] + vi)
-                            else without
+                            if wi <= w then
+                                max without (dp.[i - 1].[w - wi] + vi)
+                            else
+                                without
 
                 // Backtrack to recover the selected items
                 let selected = ResizeArray<Item>()
                 let mutable w = cap
+
                 for i = n downto 1 do
                     if dp.[i].[w] > dp.[i - 1].[w] then
                         selected.Add itemsArr.[i - 1]
@@ -405,18 +432,20 @@ module Knapsack =
         match trySolveDpExact problem.Items problem.Capacity with
         | None ->
             // DP table intractable at integer resolution: be honest about the method
-            { (solveClassicalGreedy problem) with BackendName = "Classical Greedy (DP intractable, heuristic fallback)" }
+            { (solveClassicalGreedy problem) with
+                BackendName = "Classical Greedy (DP intractable, heuristic fallback)"
+            }
         | Some selectedItems ->
             let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
             let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
 
-            let efficiency =
-                if totalWeight > 0.0 then totalValue / totalWeight else 0.0
+            let efficiency = if totalWeight > 0.0 then totalValue / totalWeight else 0.0
 
             let capacityUtilization =
                 if problem.Capacity > 0.0 then
                     (totalWeight / problem.Capacity) * 100.0
-                else 0.0
+                else
+                    0.0
 
             {
                 SelectedItems = selectedItems
@@ -430,24 +459,24 @@ module Knapsack =
             }
 
     /// Convenience function: Create problem and solve in one step using quantum optimization
-    /// 
+    ///
     /// PARAMETERS:
     ///   items - List of (id, weight, value) tuples
     ///   capacity - Maximum total weight allowed
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
-    /// 
+    ///
     /// RETURNS:
     ///   Result with Solution or error message
-    /// 
+    ///
     /// EXAMPLE:
     ///   let items = [("item1", 2.0, 10.0); ("item2", 3.0, 15.0)]
     ///   let solution = Knapsack.solveDirectly items 5.0 None
-    let solveDirectly 
-        (items: (string * float * float) list) 
+    let solveDirectly
+        (items: (string * float * float) list)
         (capacity: float)
-        (backend: BackendAbstraction.IQuantumBackend option) 
+        (backend: BackendAbstraction.IQuantumBackend option)
         : QuantumResult<Solution> =
-        
+
         let problem = createProblem items capacity
         solve problem backend
 
@@ -468,9 +497,9 @@ module Knapsack =
             // Tolerance for floating-point comparison
             let epsilon = 0.0001
 
-            if abs(currentSum - target) < epsilon then
+            if abs (currentSum - target) < epsilon then
                 // Found exact match!
-                [current]
+                [ current ]
             elif currentSum > target || List.isEmpty items then
                 // Exceeded target or no more items
                 []
@@ -511,7 +540,10 @@ module Knapsack =
     ///   let problem = Knapsack.createProblem [("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0)] 7.0
     ///   let combinations = Knapsack.findAllExactCombinations problem (Some backend)
     ///   // Returns: [[A,B], [C,D]] - both combinations that sum exactly to 7
-    let findAllExactCombinations (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : Item list list =
+    let findAllExactCombinations
+        (problem: Problem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        : Item list list =
         match backend with
         | None ->
             // Classical fallback (no quantum backend provided)
@@ -522,7 +554,9 @@ module Knapsack =
 
             let config = QuantumKnapsackSolver.defaultSubsetSumConfig
 
-            match QuantumKnapsackSolver.findAllExactCombinations quantumBackend quantumItems problem.Capacity config with
+            match
+                QuantumKnapsackSolver.findAllExactCombinations quantumBackend quantumItems problem.Capacity config
+            with
             | Ok result ->
                 // Convert quantum items back to domain items
                 result.Combinations
@@ -557,9 +591,7 @@ module Knapsack =
     let findAllCapturedItems (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : Item list =
         let allCombinations = findAllExactCombinations problem backend
 
-        allCombinations
-        |> List.concat
-        |> List.distinctBy (fun item -> item.Id)
+        allCombinations |> List.concat |> List.distinctBy (fun item -> item.Id)
 
     /// Find all valid combinations that sum exactly to capacity, with detailed results
     ///
@@ -581,12 +613,12 @@ module Knapsack =
     ///   let (combinations, unionItems, count) = Knapsack.findAllValidCombinations problem (Some backend)
     ///   printfn "Found %d valid combinations" count
     ///   printfn "Total unique items across all solutions: %d" (List.length unionItems)
-    let findAllValidCombinations (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : (Item list list * Item list * int) =
+    let findAllValidCombinations
+        (problem: Problem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        : (Item list list * Item list * int) =
         let combinations = findAllExactCombinations problem backend
-        let allItems =
-            combinations
-            |> List.concat
-            |> List.distinctBy (fun item -> item.Id)
+        let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
         let count = List.length combinations
 
         (combinations, allItems, count)
@@ -622,7 +654,11 @@ module Knapsack =
     /// EXAMPLE (Standard mode):
     ///   let solution = Knapsack.solveWithMode problem None false
     ///   // Returns ONE optimal subset maximizing value
-    let solveWithMode (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) (findAll: bool) : QuantumResult<Solution> =
+    let solveWithMode
+        (problem: Problem)
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (findAll: bool)
+        : QuantumResult<Solution> =
         if findAll then
             // FIND ALL MODE: Return union of all items from all exact-sum combinations
             // Uses quantum QAOA when backend is provided
@@ -631,11 +667,13 @@ module Knapsack =
                 let totalWeight = allCapturedItems |> List.sumBy (fun item -> item.Weight)
                 let totalValue = allCapturedItems |> List.sumBy (fun item -> item.Value)
 
-                let efficiency =
-                    if totalWeight > 0.0 then totalValue / totalWeight else 0.0
+                let efficiency = if totalWeight > 0.0 then totalValue / totalWeight else 0.0
 
                 let capacityUtilization =
-                    if problem.Capacity > 0.0 then (totalWeight / problem.Capacity) * 100.0 else 0.0
+                    if problem.Capacity > 0.0 then
+                        (totalWeight / problem.Capacity) * 100.0
+                    else
+                        0.0
 
                 let isFeasible = totalWeight <= problem.Capacity
 
@@ -644,18 +682,19 @@ module Knapsack =
                     | Some b -> $"Quantum QAOA Subset-Sum (%s{b.Name})"
                     | None -> "Classical Enumeration (All Combinations)"
 
-                Ok {
-                    SelectedItems = allCapturedItems
-                    TotalWeight = totalWeight
-                    TotalValue = totalValue
-                    IsFeasible = isFeasible
-                    Efficiency = efficiency
-                    CapacityUtilization = capacityUtilization
-                    BackendName = backendName
-                    IsQuantum = backend.IsSome
-                }
-            with
-            | ex -> Error (QuantumError.OperationError ("Find all mode failed: ", $"Failed: {ex.Message}"))
+                Ok
+                    {
+                        SelectedItems = allCapturedItems
+                        TotalWeight = totalWeight
+                        TotalValue = totalValue
+                        IsFeasible = isFeasible
+                        Efficiency = efficiency
+                        CapacityUtilization = capacityUtilization
+                        BackendName = backendName
+                        IsQuantum = backend.IsSome
+                    }
+            with ex ->
+                Error(QuantumError.OperationError("Find all mode failed: ", $"Failed: {ex.Message}"))
         else
             // STANDARD MODE: Find one optimal solution
             solve problem backend
@@ -665,11 +704,11 @@ module Knapsack =
     // ============================================================================
 
     /// Validate that a solution is feasible (satisfies capacity constraint)
-    /// 
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem
     ///   selectedItems - Proposed selection
-    /// 
+    ///
     /// RETURNS:
     ///   true if total weight ≤ capacity, false otherwise
     let isFeasible (problem: Problem) (selectedItems: Item list) : bool =
@@ -677,30 +716,30 @@ module Knapsack =
         totalWeight <= problem.Capacity
 
     /// Calculate total value of a selection
-    /// 
+    ///
     /// PARAMETERS:
     ///   selectedItems - Items to evaluate
-    /// 
+    ///
     /// RETURNS:
     ///   Sum of item values
     let totalValue (selectedItems: Item list) : float =
         selectedItems |> List.sumBy (fun item -> item.Value)
 
     /// Calculate total weight of a selection
-    /// 
+    ///
     /// PARAMETERS:
     ///   selectedItems - Items to evaluate
-    /// 
+    ///
     /// RETURNS:
     ///   Sum of item weights
     let totalWeight (selectedItems: Item list) : float =
         selectedItems |> List.sumBy (fun item -> item.Weight)
 
     /// Calculate value-to-weight efficiency ratio
-    /// 
+    ///
     /// PARAMETERS:
     ///   selectedItems - Items to evaluate
-    /// 
+    ///
     /// RETURNS:
     ///   Total value divided by total weight
     let efficiency (selectedItems: Item list) : float =

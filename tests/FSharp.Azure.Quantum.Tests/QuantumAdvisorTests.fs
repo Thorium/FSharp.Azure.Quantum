@@ -95,7 +95,9 @@ module QuantumAdvisorTests =
         let result = QuantumAdvisor.getRecommendation distances
 
         // Assert: Should return error
-        result |> Result.map (fun _ -> Assert.Fail("Expected Error but got Ok")) |> Result.defaultWith (fun msg -> Assert.Contains("null", msg.Message.ToLower()))
+        result
+        |> Result.map (fun _ -> Assert.Fail("Expected Error but got Ok"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("null", msg.Message.ToLower()))
 
     [<Fact>]
     let ``Invalid input (empty matrix) should return error`` () =
@@ -106,7 +108,9 @@ module QuantumAdvisorTests =
         let result = QuantumAdvisor.getRecommendation distances
 
         // Assert: Should return error
-        result |> Result.map (fun _ -> Assert.Fail("Expected Error but got Ok")) |> Result.defaultWith (fun msg -> Assert.Contains("empty", msg.Message.ToLower()))
+        result
+        |> Result.map (fun _ -> Assert.Fail("Expected Error but got Ok"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("empty", msg.Message.ToLower()))
 
     [<Fact>]
     let ``Recommendation should include confidence level`` () =

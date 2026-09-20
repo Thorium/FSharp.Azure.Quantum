@@ -40,11 +40,13 @@ type PlayerType =
 
 /// A player in the game
 type Player =
-    { Name: string
-      Type: PlayerType
-      Hand: Card list
-      CapturedCards: Card list
-      Sweeps: int }
+    {
+        Name: string
+        Type: PlayerType
+        Hand: Card list
+        CapturedCards: Card list
+        Sweeps: int
+    }
 
 /// Result of playing a card
 type PlayResult =
@@ -54,62 +56,66 @@ type PlayResult =
 module Cards =
 
     /// Rank display name
-    let rankName = function
-        | Ace   -> "A"
-        | Two   -> "2"
+    let rankName =
+        function
+        | Ace -> "A"
+        | Two -> "2"
         | Three -> "3"
-        | Four  -> "4"
-        | Five  -> "5"
-        | Six   -> "6"
+        | Four -> "4"
+        | Five -> "5"
+        | Six -> "6"
         | Seven -> "7"
         | Eight -> "8"
-        | Nine  -> "9"
-        | Ten   -> "10"
-        | Jack  -> "J"
+        | Nine -> "9"
+        | Ten -> "10"
+        | Jack -> "J"
         | Queen -> "Q"
-        | King  -> "K"
+        | King -> "K"
 
     /// Suit display symbol
-    let suitSymbol = function
-        | Spades   -> "\u2660"  // black spade
-        | Hearts   -> "\u2665"  // black heart
-        | Diamonds -> "\u2666"  // black diamond
-        | Clubs    -> "\u2663"  // black club
+    let suitSymbol =
+        function
+        | Spades -> "\u2660" // black spade
+        | Hearts -> "\u2665" // black heart
+        | Diamonds -> "\u2666" // black diamond
+        | Clubs -> "\u2663" // black club
 
     /// Suit display name
-    let suitName = function
-        | Spades   -> "Spades"
-        | Hearts   -> "Hearts"
+    let suitName =
+        function
+        | Spades -> "Spades"
+        | Hearts -> "Hearts"
         | Diamonds -> "Diamonds"
-        | Clubs    -> "Clubs"
+        | Clubs -> "Clubs"
 
     /// Card display string (e.g. "A\u2660", "10\u2666")
     let cardDisplay (card: Card) =
         sprintf "%s%s" (rankName card.Rank) (suitSymbol card.Suit)
 
     /// Card numeric value on the table (Ace = 1)
-    let tableValue = function
-        | Ace   -> 1
-        | Two   -> 2
+    let tableValue =
+        function
+        | Ace -> 1
+        | Two -> 2
         | Three -> 3
-        | Four  -> 4
-        | Five  -> 5
-        | Six   -> 6
+        | Four -> 4
+        | Five -> 5
+        | Six -> 6
         | Seven -> 7
         | Eight -> 8
-        | Nine  -> 9
-        | Ten   -> 10
-        | Jack  -> 11
+        | Nine -> 9
+        | Ten -> 10
+        | Jack -> 11
         | Queen -> 12
-        | King  -> 13
+        | King -> 13
 
     /// Card value in hand (Ace = 14, Spade 2 = 15, Diamond 10 = 16)
     let handValue (card: Card) =
         match card.Suit, card.Rank with
-        | _,        Ace -> 14
-        | Spades,   Two -> 15
+        | _, Ace -> 14
+        | Spades, Two -> 15
         | Diamonds, Ten -> 16
-        | _,        _   -> tableValue card.Rank
+        | _, _ -> tableValue card.Rank
 
     /// All ranks in a standard deck
     let allRanks =
@@ -120,18 +126,22 @@ module Cards =
 
     /// Create a full 52-card deck
     let createDeck () =
-        [ for suit in allSuits do
-            for rank in allRanks do
-                yield { Suit = suit; Rank = rank } ]
+        [
+            for suit in allSuits do
+                for rank in allRanks do
+                    yield { Suit = suit; Rank = rank }
+        ]
 
     /// Shuffle a deck using Fisher-Yates
     let shuffle (rng: Random) (deck: Card list) =
         let arr = deck |> Array.ofList
+
         for i in arr.Length - 1 .. -1 .. 1 do
             let j = rng.Next(i + 1)
             let tmp = arr.[i]
             arr.[i] <- arr.[j]
             arr.[j] <- tmp
+
         arr |> Array.toList
 
     /// Deal n cards from the top of the deck, returning (dealt, remaining)
@@ -172,14 +182,19 @@ module Cards =
     ///   scoringValue - points when captured (see above)
     let scoringValue (card: Card) : float =
         let direct =
-            if isDiamondTen card then 2.0      // ♦10: 2 points
-            elif isSpadeTwo card then 1.0      // ♠2: 1 point (also counted as spade below)
-            elif isAce card then 1.0           // Each Ace: 1 point
+            if isDiamondTen card then 2.0 // ♦10: 2 points
+            elif isSpadeTwo card then 1.0 // ♠2: 1 point (also counted as spade below)
+            elif isAce card then 1.0 // Each Ace: 1 point
             else 0.0
-        let cardFraction = 1.0 / 52.0          // any card toward "most cards" (1 pt)
+
+        let cardFraction = 1.0 / 52.0 // any card toward "most cards" (1 pt)
+
         let spadeFraction =
-            if isSpade card then 2.0 / 13.0    // spade toward "most spades" (2 pts)
-            else 0.0
+            if isSpade card then
+                2.0 / 13.0 // spade toward "most spades" (2 pts)
+            else
+                0.0
+
         direct + cardFraction + spadeFraction
 
     /// Dynamic scoring value that considers the current game context.
@@ -198,7 +213,8 @@ module Cards =
         (opponentCards: int)
         (opponentSpades: int)
         (cardsRemaining: int)
-        (card: Card) : float =
+        (card: Card)
+        : float =
 
         let direct =
             if isDiamondTen card then 2.0
@@ -210,6 +226,7 @@ module Cards =
         // If I capture this card, how much closer does it bring me to (or keep me at)
         // the "most cards" bonus? Value increases as the race tightens.
         let cardGap = float (myCards + 1 - opponentCards)
+
         let cardMargin =
             if cardsRemaining <= 0 then
                 // No more cards to play — this is the last chance
@@ -224,9 +241,11 @@ module Cards =
         let spadeMargin =
             if isSpade card then
                 let spadeGap = float (mySpades + 1 - opponentSpades)
+
                 let spadesRemaining =
                     // Rough estimate: ~1/4 of remaining cards are spades
                     max 1 (cardsRemaining / 4)
+
                 let halfSpadesRem = float spadesRemaining / 2.0
                 2.0 / (1.0 + exp (-(spadeGap / halfSpadesRem) * 3.0))
             else

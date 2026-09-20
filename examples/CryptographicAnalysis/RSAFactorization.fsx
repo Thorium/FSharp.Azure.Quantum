@@ -77,14 +77,42 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "RSAFactorization.fsx" "Quantum period finding (Shor's algorithm) to factor RSA moduli." [
-    { Name = "number"; Description = "Composite number to factor"; Default = Some "15" }
-    { Name = "precision"; Description = "QPE precision qubits"; Default = Some "4" }
-    { Name = "max-attempts"; Description = "Max probabilistic attempts"; Default = Some "10" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "RSAFactorization.fsx"
+    "Quantum period finding (Shor's algorithm) to factor RSA moduli."
+    [
+        {
+            Name = "number"
+            Description = "Composite number to factor"
+            Default = Some "15"
+        }
+        {
+            Name = "precision"
+            Description = "QPE precision qubits"
+            Default = Some "4"
+        }
+        {
+            Name = "max-attempts"
+            Description = "Max probabilistic attempts"
+            Default = Some "10"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let numberToFactor = Cli.getIntOr "number" 15 args
 let precision = Cli.getIntOr "precision" 4 args
@@ -101,17 +129,20 @@ let results = System.Collections.Generic.List<Map<string, string>>()
 
 let addResult scenario number status factors baseUsed period qubits attempts error =
     results.Add(
-        [ "scenario", scenario
-          "number", string number
-          "status", status
-          "factors", factors
-          "base_used", string baseUsed
-          "period", string period
-          "qubits_used", string qubits
-          "attempts", string attempts
-          "precision", string precision
-          "error", error ]
-        |> Map.ofList)
+        [
+            "scenario", scenario
+            "number", string number
+            "status", status
+            "factors", factors
+            "base_used", string baseUsed
+            "period", string period
+            "qubits_used", string qubits
+            "attempts", string attempts
+            "precision", string precision
+            "error", error
+        ]
+        |> Map.ofList
+    )
 
 // ============================================================================
 // Quantum Backend
@@ -133,12 +164,13 @@ let runFactorization (scenario: string) (n: int) (prec: int) (maxAtt: int) =
         printfn "  Max Attempts:           %d" maxAtt
         printfn ""
 
-    let problem = periodFinder {
-        number n
-        precision prec
-        maxAttempts maxAtt
-        backend quantumBackend
-    }
+    let problem =
+        periodFinder {
+            number n
+            precision prec
+            maxAttempts maxAtt
+            backend quantumBackend
+        }
 
     match problem with
     | Ok prob ->
@@ -148,7 +180,7 @@ let runFactorization (scenario: string) (n: int) (prec: int) (maxAtt: int) =
         match solve prob with
         | Ok result ->
             match result.Factors with
-            | Some (p, q) ->
+            | Some(p, q) ->
                 if not quiet then
                     printfn "  SUCCESS: %d = %d x %d" n p q
                     printfn "  Base used (a):    %d" result.Base
@@ -158,14 +190,21 @@ let runFactorization (scenario: string) (n: int) (prec: int) (maxAtt: int) =
                     printfn ""
                     printfn "  SECURITY IMPACT:"
                     printfn "    With factors p=%d and q=%d, an attacker can:" p q
-                    printfn "    1. Calculate phi(n) = (p-1)(q-1) = %d" ((p-1)*(q-1))
+                    printfn "    1. Calculate phi(n) = (p-1)(q-1) = %d" ((p - 1) * (q - 1))
                     printfn "    2. Derive private key d from public key e"
                     printfn "    3. Decrypt all messages encrypted with this RSA key"
                     printfn ""
 
-                addResult scenario n "factored"
+                addResult
+                    scenario
+                    n
+                    "factored"
                     $"%d{p} x %d{q}"
-                    result.Base result.Period result.QubitsUsed result.Attempts ""
+                    result.Base
+                    result.Period
+                    result.QubitsUsed
+                    result.Attempts
+                    ""
 
             | None ->
                 if not quiet then
@@ -173,8 +212,15 @@ let runFactorization (scenario: string) (n: int) (prec: int) (maxAtt: int) =
                     printfn "  (This happens probabilistically; try again or increase attempts)"
                     printfn ""
 
-                addResult scenario n "period_only"
-                    "none" result.Base result.Period result.QubitsUsed result.Attempts
+                addResult
+                    scenario
+                    n
+                    "period_only"
+                    "none"
+                    result.Base
+                    result.Period
+                    result.QubitsUsed
+                    result.Attempts
                     "Period found but did not yield factors"
 
         | Error err ->
@@ -240,17 +286,20 @@ if not quiet then
 
 // Add assessment row for structured output
 results.Add(
-    [ "scenario", "RSA-2048 Assessment"
-      "number", "0"
-      "status", "infeasible"
-      "factors", "none"
-      "base_used", "0"
-      "period", "0"
-      "qubits_used", "0"
-      "attempts", "0"
-      "precision", "0"
-      "error", "Requires ~4000 logical qubits; current hardware insufficient" ]
-    |> Map.ofList)
+    [
+        "scenario", "RSA-2048 Assessment"
+        "number", "0"
+        "status", "infeasible"
+        "factors", "none"
+        "base_used", "0"
+        "period", "0"
+        "qubits_used", "0"
+        "attempts", "0"
+        "precision", "0"
+        "error", "Requires ~4000 logical qubits; current hardware insufficient"
+    ]
+    |> Map.ofList
+)
 
 // ============================================================================
 // Structured Output
@@ -264,11 +313,24 @@ match outputPath with
 
 match csvPath with
 | Some path ->
-    let header = [ "scenario"; "number"; "status"; "factors"; "base_used"; "period";
-                   "qubits_used"; "attempts"; "precision"; "error" ]
+    let header =
+        [
+            "scenario"
+            "number"
+            "status"
+            "factors"
+            "base_used"
+            "period"
+            "qubits_used"
+            "attempts"
+            "precision"
+            "error"
+        ]
+
     let rows =
         resultsList
         |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
 | None -> ()
 

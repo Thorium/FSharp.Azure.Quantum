@@ -33,37 +33,40 @@ module AdaptVqe =
 
     /// ADAPT-VQE configuration.
     [<Struct>]
-    type AdaptConfig = {
-        /// Maximum number of operators to add to the ansatz.
-        MaxIterations: int
-        /// Stop when the largest pool gradient magnitude is below this.
-        GradientThreshold: float
-        /// Central-difference step used for gradient screening.
-        FiniteDiffEps: float
-    }
+    type AdaptConfig =
+        {
+            /// Maximum number of operators to add to the ansatz.
+            MaxIterations: int
+            /// Stop when the largest pool gradient magnitude is below this.
+            GradientThreshold: float
+            /// Central-difference step used for gradient screening.
+            FiniteDiffEps: float
+        }
 
     /// Sensible defaults (20 operators, 1e-3 gradient cutoff).
-    let defaultConfig = {
-        MaxIterations = 20
-        GradientThreshold = 1e-3
-        FiniteDiffEps = 1e-4
-    }
+    let defaultConfig =
+        {
+            MaxIterations = 20
+            GradientThreshold = 1e-3
+            FiniteDiffEps = 1e-4
+        }
 
     /// Result of an ADAPT-VQE run.
-    type AdaptResult = {
-        /// Final variational energy ⟨H⟩.
-        Energy: float
-        /// Operators added to the ansatz, in the order selected.
-        SelectedOperators: TrotterSuzuki.PauliString list
-        /// Optimised angles, aligned with SelectedOperators.
-        Parameters: float[]
-        /// Number of operators added.
-        Iterations: int
-        /// True if the run stopped because every pool gradient was below threshold.
-        Converged: bool
-        /// Energy after each operator was added (chronological).
-        EnergyHistory: float list
-    }
+    type AdaptResult =
+        {
+            /// Final variational energy ⟨H⟩.
+            Energy: float
+            /// Operators added to the ansatz, in the order selected.
+            SelectedOperators: TrotterSuzuki.PauliString list
+            /// Optimised angles, aligned with SelectedOperators.
+            Parameters: float[]
+            /// Number of operators added.
+            Iterations: int
+            /// True if the run stopped because every pool gradient was below threshold.
+            Converged: bool
+            /// Energy after each operator was added (chronological).
+            EnergyHistory: float list
+        }
 
     // ========================================================================
     // ANSATZ + ENERGY
@@ -71,11 +74,16 @@ module AdaptVqe =
 
     /// Build the ADAPT ansatz circuit: |0…0⟩ followed by e^(-iθₖPₖ) for each selected
     /// operator/angle pair. `ops` and `parameters` must have equal length.
-    let buildAnsatz (numQubits: int) (ops: TrotterSuzuki.PauliString list) (parameters: float[]) : CircuitBuilder.Circuit =
+    let buildAnsatz
+        (numQubits: int)
+        (ops: TrotterSuzuki.PauliString list)
+        (parameters: float[])
+        : CircuitBuilder.Circuit =
         let qubits = [| 0 .. numQubits - 1 |]
+
         List.zip ops (List.ofArray parameters)
-        |> List.fold (fun circ (op, theta) ->
-            TrotterSuzuki.synthesizePauliEvolution op theta qubits circ)
+        |> List.fold
+            (fun circ (op, theta) -> TrotterSuzuki.synthesizePauliEvolution op theta qubits circ)
             (CircuitBuilder.empty numQubits)
 
     /// Energy ⟨H⟩ of the ansatz(ops, parameters) evaluated on the backend.
@@ -87,6 +95,7 @@ module AdaptVqe =
         (parameters: float[])
         : QuantumResult<float> =
         let circuit = buildAnsatz numQubits ops parameters
+
         Primitives.getState backend circuit
         |> Result.bind (Primitives.expectation hamiltonian)
 
@@ -101,20 +110,27 @@ module AdaptVqe =
         | 0 -> ([||], objective [||])
         | 1 ->
             let evalAt t = objective [| t |]
+
             let scan (centre: float) (halfWidth: float) (steps: int) =
-                [ for k in 0 .. steps -> centre - halfWidth + float k * (2.0 * halfWidth / float steps) ]
+                [
+                    for k in 0..steps -> centre - halfWidth + float k * (2.0 * halfWidth / float steps)
+                ]
                 |> List.map (fun t -> t, evalAt t)
                 |> List.minBy snd
-            let (coarseT, _) = scan 0.0 System.Math.PI 60          // coarse over [-π, π]
-            let (fineT, fineV) = scan coarseT (System.Math.PI / 30.0) 40  // refine locally
+
+            let (coarseT, _) = scan 0.0 System.Math.PI 60 // coarse over [-π, π]
+            let (fineT, fineV) = scan coarseT (System.Math.PI / 30.0) 40 // refine locally
             ([| fineT |], fineV)
         | _ ->
             // Nelder-Mead can throw when it exhausts its iteration budget on a flat/multimodal
             // landscape; fall back to the seed so the adaptive loop never crashes.
             try
                 let r = QaoaOptimizer.Optimizer.minimize objective init
-                if System.Double.IsNaN r.FinalObjectiveValue then (init, objective init)
-                else (r.OptimizedParameters, r.FinalObjectiveValue)
+
+                if System.Double.IsNaN r.FinalObjectiveValue then
+                    (init, objective init)
+                else
+                    (r.OptimizedParameters, r.FinalObjectiveValue)
             with _ ->
                 (init, objective init)
 
@@ -123,8 +139,7 @@ module AdaptVqe =
     // ========================================================================
 
     let private widthError (label: string) (got: int) (expected: int) =
-        Error (QuantumError.ValidationError (label,
-            $"width {got} does not match the {expected}-qubit problem."))
+        Error(QuantumError.ValidationError(label, $"width {got} does not match the {expected}-qubit problem."))
 
     /// Run ADAPT-VQE: grow an ansatz from `pool` to minimise ⟨`hamiltonian`⟩ on `backend`.
     ///
@@ -141,65 +156,93 @@ module AdaptVqe =
 
         // ---- validation --------------------------------------------------
         if numQubits <= 0 then
-            Error (QuantumError.ValidationError ("numQubits", "must be positive"))
+            Error(QuantumError.ValidationError("numQubits", "must be positive"))
         elif List.isEmpty pool then
-            Error (QuantumError.ValidationError ("pool", "operator pool must be non-empty"))
+            Error(QuantumError.ValidationError("pool", "operator pool must be non-empty"))
         else
-            let badHamTerm = hamiltonian.Terms |> List.tryFind (fun t -> t.Operators.Length <> numQubits)
+            let badHamTerm =
+                hamiltonian.Terms |> List.tryFind (fun t -> t.Operators.Length <> numQubits)
+
             let badPoolOp = pool |> List.tryFind (fun p -> p.Operators.Length <> numQubits)
+
             match badHamTerm, badPoolOp with
             | Some t, _ -> widthError "hamiltonian" t.Operators.Length numQubits
             | _, Some p -> widthError "pool" p.Operators.Length numQubits
             | None, None ->
 
-            // Reference (|0…0⟩) energy — also validates the backend supports expectation.
-            match stateEnergy backend hamiltonian numQubits [] [||] with
-            | Error e -> Error e
-            | Ok referenceEnergy ->
+                // Reference (|0…0⟩) energy — also validates the backend supports expectation.
+                match stateEnergy backend hamiltonian numQubits [] [||] with
+                | Error e -> Error e
+                | Ok referenceEnergy ->
 
-                // Gradient contributed by appending `op` to (ops, parameters):
-                // central difference of the energy in the new angle around 0.
-                let gradientAt (ops: TrotterSuzuki.PauliString list) (parameters: float[]) (op: TrotterSuzuki.PauliString) : QuantumResult<float> =
-                    let opsWith = ops @ [ op ]
-                    let eps = config.FiniteDiffEps
-                    match stateEnergy backend hamiltonian numQubits opsWith (Array.append parameters [| eps |]),
-                          stateEnergy backend hamiltonian numQubits opsWith (Array.append parameters [| -eps |]) with
-                    | Ok ePlus, Ok eMinus -> Ok ((ePlus - eMinus) / (2.0 * eps))
-                    | Error e, _ -> Error e
-                    | _, Error e -> Error e
+                    // Gradient contributed by appending `op` to (ops, parameters):
+                    // central difference of the energy in the new angle around 0.
+                    let gradientAt
+                        (ops: TrotterSuzuki.PauliString list)
+                        (parameters: float[])
+                        (op: TrotterSuzuki.PauliString)
+                        : QuantumResult<float> =
+                        let opsWith = ops @ [ op ]
+                        let eps = config.FiniteDiffEps
 
-                let rec loop iter (ops: TrotterSuzuki.PauliString list) (parameters: float[]) (history: float list) (energy: float) : QuantumResult<AdaptResult> =
-                    let finish converged =
-                        Ok { Energy = energy
-                             SelectedOperators = ops
-                             Parameters = parameters
-                             Iterations = iter
-                             Converged = converged
-                             EnergyHistory = List.rev history }
+                        match
+                            stateEnergy backend hamiltonian numQubits opsWith (Array.append parameters [| eps |]),
+                            stateEnergy backend hamiltonian numQubits opsWith (Array.append parameters [| -eps |])
+                        with
+                        | Ok ePlus, Ok eMinus -> Ok((ePlus - eMinus) / (2.0 * eps))
+                        | Error e, _ -> Error e
+                        | _, Error e -> Error e
 
-                    if iter >= config.MaxIterations then finish false
-                    else
-                        // Screen the whole pool (short-circuit on the first Error).
-                        let gradsResult =
-                            (Ok [], pool)
-                            ||> List.fold (fun accR op ->
-                                accR |> Result.bind (fun acc ->
-                                    gradientAt ops parameters op |> Result.map (fun g -> (op, g) :: acc)))
-                        match gradsResult with
-                        | Error e -> Error e
-                        | Ok grads ->
-                            let (bestOp, bestGrad) = grads |> List.maxBy (fun (_, g) -> abs g)
-                            if abs bestGrad < config.GradientThreshold then
-                                finish true
-                            else
-                                let newOps = ops @ [ bestOp ]
-                                let init = Array.append parameters [| 0.0 |]
-                                let objective (p: float[]) =
-                                    (stateEnergy backend hamiltonian numQubits newOps p) |> Result.defaultWith (fun _ -> System.Double.MaxValue)
-                                let (optParams, optEnergy) = optimize objective init
-                                // Guarantee monotonic progress: if this operator can't improve the
-                                // energy (e.g. the optimizer failed to converge), stop with the best.
-                                if optEnergy > energy + 1e-9 then finish false
-                                else loop (iter + 1) newOps optParams (optEnergy :: history) optEnergy
+                    let rec loop
+                        iter
+                        (ops: TrotterSuzuki.PauliString list)
+                        (parameters: float[])
+                        (history: float list)
+                        (energy: float)
+                        : QuantumResult<AdaptResult> =
+                        let finish converged =
+                            Ok
+                                {
+                                    Energy = energy
+                                    SelectedOperators = ops
+                                    Parameters = parameters
+                                    Iterations = iter
+                                    Converged = converged
+                                    EnergyHistory = List.rev history
+                                }
 
-                loop 0 [] [||] [ referenceEnergy ] referenceEnergy
+                        if iter >= config.MaxIterations then
+                            finish false
+                        else
+                            // Screen the whole pool (short-circuit on the first Error).
+                            let gradsResult =
+                                (Ok [], pool)
+                                ||> List.fold (fun accR op ->
+                                    accR
+                                    |> Result.bind (fun acc ->
+                                        gradientAt ops parameters op |> Result.map (fun g -> (op, g) :: acc)))
+
+                            match gradsResult with
+                            | Error e -> Error e
+                            | Ok grads ->
+                                let (bestOp, bestGrad) = grads |> List.maxBy (fun (_, g) -> abs g)
+
+                                if abs bestGrad < config.GradientThreshold then
+                                    finish true
+                                else
+                                    let newOps = ops @ [ bestOp ]
+                                    let init = Array.append parameters [| 0.0 |]
+
+                                    let objective (p: float[]) =
+                                        (stateEnergy backend hamiltonian numQubits newOps p)
+                                        |> Result.defaultWith (fun _ -> System.Double.MaxValue)
+
+                                    let (optParams, optEnergy) = optimize objective init
+                                    // Guarantee monotonic progress: if this operator can't improve the
+                                    // energy (e.g. the optimizer failed to converge), stop with the best.
+                                    if optEnergy > energy + 1e-9 then
+                                        finish false
+                                    else
+                                        loop (iter + 1) newOps optParams (optEnergy :: history) optEnergy
+
+                    loop 0 [] [||] [ referenceEnergy ] referenceEnergy

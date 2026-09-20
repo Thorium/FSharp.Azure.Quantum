@@ -32,21 +32,54 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "BasicFusion.fsx" "Ising anyon fusion rules and measurement statistics"
-    [ { Name = "example"; Description = "Which example: 1-4|all"; Default = Some "all" }
-      { Name = "trials";  Description = "Fusion statistics trials"; Default = Some "1000" }
-      { Name = "output";  Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "BasicFusion.fsx"
+    "Ising anyon fusion rules and measurement statistics"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-4|all"
+            Default = Some "all"
+        }
+        {
+            Name = "trials"
+            Description = "Fusion statistics trials"
+            Default = Some "1000"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
-let cliTrials  = Cli.getIntOr "trials" 1000 args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
+let cliTrials = Cli.getIntOr "trials" 1000 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
@@ -58,15 +91,17 @@ let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 /// This is the minimal "sigma x sigma" system for demonstrating
 /// the Ising fusion rule: sigma x sigma = 1 (vacuum) + psi.
 let createTwoSigmaState () =
-    let tree = FusionTree.fuse
-                   (FusionTree.leaf AnyonSpecies.Particle.Sigma)
-                   (FusionTree.leaf AnyonSpecies.Particle.Sigma)
-                   AnyonSpecies.Particle.Vacuum  // initial channel
+    let tree =
+        FusionTree.fuse
+            (FusionTree.leaf AnyonSpecies.Particle.Sigma)
+            (FusionTree.leaf AnyonSpecies.Particle.Sigma)
+            AnyonSpecies.Particle.Vacuum // initial channel
+
     FusionTree.create tree AnyonSpecies.AnyonType.Ising
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 â€” Initialise Ising anyons
@@ -81,10 +116,19 @@ if shouldRun 1 then
 
     pr "Initialised 2 sigma anyons"
     pr "  Terms in superposition: %d" superposition.Terms.Length
+
     for (amp, fusionState) in superposition.Terms do
         pr "  Amplitude: %A   Tree: %A" amp fusionState.Tree
 
-    jsonResults <- ("1_init", box {| anyons = 2; terms = superposition.Terms.Length |}) :: jsonResults
+    jsonResults <-
+        ("1_init",
+         box
+             {|
+                 anyons = 2
+                 terms = superposition.Terms.Length
+             |})
+        :: jsonResults
+
     csvRows <- [ "1_init"; "2"; string superposition.Terms.Length ] :: csvRows
 
 // ---------------------------------------------------------------------------
@@ -107,17 +151,23 @@ if shouldRun 2 then
                 let outName =
                     match outcome with
                     | AnyonSpecies.Particle.Vacuum -> "vacuum (trivial)"
-                    | AnyonSpecies.Particle.Psi    -> "psi (fermion)"
-                    | _                            -> $"%A{outcome}"
+                    | AnyonSpecies.Particle.Psi -> "psi (fermion)"
+                    | _ -> $"%A{outcome}"
+
                 pr "Outcome: %s   (probability: %.4f)" outName probability
 
-                jsonResults <- ("2_measure", box {| outcome = $"%A{outcome}"
-                                                    probability = probability |}) :: jsonResults
+                jsonResults <-
+                    ("2_measure",
+                     box
+                         {|
+                             outcome = $"%A{outcome}"
+                             probability = probability
+                         |})
+                    :: jsonResults
+
                 csvRows <- [ "2_measure"; $"%A{outcome}"; $"%.4f{probability}" ] :: csvRows
-            | None ->
-                pr "Outcome: (no classical outcome)   (probability: %.4f)" probability
-    | Error err ->
-        pr "Measurement failed: %s" err.Message
+            | None -> pr "Outcome: (no classical outcome)   (probability: %.4f)" probability
+    | Error err -> pr "Measurement failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
 // Example 3 â€” Fusion statistics
@@ -141,21 +191,20 @@ if shouldRun 3 then
         // Build cumulative distribution from outcome probabilities
         let cdf =
             outcomes
-            |> List.choose (fun (prob, opResult) ->
-                opResult.ClassicalOutcome |> Option.map (fun p -> (p, prob)))
+            |> List.choose (fun (prob, opResult) -> opResult.ClassicalOutcome |> Option.map (fun p -> (p, prob)))
             |> List.scan (fun (_, cumProb) (particle, prob) -> (Some particle, cumProb + prob)) (None, 0.0)
-            |> List.tail  // drop initial (None, 0.0)
+            |> List.tail // drop initial (None, 0.0)
 
-        for _ in 1 .. cliTrials do
-            let r = rng.NextDouble ()
+        for _ in 1..cliTrials do
+            let r = rng.NextDouble()
+
             let sampled =
-                cdf
-                |> List.tryFind (fun (_, cumProb) -> r < cumProb)
-                |> Option.bind fst
+                cdf |> List.tryFind (fun (_, cumProb) -> r < cumProb) |> Option.bind fst
+
             match sampled with
             | Some AnyonSpecies.Particle.Vacuum -> vacCount <- vacCount + 1
-            | Some AnyonSpecies.Particle.Psi    -> psiCount <- psiCount + 1
-            | _                                 -> ()
+            | Some AnyonSpecies.Particle.Psi -> psiCount <- psiCount + 1
+            | _ -> ()
 
         let vacPct = float vacCount / float cliTrials * 100.0
         let psiPct = float psiCount / float cliTrials * 100.0
@@ -164,12 +213,28 @@ if shouldRun 3 then
         pr ""
         pr "Expected: ~50%% vacuum, ~50%% psi  (from sigma x sigma = 1 + psi)"
 
-        jsonResults <- ("3_stats", box {| trials = cliTrials; vacuum = vacCount; psi = psiCount
-                                          vacuumPct = vacPct; psiPct = psiPct |}) :: jsonResults
-        csvRows <- [ "3_stats"; string vacCount; string psiCount;
-                      $"%.1f{vacPct}"; $"%.1f{psiPct}" ] :: csvRows
-    | Error err ->
-        pr "Measurement setup failed: %s" err.Message
+        jsonResults <-
+            ("3_stats",
+             box
+                 {|
+                     trials = cliTrials
+                     vacuum = vacCount
+                     psi = psiCount
+                     vacuumPct = vacPct
+                     psiPct = psiPct
+                 |})
+            :: jsonResults
+
+        csvRows <-
+            [
+                "3_stats"
+                string vacCount
+                string psiCount
+                $"%.1f{vacPct}"
+                $"%.1f{psiPct}"
+            ]
+            :: csvRows
+    | Error err -> pr "Measurement setup failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
 // Example 4 â€” Four anyons (2-qubit equivalent)
@@ -182,26 +247,36 @@ if shouldRun 4 then
     // Use the unified backend: InitializeState 2 creates a 2-qubit
     // topological state encoded in Ising sigma-pairs (+ parity ancilla).
     match quantumBackend.InitializeState 2 with
-    | Ok (QuantumState.FusionSuperposition fs) ->
+    | Ok(QuantumState.FusionSuperposition fs) ->
         match TopologicalOperations.fromInterface fs with
         | Some superposition ->
             let numAnyons =
                 match superposition.Terms with
                 | (_, firstState) :: _ -> FusionTree.leaves firstState.Tree |> List.length
                 | [] -> 0
+
             pr "Initialised 2-qubit state (%d sigma anyons in encoding)" numAnyons
             pr "  Terms in superposition: %d" superposition.Terms.Length
+
             for (amp, _) in superposition.Terms do
                 pr "  Amplitude: %A" amp
 
-            jsonResults <- ("4_four_anyons", box {| qubits = 2; anyons = numAnyons; terms = superposition.Terms.Length |}) :: jsonResults
-            csvRows <- [ "4_four_anyons"; string numAnyons; string superposition.Terms.Length ] :: csvRows
-        | None ->
-            pr "Failed: could not unwrap FusionSuperposition"
-    | Ok other ->
-        pr "Unexpected state type: %A" other
-    | Error err ->
-        pr "Failed: %s" err.Message
+            jsonResults <-
+                ("4_four_anyons",
+                 box
+                     {|
+                         qubits = 2
+                         anyons = numAnyons
+                         terms = superposition.Terms.Length
+                     |})
+                :: jsonResults
+
+            csvRows <-
+                [ "4_four_anyons"; string numAnyons; string superposition.Terms.Length ]
+                :: csvRows
+        | None -> pr "Failed: could not unwrap FusionSuperposition"
+    | Ok other -> pr "Unexpected state type: %A" other
+    | Error err -> pr "Failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
 // Output
@@ -209,22 +284,23 @@ if shouldRun 4 then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "BasicFusion.fsx"
-           backend   = "Topological (Ising)"
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           trials    = cliTrials
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "BasicFusion.fsx"
+            backend = "Topological (Ising)"
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            trials = cliTrials
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

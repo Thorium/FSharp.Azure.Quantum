@@ -102,16 +102,56 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "H2Molecule.fsx" "H2 ground state energy via VQE (Direct API + Builder API)"
-    [ { Cli.OptionSpec.Name = "bond-length"; Description = "H-H bond length in Angstroms"; Default = Some "0.74" }
-      { Cli.OptionSpec.Name = "method"; Description = "Solver method: VQE, DFT, auto, or all"; Default = Some "all" }
-      { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations"; Default = Some "100" }
-      { Cli.OptionSpec.Name = "tolerance"; Description = "Convergence tolerance"; Default = Some "1e-6" }
-      { Cli.OptionSpec.Name = "scan"; Description = "Comma-separated bond lengths for scan"; Default = Some "0.5,0.6,0.7,0.74,0.8,0.9,1.0" }
-      { Cli.OptionSpec.Name = "basis"; Description = "Basis set for builder examples"; Default = Some "sto-3g" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+Cli.exitIfHelp
+    "H2Molecule.fsx"
+    "H2 ground state energy via VQE (Direct API + Builder API)"
+    [
+        {
+            Cli.OptionSpec.Name = "bond-length"
+            Description = "H-H bond length in Angstroms"
+            Default = Some "0.74"
+        }
+        {
+            Cli.OptionSpec.Name = "method"
+            Description = "Solver method: VQE, DFT, auto, or all"
+            Default = Some "all"
+        }
+        {
+            Cli.OptionSpec.Name = "max-iterations"
+            Description = "Maximum VQE iterations"
+            Default = Some "100"
+        }
+        {
+            Cli.OptionSpec.Name = "tolerance"
+            Description = "Convergence tolerance"
+            Default = Some "1e-6"
+        }
+        {
+            Cli.OptionSpec.Name = "scan"
+            Description = "Comma-separated bond lengths for scan"
+            Default = Some "0.5,0.6,0.7,0.74,0.8,0.9,1.0"
+        }
+        {
+            Cli.OptionSpec.Name = "basis"
+            Description = "Basis set for builder examples"
+            Default = Some "sto-3g"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -120,6 +160,7 @@ let methodChoice = Cli.getOr "method" "all" args
 let maxIterations = Cli.getIntOr "max-iterations" 100 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-6 args
 let basisSet = Cli.getOr "basis" "sto-3g" args
+
 let scanLengths =
     Cli.getOr "scan" "0.5,0.6,0.7,0.74,0.8,0.9,1.0" args
     |> fun s -> s.Split ','
@@ -152,16 +193,18 @@ if not quiet then
 let runGroundState (label: string) (distance: float) (method: GroundStateMethod) =
     let h2 = Molecule.createH2 distance
     let backend = LocalBackend() :> IQuantumBackend
-    let config = {
-        Method = method
-        Backend = Some backend
-        MaxIterations = maxIterations
-        Tolerance = tolerance
-        InitialParameters = None
-        ProgressReporter = None
-        ErrorMitigation = None
-        IntegralProvider = None
-    }
+
+    let config =
+        {
+            Method = method
+            Backend = Some backend
+            MaxIterations = maxIterations
+            Tolerance = tolerance
+            InitialParameters = None
+            ProgressReporter = None
+            ErrorMitigation = None
+            IntegralProvider = None
+        }
 
     if not quiet then
         printfn ""
@@ -179,7 +222,8 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
     match result with
     | Ok vqeResult ->
         let eV = vqeResult.Energy * 27.2114
-        let error = abs(vqeResult.Energy - (-1.174))
+        let error = abs (vqeResult.Energy - (-1.174))
+
         if not quiet then
             printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
             printfn "  Expected (experimental): -1.174 Hartree"
@@ -187,29 +231,35 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
             printfn "  In electron volts: %.6f eV" eV
             printfn "  Iterations: %d" vqeResult.Iterations
             printfn "  Converged: %b" vqeResult.Converged
-        [ "Label", label
-          "BondLength_A", $"%.4f{distance}"
-          "Method", $"%A{method}"
-          "Energy_Hartree", $"%.6f{vqeResult.Energy}"
-          "Energy_eV", $"%.6f{eV}"
-          "Error_Hartree", $"%.6f{error}"
-          "Iterations", $"%d{vqeResult.Iterations}"
-          "Converged", $"%b{vqeResult.Converged}" ]
+
+        [
+            "Label", label
+            "BondLength_A", $"%.4f{distance}"
+            "Method", $"%A{method}"
+            "Energy_Hartree", $"%.6f{vqeResult.Energy}"
+            "Energy_eV", $"%.6f{eV}"
+            "Error_Hartree", $"%.6f{error}"
+            "Iterations", $"%d{vqeResult.Iterations}"
+            "Converged", $"%b{vqeResult.Converged}"
+        ]
         |> Map.ofList
         |> Some
     | Error err ->
         if not quiet then
             printfn "Calculation failed: %s" err.Message
+
         None
 
 // Run the selected methods
 let directResults =
-    [ if runVQE then
-          runGroundState "VQE" bondLength GroundStateMethod.VQE
-      if runDFT then
-          runGroundState "Classical DFT" bondLength GroundStateMethod.ClassicalDFT
-      if runAuto then
-          runGroundState "Automatic" bondLength GroundStateMethod.Automatic ]
+    [
+        if runVQE then
+            runGroundState "VQE" bondLength GroundStateMethod.VQE
+        if runDFT then
+            runGroundState "Classical DFT" bondLength GroundStateMethod.ClassicalDFT
+        if runAuto then
+            runGroundState "Automatic" bondLength GroundStateMethod.Automatic
+    ]
     |> List.choose id
 
 // ==============================================================================
@@ -227,11 +277,12 @@ if not quiet then
     printfn ""
     printfn "--- Example 1: H2 Ground State at %.2f A ---" bondLength
 
-let h2Problem = quantumChemistry {
-    molecule (Molecule.createH2 bondLength)
-    basis basisSet
-    ansatz UCCSD
-}
+let h2Problem =
+    quantumChemistry {
+        molecule (Molecule.createH2 bondLength)
+        basis basisSet
+        ansatz UCCSD
+    }
 
 if not quiet then
     printfn "Problem created successfully!"
@@ -244,12 +295,13 @@ if not quiet then
     printfn ""
     printfn "--- Example 2: H2O Ground State ---"
 
-let h2oProblem = quantumChemistry {
-    molecule (Molecule.createH2O ())
-    basis basisSet
-    ansatz HEA
-    maxIterations 150
-}
+let h2oProblem =
+    quantumChemistry {
+        molecule (Molecule.createH2O ())
+        basis basisSet
+        ansatz HEA
+        maxIterations 150
+    }
 
 if not quiet then
     printfn "Problem created successfully!"
@@ -263,12 +315,13 @@ if not quiet then
 
 let lihCustom = Molecule.createLiH 1.6
 
-let lihProblem = quantumChemistry {
-    molecule lihCustom
-    basis basisSet
-    ansatz UCCSD
-    optimizer "COBYLA"
-}
+let lihProblem =
+    quantumChemistry {
+        molecule lihCustom
+        basis basisSet
+        ansatz UCCSD
+        optimizer "COBYLA"
+    }
 
 if not quiet then
     printfn "Problem created successfully!"
@@ -282,13 +335,15 @@ if not quiet then
 
 [<Literal>]
 let smallMolecule = true
+
 let selectedBasis = if smallMolecule then "sto-3g" else "6-31g"
 
-let conditionalProblem = quantumChemistry {
-    molecule (Molecule.createH2 bondLength)
-    basis selectedBasis
-    ansatz UCCSD
-}
+let conditionalProblem =
+    quantumChemistry {
+        molecule (Molecule.createH2 bondLength)
+        basis selectedBasis
+        ansatz UCCSD
+    }
 
 if not quiet then
     printfn "Problem created with basis: %s" conditionalProblem.Basis.Value
@@ -309,33 +364,42 @@ let scanResults =
     |> List.choose (fun d ->
         let h2Scan = Molecule.createH2 d
         let backend = LocalBackend() :> IQuantumBackend
-        let scanConfig = {
-            Method = GroundStateMethod.VQE
-            Backend = Some backend
-            MaxIterations = maxIterations
-            Tolerance = tolerance
-            InitialParameters = None
-            ProgressReporter = None
-            ErrorMitigation = None
-            IntegralProvider = None
-        }
-        let scanResult = GroundStateEnergy.estimateEnergy h2Scan scanConfig |> Async.RunSynchronously
+
+        let scanConfig =
+            {
+                Method = GroundStateMethod.VQE
+                Backend = Some backend
+                MaxIterations = maxIterations
+                Tolerance = tolerance
+                InitialParameters = None
+                ProgressReporter = None
+                ErrorMitigation = None
+                IntegralProvider = None
+            }
+
+        let scanResult =
+            GroundStateEnergy.estimateEnergy h2Scan scanConfig |> Async.RunSynchronously
+
         match scanResult with
         | Ok vqeResult ->
             if not quiet then
                 printfn "  Distance %.2f A: %.6f Hartree (%d iterations)" d vqeResult.Energy vqeResult.Iterations
-            [ "Label", $"Scan_%.2f{d}"
-              "BondLength_A", $"%.4f{d}"
-              "Method", "VQE"
-              "Energy_Hartree", $"%.6f{vqeResult.Energy}"
-              "Energy_eV", sprintf "%.6f" (vqeResult.Energy * 27.2114)
-              "Iterations", $"%d{vqeResult.Iterations}"
-              "Converged", $"%b{vqeResult.Converged}" ]
+
+            [
+                "Label", $"Scan_%.2f{d}"
+                "BondLength_A", $"%.4f{d}"
+                "Method", "VQE"
+                "Energy_Hartree", $"%.6f{vqeResult.Energy}"
+                "Energy_eV", sprintf "%.6f" (vqeResult.Energy * 27.2114)
+                "Iterations", $"%d{vqeResult.Iterations}"
+                "Converged", $"%b{vqeResult.Converged}"
+            ]
             |> Map.ofList
             |> Some
         | Error err ->
             if not quiet then
                 printfn "  Distance %.2f A: FAILED (%s)" d err.Message
+
             None)
 
 // ==============================================================================
@@ -353,18 +417,21 @@ if not quiet then
     printfn ""
 
 let h2Conv = Molecule.createH2 (bondLength + 0.01)
-let convConfig = {
-    Method = GroundStateMethod.VQE
-    Backend = Some (LocalBackend() :> IQuantumBackend)
-    MaxIterations = 30
-    Tolerance = 1e-8
-    InitialParameters = None
-    ProgressReporter = None
-    ErrorMitigation = None
-    IntegralProvider = None
-}
 
-let convResult = GroundStateEnergy.estimateEnergy h2Conv convConfig |> Async.RunSynchronously
+let convConfig =
+    {
+        Method = GroundStateMethod.VQE
+        Backend = Some(LocalBackend() :> IQuantumBackend)
+        MaxIterations = 30
+        Tolerance = 1e-8
+        InitialParameters = None
+        ProgressReporter = None
+        ErrorMitigation = None
+        IntegralProvider = None
+    }
+
+let convResult =
+    GroundStateEnergy.estimateEnergy h2Conv convConfig |> Async.RunSynchronously
 
 match convResult with
 | Ok vqeResult ->
@@ -386,6 +453,7 @@ match convResult with
                 printfn ""
                 printfn "ASCII Convergence Plot:"
                 printfn ""
+
                 for (iteration, energy) in vqeResult.EnergyHistory do
                     let normalized = (energy - minE) / range
                     let barWidth = int (normalized * 40.0)
@@ -393,6 +461,7 @@ match convResult with
                     printfn "  %3d | %.6f | %s" iteration energy bar
             else
                 printfn ""
+
                 for (iteration, energy) in vqeResult.EnergyHistory do
                     printfn "  %3d | %.6f Hartree" iteration energy
         else
@@ -413,18 +482,33 @@ let allResults = directResults @ scanResults
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path allResults
-    if not quiet then printfn "\nResults written to %s" path
+
+    if not quiet then
+        printfn "\nResults written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header = [ "Label"; "BondLength_A"; "Method"; "Energy_Hartree"; "Energy_eV"; "Error_Hartree"; "Iterations"; "Converged" ]
+    let header =
+        [
+            "Label"
+            "BondLength_A"
+            "Method"
+            "Energy_Hartree"
+            "Energy_eV"
+            "Error_Hartree"
+            "Iterations"
+            "Converged"
+        ]
+
     let rows =
         allResults
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "CSV results written to %s" path
+
+    if not quiet then
+        printfn "CSV results written to %s" path
 | None -> ()
 
 // ==============================================================================

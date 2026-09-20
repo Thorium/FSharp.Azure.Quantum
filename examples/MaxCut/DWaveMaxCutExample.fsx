@@ -34,21 +34,33 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "DWaveMaxCutExample.fsx"
     "End-to-end MaxCut solved via D-Wave simulated annealing backend."
-    [ { Cli.OptionSpec.Name = "shots"
-        Description = "Number of measurement shots"
-        Default = Some "1000" }
-      { Cli.OptionSpec.Name = "seed"
-        Description = "Random seed for reproducibility"
-        Default = Some "42" }
-      { Cli.OptionSpec.Name = "output"
-        Description = "Write results to JSON file"
-        Default = None }
-      { Cli.OptionSpec.Name = "csv"
-        Description = "Write results to CSV file"
-        Default = None }
-      { Cli.OptionSpec.Name = "quiet"
-        Description = "Suppress printed output"
-        Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "shots"
+            Description = "Number of measurement shots"
+            Default = Some "1000"
+        }
+        {
+            Cli.OptionSpec.Name = "seed"
+            Description = "Random seed for reproducibility"
+            Default = Some "42"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress printed output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -71,11 +83,7 @@ let csvPath = Cli.tryGet "csv" args
 //  /     \
 // 1---3---2
 
-let edges = [
-    (0, 1, 5.0)
-    (1, 2, 3.0)
-    (0, 2, 4.0)
-]
+let edges = [ (0, 1, 5.0); (1, 2, 3.0); (0, 2, 4.0) ]
 
 [<Literal>]
 let numVertices = 3
@@ -90,8 +98,10 @@ if not quiet then
     printfn "Graph:"
     printfn "  Vertices: %d" numVertices
     printfn "  Edges:"
+
     for (u, v, w) in edges do
         printfn "    (%d, %d) = %.1f" u v w
+
     printfn ""
 
 // ---------------------------------------------------------------------------
@@ -106,24 +116,34 @@ let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : 
                 edgeList
                 |> List.filter (fun (u, w, _) -> u = v || w = v)
                 |> List.sumBy (fun (_, _, w) -> w)
-            { Coefficient = weight / 2.0
-              QubitsIndices = [| v |]
-              PauliOperators = [| PauliZ |] })
+
+            {
+                Coefficient = weight / 2.0
+                QubitsIndices = [| v |]
+                PauliOperators = [| PauliZ |]
+            })
 
     let offDiagonalTerms =
         edgeList
         |> List.map (fun (u, v, w) ->
-            { Coefficient = -w / 4.0
-              QubitsIndices = [| u; v |]
-              PauliOperators = [| PauliZ; PauliZ |] })
+            {
+                Coefficient = -w / 4.0
+                QubitsIndices = [| u; v |]
+                PauliOperators = [| PauliZ; PauliZ |]
+            })
 
-    { NumQubits = nVerts
-      Terms = List.append diagonalTerms offDiagonalTerms |> List.toArray }
+    {
+        NumQubits = nVerts
+        Terms = List.append diagonalTerms offDiagonalTerms |> List.toArray
+    }
 
 let problemHamiltonian = buildMaxCutHamiltonian numVertices edges
 let mixerHamiltonian = MixerHamiltonian.create numVertices
 let qaoaParameters = [| (0.5, 0.3) |]
-let qaoaCircuit = QaoaCircuit.build problemHamiltonian mixerHamiltonian qaoaParameters
+
+let qaoaCircuit =
+    QaoaCircuit.build problemHamiltonian mixerHamiltonian qaoaParameters
+
 let circuit = QaoaCircuitWrapper(qaoaCircuit) :> ICircuit
 
 if not quiet then
@@ -162,14 +182,19 @@ let results = ResizeArray<Map<string, string>>()
 match backend.Execute circuit numShots with
 | Error e ->
     let msg = e.Message
+
     if not quiet then
         printfn "  Execution error: %s" msg
+
     results.Add(
-        [ "status", "error"
-          "error", msg
-          "shots", string numShots
-          "seed", string seed ]
-        |> Map.ofList)
+        [
+            "status", "error"
+            "error", msg
+            "shots", string numShots
+            "seed", string seed
+        ]
+        |> Map.ofList
+    )
 
 | Ok execResult ->
     if not quiet then
@@ -179,9 +204,7 @@ match backend.Execute circuit numShots with
 
     // Count occurrence of each bitstring
     let counts =
-        execResult.Measurements
-        |> Array.countBy id
-        |> Array.sortByDescending snd
+        execResult.Measurements |> Array.countBy id |> Array.sortByDescending snd
 
     if not quiet then
         printfn "Step 5: Analyze Results"
@@ -200,13 +223,16 @@ match backend.Execute circuit numShots with
 
         if not quiet then
             let bitstringStr = String.Join("", bitstring)
+
             let partitionStr =
                 [ 0 .. numVertices - 1 ]
                 |> List.map (fun v -> if bitstring.[v] = 0 then $"%d{v}" else $"[%d{v}]")
                 |> String.concat " "
+
             printfn "  %s       | %5d | %9.1f | %s" bitstringStr count cutValue partitionStr
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
     // Find best cut
     let bestSolution =
@@ -216,13 +242,16 @@ match backend.Execute circuit numShots with
                 edges
                 |> List.filter (fun (u, v, _) -> bitstring.[u] <> bitstring.[v])
                 |> List.sumBy (fun (_, _, w) -> w)
+
             (bitstring, count, cutValue))
         |> Array.maxBy (fun (_, _, cutValue) -> cutValue)
 
     let (bestBitstring, bestCount, bestCut) = bestSolution
     let set0 = [ 0 .. numVertices - 1 ] |> List.filter (fun v -> bestBitstring.[v] = 0)
     let set1 = [ 0 .. numVertices - 1 ] |> List.filter (fun v -> bestBitstring.[v] = 1)
-    let cutEdges = edges |> List.filter (fun (u, v, _) -> bestBitstring.[u] <> bestBitstring.[v])
+
+    let cutEdges =
+        edges |> List.filter (fun (u, v, _) -> bestBitstring.[u] <> bestBitstring.[v])
 
     if not quiet then
         printfn "============================================================"
@@ -238,23 +267,31 @@ match backend.Execute circuit numShots with
         printfn "    Set 1: {%s}" (set1 |> List.map string |> String.concat ", ")
         printfn ""
         printfn "  Edges in cut:"
+
         for (u, v, w) in cutEdges do
             printfn "    (%d, %d) weight = %.1f" u v w
+
         printfn ""
 
     results.Add(
-        [ "status", "ok"
-          "shots", string numShots
-          "seed", string seed
-          "best_partition", String.Join("", bestBitstring)
-          "best_cut_value", $"%.1f{bestCut}"
-          "best_occurrences", string bestCount
-          "distinct_solutions", string counts.Length
-          "set_0", (set0 |> List.map string |> String.concat ";")
-          "set_1", (set1 |> List.map string |> String.concat ";")
-          "cut_edges", (cutEdges |> List.map (fun (u, v, w) -> $"%d{u}-%d{v}(%.1f{w})") |> String.concat ";")
-          "backend", execResult.BackendName ]
-        |> Map.ofList)
+        [
+            "status", "ok"
+            "shots", string numShots
+            "seed", string seed
+            "best_partition", String.Join("", bestBitstring)
+            "best_cut_value", $"%.1f{bestCut}"
+            "best_occurrences", string bestCount
+            "distinct_solutions", string counts.Length
+            "set_0", (set0 |> List.map string |> String.concat ";")
+            "set_1", (set1 |> List.map string |> String.concat ";")
+            "cut_edges",
+            (cutEdges
+             |> List.map (fun (u, v, w) -> $"%d{u}-%d{v}(%.1f{w})")
+             |> String.concat ";")
+            "backend", execResult.BackendName
+        ]
+        |> Map.ofList
+    )
 
 // ---------------------------------------------------------------------------
 // Step 6: Available D-Wave Solvers (informational)
@@ -284,13 +321,24 @@ match outputPath with
 match csvPath with
 | Some p ->
     let header =
-        [ "status"; "shots"; "seed"; "best_partition"; "best_cut_value"
-          "best_occurrences"; "distinct_solutions"; "set_0"; "set_1"
-          "cut_edges"; "backend" ]
+        [
+            "status"
+            "shots"
+            "seed"
+            "best_partition"
+            "best_cut_value"
+            "best_occurrences"
+            "distinct_solutions"
+            "set_0"
+            "set_1"
+            "cut_edges"
+            "backend"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv p header rows
 | None -> ()
 

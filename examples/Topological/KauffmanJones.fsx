@@ -47,21 +47,54 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "KauffmanJones.fsx" "Kauffman bracket and Jones polynomial knot invariants"
-    [ { Name = "example";    Description = "Which example: 1-8|all"; Default = Some "all" }
-      { Name = "crossings";  Description = "Custom crossing list (e.g. P,P,N,P)"; Default = None }
-      { Name = "output";     Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";        Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";      Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "KauffmanJones.fsx"
+    "Kauffman bracket and Jones polynomial knot invariants"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-8|all"
+            Default = Some "all"
+        }
+        {
+            Name = "crossings"
+            Description = "Custom crossing list (e.g. P,P,N,P)"
+            Default = None
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
 let customCrossingsOpt = Cli.tryGet "crossings" args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 70 "=")
 
 // ---------------------------------------------------------------------------
@@ -81,21 +114,24 @@ let fmtComplex (c: Complex) =
         let sign = if c.Imaginary >= 0.0 then "+" else ""
         $"%.6f{c.Real} %s{sign}%.6f{c.Imaginary}i"
 
-let printComplex name (c: Complex) =
-    pr "  %s = %s" name (fmtComplex c)
+let printComplex name (c: Complex) = pr "  %s = %s" name (fmtComplex c)
 
 let parseCrossings (s: string) =
     s.Split ','
     |> Array.map (fun t ->
         match t.Trim().ToUpperInvariant() with
-        | "P" | "POSITIVE" | "+" -> Positive
-        | "N" | "NEGATIVE" | "-" -> Negative
+        | "P"
+        | "POSITIVE"
+        | "+" -> Positive
+        | "N"
+        | "NEGATIVE"
+        | "-" -> Negative
         | x -> failwithf "Unknown crossing '%s'. Use P or N." x)
     |> Array.toList
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Example 1 -- Unknot
@@ -115,8 +151,19 @@ if shouldRun 1 then
     printComplex "Jones polynomial" jones
     pr "  Expected Jones(unknot) = 1.0"
 
-    jsonResults <- ("1_unknot", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "1_unknot"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
+    jsonResults <-
+        ("1_unknot",
+         box
+             {|
+                 crossings = diagram.Crossings.Count
+                 writhe = w
+                 jones = fmtComplex jones
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [ "1_unknot"; string diagram.Crossings.Count; string w; fmtComplex jones ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 -- Trefoil
@@ -137,8 +184,19 @@ if shouldRun 2 then
     pr "  All positive crossings, writhe = +3"
     pr "  Textbook bracket: <3_1> = -A^5 - A^-3 + A^-7 (evaluated at A above)"
 
-    jsonResults <- ("2_trefoil", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "2_trefoil"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
+    jsonResults <-
+        ("2_trefoil",
+         box
+             {|
+                 crossings = diagram.Crossings.Count
+                 writhe = w
+                 jones = fmtComplex jones
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [ "2_trefoil"; string diagram.Crossings.Count; string w; fmtComplex jones ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 3 -- Mirror symmetry
@@ -157,7 +215,15 @@ if shouldRun 3 then
     printComplex "Right Jones" rightJ
     pr "  Mirror knots differ -> trefoil is chiral"
 
-    jsonResults <- ("3_mirror", box {| leftJones = fmtComplex leftJ; rightJones = fmtComplex rightJ |}) :: jsonResults
+    jsonResults <-
+        ("3_mirror",
+         box
+             {|
+                 leftJones = fmtComplex leftJ
+                 rightJones = fmtComplex rightJ
+             |})
+        :: jsonResults
+
     csvRows <- [ "3_mirror"; fmtComplex leftJ; fmtComplex rightJ ] :: csvRows
 
 // ---------------------------------------------------------------------------
@@ -179,8 +245,19 @@ if shouldRun 4 then
     pr "  Achiral: identical to its mirror image"
     pr "  Textbook bracket: <4_1> = A^8 - A^4 + 1 - A^-4 + A^-8"
 
-    jsonResults <- ("4_figure_eight", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "4_figure_eight"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
+    jsonResults <-
+        ("4_figure_eight",
+         box
+             {|
+                 crossings = diagram.Crossings.Count
+                 writhe = w
+                 jones = fmtComplex jones
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [ "4_figure_eight"; string diagram.Crossings.Count; string w; fmtComplex jones ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 5 -- Hopf link
@@ -201,8 +278,19 @@ if shouldRun 5 then
     pr "  Two components linked together"
     pr "  Textbook bracket: <Hopf> = -A^4 - A^-4"
 
-    jsonResults <- ("5_hopf_link", box {| crossings = diagram.Crossings.Count; writhe = w; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "5_hopf_link"; string diagram.Crossings.Count; string w; fmtComplex jones ] :: csvRows
+    jsonResults <-
+        ("5_hopf_link",
+         box
+             {|
+                 crossings = diagram.Crossings.Count
+                 writhe = w
+                 jones = fmtComplex jones
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [ "5_hopf_link"; string diagram.Crossings.Count; string w; fmtComplex jones ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 6 -- TQFT evaluations
@@ -212,22 +300,30 @@ if shouldRun 6 then
     pr "EXAMPLE 6: TQFT Special Values"
     separator ()
 
-    let knots = [ ("unknot", KnotConstructors.unknot); ("trefoil", KnotConstructors.trefoil true); ("figure-eight", KnotConstructors.figureEight) ]
+    let knots =
+        [
+            ("unknot", KnotConstructors.unknot)
+            ("trefoil", KnotConstructors.trefoil true)
+            ("figure-eight", KnotConstructors.figureEight)
+        ]
 
     pr ""
     pr "--- Ising Anyon Theory (A = e^(ipi/4)) ---"
+
     for (name, diagram) in knots do
         let v = Planar.evaluateBracket diagram Planar.isingA
         printComplex $"Ising(%s{name})" v
 
     pr ""
     pr "--- Fibonacci Anyon Theory (A = e^(ipi/5)) ---"
+
     for (name, diagram) in knots do
         let v = Planar.evaluateBracket diagram Planar.fibonacciA
         printComplex $"Fibonacci(%s{name})" v
 
     pr ""
     pr "--- Jones Polynomial at t = -1 (A = e^(ipi/4)) ---"
+
     for (name, diagram) in knots do
         let v = Planar.jonesPolynomial diagram Planar.standardA
         printComplex $"J(%s{name},-1)" v
@@ -237,7 +333,10 @@ if shouldRun 6 then
     pr "  Fibonacci: Non-abelian anyons (universal QC)"
     pr "  |J(K,-1)| = knot determinant (3 for trefoil, 5 for figure-eight)"
 
-    let isingVals = knots |> List.map (fun (n,d) -> (n, fmtComplex (Planar.evaluateBracket d Planar.isingA)))
+    let isingVals =
+        knots
+        |> List.map (fun (n, d) -> (n, fmtComplex (Planar.evaluateBracket d Planar.isingA)))
+
     jsonResults <- ("6_tqft", box {| ising = isingVals |}) :: jsonResults
     csvRows <- ("6_tqft" :: (isingVals |> List.map snd)) :: csvRows
 
@@ -249,19 +348,21 @@ if shouldRun 7 then
     pr "EXAMPLE 7: Knot Invariant Comparison Table"
     separator ()
 
-    let knots = [
-        ("Unknot",        KnotConstructors.unknot)
-        ("Right Trefoil", KnotConstructors.trefoil true)
-        ("Left Trefoil",  KnotConstructors.trefoil false)
-        ("Figure-Eight",  KnotConstructors.figureEight)
-        ("Hopf Link",     KnotConstructors.hopfLink true)
-    ]
+    let knots =
+        [
+            ("Unknot", KnotConstructors.unknot)
+            ("Right Trefoil", KnotConstructors.trefoil true)
+            ("Left Trefoil", KnotConstructors.trefoil false)
+            ("Figure-Eight", KnotConstructors.figureEight)
+            ("Hopf Link", KnotConstructors.hopfLink true)
+        ]
 
     pr "%-20s %10s %8s %20s" "Knot" "Crossings" "Writhe" "Jones@std"
     pr "%s" (String.replicate 62 "-")
 
     let tableRows =
-        knots |> List.map (fun (name, diagram) ->
+        knots
+        |> List.map (fun (name, diagram) ->
             let c = diagram.Crossings.Count
             let w = Planar.writhe diagram
             let j = Planar.jonesPolynomial diagram standardA
@@ -299,8 +400,24 @@ if shouldRun 8 then
     printComplex "Writhe-normalized value (approximation)" jones
     pr "  Tip: --crossings P,P,N,P,N to specify your own"
 
-    jsonResults <- ("8_custom", box {| crossings = customKnot.Length; writhe = writhe customKnot; jones = fmtComplex jones |}) :: jsonResults
-    csvRows <- [ "8_custom"; string customKnot.Length; string (writhe customKnot); fmtComplex jones ] :: csvRows
+    jsonResults <-
+        ("8_custom",
+         box
+             {|
+                 crossings = customKnot.Length
+                 writhe = writhe customKnot
+                 jones = fmtComplex jones
+             |})
+        :: jsonResults
+
+    csvRows <-
+        [
+            "8_custom"
+            string customKnot.Length
+            string (writhe customKnot)
+            fmtComplex jones
+        ]
+        :: csvRows
 
 // ---------------------------------------------------------------------------
 // Summary
@@ -321,21 +438,22 @@ if not quiet then
 match outputPath with
 | Some outputPathValue ->
     let payload =
-        {| script    = "KauffmanJones.fsx"
-           backend   = quantumBackend.Name
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+        {|
+            script = "KauffmanJones.fsx"
+            backend = quantumBackend.Name
+            timestamp = DateTime.UtcNow.ToString("o")
+            example = exChoice
+            results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+        |}
+
     Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
     let header = [ "example"; "detail1"; "detail2"; "detail3" ]
     Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+| None -> ()
 
 // ---------------------------------------------------------------------------
 // Usage hints

@@ -15,6 +15,7 @@ open System.Numerics
 let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) =
     let diffReal = abs (expected.Real - actual.Real)
     let diffImag = abs (expected.Imaginary - actual.Imaginary)
+
     Assert.True(
         diffReal < tolerance && diffImag < tolerance,
         $"Expected: %A{expected}, Actual: %A{actual}, Tolerance: %f{tolerance}"
@@ -24,8 +25,7 @@ let assertComplexEqual (expected: Complex) (actual: Complex) (tolerance: float) 
 let testA = Complex(Math.Cos(Math.PI / 4.0), Math.Sin(Math.PI / 4.0))
 
 /// Calculate expected d value: d = -A^2 - A^(-2)
-let expectedD (a: Complex) : Complex =
-    -(a * a) - (Complex.One / (a * a))
+let expectedD (a: Complex) : Complex = -(a * a) - (Complex.One / (a * a))
 
 // ========================================
 // TDD Cycle 1: Data Structure Validation
@@ -35,52 +35,52 @@ let expectedD (a: Complex) : Complex =
 let ``Unknot diagram is well-formed`` () =
     // Arrange
     let knot = unknot
-    
+
     // Act
     let result = validate knot
-    
+
     // Assert
     match result with
-    | Ok () -> Assert.True(true)
+    | Ok() -> Assert.True(true)
     | Error msg -> Assert.Fail($"Validation failed: {msg}")
 
 [<Fact>]
 let ``Trefoil diagram is well-formed`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let result = validate knot
-    
+
     // Assert
     match result with
-    | Ok () -> Assert.True(true)
+    | Ok() -> Assert.True(true)
     | Error msg -> Assert.Fail($"Validation failed: {msg}")
 
 [<Fact>]
 let ``Figure-eight diagram is well-formed`` () =
     // Arrange
     let knot = figureEight
-    
+
     // Act
     let result = validate knot
-    
+
     // Assert
     match result with
-    | Ok () -> Assert.True(true)
+    | Ok() -> Assert.True(true)
     | Error msg -> Assert.Fail($"Validation failed: {msg}")
 
 [<Fact>]
 let ``Hopf link diagram is well-formed`` () =
     // Arrange
     let knot = hopfLink true
-    
+
     // Act
     let result = validate knot
-    
+
     // Assert
     match result with
-    | Ok () -> Assert.True(true)
+    | Ok() -> Assert.True(true)
     | Error msg -> Assert.Fail($"Validation failed: {msg}")
 
 // ========================================
@@ -91,7 +91,7 @@ let ``Hopf link diagram is well-formed`` () =
 let ``Unknot has zero crossings`` () =
     // Arrange & Act
     let knot = unknot
-    
+
     // Assert
     Assert.Equal(0, knot.Crossings.Count)
 
@@ -99,7 +99,7 @@ let ``Unknot has zero crossings`` () =
 let ``Trefoil has three crossings`` () =
     // Arrange & Act
     let knot = trefoil true
-    
+
     // Assert
     Assert.Equal(3, knot.Crossings.Count)
 
@@ -107,7 +107,7 @@ let ``Trefoil has three crossings`` () =
 let ``Figure-eight has four crossings`` () =
     // Arrange & Act
     let knot = figureEight
-    
+
     // Assert
     Assert.Equal(4, knot.Crossings.Count)
 
@@ -115,7 +115,7 @@ let ``Figure-eight has four crossings`` () =
 let ``Hopf link has two crossings`` () =
     // Arrange & Act
     let link = hopfLink true
-    
+
     // Assert
     Assert.Equal(2, link.Crossings.Count)
 
@@ -127,7 +127,7 @@ let ``Hopf link has two crossings`` () =
 let ``Unknot has writhe zero`` () =
     // Arrange & Act
     let w = writhe unknot
-    
+
     // Assert
     Assert.Equal(0, w)
 
@@ -135,10 +135,10 @@ let ``Unknot has writhe zero`` () =
 let ``Right-handed trefoil has writhe plus three`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let w = writhe knot
-    
+
     // Assert
     Assert.Equal(3, w)
 
@@ -146,10 +146,10 @@ let ``Right-handed trefoil has writhe plus three`` () =
 let ``Left-handed trefoil has writhe minus three`` () =
     // Arrange
     let knot = trefoil false
-    
+
     // Act
     let w = writhe knot
-    
+
     // Assert
     Assert.Equal(-3, w)
 
@@ -157,7 +157,7 @@ let ``Left-handed trefoil has writhe minus three`` () =
 let ``Figure-eight has writhe zero`` () =
     // Arrange & Act
     let w = writhe figureEight
-    
+
     // Assert
     Assert.Equal(0, w)
 
@@ -165,10 +165,10 @@ let ``Figure-eight has writhe zero`` () =
 let ``Positive Hopf link has writhe plus two`` () =
     // Arrange
     let link = hopfLink true
-    
+
     // Act
     let w = writhe link
-    
+
     // Assert
     Assert.Equal(2, w)
 
@@ -180,7 +180,7 @@ let ``Positive Hopf link has writhe plus two`` () =
 let ``Unknot has one component`` () =
     // Arrange & Act
     let n = countComponents unknot
-    
+
     // Assert
     Assert.Equal(1, n)
 
@@ -188,7 +188,7 @@ let ``Unknot has one component`` () =
 let ``Trefoil has one component`` () =
     // Arrange & Act
     let n = countComponents (trefoil true)
-    
+
     // Assert
     Assert.Equal(1, n)
 
@@ -196,7 +196,7 @@ let ``Trefoil has one component`` () =
 let ``Hopf link has two components`` () =
     // Arrange & Act
     let n = countComponents (hopfLink true)
-    
+
     // Assert
     Assert.Equal(2, n)
 
@@ -204,7 +204,7 @@ let ``Hopf link has two components`` () =
 let ``Borromean rings have three components`` () =
     // Arrange & Act
     let n = countComponents borromeanRings
-    
+
     // Assert
     Assert.Equal(3, n)
 
@@ -217,10 +217,10 @@ let ``Loop value equals minus A squared minus A inverse squared`` () =
     // Arrange
     let a = testA
     let expected = -(a * a) - (Complex.One / (a * a))
-    
+
     // Act
     let actual = loopValue a
-    
+
     // Assert
     assertComplexEqual expected actual 1e-10
 
@@ -232,10 +232,10 @@ let ``Loop value equals minus A squared minus A inverse squared`` () =
 let ``Unknot Kauffman bracket equals 1`` () =
     // Arrange
     let a = testA
-    
+
     // Act
     let actual = evaluateBracket unknot a
-    
+
     // Assert - unknot (empty diagram) evaluates to 1, not d
     assertComplexEqual Complex.One actual 1e-10
 
@@ -244,10 +244,10 @@ let ``Trefoil Kauffman bracket is non-zero`` () =
     // Arrange
     let knot = trefoil true
     let a = testA
-    
+
     // Act
     let bracket = evaluateBracket knot a
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
 
@@ -257,11 +257,11 @@ let ``Left and right trefoils have different Jones polynomials`` () =
     let rightTrefoil = trefoil true
     let leftTrefoil = trefoil false
     let a = testA
-    
+
     // Act - use Jones polynomial which IS chirality-sensitive (not just Kauffman bracket)
     let rightJones = jonesPolynomial rightTrefoil a
     let leftJones = jonesPolynomial leftTrefoil a
-    
+
     // Assert - Jones polynomials should differ for mirror images
     // Note: Kauffman bracket alone is NOT chirality-sensitive: <K*>(A) = <K>(A^-1)
     // But Jones polynomial V(t) includes writhe: V(K*)(t) ≠ V(K)(t)
@@ -273,11 +273,11 @@ let ``Figure-eight bracket differs from trefoil`` () =
     let fig8 = figureEight
     let tref = trefoil true
     let a = testA
-    
+
     // Act
     let fig8Bracket = evaluateBracket fig8 a
     let trefBracket = evaluateBracket tref a
-    
+
     // Assert
     Assert.NotEqual(fig8Bracket, trefBracket)
 
@@ -289,11 +289,11 @@ let ``Figure-eight bracket differs from trefoil`` () =
 let ``State-sum equals recursive skein for unknot`` () =
     // Arrange
     let a = testA
-    
+
     // Act
     let recursive = evaluateBracket unknot a
     let stateSum = evaluateBracketStateSum unknot a
-    
+
     // Assert
     assertComplexEqual recursive stateSum 1e-10
 
@@ -302,11 +302,11 @@ let ``State-sum equals recursive skein for trefoil`` () =
     // Arrange
     let knot = trefoil true
     let a = testA
-    
+
     // Act
     let recursive = evaluateBracket knot a
     let stateSum = evaluateBracketStateSum knot a
-    
+
     // Assert
     assertComplexEqual recursive stateSum 1e-9
 
@@ -315,24 +315,24 @@ let ``State-sum equals recursive skein for figure-eight`` () =
     // Arrange
     let knot = figureEight
     let a = testA
-    
+
     // Act
     let recursive = evaluateBracket knot a
     let stateSum = evaluateBracketStateSum knot a
-    
+
     // Assert
     assertComplexEqual recursive stateSum 1e-9
 
 [<Fact>]
 let ``Number of states equals 2 to the power of crossings`` () =
     // Arrange
-    let knot = figureEight  // 4 crossings
-    
+    let knot = figureEight // 4 crossings
+
     // Act
     let states = generateAllStates knot
-    
+
     // Assert
-    Assert.Equal(16, states.Length)  // 2^4 = 16
+    Assert.Equal(16, states.Length) // 2^4 = 16
 
 // ========================================
 // TDD Cycle 8: Jones Polynomial
@@ -341,17 +341,17 @@ let ``Number of states equals 2 to the power of crossings`` () =
 [<Fact>]
 let ``Jones polynomial incorporates writhe normalization`` () =
     // Arrange
-    let knot = trefoil true  // writhe = +3
+    let knot = trefoil true // writhe = +3
     let a = testA
-    
+
     // Act
     let jones = jonesPolynomial knot a
     let bracket = evaluateBracket knot a
-    
+
     // Expected: (-A)^(-9) * bracket
     let expectedNorm = Complex.Pow(-a, -9.0)
     let expected = expectedNorm * bracket
-    
+
     // Assert
     assertComplexEqual expected jones 1e-10
 
@@ -359,10 +359,10 @@ let ``Jones polynomial incorporates writhe normalization`` () =
 let ``Jones polynomial of unknot is well-defined`` () =
     // Arrange
     let a = testA
-    
+
     // Act
     let jones = jonesPolynomial unknot a
-    
+
     // Assert
     Assert.False(Double.IsNaN(jones.Real))
     Assert.False(Double.IsNaN(jones.Imaginary))
@@ -374,12 +374,12 @@ let ``Jones polynomial of unknot is well-defined`` () =
 [<Fact>]
 let ``Resolving crossing removes one crossing`` () =
     // Arrange
-    let knot = trefoil true  // 3 crossings
+    let knot = trefoil true // 3 crossings
     let crossingId = knot.Crossings |> Map.toList |> List.head |> fst
-    
+
     // Act
     let (smoothing0, smoothing1) = resolveCrossing knot crossingId
-    
+
     // Assert
     Assert.Equal(2, smoothing0.Crossings.Count)
     Assert.Equal(2, smoothing1.Crossings.Count)
@@ -387,15 +387,15 @@ let ``Resolving crossing removes one crossing`` () =
 [<Fact>]
 let ``Resolving all crossings creates loop diagram`` () =
     // Arrange
-    let knot = trefoil true  // 3 crossings
-    
+    let knot = trefoil true // 3 crossings
+
     // Act - resolve all crossings via state application
-    let state = Map.ofList [(0, 0); (1, 0); (2, 0)]  // All 0-smoothings
+    let state = Map.ofList [ (0, 0); (1, 0); (2, 0) ] // All 0-smoothings
     let resolved = applyState knot state
-    
+
     // Assert
-    Assert.Equal(0, resolved.Crossings.Count)  // No crossings left
-    Assert.True(resolved.Arcs.Count > 0)  // Has arcs (loops)
+    Assert.Equal(0, resolved.Crossings.Count) // No crossings left
+    Assert.True(resolved.Arcs.Count > 0) // Has arcs (loops)
 
 // ========================================
 // TDD Cycle 10: Special TQFT Values
@@ -405,10 +405,10 @@ let ``Resolving all crossings creates loop diagram`` () =
 let ``Ising value gives non-degenerate result`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let bracket = evaluateBracket knot isingA
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
     Assert.False(Double.IsNaN(bracket.Real))
@@ -417,10 +417,10 @@ let ``Ising value gives non-degenerate result`` () =
 let ``Fibonacci value gives non-degenerate result`` () =
     // Arrange
     let knot = trefoil true
-    
+
     // Act
     let bracket = evaluateBracket knot fibonacciA
-    
+
     // Assert
     Assert.NotEqual(Complex.Zero, bracket)
     Assert.False(Double.IsNaN(bracket.Real))
@@ -432,16 +432,18 @@ let ``Fibonacci value gives non-degenerate result`` () =
 [<Fact>]
 let ``All standard knots have non-zero bracket`` () =
     // Arrange
-    let knots = [
-        unknot
-        trefoil true
-        trefoil false
-        figureEight
-        hopfLink true
-        hopfLink false
-    ]
+    let knots =
+        [
+            unknot
+            trefoil true
+            trefoil false
+            figureEight
+            hopfLink true
+            hopfLink false
+        ]
+
     let a = testA
-    
+
     // Act & Assert
     for knot in knots do
         let bracket = evaluateBracket knot a
@@ -450,14 +452,9 @@ let ``All standard knots have non-zero bracket`` () =
 [<Fact>]
 let ``State-sum and recursive methods agree for all standard knots`` () =
     // Arrange
-    let knots = [
-        unknot
-        trefoil true
-        figureEight
-        hopfLink true
-    ]
+    let knots = [ unknot; trefoil true; figureEight; hopfLink true ]
     let a = testA
-    
+
     // Act & Assert
     for knot in knots do
         let recursive = evaluateBracket knot a
@@ -470,11 +467,11 @@ let ``Mirror knots have related Jones polynomials`` () =
     let right = trefoil true
     let left = trefoil false
     let a = testA
-    
+
     // Act - use Jones polynomial (chirality-sensitive)
     let rightJones = jonesPolynomial right a
     let leftJones = jonesPolynomial left a
-    
+
     // Assert - Jones polynomial should differ for mirror images
     // Mathematical fact: Kauffman bracket <K*>(A) = <K>(A^-1), so brackets can be equal at special A values
     // But Jones V(K*)(t) ≠ V(K)(t) due to writhe normalization
@@ -488,17 +485,17 @@ let ``Mirror knots have related Jones polynomials`` () =
 let ``Borromean rings are well-formed`` () =
     // Arrange & Act
     let result = validate borromeanRings
-    
+
     // Assert
     match result with
-    | Ok () -> Assert.True(true)
+    | Ok() -> Assert.True(true)
     | Error msg -> Assert.Fail($"Validation failed: {msg}")
 
 [<Fact>]
 let ``Borromean rings have six crossings`` () =
     // Arrange & Act
     let n = borromeanRings.Crossings.Count
-    
+
     // Assert
     Assert.Equal(6, n)
 
@@ -508,7 +505,7 @@ let ``Knot name recognition works`` () =
     let unknotName = knotName unknot
     let trefoilName = knotName (trefoil true)
     let fig8Name = knotName figureEight
-    
+
     // Assert
     Assert.Contains("Unknot", unknotName)
     Assert.Contains("trefoil", trefoilName)
@@ -546,9 +543,11 @@ let ``Left trefoil bracket is the mirror closed form`` () =
 let ``Figure-eight bracket matches closed form`` () =
     // <4_1> = A^8 - A^4 + 1 - A^-4 + A^-8 (achiral, writhe 0)
     let a = genericA
+
     let expected =
-        Complex.Pow(a, 8.0) - Complex.Pow(a, 4.0) + Complex.One
-        - Complex.Pow(a, -4.0) + Complex.Pow(a, -8.0)
+        Complex.Pow(a, 8.0) - Complex.Pow(a, 4.0) + Complex.One - Complex.Pow(a, -4.0)
+        + Complex.Pow(a, -8.0)
+
     let actual = evaluateBracket figureEight a
     assertComplexEqual expected actual 1e-9
 
@@ -567,10 +566,14 @@ let ``Borromean rings bracket matches closed form`` () =
     // <D> = -A^12 + 3A^8 - 2A^4 + 4 - 2A^-4 + 3A^-8 - A^-12.
     // (A previous diagram evaluated to the (2,2,2)-pretzel link L6a5 instead.)
     let a = genericA
+
     let expected =
         -Complex.Pow(a, 12.0) + 3.0 * Complex.Pow(a, 8.0) - 2.0 * Complex.Pow(a, 4.0)
         + Complex(4.0, 0.0)
-        - 2.0 * Complex.Pow(a, -4.0) + 3.0 * Complex.Pow(a, -8.0) - Complex.Pow(a, -12.0)
+        - 2.0 * Complex.Pow(a, -4.0)
+        + 3.0 * Complex.Pow(a, -8.0)
+        - Complex.Pow(a, -12.0)
+
     let actual = evaluateBracket borromeanRings a
     assertComplexEqual expected actual 1e-9
 
@@ -580,8 +583,7 @@ let ``Borromean rings determinant is 16 and writhe is 0`` () =
     // has 3 positive and 3 negative crossings.
     Assert.Equal(0, writhe borromeanRings)
     let v = jonesPolynomial borromeanRings testA
-    Assert.True(abs (v.Magnitude - 16.0) < 1e-9,
-        $"|V(-1)| should be 16, got {v.Magnitude}")
+    Assert.True(abs (v.Magnitude - 16.0) < 1e-9, $"|V(-1)| should be 16, got {v.Magnitude}")
 
 [<Fact>]
 let ``Standard constructors are genuine planar embeddings (genus 0)`` () =
@@ -591,39 +593,58 @@ let ``Standard constructors are genuine planar embeddings (genus 0)`` () =
     // projection. This catches "connectivity looks right but the embedding
     // is toroidal" wiring bugs (the original hopfLink was genus 1, and the
     // original borromeanRings encoded a different link entirely).
-    let ccwNext = function NE -> NW | NW -> SW | SW -> SE | SE -> NE
+    let ccwNext =
+        function
+        | NE -> NW
+        | NW -> SW
+        | SW -> SE
+        | SE -> NE
+
     let genus (d: PlanarDiagram) =
         let darts =
-            [ for KeyValue(cid, c) in d.Crossings do
-                for KeyValue(pos, _) in c.Connections -> (cid, pos) ]
+            [
+                for KeyValue(cid, c) in d.Crossings do
+                    for KeyValue(pos, _) in c.Connections -> (cid, pos)
+            ]
+
         let twinMap =
             darts
             |> List.groupBy (fun (cid, pos) -> d.Crossings.[cid].Connections.[pos])
             |> List.collect (fun (_, ds) ->
                 match ds with
-                | [a; b] -> [ (a, b); (b, a) ]
+                | [ a; b ] -> [ (a, b); (b, a) ]
                 | _ -> failwith "arc not shared by exactly two crossing positions")
             |> Map.ofList
-        let faceNext (cid, pos) = let (tc, tp) = twinMap.[(cid, pos)] in (tc, ccwNext tp)
+
+        let faceNext (cid, pos) =
+            let (tc, tp) = twinMap.[(cid, pos)] in (tc, ccwNext tp)
+
         let mutable seen = Set.empty
         let mutable faces = 0
+
         for start in darts do
             if not (seen.Contains start) then
                 faces <- faces + 1
                 let mutable cur = start
+
                 while not (seen.Contains cur) do
                     seen <- Set.add cur seen
                     cur <- faceNext cur
+
         (2 - d.Crossings.Count + d.Arcs.Count - faces) / 2
+
     let cases =
-        [ "trefoil true", trefoil true
-          "trefoil false", trefoil false
-          "figureEight", figureEight
-          "hopfLink true", hopfLink true
-          "hopfLink false", hopfLink false
-          "borromeanRings", borromeanRings
-          "torusKnot 2 3", torusKnot 2 3
-          "torusKnot 3 3", torusKnot 3 3 ]
+        [
+            "trefoil true", trefoil true
+            "trefoil false", trefoil false
+            "figureEight", figureEight
+            "hopfLink true", hopfLink true
+            "hopfLink false", hopfLink false
+            "borromeanRings", borromeanRings
+            "torusKnot 2 3", torusKnot 2 3
+            "torusKnot 3 3", torusKnot 3 3
+        ]
+
     for (name, diagram) in cases do
         Assert.True(genus diagram = 0, $"{name} should be a planar (genus-0) diagram")
 
@@ -632,10 +653,11 @@ let ``Jones magnitude at t = -1 equals the knot determinant`` () =
     // At A = e^{i*pi/4}, t = A^-4 = -1 and |V(-1)| = det(K):
     // unknot 1, trefoil 3, figure-eight 5, Hopf link 2.
     let a = testA
+
     let check name expected diagram =
         let v = jonesPolynomial diagram a
-        Assert.True(abs (v.Magnitude - expected) < 1e-9,
-            $"{name}: |V(-1)| should be {expected}, got {v.Magnitude}")
+        Assert.True(abs (v.Magnitude - expected) < 1e-9, $"{name}: |V(-1)| should be {expected}, got {v.Magnitude}")
+
     check "unknot" 1.0 unknot
     check "right trefoil" 3.0 (trefoil true)
     check "left trefoil" 3.0 (trefoil false)

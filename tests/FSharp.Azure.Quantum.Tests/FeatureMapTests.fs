@@ -27,10 +27,12 @@ module FeatureMapTests =
         let gates = circuit.Gates
         // Should have 2 RY gates
         let ryGates =
-            gates |> List.choose (fun g ->
+            gates
+            |> List.choose (fun g ->
                 match g with
-                | RY(q, angle) -> Some (q, angle)
+                | RY(q, angle) -> Some(q, angle)
                 | _ -> None)
+
         Assert.Equal(2, ryGates.Length)
 
     [<Fact>]
@@ -38,11 +40,14 @@ module FeatureMapTests =
         let features = [| 0.5 |]
         let circuit = angleEncoding features
         let gates = circuit.Gates
+
         let hasCorrectAngle =
-            gates |> List.exists (fun g ->
+            gates
+            |> List.exists (fun g ->
                 match g with
-                | RY(0, angle) -> abs(angle - Math.PI * 0.5) < 1e-10
+                | RY(0, angle) -> abs (angle - Math.PI * 0.5) < 1e-10
                 | _ -> false)
+
         Assert.True(hasCorrectAngle, "Expected RY gate with angle pi * 0.5")
 
     [<Fact>]
@@ -66,33 +71,42 @@ module FeatureMapTests =
     let ``zzFeatureMap includes Hadamard gates`` () =
         let features = [| 0.5; 0.3 |]
         let circuit = zzFeatureMap 1 features
+
         let hGates =
-            circuit.Gates |> List.choose (fun g ->
+            circuit.Gates
+            |> List.choose (fun g ->
                 match g with
                 | H q -> Some q
                 | _ -> None)
+
         Assert.True(hGates.Length >= 2, $"Expected at least 2 H gates, got {hGates.Length}")
 
     [<Fact>]
     let ``zzFeatureMap includes CNOT gates for entanglement`` () =
         let features = [| 0.5; 0.3 |]
         let circuit = zzFeatureMap 1 features
+
         let cnotGates =
-            circuit.Gates |> List.choose (fun g ->
+            circuit.Gates
+            |> List.choose (fun g ->
                 match g with
-                | CNOT(c, t) -> Some (c, t)
+                | CNOT(c, t) -> Some(c, t)
                 | _ -> None)
+
         Assert.True(cnotGates.Length >= 2, $"Expected CNOT gates for ZZ entanglement, got {cnotGates.Length}")
 
     [<Fact>]
     let ``zzFeatureMap includes RZ gates`` () =
         let features = [| 0.5; 0.3 |]
         let circuit = zzFeatureMap 1 features
+
         let rzGates =
-            circuit.Gates |> List.choose (fun g ->
+            circuit.Gates
+            |> List.choose (fun g ->
                 match g with
-                | RZ(q, angle) -> Some (q, angle)
+                | RZ(q, angle) -> Some(q, angle)
                 | _ -> None)
+
         Assert.True(rzGates.Length >= 2, $"Expected RZ gates, got {rzGates.Length}")
 
     [<Fact>]
@@ -100,16 +114,24 @@ module FeatureMapTests =
         let features = [| 0.5; 0.3 |]
         let circuit1 = zzFeatureMap 1 features
         let circuit2 = zzFeatureMap 2 features
-        Assert.True(circuit2.Gates.Length > circuit1.Gates.Length,
-            $"Depth 2 ({circuit2.Gates.Length} gates) should have more gates than depth 1 ({circuit1.Gates.Length} gates)")
+
+        Assert.True(
+            circuit2.Gates.Length > circuit1.Gates.Length,
+            $"Depth 2 ({circuit2.Gates.Length} gates) should have more gates than depth 1 ({circuit1.Gates.Length} gates)"
+        )
 
     [<Fact>]
     let ``zzFeatureMap with single qubit has no CNOT`` () =
         let features = [| 0.5 |]
         let circuit = zzFeatureMap 1 features
+
         let cnotCount =
-            circuit.Gates |> List.sumBy (fun g ->
-                match g with CNOT _ -> 1 | _ -> 0)
+            circuit.Gates
+            |> List.sumBy (fun g ->
+                match g with
+                | CNOT _ -> 1
+                | _ -> 0)
+
         Assert.Equal(0, cnotCount)
 
     // ========================================================================
@@ -119,53 +141,70 @@ module FeatureMapTests =
     [<Fact>]
     let ``pauliFeatureMap creates circuit with correct qubits`` () =
         let features = [| 0.5; 0.3 |]
-        let circuit = pauliFeatureMap ["ZZ"] 1 features
+        let circuit = pauliFeatureMap [ "ZZ" ] 1 features
         Assert.Equal(2, circuit.QubitCount)
 
     [<Fact>]
     let ``pauliFeatureMap with Z string applies RZ gate`` () =
         let features = [| 0.5; 0.3 |]
-        let circuit = pauliFeatureMap ["Z"] 1 features
+        let circuit = pauliFeatureMap [ "Z" ] 1 features
+
         let rzGates =
-            circuit.Gates |> List.choose (fun g ->
+            circuit.Gates
+            |> List.choose (fun g ->
                 match g with
-                | RZ(q, angle) -> Some (q, angle)
+                | RZ(q, angle) -> Some(q, angle)
                 | _ -> None)
+
         Assert.True(rzGates.Length >= 1, "Expected at least one RZ gate for Z Pauli string")
 
     [<Fact>]
     let ``pauliFeatureMap with ZZ string includes CNOT`` () =
         let features = [| 0.5; 0.3 |]
-        let circuit = pauliFeatureMap ["ZZ"] 1 features
+        let circuit = pauliFeatureMap [ "ZZ" ] 1 features
+
         let cnotCount =
-            circuit.Gates |> List.sumBy (fun g ->
-                match g with CNOT _ -> 1 | _ -> 0)
+            circuit.Gates
+            |> List.sumBy (fun g ->
+                match g with
+                | CNOT _ -> 1
+                | _ -> 0)
+
         Assert.True(cnotCount >= 2, $"Expected at least 2 CNOT gates for ZZ, got {cnotCount}")
 
     [<Fact>]
     let ``pauliFeatureMap with XX string includes H and CNOT`` () =
         let features = [| 0.5; 0.3 |]
-        let circuit = pauliFeatureMap ["XX"] 1 features
+        let circuit = pauliFeatureMap [ "XX" ] 1 features
+
         let hCount =
-            circuit.Gates |> List.sumBy (fun g ->
-                match g with H _ -> 1 | _ -> 0)
+            circuit.Gates
+            |> List.sumBy (fun g ->
+                match g with
+                | H _ -> 1
+                | _ -> 0)
         // At least 2 H from Hadamard layer + 2 H around XX + 2 H restoring
         Assert.True(hCount >= 4, $"Expected at least 4 H gates for XX Pauli, got {hCount}")
 
     [<Fact>]
     let ``pauliFeatureMap includes Hadamard layer`` () =
         let features = [| 0.5; 0.3 |]
-        let circuit = pauliFeatureMap ["Z"] 1 features
+        let circuit = pauliFeatureMap [ "Z" ] 1 features
+
         let hGates =
-            circuit.Gates |> List.choose (fun g ->
-                match g with H q -> Some q | _ -> None)
+            circuit.Gates
+            |> List.choose (fun g ->
+                match g with
+                | H q -> Some q
+                | _ -> None)
+
         Assert.True(hGates.Length >= 2, "Expected Hadamard layer")
 
     [<Fact>]
     let ``pauliFeatureMap depth 2 has more gates than depth 1`` () =
         let features = [| 0.5; 0.3 |]
-        let circuit1 = pauliFeatureMap ["Z"] 1 features
-        let circuit2 = pauliFeatureMap ["Z"] 2 features
+        let circuit1 = pauliFeatureMap [ "Z" ] 1 features
+        let circuit2 = pauliFeatureMap [ "Z" ] 2 features
         Assert.True(circuit2.Gates.Length > circuit1.Gates.Length)
 
     // ========================================================================
@@ -207,12 +246,15 @@ module FeatureMapTests =
 
     let private simulateCircuit (circuit: Circuit) =
         let initial = StateVector.init circuit.QubitCount
+
         getGates circuit
-        |> List.fold (fun s g ->
-            match g with
-            | RY (q, a) -> Gates.applyRy q a s
-            | CNOT (c, t) -> Gates.applyCNOT c t s
-            | g -> failwith $"Unexpected gate in amplitude encoding: {g}") initial
+        |> List.fold
+            (fun s g ->
+                match g with
+                | RY(q, a) -> Gates.applyRy q a s
+                | CNOT(c, t) -> Gates.applyCNOT c t s
+                | g -> failwith $"Unexpected gate in amplitude encoding: {g}")
+            initial
 
     /// Regression: the Gray-code multiplexer used to skip structural CNOTs for
     /// near-zero rotations, close the parity chain on the wrong control, and read
@@ -223,7 +265,9 @@ module FeatureMapTests =
     [<InlineData(1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0)>]
     [<InlineData(1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0)>]
     [<InlineData(0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)>]
-    let ``amplitudeEncoding prepares exactly the normalized feature vector`` (f0: float, f1: float, f2: float, f3: float, f4: float, f5: float, f6: float, f7: float) =
+    let ``amplitudeEncoding prepares exactly the normalized feature vector``
+        (f0: float, f1: float, f2: float, f3: float, f4: float, f5: float, f6: float, f7: float)
+        =
         let features = [| f0; f1; f2; f3; f4; f5; f6; f7 |]
         let norm = features |> Array.sumBy (fun x -> x * x) |> sqrt
         let expected = features |> Array.map (fun x -> x / norm)
@@ -257,19 +301,31 @@ module FeatureMapTests =
     [<Fact>]
     let ``buildFeatureMap AngleEncoding returns Ok`` () =
         let features = [| 0.5; 0.3 |]
-        (buildFeatureMap AngleEncoding features) |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        (buildFeatureMap AngleEncoding features)
+        |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``buildFeatureMap ZZFeatureMap returns Ok`` () =
         let features = [| 0.5; 0.3; 0.7 |]
-        (buildFeatureMap (ZZFeatureMap 2) features) |> Result.map (fun circuit -> Assert.Equal(3, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        (buildFeatureMap (ZZFeatureMap 2) features)
+        |> Result.map (fun circuit -> Assert.Equal(3, circuit.QubitCount))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``buildFeatureMap PauliFeatureMap returns Ok`` () =
         let features = [| 0.5; 0.3 |]
-        (buildFeatureMap (PauliFeatureMap(["ZZ"; "Z"], 1)) features) |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        (buildFeatureMap (PauliFeatureMap([ "ZZ"; "Z" ], 1)) features)
+        |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
 
     [<Fact>]
     let ``buildFeatureMap AmplitudeEncoding returns Ok`` () =
         let features = [| 0.5; 0.3; 0.7; 0.1 |]
-        (buildFeatureMap AmplitudeEncoding features) |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount)) |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+
+        (buildFeatureMap AmplitudeEncoding features)
+        |> Result.map (fun circuit -> Assert.Equal(2, circuit.QubitCount))
+        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")

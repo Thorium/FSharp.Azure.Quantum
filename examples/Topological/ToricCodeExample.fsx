@@ -40,21 +40,54 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "ToricCodeExample.fsx" "Toric code lattice, error injection, and syndrome measurement"
-    [ { Name = "example";      Description = "Which example: 1-6|all"; Default = Some "all" }
-      { Name = "lattice-size"; Description = "Lattice width & height";  Default = Some "5" }
-      { Name = "output";       Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";          Description = "Write results to CSV file";  Default = None }
-      { Name = "quiet";        Description = "Suppress console output";    Default = None } ] args
+Cli.exitIfHelp
+    "ToricCodeExample.fsx"
+    "Toric code lattice, error injection, and syndrome measurement"
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1-6|all"
+            Default = Some "all"
+        }
+        {
+            Name = "lattice-size"
+            Description = "Lattice width & height"
+            Default = Some "5"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
+    args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
-let exChoice   = Cli.getOr "example" "all" args
+let csvPath = Cli.tryGet "csv" args
+let exChoice = Cli.getOr "example" "all" args
 let latticeSize = Cli.getIntOr "lattice-size" 5 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
-let shouldRun ex = exChoice = "all" || exChoice = string ex
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
@@ -63,8 +96,8 @@ let separator () = pr "%s" (String.replicate 60 "-")
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Results accumulators
-let mutable jsonResults : (string * obj) list = []
-let mutable csvRows     : string list list    = []
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
 
 // ---------------------------------------------------------------------------
 // Create lattice (shared across examples)
@@ -77,200 +110,272 @@ match latticeResult with
     exit 1
 | Ok lattice ->
 
-let k = ToricCode.logicalQubits lattice
-let n = ToricCode.physicalQubits lattice
-let d = ToricCode.codeDistance lattice
-let rate = float k / float n
+    let k = ToricCode.logicalQubits lattice
+    let n = ToricCode.physicalQubits lattice
+    let d = ToricCode.codeDistance lattice
+    let rate = float k / float n
 
-// ---------------------------------------------------------------------------
-// Example 1 -- Lattice & code parameters
-// ---------------------------------------------------------------------------
-if shouldRun 1 then
-    separator ()
-    pr "EXAMPLE 1: %dx%d Toric Code Lattice" lattice.Width lattice.Height
-    separator ()
+    // ---------------------------------------------------------------------------
+    // Example 1 -- Lattice & code parameters
+    // ---------------------------------------------------------------------------
+    if shouldRun 1 then
+        separator ()
+        pr "EXAMPLE 1: %dx%d Toric Code Lattice" lattice.Width lattice.Height
+        separator ()
 
-    pr "  Logical qubits (k):   %d" k
-    pr "  Physical qubits (n):  %d" n
-    pr "  Code distance (d):    %d" d
-    pr "  Encoding rate (k/n):  %.4f" rate
-    pr "  Error correction:     up to %d errors" ((d - 1) / 2)
+        pr "  Logical qubits (k):   %d" k
+        pr "  Physical qubits (n):  %d" n
+        pr "  Code distance (d):    %d" d
+        pr "  Encoding rate (k/n):  %.4f" rate
+        pr "  Error correction:     up to %d errors" ((d - 1) / 2)
 
-    jsonResults <- ("1_lattice", box {| width = lattice.Width; height = lattice.Height; k = k; n = n; d = d; rate = rate |}) :: jsonResults
-    csvRows <- [ "1_lattice"; string k; string n; string d; $"%.4f{rate}" ] :: csvRows
+        jsonResults <-
+            ("1_lattice",
+             box
+                 {|
+                     width = lattice.Width
+                     height = lattice.Height
+                     k = k
+                     n = n
+                     d = d
+                     rate = rate
+                 |})
+            :: jsonResults
 
-// ---------------------------------------------------------------------------
-// Example 2 -- Ground state
-// ---------------------------------------------------------------------------
-let state = ToricCode.initializeGroundState lattice
+        csvRows <- [ "1_lattice"; string k; string n; string d; $"%.4f{rate}" ] :: csvRows
 
-if shouldRun 2 then
-    separator ()
-    pr "EXAMPLE 2: Ground State Initialization"
-    separator ()
+    // ---------------------------------------------------------------------------
+    // Example 2 -- Ground state
+    // ---------------------------------------------------------------------------
+    let state = ToricCode.initializeGroundState lattice
 
-    pr "  Initialized %d qubits" state.Qubits.Count
+    if shouldRun 2 then
+        separator ()
+        pr "EXAMPLE 2: Ground State Initialization"
+        separator ()
 
-    let syn = ToricCode.measureSyndrome state
-    let eP = ToricCode.getElectricExcitations syn
-    let mP = ToricCode.getMagneticExcitations syn
+        pr "  Initialized %d qubits" state.Qubits.Count
 
-    pr "  e-particles: %d   m-particles: %d" eP.Length mP.Length
-    pr "  Ground state confirmed (no anyons)"
+        let syn = ToricCode.measureSyndrome state
+        let eP = ToricCode.getElectricExcitations syn
+        let mP = ToricCode.getMagneticExcitations syn
 
-    jsonResults <- ("2_ground", box {| qubits = state.Qubits.Count; ePart = eP.Length; mPart = mP.Length |}) :: jsonResults
-    csvRows <- [ "2_ground"; string state.Qubits.Count; string eP.Length; string mP.Length ] :: csvRows
+        pr "  e-particles: %d   m-particles: %d" eP.Length mP.Length
+        pr "  Ground state confirmed (no anyons)"
 
-// ---------------------------------------------------------------------------
-// Example 3 -- X errors
-// ---------------------------------------------------------------------------
-let xErr1 = { ToricCode.Position = { ToricCode.X = 2; ToricCode.Y = 2 }; ToricCode.Type = ToricCode.Horizontal }
-let xErr2 = { ToricCode.Position = { ToricCode.X = 3; ToricCode.Y = 4 }; ToricCode.Type = ToricCode.Vertical }
+        jsonResults <-
+            ("2_ground",
+             box
+                 {|
+                     qubits = state.Qubits.Count
+                     ePart = eP.Length
+                     mPart = mP.Length
+                 |})
+            :: jsonResults
 
-let afterX1 = ToricCode.applyXError state xErr1
-let afterX2 = ToricCode.applyXError afterX1 xErr2
+        csvRows <-
+            [ "2_ground"; string state.Qubits.Count; string eP.Length; string mP.Length ]
+            :: csvRows
 
-if shouldRun 3 then
-    separator ()
-    pr "EXAMPLE 3: X Errors (Bit Flips)"
-    separator ()
+    // ---------------------------------------------------------------------------
+    // Example 3 -- X errors
+    // ---------------------------------------------------------------------------
+    let xErr1 =
+        {
+            ToricCode.Position = { ToricCode.X = 2; ToricCode.Y = 2 }
+            ToricCode.Type = ToricCode.Horizontal
+        }
 
-    pr "  Applied X errors:"
-    pr "    Edge (%d,%d) %A" xErr1.Position.X xErr1.Position.Y xErr1.Type
-    pr "    Edge (%d,%d) %A" xErr2.Position.X xErr2.Position.Y xErr2.Type
+    let xErr2 =
+        {
+            ToricCode.Position = { ToricCode.X = 3; ToricCode.Y = 4 }
+            ToricCode.Type = ToricCode.Vertical
+        }
 
-    let syn = ToricCode.measureSyndrome afterX2
-    let eP = ToricCode.getElectricExcitations syn
-    let mP = ToricCode.getMagneticExcitations syn
+    let afterX1 = ToricCode.applyXError state xErr1
+    let afterX2 = ToricCode.applyXError afterX1 xErr2
 
-    pr "  e-particles: %d   m-particles: %d" eP.Length mP.Length
-    if eP.Length > 0 then
-        for p in eP do pr "    e at (%d,%d)" p.X p.Y
+    if shouldRun 3 then
+        separator ()
+        pr "EXAMPLE 3: X Errors (Bit Flips)"
+        separator ()
 
-    jsonResults <- ("3_x_errors", box {| ePart = eP.Length; mPart = mP.Length |}) :: jsonResults
-    csvRows <- [ "3_x_errors"; string eP.Length; string mP.Length ] :: csvRows
+        pr "  Applied X errors:"
+        pr "    Edge (%d,%d) %A" xErr1.Position.X xErr1.Position.Y xErr1.Type
+        pr "    Edge (%d,%d) %A" xErr2.Position.X xErr2.Position.Y xErr2.Type
 
-// ---------------------------------------------------------------------------
-// Example 4 -- Z errors
-// ---------------------------------------------------------------------------
-let zErr1 = { ToricCode.Position = { ToricCode.X = 1; ToricCode.Y = 1 }; ToricCode.Type = ToricCode.Vertical }
-let zErr2 = { ToricCode.Position = { ToricCode.X = 4; ToricCode.Y = 3 }; ToricCode.Type = ToricCode.Horizontal }
+        let syn = ToricCode.measureSyndrome afterX2
+        let eP = ToricCode.getElectricExcitations syn
+        let mP = ToricCode.getMagneticExcitations syn
 
-let afterZ1 = ToricCode.applyZError afterX2 zErr1
-let afterZ2 = ToricCode.applyZError afterZ1 zErr2
+        pr "  e-particles: %d   m-particles: %d" eP.Length mP.Length
 
-if shouldRun 4 then
-    separator ()
-    pr "EXAMPLE 4: Z Errors (Phase Flips)"
-    separator ()
+        if eP.Length > 0 then
+            for p in eP do
+                pr "    e at (%d,%d)" p.X p.Y
 
-    pr "  Applied Z errors:"
-    pr "    Edge (%d,%d) %A" zErr1.Position.X zErr1.Position.Y zErr1.Type
-    pr "    Edge (%d,%d) %A" zErr2.Position.X zErr2.Position.Y zErr2.Type
+        jsonResults <-
+            ("3_x_errors",
+             box
+                 {|
+                     ePart = eP.Length
+                     mPart = mP.Length
+                 |})
+            :: jsonResults
 
-    let syn = ToricCode.measureSyndrome afterZ2
-    let eP = ToricCode.getElectricExcitations syn
-    let mP = ToricCode.getMagneticExcitations syn
+        csvRows <- [ "3_x_errors"; string eP.Length; string mP.Length ] :: csvRows
 
-    pr "  e-particles: %d   m-particles: %d" eP.Length mP.Length
-    if mP.Length > 0 then
-        for p in mP do pr "    m at (%d,%d)" p.X p.Y
+    // ---------------------------------------------------------------------------
+    // Example 4 -- Z errors
+    // ---------------------------------------------------------------------------
+    let zErr1 =
+        {
+            ToricCode.Position = { ToricCode.X = 1; ToricCode.Y = 1 }
+            ToricCode.Type = ToricCode.Vertical
+        }
 
-    jsonResults <- ("4_z_errors", box {| ePart = eP.Length; mPart = mP.Length |}) :: jsonResults
-    csvRows <- [ "4_z_errors"; string eP.Length; string mP.Length ] :: csvRows
+    let zErr2 =
+        {
+            ToricCode.Position = { ToricCode.X = 4; ToricCode.Y = 3 }
+            ToricCode.Type = ToricCode.Horizontal
+        }
 
-// ---------------------------------------------------------------------------
-// Example 5 -- Anyon distances
-// ---------------------------------------------------------------------------
-if shouldRun 5 then
-    separator ()
-    pr "EXAMPLE 5: Anyon Statistics & Distances"
-    separator ()
+    let afterZ1 = ToricCode.applyZError afterX2 zErr1
+    let afterZ2 = ToricCode.applyZError afterZ1 zErr2
 
-    let syn = ToricCode.measureSyndrome afterZ2
-    let eP = ToricCode.getElectricExcitations syn
-    let mP = ToricCode.getMagneticExcitations syn
+    if shouldRun 4 then
+        separator ()
+        pr "EXAMPLE 4: Z Errors (Phase Flips)"
+        separator ()
 
-    if eP.Length >= 2 then
-        pr "  e-particle pair distances (on torus):"
-        for i in 0 .. eP.Length - 2 do
-            for j in i + 1 .. eP.Length - 1 do
-                let p1 = eP.[i]
-                let p2 = eP.[j]
-                let dist = ToricCode.toricDistance lattice p1 p2
-                pr "    (%d,%d)<->(%d,%d) = %d" p1.X p1.Y p2.X p2.Y dist
+        pr "  Applied Z errors:"
+        pr "    Edge (%d,%d) %A" zErr1.Position.X zErr1.Position.Y zErr1.Type
+        pr "    Edge (%d,%d) %A" zErr2.Position.X zErr2.Position.Y zErr2.Type
 
-    if mP.Length >= 2 then
-        pr "  m-particle pair distances (on torus):"
-        for i in 0 .. mP.Length - 2 do
-            for j in i + 1 .. mP.Length - 1 do
-                let p1 = mP.[i]
-                let p2 = mP.[j]
-                let dist = ToricCode.toricDistance lattice p1 p2
-                pr "    (%d,%d)<->(%d,%d) = %d" p1.X p1.Y p2.X p2.Y dist
+        let syn = ToricCode.measureSyndrome afterZ2
+        let eP = ToricCode.getElectricExcitations syn
+        let mP = ToricCode.getMagneticExcitations syn
 
-    jsonResults <- ("5_distances", box {| ePairs = max 0 (eP.Length - 1); mPairs = max 0 (mP.Length - 1) |}) :: jsonResults
-    csvRows <- [ "5_distances"; string eP.Length; string mP.Length ] :: csvRows
+        pr "  e-particles: %d   m-particles: %d" eP.Length mP.Length
 
-// ---------------------------------------------------------------------------
-// Example 6 -- Key properties
-// ---------------------------------------------------------------------------
-if shouldRun 6 then
-    separator ()
-    pr "EXAMPLE 6: Toric Code Key Properties"
-    separator ()
+        if mP.Length > 0 then
+            for p in mP do
+                pr "    m at (%d,%d)" p.X p.Y
 
-    pr "  Anyon theory: Z2 x Z2"
-    pr "    {1, e, m, epsilon}"
-    pr "    1: Vacuum  e: Electric  m: Magnetic  epsilon: Fermion"
-    pr ""
-    pr "  Stabilizers:"
-    pr "    Vertex A_v = prod(X on 4 edges)"
-    pr "    Plaquette B_p = prod(Z on 4 edges)"
-    pr ""
-    pr "  Error correction:"
-    pr "    Distance d=%d -> corrects %d errors" d ((d - 1) / 2)
-    pr "    X errors -> e-particle pairs"
-    pr "    Z errors -> m-particle pairs"
-    pr "    Anyons always created in pairs (charge conservation)"
-    pr ""
-    pr "  Topological protection:"
-    pr "    Logical qubits encoded in non-contractible loops"
-    pr "    Information protected by topology, not local encoding"
+        jsonResults <-
+            ("4_z_errors",
+             box
+                 {|
+                     ePart = eP.Length
+                     mPart = mP.Length
+                 |})
+            :: jsonResults
 
-    jsonResults <- ("6_properties", box {| summary = "ok" |}) :: jsonResults
-    csvRows <- [ "6_properties"; "ok" ] :: csvRows
+        csvRows <- [ "4_z_errors"; string eP.Length; string mP.Length ] :: csvRows
 
-// ---------------------------------------------------------------------------
-// Output
-// ---------------------------------------------------------------------------
-match outputPath with
-| Some outputPathValue ->
-    let payload =
-        {| script    = "ToricCodeExample.fsx"
-           backend   = quantumBackend.Name
-           timestamp = DateTime.UtcNow.ToString("o")
-           example   = exChoice
-           latticeSize = latticeSize
-           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
-    Reporting.writeJson outputPathValue payload
-| None ->
-    ()
+    // ---------------------------------------------------------------------------
+    // Example 5 -- Anyon distances
+    // ---------------------------------------------------------------------------
+    if shouldRun 5 then
+        separator ()
+        pr "EXAMPLE 5: Anyon Statistics & Distances"
+        separator ()
 
-match csvPath with
-| Some v ->
-    let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
-    Reporting.writeCsv v header (csvRows |> List.rev)
-| None ->
-    ()
+        let syn = ToricCode.measureSyndrome afterZ2
+        let eP = ToricCode.getElectricExcitations syn
+        let mP = ToricCode.getMagneticExcitations syn
 
-// ---------------------------------------------------------------------------
-// Usage hints
-// ---------------------------------------------------------------------------
-if not quiet && argv.Length = 0 then
-    pr ""
-    pr "Usage hints:"
-    pr "  dotnet fsi ToricCodeExample.fsx -- --lattice-size 7"
-    pr "  dotnet fsi ToricCodeExample.fsx -- --example 3"
-    pr "  dotnet fsi ToricCodeExample.fsx -- --quiet --output r.json --csv r.csv"
-    pr "  dotnet fsi ToricCodeExample.fsx -- --help"
+        if eP.Length >= 2 then
+            pr "  e-particle pair distances (on torus):"
+
+            for i in 0 .. eP.Length - 2 do
+                for j in i + 1 .. eP.Length - 1 do
+                    let p1 = eP.[i]
+                    let p2 = eP.[j]
+                    let dist = ToricCode.toricDistance lattice p1 p2
+                    pr "    (%d,%d)<->(%d,%d) = %d" p1.X p1.Y p2.X p2.Y dist
+
+        if mP.Length >= 2 then
+            pr "  m-particle pair distances (on torus):"
+
+            for i in 0 .. mP.Length - 2 do
+                for j in i + 1 .. mP.Length - 1 do
+                    let p1 = mP.[i]
+                    let p2 = mP.[j]
+                    let dist = ToricCode.toricDistance lattice p1 p2
+                    pr "    (%d,%d)<->(%d,%d) = %d" p1.X p1.Y p2.X p2.Y dist
+
+        jsonResults <-
+            ("5_distances",
+             box
+                 {|
+                     ePairs = max 0 (eP.Length - 1)
+                     mPairs = max 0 (mP.Length - 1)
+                 |})
+            :: jsonResults
+
+        csvRows <- [ "5_distances"; string eP.Length; string mP.Length ] :: csvRows
+
+    // ---------------------------------------------------------------------------
+    // Example 6 -- Key properties
+    // ---------------------------------------------------------------------------
+    if shouldRun 6 then
+        separator ()
+        pr "EXAMPLE 6: Toric Code Key Properties"
+        separator ()
+
+        pr "  Anyon theory: Z2 x Z2"
+        pr "    {1, e, m, epsilon}"
+        pr "    1: Vacuum  e: Electric  m: Magnetic  epsilon: Fermion"
+        pr ""
+        pr "  Stabilizers:"
+        pr "    Vertex A_v = prod(X on 4 edges)"
+        pr "    Plaquette B_p = prod(Z on 4 edges)"
+        pr ""
+        pr "  Error correction:"
+        pr "    Distance d=%d -> corrects %d errors" d ((d - 1) / 2)
+        pr "    X errors -> e-particle pairs"
+        pr "    Z errors -> m-particle pairs"
+        pr "    Anyons always created in pairs (charge conservation)"
+        pr ""
+        pr "  Topological protection:"
+        pr "    Logical qubits encoded in non-contractible loops"
+        pr "    Information protected by topology, not local encoding"
+
+        jsonResults <- ("6_properties", box {| summary = "ok" |}) :: jsonResults
+        csvRows <- [ "6_properties"; "ok" ] :: csvRows
+
+    // ---------------------------------------------------------------------------
+    // Output
+    // ---------------------------------------------------------------------------
+    match outputPath with
+    | Some outputPathValue ->
+        let payload =
+            {|
+                script = "ToricCodeExample.fsx"
+                backend = quantumBackend.Name
+                timestamp = DateTime.UtcNow.ToString("o")
+                example = exChoice
+                latticeSize = latticeSize
+                results = jsonResults |> List.rev |> List.map (fun (k, v) -> {| key = k; value = v |})
+            |}
+
+        Reporting.writeJson outputPathValue payload
+    | None -> ()
+
+    match csvPath with
+    | Some v ->
+        let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
+        Reporting.writeCsv v header (csvRows |> List.rev)
+    | None -> ()
+
+    // ---------------------------------------------------------------------------
+    // Usage hints
+    // ---------------------------------------------------------------------------
+    if not quiet && argv.Length = 0 then
+        pr ""
+        pr "Usage hints:"
+        pr "  dotnet fsi ToricCodeExample.fsx -- --lattice-size 7"
+        pr "  dotnet fsi ToricCodeExample.fsx -- --example 3"
+        pr "  dotnet fsi ToricCodeExample.fsx -- --quiet --output r.json --csv r.csv"
+        pr "  dotnet fsi ToricCodeExample.fsx -- --help"

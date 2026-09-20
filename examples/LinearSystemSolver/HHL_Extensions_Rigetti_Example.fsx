@@ -29,24 +29,57 @@ open FSharp.Azure.Quantum.Examples.Common
 // ---------------------------------------------------------------------------
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
-Cli.exitIfHelp "HHL_Extensions_Rigetti_Example.fsx"
+
+Cli.exitIfHelp
+    "HHL_Extensions_Rigetti_Example.fsx"
     "HHL extensions: condition number, error bounds, adaptive methods, auto-config"
-    [ { Name = "feature";   Description = "Feature to demo: 1|2|3|4|5|all"; Default = Some "all" }
-      { Name = "accuracy";  Description = "Target accuracy for optimized config"; Default = Some "0.01" }
-      { Name = "fidelity";  Description = "Gate fidelity for error bounds"; Default = Some "0.998" }
-      { Name = "output";    Description = "Write results to JSON file"; Default = None }
-      { Name = "csv";       Description = "Write results to CSV file"; Default = None }
-      { Name = "quiet";     Description = "Suppress informational output"; Default = None } ]
+    [
+        {
+            Name = "feature"
+            Description = "Feature to demo: 1|2|3|4|5|all"
+            Default = Some "all"
+        }
+        {
+            Name = "accuracy"
+            Description = "Target accuracy for optimized config"
+            Default = Some "0.01"
+        }
+        {
+            Name = "fidelity"
+            Description = "Gate fidelity for error bounds"
+            Default = Some "0.998"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
-let quiet       = Cli.hasFlag "quiet" args
-let outputPath  = Cli.tryGet "output" args
-let csvPath     = Cli.tryGet "csv" args
-let feature     = Cli.getOr "feature" "all" args
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let feature = Cli.getOr "feature" "all" args
 let cliAccuracy = Cli.getFloatOr "accuracy" 0.01 args
 let cliFidelity = Cli.getFloatOr "fidelity" 0.998 args
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 // Rule 1: explicit IQuantumBackend
 let quantumBackend = LocalBackend() :> IQuantumBackend
@@ -56,8 +89,8 @@ let results = ResizeArray<Map<string, string>>()
 let shouldRun (n: string) = feature = "all" || feature = n
 
 // Shared matrix & vector used across features 1-4
-let matrix1 = createDiagonalMatrix [|2.0; 5.0|]
-let vector1Res = createQuantumVector [|Complex(1.0, 0.0); Complex(1.0, 0.0)|]
+let matrix1 = createDiagonalMatrix [| 2.0; 5.0 |]
+let vector1Res = createQuantumVector [| Complex(1.0, 0.0); Complex(1.0, 0.0) |]
 
 // ============================================================================
 // FEATURE 1: Automatic Condition Number Estimation
@@ -72,8 +105,7 @@ if shouldRun "1" then
     pr "Creating a 2x2 diagonal matrix..."
 
     match matrix1 with
-    | Error err ->
-        pr "Error: %A" err
+    | Error err -> pr "Error: %A" err
     | Ok mat ->
         pr "Matrix created: 2x2 diagonal"
         pr "  Eigenvalues: 2.0, 5.0"
@@ -88,22 +120,29 @@ if shouldRun "1" then
             pr "   (kappa = lambda_max / lambda_min = 5.0 / 2.0 = 2.5)"
             pr ""
             pr "   Interpretation:"
+
             if kappa <= 10.0 then
                 pr "   Well-conditioned! HHL will work great."
             elif kappa <= 100.0 then
                 pr "   Moderately conditioned. HHL should work."
             else
                 pr "   Poorly conditioned. Consider preconditioning."
+
             pr ""
 
-            results.Add(Map.ofList [
-                "feature", "1_condition_number"
-                "matrix", "diag(2,5)"
-                "condition_number", $"%.2f{kappa}"
-                "assessment", if kappa <= 10.0 then "well-conditioned" elif kappa <= 100.0 then "moderate" else "ill-conditioned"
-            ])
-        | None ->
-            pr "Could not calculate condition number"
+            results.Add(
+                Map.ofList
+                    [
+                        "feature", "1_condition_number"
+                        "matrix", "diag(2,5)"
+                        "condition_number", $"%.2f{kappa}"
+                        "assessment",
+                        if kappa <= 10.0 then "well-conditioned"
+                        elif kappa <= 100.0 then "moderate"
+                        else "ill-conditioned"
+                    ]
+            )
+        | None -> pr "Could not calculate condition number"
 
     pr ""
 
@@ -120,9 +159,9 @@ if shouldRun "2" then
     match matrix1, vector1Res with
     | Ok mat, Ok vec ->
         pr "Setting up HHL configuration..."
+
         match defaultConfig mat vec with
-        | Error err ->
-            pr "Config error: %A" err
+        | Error err -> pr "Config error: %A" err
         | Ok config ->
             pr "  QPE precision: %d qubits" config.EigenvalueQubits
             pr "  Inversion method: %A" config.InversionMethod
@@ -139,9 +178,12 @@ if shouldRun "2" then
             pr "   Gate fidelity error: %.6f" rigettiErrors.GateFidelityError
             pr "   Inversion error: %.6f" rigettiErrors.InversionError
             pr "   Total error: %.6f" rigettiErrors.TotalError
-            pr "   Success probability: %.4f (%.1f%%)"
+
+            pr
+                "   Success probability: %.4f (%.1f%%)"
                 rigettiErrors.EstimatedSuccessProbability
                 (rigettiErrors.EstimatedSuccessProbability * 100.0)
+
             pr ""
 
             // IonQ (trapped ion)
@@ -152,9 +194,12 @@ if shouldRun "2" then
             pr "   Gate fidelity error: %.6f" ionqErrors.GateFidelityError
             pr "   Inversion error: %.6f" ionqErrors.InversionError
             pr "   Total error: %.6f" ionqErrors.TotalError
-            pr "   Success probability: %.4f (%.1f%%)"
+
+            pr
+                "   Success probability: %.4f (%.1f%%)"
                 ionqErrors.EstimatedSuccessProbability
                 (ionqErrors.EstimatedSuccessProbability * 100.0)
+
             pr ""
 
             let ratio = rigettiErrors.TotalError / ionqErrors.TotalError
@@ -163,18 +208,19 @@ if shouldRun "2" then
             pr "   (Due to higher gate fidelity: 99.99%% vs %.1f%%)" (cliFidelity * 100.0)
             pr ""
 
-            results.Add(Map.ofList [
-                "feature", "2_error_bounds"
-                "rigetti_total_error", $"%.6f{rigettiErrors.TotalError}"
-                "rigetti_success_prob", $"%.4f{rigettiErrors.EstimatedSuccessProbability}"
-                "ionq_total_error", $"%.6f{ionqErrors.TotalError}"
-                "ionq_success_prob", $"%.4f{ionqErrors.EstimatedSuccessProbability}"
-                "improvement_ratio", $"%.2f{ratio}"
-            ])
-    | Error err, _ ->
-        pr "Matrix error: %A" err
-    | _, Error err ->
-        pr "Vector error: %A" err
+            results.Add(
+                Map.ofList
+                    [
+                        "feature", "2_error_bounds"
+                        "rigetti_total_error", $"%.6f{rigettiErrors.TotalError}"
+                        "rigetti_success_prob", $"%.4f{rigettiErrors.EstimatedSuccessProbability}"
+                        "ionq_total_error", $"%.6f{ionqErrors.TotalError}"
+                        "ionq_success_prob", $"%.4f{ionqErrors.EstimatedSuccessProbability}"
+                        "improvement_ratio", $"%.2f{ratio}"
+                    ]
+            )
+    | Error err, _ -> pr "Matrix error: %A" err
+    | _, Error err -> pr "Vector error: %A" err
 
     pr ""
 
@@ -191,22 +237,27 @@ if shouldRun "3" then
     pr "Testing adaptive method selection for different condition numbers..."
     pr ""
 
-    let testConditionNumbers = [2.0; 15.0; 150.0; 5000.0]
+    let testConditionNumbers = [ 2.0; 15.0; 150.0; 5000.0 ]
 
     for kappa in testConditionNumbers do
         let method = selectInversionMethod kappa None
+
         let methodName =
             match method with
             | EigenvalueInversionMethod.ExactRotation _ -> "ExactRotation"
             | EigenvalueInversionMethod.LinearApproximation _ -> "LinearApproximation"
             | EigenvalueInversionMethod.PiecewiseLinear _ -> "PiecewiseLinear"
+
         pr "kappa = %.0f -> %s" kappa methodName
 
-        results.Add(Map.ofList [
-            "feature", "3_adaptive_method"
-            "condition_number", $"%.0f{kappa}"
-            "selected_method", methodName
-        ])
+        results.Add(
+            Map.ofList
+                [
+                    "feature", "3_adaptive_method"
+                    "condition_number", $"%.0f{kappa}"
+                    "selected_method", methodName
+                ]
+        )
 
     pr ""
     pr "Insights:"
@@ -232,10 +283,10 @@ if shouldRun "4" then
         pr ""
 
         match optimizedConfig mat vec (Some cliAccuracy) with
-        | Error err ->
-            pr "Config error: %A" err
+        | Error err -> pr "Config error: %A" err
         | Ok config ->
             let kappa = config.Matrix.ConditionNumber |> Option.defaultValue 0.0
+
             let methodName =
                 match config.InversionMethod with
                 | EigenvalueInversionMethod.ExactRotation _ -> "ExactRotation"
@@ -251,20 +302,25 @@ if shouldRun "4" then
             pr ""
 
             pr "Recommended QPE precision for different targets:"
-            let accuracies = [0.1; 0.01; 0.001; 0.0001]
+            let accuracies = [ 0.1; 0.01; 0.001; 0.0001 ]
+
             for acc in accuracies do
                 let qpePrecision = recommendQPEPrecision acc
                 pr "   %.2f%% accuracy -> %d qubits" (acc * 100.0) qpePrecision
+
             pr ""
 
-            results.Add(Map.ofList [
-                "feature", "4_optimized_config"
-                "condition_number", $"%.2f{kappa}"
-                "qpe_qubits", $"%d{config.EigenvalueQubits}"
-                "inversion_method", methodName
-                "min_eigenvalue", $"%.6f{config.MinEigenvalue}"
-                "post_selection", $"%b{config.UsePostSelection}"
-            ])
+            results.Add(
+                Map.ofList
+                    [
+                        "feature", "4_optimized_config"
+                        "condition_number", $"%.2f{kappa}"
+                        "qpe_qubits", $"%d{config.EigenvalueQubits}"
+                        "inversion_method", methodName
+                        "min_eigenvalue", $"%.6f{config.MinEigenvalue}"
+                        "post_selection", $"%b{config.UsePostSelection}"
+                    ]
+            )
     | _ -> ()
 
     pr ""
@@ -283,15 +339,15 @@ if shouldRun "5" then
     pr "Expected solution: x ~ [0.5, 0.333...]"
     pr ""
 
-    let matrixResult = createDiagonalMatrix [|2.0; 3.0|]
-    let vectorResult = createQuantumVector [|Complex(1.0, 0.0); Complex(1.0, 0.0)|]
+    let matrixResult = createDiagonalMatrix [| 2.0; 3.0 |]
+    let vectorResult = createQuantumVector [| Complex(1.0, 0.0); Complex(1.0, 0.0) |]
 
     match matrixResult, vectorResult with
     | Ok matrix, Ok vector ->
         pr "Step 1: Auto-optimize configuration..."
+
         match optimizedConfig matrix vector (Some cliAccuracy) with
-        | Error err ->
-            pr "Config error: %A" err
+        | Error err -> pr "Config error: %A" err
         | Ok config ->
             let kappa = config.Matrix.ConditionNumber |> Option.defaultValue 0.0
             pr "  kappa = %.2f (well-conditioned)" kappa
@@ -307,34 +363,37 @@ if shouldRun "5" then
             pr "Step 3: Execute HHL on local simulator..."
 
             match solve2x2Diagonal (2.0, 3.0) (Complex(1.0, 0.0), Complex(1.0, 0.0)) quantumBackend with
-            | Error err ->
-                pr "Error: %A" err
+            | Error err -> pr "Error: %A" err
             | Ok result ->
                 pr "SUCCESS!"
                 pr ""
                 pr "  Solution vector:"
+
                 for i in 0 .. result.Solution.Length - 1 do
                     pr "    x[%d] = %.6f" i result.Solution[i].Real
+
                 pr ""
                 pr "  Actual success probability: %.4f" result.SuccessProbability
                 pr "  Gates used: %d" result.GateCount
                 pr ""
                 pr "  Classical verification:"
                 pr "    Expected: x[0] = 0.5, x[1] = 0.333..."
-                pr "    Quantum:  x[0] = %.3f, x[1] = %.3f"
-                    result.Solution[0].Real result.Solution[1].Real
+                pr "    Quantum:  x[0] = %.3f, x[1] = %.3f" result.Solution[0].Real result.Solution[1].Real
                 pr ""
 
-                results.Add(Map.ofList [
-                    "feature", "5_complete_solve"
-                    "matrix", "diag(2,3)"
-                    "vector", "[1,1]"
-                    "x0", sprintf "%.6f" result.Solution[0].Real
-                    "x1", sprintf "%.6f" result.Solution[1].Real
-                    "success_probability", $"%.6f{result.SuccessProbability}"
-                    "gate_count", $"%d{result.GateCount}"
-                    "condition_number", $"%.2f{kappa}"
-                ])
+                results.Add(
+                    Map.ofList
+                        [
+                            "feature", "5_complete_solve"
+                            "matrix", "diag(2,3)"
+                            "vector", "[1,1]"
+                            "x0", sprintf "%.6f" result.Solution[0].Real
+                            "x1", sprintf "%.6f" result.Solution[1].Real
+                            "success_probability", $"%.6f{result.SuccessProbability}"
+                            "gate_count", $"%d{result.GateCount}"
+                            "condition_number", $"%.2f{kappa}"
+                        ]
+                )
 
     | Error err, _ -> pr "Matrix error: %A" err
     | _, Error err -> pr "Vector error: %A" err
@@ -381,30 +440,43 @@ pr ""
 
 match outputPath with
 | Some v ->
-    let payload = {| script = "HHL_Extensions_Rigetti_Example.fsx"
-                     timestamp = DateTime.UtcNow
-                     feature = feature
-                     accuracy = cliAccuracy
-                     fidelity = cliFidelity
-                     results = results |> Seq.toArray |}
+    let payload =
+        {|
+            script = "HHL_Extensions_Rigetti_Example.fsx"
+            timestamp = DateTime.UtcNow
+            feature = feature
+            accuracy = cliAccuracy
+            fidelity = cliFidelity
+            results = results |> Seq.toArray
+        |}
+
     Reporting.writeJson v payload
     pr "Results written to %s" v
-| None ->
-    ()
+| None -> ()
 
 match csvPath with
 | Some v ->
-    let header = ["feature"; "condition_number"; "selected_method"; "success_probability";
-                  "gate_count"; "x0"; "x1"; "rigetti_total_error"; "ionq_total_error"]
+    let header =
+        [
+            "feature"
+            "condition_number"
+            "selected_method"
+            "success_probability"
+            "gate_count"
+            "x0"
+            "x1"
+            "rigetti_total_error"
+            "ionq_total_error"
+        ]
+
     let rows =
         results
-        |> Seq.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> Seq.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
         |> Seq.toList
+
     Reporting.writeCsv v header rows
     pr "CSV written to %s" v
-| None ->
-    ()
+| None -> ()
 
 // Usage hints
 if argv.Length = 0 && outputPath.IsNone && csvPath.IsNone then

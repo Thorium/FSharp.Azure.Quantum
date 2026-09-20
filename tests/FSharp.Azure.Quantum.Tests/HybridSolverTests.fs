@@ -10,15 +10,11 @@ module HybridSolverTests =
     [<Fact>]
     let ``solveTspWithBackend forced quantum accepts topological backend`` () =
         // Arrange: 3-city symmetric TSP instance
-        let distances =
-            array2D [
-                [ 0.0; 1.0; 2.0 ]
-                [ 1.0; 0.0; 3.0 ]
-                [ 2.0; 3.0; 0.0 ]
-            ]
+        let distances = array2D [ [ 0.0; 1.0; 2.0 ]; [ 1.0; 0.0; 3.0 ]; [ 2.0; 3.0; 0.0 ] ]
 
         // Use a topological backend to validate HybridSolver supports non-gate backends.
-        let backend = FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 50
+        let backend =
+            FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 50
 
         // Act
         let result =
@@ -29,20 +25,29 @@ module HybridSolverTests =
         // instead, verify the injected backend is accepted and quantum path is attempted.
         match result with
         | Ok solution -> Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
-        | Error (FSharp.Azure.Quantum.Core.QuantumError.OperationError (op, _)) ->
-            Assert.Equal("Quantum TSP solver", op)
+        | Error(FSharp.Azure.Quantum.Core.QuantumError.OperationError(op, _)) -> Assert.Equal("Quantum TSP solver", op)
         | Error err -> Assert.True(false, err.Message)
 
     [<Fact>]
     let ``solvePortfolioWithBackend forced classical returns Classical`` () =
         // Arrange
-        let assets : PortfolioSolver.Asset list =
+        let assets: PortfolioSolver.Asset list =
             [
-                { PortfolioTypes.Asset.Symbol = "A"; ExpectedReturn = 0.10; Risk = 0.20; Price = 10.0 }
-                { PortfolioTypes.Asset.Symbol = "B"; ExpectedReturn = 0.05; Risk = 0.10; Price = 5.0 }
+                {
+                    PortfolioTypes.Asset.Symbol = "A"
+                    ExpectedReturn = 0.10
+                    Risk = 0.20
+                    Price = 10.0
+                }
+                {
+                    PortfolioTypes.Asset.Symbol = "B"
+                    ExpectedReturn = 0.05
+                    Risk = 0.10
+                    Price = 5.0
+                }
             ]
 
-        let constraints : PortfolioSolver.Constraints =
+        let constraints: PortfolioSolver.Constraints =
             {
                 Budget = 10.0
                 MinHolding = 0.0
@@ -50,10 +55,19 @@ module HybridSolverTests =
             }
 
         // Act
-        let result = HybridSolver.solvePortfolioWithBackend assets constraints None None (Some HybridSolver.SolverMethod.Classical) None
+        let result =
+            HybridSolver.solvePortfolioWithBackend
+                assets
+                constraints
+                None
+                None
+                (Some HybridSolver.SolverMethod.Classical)
+                None
 
         // Assert
-        result |> Result.map (fun solution -> Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)) |> Result.defaultWith (fun err -> Assert.True(false, err.Message))
+        result
+        |> Result.map (fun solution -> Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method))
+        |> Result.defaultWith (fun err -> Assert.True(false, err.Message))
 
     // ========================================================================
     // COST ESTIMATION (budget guard inputs)
@@ -61,7 +75,9 @@ module HybridSolverTests =
 
     [<Fact>]
     let ``estimateBackendCostUSD treats local simulators as free`` () =
-        let backend = FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+        let backend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+
         Assert.Equal(0.0, HybridSolver.estimateBackendCostUSD backend 25)
 
     [<Fact>]
@@ -75,8 +91,11 @@ module HybridSolverTests =
 
     [<Fact>]
     let ``estimateQuantumConfigCostUSD differs between providers`` () =
-        let ionq = HybridSolver.estimateQuantumConfigCostUSD (HybridSolver.QuantumBackend.IonQ "ionq.qpu") 25
-        let rigetti = HybridSolver.estimateQuantumConfigCostUSD (HybridSolver.QuantumBackend.Rigetti "rigetti.qpu") 25
+        let ionq =
+            HybridSolver.estimateQuantumConfigCostUSD (HybridSolver.QuantumBackend.IonQ "ionq.qpu") 25
+
+        let rigetti =
+            HybridSolver.estimateQuantumConfigCostUSD (HybridSolver.QuantumBackend.Rigetti "rigetti.qpu") 25
 
         Assert.True(ionq > 0.0)
         Assert.True(rigetti > 0.0)

@@ -53,6 +53,7 @@ let ``CodeParameters SteaneCode7 correct values`` () =
 [<Fact>]
 let ``BitFlip Encode0 produces 000`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
@@ -60,6 +61,7 @@ let ``BitFlip Encode0 produces 000`` () =
         Assert.Equal(3, result.PhysicalQubits)
         // Measure encoded state: should be |00000> (all zeros including ancilla)
         let measurements = QuantumState.measure result.EncodedState 100
+
         for shot in measurements do
             Assert.Equal(0, shot.[0])
             Assert.Equal(0, shot.[1])
@@ -68,12 +70,14 @@ let ``BitFlip Encode0 produces 000`` () =
 [<Fact>]
 let ``BitFlip Encode1 produces 111`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.encode backend 1 with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
         Assert.Equal(QuantumErrorCorrection.BitFlipCode3, result.Code)
         // Measure encoded state: data qubits should be |111>
         let measurements = QuantumState.measure result.EncodedState 100
+
         for shot in measurements do
             Assert.Equal(1, shot.[0])
             Assert.Equal(1, shot.[1])
@@ -82,6 +86,7 @@ let ``BitFlip Encode1 produces 111`` () =
 [<Fact>]
 let ``BitFlip DetectsFlipOnQubit0 syndrome 10`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok from encode, got Error: {err}")
     | Ok encoded ->
@@ -91,7 +96,7 @@ let ``BitFlip DetectsFlipOnQubit0 syndrome 10`` () =
         | Ok afterError ->
             match QuantumErrorCorrection.BitFlip.measureSyndrome backend afterError with
             | Error err -> Assert.Fail($"Expected Ok from syndrome, got Error: {err}")
-            | Ok (syndrome, _) ->
+            | Ok(syndrome, _) ->
                 Assert.Equal<int list>([ 1; 0 ], syndrome.SyndromeBits)
                 Assert.Equal(Some QuantumErrorCorrection.BitFlipError, syndrome.DetectedError)
                 Assert.Equal(Some 0, syndrome.ErrorQubit)
@@ -99,6 +104,7 @@ let ``BitFlip DetectsFlipOnQubit0 syndrome 10`` () =
 [<Fact>]
 let ``BitFlip DetectsFlipOnQubit1 syndrome 11`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok from encode, got Error: {err}")
     | Ok encoded ->
@@ -107,7 +113,7 @@ let ``BitFlip DetectsFlipOnQubit1 syndrome 11`` () =
         | Ok afterError ->
             match QuantumErrorCorrection.BitFlip.measureSyndrome backend afterError with
             | Error err -> Assert.Fail($"Expected Ok from syndrome, got Error: {err}")
-            | Ok (syndrome, _) ->
+            | Ok(syndrome, _) ->
                 Assert.Equal<int list>([ 1; 1 ], syndrome.SyndromeBits)
                 Assert.Equal(Some QuantumErrorCorrection.BitFlipError, syndrome.DetectedError)
                 Assert.Equal(Some 1, syndrome.ErrorQubit)
@@ -115,6 +121,7 @@ let ``BitFlip DetectsFlipOnQubit1 syndrome 11`` () =
 [<Fact>]
 let ``BitFlip DetectsFlipOnQubit2 syndrome 01`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok from encode, got Error: {err}")
     | Ok encoded ->
@@ -123,7 +130,7 @@ let ``BitFlip DetectsFlipOnQubit2 syndrome 01`` () =
         | Ok afterError ->
             match QuantumErrorCorrection.BitFlip.measureSyndrome backend afterError with
             | Error err -> Assert.Fail($"Expected Ok from syndrome, got Error: {err}")
-            | Ok (syndrome, _) ->
+            | Ok(syndrome, _) ->
                 Assert.Equal<int list>([ 0; 1 ], syndrome.SyndromeBits)
                 Assert.Equal(Some QuantumErrorCorrection.BitFlipError, syndrome.DetectedError)
                 Assert.Equal(Some 2, syndrome.ErrorQubit)
@@ -131,12 +138,13 @@ let ``BitFlip DetectsFlipOnQubit2 syndrome 01`` () =
 [<Fact>]
 let ``BitFlip NoError syndrome 00`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok from encode, got Error: {err}")
     | Ok encoded ->
         match QuantumErrorCorrection.BitFlip.measureSyndrome backend encoded.EncodedState with
         | Error err -> Assert.Fail($"Expected Ok from syndrome, got Error: {err}")
-        | Ok (syndrome, _) ->
+        | Ok(syndrome, _) ->
             Assert.Equal<int list>([ 0; 0 ], syndrome.SyndromeBits)
             Assert.Equal(None, syndrome.DetectedError)
             Assert.Equal(None, syndrome.ErrorQubit)
@@ -144,6 +152,7 @@ let ``BitFlip NoError syndrome 00`` () =
 [<Fact>]
 let ``BitFlip RoundTrip corrects bit-flip on qubit 0`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.roundTrip backend 0 (Some 0) with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
@@ -154,6 +163,7 @@ let ``BitFlip RoundTrip corrects bit-flip on qubit 0`` () =
 [<Fact>]
 let ``BitFlip RoundTrip corrects bit-flip encoding 1`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.roundTrip backend 1 (Some 1) with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
@@ -168,6 +178,7 @@ let ``BitFlip RoundTrip corrects bit-flip encoding 1`` () =
 [<Fact>]
 let ``PhaseFlip Encode0 produces plus-plus-plus`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.PhaseFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
@@ -177,12 +188,12 @@ let ``PhaseFlip Encode0 produces plus-plus-plus`` () =
         let onesQ0 = measurements |> Array.sumBy (fun shot -> shot.[0])
         // Each qubit should have roughly 50% chance of 0 or 1
         // Allow wide tolerance for statistical test
-        Assert.True(onesQ0 > 20 && onesQ0 < 180,
-            $"Expected roughly 50%% ones on qubit 0, got {onesQ0}/200")
+        Assert.True(onesQ0 > 20 && onesQ0 < 180, $"Expected roughly 50%% ones on qubit 0, got {onesQ0}/200")
 
 [<Fact>]
 let ``PhaseFlip DetectsPhaseFlip on qubit 0`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.PhaseFlip.encode backend 0 with
     | Error err -> Assert.Fail($"Expected Ok from encode, got Error: {err}")
     | Ok encoded ->
@@ -191,13 +202,14 @@ let ``PhaseFlip DetectsPhaseFlip on qubit 0`` () =
         | Ok afterError ->
             match QuantumErrorCorrection.PhaseFlip.measureSyndrome backend afterError with
             | Error err -> Assert.Fail($"Expected Ok from syndrome, got Error: {err}")
-            | Ok (syndrome, _) ->
+            | Ok(syndrome, _) ->
                 Assert.Equal(Some QuantumErrorCorrection.PhaseFlipError, syndrome.DetectedError)
                 Assert.Equal(Some 0, syndrome.ErrorQubit)
 
 [<Fact>]
 let ``PhaseFlip RoundTrip corrects phase-flip`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.PhaseFlip.roundTrip backend 0 (Some 0) with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
@@ -208,6 +220,7 @@ let ``PhaseFlip RoundTrip corrects phase-flip`` () =
 [<Fact>]
 let ``PhaseFlip RoundTrip corrects phase-flip encoding 1`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.PhaseFlip.roundTrip backend 1 (Some 2) with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->
@@ -296,20 +309,23 @@ let ``Steane RoundTrip corrects combined error`` () =
 [<Fact>]
 let ``AllCodes reject annealing backend`` () =
     // DWaveBackend is an annealing backend
-    let annealingBackend =
-        createDefaultMockBackend () :> IQuantumBackend
+    let annealingBackend = createDefaultMockBackend () :> IQuantumBackend
 
     // BitFlip.encode should fail
-    (QuantumErrorCorrection.BitFlip.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
+    (QuantumErrorCorrection.BitFlip.encode annealingBackend 0)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
     // PhaseFlip.encode should fail
-    (QuantumErrorCorrection.PhaseFlip.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
+    (QuantumErrorCorrection.PhaseFlip.encode annealingBackend 0)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
     // Shor.encode should fail
-    (QuantumErrorCorrection.Shor.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
+    (QuantumErrorCorrection.Shor.encode annealingBackend 0)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
     // Steane.encode should fail
-    (QuantumErrorCorrection.Steane.encode annealingBackend 0) |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
+    (QuantumErrorCorrection.Steane.encode annealingBackend 0)
+    |> Result.iter (fun _ -> Assert.Fail("Expected Error for annealing backend, got Ok")) // Expected
 
 // ========================================================================
 // FORMATTING TESTS
@@ -317,7 +333,9 @@ let ``AllCodes reject annealing backend`` () =
 
 [<Fact>]
 let ``formatCodeParameters produces correct output`` () =
-    let output = QuantumErrorCorrection.formatCodeParameters QuantumErrorCorrection.ShorCode9
+    let output =
+        QuantumErrorCorrection.formatCodeParameters QuantumErrorCorrection.ShorCode9
+
     Assert.Contains("Shor 9-Qubit Code", output)
     Assert.Contains("[[9,1,3]]", output)
     Assert.Contains("9 physical qubits", output)
@@ -325,6 +343,7 @@ let ``formatCodeParameters produces correct output`` () =
 [<Fact>]
 let ``formatRoundTrip produces correct output`` () =
     let backend = createLocalBackend ()
+
     match QuantumErrorCorrection.BitFlip.roundTrip backend 0 (Some 0) with
     | Error err -> Assert.Fail($"Expected Ok, got Error: {err}")
     | Ok result ->

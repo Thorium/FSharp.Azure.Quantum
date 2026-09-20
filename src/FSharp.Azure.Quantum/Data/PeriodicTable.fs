@@ -1,10 +1,10 @@
 namespace FSharp.Azure.Quantum.Data
 
 /// Periodic Table data loaded from CSV
-/// 
+///
 /// This module provides comprehensive element data from an embedded CSV resource,
 /// making it easy to maintain and extend without code changes.
-/// 
+///
 /// Data sources:
 /// - Atomic masses: IUPAC 2021 standard atomic weights
 /// - Covalent radii: Cordero et al. (2008) "Covalent radii revisited"
@@ -21,69 +21,76 @@ open System.IO
 open System.Reflection
 
 module PeriodicTable =
-    
+
     /// Element record with all periodic table properties
-    type Element = {
-        /// Atomic number (proton count)
-        AtomicNumber: int
-        
-        /// Element symbol (e.g., "H", "He", "Li")
-        Symbol: string
-        
-        /// Full element name
-        Name: string
-        
-        /// Standard atomic mass in unified atomic mass units (u)
-        AtomicMass: float
-        
-        /// Covalent radius in Angstroms (for bond length estimation)
-        CovalentRadius: float option
-        
-        /// Pauling electronegativity (for polarity estimation)
-        Electronegativity: float option
-        
-        /// Group number (1-18, 101=lanthanide, 102=actinide)
-        Group: int
-        
-        /// Period number (1-7)
-        Period: int
-    }
-    
+    type Element =
+        {
+            /// Atomic number (proton count)
+            AtomicNumber: int
+
+            /// Element symbol (e.g., "H", "He", "Li")
+            Symbol: string
+
+            /// Full element name
+            Name: string
+
+            /// Standard atomic mass in unified atomic mass units (u)
+            AtomicMass: float
+
+            /// Covalent radius in Angstroms (for bond length estimation)
+            CovalentRadius: float option
+
+            /// Pauling electronegativity (for polarity estimation)
+            Electronegativity: float option
+
+            /// Group number (1-18, 101=lanthanide, 102=actinide)
+            Group: int
+
+            /// Period number (1-7)
+            Period: int
+        }
+
     /// Parse a float, returning None for empty strings
     let private parseFloatOption (s: string) : float option =
-        if String.IsNullOrWhiteSpace(s) then None
-        else 
+        if String.IsNullOrWhiteSpace(s) then
+            None
+        else
             match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
             | true, v -> Some v
             | false, _ -> None
-    
+
     /// Parse an element from a CSV line
     let private parseElement (line: string) : Element option =
         let fields = line.Split ','
+
         if fields.Length >= 8 then
             try
-                Some {
-                    AtomicNumber = Int32.Parse(fields.[0].Trim())
-                    Symbol = fields.[1].Trim()
-                    Name = fields.[2].Trim()
-                    AtomicMass = Double.Parse(fields.[3].Trim(), CultureInfo.InvariantCulture)
-                    CovalentRadius = parseFloatOption fields.[4]
-                    Electronegativity = parseFloatOption fields.[5]
-                    Group = Int32.Parse(fields.[6].Trim())
-                    Period = Int32.Parse(fields.[7].Trim())
-                }
-            with _ -> None
-        else None
-    
+                Some
+                    {
+                        AtomicNumber = Int32.Parse(fields.[0].Trim())
+                        Symbol = fields.[1].Trim()
+                        Name = fields.[2].Trim()
+                        AtomicMass = Double.Parse(fields.[3].Trim(), CultureInfo.InvariantCulture)
+                        CovalentRadius = parseFloatOption fields.[4]
+                        Electronegativity = parseFloatOption fields.[5]
+                        Group = Int32.Parse(fields.[6].Trim())
+                        Period = Int32.Parse(fields.[7].Trim())
+                    }
+            with _ ->
+                None
+        else
+            None
+
     /// Load elements from CSV content
     let private loadFromCsvContent (content: string) : Element array =
-        content.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
-        |> Array.skip 1  // Skip header
+        content.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.skip 1 // Skip header
         |> Array.choose parseElement
-    
+
     /// Embedded CSV data (fallback if file not found)
     /// This ensures the library works even when deployed as a NuGet package
-    let private embeddedCsvData = """AtomicNumber,Symbol,Name,AtomicMass,CovalentRadius,ElectronegativityPauling,Group,Period
+    let private embeddedCsvData =
+        """AtomicNumber,Symbol,Name,AtomicMass,CovalentRadius,ElectronegativityPauling,Group,Period
 1,H,Hydrogen,1.008,0.31,2.20,1,1
 2,He,Helium,4.0026,0.28,,18,1
 3,Li,Lithium,6.94,1.28,0.98,1,2
@@ -202,118 +209,108 @@ module PeriodicTable =
 116,Lv,Livermorium,293,,1.30,16,7
 117,Ts,Tennessine,294,,1.30,17,7
 118,Og,Oganesson,294,,1.30,18,7"""
-    
+
     /// All elements (lazy loaded)
     let private elements = lazy (loadFromCsvContent embeddedCsvData)
-    
+
     /// Lookup by symbol (lazy loaded)
-    let private bySymbolMap = lazy (
-        elements.Value
-        |> Array.map (fun e -> e.Symbol.ToUpperInvariant(), e)
-        |> Map.ofArray
-    )
-    
+    let private bySymbolMap =
+        lazy
+            (elements.Value
+             |> Array.map (fun e -> e.Symbol.ToUpperInvariant(), e)
+             |> Map.ofArray)
+
     /// Lookup by atomic number (lazy loaded)
-    let private byNumberMap = lazy (
-        elements.Value
-        |> Array.map (fun e -> e.AtomicNumber, e)
-        |> Map.ofArray
-    )
-    
+    let private byNumberMap =
+        lazy (elements.Value |> Array.map (fun e -> e.AtomicNumber, e) |> Map.ofArray)
+
     // ========================================================================
     // PUBLIC API
     // ========================================================================
-    
+
     /// Get all elements
     let all () : Element array = elements.Value
-    
+
     /// Get element by symbol (case-insensitive)
     /// Returns None if element not found
     let tryBySymbol (symbol: string) : Element option =
-        bySymbolMap.Value.TryFind (symbol.ToUpperInvariant())
-    
+        bySymbolMap.Value.TryFind(symbol.ToUpperInvariant())
+
     /// Get element by symbol (case-insensitive)
     /// Throws if element not found
     let bySymbol (symbol: string) : Element =
         match tryBySymbol symbol with
         | Some e -> e
         | None -> failwithf "Unknown element symbol: %s" symbol
-    
+
     /// Get element by atomic number
     /// Returns None if element not found
-    let tryByNumber (atomicNumber: int) : Element option =
-        byNumberMap.Value.TryFind atomicNumber
-    
+    let tryByNumber (atomicNumber: int) : Element option = byNumberMap.Value.TryFind atomicNumber
+
     /// Get element by atomic number
     /// Throws if element not found
     let byNumber (atomicNumber: int) : Element =
         match tryByNumber atomicNumber with
         | Some e -> e
         | None -> failwithf "Unknown atomic number: %d" atomicNumber
-    
+
     /// Get atomic number from symbol
-    let atomicNumber (symbol: string) : int =
-        (bySymbol symbol).AtomicNumber
-    
+    let atomicNumber (symbol: string) : int = (bySymbol symbol).AtomicNumber
+
     /// Get symbol from atomic number
-    let symbol (atomicNumber: int) : string =
-        (byNumber atomicNumber).Symbol
-    
+    let symbol (atomicNumber: int) : string = (byNumber atomicNumber).Symbol
+
     /// Get atomic mass from symbol
-    let atomicMass (symbol: string) : float =
-        (bySymbol symbol).AtomicMass
-    
+    let atomicMass (symbol: string) : float = (bySymbol symbol).AtomicMass
+
     /// Get covalent radius from symbol (for bond length estimation)
-    let covalentRadius (symbol: string) : float option =
-        (bySymbol symbol).CovalentRadius
-    
+    let covalentRadius (symbol: string) : float option = (bySymbol symbol).CovalentRadius
+
     /// Get electronegativity from symbol (Pauling scale)
-    let electronegativity (symbol: string) : float option =
-        (bySymbol symbol).Electronegativity
-    
+    let electronegativity (symbol: string) : float option = (bySymbol symbol).Electronegativity
+
     /// Estimate bond length between two elements using covalent radii
     /// Returns None if either element lacks covalent radius data
     let estimateBondLength (symbol1: string) (symbol2: string) : float option =
         match covalentRadius symbol1, covalentRadius symbol2 with
-        | Some r1, Some r2 -> Some (r1 + r2)
+        | Some r1, Some r2 -> Some(r1 + r2)
         | _ -> None
-    
+
     /// Check if an element symbol is valid
-    let isValidSymbol (symbol: string) : bool =
-        tryBySymbol symbol |> Option.isSome
-    
+    let isValidSymbol (symbol: string) : bool = tryBySymbol symbol |> Option.isSome
+
     /// Check if an atomic number is valid
     let isValidNumber (atomicNumber: int) : bool =
         tryByNumber atomicNumber |> Option.isSome
-    
+
     /// Get elements by period (1-7)
     let byPeriod (period: int) : Element array =
         elements.Value |> Array.filter (fun e -> e.Period = period)
-    
+
     /// Get elements by group (1-18, 101=lanthanides, 102=actinides)
     let byGroup (group: int) : Element array =
         elements.Value |> Array.filter (fun e -> e.Group = group)
-    
+
     /// Get transition metals (groups 3-12)
     let transitionMetals () : Element array =
         elements.Value |> Array.filter (fun e -> e.Group >= 3 && e.Group <= 12)
-    
+
     /// Get lanthanides (group 101)
     let lanthanides () : Element array =
         elements.Value |> Array.filter (fun e -> e.Group = 101)
-    
+
     /// Get actinides (group 102)
     let actinides () : Element array =
         elements.Value |> Array.filter (fun e -> e.Group = 102)
-    
+
     /// Get noble gases (group 18)
     let nobleGases () : Element array =
         elements.Value |> Array.filter (fun e -> e.Group = 18)
-    
+
     /// Get halogens (group 17)
     let halogens () : Element array =
         elements.Value |> Array.filter (fun e -> e.Group = 17)
-    
+
     /// Get alkali metals (group 1, excluding H)
     let alkaliMetals () : Element array =
         elements.Value |> Array.filter (fun e -> e.Group = 1 && e.AtomicNumber > 1)

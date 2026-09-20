@@ -72,14 +72,42 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "BellStatesExample.fsx" "Create and verify Bell states (EPR pairs) on gate-based and topological backends." [
-    { Name = "backend"; Description = "Backend to use (local/topological/both)"; Default = Some "both" }
-    { Name = "state"; Description = "Bell state (phiplus/phiminus/psiplus/psiminus/all)"; Default = Some "all" }
-    { Name = "verification-shots"; Description = "Shots for entanglement verification"; Default = Some "100" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp
+    "BellStatesExample.fsx"
+    "Create and verify Bell states (EPR pairs) on gate-based and topological backends."
+    [
+        {
+            Name = "backend"
+            Description = "Backend to use (local/topological/both)"
+            Default = Some "both"
+        }
+        {
+            Name = "state"
+            Description = "Bell state (phiplus/phiminus/psiplus/psiminus/all)"
+            Default = Some "all"
+        }
+        {
+            Name = "verification-shots"
+            Description = "Shots for entanglement verification"
+            Default = Some "100"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
+    args
 
 let backendArg = Cli.getOr "backend" "both" args
 let stateArg = Cli.getOr "state" "all" args
@@ -98,7 +126,8 @@ let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
 let backendsToTest =
     match backendArg with
     | "local" -> [ ("local", localBackend) ]
-    | "topological" | "topo" -> [ ("topological", topoBackend) ]
+    | "topological"
+    | "topo" -> [ ("topological", topoBackend) ]
     | _ -> [ ("local", localBackend); ("topological", topoBackend) ]
 
 // ============================================================================
@@ -111,24 +140,46 @@ let results = System.Collections.Generic.List<Map<string, string>>()
 // Bell State Definitions
 // ============================================================================
 
-type BellStateSpec = {
-    Key: string
-    Label: string
-    Notation: string
-    Circuit: string
-    Create: IQuantumBackend -> Result<BellStateResult, FSharp.Azure.Quantum.Core.QuantumError>
-}
+type BellStateSpec =
+    {
+        Key: string
+        Label: string
+        Notation: string
+        Circuit: string
+        Create: IQuantumBackend -> Result<BellStateResult, FSharp.Azure.Quantum.Core.QuantumError>
+    }
 
-let allStates = [
-    { Key = "phiplus"; Label = "Phi Plus"; Notation = "|Phi+> = (|00> + |11>) / sqrt(2)"
-      Circuit = "H(0), CNOT(0,1)"; Create = createPhiPlus }
-    { Key = "phiminus"; Label = "Phi Minus"; Notation = "|Phi-> = (|00> - |11>) / sqrt(2)"
-      Circuit = "H(0), CNOT(0,1), Z(0)"; Create = createPhiMinus }
-    { Key = "psiplus"; Label = "Psi Plus"; Notation = "|Psi+> = (|01> + |10>) / sqrt(2)"
-      Circuit = "H(0), CNOT(0,1), X(1)"; Create = createPsiPlus }
-    { Key = "psiminus"; Label = "Psi Minus"; Notation = "|Psi-> = (|01> - |10>) / sqrt(2)"
-      Circuit = "H(0), CNOT(0,1), X(1), Z(0)"; Create = createPsiMinus }
-]
+let allStates =
+    [
+        {
+            Key = "phiplus"
+            Label = "Phi Plus"
+            Notation = "|Phi+> = (|00> + |11>) / sqrt(2)"
+            Circuit = "H(0), CNOT(0,1)"
+            Create = createPhiPlus
+        }
+        {
+            Key = "phiminus"
+            Label = "Phi Minus"
+            Notation = "|Phi-> = (|00> - |11>) / sqrt(2)"
+            Circuit = "H(0), CNOT(0,1), Z(0)"
+            Create = createPhiMinus
+        }
+        {
+            Key = "psiplus"
+            Label = "Psi Plus"
+            Notation = "|Psi+> = (|01> + |10>) / sqrt(2)"
+            Circuit = "H(0), CNOT(0,1), X(1)"
+            Create = createPsiPlus
+        }
+        {
+            Key = "psiminus"
+            Label = "Psi Minus"
+            Notation = "|Psi-> = (|01> - |10>) / sqrt(2)"
+            Circuit = "H(0), CNOT(0,1), X(1), Z(0)"
+            Create = createPsiMinus
+        }
+    ]
 
 let statesToTest =
     match stateArg with
@@ -170,28 +221,37 @@ for (backendKey, backend) in backendsToTest do
                 match verifyEntanglement result backend verificationShots with
                 | Ok correlation ->
                     if not quiet then
-                        let strength = if abs correlation > 0.9 then "STRONG" elif abs correlation > 0.5 then "moderate" else "weak"
+                        let strength =
+                            if abs correlation > 0.9 then "STRONG"
+                            elif abs correlation > 0.5 then "moderate"
+                            else "weak"
+
                         printfn "     Entanglement: correlation = %.4f [%s]" correlation strength
 
                     $"%.4f{correlation}"
                 | Error _ ->
                     if not quiet then
                         printfn "     Entanglement: verification unavailable"
+
                     "N/A"
 
-            if not quiet then printfn ""
+            if not quiet then
+                printfn ""
 
             results.Add(
-                [ "backend", backendKey
-                  "backend_name", backend.Name
-                  "state_key", spec.Key
-                  "state_label", spec.Label
-                  "notation", spec.Notation
-                  "circuit", spec.Circuit
-                  "qubits", string result.NumQubits
-                  "correlation", correlationStr
-                  "success", "true" ]
-                |> Map.ofList)
+                [
+                    "backend", backendKey
+                    "backend_name", backend.Name
+                    "state_key", spec.Key
+                    "state_label", spec.Label
+                    "notation", spec.Notation
+                    "circuit", spec.Circuit
+                    "qubits", string result.NumQubits
+                    "correlation", correlationStr
+                    "success", "true"
+                ]
+                |> Map.ofList
+            )
 
         | Error err ->
             if not quiet then
@@ -199,12 +259,15 @@ for (backendKey, backend) in backendsToTest do
                 printfn ""
 
             results.Add(
-                [ "backend", backendKey
-                  "state_key", spec.Key
-                  "state_label", spec.Label
-                  "error", $"%A{err}"
-                  "success", "false" ]
-                |> Map.ofList)
+                [
+                    "backend", backendKey
+                    "state_key", spec.Key
+                    "state_label", spec.Label
+                    "error", $"%A{err}"
+                    "success", "false"
+                ]
+                |> Map.ofList
+            )
 
 // ============================================================================
 // Summary
@@ -244,12 +307,12 @@ match outputPath with
 match csvPath with
 | Some path ->
     let allKeys =
-        resultsList
-        |> List.collect (Map.toList >> List.map fst)
-        |> List.distinct
+        resultsList |> List.collect (Map.toList >> List.map fst) |> List.distinct
+
     let rows =
         resultsList
         |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+
     Reporting.writeCsv path allKeys rows
 | None -> ()
 

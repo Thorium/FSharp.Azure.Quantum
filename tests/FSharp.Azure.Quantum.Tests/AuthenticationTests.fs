@@ -30,7 +30,8 @@ let ``TokenManager should acquire token on first request`` () =
         let! token = tokenManager.GetAccessTokenAsync()
 
         Assert.Equal("test-token-123", token)
-    } |> Async.StartAsTask
+    }
+    |> Async.StartAsTask
 
 [<Fact; Trait("Category", "Slow")>]
 let ``TokenManager should cache token on subsequent requests`` () =
@@ -46,7 +47,8 @@ let ``TokenManager should cache token on subsequent requests`` () =
 
                 member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                     callCount <- callCount + 1
-                    ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
+                    ValueTask<AccessToken>(AccessToken("token", expiresOn))
+            }
 
         use tokenManager = TokenManager(trackingCredential)
 
@@ -58,7 +60,8 @@ let ``TokenManager should cache token on subsequent requests`` () =
         let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(1, callCount) // Should not increment
         Assert.Equal(token1, token2)
-    } :> Task
+    }
+    :> Task
 
 [<Fact>]
 let ``TokenManager should refresh expired token`` () =
@@ -74,7 +77,8 @@ let ``TokenManager should refresh expired token`` () =
 
                 member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                     callCount <- callCount + 1
-                    ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry)) }
+                    ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry))
+            }
 
         use tokenManager = TokenManager(trackingCredential)
 
@@ -93,7 +97,8 @@ let ``TokenManager should refresh expired token`` () =
         let! token2 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(2, callCount)
         Assert.Equal("token-2", token2)
-    } :> Task
+    }
+    :> Task
 
 [<Fact>]
 let ``TokenManager ClearCache should force token refresh`` () =
@@ -109,7 +114,8 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
                 member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                     callCount <- callCount + 1
-                    ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
+                    ValueTask<AccessToken>(AccessToken("token", expiresOn))
+            }
 
         use tokenManager = TokenManager(trackingCredential)
 
@@ -120,7 +126,8 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
         let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(2, callCount)
-    } :> Task
+    }
+    :> Task
 
 // ============================================================================
 // Credential Provider Tests
@@ -128,17 +135,17 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
 [<Fact>]
 let ``CredentialProviders createDefaultCredential should return DefaultAzureCredential`` () =
-    let credential = CredentialProviders.createDefaultCredential()
+    let credential = CredentialProviders.createDefaultCredential ()
     Assert.IsType<DefaultAzureCredential>(credential) |> ignore
 
 [<Fact>]
 let ``CredentialProviders createCliCredential should return AzureCliCredential`` () =
-    let credential = CredentialProviders.createCliCredential()
+    let credential = CredentialProviders.createCliCredential ()
     Assert.IsType<AzureCliCredential>(credential) |> ignore
 
 [<Fact>]
 let ``CredentialProviders createManagedIdentityCredential should return ManagedIdentityCredential`` () =
-    let credential = CredentialProviders.createManagedIdentityCredential()
+    let credential = CredentialProviders.createManagedIdentityCredential ()
     Assert.IsType<ManagedIdentityCredential>(credential) |> ignore
 
 // ============================================================================
@@ -148,9 +155,9 @@ let ``CredentialProviders createManagedIdentityCredential should return ManagedI
 // Test message handler that captures the request
 type TestMessageHandler() =
     inherit DelegatingHandler()
-    
-    member val CapturedRequest : HttpRequestMessage option = None with get, set
-    
+
+    member val CapturedRequest: HttpRequestMessage option = None with get, set
+
     override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) =
         this.CapturedRequest <- Some request
         let response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -164,11 +171,16 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
         let tokenManager = TokenManager(mockCredential)
 
         let testHandler = new TestMessageHandler()
-        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+
+        let authHandler =
+            new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+
         use client = new HttpClient(authHandler)
 
         // Make a request
-        let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+        let request =
+            new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+
         let! _ = client.SendAsync request
 
         // Verify Authorization header was added
@@ -177,9 +189,9 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
             Assert.NotNull(capturedReq.Headers.Authorization)
             Assert.Equal("Bearer", capturedReq.Headers.Authorization.Scheme)
             Assert.Equal("test-bearer-token", capturedReq.Headers.Authorization.Parameter)
-        | None ->
-            Assert.Fail("No request was captured")
-    } :> Task
+        | None -> Assert.Fail("No request was captured")
+    }
+    :> Task
 
 [<Fact>]
 let ``AuthenticationHandler skips Authorization for requests marked no-auth`` () =
@@ -193,19 +205,23 @@ let ``AuthenticationHandler skips Authorization for requests marked no-auth`` ()
         let tokenManager = TokenManager(mockCredential)
 
         let testHandler = new TestMessageHandler()
-        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+
+        let authHandler =
+            new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+
         use client = new HttpClient(authHandler)
 
-        let request = new HttpRequestMessage(HttpMethod.Get, "https://storage.example.com/results.json?sig=abc")
+        let request =
+            new HttpRequestMessage(HttpMethod.Get, "https://storage.example.com/results.json?sig=abc")
+
         markNoAuth request
         let! _ = client.SendAsync request
 
         match testHandler.CapturedRequest with
-        | Some capturedReq ->
-            Assert.Null(capturedReq.Headers.Authorization)
-        | None ->
-            Assert.Fail("No request was captured")
-    } :> Task
+        | Some capturedReq -> Assert.Null(capturedReq.Headers.Authorization)
+        | None -> Assert.Fail("No request was captured")
+    }
+    :> Task
 
 // ============================================================================
 // Error Handling Tests
@@ -213,7 +229,7 @@ let ``AuthenticationHandler skips Authorization for requests marked no-auth`` ()
 
 type FailingTokenCredential(errorMessage: string) =
     inherit TokenCredential()
-    
+
     override this.GetToken(_: TokenRequestContext, _: CancellationToken) : AccessToken =
         raise (AuthenticationFailedException(errorMessage))
 
@@ -226,12 +242,13 @@ let ``TokenManager should propagate credential errors`` () =
         let failingCredential = FailingTokenCredential("Invalid credentials")
         let tokenManager = TokenManager(failingCredential)
 
-        let! ex = Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-             tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task
-         )
+        let! ex =
+            Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
+                tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task)
 
         Assert.Contains("Invalid credentials", ex.Message)
-    } :> Task
+    }
+    :> Task
 
 [<Fact>]
 let ``TokenManager should handle network timeout gracefully`` () =
@@ -247,11 +264,13 @@ let ``TokenManager should handle network timeout gracefully`` () =
 
         let tokenManager = TokenManager(timeoutCredential)
 
-        let! _ = Assert.ThrowsAsync<TimeoutException>(fun () ->
-                     tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task
-                 )
+        let! _ =
+            Assert.ThrowsAsync<TimeoutException>(fun () ->
+                tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task)
+
         ()
-    } :> Task
+    }
+    :> Task
 
 [<Fact>]
 let ``AuthenticationHandler should fail gracefully when token acquisition fails`` () =
@@ -260,20 +279,23 @@ let ``AuthenticationHandler should fail gracefully when token acquisition fails`
         let tokenManager = TokenManager(failingCredential)
 
         let testHandler = new TestMessageHandler()
-        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+
+        let authHandler =
+            new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+
         let client = new HttpClient(authHandler)
 
-        let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+        let request =
+            new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
 
         // Async task failures should throw AuthenticationFailedException
-        let! ex = 
-            Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-                client.SendAsync request :> Task
-            )
+        let! ex =
+            Assert.ThrowsAsync<AuthenticationFailedException>(fun () -> client.SendAsync request :> Task)
 
         // Verify exception message
         Assert.Contains("Token acquisition failed", ex.Message)
-    } :> Task
+    }
+    :> Task
 
 [<Fact>]
 let ``TokenManager should recover after clearing cache from failed state`` () =
@@ -299,9 +321,9 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
         let tokenManager = TokenManager(recoveringCredential)
 
         // First attempt should fail
-        let! _ = Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
-            tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task
-        )
+        let! _ =
+            Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
+                tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask :> Task)
 
         // Recover and clear cache
         shouldFail <- false
@@ -310,5 +332,5 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
         // Second attempt should succeed
         let! token = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal("recovered-token", token)
-    } :> Task
-
+    }
+    :> Task

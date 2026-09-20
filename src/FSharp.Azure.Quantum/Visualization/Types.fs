@@ -13,25 +13,27 @@ type VisualizationGate =
     /// All standard quantum gates
     | CircuitGate of CircuitBuilder.Gate
     /// Barrier for circuit sections
-    | Barrier of qubits:int list
+    | Barrier of qubits: int list
 
 /// Visualization configuration
-type VisualizationConfig = {
-    /// Format to use for output
-    Format: DiagramFormat
-    /// Show measurement operations
-    ShowMeasurements: bool
-    /// Show barriers between circuit sections
-    ShowBarriers: bool
-    /// Include qubit initialization labels
-    ShowInitialization: bool
-}
+type VisualizationConfig =
+    {
+        /// Format to use for output
+        Format: DiagramFormat
+        /// Show measurement operations
+        ShowMeasurements: bool
+        /// Show barriers between circuit sections
+        ShowBarriers: bool
+        /// Include qubit initialization labels
+        ShowInitialization: bool
+    }
 
 module VisualizationConfig =
     /// Default configuration
-    let defaultConfig = {
-        Format = ASCII
-        ShowMeasurements = true
-        ShowBarriers = false
-        ShowInitialization = true
-    }
+    let defaultConfig =
+        {
+            Format = ASCII
+            ShowMeasurements = true
+            ShowBarriers = false
+            ShowInitialization = true
+        }

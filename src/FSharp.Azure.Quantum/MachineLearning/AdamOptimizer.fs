@@ -13,37 +13,40 @@ module AdamOptimizer =
 
     /// Configuration for Adam optimizer
     [<Struct>]
-    type AdamConfig = {
-        /// Learning rate (α) - step size for parameter updates
-        LearningRate: float
-        /// Beta1 (β₁) - exponential decay rate for first moment estimate (momentum)
-        /// Typical value: 0.9
-        Beta1: float
-        /// Beta2 (β₂) - exponential decay rate for second moment estimate (RMSprop)
-        /// Typical value: 0.999
-        Beta2: float
-        /// Epsilon (ε) - small constant for numerical stability
-        /// Typical value: 1e-8
-        Epsilon: float
-    }
+    type AdamConfig =
+        {
+            /// Learning rate (α) - step size for parameter updates
+            LearningRate: float
+            /// Beta1 (β₁) - exponential decay rate for first moment estimate (momentum)
+            /// Typical value: 0.9
+            Beta1: float
+            /// Beta2 (β₂) - exponential decay rate for second moment estimate (RMSprop)
+            /// Typical value: 0.999
+            Beta2: float
+            /// Epsilon (ε) - small constant for numerical stability
+            /// Typical value: 1e-8
+            Epsilon: float
+        }
 
     /// Internal state maintained by Adam optimizer across iterations
-    type AdamState = {
-        /// First moment vector (exponentially weighted average of gradients)
-        M: float array
-        /// Second moment vector (exponentially weighted average of squared gradients)
-        V: float array
-        /// Time step counter (starts at 1, increments each update)
-        T: int
-    }
+    type AdamState =
+        {
+            /// First moment vector (exponentially weighted average of gradients)
+            M: float array
+            /// Second moment vector (exponentially weighted average of squared gradients)
+            V: float array
+            /// Time step counter (starts at 1, increments each update)
+            T: int
+        }
 
     /// Default Adam configuration following Kingma & Ba (2015) recommendations
-    let defaultConfig = {
-        LearningRate = 0.001
-        Beta1 = 0.9
-        Beta2 = 0.999
-        Epsilon = 1e-8
-    }
+    let defaultConfig =
+        {
+            LearningRate = 0.001
+            Beta1 = 0.9
+            Beta2 = 0.999
+            Epsilon = 1e-8
+        }
 
     /// Create initial Adam state for given parameter count
     ///
@@ -62,26 +65,45 @@ module AdamOptimizer =
     /// Validate Adam configuration parameters
     let private validateConfig (config: AdamConfig) : QuantumResult<unit> =
         if config.LearningRate <= 0.0 then
-            Error (QuantumError.ValidationError ("Input", "Learning rate must be positive"))
+            Error(QuantumError.ValidationError("Input", "Learning rate must be positive"))
         elif config.Beta1 < 0.0 || config.Beta1 >= 1.0 then
-            Error (QuantumError.ValidationError ("Input", "Beta1 must be in range [0, 1)"))
+            Error(QuantumError.ValidationError("Input", "Beta1 must be in range [0, 1)"))
         elif config.Beta2 < 0.0 || config.Beta2 >= 1.0 then
-            Error (QuantumError.ValidationError ("Input", "Beta2 must be in range [0, 1)"))
+            Error(QuantumError.ValidationError("Input", "Beta2 must be in range [0, 1)"))
         elif config.Epsilon <= 0.0 then
-            Error (QuantumError.ValidationError ("Input", "Epsilon must be positive"))
+            Error(QuantumError.ValidationError("Input", "Epsilon must be positive"))
         else
-            Ok ()
+            Ok()
 
     /// Validate parameter and gradient dimensions match optimizer state
-    let private validateDimensions (state: AdamState) (parameters: float array) (gradients: float array) : QuantumResult<unit> =
+    let private validateDimensions
+        (state: AdamState)
+        (parameters: float array)
+        (gradients: float array)
+        : QuantumResult<unit> =
         if parameters.Length <> state.M.Length then
-            Error (QuantumError.ValidationError ("Input", $"Parameters length (%d{parameters.Length}) does not match optimizer state (%d{state.M.Length})"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"Parameters length (%d{parameters.Length}) does not match optimizer state (%d{state.M.Length})"
+                )
+            )
         elif gradients.Length <> state.M.Length then
-            Error (QuantumError.ValidationError ("Input", $"Gradients length (%d{gradients.Length}) does not match optimizer state (%d{state.M.Length})"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"Gradients length (%d{gradients.Length}) does not match optimizer state (%d{state.M.Length})"
+                )
+            )
         elif parameters.Length <> gradients.Length then
-            Error (QuantumError.ValidationError ("Input", $"Parameters length (%d{parameters.Length}) does not match gradients length (%d{gradients.Length})"))
+            Error(
+                QuantumError.ValidationError(
+                    "Input",
+                    $"Parameters length (%d{parameters.Length}) does not match gradients length (%d{gradients.Length})"
+                )
+            )
         else
-            Ok ()
+            Ok()
 
     /// Update parameters using Adam optimizer
     ///
@@ -111,10 +133,10 @@ module AdamOptimizer =
         // Validate inputs
         match validateConfig config with
         | Error err -> Error err
-        | Ok () ->
+        | Ok() ->
             match validateDimensions state parameters gradients with
             | Error err -> Error err
-            | Ok () ->
+            | Ok() ->
                 // Increment time step
                 let t = state.T + 1
                 let tFloat = float t
@@ -131,24 +153,24 @@ module AdamOptimizer =
                     |> Array.map (fun (param, g, (m, v)) ->
                         // Update biased first moment estimate (momentum)
                         let newM = config.Beta1 * m + (1.0 - config.Beta1) * g
-                        
+
                         // Update biased second moment estimate (RMSprop)
                         let newV = config.Beta2 * v + (1.0 - config.Beta2) * (g * g)
-                        
+
                         // Compute bias-corrected estimates
                         let mHat = newM / biasCorrection1
                         let vHat = newV / biasCorrection2
-                        
+
                         // Update parameter with adaptive learning rate
                         let newParam = param - config.LearningRate * mHat / (sqrt vHat + config.Epsilon)
-                        
+
                         (newParam, newM, newV))
-                
+
                 let newParams = updates |> Array.map (fun (p, _, _) -> p)
                 let newM = updates |> Array.map (fun (_, m, _) -> m)
                 let newV = updates |> Array.map (fun (_, _, v) -> v)
                 let newState = { M = newM; V = newV; T = t }
-                Ok (newParams, newState)
+                Ok(newParams, newState)
 
     /// Convenience function to update parameters with default Adam configuration
     let updateWithDefaults
@@ -202,18 +224,15 @@ module AdamOptimizer =
     ///
     /// Returns:
     ///   Result containing AdamConfig or validation error
-    let createConfig
-        (learningRate: float)
-        (beta1: float)
-        (beta2: float)
-        (epsilon: float)
-        : QuantumResult<AdamConfig> =
-        let config = {
-            LearningRate = learningRate
-            Beta1 = beta1
-            Beta2 = beta2
-            Epsilon = epsilon
-        }
+    let createConfig (learningRate: float) (beta1: float) (beta2: float) (epsilon: float) : QuantumResult<AdamConfig> =
+        let config =
+            {
+                LearningRate = learningRate
+                Beta1 = beta1
+                Beta2 = beta2
+                Epsilon = epsilon
+            }
+
         match validateConfig config with
-        | Ok () -> Ok config
+        | Ok() -> Ok config
         | Error err -> Error err

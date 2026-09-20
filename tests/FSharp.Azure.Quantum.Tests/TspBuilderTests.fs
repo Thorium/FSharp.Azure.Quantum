@@ -12,15 +12,11 @@ module TspBuilderTests =
     [<Fact>]
     let ``TSP.createProblem should create problem from 3 cities with coordinates`` () =
         // Arrange
-        let cities = [
-            ("A", 0.0, 0.0)
-            ("B", 3.0, 0.0)
-            ("C", 0.0, 4.0)
-        ]
-        
+        let cities = [ ("A", 0.0, 0.0); ("B", 3.0, 0.0); ("C", 0.0, 4.0) ]
+
         // Act
         let problem = TSP.createProblem cities
-        
+
         // Assert
         Assert.Equal(3, problem.CityCount)
         Assert.Equal(3, problem.Cities.Length)
@@ -28,15 +24,11 @@ module TspBuilderTests =
     [<Fact>]
     let ``TSP.createProblem should calculate correct distance matrix`` () =
         // Arrange - Right triangle with sides 3, 4, 5
-        let cities = [
-            ("A", 0.0, 0.0)
-            ("B", 3.0, 0.0)
-            ("C", 0.0, 4.0)
-        ]
-        
+        let cities = [ ("A", 0.0, 0.0); ("B", 3.0, 0.0); ("C", 0.0, 4.0) ]
+
         // Act
         let problem = TSP.createProblem cities
-        
+
         // Assert
         Assert.Equal(0.0, problem.DistanceMatrix.[0, 0], 5) // A to A
         Assert.Equal(3.0, problem.DistanceMatrix.[0, 1], 5) // A to B
@@ -48,38 +40,29 @@ module TspBuilderTests =
     [<Fact>]
     let ``TSP.solve should return valid tour for 3 cities`` () =
         // Arrange
-        let cities = [
-            ("A", 0.0, 0.0)
-            ("B", 1.0, 0.0)
-            ("C", 0.0, 1.0)
-        ]
+        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
         let problem = TSP.createProblem cities
-        
+
         // Act
         let result = TSP.solve problem None
-        
+
         // Assert
         match result with
         | Ok tour ->
             Assert.Equal(3, tour.Cities.Length)
             Assert.True(tour.TotalDistance > 0.0)
             Assert.True(tour.IsValid)
-        | Error msg ->
-            Assert.Fail($"solve failed: {msg}")
+        | Error msg -> Assert.Fail($"solve failed: {msg}")
 
     [<Fact>]
     let ``TSP.solve should handle 3 cities triangle`` () =
         // Arrange - Triangle shape (within LocalBackend 16-qubit limit)
-        let cities = [
-            ("A", 0.0, 1.0)
-            ("B", 0.87, -0.5)
-            ("C", -0.87, -0.5)
-        ]
+        let cities = [ ("A", 0.0, 1.0); ("B", 0.87, -0.5); ("C", -0.87, -0.5) ]
         let problem = TSP.createProblem cities
-        
+
         // Act
         let result = TSP.solve problem None
-        
+
         // Assert
         match result with
         | Ok tour ->
@@ -90,70 +73,55 @@ module TspBuilderTests =
             Assert.Contains("A", tour.Cities)
             Assert.Contains("B", tour.Cities)
             Assert.Contains("C", tour.Cities)
-        | Error msg ->
-            Assert.Fail($"solve failed: {msg}")
+        | Error msg -> Assert.Fail($"solve failed: {msg}")
 
     [<Fact>]
     let ``TSP.solve should return tour with all unique cities`` () =
         // Arrange - 3 cities (within LocalBackend 16-qubit limit)
-        let cities = [
-            ("City1", 0.0, 0.0)
-            ("City2", 1.0, 0.0)
-            ("City3", 0.5, 0.87)
-        ]
+        let cities = [ ("City1", 0.0, 0.0); ("City2", 1.0, 0.0); ("City3", 0.5, 0.87) ]
         let problem = TSP.createProblem cities
-        
+
         // Act
         let result = TSP.solve problem None
-        
+
         // Assert
         match result with
         | Ok tour ->
             let uniqueCities = tour.Cities |> Set.ofList
             Assert.Equal(3, uniqueCities.Count) // All cities unique
-        | Error msg ->
-            Assert.Fail($"solve failed: {msg}")
+        | Error msg -> Assert.Fail($"solve failed: {msg}")
 
     [<Fact>]
     let ``TSP.solveDirectly should solve without creating problem explicitly`` () =
         // Arrange
-        let cities = [
-            ("A", 0.0, 0.0)
-            ("B", 1.0, 0.0)
-            ("C", 0.5, 1.0)
-        ]
-        
+        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.5, 1.0) ]
+
         // Act
         let result = TSP.solveDirectly cities None
-        
+
         // Assert
         match result with
         | Ok tour ->
             Assert.Equal(3, tour.Cities.Length)
             Assert.True(tour.IsValid)
             Assert.True(tour.TotalDistance > 0.0)
-        | Error msg ->
-            Assert.Fail($"solveDirectly failed: {msg}")
+        | Error msg -> Assert.Fail($"solveDirectly failed: {msg}")
 
     [<Fact>]
     let ``TSP.solve should accept custom backend`` () =
         // Arrange - 3 cities (within LocalBackend 16-qubit limit)
-        let cities = [
-            ("A", 0.0, 0.0)
-            ("B", 1.0, 0.0)
-            ("C", 0.0, 1.0)
-        ]
+        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
         let problem = TSP.createProblem cities
         // Use LocalBackend explicitly (though None would also work)
-        let backend = Some (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
-        
+        let backend =
+            Some(LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+
         // Act
         let result = TSP.solve problem backend
-        
+
         // Assert
         match result with
         | Ok tour ->
             Assert.Equal(3, tour.Cities.Length)
             Assert.True(tour.IsValid)
-        | Error msg ->
-            Assert.Fail($"solve with custom backend failed: {msg}")
+        | Error msg -> Assert.Fail($"solve with custom backend failed: {msg}")

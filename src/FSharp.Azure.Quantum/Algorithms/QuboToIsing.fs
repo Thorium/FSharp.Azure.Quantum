@@ -13,8 +13,8 @@ module private ResultHelpers =
         member _.Bind(x, f) = Result.bind f x
         member _.Return(x) = Ok x
         member _.ReturnFrom(x) = x
-        member _.Zero() = Ok ()
-    
+        member _.Zero() = Ok()
+
     let result = ResultBuilder()
 
 /// QUBO ↔ Ising conversion for D-Wave quantum annealing.
@@ -36,13 +36,13 @@ module private ResultHelpers =
 /// - QAOA and optimization problems naturally expressed as QUBO
 /// - Conversion allows seamless use of D-Wave backend with existing QAOA solvers
 module QuboToIsing =
-    
+
     open FSharp.Azure.Quantum.Backends.DWaveTypes
-    
+
     // ============================================================================
     // QUBO → ISING CONVERSION
     // ============================================================================
-    
+
     /// Convert QUBO to Ising model
     ///
     /// Transformation derivation:
@@ -79,39 +79,40 @@ module QuboToIsing =
         let addToMap key value map =
             let current = Map.tryFind key map |> Option.defaultValue 0.0
             Map.add key (current + value) map
-        
+
         let (finalLinear, finalQuadratic, finalOffset) =
             qubo
-            |> Map.fold (fun (linear, quadratic, offset) (i, j) q_ij ->
-                if i = j then
-                    // Diagonal term: Q_ii * x_i  (x² = x for binary)
-                    // Transformation: Q_ii * (1 + s_i) / 2 = Q_ii/2 + (Q_ii/2) * s_i
-                    // Linear: h_i += Q_ii/2
-                    // Offset: +Q_ii/2
-                    (addToMap i (q_ij / 2.0) linear, quadratic, offset + (q_ij / 2.0))
-                else
-                    // Off-diagonal term: Q_ij * x_i * x_j
-                    // Transformation: Q_ij * ((1 + s_i) / 2) * ((1 + s_j) / 2)
-                    //               = Q_ij/4 * (1 + s_i + s_j + s_i*s_j)
-                    // Linear: h_i += Q_ij/4, h_j += Q_ij/4
-                    // Quadratic: J_ij = Q_ij/4
-                    // Offset: +Q_ij/4
-                    let (iMin, jMax) = if i < j then (i, j) else (j, i)
-                    let newLinear = addToMap i (q_ij / 4.0) linear |> addToMap j (q_ij / 4.0)
-                    let newQuadratic = addToMap (iMin, jMax) (q_ij / 4.0) quadratic
-                    (newLinear, newQuadratic, offset + (q_ij / 4.0))
-            ) (Map.empty, Map.empty, 0.0)
-        
+            |> Map.fold
+                (fun (linear, quadratic, offset) (i, j) q_ij ->
+                    if i = j then
+                        // Diagonal term: Q_ii * x_i  (x² = x for binary)
+                        // Transformation: Q_ii * (1 + s_i) / 2 = Q_ii/2 + (Q_ii/2) * s_i
+                        // Linear: h_i += Q_ii/2
+                        // Offset: +Q_ii/2
+                        (addToMap i (q_ij / 2.0) linear, quadratic, offset + (q_ij / 2.0))
+                    else
+                        // Off-diagonal term: Q_ij * x_i * x_j
+                        // Transformation: Q_ij * ((1 + s_i) / 2) * ((1 + s_j) / 2)
+                        //               = Q_ij/4 * (1 + s_i + s_j + s_i*s_j)
+                        // Linear: h_i += Q_ij/4, h_j += Q_ij/4
+                        // Quadratic: J_ij = Q_ij/4
+                        // Offset: +Q_ij/4
+                        let (iMin, jMax) = if i < j then (i, j) else (j, i)
+                        let newLinear = addToMap i (q_ij / 4.0) linear |> addToMap j (q_ij / 4.0)
+                        let newQuadratic = addToMap (iMin, jMax) (q_ij / 4.0) quadratic
+                        (newLinear, newQuadratic, offset + (q_ij / 4.0)))
+                (Map.empty, Map.empty, 0.0)
+
         {
             LinearCoeffs = finalLinear
             QuadraticCoeffs = finalQuadratic
             Offset = finalOffset
         }
-    
+
     // ============================================================================
     // ISING → QUBO SOLUTION CONVERSION
     // ============================================================================
-    
+
     /// Convert Ising spin solution to QUBO binary solution
     ///
     /// Transformation: s ∈ {-1, +1} → x ∈ {0, 1}
@@ -131,9 +132,8 @@ module QuboToIsing =
         spins
         |> Map.map (fun _ spin ->
             // x = (1 + s) / 2
-            (1 + spin) / 2
-        )
-    
+            (1 + spin) / 2)
+
     /// Convert QUBO binary solution to Ising spin solution
     ///
     /// Transformation: x ∈ {0, 1} → s ∈ {-1, +1}
@@ -149,13 +149,12 @@ module QuboToIsing =
         binary
         |> Map.map (fun _ x ->
             // s = 2x - 1
-            2 * x - 1
-        )
-    
+            2 * x - 1)
+
     // ============================================================================
     // ENERGY CALCULATIONS
     // ============================================================================
-    
+
     /// Calculate Ising energy for a given spin configuration
     ///
     /// Energy formula:
@@ -173,28 +172,26 @@ module QuboToIsing =
     ///   energy = 1.0*1 + (-0.5)*(-1) + (-2.0)*1*(-1) + 0.5
     ///          = 1.0 + 0.5 + 2.0 + 0.5 = 4.0
     let isingEnergy (problem: IsingProblem) (spins: Map<int, int>) : float =
-        
+
         // Linear energy: ∑ h_i * s_i
-        let linearEnergy = 
+        let linearEnergy =
             problem.LinearCoeffs
             |> Map.toSeq
             |> Seq.sumBy (fun (i, h_i) ->
                 let s_i = Map.tryFind i spins |> Option.defaultValue 0 |> float
-                h_i * s_i
-            )
-        
+                h_i * s_i)
+
         // Quadratic energy: ∑ J_ij * s_i * s_j
-        let quadraticEnergy = 
+        let quadraticEnergy =
             problem.QuadraticCoeffs
             |> Map.toSeq
             |> Seq.sumBy (fun ((i, j), j_ij) ->
                 let s_i = Map.tryFind i spins |> Option.defaultValue 0 |> float
                 let s_j = Map.tryFind j spins |> Option.defaultValue 0 |> float
-                j_ij * s_i * s_j
-            )
-        
+                j_ij * s_i * s_j)
+
         linearEnergy + quadraticEnergy + problem.Offset
-    
+
     /// Calculate QUBO energy for a given binary configuration
     ///
     /// Energy formula:
@@ -217,13 +214,12 @@ module QuboToIsing =
         |> Seq.sumBy (fun ((i, j), q_ij) ->
             let x_i = Map.tryFind i binary |> Option.defaultValue 0 |> float
             let x_j = Map.tryFind j binary |> Option.defaultValue 0 |> float
-            q_ij * x_i * x_j
-        )
-    
+            q_ij * x_i * x_j)
+
     // ============================================================================
     // VALIDATION AND UTILITIES
     // ============================================================================
-    
+
     /// Validate that spins are in {-1, +1}
     ///
     /// Parameters:
@@ -231,18 +227,18 @@ module QuboToIsing =
     ///
     /// Returns: QuantumResult<unit> - Ok if valid, Error with message if invalid
     let validateSpins (spins: Map<int, int>) : QuantumResult<unit> =
-        let invalidSpins = 
+        let invalidSpins =
             spins
             |> Map.toSeq
             |> Seq.filter (fun (_, spin) -> spin <> -1 && spin <> 1)
             |> Seq.toList
-        
+
         if List.isEmpty invalidSpins then
-            Ok ()
+            Ok()
         else
             let invalidQubits = invalidSpins |> List.map fst
-            Error (QuantumError.Other $"Invalid spin values (must be -1 or +1) for qubits: {invalidQubits}")
-    
+            Error(QuantumError.Other $"Invalid spin values (must be -1 or +1) for qubits: {invalidQubits}")
+
     /// Validate that binary values are in {0, 1}
     ///
     /// Parameters:
@@ -250,18 +246,18 @@ module QuboToIsing =
     ///
     /// Returns: QuantumResult<unit> - Ok if valid, Error with message if invalid
     let validateBinary (binary: Map<int, int>) : QuantumResult<unit> =
-        let invalidBits = 
+        let invalidBits =
             binary
             |> Map.toSeq
             |> Seq.filter (fun (_, bit) -> bit <> 0 && bit <> 1)
             |> Seq.toList
-        
+
         if List.isEmpty invalidBits then
-            Ok ()
+            Ok()
         else
             let invalidQubits = invalidBits |> List.map fst
-            Error (QuantumError.Other $"Invalid binary values (must be 0 or 1) for qubits: {invalidQubits}")
-    
+            Error(QuantumError.Other $"Invalid binary values (must be 0 or 1) for qubits: {invalidQubits}")
+
     /// Verify that QUBO→Ising→QUBO conversion preserves optimal solution energy
     ///
     /// This is a correctness check for the conversion algorithms.
@@ -283,22 +279,22 @@ module QuboToIsing =
         result {
             // Validate binary solution
             do! validateBinary binary
-            
+
             // Calculate QUBO energy
             let quboEnergyVal = quboEnergy qubo binary
-            
+
             // Convert QUBO to Ising
             let ising = quboToIsing qubo
-            
+
             // Convert binary solution to spins
             let spins = quboToIsingSolution binary
-            
+
             // Validate spins
             do! validateSpins spins
-            
+
             // Calculate Ising energy
             let isingEnergyVal = isingEnergy ising spins
-            
+
             // Energy difference (should be ~0.0 for correct conversion)
             let diff = abs (quboEnergyVal - isingEnergyVal)
             return diff

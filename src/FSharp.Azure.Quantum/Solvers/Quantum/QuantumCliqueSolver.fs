@@ -34,41 +34,44 @@ module QuantumCliqueSolver =
     // ========================================================================
 
     /// A vertex in the graph
-    type Vertex = {
-        Id: string
-        /// Optional priority weight for tie-breaking; default 1.0
-        Weight: float
-    }
+    type Vertex =
+        {
+            Id: string
+            /// Optional priority weight for tie-breaking; default 1.0
+            Weight: float
+        }
 
     /// Maximum clique problem definition
-    type Problem = {
-        Vertices: Vertex list
-        /// Edges as (source index, target index) pairs.
-        /// Represents the ACTUAL edges of the graph.
-        Edges: (int * int) list
-    }
+    type Problem =
+        {
+            Vertices: Vertex list
+            /// Edges as (source index, target index) pairs.
+            /// Represents the ACTUAL edges of the graph.
+            Edges: (int * int) list
+        }
 
     /// Maximum clique solution
-    type Solution = {
-        /// Vertices in the found clique
-        CliqueVertices: Vertex list
-        /// Size of the clique
-        CliqueSize: int
-        /// Sum of vertex weights in the clique
-        CliqueWeight: float
-        /// Whether all pairs of selected vertices are connected
-        IsValid: bool
-        /// Whether constraint repair was applied
-        WasRepaired: bool
-        /// Name of the quantum backend used
-        BackendName: string
-        /// Number of measurement shots
-        NumShots: int
-        /// Optimized QAOA (gamma, beta) parameters per layer
-        OptimizedParameters: (float * float)[] option
-        /// Whether Nelder-Mead converged
-        OptimizationConverged: bool option
-    }
+    type Solution =
+        {
+            /// Vertices in the found clique
+            CliqueVertices: Vertex list
+            /// Size of the clique
+            CliqueSize: int
+            /// Sum of vertex weights in the clique
+            CliqueWeight: float
+            /// Whether all pairs of selected vertices are connected
+            IsValid: bool
+            /// Whether constraint repair was applied
+            WasRepaired: bool
+            /// Name of the quantum backend used
+            BackendName: string
+            /// Number of measurement shots
+            NumShots: int
+            /// Optimized QAOA (gamma, beta) parameters per layer
+            OptimizedParameters: (float * float)[] option
+            /// Whether Nelder-Mead converged
+            OptimizationConverged: bool option
+        }
 
     // ========================================================================
     // CONFIGURATION (type alias for unified config)
@@ -76,9 +79,9 @@ module QuantumCliqueSolver =
 
     type Config = QaoaSolverConfig
 
-    let defaultConfig : Config = QaoaExecutionHelpers.defaultConfig
-    let fastConfig : Config = QaoaExecutionHelpers.fastConfig
-    let highQualityConfig : Config = QaoaExecutionHelpers.highQualityConfig
+    let defaultConfig: Config = QaoaExecutionHelpers.defaultConfig
+    let fastConfig: Config = QaoaExecutionHelpers.fastConfig
+    let highQualityConfig: Config = QaoaExecutionHelpers.highQualityConfig
 
     // ========================================================================
     // QUBIT ESTIMATION (Decision 11)
@@ -86,8 +89,7 @@ module QuantumCliqueSolver =
 
     /// Estimate the number of qubits required for a clique problem.
     /// One qubit per vertex.
-    let estimateQubits (problem: Problem) : int =
-        problem.Vertices.Length
+    let estimateQubits (problem: Problem) : int = problem.Vertices.Length
 
     // ========================================================================
     // EDGE NORMALIZATION
@@ -96,9 +98,7 @@ module QuantumCliqueSolver =
     /// Normalize edges to canonical form: (min(i,j), max(i,j)), deduplicated.
     /// Handles bidirectional edges and duplicates.
     let private normalizeEdges (edges: (int * int) list) : (int * int) list =
-        edges
-        |> List.map (fun (i, j) -> (min i j, max i j))
-        |> List.distinct
+        edges |> List.map (fun (i, j) -> (min i j, max i j)) |> List.distinct
 
     // ========================================================================
     // INTERNAL HELPERS
@@ -109,14 +109,14 @@ module QuantumCliqueSolver =
     /// Uses normalized edges for correct duplicate/bidirectional handling.
     let private buildNonEdges (problem: Problem) : (int * int) list =
         let n = problem.Vertices.Length
-        let edgeSet =
-            normalizeEdges problem.Edges
-            |> Set.ofList
+        let edgeSet = normalizeEdges problem.Edges |> Set.ofList
 
-        [ for i in 0 .. n - 2 do
-            for j in i + 1 .. n - 1 do
-                if not (Set.contains (i, j) edgeSet) then
-                    yield (i, j) ]
+        [
+            for i in 0 .. n - 2 do
+                for j in i + 1 .. n - 1 do
+                    if not (Set.contains (i, j) edgeSet) then
+                        yield (i, j)
+        ]
 
     /// Build adjacency set for fast neighbor lookup.
     /// Uses normalized edges, stored in both directions for O(1) lookup.
@@ -148,16 +148,12 @@ module QuantumCliqueSolver =
 
         // Linear terms: -w_i (maximize clique size/weight)
         let linearTerms =
-            problem.Vertices
-            |> List.indexed
-            |> List.map (fun (i, v) -> ((i, i), -v.Weight))
+            problem.Vertices |> List.indexed |> List.map (fun (i, v) -> ((i, i), -v.Weight))
 
         // Quadratic penalty for non-edges (symmetric split)
         let quadraticTerms =
             nonEdges
-            |> List.collect (fun (i, j) ->
-                [ ((i, j), penalty / 2.0)
-                  ((j, i), penalty / 2.0) ])
+            |> List.collect (fun (i, j) -> [ ((i, j), penalty / 2.0); ((j, i), penalty / 2.0) ])
 
         (linearTerms @ quadraticTerms)
         |> List.fold (fun acc (key, value) -> Qubo.combineTerms key value acc) Map.empty
@@ -166,11 +162,11 @@ module QuantumCliqueSolver =
     /// Returns Result to follow the canonical pattern (validates inputs).
     let toQubo (problem: Problem) : Result<float[,], QuantumError> =
         if problem.Vertices.IsEmpty then
-            Error (QuantumError.ValidationError ("vertices", "Problem has no vertices"))
+            Error(QuantumError.ValidationError("vertices", "Problem has no vertices"))
         else
             let n = problem.Vertices.Length
             let quboMap = buildQuboMap problem
-            Ok (Qubo.toDenseArray n quboMap)
+            Ok(Qubo.toDenseArray n quboMap)
 
     // ========================================================================
     // SOLUTION DECODING & VALIDATION
@@ -181,17 +177,16 @@ module QuantumCliqueSolver =
     /// Also validates bitstring length matches vertex count.
     let isValid (problem: Problem) (bits: int[]) : bool =
         bits.Length = problem.Vertices.Length
-        && (
-            let adjacency = buildAdjacencySet problem
-            let selected = bits |> Array.indexed |> Array.choose (fun (i, b) -> if b = 1 then Some i else None)
+        && (let adjacency = buildAdjacencySet problem
+
+            let selected =
+                bits
+                |> Array.indexed
+                |> Array.choose (fun (i, b) -> if b = 1 then Some i else None)
 
             // Every pair of selected vertices must have an edge
             selected
-            |> Array.forall (fun i ->
-                selected
-                |> Array.forall (fun j ->
-                    i = j || Set.contains (i, j) adjacency))
-        )
+            |> Array.forall (fun i -> selected |> Array.forall (fun j -> i = j || Set.contains (i, j) adjacency)))
 
     /// Decode a bitstring into a Solution.
     let private decodeSolution (problem: Problem) (bits: int[]) : Solution =
@@ -230,15 +225,18 @@ module QuantumCliqueSolver =
 
             // Find all non-edge conflicts among selected vertices
             let conflicts =
-                [ for si in 0 .. selected.Length - 2 do
-                    for sj in si + 1 .. selected.Length - 1 do
-                        let i = selected.[si]
-                        let j = selected.[sj]
-                        if not (Set.contains (i, j) adjacency) then
-                            yield (i, j) ]
+                [
+                    for si in 0 .. selected.Length - 2 do
+                        for sj in si + 1 .. selected.Length - 1 do
+                            let i = selected.[si]
+                            let j = selected.[sj]
+
+                            if not (Set.contains (i, j) adjacency) then
+                                yield (i, j)
+                ]
 
             if List.isEmpty conflicts then
-                current  // Valid clique
+                current // Valid clique
             else
                 // Count conflicts per vertex
                 let conflictCounts =
@@ -257,7 +255,7 @@ module QuantumCliqueSolver =
                     |> Array.tryHead
 
                 match worstVertex with
-                | None -> current  // No conflicting vertices to remove (shouldn't happen)
+                | None -> current // No conflicting vertices to remove (shouldn't happen)
                 | Some idx ->
                     let updated = Array.copy current
                     updated.[idx] <- 0
@@ -274,18 +272,23 @@ module QuantumCliqueSolver =
     /// component can be solved independently.
     let decompose (problem: Problem) : Problem list =
         let n = problem.Vertices.Length
-        if n <= 1 then [ problem ]
+
+        if n <= 1 then
+            [ problem ]
         else
             let parts = ProblemDecomposition.partitionByComponents n problem.Edges
+
             match parts with
             | [ _ ] -> [ problem ]
             | components ->
                 components
                 |> List.map (fun (globalIndices, localEdges) ->
-                    let localVertices =
-                        globalIndices
-                        |> List.map (fun gi -> problem.Vertices.[gi])
-                    { Vertices = localVertices; Edges = localEdges })
+                    let localVertices = globalIndices |> List.map (fun gi -> problem.Vertices.[gi])
+
+                    {
+                        Vertices = localVertices
+                        Edges = localEdges
+                    })
 
     /// Recombine sub-solutions into a single solution. Currently identity (single solution).
     /// Handles empty list gracefully.
@@ -324,10 +327,17 @@ module QuantumCliqueSolver =
         : Result<Solution, QuantumError> =
 
         if problem.Vertices.IsEmpty then
-            Error (QuantumError.ValidationError ("vertices", "Problem has no vertices"))
-        elif problem.Edges |> List.exists (fun (i, j) ->
-                i < 0 || j < 0 || i >= problem.Vertices.Length || j >= problem.Vertices.Length || i = j) then
-            Error (QuantumError.ValidationError ("edges", "Edge index out of range or self-loop"))
+            Error(QuantumError.ValidationError("vertices", "Problem has no vertices"))
+        elif
+            problem.Edges
+            |> List.exists (fun (i, j) ->
+                i < 0
+                || j < 0
+                || i >= problem.Vertices.Length
+                || j >= problem.Vertices.Length
+                || i = j)
+        then
+            Error(QuantumError.ValidationError("edges", "Edge index out of range or self-loop"))
         else
             let solveSingle (subProblem: Problem) =
                 match toQubo subProblem with
@@ -336,16 +346,14 @@ module QuantumCliqueSolver =
                     let result =
                         if config.EnableOptimization then
                             executeQaoaWithOptimization backend qubo config
-                            |> Result.map (fun (bits, optParams, converged) ->
-                                (bits, Some optParams, Some converged))
+                            |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
                             executeQaoaWithGridSearch backend qubo config
-                            |> Result.map (fun (bits, optParams) ->
-                                (bits, Some optParams, None))
+                            |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
                     | Error err -> Error err
-                    | Ok (bits, optParams, converged) ->
+                    | Ok(bits, optParams, converged) ->
                         let finalBits, wasRepaired =
                             if config.EnableConstraintRepair && not (isValid subProblem bits) then
                                 (repairConstraints subProblem bits, true)
@@ -353,15 +361,17 @@ module QuantumCliqueSolver =
                                 (bits, false)
 
                         let solution = decodeSolution subProblem finalBits
-                        Ok { solution with
+
+                        Ok
+                            { solution with
                                 BackendName = backend.Name
                                 NumShots = config.FinalShots
                                 WasRepaired = wasRepaired
                                 OptimizedParameters = optParams
-                                OptimizationConverged = converged }
+                                OptimizationConverged = converged
+                            }
 
-            ProblemDecomposition.solveWithDecomposition
-                backend problem estimateQubits decompose recombine solveSingle
+            ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve maximum clique using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
@@ -371,10 +381,11 @@ module QuantumCliqueSolver =
         (problem: Problem)
         (config: Config)
         (cancellationToken: CancellationToken)
-        : Task<Result<Solution, QuantumError>> = task {
-        cancellationToken.ThrowIfCancellationRequested()
-        return solveWithConfig backend problem config
-    }
+        : Task<Result<Solution, QuantumError>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
 
     /// Solve maximum clique using QAOA with default configuration.
     [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
@@ -384,7 +395,11 @@ module QuantumCliqueSolver =
         (shots: int)
         : Result<Solution, QuantumError> =
 
-        let config = { defaultConfig with FinalShots = shots }
+        let config =
+            { defaultConfig with
+                FinalShots = shots
+            }
+
         solveWithConfigAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -399,17 +414,17 @@ module QuantumCliqueSolver =
     let private solveClassical (problem: Problem) : Solution =
         if problem.Vertices.IsEmpty then
             decodeSolution problem (Array.zeroCreate 0)
-            |> fun s -> { s with BackendName = "Classical Greedy" }
+            |> fun s ->
+                { s with
+                    BackendName = "Classical Greedy"
+                }
         else
             let n = problem.Vertices.Length
             let adjacency = buildAdjacencySet problem
 
             // Start with the highest-weight vertex
             let startVertex =
-                problem.Vertices
-                |> List.indexed
-                |> List.maxBy (fun (_, v) -> v.Weight)
-                |> fst
+                problem.Vertices |> List.indexed |> List.maxBy (fun (_, v) -> v.Weight) |> fst
 
             // Greedily add vertices connected to all current clique members
             let candidates =
@@ -419,14 +434,18 @@ module QuantumCliqueSolver =
 
             let clique =
                 candidates
-                |> List.fold (fun (acc: Set<int>) candidate ->
-                    let connectedToAll =
-                        acc |> Set.forall (fun member' ->
-                            Set.contains (candidate, member') adjacency)
-                    if connectedToAll then acc |> Set.add candidate
-                    else acc
-                ) (Set.singleton startVertex)
+                |> List.fold
+                    (fun (acc: Set<int>) candidate ->
+                        let connectedToAll =
+                            acc |> Set.forall (fun member' -> Set.contains (candidate, member') adjacency)
+
+                        if connectedToAll then acc |> Set.add candidate else acc)
+                    (Set.singleton startVertex)
 
             let bits = Array.init n (fun i -> if clique |> Set.contains i then 1 else 0)
+
             decodeSolution problem bits
-            |> fun s -> { s with BackendName = "Classical Greedy" }
+            |> fun s ->
+                { s with
+                    BackendName = "Classical Greedy"
+                }

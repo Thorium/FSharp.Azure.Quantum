@@ -13,12 +13,12 @@ module Parsing =
     let private required (rowNum: int) (name: string) (row: Data.CsvRow) : Result<string, ParseError> =
         match tryGet name row with
         | Some v when v <> "" -> Ok v
-        | _ -> Error (sprintf "row=%d missing %s" rowNum name)
+        | _ -> Error(sprintf "row=%d missing %s" rowNum name)
 
     let private parseFloat (rowNum: int) (name: string) (s: string) : Result<float, ParseError> =
         match Double.TryParse s with
         | true, x -> Ok x
-        | false, _ -> Error (sprintf "row=%d invalid %s" rowNum name)
+        | false, _ -> Error(sprintf "row=%d invalid %s" rowNum name)
 
     let private parseIntOpt (rowNum: int) (name: string) (row: Data.CsvRow) : Result<int option, ParseError> =
         match tryGet name row with
@@ -26,8 +26,8 @@ module Parsing =
         | Some "" -> Ok None
         | Some s ->
             match Int32.TryParse s with
-            | true, x -> Ok (Some x)
-            | false, _ -> Error (sprintf "row=%d invalid %s" rowNum name)
+            | true, x -> Ok(Some x)
+            | false, _ -> Error(sprintf "row=%d invalid %s" rowNum name)
 
     let private parseRow (rowNum: int) (row: Data.CsvRow) : Result<Transaction, ParseError> =
         match required rowNum "transaction_id" row with
@@ -39,26 +39,37 @@ module Parsing =
                 match required rowNum "hour" row |> Result.bind (parseFloat rowNum "hour") with
                 | Error e -> Error e
                 | Ok hour ->
-                    match required rowNum "merchant_category" row |> Result.bind (parseFloat rowNum "merchant_category") with
+                    match
+                        required rowNum "merchant_category" row
+                        |> Result.bind (parseFloat rowNum "merchant_category")
+                    with
                     | Error e -> Error e
                     | Ok cat ->
-                        match required rowNum "distance_km" row |> Result.bind (parseFloat rowNum "distance_km") with
+                        match
+                            required rowNum "distance_km" row
+                            |> Result.bind (parseFloat rowNum "distance_km")
+                        with
                         | Error e -> Error e
                         | Ok dist ->
-                            match required rowNum "txn_count_24h" row |> Result.bind (parseFloat rowNum "txn_count_24h") with
+                            match
+                                required rowNum "txn_count_24h" row
+                                |> Result.bind (parseFloat rowNum "txn_count_24h")
+                            with
                             | Error e -> Error e
                             | Ok cnt ->
                                 match parseIntOpt rowNum "label" row with
                                 | Error e -> Error e
                                 | Ok label ->
                                     Ok
-                                        { TransactionId = txId
-                                          Amount = amount
-                                          Hour = hour
-                                          MerchantCategory = cat
-                                          DistanceKm = dist
-                                          TxnCount24h = cnt
-                                          Label = label }
+                                        {
+                                            TransactionId = txId
+                                            Amount = amount
+                                            Hour = hour
+                                            MerchantCategory = cat
+                                            DistanceKm = dist
+                                            TxnCount24h = cnt
+                                            Label = label
+                                        }
 
     let readTransactions (path: string) : Transaction list * ParseError list =
         let rows, structuralErrors = Data.readCsvWithHeaderWithErrors path

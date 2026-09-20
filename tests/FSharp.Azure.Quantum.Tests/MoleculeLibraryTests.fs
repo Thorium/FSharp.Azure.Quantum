@@ -23,7 +23,7 @@ let ``MoleculeLibrary.get returns H2O molecule with correct geometry`` () =
     Assert.Equal(3, h2o.Atoms.Length)
     Assert.Equal(1, h2o.Multiplicity)
     Assert.Equal("triatomic", h2o.Category)
-    
+
     // Check oxygen is first atom
     Assert.Equal("O", h2o.Atoms.[0].Element)
     Assert.Equal("H", h2o.Atoms.[1].Element)
@@ -118,9 +118,13 @@ let ``MoleculeLibrary.byCategory returns empty for invalid category`` () =
 let ``MoleculeLibrary.diatomics returns diatomic molecules`` () =
     let diatomics = MoleculeLibrary.diatomics ()
     Assert.True(diatomics.Length >= 5)
-    Assert.All(diatomics, fun m -> 
-        Assert.Equal("diatomic", m.Category)
-        Assert.Equal(2, m.Atoms.Length))
+
+    Assert.All(
+        diatomics,
+        fun m ->
+            Assert.Equal("diatomic", m.Category)
+            Assert.Equal(2, m.Atoms.Length)
+    )
 
 [<Fact>]
 let ``MoleculeLibrary.aromatics returns aromatic molecules`` () =
@@ -157,7 +161,7 @@ let ``MoleculeLibrary.catalysts returns catalyst molecules`` () =
 [<Fact>]
 let ``MoleculeLibrary.search finds molecules by partial name`` () =
     let results = MoleculeLibrary.search "eth"
-    Assert.True(results.Length >= 2)  // ethane, ethylene, ethanol, etc.
+    Assert.True(results.Length >= 2) // ethane, ethylene, ethanol, etc.
 
 [<Fact>]
 let ``MoleculeLibrary.search is case-insensitive`` () =
@@ -177,17 +181,17 @@ let ``MoleculeLibrary.search returns empty for no matches`` () =
 [<Fact>]
 let ``MoleculeLibrary molecules have inferred bonds`` () =
     let h2 = MoleculeLibrary.get "H2"
-    Assert.True(h2.Bonds.Length >= 1)  // H-H bond
+    Assert.True(h2.Bonds.Length >= 1) // H-H bond
 
 [<Fact>]
 let ``MoleculeLibrary H2O has two bonds`` () =
     let h2o = MoleculeLibrary.get "H2O"
-    Assert.Equal(2, h2o.Bonds.Length)  // Two O-H bonds
+    Assert.Equal(2, h2o.Bonds.Length) // Two O-H bonds
 
 [<Fact>]
 let ``MoleculeLibrary benzene has multiple bonds`` () =
     let benzene = MoleculeLibrary.get "benzene"
-    Assert.True(benzene.Bonds.Length >= 6)  // At least 6 C-C bonds in ring
+    Assert.True(benzene.Bonds.Length >= 6) // At least 6 C-C bonds in ring
 
 // =============================================================================
 // SPECIFIC MOLECULE TESTS
@@ -197,7 +201,7 @@ let ``MoleculeLibrary benzene has multiple bonds`` () =
 let ``MoleculeLibrary Fe2 has correct multiplicity for ground state`` () =
     let fe2 = MoleculeLibrary.get "Fe2"
     Assert.Equal("Fe2", fe2.Name)
-    Assert.Equal(7, fe2.Multiplicity)  // Septet ground state
+    Assert.Equal(7, fe2.Multiplicity) // Septet ground state
     Assert.Equal("metal_dimer", fe2.Category)
 
 [<Fact>]
@@ -205,21 +209,21 @@ let ``MoleculeLibrary LiH has correct bond length`` () =
     let lih = MoleculeLibrary.get "LiH"
     let li = lih.Atoms.[0]
     let h = lih.Atoms.[1]
-    
+
     // Calculate distance
     let (x1, y1, z1) = li.Position
     let (x2, y2, z2) = h.Position
-    let distance = sqrt ((x2-x1)**2.0 + (y2-y1)**2.0 + (z2-z1)**2.0)
-    
+    let distance = sqrt ((x2 - x1) ** 2.0 + (y2 - y1) ** 2.0 + (z2 - z1) ** 2.0)
+
     // LiH bond length is ~1.595 Å from NIST CCCBDB
-    Assert.True(abs(distance - 1.595) < 0.01, $"Expected ~1.595 Å, got {distance}")
+    Assert.True(abs (distance - 1.595) < 0.01, $"Expected ~1.595 Å, got {distance}")
 
 [<Fact>]
 let ``MoleculeLibrary methane has tetrahedral structure`` () =
     let ch4 = MoleculeLibrary.get "methane"
-    Assert.Equal(5, ch4.Atoms.Length)  // 1 C + 4 H
+    Assert.Equal(5, ch4.Atoms.Length) // 1 C + 4 H
     Assert.Equal("C", ch4.Atoms.[0].Element)
-    Assert.Equal(4, ch4.Bonds.Length)  // 4 C-H bonds
+    Assert.Equal(4, ch4.Bonds.Length) // 4 C-H bonds
 
 [<Fact>]
 let ``MoleculeLibrary CdSe has correct reference`` () =

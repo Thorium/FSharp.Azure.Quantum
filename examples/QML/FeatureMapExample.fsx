@@ -78,22 +78,50 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "FeatureMapExample.fsx"
     "Quantum feature map encoding strategies for QML"
-    [ { Name = "example";  Description = "Which example: 1|2|3|4|5|6|7|all"; Default = Some "all" }
-      { Name = "features"; Description = "Comma-separated feature vector";    Default = Some "0.5,1.0,-0.3,0.8" }
-      { Name = "output";   Description = "Write results to JSON file";        Default = None }
-      { Name = "csv";      Description = "Write results to CSV file";         Default = None }
-      { Name = "quiet";    Description = "Suppress console output";           Default = None } ]
+    [
+        {
+            Name = "example"
+            Description = "Which example: 1|2|3|4|5|6|7|all"
+            Default = Some "all"
+        }
+        {
+            Name = "features"
+            Description = "Comma-separated feature vector"
+            Default = Some "0.5,1.0,-0.3,0.8"
+        }
+        {
+            Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Name = "quiet"
+            Description = "Suppress console output"
+            Default = None
+        }
+    ]
     args
 
-let quiet      = Cli.hasFlag "quiet" args
+let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
-let csvPath    = Cli.tryGet "csv" args
+let csvPath = Cli.tryGet "csv" args
 let exampleArg = Cli.getOr "example" "all" args
-let features   =
+
+let features =
     Cli.getOr "features" "0.5,1.0,-0.3,0.8" args
     |> fun s -> s.Split(',') |> Array.map float
 
-let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let pr fmt =
+    Printf.ksprintf
+        (fun s ->
+            if not quiet then
+                printfn "%s" s)
+        fmt
 
 let section title =
     pr ""
@@ -107,35 +135,82 @@ let section title =
 let quantumBackend = LocalBackend() :> IQuantumBackend
 
 // â”€â”€ Result accumulators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-let mutable results : Map<string, obj> list = []
-let mutable csvRows : string list list = []
+let mutable results: Map<string, obj> list = []
+let mutable csvRows: string list list = []
 
-let shouldRun ex = exampleArg = "all" || exampleArg = string ex
+let shouldRun ex =
+    exampleArg = "all" || exampleArg = string ex
 
 let analyzeGates (gates: Gate list) =
-    let hCount    = gates |> List.filter (function H _ -> true | _ -> false) |> List.length
-    let rzCount   = gates |> List.filter (function RZ _ -> true | _ -> false) |> List.length
-    let ryCount   = gates |> List.filter (function RY _ -> true | _ -> false) |> List.length
-    let cnotCount = gates |> List.filter (function CNOT _ -> true | _ -> false) |> List.length
-    let czCount   = gates |> List.filter (function CZ _ -> true | _ -> false) |> List.length
-    let swapCount = gates |> List.filter (function SWAP _ -> true | _ -> false) |> List.length
+    let hCount =
+        gates
+        |> List.filter (function
+            | H _ -> true
+            | _ -> false)
+        |> List.length
+
+    let rzCount =
+        gates
+        |> List.filter (function
+            | RZ _ -> true
+            | _ -> false)
+        |> List.length
+
+    let ryCount =
+        gates
+        |> List.filter (function
+            | RY _ -> true
+            | _ -> false)
+        |> List.length
+
+    let cnotCount =
+        gates
+        |> List.filter (function
+            | CNOT _ -> true
+            | _ -> false)
+        |> List.length
+
+    let czCount =
+        gates
+        |> List.filter (function
+            | CZ _ -> true
+            | _ -> false)
+        |> List.length
+
+    let swapCount =
+        gates
+        |> List.filter (function
+            | SWAP _ -> true
+            | _ -> false)
+        |> List.length
+
     (hCount, rzCount, ryCount, cnotCount, czCount, swapCount)
 
 let hasEntanglement (gates: Gate list) =
-    gates |> List.exists (function CNOT _ | CZ _ | SWAP _ | CCX _ -> true | _ -> false)
+    gates
+    |> List.exists (function
+        | CNOT _
+        | CZ _
+        | SWAP _
+        | CCX _ -> true
+        | _ -> false)
 
 let addResult name qubits gateCount entangled extras =
-    results <- results @ [
-        Map.ofList ([
-            "example", box name
-            "qubits", box qubits
-            "gates", box gateCount
-            "entangled", box entangled
-        ] @ extras)
-    ]
-    csvRows <- csvRows @ [
-        [ name; string qubits; string gateCount; string entangled ]
-    ]
+    results <-
+        results
+        @ [
+            Map.ofList (
+                [
+                    "example", box name
+                    "qubits", box qubits
+                    "gates", box gateCount
+                    "entangled", box entangled
+                ]
+                @ extras
+            )
+        ]
+
+    csvRows <- csvRows @ [ [ name; string qubits; string gateCount; string entangled ] ]
 
 // â”€â”€ EXAMPLE 1: Angle Encoding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 1 then
@@ -148,8 +223,7 @@ if shouldRun 1 then
         pr "Circuit generated: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Structure: Ry rotations only (no entanglement)"
         addResult "1_angle" circ.QubitCount (gateCount circ) false []
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 2: ZZ Feature Map (depth 1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 2 then
@@ -163,10 +237,8 @@ if shouldRun 2 then
         let (h, rz, _, cnot, _, _) = analyzeGates gates
         pr "Circuit generated: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Hadamard: %d, Rz: %d, CNOT: %d" h rz cnot
-        addResult "2_zz_d1" circ.QubitCount (gateCount circ) true
-            [ "hadamard", box h; "rz", box rz; "cnot", box cnot ]
-    | Error err ->
-        pr "Error: %s" err.Message
+        addResult "2_zz_d1" circ.QubitCount (gateCount circ) true [ "hadamard", box h; "rz", box rz; "cnot", box cnot ]
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 3: ZZ Feature Map (depth 2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 3 then
@@ -179,8 +251,7 @@ if shouldRun 3 then
         pr "Circuit generated: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Depth 2 = more expressive, captures deeper correlations"
         addResult "3_zz_d2" circ.QubitCount (gateCount circ) true []
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 4: Pauli Feature Map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 4 then
@@ -188,13 +259,12 @@ if shouldRun 4 then
     pr "Strategy: Custom Pauli string rotations (ZZ, XX)"
     pr ""
 
-    match FeatureMap.buildFeatureMap (PauliFeatureMap(["ZZ"; "XX"], 1)) features with
+    match FeatureMap.buildFeatureMap (PauliFeatureMap([ "ZZ"; "XX" ], 1)) features with
     | Ok circ ->
         pr "Circuit generated: %d qubits, %d gates" circ.QubitCount (gateCount circ)
         pr "  Pauli strings: ZZ, XX"
         addResult "4_pauli" circ.QubitCount (gateCount circ) true []
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 5: Amplitude Encoding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 5 then
@@ -205,25 +275,28 @@ if shouldRun 5 then
 
     match FeatureMap.buildFeatureMap AmplitudeEncoding features with
     | Ok circ ->
-        pr "Circuit generated: %d qubits (log2(%d) = %.1f), %d gates"
-            circ.QubitCount features.Length
+        pr
+            "Circuit generated: %d qubits (log2(%d) = %.1f), %d gates"
+            circ.QubitCount
+            features.Length
             (log (float features.Length) / log 2.0)
             (gateCount circ)
+
         addResult "5_amplitude" circ.QubitCount (gateCount circ) false []
-    | Error err ->
-        pr "Error: %s" err.Message
+    | Error err -> pr "Error: %s" err.Message
 
 // â”€â”€ EXAMPLE 6: Feature Map Comparison â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 6 then
     section "EXAMPLE 6: Feature Map Comparison"
 
-    let featureMaps = [
-        ("AngleEncoding",   AngleEncoding)
-        ("ZZFeatureMap(1)", ZZFeatureMap 1)
-        ("ZZFeatureMap(2)", ZZFeatureMap 2)
-        ("PauliFeatureMap", PauliFeatureMap(["ZZ"], 1))
-        ("AmplitudeEncoding", AmplitudeEncoding)
-    ]
+    let featureMaps =
+        [
+            ("AngleEncoding", AngleEncoding)
+            ("ZZFeatureMap(1)", ZZFeatureMap 1)
+            ("ZZFeatureMap(2)", ZZFeatureMap 2)
+            ("PauliFeatureMap", PauliFeatureMap([ "ZZ" ], 1))
+            ("AmplitudeEncoding", AmplitudeEncoding)
+        ]
 
     pr "%-20s | %6s | %5s | %s" "Feature Map" "Qubits" "Gates" "Entanglement"
     pr "%s" (String.replicate 60 "-")
@@ -234,20 +307,19 @@ if shouldRun 6 then
             let ent = hasEntanglement (getGates circ)
             let entStr = if ent then "Yes" else "No"
             pr "%-20s | %6d | %5d | %s" name circ.QubitCount (gateCount circ) entStr
-            addResult (sprintf "6_%s" (name.Replace("(", "").Replace(")", "")))
-                circ.QubitCount (gateCount circ) ent []
-        | Error _ ->
-            pr "%-20s | %6s | %5s | %s" name "Error" "Error" "Error"
+            addResult (sprintf "6_%s" (name.Replace("(", "").Replace(")", ""))) circ.QubitCount (gateCount circ) ent []
+        | Error _ -> pr "%-20s | %6s | %5s | %s" name "Error" "Error" "Error"
 
 // â”€â”€ EXAMPLE 7: Scaling Analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if shouldRun 7 then
     section "EXAMPLE 7: Scaling (Small / Medium / Large)"
 
-    let testFeatures = [
-        ("2 features", [| 0.5; 1.0 |])
-        ("4 features", [| 0.5; 1.0; -0.3; 0.8 |])
-        ("8 features", [| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |])
-    ]
+    let testFeatures =
+        [
+            ("2 features", [| 0.5; 1.0 |])
+            ("4 features", [| 0.5; 1.0; -0.3; 0.8 |])
+            ("8 features", [| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |])
+        ]
 
     pr "%-12s | %6s | %5s" "Size" "Qubits" "Gates"
     pr "%s" (String.replicate 30 "-")
@@ -257,25 +329,24 @@ if shouldRun 7 then
         | Ok circ ->
             pr "%-12s | %6d | %5d" desc circ.QubitCount (gateCount circ)
             addResult $"7_scale_%d{feat.Length}" circ.QubitCount (gateCount circ) true []
-        | Error err ->
-            pr "%-12s | Error: %s" desc err.Message
+        | Error err -> pr "%-12s | Error: %s" desc err.Message
 
 // â”€â”€ Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let payload =
-    Map.ofList [
-        "script", box "FeatureMapExample.fsx"
-        "timestamp", box (DateTime.UtcNow.ToString("o"))
-        "features", box features
-        "example", box exampleArg
-        "backend", box (quantumBackend.Name)
-        "results", box results
-    ]
+    Map.ofList
+        [
+            "script", box "FeatureMapExample.fsx"
+            "timestamp", box (DateTime.UtcNow.ToString("o"))
+            "features", box features
+            "example", box exampleArg
+            "backend", box (quantumBackend.Name)
+            "results", box results
+        ]
 
 outputPath |> Option.iter (fun p -> Reporting.writeJson p payload)
-csvPath    |> Option.iter (fun p ->
-    Reporting.writeCsv p
-        [ "example"; "qubits"; "gates"; "entangled" ]
-        csvRows)
+
+csvPath
+|> Option.iter (fun p -> Reporting.writeCsv p [ "example"; "qubits"; "gates"; "entangled" ] csvRows)
 
 // â”€â”€ Usage hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then

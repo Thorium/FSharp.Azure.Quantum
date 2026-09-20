@@ -8,15 +8,15 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
 
 /// Quantum Knapsack Solver using QAOA and Backend Abstraction
-/// 
+///
 /// ALGORITHM-LEVEL API (for advanced users):
 /// This module provides direct access to quantum 0/1 Knapsack solving via QAOA.
 /// The Knapsack Problem is a fundamental combinatorial optimization problem
 /// with applications in resource allocation, portfolio optimization, and scheduling.
-/// 
+///
 /// RULE 1 COMPLIANCE:
 /// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
-/// 
+///
 /// TECHNICAL DETAILS:
 /// - Execution: Quantum hardware/simulator via backend
 /// - Algorithm: QAOA (Quantum Approximate Optimization Algorithm)
@@ -34,9 +34,9 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// Knapsack Problem:
 ///   Given items with weights w_i and values v_i, and capacity W,
 ///   select subset S ⊆ {1..n} to maximize:
-///   
+///
 ///   Value = Σ v_i * x_i  where x_i ∈ {0, 1}
-///   
+///
 ///   Subject to: Σ w_i * x_i ≤ W  (capacity constraint)
 ///
 /// Example:
@@ -52,52 +52,55 @@ module QuantumKnapsackSolver =
     // ================================================================================
 
     /// Knapsack item with weight and value
-    type KnapsackItem = {
-        /// Item identifier/name
-        Id: string
-        
-        /// Item weight (consumes capacity)
-        Weight: float
-        
-        /// Item value (objective to maximize)
-        Value: float
-    }
-    
+    type KnapsackItem =
+        {
+            /// Item identifier/name
+            Id: string
+
+            /// Item weight (consumes capacity)
+            Weight: float
+
+            /// Item value (objective to maximize)
+            Value: float
+        }
+
     /// Knapsack problem specification
-    type KnapsackProblem = {
-        /// Available items
-        Items: KnapsackItem list
-        
-        /// Knapsack capacity (maximum total weight)
-        Capacity: float
-    }
-    
+    type KnapsackProblem =
+        {
+            /// Available items
+            Items: KnapsackItem list
+
+            /// Knapsack capacity (maximum total weight)
+            Capacity: float
+        }
+
     /// Knapsack solution result
-    type KnapsackSolution = {
-        /// Selected items
-        SelectedItems: KnapsackItem list
-        
-        /// Total weight of selected items
-        TotalWeight: float
-        
-        /// Total value of selected items
-        TotalValue: float
-        
-        /// Whether solution satisfies capacity constraint
-        IsFeasible: bool
-        
-        /// Backend used for execution
-        BackendName: string
-        
-        /// Number of measurement shots
-        NumShots: int
-        
-        /// Execution time in milliseconds
-        ElapsedMs: float
-        
-        /// QUBO objective value (energy)
-        BestEnergy: float
-    }
+    type KnapsackSolution =
+        {
+            /// Selected items
+            SelectedItems: KnapsackItem list
+
+            /// Total weight of selected items
+            TotalWeight: float
+
+            /// Total value of selected items
+            TotalValue: float
+
+            /// Whether solution satisfies capacity constraint
+            IsFeasible: bool
+
+            /// Backend used for execution
+            BackendName: string
+
+            /// Number of measurement shots
+            NumShots: int
+
+            /// Execution time in milliseconds
+            ElapsedMs: float
+
+            /// QUBO objective value (energy)
+            BestEnergy: float
+        }
 
     // ================================================================================
     // QUBO ENCODING FOR KNAPSACK
@@ -108,13 +111,19 @@ module QuantumKnapsackSolver =
     /// Mirrors QuantumBinaryILPSolver.slackBitsForBound (integer bit counting
     /// avoids floating-point precision issues).
     let private slackBitsForBound (b: float) : int =
-        if b <= 0.0 then 0
-        elif b < 1.0 then 1
+        if b <= 0.0 then
+            0
+        elif b < 1.0 then
+            1
         else
             let bInt = int (Math.Ceiling b)
+
             let rec countBits value bits =
-                if value <= 0 then bits
-                else countBits (value >>> 1) (bits + 1)
+                if value <= 0 then
+                    bits
+                else
+                    countBits (value >>> 1) (bits + 1)
+
             max 1 (countBits bInt 0)
 
     /// Encode Knapsack problem as QUBO (standard Lucas encoding with slack bits)
@@ -150,9 +159,9 @@ module QuantumKnapsackSolver =
             let numItems = problem.Items.Length
 
             if numItems = 0 then
-                Error (QuantumError.ValidationError ("numItems", "Knapsack problem has no items"))
+                Error(QuantumError.ValidationError("numItems", "Knapsack problem has no items"))
             elif problem.Capacity <= 0.0 then
-                Error (QuantumError.ValidationError ("capacity", "Knapsack capacity must be positive"))
+                Error(QuantumError.ValidationError("capacity", "Knapsack capacity must be positive"))
             else
                 // Calculate penalty weight using Lucas Rule
                 // Penalty must be large enough to dominate objective violations
@@ -175,25 +184,27 @@ module QuantumKnapsackSolver =
                 let linearTerms =
                     coeffs
                     |> List.map (fun (idx, c) ->
-                        let objective =
-                            if idx < numItems then -problem.Items.[idx].Value else 0.0
+                        let objective = if idx < numItems then -problem.Items.[idx].Value else 0.0
                         (idx, idx), objective + penalty * (c * c - 2.0 * W * c))
 
                 // Quadratic terms (upper triangle): λ * 2*c_u*c_v
                 let quadraticTerms =
-                    [ for (u, cu) in coeffs do
-                        for (v, cv) in coeffs do
-                            if u < v then
-                                yield (u, v), penalty * 2.0 * cu * cv ]
+                    [
+                        for (u, cu) in coeffs do
+                            for (v, cv) in coeffs do
+                                if u < v then
+                                    yield (u, v), penalty * 2.0 * cu * cv
+                    ]
 
                 let quboTerms = linearTerms @ quadraticTerms |> Map.ofList
 
-                Ok {
-                    Q = quboTerms
-                    NumVariables = numVars
-                }
+                Ok
+                    {
+                        Q = quboTerms
+                        NumVariables = numVars
+                    }
         with ex ->
-            Error (QuantumError.OperationError ("QuboEncoding", $"Knapsack QUBO encoding failed: %s{ex.Message}"))
+            Error(QuantumError.OperationError("QuboEncoding", $"Knapsack QUBO encoding failed: %s{ex.Message}"))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -210,33 +221,34 @@ module QuantumKnapsackSolver =
             None
         else
 
-        let selectedItems =
-            problem.Items
-            |> List.mapi (fun i item -> i, item)
-            |> List.filter (fun (i, _) -> bitstring.[i] = 1)
-            |> List.map snd
-        
-        let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
-        let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
-        let isFeasible = totalWeight <= problem.Capacity
-        
-        Some {
-            SelectedItems = selectedItems
-            TotalWeight = totalWeight
-            TotalValue = totalValue
-            IsFeasible = isFeasible
-            BackendName = ""
-            NumShots = 0
-            ElapsedMs = 0.0
-            BestEnergy = -totalValue  // QUBO minimizes -value
-        }
+            let selectedItems =
+                problem.Items
+                |> List.mapi (fun i item -> i, item)
+                |> List.filter (fun (i, _) -> bitstring.[i] = 1)
+                |> List.map snd
+
+            let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
+            let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
+            let isFeasible = totalWeight <= problem.Capacity
+
+            Some
+                {
+                    SelectedItems = selectedItems
+                    TotalWeight = totalWeight
+                    TotalValue = totalValue
+                    IsFeasible = isFeasible
+                    BackendName = ""
+                    NumShots = 0
+                    ElapsedMs = 0.0
+                    BestEnergy = -totalValue // QUBO minimizes -value
+                }
 
     /// Calculate solution value and feasibility
     let evaluateSolution (problem: KnapsackProblem) (selectedItems: KnapsackItem list) : float * bool =
         let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
         let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
         let isFeasible = totalWeight <= problem.Capacity
-        
+
         (totalValue, isFeasible)
 
     // ================================================================================
@@ -244,34 +256,36 @@ module QuantumKnapsackSolver =
     // ================================================================================
 
     /// QAOA configuration parameters
-    type QaoaConfig = {
-        /// Number of measurement shots
-        NumShots: int
-        
-        /// Initial QAOA parameters (gamma, beta) for single layer
-        /// Typical values: (0.5, 0.5) or (π/4, π/2)
-        InitialParameters: float * float
-    }
-    
+    type QaoaConfig =
+        {
+            /// Number of measurement shots
+            NumShots: int
+
+            /// Initial QAOA parameters (gamma, beta) for single layer
+            /// Typical values: (0.5, 0.5) or (π/4, π/2)
+            InitialParameters: float * float
+        }
+
     /// Default QAOA configuration for Knapsack
-    let defaultConfig : QaoaConfig = {
-        NumShots = 1000
-        InitialParameters = (0.5, 0.5)
-    }
+    let defaultConfig: QaoaConfig =
+        {
+            NumShots = 1000
+            InitialParameters = (0.5, 0.5)
+        }
 
     // ================================================================================
     // MAIN SOLVER
     // ================================================================================
 
     /// Solve Knapsack problem using quantum QAOA (async version)
-    /// 
+    ///
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
     ///   - problem: Knapsack problem (items with weights/values, capacity)
     ///   - config: QAOA configuration (shots, initial parameters)
-    /// 
+    ///
     /// Returns: Async<Result<KnapsackSolution, QuantumError>> - Async computation with result or error
-    /// 
+    ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Items = [...]; Capacity = 50.0 }
@@ -281,15 +295,15 @@ module QuantumKnapsackSolver =
     ///       | Ok solution -> printfn "Value: %f" solution.TotalValue
     ///       | Error msg -> printfn "Error: %s" msg
     ///   }
-    let solveAsync 
-        (backend: BackendAbstraction.IQuantumBackend) 
-        (problem: KnapsackProblem) 
-        (config: QaoaConfig) 
+    let solveAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: KnapsackProblem)
+        (config: QaoaConfig)
         (cancellationToken: CancellationToken)
         : Task<Result<KnapsackSolution, QuantumError>> =
-        
+
         let startTime = DateTime.Now
-        
+
         try
             // Step 1: Validate problem
             // Qubit count = numItems + ceil(log2(Capacity+1)) capacity slack bits;
@@ -299,37 +313,29 @@ module QuantumKnapsackSolver =
             // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
             // Backends will return errors if qubit count exceeded
             if numQubits = 0 then
-                task {
-                    return Error (QuantumError.ValidationError ("numItems", "Knapsack problem has no items"))
-                }
+                task { return Error(QuantumError.ValidationError("numItems", "Knapsack problem has no items")) }
             elif problem.Capacity <= 0.0 then
-                task {
-                    return Error (QuantumError.ValidationError ("capacity", "Knapsack capacity must be positive"))
-                }
+                task { return Error(QuantumError.ValidationError("capacity", "Knapsack capacity must be positive")) }
             else
                 // Step 2: Encode Knapsack as QUBO
                 match toQubo problem with
                 | Error err -> task { return Error err }
                 | Ok quboMatrix ->
-                    
+
                     // Step 3: Execute QAOA pipeline from dense QUBO
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    
-                    let handleMeasurements (measurements:int array array) =
+
+                    let handleMeasurements (measurements: int array array) =
                         // Step 8: Decode measurements to selections,
                         // dropping malformed (too short) measurements
-                        let solutions =
-                            measurements
-                            |> Array.choose (decodeSolution problem)
-                        
+                        let solutions = measurements |> Array.choose (decodeSolution problem)
+
                         // Step 9: Find best FEASIBLE solution (satisfies capacity)
-                        let feasibleSolutions = 
-                            solutions
-                            |> Array.filter (fun sol -> sol.IsFeasible)
-                        
-                        let bestSolution = 
+                        let feasibleSolutions = solutions |> Array.filter (fun sol -> sol.IsFeasible)
+
+                        let bestSolution =
                             if feasibleSolutions.Length > 0 then
                                 feasibleSolutions |> Array.maxBy (fun sol -> sol.TotalValue)
                             else
@@ -344,38 +350,52 @@ module QuantumKnapsackSolver =
                                     ElapsedMs = 0.0
                                     BestEnergy = 0.0
                                 }
-                        
+
                         let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
-                        
-                        Ok {
-                            bestSolution with
+
+                        Ok
+                            { bestSolution with
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
-                        }
+                            }
 
                     task {
-                        match! QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken with
+                        match!
+                            QaoaExecutionHelpers.executeFromQuboAsync
+                                backend
+                                quboArray
+                                parameters
+                                config.NumShots
+                                cancellationToken
+                        with
                         | Error err -> return Error err
-                        | Ok measurements ->
-                            return handleMeasurements measurements
+                        | Ok measurements -> return handleMeasurements measurements
                     }
-        
+
         with ex ->
-            task { return Error (QuantumError.OperationError ("QuantumKnapsackSolver", $"Quantum Knapsack solve failed: %s{ex.Message}")) }
+            task {
+                return
+                    Error(
+                        QuantumError.OperationError(
+                            "QuantumKnapsackSolver",
+                            $"Quantum Knapsack solve failed: %s{ex.Message}"
+                        )
+                    )
+            }
 
     /// Solve Knapsack problem using quantum QAOA (synchronous wrapper)
-    /// 
+    ///
     /// This is a synchronous wrapper around solveAsync for backward compatibility.
     /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
-    /// 
+    ///
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
     ///   - problem: Knapsack problem (items with weights/values, capacity)
     ///   - config: QAOA configuration (shots, initial parameters)
-    /// 
+    ///
     /// Returns: Ok with best feasible solution found, or Error with QuantumError
-    /// 
+    ///
     /// Example:
     ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Items = [...]; Capacity = 50.0 }
@@ -384,10 +404,10 @@ module QuantumKnapsackSolver =
     ///   | Ok solution -> printfn "Value: %f" solution.TotalValue
     ///   | Error msg -> printfn "Error: %s" msg
     [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve 
-        (backend: BackendAbstraction.IQuantumBackend) 
-        (problem: KnapsackProblem) 
-        (config: QaoaConfig) 
+    let solve
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: KnapsackProblem)
+        (config: QaoaConfig)
         : Result<KnapsackSolution, QuantumError> =
         solveAsync backend problem config CancellationToken.None
         |> Async.AwaitTask
@@ -398,19 +418,24 @@ module QuantumKnapsackSolver =
     // ================================================================================
 
     /// Solve Knapsack using greedy value-to-weight ratio algorithm (classical)
-    /// 
+    ///
     /// This provides a classical baseline for comparison with quantum QAOA.
     /// Uses greedy heuristic: sort items by value/weight ratio, select until capacity full.
-    /// 
+    ///
     /// Typical performance: 80-90% of optimal for random instances
     let internal solveClassical (problem: KnapsackProblem) : KnapsackSolution =
         // Sort items by value-to-weight ratio (descending)
-        let sortedItems = 
+        let sortedItems =
             problem.Items
-            |> List.map (fun item -> item, if item.Weight = 0.0 then Double.MaxValue else item.Value / item.Weight)
+            |> List.map (fun item ->
+                item,
+                if item.Weight = 0.0 then
+                    Double.MaxValue
+                else
+                    item.Value / item.Weight)
             |> List.sortByDescending snd
             |> List.map fst
-        
+
         // Greedy selection until capacity exceeded
         let rec selectItems remainingCapacity currentSelection items =
             match items with
@@ -420,11 +445,11 @@ module QuantumKnapsackSolver =
                     selectItems (remainingCapacity - item.Weight) (item :: currentSelection) rest
                 else
                     selectItems remainingCapacity currentSelection rest
-        
+
         let selectedItems = selectItems problem.Capacity [] sortedItems
         let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
         let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
-        
+
         {
             SelectedItems = selectedItems
             TotalWeight = totalWeight
@@ -472,9 +497,9 @@ module QuantumKnapsackSolver =
             let n = items.Length
 
             if n = 0 then
-                Error (QuantumError.ValidationError ("numItems", "Subset-sum problem has no items"))
+                Error(QuantumError.ValidationError("numItems", "Subset-sum problem has no items"))
             elif targetSum <= 0.0 then
-                Error (QuantumError.ValidationError ("targetSum", "Target sum must be positive"))
+                Error(QuantumError.ValidationError("targetSum", "Target sum must be positive"))
             else
                 // Penalty weight: must dominate any exclusion penalties
                 let maxWeight = items |> List.map (fun i -> i.Weight) |> List.max
@@ -482,29 +507,32 @@ module QuantumKnapsackSolver =
 
                 // Linear terms (diagonal): λ * (w_i² - 2W*w_i)
                 let linearTerms =
-                    [ for i in 0 .. n - 1 do
-                        let w = items.[i].Weight
-                        yield (i, i), penalty * (w * w - 2.0 * targetSum * w) ]
+                    [
+                        for i in 0 .. n - 1 do
+                            let w = items.[i].Weight
+                            yield (i, i), penalty * (w * w - 2.0 * targetSum * w)
+                    ]
 
                 // Quadratic terms (upper triangle): λ * 2*w_i*w_j
                 let quadraticTerms =
-                    [ for i in 0 .. n - 1 do
-                        for j in i + 1 .. n - 1 do
-                            let w_i = items.[i].Weight
-                            let w_j = items.[j].Weight
-                            yield (i, j), penalty * 2.0 * w_i * w_j ]
+                    [
+                        for i in 0 .. n - 1 do
+                            for j in i + 1 .. n - 1 do
+                                let w_i = items.[i].Weight
+                                let w_j = items.[j].Weight
+                                yield (i, j), penalty * 2.0 * w_i * w_j
+                    ]
 
                 // Combine base QUBO with exclusion penalties
                 let baseTerms = linearTerms @ quadraticTerms
 
                 let allTerms =
                     (Map.ofList baseTerms, exclusionPenalties)
-                    ||> Map.fold (fun acc key value ->
-                        Qubo.combineTerms key value acc)
+                    ||> Map.fold (fun acc key value -> Qubo.combineTerms key value acc)
 
                 Ok { Q = allTerms; NumVariables = n }
         with ex ->
-            Error (QuantumError.OperationError ("SubsetSumQubo", $"Subset-sum QUBO encoding failed: %s{ex.Message}"))
+            Error(QuantumError.OperationError("SubsetSumQubo", $"Subset-sum QUBO encoding failed: %s{ex.Message}"))
 
     /// Build QUBO exclusion penalty terms for a known solution.
     ///
@@ -534,15 +562,14 @@ module QuantumKnapsackSolver =
     ///
     /// This makes the energy highest when x_i = s_i for all i (perfect match with
     /// the known solution), effectively pushing QAOA away from it.
-    let buildExclusionPenalty
-        (knownSolution: int[])
-        (penaltyStrength: float)
-        : Map<(int * int), float> =
-        [ for i in 0 .. knownSolution.Length - 1 do
-            let s_i = float knownSolution.[i]
-            // When s_i = 1: term = -λ (penalizes x_i = 1)
-            // When s_i = 0: term = +λ (penalizes x_i = 0, i.e., rewards x_i = 1)
-            yield (i, i), penaltyStrength * (1.0 - 2.0 * s_i) ]
+    let buildExclusionPenalty (knownSolution: int[]) (penaltyStrength: float) : Map<(int * int), float> =
+        [
+            for i in 0 .. knownSolution.Length - 1 do
+                let s_i = float knownSolution.[i]
+                // When s_i = 1: term = -λ (penalizes x_i = 1)
+                // When s_i = 0: term = +λ (penalizes x_i = 0, i.e., rewards x_i = 1)
+                yield (i, i), penaltyStrength * (1.0 - 2.0 * s_i)
+        ]
         |> Map.ofList
 
     /// Combine multiple exclusion penalties (one per known solution)
@@ -553,53 +580,55 @@ module QuantumKnapsackSolver =
         (Map.empty, knownSolutions)
         ||> List.fold (fun acc solution ->
             let penalty = buildExclusionPenalty solution penaltyStrength
-            (acc, penalty)
-            ||> Map.fold (fun m key value -> Qubo.combineTerms key value m))
+            (acc, penalty) ||> Map.fold (fun m key value -> Qubo.combineTerms key value m))
 
     /// Configuration for iterative subset-sum quantum solver
-    type SubsetSumConfig = {
-        /// Number of measurement shots per QAOA iteration
-        NumShots: int
+    type SubsetSumConfig =
+        {
+            /// Number of measurement shots per QAOA iteration
+            NumShots: int
 
-        /// Initial QAOA parameters (gamma, beta)
-        InitialParameters: float * float
+            /// Initial QAOA parameters (gamma, beta)
+            InitialParameters: float * float
 
-        /// Maximum number of QAOA iterations before giving up finding new solutions
-        MaxIterations: int
+            /// Maximum number of QAOA iterations before giving up finding new solutions
+            MaxIterations: int
 
-        /// Number of consecutive failed iterations before stopping
-        MaxConsecutiveFailures: int
+            /// Number of consecutive failed iterations before stopping
+            MaxConsecutiveFailures: int
 
-        /// Strength of exclusion penalty (relative to constraint penalty)
-        ExclusionPenaltyStrength: float
-    }
+            /// Strength of exclusion penalty (relative to constraint penalty)
+            ExclusionPenaltyStrength: float
+        }
 
     /// Default configuration for subset-sum solving
-    let defaultSubsetSumConfig : SubsetSumConfig = {
-        NumShots = 2000
-        InitialParameters = (0.5, 0.5)
-        MaxIterations = 50
-        MaxConsecutiveFailures = 3
-        ExclusionPenaltyStrength = 100.0
-    }
+    let defaultSubsetSumConfig: SubsetSumConfig =
+        {
+            NumShots = 2000
+            InitialParameters = (0.5, 0.5)
+            MaxIterations = 50
+            MaxConsecutiveFailures = 3
+            ExclusionPenaltyStrength = 100.0
+        }
 
     /// Result of finding all exact combinations
-    type SubsetSumResult = {
-        /// All found combinations (each is a list of selected items)
-        Combinations: KnapsackItem list list
+    type SubsetSumResult =
+        {
+            /// All found combinations (each is a list of selected items)
+            Combinations: KnapsackItem list list
 
-        /// Union of all items across all combinations
-        AllItems: KnapsackItem list
+            /// Union of all items across all combinations
+            AllItems: KnapsackItem list
 
-        /// Number of QAOA iterations performed
-        IterationsUsed: int
+            /// Number of QAOA iterations performed
+            IterationsUsed: int
 
-        /// Backend used
-        BackendName: string
+            /// Backend used
+            BackendName: string
 
-        /// Total execution time in milliseconds
-        ElapsedMs: float
-    }
+            /// Total execution time in milliseconds
+            ElapsedMs: float
+        }
 
     /// Find ALL subsets of items whose weights sum exactly to targetSum,
     /// using iterative QAOA with exclusion penalties.
@@ -641,96 +670,98 @@ module QuantumKnapsackSolver =
         let epsilon = 0.0001
 
         if n = 0 then
-            Ok { Combinations = []; AllItems = []; IterationsUsed = 0
-                 BackendName = backend.Name; ElapsedMs = 0.0 }
+            Ok
+                {
+                    Combinations = []
+                    AllItems = []
+                    IterationsUsed = 0
+                    BackendName = backend.Name
+                    ElapsedMs = 0.0
+                }
         else
 
-        try
-            let mutable knownSolutions : int[] list = []
-            let mutable consecutiveFailures = 0
-            let mutable iteration = 0
-            let mutable lastError : QuantumError option = None
+            try
+                let mutable knownSolutions: int[] list = []
+                let mutable consecutiveFailures = 0
+                let mutable iteration = 0
+                let mutable lastError: QuantumError option = None
 
-            while iteration < config.MaxIterations
-                  && consecutiveFailures < config.MaxConsecutiveFailures do
-                iteration <- iteration + 1
+                while iteration < config.MaxIterations
+                      && consecutiveFailures < config.MaxConsecutiveFailures do
+                    iteration <- iteration + 1
 
-                // Build exclusion penalties for all known solutions
-                let exclusions =
-                    combineExclusionPenalties knownSolutions config.ExclusionPenaltyStrength
+                    // Build exclusion penalties for all known solutions
+                    let exclusions =
+                        combineExclusionPenalties knownSolutions config.ExclusionPenaltyStrength
 
-                // Encode as QUBO with exclusion penalties
-                match toSubsetSumQubo items targetSum exclusions with
-                | Error err ->
-                    lastError <- Some err
-                    consecutiveFailures <- config.MaxConsecutiveFailures // Stop
-                | Ok quboMatrix ->
+                    // Encode as QUBO with exclusion penalties
+                    match toSubsetSumQubo items targetSum exclusions with
+                    | Error err ->
+                        lastError <- Some err
+                        consecutiveFailures <- config.MaxConsecutiveFailures // Stop
+                    | Ok quboMatrix ->
 
-                // Convert to dense array and execute QAOA pipeline
-                let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                let (gamma, beta) = config.InitialParameters
-                let parameters = [| gamma, beta |]
+                        // Convert to dense array and execute QAOA pipeline
+                        let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+                        let (gamma, beta) = config.InitialParameters
+                        let parameters = [| gamma, beta |]
 
-                match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
-                | Error err ->
-                    lastError <- Some err
-                    consecutiveFailures <- config.MaxConsecutiveFailures // Stop
-                | Ok measurements ->
+                        match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
+                        | Error err ->
+                            lastError <- Some err
+                            consecutiveFailures <- config.MaxConsecutiveFailures // Stop
+                        | Ok measurements ->
 
-                // Find new feasible solutions in this batch
-                let mutable foundNew = false
+                            // Find new feasible solutions in this batch
+                            let mutable foundNew = false
 
-                for measurement in measurements do
-                    if measurement.Length = n then
-                        // Check if this is an exact-sum solution
-                        let totalWeight =
-                            items
-                            |> List.mapi (fun i item -> if measurement.[i] = 1 then item.Weight else 0.0)
-                            |> List.sum
+                            for measurement in measurements do
+                                if measurement.Length = n then
+                                    // Check if this is an exact-sum solution
+                                    let totalWeight =
+                                        items
+                                        |> List.mapi (fun i item -> if measurement.[i] = 1 then item.Weight else 0.0)
+                                        |> List.sum
 
-                        if abs (totalWeight - targetSum) < epsilon then
-                            // Check if we've already found this solution
-                            let isDuplicate =
-                                knownSolutions
-                                |> List.exists (fun known ->
-                                    Array.forall2 (=) known measurement)
+                                    if abs (totalWeight - targetSum) < epsilon then
+                                        // Check if we've already found this solution
+                                        let isDuplicate =
+                                            knownSolutions
+                                            |> List.exists (fun known -> Array.forall2 (=) known measurement)
 
-                            if not isDuplicate then
-                                knownSolutions <- measurement :: knownSolutions
-                                foundNew <- true
+                                        if not isDuplicate then
+                                            knownSolutions <- measurement :: knownSolutions
+                                            foundNew <- true
 
-                if foundNew then
-                    consecutiveFailures <- 0
-                else
-                    consecutiveFailures <- consecutiveFailures + 1
+                            if foundNew then
+                                consecutiveFailures <- 0
+                            else
+                                consecutiveFailures <- consecutiveFailures + 1
 
-            // Convert bitstring solutions to item lists
-            let combinations =
-                knownSolutions
-                |> List.rev  // Preserve discovery order
-                |> List.map (fun bitstring ->
-                    items
-                    |> List.mapi (fun i item -> if bitstring.[i] = 1 then Some item else None)
-                    |> List.choose id)
+                // Convert bitstring solutions to item lists
+                let combinations =
+                    knownSolutions
+                    |> List.rev // Preserve discovery order
+                    |> List.map (fun bitstring ->
+                        items
+                        |> List.mapi (fun i item -> if bitstring.[i] = 1 then Some item else None)
+                        |> List.choose id)
 
-            // Union of all items across all combinations
-            let allItems =
-                combinations
-                |> List.concat
-                |> List.distinctBy (fun item -> item.Id)
+                // Union of all items across all combinations
+                let allItems = combinations |> List.concat |> List.distinctBy (fun item -> item.Id)
 
-            let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
 
-            Ok {
-                Combinations = combinations
-                AllItems = allItems
-                IterationsUsed = iteration
-                BackendName = backend.Name
-                ElapsedMs = elapsedMs
-            }
+                Ok
+                    {
+                        Combinations = combinations
+                        AllItems = allItems
+                        IterationsUsed = iteration
+                        BackendName = backend.Name
+                        ElapsedMs = elapsedMs
+                    }
 
-        with ex ->
-            Error (QuantumError.OperationError (
-                "QuantumSubsetSum",
-                $"Quantum subset-sum solver failed: %s{ex.Message}"))
-
+            with ex ->
+                Error(
+                    QuantumError.OperationError("QuantumSubsetSum", $"Quantum subset-sum solver failed: %s{ex.Message}")
+                )

@@ -21,17 +21,21 @@ module QubitRouting =
 
     /// Device connectivity: the set of physically-coupled (undirected) qubit pairs.
     type CouplingMap =
-        { /// Number of physical qubits on the device.
-          NumQubits: int
-          /// Undirected coupling edges, each stored normalised as (min, max).
-          Edges: Set<int * int> }
+        {
+            /// Number of physical qubits on the device.
+            NumQubits: int
+            /// Undirected coupling edges, each stored normalised as (min, max).
+            Edges: Set<int * int>
+        }
 
     let private norm (a, b) = if a <= b then (a, b) else (b, a)
 
     /// Build a coupling map from a list of undirected qubit pairs.
     let fromPairs (numQubits: int) (pairs: (int * int) list) : CouplingMap =
-        { NumQubits = numQubits
-          Edges = pairs |> List.map norm |> Set.ofList }
+        {
+            NumQubits = numQubits
+            Edges = pairs |> List.map norm |> Set.ofList
+        }
 
     /// Linear (path) topology: 0-1-2-...-(n-1).
     let linear (n: int) : CouplingMap =
@@ -39,90 +43,117 @@ module QubitRouting =
 
     /// Ring topology: linear plus a wrap-around edge.
     let ring (n: int) : CouplingMap =
-        if n <= 2 then linear n
-        else fromPairs n ([ for i in 0 .. n - 2 -> (i, i + 1) ] @ [ (0, n - 1) ])
+        if n <= 2 then
+            linear n
+        else
+            fromPairs n ([ for i in 0 .. n - 2 -> (i, i + 1) ] @ [ (0, n - 1) ])
 
     /// 2D grid topology (rows x cols), qubits numbered row-major.
     let grid (rows: int) (cols: int) : CouplingMap =
         let idx r c = r * cols + c
+
         let edges =
-            [ for r in 0 .. rows - 1 do
-                for c in 0 .. cols - 1 do
-                    if c + 1 < cols then yield (idx r c, idx r (c + 1))
-                    if r + 1 < rows then yield (idx r c, idx (r + 1) c) ]
+            [
+                for r in 0 .. rows - 1 do
+                    for c in 0 .. cols - 1 do
+                        if c + 1 < cols then
+                            yield (idx r c, idx r (c + 1))
+
+                        if r + 1 < rows then
+                            yield (idx r c, idx (r + 1) c)
+            ]
+
         fromPairs (rows * cols) edges
 
     /// True if two physical qubits are directly coupled.
-    let areAdjacent (cm: CouplingMap) (a: int) (b: int) : bool =
-        cm.Edges.Contains(norm (a, b))
+    let areAdjacent (cm: CouplingMap) (a: int) (b: int) : bool = cm.Edges.Contains(norm (a, b))
 
     let private neighbours (cm: CouplingMap) (q: int) : int list =
         cm.Edges
-        |> Set.fold (fun acc (a, b) ->
-            if a = q then b :: acc
-            elif b = q then a :: acc
-            else acc) []
+        |> Set.fold
+            (fun acc (a, b) ->
+                if a = q then b :: acc
+                elif b = q then a :: acc
+                else acc)
+            []
 
     /// Breadth-first shortest path of physical qubits from `src` to `dst`
     /// (inclusive of both endpoints). None if they are in disconnected
     /// components of the coupling graph.
     let shortestPath (cm: CouplingMap) (src: int) (dst: int) : int list option =
-        if src = dst then Some [ src ]
+        if src = dst then
+            Some [ src ]
         else
             // Mutable BFS frontier — a standard graph kernel; immutable folds
             // would re-allocate the visited set on every expansion.
             let visited = HashSet<int>()
-            let queue = Queue<int list>()  // paths stored reversed (head = current)
+            let queue = Queue<int list>() // paths stored reversed (head = current)
             queue.Enqueue [ src ]
             visited.Add src |> ignore
             let mutable result = None
+
             while result.IsNone && queue.Count > 0 do
                 let pathRev = queue.Dequeue()
                 let cur = List.head pathRev
-                if cur = dst then result <- Some(List.rev pathRev)
+
+                if cur = dst then
+                    result <- Some(List.rev pathRev)
                 else
                     for nb in neighbours cm cur do
                         if not (visited.Contains nb) then
                             visited.Add nb |> ignore
                             queue.Enqueue(nb :: pathRev)
+
             result
 
     /// Dijkstra shortest path minimising the total of `edgeCost` over traversed
     /// coupling edges (used for noise-aware routing, e.g. cost = 2-qubit error).
     /// Edge costs are clamped to be non-negative.
     let shortestPathWeighted (edgeCost: int * int -> float) (cm: CouplingMap) (src: int) (dst: int) : int list option =
-        if src = dst then Some [ src ]
+        if src = dst then
+            Some [ src ]
         else
             let dist = Dictionary<int, float>()
             let prev = Dictionary<int, int>()
-            let pq = SortedSet<float * int>()  // (distance, node)
+            let pq = SortedSet<float * int>() // (distance, node)
             dist.[src] <- 0.0
             pq.Add((0.0, src)) |> ignore
             let mutable settled = false
+
             while not settled && pq.Count > 0 do
                 let (d, u) = pq.Min
                 pq.Remove(pq.Min) |> ignore
-                if u = dst then settled <- true
+
+                if u = dst then
+                    settled <- true
                 else
                     for v in neighbours cm u do
-                        let w = max 0.0 (edgeCost(norm (u, v)))
+                        let w = max 0.0 (edgeCost (norm (u, v)))
                         let nd = d + w
+
                         let isBetter =
                             match dist.TryGetValue v with
                             | true, old -> nd < old
                             | _ -> true
+
                         if isBetter then
                             match dist.TryGetValue v with
                             | true, old -> pq.Remove((old, v)) |> ignore
                             | _ -> ()
+
                             dist.[v] <- nd
                             prev.[v] <- u
                             pq.Add((nd, v)) |> ignore
-            if not (dist.ContainsKey dst) then None
+
+            if not (dist.ContainsKey dst) then
+                None
             else
                 let rec build node acc =
-                    if node = src then src :: acc
-                    else build prev.[node] (node :: acc)
+                    if node = src then
+                        src :: acc
+                    else
+                        build prev.[node] (node :: acc)
+
                 Some(build dst [])
 
     /// Remap every qubit index in a gate through `f` (logical -> physical).
@@ -161,13 +192,24 @@ module QubitRouting =
     /// The two logical endpoints of a two-qubit gate, or None for any other gate.
     let private twoQubitEndpoints (gate: Gate) : (int * int) option =
         match gate with
-        | CNOT(a, b) | CZ(a, b) | SWAP(a, b)
-        | CP(a, b, _) | CRX(a, b, _) | CRY(a, b, _) | CRZ(a, b, _)
-        | RXX(a, b, _) | RYY(a, b, _) | RZZ(a, b, _) -> Some(a, b)
+        | CNOT(a, b)
+        | CZ(a, b)
+        | SWAP(a, b)
+        | CP(a, b, _)
+        | CRX(a, b, _)
+        | CRY(a, b, _)
+        | CRZ(a, b, _)
+        | RXX(a, b, _)
+        | RYY(a, b, _)
+        | RZZ(a, b, _) -> Some(a, b)
         | _ -> None
 
     // Core routing loop, parameterised by a path finder (hop-count or weighted).
-    let private routeCore (findPath: int -> int -> int list option) (cm: CouplingMap) (circuit: Circuit) : Circuit * int[] =
+    let private routeCore
+        (findPath: int -> int -> int list option)
+        (cm: CouplingMap)
+        (circuit: Circuit)
+        : Circuit * int[] =
         // Size the routing tables to the physical device, not just the logical circuit: SWAP paths
         // traverse physical qubits up to cm.NumQubits-1, so routing a small circuit onto a larger
         // device must still have a slot for every physical qubit a path passes through. Sizing by
@@ -194,6 +236,7 @@ module QubitRouting =
             match twoQubitEndpoints gate with
             | Some(a, b) ->
                 let pa, pb = pos.[a], pos.[b]
+
                 if areAdjacent cm pa pb then
                     out.Add(mapQubits (fun lq -> pos.[lq]) gate)
                 else
@@ -204,21 +247,23 @@ module QubitRouting =
                         for i in 0 .. arr.Length - 3 do
                             out.Add(SWAP(arr.[i], arr.[i + 1]))
                             applySwap arr.[i] arr.[i + 1]
+
                         out.Add(mapQubits (fun lq -> pos.[lq]) gate)
                     | _ ->
                         // Disconnected coupling graph: best-effort passthrough.
                         out.Add(mapQubits (fun lq -> pos.[lq]) gate)
-            | None ->
-                out.Add(mapQubits (fun lq -> pos.[lq]) gate)
+            | None -> out.Add(mapQubits (fun lq -> pos.[lq]) gate)
 
         // `out` is in execution order; restore the most-recent-first storage invariant.
-        ({ circuit with Gates = out |> Seq.rev |> List.ofSeq }, pos)
+        ({ circuit with
+            Gates = out |> Seq.rev |> List.ofSeq
+         },
+         pos)
 
     /// Route inserting SWAPs along fewest-hop shortest paths (minimises SWAP count).
     /// Returns the routed circuit plus the final logical->physical mapping
     /// (`mapping.[logicalQubit] = physicalQubit`).
-    let route (cm: CouplingMap) (circuit: Circuit) : Circuit * int[] =
-        routeCore (shortestPath cm) cm circuit
+    let route (cm: CouplingMap) (circuit: Circuit) : Circuit * int[] = routeCore (shortestPath cm) cm circuit
 
     /// Noise-aware routing: route SWAPs through the lowest-cost path per `edgeCost`
     /// (e.g. the two-qubit gate error of each link), favouring low-error qubits.

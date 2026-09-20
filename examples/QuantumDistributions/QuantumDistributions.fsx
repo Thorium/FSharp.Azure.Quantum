@@ -71,11 +71,33 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "QuantumDistributions.fsx"
     "Quantum random sampling from statistical distributions."
-    [ { Cli.OptionSpec.Name = "example"; Description = "Example: normal|statistics|stock|server|dice|custom|backend|montecarlo|all"; Default = Some "normal" }
-      { Cli.OptionSpec.Name = "samples"; Description = "Number of samples per distribution";   Default = Some "100" }
-      { Cli.OptionSpec.Name = "output";  Description = "Write results to JSON file";            Default = None }
-      { Cli.OptionSpec.Name = "csv";     Description = "Write results to CSV file";              Default = None }
-      { Cli.OptionSpec.Name = "quiet";   Description = "Suppress informational output";          Default = None } ]
+    [
+        {
+            Cli.OptionSpec.Name = "example"
+            Description = "Example: normal|statistics|stock|server|dice|custom|backend|montecarlo|all"
+            Default = Some "normal"
+        }
+        {
+            Cli.OptionSpec.Name = "samples"
+            Description = "Number of samples per distribution"
+            Default = Some "100"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write results to JSON file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write results to CSV file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -100,23 +122,27 @@ let printHeader title =
 
 let statsRow (label: string) (dist: string) (stats: SampleStatistics) : Map<string, string> =
     Map.ofList
-        [ "example",      label
-          "distribution",  dist
-          "count",         $"%d{stats.Count}"
-          "mean",          $"%.4f{stats.Mean}"
-          "stddev",        $"%.4f{stats.StdDev}"
-          "min",           $"%.4f{stats.Min}"
-          "max",           $"%.4f{stats.Max}" ]
+        [
+            "example", label
+            "distribution", dist
+            "count", $"%d{stats.Count}"
+            "mean", $"%.4f{stats.Mean}"
+            "stddev", $"%.4f{stats.StdDev}"
+            "min", $"%.4f{stats.Min}"
+            "max", $"%.4f{stats.Max}"
+        ]
 
 let singleRow (label: string) (dist: string) (value: float) (qubits: int) : Map<string, string> =
     Map.ofList
-        [ "example",      label
-          "distribution",  dist
-          "count",         "1"
-          "mean",          $"%.4f{value}"
-          "stddev",        ""
-          "min",           $"%.4f{value}"
-          "max",           $"%.4f{value}" ]
+        [
+            "example", label
+            "distribution", dist
+            "count", "1"
+            "mean", $"%.4f{value}"
+            "stddev", ""
+            "min", $"%.4f{value}"
+            "max", $"%.4f{value}"
+        ]
 
 // ==============================================================================
 // EXAMPLES
@@ -128,43 +154,51 @@ let allResults = ResizeArray<Map<string, string>>()
 let runNormal () =
     printHeader "Example 1: Normal Distribution Sampling"
 
-    let dist = Normal (mean = 100.0, stddev = 15.0)
+    let dist = Normal(mean = 100.0, stddev = 15.0)
 
     match sample StandardNormal with
     | Ok result ->
         if not quiet then
             printfn "  Standard Normal N(0,1) sample: %.4f  (%d qubits)" result.Value result.QuantumBitsUsed
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
     match sample dist with
     | Ok result ->
         if not quiet then
             printfn "  Normal N(100,15) sample: %.2f" result.Value
-            printfn "  Expected mean: %.2f, stddev: %.2f"
+
+            printfn
+                "  Expected mean: %.2f, stddev: %.2f"
                 (expectedMean dist |> Option.defaultValue 0.0)
                 (expectedStdDev dist |> Option.defaultValue 0.0)
-        allResults.Add (singleRow "normal" "N(100,15)" result.Value result.QuantumBitsUsed)
+
+        allResults.Add(singleRow "normal" "N(100,15)" result.Value result.QuantumBitsUsed)
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 /// Example 2: Multiple samples with statistics
 let runStatisticsExample () =
     printHeader "Example 2: Multiple Samples with Statistics"
 
-    let dist = Normal (mean = 50.0, stddev = 10.0)
+    let dist = Normal(mean = 50.0, stddev = 10.0)
 
     match sampleMany dist sampleCount with
     | Ok samples ->
         let stats = computeStatistics samples
+
         if not quiet then
             printfn "  Distribution: N(50, 10), %d samples" stats.Count
             printfn "  Mean:   %.2f (expected 50.00)" stats.Mean
             printfn "  StdDev: %.2f (expected 10.00)" stats.StdDev
             printfn "  Range:  [%.2f, %.2f]" stats.Min stats.Max
-        allResults.Add (statsRow "statistics" "N(50,10)" stats)
+
+        allResults.Add(statsRow "statistics" "N(50,10)" stats)
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 /// Example 3: LogNormal stock price simulation
 let runStock () =
@@ -177,7 +211,7 @@ let runStock () =
 
     let logMu = log s0 + (mu - sigma ** 2.0 / 2.0) * t
     let logSigma = sigma * sqrt t
-    let dist = LogNormal (mu = logMu, sigma = logSigma)
+    let dist = LogNormal(mu = logMu, sigma = logSigma)
 
     if not quiet then
         printfn "  S0=$%.0f, drift=%.0f%%, vol=%.0f%%, T=%.0f yr" s0 (mu * 100.0) (sigma * 100.0) t
@@ -185,22 +219,28 @@ let runStock () =
     match sampleMany dist (min sampleCount 10) with
     | Ok samples ->
         let stats = computeStatistics samples
+
         if not quiet then
             printfn "  Simulated %d price paths:" samples.Length
-            samples |> Array.iteri (fun i s ->
+
+            samples
+            |> Array.iteri (fun i s ->
                 let ret = (s.Value - s0) / s0 * 100.0
                 printfn "    Path %2d: $%.2f (%+.1f%%)" (i + 1) s.Value ret)
+
             printfn "  Average final price: $%.2f" stats.Mean
-        allResults.Add (statsRow "stock" "LogNormal" stats)
+
+        allResults.Add(statsRow "stock" "LogNormal" stats)
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 /// Example 4: Exponential for server request arrivals
 let runServer () =
     printHeader "Example 4: Exponential Distribution (Server Arrivals)"
 
     let lambda = 5.0
-    let dist = Exponential (lambda = lambda)
+    let dist = Exponential(lambda = lambda)
 
     if not quiet then
         printfn "  Rate: %.1f requests/sec, expected interval: %.3fs" lambda (1.0 / lambda)
@@ -208,55 +248,68 @@ let runServer () =
     match sampleMany dist (min sampleCount 15) with
     | Ok samples ->
         let stats = computeStatistics samples
+
         if not quiet then
             let mutable cumulative = 0.0
-            samples |> Array.iteri (fun i s ->
+
+            samples
+            |> Array.iteri (fun i s ->
                 cumulative <- cumulative + s.Value
                 printfn "    Request %2d: %.3fs (cumulative: %.2fs)" (i + 1) s.Value cumulative)
+
             printfn "  Mean interval: %.3fs (expected %.3fs)" stats.Mean (1.0 / lambda)
-        allResults.Add (statsRow "server" $"Exp(%.1f{lambda})" stats)
+
+        allResults.Add(statsRow "server" $"Exp(%.1f{lambda})" stats)
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 /// Example 5: Uniform distribution (dice)
 let runDice () =
     printHeader "Example 5: Uniform Distribution (Dice Rolls)"
 
-    let dist = Uniform (min = 1.0, max = 7.0)
+    let dist = Uniform(min = 1.0, max = 7.0)
 
     match sampleMany dist (min sampleCount 20) with
     | Ok samples ->
         let stats = computeStatistics samples
         let rolls = samples |> Array.map (fun s -> int (floor s.Value))
+
         if not quiet then
             let rollStr = rolls |> Array.map string |> String.concat ", "
             printfn "  %d rolls: %s" rolls.Length rollStr
             let freq = rolls |> Array.countBy id |> Array.sortBy fst
             printfn "  Frequencies:"
+
             for (v, c) in freq do
                 printfn "    %d: %s (%d)" v (String.replicate c "#") c
-        allResults.Add (statsRow "dice" "U(1,7)" stats)
+
+        allResults.Add(statsRow "dice" "U(1,7)" stats)
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 /// Example 6: Custom transform
 let runCustom () =
     printHeader "Example 6: Custom Distribution (Square Transform)"
 
     let squareTransform (u: float) = u * u
-    let dist = Custom (name = "Square", transform = squareTransform)
+    let dist = Custom(name = "Square", transform = squareTransform)
 
     match sampleMany dist sampleCount with
     | Ok samples ->
         let stats = computeStatistics samples
+
         if not quiet then
             printfn "  Transform U^2 on %d samples" stats.Count
             printfn "  Mean:   %.4f (expected ~0.333)" stats.Mean
             printfn "  StdDev: %.4f" stats.StdDev
             printfn "  Range:  [%.4f, %.4f]" stats.Min stats.Max
-        allResults.Add (statsRow "custom" "U^2" stats)
+
+        allResults.Add(statsRow "custom" "U^2" stats)
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 /// Example 7: Backend integration via LocalBackend
 let runBackend () =
@@ -264,19 +317,24 @@ let runBackend () =
 
     let backend =
         LocalBackend.LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+
     let dist = StandardNormal
 
     async {
         match! sampleManyWithBackend dist 5 backend None with
         | Ok samples ->
             let stats = computeStatistics samples
+
             if not quiet then
                 printfn "  Generated %d samples via LocalBackend:" samples.Length
-                samples |> Array.iteri (fun i s ->
-                    printfn "    Sample %d: %.4f (%d qubits)" (i + 1) s.Value s.QuantumBitsUsed)
-            allResults.Add (statsRow "backend" "N(0,1) via LocalBackend" stats)
+
+                samples
+                |> Array.iteri (fun i s -> printfn "    Sample %d: %.4f (%d qubits)" (i + 1) s.Value s.QuantumBitsUsed)
+
+            allResults.Add(statsRow "backend" "N(0,1) via LocalBackend" stats)
         | Error err ->
-            if not quiet then printfn "  Error: %s" err.Message
+            if not quiet then
+                printfn "  Error: %s" err.Message
     }
     |> Async.RunSynchronously
 
@@ -284,17 +342,18 @@ let runBackend () =
 let runMonteCarlo () =
     printHeader "Example 8: Monte Carlo Estimation of pi"
 
-    let dist = Uniform (min = 0.0, max = 1.0)
+    let dist = Uniform(min = 0.0, max = 1.0)
     let pairCount = max 50 (sampleCount / 2)
 
     match sampleMany dist (pairCount * 2) with
     | Ok samples ->
         let points = samples |> Array.chunkBySize 2
+
         let inside =
             points
-            |> Array.filter (fun p ->
-                p.Length = 2 && p.[0].Value ** 2.0 + p.[1].Value ** 2.0 <= 1.0)
+            |> Array.filter (fun p -> p.Length = 2 && p.[0].Value ** 2.0 + p.[1].Value ** 2.0 <= 1.0)
             |> Array.length
+
         let total = points.Length
         let piEst = 4.0 * float inside / float total
         let err = abs (piEst - Math.PI)
@@ -305,16 +364,21 @@ let runMonteCarlo () =
             printfn "  true pi:      %.6f" Math.PI
             printfn "  error:        %.6f (%.3f%%)" err (err / Math.PI * 100.0)
 
-        allResults.Add (Map.ofList
-            [ "example",      "montecarlo"
-              "distribution",  "U(0,1) pairs"
-              "count",         $"%d{total}"
-              "mean",          $"%.6f{piEst}"
-              "stddev",        ""
-              "min",           $"%.6f{err}"
-              "max",           "" ])
+        allResults.Add(
+            Map.ofList
+                [
+                    "example", "montecarlo"
+                    "distribution", "U(0,1) pairs"
+                    "count", $"%d{total}"
+                    "mean", $"%.6f{piEst}"
+                    "stddev", ""
+                    "min", $"%.6f{err}"
+                    "max", ""
+                ]
+        )
     | Error msg ->
-        if not quiet then printfn "  Error: %s" msg
+        if not quiet then
+            printfn "  Error: %s" msg
 
 // ==============================================================================
 // MAIN EXECUTION
@@ -335,13 +399,13 @@ match exampleName.ToLowerInvariant() with
     runCustom ()
     runBackend ()
     runMonteCarlo ()
-| "normal"     -> runNormal ()
+| "normal" -> runNormal ()
 | "statistics" -> runStatisticsExample ()
-| "stock"      -> runStock ()
-| "server"     -> runServer ()
-| "dice"       -> runDice ()
-| "custom"     -> runCustom ()
-| "backend"    -> runBackend ()
+| "stock" -> runStock ()
+| "server" -> runServer ()
+| "dice" -> runDice ()
+| "custom" -> runCustom ()
+| "backend" -> runBackend ()
 | "montecarlo" -> runMonteCarlo ()
 | other ->
     eprintfn "Unknown example: '%s'. Use: normal|statistics|stock|server|dice|custom|backend|montecarlo|all" other
@@ -362,18 +426,23 @@ let resultRows = allResults |> Seq.toList
 match outputPath with
 | Some path ->
     Reporting.writeJson path resultRows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
     let header = [ "example"; "distribution"; "count"; "mean"; "stddev"; "min"; "max" ]
+
     let rows =
         resultRows
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 // ==============================================================================

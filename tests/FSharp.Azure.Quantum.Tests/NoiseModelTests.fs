@@ -11,19 +11,30 @@ module NoiseModelTests =
     let ``noise-aware routing prefers the low-error path`` () =
         // Diamond: two 0->3 paths, via qubit 1 (noisy) or via qubit 2 (clean).
         let cm = QubitRouting.fromPairs 4 [ (0, 1); (1, 3); (0, 2); (2, 3) ]
+
         let noise =
             NoiseModel.create
                 Map.empty
                 (Map.ofList [ (1, 3), 0.5; (0, 1), 0.01; (0, 2), 0.01; (2, 3), 0.01 ])
                 Map.empty
                 (0.001, 0.02, 0.02)
+
         let circuit = empty 4 |> addGate (H 0) |> addGate (CNOT(0, 3))
         let routed, _ = NoiseModel.routeNoiseAware cm noise circuit
-        let swaps = getGates routed |> List.choose (function SWAP(a, b) -> Some(a, b) | _ -> None)
+
+        let swaps =
+            getGates routed
+            |> List.choose (function
+                | SWAP(a, b) -> Some(a, b)
+                | _ -> None)
+
         Assert.True(QubitRouting.respectsCoupling cm routed)
         Assert.NotEmpty(swaps)
-        Assert.True(swaps |> List.forall (fun (a, b) -> a <> 1 && b <> 1),
-            $"routing should avoid the noisy qubit 1, got %A{swaps}")
+
+        Assert.True(
+            swaps |> List.forall (fun (a, b) -> a <> 1 && b <> 1),
+            $"routing should avoid the noisy qubit 1, got %A{swaps}"
+        )
 
     [<Fact>]
     let ``fidelity is 1 with no noise and drops below 1 with noise`` () =
@@ -38,6 +49,11 @@ module NoiseModelTests =
     let ``more gates never increase the estimated fidelity`` () =
         let noisy = NoiseModel.uniform 0.001 0.01 0.02
         let small = empty 2 |> addGate (CNOT(0, 1))
-        let big = empty 2 |> addGate (CNOT(0, 1)) |> addGate (CNOT(0, 1)) |> addGate (CNOT(0, 1))
-        Assert.True(NoiseModel.estimateSuccessProbability noisy big
-                    <= NoiseModel.estimateSuccessProbability noisy small)
+
+        let big =
+            empty 2 |> addGate (CNOT(0, 1)) |> addGate (CNOT(0, 1)) |> addGate (CNOT(0, 1))
+
+        Assert.True(
+            NoiseModel.estimateSuccessProbability noisy big
+            <= NoiseModel.estimateSuccessProbability noisy small
+        )

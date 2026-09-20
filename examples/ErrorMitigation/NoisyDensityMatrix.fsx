@@ -22,18 +22,27 @@ open FSharp.Azure.Quantum.Backends.DensityMatrixSimulator
 let bell =
     CircuitBuilder.empty 2
     |> CircuitBuilder.addGate (CircuitBuilder.H 0)
-    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
 
 [<Literal>]
 let shots = 4000
 
 let show (label: string) (config: NoiseConfig) =
     let backend = NoisyLocalBackend(config) :> IQuantumBackend
+
     match Primitives.sample backend bell shots with
     | Ok histogram ->
-        let pct k = 100.0 * float (histogram |> Map.tryFind k |> Option.defaultValue 0) / float shots
-        printfn "%-14s |00⟩ %4.1f%%  |01⟩ %4.1f%%  |10⟩ %4.1f%%  |11⟩ %4.1f%%"
-            label (pct "00") (pct "01") (pct "10") (pct "11")
+        let pct k =
+            100.0 * float (histogram |> Map.tryFind k |> Option.defaultValue 0)
+            / float shots
+
+        printfn
+            "%-14s |00⟩ %4.1f%%  |01⟩ %4.1f%%  |10⟩ %4.1f%%  |11⟩ %4.1f%%"
+            label
+            (pct "00")
+            (pct "01")
+            (pct "10")
+            (pct "11")
     | Error e -> eprintfn "%s failed: %s" label e.Message
 
 printfn "Bell state under a depolarizing channel (density-matrix simulation)\n"

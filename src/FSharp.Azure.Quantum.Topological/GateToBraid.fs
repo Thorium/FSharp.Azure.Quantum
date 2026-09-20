@@ -5,21 +5,21 @@ open System.Numerics
 open FSharp.Azure.Quantum
 
 /// Gate-to-Braid compilation - reverse of BraidToGate.
-/// 
+///
 /// Converts conventional quantum gates into topological braiding operations.
 /// This enables running gate-based quantum algorithms (QFT, Grover, etc.)
 /// on topological quantum hardware (Majorana, Fibonacci anyons).
-/// 
+///
 /// **CRITICAL MATHEMATICAL NOTES**:
-/// 
+///
 /// 1. **Phase Conventions**: We use the convention where:
 ///    - T = exp(iπ/4) (relative phase on |1⟩ state)
 ///    - S = T² = exp(iπ/2) = i
 ///    - Rz(θ) = diag(1, exp(iθ)) (relative Z-rotation)
-/// 
+///
 /// 2. **Global vs Relative Phase**: Topological braiding produces GLOBAL phases,
 ///    but gate-based gates often specify RELATIVE phases. Conversion requires care!
-/// 
+///
 /// 3. **Fermion Parity**: Ising anyons have fermion parity constraints.
 ///    Not all braiding sequences are valid - must respect fusion rules.
 ///
@@ -33,57 +33,60 @@ module GateToBraid =
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// Quantum gate decomposition for topological compilation
-    type GateDecomposition = {
-        /// Original gate description
-        GateName: string
-        
-        /// Qubits affected by this gate
-        Qubits: int list
-        
-        /// Equivalent braiding sequence
-        BraidSequence: BraidGroup.BraidWord list
-        
-        /// Approximation error (0 for exact gates)
-        ApproximationError: float
-        
-        /// Notes about decomposition (e.g., "requires measurement", "global phase ignored")
-        DecompositionNotes: string option
-    }
-    
+    type GateDecomposition =
+        {
+            /// Original gate description
+            GateName: string
+
+            /// Qubits affected by this gate
+            Qubits: int list
+
+            /// Equivalent braiding sequence
+            BraidSequence: BraidGroup.BraidWord list
+
+            /// Approximation error (0 for exact gates)
+            ApproximationError: float
+
+            /// Notes about decomposition (e.g., "requires measurement", "global phase ignored")
+            DecompositionNotes: string option
+        }
+
     /// Internal state for gate sequence compilation (private helper)
-    type private CompilationState = {
-        AllBraids: BraidGroup.BraidWord list
-        TotalError: float
-        Warnings: string list
-    }
-    
+    type private CompilationState =
+        {
+            AllBraids: BraidGroup.BraidWord list
+            TotalError: float
+            Warnings: string list
+        }
+
     /// Gate sequence compilation result
-    type GateSequenceCompilation = {
-        /// Original number of gates
-        OriginalGateCount: int
-        
-        /// Compiled braid words
-        CompiledBraids: BraidGroup.BraidWord list
-        
-        /// Total approximation error
-        TotalError: float
-        
-        /// Whether compilation is exact (error = 0)
-        IsExact: bool
-        
-        /// Anyon type used for compilation
-        AnyonType: AnyonSpecies.AnyonType
-        
-        /// Warnings or notes about compilation
-        CompilationWarnings: string list
-    }
+    type GateSequenceCompilation =
+        {
+            /// Original number of gates
+            OriginalGateCount: int
+
+            /// Compiled braid words
+            CompiledBraids: BraidGroup.BraidWord list
+
+            /// Total approximation error
+            TotalError: float
+
+            /// Whether compilation is exact (error = 0)
+            IsExact: bool
+
+            /// Anyon type used for compilation
+            AnyonType: AnyonSpecies.AnyonType
+
+            /// Warnings or notes about compilation
+            CompilationWarnings: string list
+        }
 
     // ========================================================================
     // UTILITY FUNCTIONS
     // ========================================================================
-    
+
     /// Sequence a list of Results into a Result of list
     /// Standard F# functional pattern for error handling
     module private ResultPrivate =
@@ -94,13 +97,12 @@ module GateToBraid =
                     let! value = item
                     return value :: acc
                 }
-            results
-            |> List.fold folder (Ok [])
-            |> Result.map List.rev
-    
+
+            results |> List.fold folder (Ok []) |> Result.map List.rev
+
     /// Compute approximation error for angle discretization.
     /// Returns (error, numBraids) where numBraids can be negative (for counter-clockwise).
-    /// 
+    ///
     /// Uses signed angle to pick optimal direction:
     ///   - Positive n → clockwise braids (exp(+iπ/2) each for Ising)
     ///   - Negative n → counter-clockwise braids (exp(-iπ/2) each for Ising)
@@ -109,6 +111,7 @@ module GateToBraid =
         // Normalize to (-π, π] for shortest-path direction
         let twoPi = 2.0 * Math.PI
         let normalized = targetAngle % twoPi
+
         let normalized =
             if normalized > Math.PI then normalized - twoPi
             elif normalized <= -Math.PI then normalized + twoPi
@@ -116,7 +119,7 @@ module GateToBraid =
         // Round to nearest integer multiple of tPhase (signed)
         let numBraids = int (Math.Round(normalized / tPhase))
         let approximateAngle = float numBraids * tPhase
-        let error = abs(normalized - approximateAngle)
+        let error = abs (normalized - approximateAngle)
         (error, numBraids)
 
     /// Total number of anyonic strands (fusion-tree leaves) in the Ising σ-pair
@@ -132,98 +135,135 @@ module GateToBraid =
     // ========================================================================
     // T GATE DECOMPOSITION (Ising Anyons)
     // ========================================================================
-    
+
     /// Decompose T gate into Ising anyon braiding.
-    /// 
+    ///
     /// **PHYSICS**: T = diag(1, e^{iπ/4}) requires a relative phase of π/4.
     /// One Ising braid produces relative phase π/2 (S gate), so T is NOT exact.
     /// Ising anyons can only produce Clifford gates by braiding (Simon §11.2.4).
-    /// 
+    ///
     /// T gate is handled via amplitude-level intercept in TopologicalBackend.ApplyGate.
     /// This function returns an error to signal that T must be intercepted.
     let tGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         // T gate cannot be realized exactly by Ising anyon braiding.
         // One braid = S (π/2 phase), not T (π/4 phase).
         // T gate must be handled by amplitude-level intercept or magic state distillation.
-        TopologicalResult.computationError "tGateToBraid" "T gate is not exact in Ising anyon braiding (requires non-topological supplementation)"
-    
+        TopologicalResult.computationError
+            "tGateToBraid"
+            "T gate is not exact in Ising anyon braiding (requires non-topological supplementation)"
+
     /// Decompose T† gate into Ising anyon braiding
     let tDaggerGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         // T† gate cannot be realized exactly by Ising anyon braiding.
-        TopologicalResult.computationError "tDaggerGateToBraid" "T† gate is not exact in Ising anyon braiding (requires non-topological supplementation)"
+        TopologicalResult.computationError
+            "tDaggerGateToBraid"
+            "T† gate is not exact in Ising anyon braiding (requires non-topological supplementation)"
 
     // ========================================================================
     // CLIFFORD GATE DECOMPOSITION
     // ========================================================================
-    
+
     /// Decompose S gate (π/2 phase) into braiding.
     /// S = one clockwise braid (EXACT for Ising anyons).
-    /// 
+    ///
     /// **PHYSICS**: One Ising anyon exchange produces relative phase:
     ///   e^{3iπ/8} / e^{-iπ/8} = e^{iπ/2} = i = S gate
     /// Reference: Simon "Topological Quantum" Eq. 10.9-10.10
     let sGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         // S = one clockwise within-pair braid (exact).
         // Qubit q lives on leaves (2q, 2q+1) → generator index 2q (leaf indexing).
-        let gen : BraidGroup.BraidGenerator = { Index = withinPairIndex qubitIndex; IsClockwise = true }
-        BraidGroup.fromGenerators (isingStrandCount numQubits) [gen]
+        let gen: BraidGroup.BraidGenerator =
+            {
+                Index = withinPairIndex qubitIndex
+                IsClockwise = true
+            }
+
+        BraidGroup.fromGenerators (isingStrandCount numQubits) [ gen ]
 
     /// Decompose S† gate into braiding
     let sDaggerGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         // S† = one counter-clockwise within-pair braid (exact)
-        let gen : BraidGroup.BraidGenerator = { Index = withinPairIndex qubitIndex; IsClockwise = false }
-        BraidGroup.fromGenerators (isingStrandCount numQubits) [gen]
-    
+        let gen: BraidGroup.BraidGenerator =
+            {
+                Index = withinPairIndex qubitIndex
+                IsClockwise = false
+            }
+
+        BraidGroup.fromGenerators (isingStrandCount numQubits) [ gen ]
+
     /// Decompose Pauli Z gate into braiding.
     /// Z = S² = two clockwise braids (EXACT for Ising anyons).
-    /// 
+    ///
     /// **PHYSICS**: Two Ising anyon exchanges produce relative phase:
     ///   (e^{iπ/2})² = e^{iπ} = -1 = Z gate
     /// This is a relative phase (not global), so it IS physically meaningful.
     let zGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         // Z = S² = 2 clockwise within-pair braids (exact)
-        let gen : BraidGroup.BraidGenerator = { Index = withinPairIndex qubitIndex; IsClockwise = true }
-        BraidGroup.fromGenerators (isingStrandCount numQubits) [gen; gen]
-    
+        let gen: BraidGroup.BraidGenerator =
+            {
+                Index = withinPairIndex qubitIndex
+                IsClockwise = true
+            }
+
+        BraidGroup.fromGenerators (isingStrandCount numQubits) [ gen; gen ]
+
     // ========================================================================
     // SOLOVAY-KITAEV GATE APPROXIMATION
     // ========================================================================
-    
+
     /// Convert single Solovay-Kitaev BasicGate to braiding
     /// Only accepts S, Z gates - T/H/X/Y should never appear in topological S-K output
     /// (T is not exact for Ising anyons; H/X/Y are off-diagonal)
-    let basicGateToBraid (gate: SolovayKitaev.BasicGate) (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let basicGateToBraid
+        (gate: SolovayKitaev.BasicGate)
+        (qubitIndex: int)
+        (numQubits: int)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         match gate with
         | SolovayKitaev.S -> sGateToBraid qubitIndex numQubits
         | SolovayKitaev.SDagger -> sDaggerGateToBraid qubitIndex numQubits
         | SolovayKitaev.Z -> zGateToBraid qubitIndex numQubits
         | SolovayKitaev.I -> BraidGroup.identity (isingStrandCount numQubits)
         // T/T† are NOT exact for Ising anyons — should not appear in topological S-K output
-        | SolovayKitaev.T | SolovayKitaev.TDagger ->
-            TopologicalResult.computationError "gateConversion" $"Gate %A{gate} is not exact in Ising anyon braiding and should not appear in topological S-K output"
+        | SolovayKitaev.T
+        | SolovayKitaev.TDagger ->
+            TopologicalResult.computationError
+                "gateConversion"
+                $"Gate %A{gate} is not exact in Ising anyon braiding and should not appear in topological S-K output"
         // H/X/Y should NEVER appear in output when using topological-compatible base set
-        | SolovayKitaev.H | SolovayKitaev.X | SolovayKitaev.Y ->
-            TopologicalResult.computationError "gateConversion" $"Gate %A{gate} should not appear in Solovay-Kitaev output for topological systems"
-    
+        | SolovayKitaev.H
+        | SolovayKitaev.X
+        | SolovayKitaev.Y ->
+            TopologicalResult.computationError
+                "gateConversion"
+                $"Gate %A{gate} should not appear in Solovay-Kitaev output for topological systems"
+
     /// Compose a list of braids (left-to-right) in the Ising σ-pair encoding
     /// (2(n+1) strands for n qubits).
     /// Returns Error if any composition fails (e.g., mismatched strand counts)
-    let composeBraids (numQubits: int) (braids: BraidGroup.BraidWord list) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let composeBraids
+        (numQubits: int)
+        (braids: BraidGroup.BraidWord list)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         braids
-        |> List.fold (fun acc braid ->
-            match acc with
-            | Error _ -> acc  // Propagate previous error
-            | Ok current ->
-                BraidGroup.compose current braid
-        ) (BraidGroup.identity (isingStrandCount numQubits))
-    
+        |> List.fold
+            (fun acc braid ->
+                match acc with
+                | Error _ -> acc // Propagate previous error
+                | Ok current -> BraidGroup.compose current braid)
+            (BraidGroup.identity (isingStrandCount numQubits))
+
     /// Convert Solovay-Kitaev gate sequence to composed braiding
-    let solovayKitaevGatesToBraid (gates: SolovayKitaev.GateSequence) (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let solovayKitaevGatesToBraid
+        (gates: SolovayKitaev.GateSequence)
+        (qubitIndex: int)
+        (numQubits: int)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         gates
         |> List.map (fun gate -> basicGateToBraid gate qubitIndex numQubits)
         |> ResultPrivate.sequence
         |> Result.bind (composeBraids numQubits)
-    
+
     /// Hadamard gate decomposition — NOT REALIZABLE by Ising within-pair braiding.
     ///
     /// **PHYSICS**: The braid gates available in the σ-pair encoding executor are
@@ -239,75 +279,109 @@ module GateToBraid =
     ///
     /// The TopologicalBackend implements H on Ising via an exact amplitude-level
     /// intercept (modeling measurement/magic-state supplementation).
-    let hadamardGateToBraid (qubitIndex: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let hadamardGateToBraid
+        (qubitIndex: int)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         TopologicalResult.notImplemented
             "Hadamard braid compilation (Ising)"
-            (Some ("H is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; " +
-                   "no braid sequence can approximate H. Use the backend's amplitude-level intercept " +
-                   "(non-topological supplementation) instead."))
+            (Some(
+                "H is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; "
+                + "no braid sequence can approximate H. Use the backend's amplitude-level intercept "
+                + "(non-topological supplementation) instead."
+            ))
 
     /// Pauli X gate decomposition — NOT REALIZABLE by Ising within-pair braiding
     /// (off-diagonal; see hadamardGateToBraid for the physics).
-    let pauliXGateToBraid (qubitIndex: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let pauliXGateToBraid
+        (qubitIndex: int)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         TopologicalResult.notImplemented
             "Pauli-X braid compilation (Ising)"
-            (Some ("X is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; " +
-                   "no braid sequence can approximate X. Use the backend's amplitude-level intercept instead."))
+            (Some(
+                "X is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; "
+                + "no braid sequence can approximate X. Use the backend's amplitude-level intercept instead."
+            ))
 
     /// Pauli Y gate decomposition — NOT REALIZABLE by Ising within-pair braiding
     /// (off-diagonal; see hadamardGateToBraid for the physics).
-    let pauliYGateToBraid (qubitIndex: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let pauliYGateToBraid
+        (qubitIndex: int)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         TopologicalResult.notImplemented
             "Pauli-Y braid compilation (Ising)"
-            (Some ("Y is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; " +
-                   "no braid sequence can approximate Y. Use the backend's amplitude-level intercept instead."))
+            (Some(
+                "Y is off-diagonal but Ising within-pair braiding generates only diagonal gates {I, S, Z, S†}; "
+                + "no braid sequence can approximate Y. Use the backend's amplitude-level intercept instead."
+            ))
 
     // ========================================================================
     // ROTATION GATE DECOMPOSITION
     // ========================================================================
-    
+
     /// Decompose Rz(θ) gate into braiding sequence with proper error handling.
-    /// 
-    /// **MATHEMATICAL NOTE**: 
+    ///
+    /// **MATHEMATICAL NOTE**:
     /// Rz(θ) = diag(1, exp(iθ)) is a RELATIVE phase gate.
     /// One Ising braid produces relative phase of exp(iπ/2) = S gate.
-    /// 
+    ///
     /// For topological QC with Ising anyons:
     /// Rz(θ) ≈ (braid)^n where n = round(θ / (π/2))
     /// Positive n → clockwise braids, negative n → counter-clockwise braids.
-    /// 
+    ///
     /// This is EXACT when θ is a multiple of π/2, approximate otherwise.
-    let rzGateToBraid (qubitIndex: int) (angle: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        let braidPhase = Math.PI / 2.0  // One Ising braid = S = π/2 relative phase
+    let rzGateToBraid
+        (qubitIndex: int)
+        (angle: float)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
+        let braidPhase = Math.PI / 2.0 // One Ising braid = S = π/2 relative phase
         let (error, numBraids) = computeAngleError angle braidPhase
-        
+
         // Check if approximation is within tolerance
         if error > tolerance then
-            TopologicalResult.computationError "Rz gate approximation" $"Rz({angle}) approximation error {error:F6} exceeds tolerance {tolerance:F6}"
+            TopologicalResult.computationError
+                "Rz gate approximation"
+                $"Rz({angle}) approximation error {error:F6} exceeds tolerance {tolerance:F6}"
         else
             // Use sign to determine direction: positive → clockwise, negative → counter-clockwise
             let isClockwise = numBraids >= 0
             let absCount = abs numBraids
-            let gens : BraidGroup.BraidGenerator list =
+
+            let gens: BraidGroup.BraidGenerator list =
                 List.init absCount (fun _ ->
-                    { Index = withinPairIndex qubitIndex; IsClockwise = isClockwise })
+                    {
+                        Index = withinPairIndex qubitIndex
+                        IsClockwise = isClockwise
+                    })
 
             BraidGroup.fromGenerators (isingStrandCount numQubits) gens
-    
+
     /// Decompose arbitrary phase gate Phase(θ)
-    /// 
+    ///
     /// **CONVENTION**: Phase(θ) = diag(1, exp(iθ)) = Rz(θ)
     /// Same as Rz in our convention.
-    let phaseGateToBraid (qubitIndex: int) (angle: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let phaseGateToBraid
+        (qubitIndex: int)
+        (angle: float)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         // Phase gate = Rz gate in our convention
         rzGateToBraid qubitIndex angle numQubits tolerance
-    
+
     /// Decompose U3(θ, φ, λ) gate using Solovay-Kitaev approximation
-    /// 
+    ///
     /// U3(θ, φ, λ) is the general single-qubit unitary:
     /// [[cos(θ/2), -e^(iλ) sin(θ/2)],
     ///  [e^(iφ) sin(θ/2), e^(i(φ+λ)) cos(θ/2)]]
-    /// 
+    ///
     /// This is the most general single-qubit gate (3 real parameters).
     /// Uses Solovay-Kitaev over the Ising-exact braid gates {S, S†, Z, I}.
     ///
@@ -315,18 +389,26 @@ module GateToBraid =
     /// U3 instances (θ ≈ 0 with phase a multiple of π/2) can succeed. Off-diagonal
     /// targets return an explicit error instead of a silently wrong braid — the
     /// achieved Solovay-Kitaev error is checked against the requested tolerance.
-    let u3GateToBraid (qubitIndex: int) (theta: float) (phi: float) (lambda: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let u3GateToBraid
+        (qubitIndex: int)
+        (theta: float)
+        (phi: float)
+        (lambda: float)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         // Convert U3 parameters to SU2 matrix
         let halfTheta = theta / 2.0
         let cosHalf = cos halfTheta
         let sinHalf = sin halfTheta
 
-        let u3Matrix = {
-            SolovayKitaev.A = Complex(cosHalf, 0.0)
-            SolovayKitaev.B = Complex(-sinHalf * cos lambda, -sinHalf * sin lambda)
-            SolovayKitaev.C = Complex(sinHalf * cos phi, sinHalf * sin phi)
-            SolovayKitaev.D = Complex(cosHalf * cos (phi + lambda), cosHalf * sin (phi + lambda))
-        }
+        let u3Matrix =
+            {
+                SolovayKitaev.A = Complex(cosHalf, 0.0)
+                SolovayKitaev.B = Complex(-sinHalf * cos lambda, -sinHalf * sin lambda)
+                SolovayKitaev.C = Complex(sinHalf * cos phi, sinHalf * sin phi)
+                SolovayKitaev.D = Complex(cosHalf * cos (phi + lambda), cosHalf * sin (phi + lambda))
+            }
 
         // Use topological Solovay-Kitaev to approximate
         let result = SolovayKitaev.approximateGateTopological u3Matrix tolerance 4 12
@@ -338,10 +420,10 @@ module GateToBraid =
         if result.Error > tolerance then
             TopologicalResult.computationError
                 "U3 gate approximation"
-                ($"U3({theta:F4},{phi:F4},{lambda:F4}) cannot be approximated by Ising braiding: " +
-                 $"best achievable error {result.Error:E3} exceeds tolerance {tolerance:E3}. " +
-                 "Ising within-pair braids generate only diagonal gates; off-diagonal rotations " +
-                 "require non-topological supplementation (e.g. magic states).")
+                ($"U3({theta:F4},{phi:F4},{lambda:F4}) cannot be approximated by Ising braiding: "
+                 + $"best achievable error {result.Error:E3} exceeds tolerance {tolerance:E3}. "
+                 + "Ising within-pair braids generate only diagonal gates; off-diagonal rotations "
+                 + "require non-topological supplementation (e.g. magic states).")
         else
             // Convert gate sequence to braiding
             solovayKitaevGatesToBraid result.Gates qubitIndex numQubits
@@ -350,7 +432,7 @@ module GateToBraid =
     // ========================================================================
     // TWO-QUBIT GATE DECOMPOSITION
     // ========================================================================
-    
+
     /// Create entangling braid between two qubits (cross-pair exchange).
     ///
     /// **Note on Indexing**
@@ -372,24 +454,38 @@ module GateToBraid =
     ///
     /// For non-adjacent qubits we synthesize a long-range interaction by
     /// composing adjacent cross-pair generators along the qubit interval.
-    let createEntanglingBraid (controlQubit: int) (targetQubit: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let createEntanglingBraid
+        (controlQubit: int)
+        (targetQubit: int)
+        (numQubits: int)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         // Fibonacci/SU(2)_k strand convention: 2 τ anyons per qubit + 1 auxiliary
         let strandCount = max 3 (2 * numQubits + 1)
+
         if abs (controlQubit - targetQubit) = 1 then
             // Adjacent qubits: single cross-pair generator at leaf 2*min+1
-            let gen : BraidGroup.BraidGenerator = { Index = 2 * (min controlQubit targetQubit) + 1; IsClockwise = true }
+            let gen: BraidGroup.BraidGenerator =
+                {
+                    Index = 2 * (min controlQubit targetQubit) + 1
+                    IsClockwise = true
+                }
+
             BraidGroup.fromGenerators strandCount [ gen ]
         else
             // Non-adjacent qubits: chain adjacent cross-pair generators across the interval
             let minQubit = min controlQubit targetQubit
             let maxQubit = max controlQubit targetQubit
 
-            let braidGens : BraidGroup.BraidGenerator list =
+            let braidGens: BraidGroup.BraidGenerator list =
                 [ minQubit .. maxQubit - 1 ]
-                |> List.map (fun q -> { Index = 2 * q + 1; IsClockwise = true })
+                |> List.map (fun q ->
+                    {
+                        Index = 2 * q + 1
+                        IsClockwise = true
+                    })
 
             BraidGroup.fromGenerators strandCount braidGens
-    
+
     /// Decompose Controlled-Z (CZ) gate into braiding sequence.
     ///
     /// **NOT SUPPORTED for the Ising σ-pair encoding.**
@@ -403,40 +499,56 @@ module GateToBraid =
     ///
     /// The TopologicalBackend implements CZ on Ising via transpilation to
     /// H·CNOT·H with exact amplitude-level intercepts.
-    let controlledZGateToBraid (controlQubit: int) (targetQubit: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
+    let controlledZGateToBraid
+        (controlQubit: int)
+        (targetQubit: int)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
         TopologicalResult.notImplemented
             "CZ braid compilation (Ising)"
-            (Some ($"CZ({controlQubit},{targetQubit}) cannot be realized by the supported within-pair Ising braids: " +
-                   "an entangling cross-pair braid with F-move basis changes would be required, which the " +
-                   "fusion-tree executor does not implement for the σ-pair encoding. The TopologicalBackend " +
-                   "executes CZ via exact amplitude-level operations (transpiled to H·CNOT·H) instead."))
-    
+            (Some(
+                $"CZ({controlQubit},{targetQubit}) cannot be realized by the supported within-pair Ising braids: "
+                + "an entangling cross-pair braid with F-move basis changes would be required, which the "
+                + "fusion-tree executor does not implement for the σ-pair encoding. The TopologicalBackend "
+                + "executes CZ via exact amplitude-level operations (transpiled to H·CNOT·H) instead."
+            ))
+
     /// Decompose CNOT gate into braiding sequence using Clifford+T decomposition.
-    /// 
+    ///
     /// **Mathematical Foundation:**
     /// CNOT can be decomposed as:
     ///   CNOT = (H ⊗ I) · CZ · (H ⊗ I)
-    /// 
+    ///
     /// Where CZ (Controlled-Z) can be implemented using:
     ///   CZ = (I ⊗ I) · (S ⊗ S†) · CNOT_basis · (S† ⊗ S)
-    /// 
+    ///
     /// But for Ising anyons, we use a more direct topological approach:
     ///   CNOT ≈ H(target) · CZ(control,target) · H(target)
     ///   CZ ≈ S(control) · S(target) · braiding(control,target) · S†(control) · S†(target)
-    /// 
+    ///
     /// **Note on Ising Anyons:**
     /// For Ising anyons, two-qubit gates require braiding strands from BOTH qubits.
     /// This is implemented via "exchange" braiding between adjacent anyonic strands.
-    /// 
+    ///
     /// **Gate Count:** ~6-8 Hadamards + ~4 S gates + entangling braids
     ///                 = ~300-500 T gates total (after Solovay-Kitaev approximation)
-    let cnotGateToBraid (controlQubit: int) (targetQubit: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        
+    let cnotGateToBraid
+        (controlQubit: int)
+        (targetQubit: int)
+        (numQubits: int)
+        (tolerance: float)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
+
         // Validate qubit indices
         if controlQubit < 0 || controlQubit >= numQubits then
-            TopologicalResult.computationError "operation" $"Invalid control qubit: {controlQubit} (must be 0..{numQubits-1})"
+            TopologicalResult.computationError
+                "operation"
+                $"Invalid control qubit: {controlQubit} (must be 0..{numQubits - 1})"
         elif targetQubit < 0 || targetQubit >= numQubits then
-            TopologicalResult.computationError "operation" $"Invalid target qubit: {targetQubit} (must be 0..{numQubits-1})"
+            TopologicalResult.computationError
+                "operation"
+                $"Invalid target qubit: {targetQubit} (must be 0..{numQubits - 1})"
         elif controlQubit = targetQubit then
             TopologicalResult.computationError "operation" "Control and target qubits must be different"
         else
@@ -444,13 +556,13 @@ module GateToBraid =
             topologicalResult {
                 // Step 1: Apply Hadamard to target qubit
                 let! h1 = hadamardGateToBraid targetQubit numQubits tolerance
-                
+
                 // Step 2: Apply Controlled-Z (CZ) between control and target
                 let! cz = controlledZGateToBraid controlQubit targetQubit numQubits tolerance
-                
+
                 // Step 3: Apply Hadamard to target qubit again
                 let! h2 = hadamardGateToBraid targetQubit numQubits tolerance
-                
+
                 // Compose: H · CZ · H
                 let! temp = BraidGroup.compose h1 cz
                 return! BraidGroup.compose temp h2
@@ -459,278 +571,342 @@ module GateToBraid =
     // ========================================================================
     // HIGH-LEVEL GATE COMPILATION
     // ========================================================================
-    
+
     /// Compile CircuitBuilder.Gate to braiding sequence
-    let compileGateToBraid 
-        (gate: CircuitBuilder.Gate) 
+    let compileGateToBraid
+        (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         let gateName = BraidToGate.getGateName gate
         let qubits = BraidToGate.getAffectedQubits gate
-        
+
         match gate with
         | CircuitBuilder.Gate.T qubit ->
             // T gate is NOT exact in Ising anyon braiding — must be intercepted
             tGateToBraid qubit numQubits
-            |> Result.map (fun braid -> {
-                GateName = "T"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = 0.0
-                DecompositionNotes = None
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = "T"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = 0.0
+                    DecompositionNotes = None
+                })
+
         | CircuitBuilder.Gate.TDG qubit ->
             // T† gate is NOT exact in Ising anyon braiding — must be intercepted
             tDaggerGateToBraid qubit numQubits
-            |> Result.map (fun braid -> {
-                GateName = "T†"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = 0.0
-                DecompositionNotes = None
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = "T†"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = 0.0
+                    DecompositionNotes = None
+                })
+
         | CircuitBuilder.Gate.S qubit ->
             sGateToBraid qubit numQubits
-            |> Result.map (fun braid -> {
-                GateName = "S"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = 0.0  // Exact: 1 clockwise braid
-                DecompositionNotes = None
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = "S"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = 0.0 // Exact: 1 clockwise braid
+                    DecompositionNotes = None
+                })
+
         | CircuitBuilder.Gate.SDG qubit ->
             sDaggerGateToBraid qubit numQubits
-            |> Result.map (fun braid -> {
-                GateName = "S†"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = 0.0  // Exact: 1 counter-clockwise braid
-                DecompositionNotes = None
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = "S†"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = 0.0 // Exact: 1 counter-clockwise braid
+                    DecompositionNotes = None
+                })
+
         | CircuitBuilder.Gate.Z qubit ->
             zGateToBraid qubit numQubits
-            |> Result.map (fun braid -> {
-                GateName = "Z"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = 0.0  // Exact: 2 clockwise braids (S²)
-                DecompositionNotes = None
-            })
-        
-        | CircuitBuilder.Gate.RZ (qubit, angle) ->
+            |> Result.map (fun braid ->
+                {
+                    GateName = "Z"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = 0.0 // Exact: 2 clockwise braids (S²)
+                    DecompositionNotes = None
+                })
+
+        | CircuitBuilder.Gate.RZ(qubit, angle) ->
             let braidPhase = Math.PI / 2.0
             let (error, _) = computeAngleError angle braidPhase
-            
+
             rzGateToBraid qubit angle numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = $"Rz({angle:F4})"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = error
-                DecompositionNotes = 
-                    if error > 1e-10 then 
-                        Some $"Rz angle approximated to nearest π/2 multiple (error: {error:E6})"
-                    else None
-            })
-        
-        | CircuitBuilder.Gate.P (qubit, angle) ->
+            |> Result.map (fun braid ->
+                {
+                    GateName = $"Rz({angle:F4})"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = error
+                    DecompositionNotes =
+                        if error > 1e-10 then
+                            Some $"Rz angle approximated to nearest π/2 multiple (error: {error:E6})"
+                        else
+                            None
+                })
+
+        | CircuitBuilder.Gate.P(qubit, angle) ->
             let braidPhase = Math.PI / 2.0
             let (error, _) = computeAngleError angle braidPhase
-            
+
             phaseGateToBraid qubit angle numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = $"Phase({angle:F4})"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = error
-                DecompositionNotes = 
-                    if error > 1e-10 then 
-                        Some $"Phase angle approximated to nearest π/2 multiple (error: {error:E6})"
-                    else None
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = $"Phase({angle:F4})"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = error
+                    DecompositionNotes =
+                        if error > 1e-10 then
+                            Some $"Phase angle approximated to nearest π/2 multiple (error: {error:E6})"
+                        else
+                            None
+                })
+
         | CircuitBuilder.Gate.H qubit ->
             hadamardGateToBraid qubit numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = "H"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = tolerance
-                DecompositionNotes = Some "Hadamard approximated using Solovay-Kitaev with T/S/Z gates"
-            })
-        
-        | CircuitBuilder.Gate.CNOT (control, target) ->
+            |> Result.map (fun braid ->
+                {
+                    GateName = "H"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance
+                    DecompositionNotes = Some "Hadamard approximated using Solovay-Kitaev with T/S/Z gates"
+                })
+
+        | CircuitBuilder.Gate.CNOT(control, target) ->
             cnotGateToBraid control target numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = "CNOT"
-                Qubits = [control; target]
-                BraidSequence = [braid]
-                ApproximationError = tolerance * 3.0  // H·CZ·H has 3 approximations
-                DecompositionNotes = Some "CNOT = H(target) · CZ(control,target) · H(target)"
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = "CNOT"
+                    Qubits = [ control; target ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance * 3.0 // H·CZ·H has 3 approximations
+                    DecompositionNotes = Some "CNOT = H(target) · CZ(control,target) · H(target)"
+                })
+
         | CircuitBuilder.Gate.X qubit ->
             pauliXGateToBraid qubit numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = "X"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = tolerance
-                DecompositionNotes = Some "Pauli X approximated using Solovay-Kitaev with T/S/Z gates"
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = "X"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance
+                    DecompositionNotes = Some "Pauli X approximated using Solovay-Kitaev with T/S/Z gates"
+                })
+
         | CircuitBuilder.Gate.Y qubit ->
             pauliYGateToBraid qubit numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = "Y"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = tolerance
-                DecompositionNotes = Some "Pauli Y approximated using Solovay-Kitaev with T/S/Z gates"
-            })
-        
-        | CircuitBuilder.Gate.U3 (qubit, theta, phi, lambda) ->
+            |> Result.map (fun braid ->
+                {
+                    GateName = "Y"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance
+                    DecompositionNotes = Some "Pauli Y approximated using Solovay-Kitaev with T/S/Z gates"
+                })
+
+        | CircuitBuilder.Gate.U3(qubit, theta, phi, lambda) ->
             u3GateToBraid qubit theta phi lambda numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = $"U3({theta:F4},{phi:F4},{lambda:F4})"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = tolerance
-                DecompositionNotes = Some "U3 gate approximated using Solovay-Kitaev with T/S/Z gates"
-            })
-        
+            |> Result.map (fun braid ->
+                {
+                    GateName = $"U3({theta:F4},{phi:F4},{lambda:F4})"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance
+                    DecompositionNotes = Some "U3 gate approximated using Solovay-Kitaev with T/S/Z gates"
+                })
+
         // DECOMPOSABLE GATES - Convert to supported gates
-        
-        | CircuitBuilder.Gate.RX (qubit, angle) ->
+
+        | CircuitBuilder.Gate.RX(qubit, angle) ->
             // RX(θ) = U3(θ, -π/2, π/2) = RZ(π/2) · RY(θ) · RZ(-π/2)
             // Decompose via U3
-            u3GateToBraid qubit angle (-Math.PI/2.0) (Math.PI/2.0) numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = $"RX({angle:F4})"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = tolerance
-                DecompositionNotes = Some "RX decomposed to U3 equivalent"
-            })
-        
-        | CircuitBuilder.Gate.RY (qubit, angle) ->
+            u3GateToBraid qubit angle (-Math.PI / 2.0) (Math.PI / 2.0) numQubits tolerance
+            |> Result.map (fun braid ->
+                {
+                    GateName = $"RX({angle:F4})"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance
+                    DecompositionNotes = Some "RX decomposed to U3 equivalent"
+                })
+
+        | CircuitBuilder.Gate.RY(qubit, angle) ->
             // RY(θ) = U3(θ, 0, 0)
             // Decompose via U3
             u3GateToBraid qubit angle 0.0 0.0 numQubits tolerance
-            |> Result.map (fun braid -> {
-                GateName = $"RY({angle:F4})"
-                Qubits = [qubit]
-                BraidSequence = [braid]
-                ApproximationError = tolerance
-                DecompositionNotes = Some "RY decomposed to U3 equivalent"
-            })
-        
-        | CircuitBuilder.Gate.CZ (control, target) ->
+            |> Result.map (fun braid ->
+                {
+                    GateName = $"RY({angle:F4})"
+                    Qubits = [ qubit ]
+                    BraidSequence = [ braid ]
+                    ApproximationError = tolerance
+                    DecompositionNotes = Some "RY decomposed to U3 equivalent"
+                })
+
+        | CircuitBuilder.Gate.CZ(control, target) ->
             // CZ = H(target) · CNOT(control, target) · H(target)
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("CZ gate compilation", "CZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.CP (control, target, angle) ->
+            Error(
+                TopologicalError.LogicError(
+                    "CZ gate compilation",
+                    "CZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.CP(control, target, angle) ->
             // CP(θ) = controlled phase rotation
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("CP gate compilation", "CP gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.CRX (control, target, angle) ->
+            Error(
+                TopologicalError.LogicError(
+                    "CP gate compilation",
+                    "CP gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.CRX(control, target, angle) ->
             // CRX(θ) = controlled rotation X
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("CRX gate compilation", "CRX gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.CRY (control, target, angle) ->
+            Error(
+                TopologicalError.LogicError(
+                    "CRX gate compilation",
+                    "CRX gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.CRY(control, target, angle) ->
             // CRY(θ) = controlled rotation Y
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("CRY gate compilation", "CRY gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.CRZ (control, target, angle) ->
+            Error(
+                TopologicalError.LogicError(
+                    "CRY gate compilation",
+                    "CRY gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.CRZ(control, target, angle) ->
             // CRZ(θ) = controlled rotation Z
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("CRZ gate compilation", "CRZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.SWAP (qubit1, qubit2) ->
+            Error(
+                TopologicalError.LogicError(
+                    "CRZ gate compilation",
+                    "CRZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.SWAP(qubit1, qubit2) ->
             // SWAP = CNOT(q1,q2) · CNOT(q2,q1) · CNOT(q1,q2)
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("SWAP gate compilation", "SWAP gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.CCX (control1, control2, target) ->
+            Error(
+                TopologicalError.LogicError(
+                    "SWAP gate compilation",
+                    "SWAP gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.CCX(control1, control2, target) ->
             // Toffoli requires 6 CNOTs + T gates (Barenco decomposition)
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("CCX gate compilation", "CCX (Toffoli) gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
-        | CircuitBuilder.Gate.MCZ (controls, target) ->
+            Error(
+                TopologicalError.LogicError(
+                    "CCX gate compilation",
+                    "CCX (Toffoli) gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
+        | CircuitBuilder.Gate.MCZ(controls, target) ->
             // Multi-controlled Z requires decomposition to Toffolis + single-qubit gates
             // This is automatically handled by GateTranspiler in compileGateSequence
             // Should not reach here if transpilation is done correctly
-            Error (TopologicalError.LogicError 
-                ("MCZ gate compilation", "MCZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
-        
+            Error(
+                TopologicalError.LogicError(
+                    "MCZ gate compilation",
+                    "MCZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."
+                )
+            )
+
         // MEASUREMENT - Handled separately by backend
         | CircuitBuilder.Gate.Measure qubit ->
             // Measurements are handled by the topological backend's fusion measurement protocol
             // Skip during braid compilation - they become fusion measurements later
-            Ok {
-                GateName = "Measure"
-                Qubits = [qubit]
-                BraidSequence = []  // Empty - no braiding operations
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Measurement handled by topological backend fusion protocol (not a braid operation)"
-            }
-        
+            Ok
+                {
+                    GateName = "Measure"
+                    Qubits = [ qubit ]
+                    BraidSequence = [] // Empty - no braiding operations
+                    ApproximationError = 0.0
+                    DecompositionNotes =
+                        Some "Measurement handled by topological backend fusion protocol (not a braid operation)"
+                }
+
         // RESET - Not supported in topological quantum computing
         | CircuitBuilder.Gate.Reset _ ->
-            Error (TopologicalError.LogicError 
-                ("Reset gate compilation",
-                 "Reset gate is not supported in topological quantum computing — requires measurement and conditional feedback incompatible with braiding"))
-        
+            Error(
+                TopologicalError.LogicError(
+                    "Reset gate compilation",
+                    "Reset gate is not supported in topological quantum computing — requires measurement and conditional feedback incompatible with braiding"
+                )
+            )
+
         // BARRIER - Synchronization directive with no physical effect
         | CircuitBuilder.Gate.Barrier qubits ->
-            Ok {
-                GateName = "Barrier"
-                Qubits = qubits
-                BraidSequence = []
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Barrier is a synchronization directive with no physical effect — no braiding needed"
-            }
+            Ok
+                {
+                    GateName = "Barrier"
+                    Qubits = qubits
+                    BraidSequence = []
+                    ApproximationError = 0.0
+                    DecompositionNotes =
+                        Some "Barrier is a synchronization directive with no physical effect — no braiding needed"
+                }
 
         // Classical feedback is incompatible with braiding-based execution
         | CircuitBuilder.Gate.Conditional _ ->
-            Error (TopologicalError.LogicError 
-                ("Conditional gate compilation",
-                 "Classically conditioned gates are not supported in topological quantum computing"))
+            Error(
+                TopologicalError.LogicError(
+                    "Conditional gate compilation",
+                    "Classically conditioned gates are not supported in topological quantum computing"
+                )
+            )
 
         // Ising interaction gates - must be transpiled to CNOT+RZ first
         // (compileGateSequence transpiles automatically before compiling)
-        | CircuitBuilder.Gate.RXX _ | CircuitBuilder.Gate.RYY _ | CircuitBuilder.Gate.RZZ _ ->
-            Error (TopologicalError.LogicError 
-                ($"{gateName} gate compilation", 
-                 $"{gateName} should have been transpiled before gate-to-braid compilation"))
-    
+        | CircuitBuilder.Gate.RXX _
+        | CircuitBuilder.Gate.RYY _
+        | CircuitBuilder.Gate.RZZ _ ->
+            Error(
+                TopologicalError.LogicError(
+                    $"{gateName} gate compilation",
+                    $"{gateName} should have been transpiled before gate-to-braid compilation"
+                )
+            )
+
     // ========================================================================
     // FIBONACCI GATE COMPILATION
     // ========================================================================
-    
+
     /// Convert a list of Fibonacci braid operations to a BraidGroup.BraidWord.
     ///
     /// Maps SolovayKitaev.FibonacciBraidOp to BraidGroup.BraidGenerator:
@@ -739,29 +915,43 @@ module GateToBraid =
     ///
     /// Fibonacci encoding uses 3 strands for a single qubit (2 τ anyons + 1 auxiliary)
     /// to achieve universality via {σ₁, σ₂}.
-    let fibonacciOpsToBraidWord 
-        (ops: SolovayKitaev.FibonacciBraidOp list) 
+    let fibonacciOpsToBraidWord
+        (ops: SolovayKitaev.FibonacciBraidOp list)
         (qubitIndex: int)
-        (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        
+        (numQubits: int)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
+
         // Fibonacci needs at least 3 strands per qubit for universality
         // n qubits → at least 2n + 1 strands (pairs + boundary strand)
         let strandCount = max 3 (2 * numQubits + 1)
-        
-        let generators : BraidGroup.BraidGenerator list =
-            ops |> List.map (fun op ->
+
+        let generators: BraidGroup.BraidGenerator list =
+            ops
+            |> List.map (fun op ->
                 match op with
                 | SolovayKitaev.FibonacciBraidOp.Sigma1 ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex; IsClockwise = true }
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex
+                        IsClockwise = true
+                    }
                 | SolovayKitaev.FibonacciBraidOp.Sigma1Inv ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex; IsClockwise = false }
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex
+                        IsClockwise = false
+                    }
                 | SolovayKitaev.FibonacciBraidOp.Sigma2 ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1; IsClockwise = true }
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1
+                        IsClockwise = true
+                    }
                 | SolovayKitaev.FibonacciBraidOp.Sigma2Inv ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1; IsClockwise = false })
-        
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1
+                        IsClockwise = false
+                    })
+
         BraidGroup.fromGenerators strandCount generators
-    
+
     /// Compile a single-qubit gate for Fibonacci anyons.
     ///
     /// All single-qubit gates are approximated using the Fibonacci braid search.
@@ -770,11 +960,12 @@ module GateToBraid =
     let compileSingleQubitGateFibonacci
         (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         let gateName = BraidToGate.getGateName gate
         let qubits = BraidToGate.getAffectedQubits gate
-        
+
         // Get the target SU(2) matrix for this gate
         let targetMatrix =
             match gate with
@@ -786,52 +977,60 @@ module GateToBraid =
             | CircuitBuilder.Gate.H _ -> SolovayKitaev.gateToMatrix SolovayKitaev.H
             | CircuitBuilder.Gate.X _ -> SolovayKitaev.gateToMatrix SolovayKitaev.X
             | CircuitBuilder.Gate.Y _ -> SolovayKitaev.gateToMatrix SolovayKitaev.Y
-            | CircuitBuilder.Gate.RZ (_, angle) ->
+            | CircuitBuilder.Gate.RZ(_, angle) ->
                 let phase = Complex.Exp(Complex.ImaginaryOne * Complex(angle, 0.0))
                 SolovayKitaev.createSU2 Complex.One Complex.Zero Complex.Zero phase
-            | CircuitBuilder.Gate.P (_, angle) ->
+            | CircuitBuilder.Gate.P(_, angle) ->
                 let phase = Complex.Exp(Complex.ImaginaryOne * Complex(angle, 0.0))
                 SolovayKitaev.createSU2 Complex.One Complex.Zero Complex.Zero phase
-            | CircuitBuilder.Gate.RX (_, angle) ->
+            | CircuitBuilder.Gate.RX(_, angle) ->
                 let halfAngle = angle / 2.0
                 let cosH = Complex(cos halfAngle, 0.0)
                 let sinH = Complex(0.0, -sin halfAngle)
-                SolovayKitaev.createSU2 cosH sinH (Complex.Conjugate sinH |> fun c -> Complex(-c.Real, -c.Imaginary)) cosH
-            | CircuitBuilder.Gate.RY (_, angle) ->
+
+                SolovayKitaev.createSU2
+                    cosH
+                    sinH
+                    (Complex.Conjugate sinH |> fun c -> Complex(-c.Real, -c.Imaginary))
+                    cosH
+            | CircuitBuilder.Gate.RY(_, angle) ->
                 let halfAngle = angle / 2.0
                 let cosH = Complex(cos halfAngle, 0.0)
                 let sinH = Complex(sin halfAngle, 0.0)
                 SolovayKitaev.createSU2 cosH (Complex(-sinH.Real, 0.0)) sinH cosH
-            | CircuitBuilder.Gate.U3 (_, theta, phi, lambda) ->
+            | CircuitBuilder.Gate.U3(_, theta, phi, lambda) ->
                 let halfTheta = theta / 2.0
                 let cosHalf = cos halfTheta
                 let sinHalf = sin halfTheta
+
                 SolovayKitaev.createSU2
                     (Complex(cosHalf, 0.0))
                     (Complex(-sinHalf * cos lambda, -sinHalf * sin lambda))
                     (Complex(sinHalf * cos phi, sinHalf * sin phi))
                     (Complex(cosHalf * cos (phi + lambda), cosHalf * sin (phi + lambda)))
-            | _ -> SolovayKitaev.identity  // Should not reach here for single-qubit gates
-        
-        let qubitIndex = 
+            | _ -> SolovayKitaev.identity // Should not reach here for single-qubit gates
+
+        let qubitIndex =
             match qubits with
-            | [q] -> q
+            | [ q ] -> q
             | _ -> 0
-        
+
         // Approximate using Fibonacci braid search
         // baseSetLength=4 gives 4^1 + 4^2 + 4^3 + 4^4 = 340 braid words in base set
-        let (braidOps, error) = SolovayKitaev.approximateGateFibonacci targetMatrix tolerance 4 12
-        
+        let (braidOps, error) =
+            SolovayKitaev.approximateGateFibonacci targetMatrix tolerance 4 12
+
         fibonacciOpsToBraidWord braidOps qubitIndex numQubits
-        |> Result.map (fun braid -> {
-            GateName = gateName
-            Qubits = qubits
-            BraidSequence = [braid]
-            ApproximationError = error
-            DecompositionNotes = 
-                Some $"Fibonacci anyon compilation: {braidOps.Length} braid operations, error {error:E6}"
-        })
-    
+        |> Result.map (fun braid ->
+            {
+                GateName = gateName
+                Qubits = qubits
+                BraidSequence = [ braid ]
+                ApproximationError = error
+                DecompositionNotes =
+                    Some $"Fibonacci anyon compilation: {braidOps.Length} braid operations, error {error:E6}"
+            })
+
     /// Compile a two-qubit gate for Fibonacci anyons.
     ///
     /// Two-qubit gates in Fibonacci anyons require braiding across
@@ -839,153 +1038,205 @@ module GateToBraid =
     let rec compileTwoQubitGateFibonacci
         (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         match gate with
-        | CircuitBuilder.Gate.CNOT (control, target) ->
+        | CircuitBuilder.Gate.CNOT(control, target) ->
             // CNOT = H(target) · CZ(control, target) · H(target)
             // For Fibonacci, both H and CZ require approximation
             topologicalResult {
                 // Compile H gate on target qubit
-                let! h1 = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
-                
+                let! h1 =
+                    compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
+
                 // For CZ, we need entangling braids between the qubit pairs
                 // Use S · entangle · S† pattern adapted for Fibonacci
-                let! sControl = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.S control) numQubits tolerance
-                let! sTarget = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.S target) numQubits tolerance
+                let! sControl =
+                    compileSingleQubitGateFibonacci (CircuitBuilder.Gate.S control) numQubits tolerance
+
+                let! sTarget =
+                    compileSingleQubitGateFibonacci (CircuitBuilder.Gate.S target) numQubits tolerance
+
                 let! entangle = createEntanglingBraid control target numQubits
-                let! sdControl = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.SDG control) numQubits tolerance
-                let! sdTarget = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.SDG target) numQubits tolerance
-                
-                let! h2 = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
-                
+
+                let! sdControl =
+                    compileSingleQubitGateFibonacci (CircuitBuilder.Gate.SDG control) numQubits tolerance
+
+                let! sdTarget =
+                    compileSingleQubitGateFibonacci (CircuitBuilder.Gate.SDG target) numQubits tolerance
+
+                let! h2 =
+                    compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
+
                 // Combine all braid sequences
-                let allBraids = 
-                    h1.BraidSequence @
-                    sControl.BraidSequence @ sTarget.BraidSequence @
-                    [entangle] @
-                    sdControl.BraidSequence @ sdTarget.BraidSequence @
-                    h2.BraidSequence
-                
-                let totalError = 
-                    h1.ApproximationError + sControl.ApproximationError + sTarget.ApproximationError +
-                    sdControl.ApproximationError + sdTarget.ApproximationError + h2.ApproximationError
-                
-                return {
-                    GateName = "CNOT"
-                    Qubits = [control; target]
-                    BraidSequence = allBraids
-                    ApproximationError = totalError
-                    DecompositionNotes = Some "Fibonacci CNOT: H · S · S · entangle · S† · S† · H decomposition"
-                }
+                let allBraids =
+                    h1.BraidSequence
+                    @ sControl.BraidSequence
+                    @ sTarget.BraidSequence
+                    @ [ entangle ]
+                    @ sdControl.BraidSequence
+                    @ sdTarget.BraidSequence
+                    @ h2.BraidSequence
+
+                let totalError =
+                    h1.ApproximationError
+                    + sControl.ApproximationError
+                    + sTarget.ApproximationError
+                    + sdControl.ApproximationError
+                    + sdTarget.ApproximationError
+                    + h2.ApproximationError
+
+                return
+                    {
+                        GateName = "CNOT"
+                        Qubits = [ control; target ]
+                        BraidSequence = allBraids
+                        ApproximationError = totalError
+                        DecompositionNotes = Some "Fibonacci CNOT: H · S · S · entangle · S† · S† · H decomposition"
+                    }
             }
         | _ ->
             // CZ, SWAP: decompose natively into CNOT sequences for Fibonacci
             match gate with
-            | CircuitBuilder.Gate.CZ (control, target) ->
+            | CircuitBuilder.Gate.CZ(control, target) ->
                 // CZ = H(target) · CNOT(control, target) · H(target)
                 topologicalResult {
-                    let! h1 = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
-                    let! cnot = compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT (control, target)) numQubits tolerance
-                    let! h2 = compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
-                    
+                    let! h1 =
+                        compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
+
+                    let! cnot =
+                        compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT(control, target)) numQubits tolerance
+
+                    let! h2 =
+                        compileSingleQubitGateFibonacci (CircuitBuilder.Gate.H target) numQubits tolerance
+
                     let allBraids = h1.BraidSequence @ cnot.BraidSequence @ h2.BraidSequence
-                    let totalError = h1.ApproximationError + cnot.ApproximationError + h2.ApproximationError
-                    
-                    return {
-                        GateName = "CZ"
-                        Qubits = [control; target]
-                        BraidSequence = allBraids
-                        ApproximationError = totalError
-                        DecompositionNotes = Some "Fibonacci CZ: H(target) · CNOT · H(target) decomposition"
-                    }
+
+                    let totalError =
+                        h1.ApproximationError + cnot.ApproximationError + h2.ApproximationError
+
+                    return
+                        {
+                            GateName = "CZ"
+                            Qubits = [ control; target ]
+                            BraidSequence = allBraids
+                            ApproximationError = totalError
+                            DecompositionNotes = Some "Fibonacci CZ: H(target) · CNOT · H(target) decomposition"
+                        }
                 }
-            | CircuitBuilder.Gate.SWAP (q1, q2) ->
+            | CircuitBuilder.Gate.SWAP(q1, q2) ->
                 // SWAP = CNOT(q1,q2) · CNOT(q2,q1) · CNOT(q1,q2)
                 topologicalResult {
-                    let! cnot1 = compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT (q1, q2)) numQubits tolerance
-                    let! cnot2 = compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT (q2, q1)) numQubits tolerance
-                    let! cnot3 = compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT (q1, q2)) numQubits tolerance
-                    
+                    let! cnot1 =
+                        compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT(q1, q2)) numQubits tolerance
+
+                    let! cnot2 =
+                        compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT(q2, q1)) numQubits tolerance
+
+                    let! cnot3 =
+                        compileTwoQubitGateFibonacci (CircuitBuilder.Gate.CNOT(q1, q2)) numQubits tolerance
+
                     let allBraids = cnot1.BraidSequence @ cnot2.BraidSequence @ cnot3.BraidSequence
-                    let totalError = cnot1.ApproximationError + cnot2.ApproximationError + cnot3.ApproximationError
-                    
-                    return {
-                        GateName = "SWAP"
-                        Qubits = [q1; q2]
-                        BraidSequence = allBraids
-                        ApproximationError = totalError
-                        DecompositionNotes = Some "Fibonacci SWAP: CNOT(a,b) · CNOT(b,a) · CNOT(a,b) decomposition"
-                    }
+
+                    let totalError =
+                        cnot1.ApproximationError + cnot2.ApproximationError + cnot3.ApproximationError
+
+                    return
+                        {
+                            GateName = "SWAP"
+                            Qubits = [ q1; q2 ]
+                            BraidSequence = allBraids
+                            ApproximationError = totalError
+                            DecompositionNotes = Some "Fibonacci SWAP: CNOT(a,b) · CNOT(b,a) · CNOT(a,b) decomposition"
+                        }
                 }
             | _ ->
-                TopologicalResult.notImplemented 
+                TopologicalResult.notImplemented
                     "Fibonacci two-qubit gate"
                     (Some $"Two-qubit gate {BraidToGate.getGateName gate} not yet supported for Fibonacci anyons")
-    
+
     /// Compile a gate for Fibonacci anyons (dispatches to single/two-qubit)
     let compileGateToBraidFibonacci
-        (gate: CircuitBuilder.Gate) 
+        (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         match gate with
         // Single-qubit gates
-        | CircuitBuilder.Gate.T _ | CircuitBuilder.Gate.TDG _
-        | CircuitBuilder.Gate.S _ | CircuitBuilder.Gate.SDG _
-        | CircuitBuilder.Gate.Z _ | CircuitBuilder.Gate.H _
-        | CircuitBuilder.Gate.X _ | CircuitBuilder.Gate.Y _
-        | CircuitBuilder.Gate.RZ _ | CircuitBuilder.Gate.P _
-        | CircuitBuilder.Gate.RX _ | CircuitBuilder.Gate.RY _
-        | CircuitBuilder.Gate.U3 _ ->
-            compileSingleQubitGateFibonacci gate numQubits tolerance
-        
+        | CircuitBuilder.Gate.T _
+        | CircuitBuilder.Gate.TDG _
+        | CircuitBuilder.Gate.S _
+        | CircuitBuilder.Gate.SDG _
+        | CircuitBuilder.Gate.Z _
+        | CircuitBuilder.Gate.H _
+        | CircuitBuilder.Gate.X _
+        | CircuitBuilder.Gate.Y _
+        | CircuitBuilder.Gate.RZ _
+        | CircuitBuilder.Gate.P _
+        | CircuitBuilder.Gate.RX _
+        | CircuitBuilder.Gate.RY _
+        | CircuitBuilder.Gate.U3 _ -> compileSingleQubitGateFibonacci gate numQubits tolerance
+
         // Two-qubit gates
         | CircuitBuilder.Gate.CNOT _
         | CircuitBuilder.Gate.CZ _
-        | CircuitBuilder.Gate.SWAP _ ->
-            compileTwoQubitGateFibonacci gate numQubits tolerance
-        
+        | CircuitBuilder.Gate.SWAP _ -> compileTwoQubitGateFibonacci gate numQubits tolerance
+
         // Measurement - same as Ising
         | CircuitBuilder.Gate.Measure qubit ->
-            Ok {
-                GateName = "Measure"
-                Qubits = [qubit]
-                BraidSequence = []
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Measurement handled by topological backend fusion protocol"
-            }
-        
+            Ok
+                {
+                    GateName = "Measure"
+                    Qubits = [ qubit ]
+                    BraidSequence = []
+                    ApproximationError = 0.0
+                    DecompositionNotes = Some "Measurement handled by topological backend fusion protocol"
+                }
+
         // Barrier - same as Ising
         | CircuitBuilder.Gate.Barrier qubits ->
-            Ok {
-                GateName = "Barrier"
-                Qubits = qubits
-                BraidSequence = []
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Barrier is a synchronization directive — no braiding needed"
-            }
-        
+            Ok
+                {
+                    GateName = "Barrier"
+                    Qubits = qubits
+                    BraidSequence = []
+                    ApproximationError = 0.0
+                    DecompositionNotes = Some "Barrier is a synchronization directive — no braiding needed"
+                }
+
         // Reset - not supported
         | CircuitBuilder.Gate.Reset _ ->
-            Error (TopologicalError.LogicError 
-                ("Reset gate compilation",
-                 "Reset gate is not supported in topological quantum computing"))
-        
+            Error(
+                TopologicalError.LogicError(
+                    "Reset gate compilation",
+                    "Reset gate is not supported in topological quantum computing"
+                )
+            )
+
         // Must-be-transpiled gates — should not reach here
         | CircuitBuilder.Gate.Conditional _
         | CircuitBuilder.Gate.CP _
-        | CircuitBuilder.Gate.CRX _ | CircuitBuilder.Gate.CRY _ | CircuitBuilder.Gate.CRZ _
-        | CircuitBuilder.Gate.RXX _ | CircuitBuilder.Gate.RYY _ | CircuitBuilder.Gate.RZZ _
-        | CircuitBuilder.Gate.CCX _ | CircuitBuilder.Gate.MCZ _ ->
-            Error (TopologicalError.LogicError 
-                ($"{BraidToGate.getGateName gate} gate compilation", 
-                 $"{BraidToGate.getGateName gate} should have been transpiled before gate-to-braid compilation"))
-    
+        | CircuitBuilder.Gate.CRX _
+        | CircuitBuilder.Gate.CRY _
+        | CircuitBuilder.Gate.CRZ _
+        | CircuitBuilder.Gate.RXX _
+        | CircuitBuilder.Gate.RYY _
+        | CircuitBuilder.Gate.RZZ _
+        | CircuitBuilder.Gate.CCX _
+        | CircuitBuilder.Gate.MCZ _ ->
+            Error(
+                TopologicalError.LogicError(
+                    $"{BraidToGate.getGateName gate} gate compilation",
+                    $"{BraidToGate.getGateName gate} should have been transpiled before gate-to-braid compilation"
+                )
+            )
+
     // ========================================================================
     // SU(2)_k GATE COMPILATION (GENERAL Chern-Simons LEVELS k ≥ 3)
     // ========================================================================
-    
+
     /// Convert a list of SU(2)_k braid operations to a BraidGroup.BraidWord.
     ///
     /// Maps SolovayKitaev.SU2kBraidOp to BraidGroup.BraidGenerator:
@@ -993,27 +1244,41 @@ module GateToBraid =
     ///   SKSigma2/SKSigma2Inv → generator at qubitIndex+1 (across pair boundary)
     ///
     /// Same strand layout as Fibonacci: 3 strands per qubit (2 anyons + 1 auxiliary).
-    let su2kOpsToBraidWord 
-        (ops: SolovayKitaev.SU2kBraidOp list) 
+    let su2kOpsToBraidWord
+        (ops: SolovayKitaev.SU2kBraidOp list)
         (qubitIndex: int)
-        (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        
+        (numQubits: int)
+        : Result<BraidGroup.BraidWord, TopologicalError> =
+
         let strandCount = max 3 (2 * numQubits + 1)
-        
-        let generators : BraidGroup.BraidGenerator list =
-            ops |> List.map (fun op ->
+
+        let generators: BraidGroup.BraidGenerator list =
+            ops
+            |> List.map (fun op ->
                 match op with
                 | SolovayKitaev.SU2kBraidOp.SKSigma1 ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex; IsClockwise = true }
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex
+                        IsClockwise = true
+                    }
                 | SolovayKitaev.SU2kBraidOp.SKSigma1Inv ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex; IsClockwise = false }
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex
+                        IsClockwise = false
+                    }
                 | SolovayKitaev.SU2kBraidOp.SKSigma2 ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1; IsClockwise = true }
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1
+                        IsClockwise = true
+                    }
                 | SolovayKitaev.SU2kBraidOp.SKSigma2Inv ->
-                    { BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1; IsClockwise = false })
-        
+                    {
+                        BraidGroup.BraidGenerator.Index = 2 * qubitIndex + 1
+                        IsClockwise = false
+                    })
+
         BraidGroup.fromGenerators strandCount generators
-    
+
     /// Compile a single-qubit gate for SU(2)_k anyons (k ≥ 3).
     ///
     /// Uses the same algorithm structure as Fibonacci compilation but with
@@ -1022,11 +1287,12 @@ module GateToBraid =
         (k: int)
         (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         let gateName = BraidToGate.getGateName gate
         let qubits = BraidToGate.getAffectedQubits gate
-        
+
         // Get the target SU(2) matrix for this gate (same mapping as Fibonacci)
         let targetMatrix =
             match gate with
@@ -1038,52 +1304,59 @@ module GateToBraid =
             | CircuitBuilder.Gate.H _ -> SolovayKitaev.gateToMatrix SolovayKitaev.H
             | CircuitBuilder.Gate.X _ -> SolovayKitaev.gateToMatrix SolovayKitaev.X
             | CircuitBuilder.Gate.Y _ -> SolovayKitaev.gateToMatrix SolovayKitaev.Y
-            | CircuitBuilder.Gate.RZ (_, angle) ->
+            | CircuitBuilder.Gate.RZ(_, angle) ->
                 let phase = Complex.Exp(Complex.ImaginaryOne * Complex(angle, 0.0))
                 SolovayKitaev.createSU2 Complex.One Complex.Zero Complex.Zero phase
-            | CircuitBuilder.Gate.P (_, angle) ->
+            | CircuitBuilder.Gate.P(_, angle) ->
                 let phase = Complex.Exp(Complex.ImaginaryOne * Complex(angle, 0.0))
                 SolovayKitaev.createSU2 Complex.One Complex.Zero Complex.Zero phase
-            | CircuitBuilder.Gate.RX (_, angle) ->
+            | CircuitBuilder.Gate.RX(_, angle) ->
                 let halfAngle = angle / 2.0
                 let cosH = Complex(cos halfAngle, 0.0)
                 let sinH = Complex(0.0, -sin halfAngle)
-                SolovayKitaev.createSU2 cosH sinH (Complex.Conjugate sinH |> fun c -> Complex(-c.Real, -c.Imaginary)) cosH
-            | CircuitBuilder.Gate.RY (_, angle) ->
+
+                SolovayKitaev.createSU2
+                    cosH
+                    sinH
+                    (Complex.Conjugate sinH |> fun c -> Complex(-c.Real, -c.Imaginary))
+                    cosH
+            | CircuitBuilder.Gate.RY(_, angle) ->
                 let halfAngle = angle / 2.0
                 let cosH = Complex(cos halfAngle, 0.0)
                 let sinH = Complex(sin halfAngle, 0.0)
                 SolovayKitaev.createSU2 cosH (Complex(-sinH.Real, 0.0)) sinH cosH
-            | CircuitBuilder.Gate.U3 (_, theta, phi, lambda) ->
+            | CircuitBuilder.Gate.U3(_, theta, phi, lambda) ->
                 let halfTheta = theta / 2.0
                 let cosHalf = cos halfTheta
                 let sinHalf = sin halfTheta
+
                 SolovayKitaev.createSU2
                     (Complex(cosHalf, 0.0))
                     (Complex(-sinHalf * cos lambda, -sinHalf * sin lambda))
                     (Complex(sinHalf * cos phi, sinHalf * sin phi))
                     (Complex(cosHalf * cos (phi + lambda), cosHalf * sin (phi + lambda)))
             | _ -> SolovayKitaev.identity
-        
-        let qubitIndex = 
+
+        let qubitIndex =
             match qubits with
-            | [q] -> q
+            | [ q ] -> q
             | _ -> 0
-        
+
         // Approximate using SU(2)_k braid search
         match SolovayKitaev.approximateGateSU2k k targetMatrix tolerance 4 12 with
         | Error err -> Error err
-        | Ok (braidOps, error) ->
+        | Ok(braidOps, error) ->
             su2kOpsToBraidWord braidOps qubitIndex numQubits
-            |> Result.map (fun braid -> {
-                GateName = gateName
-                Qubits = qubits
-                BraidSequence = [braid]
-                ApproximationError = error
-                DecompositionNotes = 
-                    Some $"SU(2)_{k} anyon compilation: {braidOps.Length} braid operations, error {error:E6}"
-            })
-    
+            |> Result.map (fun braid ->
+                {
+                    GateName = gateName
+                    Qubits = qubits
+                    BraidSequence = [ braid ]
+                    ApproximationError = error
+                    DecompositionNotes =
+                        Some $"SU(2)_{k} anyon compilation: {braidOps.Length} braid operations, error {error:E6}"
+                })
+
     /// Compile a two-qubit gate for SU(2)_k anyons.
     ///
     /// Uses same decomposition strategy as Fibonacci: CNOT via H·entangle·H,
@@ -1092,178 +1365,239 @@ module GateToBraid =
         (k: int)
         (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         match gate with
-        | CircuitBuilder.Gate.CNOT (control, target) ->
+        | CircuitBuilder.Gate.CNOT(control, target) ->
             topologicalResult {
-                let! h1 = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
-                let! sControl = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.S control) numQubits tolerance
-                let! sTarget = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.S target) numQubits tolerance
+                let! h1 =
+                    compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
+
+                let! sControl =
+                    compileSingleQubitGateSU2k k (CircuitBuilder.Gate.S control) numQubits tolerance
+
+                let! sTarget =
+                    compileSingleQubitGateSU2k k (CircuitBuilder.Gate.S target) numQubits tolerance
+
                 let! entangle = createEntanglingBraid control target numQubits
-                let! sdControl = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.SDG control) numQubits tolerance
-                let! sdTarget = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.SDG target) numQubits tolerance
-                let! h2 = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
-                
-                let allBraids = 
-                    h1.BraidSequence @
-                    sControl.BraidSequence @ sTarget.BraidSequence @
-                    [entangle] @
-                    sdControl.BraidSequence @ sdTarget.BraidSequence @
-                    h2.BraidSequence
-                
-                let totalError = 
-                    h1.ApproximationError + sControl.ApproximationError + sTarget.ApproximationError +
-                    sdControl.ApproximationError + sdTarget.ApproximationError + h2.ApproximationError
-                
-                return {
-                    GateName = "CNOT"
-                    Qubits = [control; target]
-                    BraidSequence = allBraids
-                    ApproximationError = totalError
-                    DecompositionNotes = Some $"SU(2)_{k} CNOT: H · S · S · entangle · S† · S† · H decomposition"
-                }
+
+                let! sdControl =
+                    compileSingleQubitGateSU2k k (CircuitBuilder.Gate.SDG control) numQubits tolerance
+
+                let! sdTarget =
+                    compileSingleQubitGateSU2k k (CircuitBuilder.Gate.SDG target) numQubits tolerance
+
+                let! h2 =
+                    compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
+
+                let allBraids =
+                    h1.BraidSequence
+                    @ sControl.BraidSequence
+                    @ sTarget.BraidSequence
+                    @ [ entangle ]
+                    @ sdControl.BraidSequence
+                    @ sdTarget.BraidSequence
+                    @ h2.BraidSequence
+
+                let totalError =
+                    h1.ApproximationError
+                    + sControl.ApproximationError
+                    + sTarget.ApproximationError
+                    + sdControl.ApproximationError
+                    + sdTarget.ApproximationError
+                    + h2.ApproximationError
+
+                return
+                    {
+                        GateName = "CNOT"
+                        Qubits = [ control; target ]
+                        BraidSequence = allBraids
+                        ApproximationError = totalError
+                        DecompositionNotes = Some $"SU(2)_{k} CNOT: H · S · S · entangle · S† · S† · H decomposition"
+                    }
             }
         | _ ->
             match gate with
-            | CircuitBuilder.Gate.CZ (control, target) ->
+            | CircuitBuilder.Gate.CZ(control, target) ->
                 topologicalResult {
-                    let! h1 = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
-                    let! cnot = compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT (control, target)) numQubits tolerance
-                    let! h2 = compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
-                    
+                    let! h1 =
+                        compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
+
+                    let! cnot =
+                        compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT(control, target)) numQubits tolerance
+
+                    let! h2 =
+                        compileSingleQubitGateSU2k k (CircuitBuilder.Gate.H target) numQubits tolerance
+
                     let allBraids = h1.BraidSequence @ cnot.BraidSequence @ h2.BraidSequence
-                    let totalError = h1.ApproximationError + cnot.ApproximationError + h2.ApproximationError
-                    
-                    return {
-                        GateName = "CZ"
-                        Qubits = [control; target]
-                        BraidSequence = allBraids
-                        ApproximationError = totalError
-                        DecompositionNotes = Some $"SU(2)_{k} CZ: H(target) · CNOT · H(target) decomposition"
-                    }
+
+                    let totalError =
+                        h1.ApproximationError + cnot.ApproximationError + h2.ApproximationError
+
+                    return
+                        {
+                            GateName = "CZ"
+                            Qubits = [ control; target ]
+                            BraidSequence = allBraids
+                            ApproximationError = totalError
+                            DecompositionNotes = Some $"SU(2)_{k} CZ: H(target) · CNOT · H(target) decomposition"
+                        }
                 }
-            | CircuitBuilder.Gate.SWAP (q1, q2) ->
+            | CircuitBuilder.Gate.SWAP(q1, q2) ->
                 topologicalResult {
-                    let! cnot1 = compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT (q1, q2)) numQubits tolerance
-                    let! cnot2 = compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT (q2, q1)) numQubits tolerance
-                    let! cnot3 = compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT (q1, q2)) numQubits tolerance
-                    
+                    let! cnot1 =
+                        compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT(q1, q2)) numQubits tolerance
+
+                    let! cnot2 =
+                        compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT(q2, q1)) numQubits tolerance
+
+                    let! cnot3 =
+                        compileTwoQubitGateSU2k k (CircuitBuilder.Gate.CNOT(q1, q2)) numQubits tolerance
+
                     let allBraids = cnot1.BraidSequence @ cnot2.BraidSequence @ cnot3.BraidSequence
-                    let totalError = cnot1.ApproximationError + cnot2.ApproximationError + cnot3.ApproximationError
-                    
-                    return {
-                        GateName = "SWAP"
-                        Qubits = [q1; q2]
-                        BraidSequence = allBraids
-                        ApproximationError = totalError
-                        DecompositionNotes = Some $"SU(2)_{k} SWAP: CNOT(a,b) · CNOT(b,a) · CNOT(a,b) decomposition"
-                    }
+
+                    let totalError =
+                        cnot1.ApproximationError + cnot2.ApproximationError + cnot3.ApproximationError
+
+                    return
+                        {
+                            GateName = "SWAP"
+                            Qubits = [ q1; q2 ]
+                            BraidSequence = allBraids
+                            ApproximationError = totalError
+                            DecompositionNotes = Some $"SU(2)_{k} SWAP: CNOT(a,b) · CNOT(b,a) · CNOT(a,b) decomposition"
+                        }
                 }
             | _ ->
-                TopologicalResult.notImplemented 
+                TopologicalResult.notImplemented
                     $"SU(2)_{k} two-qubit gate"
                     (Some $"Two-qubit gate {BraidToGate.getGateName gate} not yet supported for SU(2)_{k} anyons")
-    
+
     /// Compile a gate for SU(2)_k anyons (dispatches to single/two-qubit).
     ///
     /// For k values where braiding is known to NOT be universal (k=4, even k≥6),
     /// compilation proceeds but a warning is included in DecompositionNotes.
     let compileGateToBraidSU2k
         (k: int)
-        (gate: CircuitBuilder.Gate) 
+        (gate: CircuitBuilder.Gate)
         (numQubits: int)
-        (tolerance: float) : Result<GateDecomposition, TopologicalError> =
-        
+        (tolerance: float)
+        : Result<GateDecomposition, TopologicalError> =
+
         // Check universality and prepare warning
         let universalityWarning =
             match k with
-            | 4 -> Some "WARNING: SU(2)_4 braiding is NOT universal — results are approximate within the Clifford group only"
+            | 4 ->
+                Some
+                    "WARNING: SU(2)_4 braiding is NOT universal — results are approximate within the Clifford group only"
             | k when k >= 6 && k % 2 = 0 -> Some $"WARNING: SU(2)_{k} (even k≥6) braiding may not be universal"
             | _ -> None
-        
+
         // Add universality warning to decomposition notes
         let addWarning (result: Result<GateDecomposition, TopologicalError>) =
             match universalityWarning with
             | None -> result
             | Some warning ->
-                result |> Result.map (fun decomp ->
+                result
+                |> Result.map (fun decomp ->
                     let notes =
                         match decomp.DecompositionNotes with
                         | Some existing -> Some $"{existing}; {warning}"
                         | None -> Some warning
-                    { decomp with DecompositionNotes = notes })
-        
+
+                    { decomp with
+                        DecompositionNotes = notes
+                    })
+
         match gate with
         // Single-qubit gates
-        | CircuitBuilder.Gate.T _ | CircuitBuilder.Gate.TDG _
-        | CircuitBuilder.Gate.S _ | CircuitBuilder.Gate.SDG _
-        | CircuitBuilder.Gate.Z _ | CircuitBuilder.Gate.H _
-        | CircuitBuilder.Gate.X _ | CircuitBuilder.Gate.Y _
-        | CircuitBuilder.Gate.RZ _ | CircuitBuilder.Gate.P _
-        | CircuitBuilder.Gate.RX _ | CircuitBuilder.Gate.RY _
-        | CircuitBuilder.Gate.U3 _ ->
-            compileSingleQubitGateSU2k k gate numQubits tolerance |> addWarning
-        
+        | CircuitBuilder.Gate.T _
+        | CircuitBuilder.Gate.TDG _
+        | CircuitBuilder.Gate.S _
+        | CircuitBuilder.Gate.SDG _
+        | CircuitBuilder.Gate.Z _
+        | CircuitBuilder.Gate.H _
+        | CircuitBuilder.Gate.X _
+        | CircuitBuilder.Gate.Y _
+        | CircuitBuilder.Gate.RZ _
+        | CircuitBuilder.Gate.P _
+        | CircuitBuilder.Gate.RX _
+        | CircuitBuilder.Gate.RY _
+        | CircuitBuilder.Gate.U3 _ -> compileSingleQubitGateSU2k k gate numQubits tolerance |> addWarning
+
         // Two-qubit gates
         | CircuitBuilder.Gate.CNOT _
         | CircuitBuilder.Gate.CZ _
-        | CircuitBuilder.Gate.SWAP _ ->
-            compileTwoQubitGateSU2k k gate numQubits tolerance |> addWarning
-        
+        | CircuitBuilder.Gate.SWAP _ -> compileTwoQubitGateSU2k k gate numQubits tolerance |> addWarning
+
         // Measurement
         | CircuitBuilder.Gate.Measure qubit ->
-            Ok {
-                GateName = "Measure"
-                Qubits = [qubit]
-                BraidSequence = []
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Measurement handled by topological backend fusion protocol"
-            }
-        
+            Ok
+                {
+                    GateName = "Measure"
+                    Qubits = [ qubit ]
+                    BraidSequence = []
+                    ApproximationError = 0.0
+                    DecompositionNotes = Some "Measurement handled by topological backend fusion protocol"
+                }
+
         // Barrier
         | CircuitBuilder.Gate.Barrier qubits ->
-            Ok {
-                GateName = "Barrier"
-                Qubits = qubits
-                BraidSequence = []
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Barrier is a synchronization directive — no braiding needed"
-            }
-        
+            Ok
+                {
+                    GateName = "Barrier"
+                    Qubits = qubits
+                    BraidSequence = []
+                    ApproximationError = 0.0
+                    DecompositionNotes = Some "Barrier is a synchronization directive — no braiding needed"
+                }
+
         // Reset - not supported
         | CircuitBuilder.Gate.Reset _ ->
-            Error (TopologicalError.LogicError 
-                ("Reset gate compilation",
-                 "Reset gate is not supported in topological quantum computing"))
-        
+            Error(
+                TopologicalError.LogicError(
+                    "Reset gate compilation",
+                    "Reset gate is not supported in topological quantum computing"
+                )
+            )
+
         // Must-be-transpiled gates
         | CircuitBuilder.Gate.Conditional _
         | CircuitBuilder.Gate.CP _
-        | CircuitBuilder.Gate.CRX _ | CircuitBuilder.Gate.CRY _ | CircuitBuilder.Gate.CRZ _
-        | CircuitBuilder.Gate.RXX _ | CircuitBuilder.Gate.RYY _ | CircuitBuilder.Gate.RZZ _
-        | CircuitBuilder.Gate.CCX _ | CircuitBuilder.Gate.MCZ _ ->
-            Error (TopologicalError.LogicError 
-                ($"{BraidToGate.getGateName gate} gate compilation", 
-                 $"{BraidToGate.getGateName gate} should have been transpiled before gate-to-braid compilation"))
-    
+        | CircuitBuilder.Gate.CRX _
+        | CircuitBuilder.Gate.CRY _
+        | CircuitBuilder.Gate.CRZ _
+        | CircuitBuilder.Gate.RXX _
+        | CircuitBuilder.Gate.RYY _
+        | CircuitBuilder.Gate.RZZ _
+        | CircuitBuilder.Gate.CCX _
+        | CircuitBuilder.Gate.MCZ _ ->
+            Error(
+                TopologicalError.LogicError(
+                    $"{BraidToGate.getGateName gate} gate compilation",
+                    $"{BraidToGate.getGateName gate} should have been transpiled before gate-to-braid compilation"
+                )
+            )
+
     /// Compile gate sequence to braiding operations
-    /// 
+    ///
     /// **FULL PIPELINE**: Gate Sequence → Transpile → Gate-by-Gate Compile → Braid Words
-    /// 
+    ///
     /// Supports Ising, Fibonacci, and general SU(2)_k anyon types:
     /// - **Ising**: S gate = exact braid (1 CW), Z = 2 braids. T gate via amplitude intercept
     ///   in TopologicalBackend (not braid-compilable). H/X/Y via Solovay-Kitaev with {S,Z}
     /// - **Fibonacci**: ALL gates via Fibonacci braid search with {σ₁,σ₁⁻¹,σ₂,σ₂⁻¹}
     /// - **SU(2)_k** (k ≥ 3): ALL gates via SU(2)_k braid search with k-specific generators
-    /// 
+    ///
     /// This function automatically transpiles complex gates (CZ, CCX, MCZ) into elementary gates
     /// before converting to braiding operations. Users don't need to call GateTranspiler manually.
     let compileGateSequence
         (gateSequence: BraidToGate.GateSequence)
         (tolerance: float)
-        (anyonType: AnyonSpecies.AnyonType) : Result<GateSequenceCompilation, TopologicalError> =
-        
+        (anyonType: AnyonSpecies.AnyonType)
+        : Result<GateSequenceCompilation, TopologicalError> =
+
         // Select the gate compiler function based on anyon type
         let gateCompiler =
             match anyonType with
@@ -1271,65 +1605,73 @@ module GateToBraid =
             | AnyonSpecies.AnyonType.Fibonacci -> compileGateToBraidFibonacci
             | AnyonSpecies.AnyonType.SU2Level k when k >= 3 ->
                 fun gate numQubits tol -> compileGateToBraidSU2k k gate numQubits tol
-            | _ -> 
-                fun _ _ _ -> 
-                    TopologicalResult.notImplemented 
-                        "Gate compilation" 
-                        (Some $"Gate compilation not implemented for anyon type {anyonType}. Supported: Ising, Fibonacci, SU(2)_k (k≥3)")
-        
+            | _ ->
+                fun _ _ _ ->
+                    TopologicalResult.notImplemented
+                        "Gate compilation"
+                        (Some
+                            $"Gate compilation not implemented for anyon type {anyonType}. Supported: Ising, Fibonacci, SU(2)_k (k≥3)")
+
         // Step 1: Transpile complex gates to elementary gates
         // Convert GateSequence to Circuit format for transpilation
-        let circuit : CircuitBuilder.Circuit = {
-            QubitCount = gateSequence.NumQubits
-            Gates = gateSequence.Gates
-        }
-        
+        let circuit: CircuitBuilder.Circuit =
+            {
+                QubitCount = gateSequence.NumQubits
+                Gates = gateSequence.Gates
+            }
+
         // Transpile for topological backend (decomposes CZ, CCX, MCZ, phase gates).
         // Some decompositions (e.g., MCZ → CCX → {H, T, TDG, CNOT}) require multiple
         // passes because transpileForBackend is a single-pass transformation.
         // Loop until the gate list stabilizes (fixpoint), bounded to prevent infinite loops.
         let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
-            if remaining <= 0 then current
+            if remaining <= 0 then
+                current
             else
                 let next = GateTranspiler.transpileForBackend "topological" current
-                if next.Gates = current.Gates then next
-                else transpileToFixpoint (remaining - 1) next
+
+                if next.Gates = current.Gates then
+                    next
+                else
+                    transpileToFixpoint (remaining - 1) next
 
         let transpiledCircuit = transpileToFixpoint 5 circuit
-        
+
         // Step 2: Compile transpiled gates to braids using the selected compiler
         // Functional fold pattern - no mutable state
-        let initialState = {
-            AllBraids = []
-            TotalError = 0.0
-            Warnings = []
-        }
-        
+        let initialState =
+            {
+                AllBraids = []
+                TotalError = 0.0
+                Warnings = []
+            }
+
         // Fold over transpiled gates, accumulating results or short-circuiting on error
         // Note: AllBraids accumulated in reverse order, reversed at the end to avoid O(n²) append
         transpiledCircuit.Gates
-        |> List.fold (fun stateResult gate ->
-            match stateResult with
-            | Error err -> Error err  // Short-circuit on first error
-            | Ok state ->
-                match gateCompiler gate gateSequence.NumQubits tolerance with
-                | Error err -> Error err
-                | Ok decomp ->
-                    let newWarnings =
-                        match decomp.DecompositionNotes with
-                        | Some note -> note :: state.Warnings
-                        | None -> state.Warnings
-                    
-                    // Prepend reversed braids (O(1) per braid) instead of append (O(n))
-                    let newBraids =
-                        (List.rev decomp.BraidSequence) @ state.AllBraids
-                    
-                    Ok {
-                        AllBraids = newBraids
-                        TotalError = state.TotalError + decomp.ApproximationError
-                        Warnings = newWarnings
-                    }
-        ) (Ok initialState)
+        |> List.fold
+            (fun stateResult gate ->
+                match stateResult with
+                | Error err -> Error err // Short-circuit on first error
+                | Ok state ->
+                    match gateCompiler gate gateSequence.NumQubits tolerance with
+                    | Error err -> Error err
+                    | Ok decomp ->
+                        let newWarnings =
+                            match decomp.DecompositionNotes with
+                            | Some note -> note :: state.Warnings
+                            | None -> state.Warnings
+
+                        // Prepend reversed braids (O(1) per braid) instead of append (O(n))
+                        let newBraids = (List.rev decomp.BraidSequence) @ state.AllBraids
+
+                        Ok
+                            {
+                                AllBraids = newBraids
+                                TotalError = state.TotalError + decomp.ApproximationError
+                                Warnings = newWarnings
+                            })
+            (Ok initialState)
         |> Result.map (fun finalState ->
             {
                 OriginalGateCount = gateSequence.Gates.Length
@@ -1343,44 +1685,52 @@ module GateToBraid =
     // ========================================================================
     // DISPLAY UTILITIES
     // ========================================================================
-    
+
     /// Display gate decomposition
     let displayGateDecomposition (decomp: GateDecomposition) : string =
-        let braidSummary = 
+        let braidSummary =
             decomp.BraidSequence
-            |> List.mapi (fun i braid -> 
-                $"  {i+1}. {braid.Generators.Length} generators on {braid.StrandCount} strands")
+            |> List.mapi (fun i braid ->
+                $"  {i + 1}. {braid.Generators.Length} generators on {braid.StrandCount} strands")
             |> String.concat "\n"
-        
-        let errorInfo = 
-            if decomp.ApproximationError = 0.0 then "✓ EXACT"
-            else $"≈ Error: {decomp.ApproximationError:E6}"
-        
+
+        let errorInfo =
+            if decomp.ApproximationError = 0.0 then
+                "✓ EXACT"
+            else
+                $"≈ Error: {decomp.ApproximationError:E6}"
+
         let notesSection =
             match decomp.DecompositionNotes with
             | Some notes -> $"\nNotes: {notes}"
             | None -> ""
-        
+
         $"""{decomp.GateName} → Braiding Decomposition
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Qubits: {decomp.Qubits}
 Accuracy: {errorInfo}
 Braid sequence ({decomp.BraidSequence.Length} braids):
 {braidSummary}{notesSection}"""
-    
+
     /// Display compilation summary
     let displayCompilationSummary (compilation: GateSequenceCompilation) : string =
-        let exactness = if compilation.IsExact then "✓ EXACT" else $"≈ Error: {compilation.TotalError:E6}"
-        
-        let warningsSection =
-            if compilation.CompilationWarnings.IsEmpty then ""
+        let exactness =
+            if compilation.IsExact then
+                "✓ EXACT"
             else
-                let warningList = 
+                $"≈ Error: {compilation.TotalError:E6}"
+
+        let warningsSection =
+            if compilation.CompilationWarnings.IsEmpty then
+                ""
+            else
+                let warningList =
                     compilation.CompilationWarnings
-                    |> List.mapi (fun i w -> $"  {i+1}. {w}")
+                    |> List.mapi (fun i w -> $"  {i + 1}. {w}")
                     |> String.concat "\n"
+
                 $"\n\nWarnings:\n{warningList}"
-        
+
         $"""Gate Sequence Compilation Summary
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Anyon type: {compilation.AnyonType}

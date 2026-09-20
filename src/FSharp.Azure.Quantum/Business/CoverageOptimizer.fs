@@ -42,42 +42,45 @@ module CoverageOptimizer =
     // ========================================================================
 
     /// A coverage option (shift, facility, service package, etc.)
-    type CoverageOption = {
-        /// Unique identifier
-        Id: string
-        /// Elements this option covers (0-based indices)
-        CoveredElements: int list
-        /// Cost of selecting this option
-        Cost: float
-    }
+    type CoverageOption =
+        {
+            /// Unique identifier
+            Id: string
+            /// Elements this option covers (0-based indices)
+            CoveredElements: int list
+            /// Cost of selecting this option
+            Cost: float
+        }
 
     /// Coverage optimization problem
-    type CoverageProblem = {
-        /// Total number of elements to cover
-        UniverseSize: int
-        /// Available coverage options
-        Options: CoverageOption list
-        /// Quantum backend (None = error, Some = quantum optimization)
-        Backend: IQuantumBackend option
-        /// Number of measurement shots (default: 1000)
-        Shots: int
-    }
+    type CoverageProblem =
+        {
+            /// Total number of elements to cover
+            UniverseSize: int
+            /// Available coverage options
+            Options: CoverageOption list
+            /// Quantum backend (None = error, Some = quantum optimization)
+            Backend: IQuantumBackend option
+            /// Number of measurement shots (default: 1000)
+            Shots: int
+        }
 
     /// Coverage solution
-    type CoverageResult = {
-        /// Selected coverage options
-        SelectedOptions: CoverageOption list
-        /// Total cost of selected options
-        TotalCost: float
-        /// Number of elements covered
-        ElementsCovered: int
-        /// Total elements that need coverage
-        TotalElements: int
-        /// Whether all elements are covered
-        IsComplete: bool
-        /// Execution message
-        Message: string
-    }
+    type CoverageResult =
+        {
+            /// Selected coverage options
+            SelectedOptions: CoverageOption list
+            /// Total cost of selected options
+            TotalCost: float
+            /// Number of elements covered
+            ElementsCovered: int
+            /// Total elements that need coverage
+            TotalElements: int
+            /// Whether all elements are covered
+            IsComplete: bool
+            /// Execution message
+            Message: string
+        }
 
     // ========================================================================
     // CONVERSION & SOLVING
@@ -88,18 +91,23 @@ module CoverageOptimizer =
         let subsets =
             problem.Options
             |> List.map (fun opt ->
-                ({ Id = opt.Id
-                   Elements = opt.CoveredElements
-                   Cost = opt.Cost } : QuantumSetCoverSolver.Subset))
-        { UniverseSize = problem.UniverseSize
-          Subsets = subsets }
+                ({
+                    Id = opt.Id
+                    Elements = opt.CoveredElements
+                    Cost = opt.Cost
+                }
+                : QuantumSetCoverSolver.Subset))
+
+        {
+            UniverseSize = problem.UniverseSize
+            Subsets = subsets
+        }
 
     /// Decode a QuantumSetCoverSolver.Solution to CoverageResult
     let private decodeSolution (problem: CoverageProblem) (solution: QuantumSetCoverSolver.Solution) : CoverageResult =
         let selectedOptions =
             solution.SelectedSubsets
-            |> List.choose (fun subset ->
-                problem.Options |> List.tryFind (fun opt -> opt.Id = subset.Id))
+            |> List.choose (fun subset -> problem.Options |> List.tryFind (fun opt -> opt.Id = subset.Id))
 
         let coveredElements =
             selectedOptions
@@ -107,28 +115,32 @@ module CoverageOptimizer =
             |> List.distinct
             |> List.length
 
-        { SelectedOptions = selectedOptions
-          TotalCost = solution.TotalCost
-          ElementsCovered = coveredElements
-          TotalElements = problem.UniverseSize
-          IsComplete = solution.IsValid
-          Message =
-            if solution.IsValid then
-                $"Found complete coverage with {selectedOptions.Length} options, cost ${solution.TotalCost:F2}"
-            else
-                $"Partial coverage: {coveredElements}/{problem.UniverseSize} elements covered" }
+        {
+            SelectedOptions = selectedOptions
+            TotalCost = solution.TotalCost
+            ElementsCovered = coveredElements
+            TotalElements = problem.UniverseSize
+            IsComplete = solution.IsValid
+            Message =
+                if solution.IsValid then
+                    $"Found complete coverage with {selectedOptions.Length} options, cost ${solution.TotalCost:F2}"
+                else
+                    $"Partial coverage: {coveredElements}/{problem.UniverseSize} elements covered"
+        }
 
     /// Execute coverage optimization
     let solve (problem: CoverageProblem) : QuantumResult<CoverageResult> =
         if problem.UniverseSize <= 0 then
-            Error (QuantumError.ValidationError ("UniverseSize", "must be positive"))
+            Error(QuantumError.ValidationError("UniverseSize", "must be positive"))
         elif problem.Options.IsEmpty then
-            Error (QuantumError.ValidationError ("Options", "must have at least one coverage option"))
+            Error(QuantumError.ValidationError("Options", "must have at least one coverage option"))
         elif problem.Options |> List.exists (fun opt -> opt.Cost < 0.0) then
-            Error (QuantumError.ValidationError ("Cost", "option costs must be non-negative"))
-        elif problem.Options |> List.exists (fun opt ->
-                opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize)) then
-            Error (QuantumError.ValidationError ("CoveredElements", "element indices must be in range [0, UniverseSize)"))
+            Error(QuantumError.ValidationError("Cost", "option costs must be non-negative"))
+        elif
+            problem.Options
+            |> List.exists (fun opt -> opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
+        then
+            Error(QuantumError.ValidationError("CoveredElements", "element indices must be in range [0, UniverseSize)"))
         else
             // Quantum-first: run on the caller's backend, or default to the local simulator
             // (a real quantum backend) when none was supplied.
@@ -136,8 +148,11 @@ module CoverageOptimizer =
                 problem.Backend
                 |> Option.defaultWith (fun () ->
                     FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+
             let setCoverProblem = toSetCoverProblem problem
-            (QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots) |> Result.map (fun solution -> decodeSolution problem solution)
+
+            (QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots)
+            |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -146,18 +161,21 @@ module CoverageOptimizer =
     /// Fluent builder for coverage optimization.
     type CoverageOptimizerBuilder() =
 
-        let defaultProblem = {
-            UniverseSize = 0
-            Options = []
-            Backend = None
-            Shots = 1000
-        }
+        let defaultProblem =
+            {
+                UniverseSize = 0
+                Options = []
+                Backend = None
+                Shots = 1000
+            }
 
         member _.Yield(_) = defaultProblem
         member _.Delay(f: unit -> CoverageProblem) = f
+
         member _.Run(f: unit -> CoverageProblem) : QuantumResult<CoverageResult> =
-            let problem = f()
+            let problem = f ()
             solve problem
+
         member _.Combine(p1: CoverageProblem, p2: CoverageProblem) = p2
         member _.Zero() = defaultProblem
 
@@ -177,9 +195,19 @@ module CoverageOptimizer =
         /// <param name="coveredElements">List of element indices this option covers</param>
         /// <param name="cost">Cost of selecting this option</param>
         [<CustomOperation("option")>]
-        member _.Option(problem: CoverageProblem, id: string, coveredElements: int list, cost: float) : CoverageProblem =
-            let opt = { Id = id; CoveredElements = coveredElements; Cost = cost }
-            { problem with Options = opt :: problem.Options }
+        member _.Option
+            (problem: CoverageProblem, id: string, coveredElements: int list, cost: float)
+            : CoverageProblem =
+            let opt =
+                {
+                    Id = id
+                    CoveredElements = coveredElements
+                    Cost = cost
+                }
+
+            { problem with
+                Options = opt :: problem.Options
+            }
 
         /// <summary>Set the quantum backend.</summary>
         [<CustomOperation("backend")>]
@@ -188,8 +216,7 @@ module CoverageOptimizer =
 
         /// <summary>Set the number of measurement shots.</summary>
         [<CustomOperation("shots")>]
-        member _.Shots(problem: CoverageProblem, shots: int) : CoverageProblem =
-            { problem with Shots = shots }
+        member _.Shots(problem: CoverageProblem, shots: int) : CoverageProblem = { problem with Shots = shots }
 
     /// Create a coverage optimizer builder.
     let coverageOptimizer = CoverageOptimizerBuilder()

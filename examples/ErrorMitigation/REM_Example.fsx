@@ -104,15 +104,51 @@ open FSharp.Azure.Quantum.Examples.Common
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "REM_Example.fsx" "Readout Error Mitigation (REM) using confusion matrix calibration"
-    [ { Cli.OptionSpec.Name = "readout-error"; Description = "Readout bit-flip probability per qubit"; Default = Some "0.02" }
-      { Cli.OptionSpec.Name = "calibration-shots"; Description = "Shots for calibration matrix measurement"; Default = Some "10000" }
-      { Cli.OptionSpec.Name = "circuit-shots"; Description = "Shots for circuit execution"; Default = Some "10000" }
-      { Cli.OptionSpec.Name = "confidence"; Description = "Confidence level for intervals (0.0-1.0)"; Default = Some "0.95" }
-      { Cli.OptionSpec.Name = "min-probability"; Description = "Minimum probability filter threshold"; Default = Some "0.01" }
-      { Cli.OptionSpec.Name = "output"; Description = "Write JSON results to file"; Default = None }
-      { Cli.OptionSpec.Name = "csv"; Description = "Write CSV results to file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+Cli.exitIfHelp
+    "REM_Example.fsx"
+    "Readout Error Mitigation (REM) using confusion matrix calibration"
+    [
+        {
+            Cli.OptionSpec.Name = "readout-error"
+            Description = "Readout bit-flip probability per qubit"
+            Default = Some "0.02"
+        }
+        {
+            Cli.OptionSpec.Name = "calibration-shots"
+            Description = "Shots for calibration matrix measurement"
+            Default = Some "10000"
+        }
+        {
+            Cli.OptionSpec.Name = "circuit-shots"
+            Description = "Shots for circuit execution"
+            Default = Some "10000"
+        }
+        {
+            Cli.OptionSpec.Name = "confidence"
+            Description = "Confidence level for intervals (0.0-1.0)"
+            Default = Some "0.95"
+        }
+        {
+            Cli.OptionSpec.Name = "min-probability"
+            Description = "Minimum probability filter threshold"
+            Default = Some "0.01"
+        }
+        {
+            Cli.OptionSpec.Name = "output"
+            Description = "Write JSON results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "csv"
+            Description = "Write CSV results to file"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "quiet"
+            Description = "Suppress informational output"
+            Default = None
+        }
+    ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -140,19 +176,31 @@ let noisyMeasurementExecutor
         // matrix. (This mock models X-based state preparation + independent readout flips; it does
         // not simulate entangling gates such as H/CNOT.)
         let numQubits = max 1 circuit.QubitCount
+
         let preparedBit q =
-            circuit.Gates |> List.exists (function | Gate.X qq when qq = q -> true | _ -> false)
+            circuit.Gates
+            |> List.exists (function
+                | Gate.X qq when qq = q -> true
+                | _ -> false)
 
         let random = Random()
         let mutable results = Map.empty
 
-        for _ in 1 .. shots do
+        for _ in 1..shots do
             // Measure each qubit independently, flipping with probability flipProb.
             let bits =
-                [ for q in 0 .. numQubits - 1 ->
-                    let trueBit = if preparedBit q then 1 else 0
-                    let measuredBit = if random.NextDouble() < flipProb then 1 - trueBit else trueBit
-                    measuredBit ]
+                [
+                    for q in 0 .. numQubits - 1 ->
+                        let trueBit = if preparedBit q then 1 else 0
+
+                        let measuredBit =
+                            if random.NextDouble() < flipProb then
+                                1 - trueBit
+                            else
+                                trueBit
+
+                        measuredBit
+                ]
 
             // Bitstring convention matches bitstringToInt (Convert.ToInt32 base 2): leftmost char is
             // the most-significant bit (highest qubit index), so reverse the qubit-0..n-1 list.
@@ -161,7 +209,7 @@ let noisyMeasurementExecutor
             results <-
                 results
                 |> Map.change measured (function
-                    | Some count -> Some (count + 1)
+                    | Some count -> Some(count + 1)
                     | None -> Some 1)
 
         return Ok results
@@ -222,9 +270,10 @@ if not quiet then
     printfn "----------------------------------------"
     printfn ""
 
-match Async.RunSynchronously (measureCalibrationMatrix "ionq" 1 remConfig executor) with
+match Async.RunSynchronously(measureCalibrationMatrix "ionq" 1 remConfig executor) with
 | Error err ->
-    if not quiet then printfn "[ERROR] Calibration failed: %s" err
+    if not quiet then
+        printfn "[ERROR] Calibration failed: %s" err
 | Ok calibration ->
     if not quiet then
         printfn "[OK] Calibration Complete!"
@@ -232,16 +281,21 @@ match Async.RunSynchronously (measureCalibrationMatrix "ionq" 1 remConfig execut
         printfn "Confusion Matrix: M[measured, prepared]"
         printfn ""
         printfn "         Prepared |0>  Prepared |1>"
-        printfn "Measure |0>  %.4f       %.4f"
-            calibration.Matrix.[0, 0]
-            calibration.Matrix.[0, 1]
-        printfn "Measure |1>  %.4f       %.4f"
-            calibration.Matrix.[1, 0]
-            calibration.Matrix.[1, 1]
+        printfn "Measure |0>  %.4f       %.4f" calibration.Matrix.[0, 0] calibration.Matrix.[0, 1]
+        printfn "Measure |1>  %.4f       %.4f" calibration.Matrix.[1, 0] calibration.Matrix.[1, 1]
         printfn ""
         printfn "Interpretation:"
-        printfn "  P(measure 0 | prepared 0) = %.4f (~%.0f%% correct)" calibration.Matrix.[0, 0] (calibration.Matrix.[0, 0] * 100.0)
-        printfn "  P(measure 1 | prepared 0) = %.4f (~%.0f%% flip)" calibration.Matrix.[1, 0] (calibration.Matrix.[1, 0] * 100.0)
+
+        printfn
+            "  P(measure 0 | prepared 0) = %.4f (~%.0f%% correct)"
+            calibration.Matrix.[0, 0]
+            (calibration.Matrix.[0, 0] * 100.0)
+
+        printfn
+            "  P(measure 1 | prepared 0) = %.4f (~%.0f%% flip)"
+            calibration.Matrix.[1, 0]
+            (calibration.Matrix.[1, 0] * 100.0)
+
         printfn ""
 
     if not quiet then
@@ -249,16 +303,19 @@ match Async.RunSynchronously (measureCalibrationMatrix "ionq" 1 remConfig execut
         printfn "------------------------------------------------"
         printfn ""
 
-    match Async.RunSynchronously (executor zeroStateCircuit circuitShots) with
+    match Async.RunSynchronously(executor zeroStateCircuit circuitShots) with
     | Error err ->
-        if not quiet then printfn "[ERROR] Execution failed: %s" err
+        if not quiet then
+            printfn "[ERROR] Execution failed: %s" err
     | Ok measuredResults ->
         if not quiet then
             printfn "Uncorrected (Noisy) Results:"
+
             measuredResults
             |> Map.iter (fun bitstring count ->
                 let percent = (float count / float circuitShots) * 100.0
                 printfn "  |%s> -> %d counts (%.2f%%)" bitstring count percent)
+
             printfn ""
             printfn "Notice: ~%.0f%% of measurements are wrong (|1> instead of |0>)" (readoutError * 100.0)
             printfn ""
@@ -270,43 +327,49 @@ match Async.RunSynchronously (measureCalibrationMatrix "ionq" 1 remConfig execut
 
         match correctReadoutErrors measuredResults calibration remConfig with
         | Error err ->
-            if not quiet then printfn "[ERROR] Correction failed: %s" err
+            if not quiet then
+                printfn "[ERROR] Correction failed: %s" err
         | Ok corrected ->
             if not quiet then
                 printfn "[OK] Correction Complete!"
                 printfn ""
                 printfn "Corrected Results:"
+
                 corrected.Histogram
                 |> Map.iter (fun bitstring count ->
                     let percent = (count / float circuitShots) * 100.0
+
                     match corrected.ConfidenceIntervals |> Map.tryFind bitstring with
-                    | Some (lower, upper) ->
+                    | Some(lower, upper) ->
                         let lowerPct = (lower / float circuitShots) * 100.0
                         let upperPct = (upper / float circuitShots) * 100.0
-                        printfn "  |%s> -> %.0f counts (%.2f%%) [%.0f%% CI: %.1f%% - %.1f%%]"
-                            bitstring count percent (confidence * 100.0) lowerPct upperPct
-                    | None ->
-                        printfn "  |%s> -> %.0f counts (%.2f%%)" bitstring count percent)
+
+                        printfn
+                            "  |%s> -> %.0f counts (%.2f%%) [%.0f%% CI: %.1f%% - %.1f%%]"
+                            bitstring
+                            count
+                            percent
+                            (confidence * 100.0)
+                            lowerPct
+                            upperPct
+                    | None -> printfn "  |%s> -> %.0f counts (%.2f%%)" bitstring count percent)
+
                 printfn ""
                 printfn "Goodness-of-fit: %.4f (1.0 = perfect)" corrected.GoodnessOfFit
                 printfn ""
 
             // Calculate error reduction
             let uncorrectedError =
-                measuredResults
-                |> Map.tryFind "1"
-                |> Option.defaultValue 0
-                |> float
+                measuredResults |> Map.tryFind "1" |> Option.defaultValue 0 |> float
 
             let correctedError =
-                corrected.Histogram
-                |> Map.tryFind "1"
-                |> Option.defaultValue 0.0
+                corrected.Histogram |> Map.tryFind "1" |> Option.defaultValue 0.0
 
             let errorReduction =
                 if uncorrectedError > 0.0 then
                     ((uncorrectedError - correctedError) / uncorrectedError) * 100.0
-                else 0.0
+                else
+                    0.0
 
             if not quiet then
                 printfn "Error Analysis:"
@@ -314,23 +377,28 @@ match Async.RunSynchronously (measureCalibrationMatrix "ionq" 1 remConfig execut
                 printfn "  Corrected |1> counts: %.0f (nearly 0!)" correctedError
                 printfn "  Error reduction: %.1f%%" errorReduction
                 printfn ""
+
                 if errorReduction > 50.0 then
                     printfn "[OK] > 50%% error reduction achieved!"
                 else
                     printfn "[NOTE] Lower than expected error reduction"
+
                 printfn ""
 
             allResults.Add(
-                [ "example", "1_single_qubit"
-                  "readout_error", $"%.4f{readoutError}"
-                  "calibration_shots", string calibrationShots
-                  "circuit_shots", string circuitShots
-                  "uncorrected_error_counts", $"%.0f{uncorrectedError}"
-                  "corrected_error_counts", $"%.0f{correctedError}"
-                  "error_reduction_pct", $"%.1f{errorReduction}"
-                  "goodness_of_fit", $"%.4f{corrected.GoodnessOfFit}"
-                  "confidence_level", $"%.2f{confidence}" ]
-                |> Map.ofList)
+                [
+                    "example", "1_single_qubit"
+                    "readout_error", $"%.4f{readoutError}"
+                    "calibration_shots", string calibrationShots
+                    "circuit_shots", string circuitShots
+                    "uncorrected_error_counts", $"%.0f{uncorrectedError}"
+                    "corrected_error_counts", $"%.0f{correctedError}"
+                    "error_reduction_pct", $"%.1f{errorReduction}"
+                    "goodness_of_fit", $"%.4f{corrected.GoodnessOfFit}"
+                    "confidence_level", $"%.2f{confidence}"
+                ]
+                |> Map.ofList
+            )
 
 if not quiet then
     printfn "============================================================"
@@ -355,20 +423,23 @@ if not quiet then
     printfn "Running two-qubit REM (calibrate + execute + correct)..."
     printfn ""
 
-match Async.RunSynchronously (mitigate bellStateCircuit "ionq" remConfig twoQubitExecutor) with
+match Async.RunSynchronously(mitigate bellStateCircuit "ionq" remConfig twoQubitExecutor) with
 | Error err ->
-    if not quiet then printfn "[ERROR] REM failed: %s" err
+    if not quiet then
+        printfn "[ERROR] REM failed: %s" err
 | Ok corrected ->
     if not quiet then
         printfn "[OK] Two-Qubit REM Complete!"
         printfn ""
         printfn "Corrected Results:"
+
         corrected.Histogram
         |> Map.toList
         |> List.sortByDescending snd
         |> List.iter (fun (bitstring, count) ->
             let percent = (count / float calibrationShots) * 100.0
             printfn "  |%s> -> %.0f counts (%.2f%%)" bitstring count percent)
+
         printfn ""
         printfn "Expected: ~50%% |00>, ~50%% |11>"
         printfn "Notice: Spurious |01> and |10> counts corrected!"
@@ -377,16 +448,19 @@ match Async.RunSynchronously (mitigate bellStateCircuit "ionq" remConfig twoQubi
         printfn ""
 
     allResults.Add(
-        [ "example", "2_bell_state"
-          "readout_error", $"%.4f{readoutError}"
-          "calibration_shots", string calibrationShots
-          "circuit_shots", string circuitShots
-          "goodness_of_fit", $"%.4f{corrected.GoodnessOfFit}"
-          "confidence_level", $"%.2f{confidence}"
-          "uncorrected_error_counts", ""
-          "corrected_error_counts", ""
-          "error_reduction_pct", "" ]
-        |> Map.ofList)
+        [
+            "example", "2_bell_state"
+            "readout_error", $"%.4f{readoutError}"
+            "calibration_shots", string calibrationShots
+            "circuit_shots", string circuitShots
+            "goodness_of_fit", $"%.4f{corrected.GoodnessOfFit}"
+            "confidence_level", $"%.2f{confidence}"
+            "uncorrected_error_counts", ""
+            "corrected_error_counts", ""
+            "error_reduction_pct", ""
+        ]
+        |> Map.ofList
+    )
 
 if not quiet then
     printfn "============================================================"
@@ -403,9 +477,7 @@ if not quiet then
 
 // Low-precision configuration (fast calibration)
 let fastConfig =
-    defaultConfig
-    |> withCalibrationShots 1000
-    |> withMinProbability 0.05
+    defaultConfig |> withCalibrationShots 1000 |> withMinProbability 0.05
 
 // High-precision configuration (critical applications)
 let highPrecisionConfig =
@@ -436,16 +508,19 @@ if not quiet then
     printfn ""
 
 allResults.Add(
-    [ "example", "3_config_options"
-      "readout_error", $"%.4f{readoutError}"
-      "calibration_shots", string calibrationShots
-      "circuit_shots", string circuitShots
-      "goodness_of_fit", ""
-      "confidence_level", $"%.2f{confidence}"
-      "uncorrected_error_counts", ""
-      "corrected_error_counts", ""
-      "error_reduction_pct", "" ]
-    |> Map.ofList)
+    [
+        "example", "3_config_options"
+        "readout_error", $"%.4f{readoutError}"
+        "calibration_shots", string calibrationShots
+        "circuit_shots", string circuitShots
+        "goodness_of_fit", ""
+        "confidence_level", $"%.2f{confidence}"
+        "uncorrected_error_counts", ""
+        "corrected_error_counts", ""
+        "error_reduction_pct", ""
+    ]
+    |> Map.ofList
+)
 
 if not quiet then
     printfn "============================================================"
@@ -463,7 +538,8 @@ if not quiet then
     printfn ""
 
 // Production pattern: cache calibration, reuse for many circuits
-let calibrationCache = System.Collections.Generic.Dictionary<string, CalibrationMatrix>()
+let calibrationCache =
+    System.Collections.Generic.Dictionary<string, CalibrationMatrix>()
 
 /// Get a cached calibration matrix or measure a new one.
 /// Cache key is "backend-qubits" (e.g. "ionq-2").
@@ -484,6 +560,7 @@ let getOrMeasureCalibration
 
             // Check if calibration is stale (> 24 hours old)
             let age = DateTime.UtcNow - cached.Timestamp
+
             if age.TotalHours > 24.0 && not quiet then
                 printfn "  [WARN] Calibration is %.1f hours old (> 24h)" age.TotalHours
                 printfn "         Consider re-calibrating for best accuracy"
@@ -498,11 +575,12 @@ let getOrMeasureCalibration
             match! measureCalibrationMatrix backend qubits config exec with
             | Ok calibration ->
                 calibrationCache.[cacheKey] <- calibration
+
                 if not quiet then
                     printfn "  [OK] Calibration cached for future use"
+
                 return Ok calibration
-            | Error _ as err ->
-                return err
+            | Error _ as err -> return err
     }
 
 if not quiet then
@@ -513,50 +591,56 @@ if not quiet then
     printfn "  4. Re-calibrate every 24 hours (hardware drift)"
     printfn ""
 
-let testCircuits = [
-    ("Zero state", zeroStateCircuit)
-    ("Bell state", bellStateCircuit)
-]
+let testCircuits =
+    [ ("Zero state", zeroStateCircuit); ("Bell state", bellStateCircuit) ]
 
 if not quiet then
     printfn "Running %d circuits with cached calibration..." testCircuits.Length
     printfn ""
 
 for (name, circ) in testCircuits do
-    match Async.RunSynchronously (getOrMeasureCalibration "ionq" (qubitCount circ) remConfig twoQubitExecutor) with
+    match Async.RunSynchronously(getOrMeasureCalibration "ionq" (qubitCount circ) remConfig twoQubitExecutor) with
     | Error err ->
-        if not quiet then printfn "  [ERROR] %s failed: %s" name err
+        if not quiet then
+            printfn "  [ERROR] %s failed: %s" name err
     | Ok calibration ->
-        if not quiet then printfn "  Circuit: %s" name
+        if not quiet then
+            printfn "  Circuit: %s" name
 
-        match Async.RunSynchronously (twoQubitExecutor circ circuitShots) with
+        match Async.RunSynchronously(twoQubitExecutor circ circuitShots) with
         | Error err ->
-            if not quiet then printfn "    [ERROR] Execution failed: %s" err
+            if not quiet then
+                printfn "    [ERROR] Execution failed: %s" err
         | Ok measured ->
             match correctReadoutErrors measured calibration remConfig with
             | Error err ->
-                if not quiet then printfn "    [ERROR] Correction failed: %s" err
+                if not quiet then
+                    printfn "    [ERROR] Correction failed: %s" err
             | Ok correctedResult ->
                 if not quiet then
                     printfn "    [OK] Corrected (goodness-of-fit: %.4f)" correctedResult.GoodnessOfFit
 
-    if not quiet then printfn ""
+    if not quiet then
+        printfn ""
 
 if not quiet then
     printfn "Notice: Second circuit used cached calibration (no re-measurement)!"
     printfn ""
 
 allResults.Add(
-    [ "example", "4_caching_pattern"
-      "readout_error", $"%.4f{readoutError}"
-      "calibration_shots", string calibrationShots
-      "circuit_shots", string circuitShots
-      "goodness_of_fit", ""
-      "confidence_level", $"%.2f{confidence}"
-      "uncorrected_error_counts", ""
-      "corrected_error_counts", ""
-      "error_reduction_pct", "" ]
-    |> Map.ofList)
+    [
+        "example", "4_caching_pattern"
+        "readout_error", $"%.4f{readoutError}"
+        "calibration_shots", string calibrationShots
+        "circuit_shots", string circuitShots
+        "goodness_of_fit", ""
+        "confidence_level", $"%.2f{confidence}"
+        "uncorrected_error_counts", ""
+        "corrected_error_counts", ""
+        "error_reduction_pct", ""
+    ]
+    |> Map.ofList
+)
 
 if not quiet then
     printfn "============================================================"
@@ -596,8 +680,8 @@ let runCircuitWithREM
                         match correctReadoutErrors measured calibration config with
                         | Ok correctedResult -> Ok correctedResult.Histogram
                         | Error err -> Error $"Correction failed: %s{err}"
-        with
-        | ex -> return Error $"REM pipeline error: %s{ex.Message}"
+        with ex ->
+            return Error $"REM pipeline error: %s{ex.Message}"
     }
 
 if not quiet then
@@ -606,34 +690,40 @@ if not quiet then
     printfn "    -> Async<Result<Map<string, float>, string>>"
     printfn ""
 
-match Async.RunSynchronously (runCircuitWithREM bellStateCircuit "ionq" circuitShots twoQubitExecutor) with
+match Async.RunSynchronously(runCircuitWithREM bellStateCircuit "ionq" circuitShots twoQubitExecutor) with
 | Ok histogram ->
     if not quiet then
         printfn "[OK] Production Results (with REM):"
+
         histogram
         |> Map.toList
         |> List.sortByDescending snd
         |> List.iter (fun (bitstring, count) ->
             let percent = (count / float circuitShots) * 100.0
             printfn "  |%s> -> %.2f%%" bitstring percent)
+
         printfn ""
         printfn "Ready for production deployment!"
         printfn ""
 
     allResults.Add(
-        [ "example", "5_production_api"
-          "readout_error", $"%.4f{readoutError}"
-          "calibration_shots", string calibrationShots
-          "circuit_shots", string circuitShots
-          "goodness_of_fit", ""
-          "confidence_level", $"%.2f{confidence}"
-          "uncorrected_error_counts", ""
-          "corrected_error_counts", ""
-          "error_reduction_pct", "" ]
-        |> Map.ofList)
+        [
+            "example", "5_production_api"
+            "readout_error", $"%.4f{readoutError}"
+            "calibration_shots", string calibrationShots
+            "circuit_shots", string circuitShots
+            "goodness_of_fit", ""
+            "confidence_level", $"%.2f{confidence}"
+            "uncorrected_error_counts", ""
+            "corrected_error_counts", ""
+            "error_reduction_pct", ""
+        ]
+        |> Map.ofList
+    )
 
 | Error msg ->
-    if not quiet then printfn "[ERROR] %s" msg
+    if not quiet then
+        printfn "[ERROR] %s" msg
 
 if not quiet then
     printfn "============================================================"
@@ -694,21 +784,34 @@ let resultsList = allResults |> Seq.toList
 match Cli.tryGet "output" args with
 | Some path ->
     Reporting.writeJson path resultsList
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 match Cli.tryGet "csv" args with
 | Some path ->
     let header =
-        [ "example"; "readout_error"; "calibration_shots"; "circuit_shots"
-          "uncorrected_error_counts"; "corrected_error_counts"; "error_reduction_pct"
-          "goodness_of_fit"; "confidence_level" ]
+        [
+            "example"
+            "readout_error"
+            "calibration_shots"
+            "circuit_shots"
+            "uncorrected_error_counts"
+            "corrected_error_counts"
+            "error_reduction_pct"
+            "goodness_of_fit"
+            "confidence_level"
+        ]
+
     let rows =
         resultsList
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+        |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+
     Reporting.writeCsv path header rows
-    if not quiet then printfn "Results written to %s" path
+
+    if not quiet then
+        printfn "Results written to %s" path
 | None -> ()
 
 if argv.Length = 0 && not quiet then

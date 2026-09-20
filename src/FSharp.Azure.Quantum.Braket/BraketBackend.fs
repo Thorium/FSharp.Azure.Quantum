@@ -55,7 +55,9 @@ module BraketExecution =
                         DeviceArn = deviceArn,
                         OutputS3Bucket = s3Config.Bucket,
                         OutputS3KeyPrefix = s3Config.KeyPrefix,
-                        Shots = int64 shots)
+                        Shots = int64 shots
+                    )
+
                 let! createResponse = braket.CreateQuantumTaskAsync(createRequest, ct)
                 let taskArn = createResponse.QuantumTaskArn
 
@@ -65,26 +67,57 @@ module BraketExecution =
 
                 let rec poll () : Task<Result<Map<string, int>, QuantumError>> =
                     task {
-                        let! info = braket.GetQuantumTaskAsync(GetQuantumTaskRequest(QuantumTaskArn = taskArn), ct)
+                        let! info =
+                            braket.GetQuantumTaskAsync(GetQuantumTaskRequest(QuantumTaskArn = taskArn), ct)
+
                         match info.Status.Value with
                         | "COMPLETED" ->
                             let key = $"%s{info.OutputS3Directory}/results.json"
                             let! json = readS3Async s3 info.OutputS3Bucket key ct
-                            try return Ok (parseResult json)
-                            with ex -> return Error (QuantumError.OperationError ("Braket", $"Failed to parse Braket result: %s{ex.Message}"))
-                        | "FAILED" | "CANCELLED" ->
+
+                            try
+                                return Ok(parseResult json)
+                            with ex ->
+                                return
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "Braket",
+                                            $"Failed to parse Braket result: %s{ex.Message}"
+                                        )
+                                    )
+                        | "FAILED"
+                        | "CANCELLED" ->
                             let reason = if isNull info.FailureReason then "" else info.FailureReason
-                            return Error (QuantumError.OperationError ("Braket", $"Braket task %s{info.Status.Value}: %s{reason}"))
+
+                            return
+                                Error(
+                                    QuantumError.OperationError(
+                                        "Braket",
+                                        $"Braket task %s{info.Status.Value}: %s{reason}"
+                                    )
+                                )
                         | _ when DateTime.UtcNow > deadline ->
-                            return Error (QuantumError.OperationError ("Braket",
-                                $"Braket task did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); the task %s{taskArn} may still be running."))
+                            return
+                                Error(
+                                    QuantumError.OperationError(
+                                        "Braket",
+                                        $"Braket task did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); the task %s{taskArn} may still be running."
+                                    )
+                                )
                         | _ ->
                             do! Task.Delay(pollInterval, ct)
                             return! poll ()
                     }
+
                 return! poll ()
             with ex ->
-                return Error (QuantumError.OperationError ("Braket", $"Braket submission failed (check AWS credentials / device ARN): %s{ex.Message}"))
+                return
+                    Error(
+                        QuantumError.OperationError(
+                            "Braket",
+                            $"Braket submission failed (check AWS credentials / device ARN): %s{ex.Message}"
+                        )
+                    )
         }
 
     /// Largest circuit for which we materialise a DENSE state vector from the histogram.
@@ -106,8 +139,10 @@ module BraketExecution =
     /// so the reconstructed basis index matches LocalBackend for the same circuit;
     /// without this, every n >= 2 qubit state comes back bit-reversed.
     let private bitstringToIndex (bitstring: string) : int option =
-        try Some (Convert.ToInt32(String(Array.rev (bitstring.ToCharArray())), 2))
-        with _ -> None
+        try
+            Some(Convert.ToInt32(String(Array.rev (bitstring.ToCharArray())), 2))
+        with _ ->
+            None
 
     /// Build a `QuantumState` from a measurement histogram. Three tiers:
     /// - dense StateVector up to 20 qubits (amplitudes = √p, phases unknowable from counts)
@@ -118,10 +153,11 @@ module BraketExecution =
         if numQubits > maxSparseStateQubits then
             // Braket's bitstring order (leftmost char = qubit 0) IS the
             // MeasurementHistogram key convention — pass through unchanged.
-            Ok (QuantumState.MeasurementHistogram (histogram, numQubits))
+            Ok(QuantumState.MeasurementHistogram(histogram, numQubits))
         elif numQubits > maxDenseStateQubits then
             // Sparse reconstruction: only the observed outcomes carry amplitude.
             let total = histogram |> Map.fold (fun acc _ count -> acc + count) 0 |> max 1
+
             let amplitudes =
                 histogram
                 |> Map.toSeq
@@ -130,18 +166,21 @@ module BraketExecution =
                     |> Option.map (fun index ->
                         (index, System.Numerics.Complex(sqrt (float count / float total), 0.0))))
                 |> Map.ofSeq
-            Ok (QuantumState.SparseState (amplitudes, numQubits))
+
+            Ok(QuantumState.SparseState(amplitudes, numQubits))
         else
             let total = histogram |> Map.fold (fun acc _ count -> acc + count) 0 |> max 1
             let dim = 1 <<< numQubits
             let amplitudes = Array.create dim System.Numerics.Complex.Zero
+
             histogram
             |> Map.iter (fun bitstring count ->
                 match bitstringToIndex bitstring with
                 | Some index when index >= 0 && index < dim ->
                     amplitudes.[index] <- System.Numerics.Complex(sqrt (float count / float total), 0.0)
                 | _ -> ())
-            Ok (QuantumState.StateVector (StateVector.create amplitudes))
+
+            Ok(QuantumState.StateVector(StateVector.create amplitudes))
 
     /// Submit a neutral-atom `RydbergProgram` to a Braket AHS device (QuEra Aquila) and return
     /// the Rydberg-occupation histogram.
@@ -154,7 +193,17 @@ module BraketExecution =
         (shots: int)
         (ct: CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
-        submitActionAsync braket s3 s3Config deviceArn (QuEra.toAhsProgram program) shots QuEra.parseAhsResult (TimeSpan.FromSeconds 3.0) (TimeSpan.FromMinutes 30.0) ct
+        submitActionAsync
+            braket
+            s3
+            s3Config
+            deviceArn
+            (QuEra.toAhsProgram program)
+            shots
+            QuEra.parseAhsResult
+            (TimeSpan.FromSeconds 3.0)
+            (TimeSpan.FromMinutes 30.0)
+            ct
 
     /// A gate `IQuantumBackend` backed by an AWS Braket device (submits OpenQASM 3.0).
     /// `deviceArn` selects the device — e.g. `Braket.Devices.oqcLucy`, `.infleqtionSqale`,
@@ -166,18 +215,40 @@ module BraketExecution =
         let circuitToOpenQasm3 (circuit: ICircuit) : Result<string, QuantumError> =
             match CircuitAdapter.tryGetCircuit circuit with
             | Some builderCircuit ->
-                try Ok (OpenQasm.exportV3 builderCircuit)
-                with ex -> Error (QuantumError.OperationError ("OpenQASM3 export", ex.Message))
+                try
+                    Ok(OpenQasm.exportV3 builderCircuit)
+                with ex ->
+                    Error(QuantumError.OperationError("OpenQASM3 export", ex.Message))
             | None ->
-                Error (QuantumError.OperationError ("Circuit extraction", "Braket requires a gate circuit; wrap a CircuitBuilder.Circuit with CircuitWrapper."))
+                Error(
+                    QuantumError.OperationError(
+                        "Circuit extraction",
+                        "Braket requires a gate circuit; wrap a CircuitBuilder.Circuit with CircuitWrapper."
+                    )
+                )
 
         /// Run a circuit and return the raw measurement histogram (bitstring → count,
         /// Braket qubit-0-first bit order). This is the natural result format for
         /// cloud-scale circuits: the histogram holds at most `shots` entries regardless
         /// of qubit count, so there is NO width limit here — unlike the QuantumState
         /// reconstruction in ExecuteToState (dense ≤ 20 qubits, sparse ≤ 31).
-        member _.ExecuteToHistogramAsync (circuit: ICircuit, ct: CancellationToken) : Task<Result<Map<string, int>, QuantumError>> =
-            (circuitToOpenQasm3 circuit) |> Result.map (fun source -> submitActionAsync braket s3 s3Config deviceArn (Braket.openQasmAction source) shots Braket.parseGateResult (TimeSpan.FromSeconds 3.0) (TimeSpan.FromMinutes 30.0) ct) |> Result.defaultWith (fun e -> Task.FromResult (Error e))
+        member _.ExecuteToHistogramAsync
+            (circuit: ICircuit, ct: CancellationToken)
+            : Task<Result<Map<string, int>, QuantumError>> =
+            (circuitToOpenQasm3 circuit)
+            |> Result.map (fun source ->
+                submitActionAsync
+                    braket
+                    s3
+                    s3Config
+                    deviceArn
+                    (Braket.openQasmAction source)
+                    shots
+                    Braket.parseGateResult
+                    (TimeSpan.FromSeconds 3.0)
+                    (TimeSpan.FromMinutes 30.0)
+                    ct)
+            |> Result.defaultWith (fun e -> Task.FromResult(Error e))
 
         interface IQuantumBackend with
 
@@ -185,32 +256,60 @@ module BraketExecution =
 
             member _.NativeStateType = QuantumStateType.GateBased
 
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+            member this.ExecuteToState(circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
 
-            member _.ExecuteToStateAsync (circuit: ICircuit) (ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member _.ExecuteToStateAsync
+                (circuit: ICircuit)
+                (ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task {
                     match circuitToOpenQasm3 circuit with
                     | Error e -> return Error e
                     | Ok source ->
                         let! result =
-                            submitActionAsync braket s3 s3Config deviceArn (Braket.openQasmAction source) shots Braket.parseGateResult (TimeSpan.FromSeconds 3.0) (TimeSpan.FromMinutes 30.0) ct
-                        return result |> Result.bind (fun histogram -> histogramToState histogram circuit.NumQubits)
+                            submitActionAsync
+                                braket
+                                s3
+                                s3Config
+                                deviceArn
+                                (Braket.openQasmAction source)
+                                shots
+                                Braket.parseGateResult
+                                (TimeSpan.FromSeconds 3.0)
+                                (TimeSpan.FromMinutes 30.0)
+                                ct
+
+                        return
+                            result
+                            |> Result.bind (fun histogram -> histogramToState histogram circuit.NumQubits)
                 }
 
-            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok (QuantumState.StateVector (StateVector.init numQubits))
+            member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok(QuantumState.StateVector(StateVector.init numQubits))
 
-            member _.ApplyOperation (_op: QuantumOperation) (_state: QuantumState) : Result<QuantumState, QuantumError> =
-                Error (QuantumError.OperationError ("ApplyOperation",
-                    $"AWS Braket (%s{deviceArn}) does not support incremental ApplyOperation; use ExecuteToState with a complete circuit."))
+            member _.ApplyOperation
+                (_op: QuantumOperation)
+                (_state: QuantumState)
+                : Result<QuantumState, QuantumError> =
+                Error(
+                    QuantumError.OperationError(
+                        "ApplyOperation",
+                        $"AWS Braket (%s{deviceArn}) does not support incremental ApplyOperation; use ExecuteToState with a complete circuit."
+                    )
+                )
 
-            member this.ApplyOperationAsync (op: QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+            member this.ApplyOperationAsync
+                (op: QuantumOperation)
+                (state: QuantumState)
+                (_ct: CancellationToken)
+                : Task<Result<QuantumState, QuantumError>> =
                 task { return (this :> IQuantumBackend).ApplyOperation op state }
 
-            member _.SupportsOperation (op: QuantumOperation) : bool =
+            member _.SupportsOperation(op: QuantumOperation) : bool =
                 match op with
-                | QuantumOperation.Gate _ | QuantumOperation.Sequence _ -> true
+                | QuantumOperation.Gate _
+                | QuantumOperation.Sequence _ -> true
                 | _ -> false

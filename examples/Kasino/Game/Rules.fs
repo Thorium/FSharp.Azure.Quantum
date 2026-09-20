@@ -11,12 +11,18 @@ module Rules =
     /// A capture option: one valid way to capture cards.
     /// Contains the list of non-overlapping combo groups and their union.
     type CaptureOption =
-        { Combos: Card list list   // the individual non-overlapping combo groups
-          Captured: Card list }     // union of all combos (the cards actually taken)
+        {
+            Combos: Card list list // the individual non-overlapping combo groups
+            Captured: Card list
+        } // union of all combos (the cards actually taken)
 
     /// Find all subsets of table cards that sum exactly to the hand card's value.
     /// Uses Knapsack.findAllExactCombinations with iterative QAOA via IQuantumBackend.
-    let findCaptures (backend: BackendAbstraction.IQuantumBackend option) (handCard: Card) (tableCards: Card list) : Card list list =
+    let findCaptures
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (handCard: Card)
+        (tableCards: Card list)
+        : Card list list =
         if List.isEmpty tableCards then
             []
         else
@@ -40,8 +46,7 @@ module Rules =
                     match item.Id.Split('_') |> Array.tryHead with
                     | Some idxStr ->
                         match System.Int32.TryParse idxStr with
-                        | true, idx when idx >= 0 && idx < tableCards.Length ->
-                            Some tableCards.[idx]
+                        | true, idx when idx >= 0 && idx < tableCards.Length -> Some tableCards.[idx]
                         | _ -> None
                     | None -> None))
             |> List.filter (fun cards -> not (List.isEmpty cards))
@@ -63,8 +68,13 @@ module Rules =
     /// Returns a list of CaptureOption, each representing one valid way to capture.
     /// If all combos are mutually non-overlapping, there is exactly one option
     /// containing all of them.
-    let findCaptureOptions (backend: BackendAbstraction.IQuantumBackend option) (handCard: Card) (tableCards: Card list) : CaptureOption list =
+    let findCaptureOptions
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (handCard: Card)
+        (tableCards: Card list)
+        : CaptureOption list =
         let allCombos = findCaptures backend handCard tableCards
+
         if List.isEmpty allCombos then
             []
         else
@@ -81,9 +91,11 @@ module Rules =
             // Precompute conflict matrix: conflicts.[i] = set of combo indices that overlap with i
             let conflicts =
                 Array.init n (fun i ->
-                    [ for j in 0 .. n - 1 do
-                        if i <> j && combosOverlap comboArr.[i] comboArr.[j] then
-                            yield j ]
+                    [
+                        for j in 0 .. n - 1 do
+                            if i <> j && combosOverlap comboArr.[i] comboArr.[j] then
+                                yield j
+                    ]
                     |> Set.ofList)
 
             // Find all maximal independent sets using Bron-Kerbosch algorithm
@@ -97,7 +109,8 @@ module Rules =
             let results = System.Collections.Generic.List<int list>()
 
             let rec bronKerbosch (r: Set<int>) (p: Set<int>) (x: Set<int>) =
-                if results.Count >= maxOptions then ()
+                if results.Count >= maxOptions then
+                    ()
                 elif Set.isEmpty p && Set.isEmpty x then
                     // R is a maximal independent set
                     results.Add(r |> Set.toList)
@@ -106,6 +119,7 @@ module Rules =
                     let pList = Set.toList p
                     let mutable pMut = p
                     let mutable xMut = x
+
                     for v in pList do
                         if results.Count < maxOptions then
                             let neighbors = conflicts.[v]
@@ -133,8 +147,13 @@ module Rules =
     /// (all combos are mutually non-overlapping). When multiple options exist,
     /// this returns the cards from the option capturing the most cards.
     /// For proper gameplay, use findCaptureOptions and let the player choose.
-    let getCapturedCards (backend: BackendAbstraction.IQuantumBackend option) (handCard: Card) (tableCards: Card list) : Card list =
+    let getCapturedCards
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (handCard: Card)
+        (tableCards: Card list)
+        : Card list =
         let options = findCaptureOptions backend handCard tableCards
+
         match options with
         | [] -> []
         | [ single ] -> single.Captured
@@ -146,15 +165,24 @@ module Rules =
             |> fun opt -> opt.Captured
 
     /// Check if playing a card results in a capture
-    let canCapture (backend: BackendAbstraction.IQuantumBackend option) (handCard: Card) (tableCards: Card list) : bool =
+    let canCapture
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (handCard: Card)
+        (tableCards: Card list)
+        : bool =
         not (List.isEmpty (findCaptures backend handCard tableCards))
 
     /// Determine the result of playing a hand card on the table.
     /// When there are multiple capture options (overlapping combos), returns
     /// the capture options list for the caller to resolve.
     /// Returns: PlayResult, new table state, and capture options (empty for Place).
-    let playCard (backend: BackendAbstraction.IQuantumBackend option) (handCard: Card) (tableCards: Card list) : PlayResult * Card list * CaptureOption list =
+    let playCard
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (handCard: Card)
+        (tableCards: Card list)
+        : PlayResult * Card list * CaptureOption list =
         let options = findCaptureOptions backend handCard tableCards
+
         match options with
         | [] ->
             // No capture: place card on table
@@ -163,9 +191,7 @@ module Rules =
         | [ single ] ->
             // Single option: auto-capture
             let captured = single.Captured
-            let newTable =
-                tableCards
-                |> List.filter (fun c -> not (List.contains c captured))
+            let newTable = tableCards |> List.filter (fun c -> not (List.contains c captured))
             let isSweep = List.isEmpty newTable
             (Capture(handCard, captured, isSweep), newTable, options)
         | _ ->
@@ -173,25 +199,28 @@ module Rules =
             // getCapturedCards), but expose all options. The caller (GameLoop)
             // is responsible for letting the player/AI choose.
             let chosen = options |> List.maxBy (fun opt -> opt.Captured.Length)
+
             let newTable =
-                tableCards
-                |> List.filter (fun c -> not (List.contains c chosen.Captured))
+                tableCards |> List.filter (fun c -> not (List.contains c chosen.Captured))
+
             let isSweep = List.isEmpty newTable
             (Capture(handCard, chosen.Captured, isSweep), newTable, options)
 
     /// Resolve a specific capture option: compute the PlayResult and new table.
     let resolveCapture (handCard: Card) (option: CaptureOption) (tableCards: Card list) : PlayResult * Card list =
         let captured = option.Captured
-        let newTable =
-            tableCards
-            |> List.filter (fun c -> not (List.contains c captured))
+        let newTable = tableCards |> List.filter (fun c -> not (List.contains c captured))
         let isSweep = List.isEmpty newTable
         (Capture(handCard, captured, isSweep), newTable)
 
     /// In Misa-Kasino, a card "fits" on the table if it can capture something.
     /// A player must place a card (no capture) if possible. If ALL cards in hand
     /// can capture, the player must capture with the one yielding least points.
-    let cardFitsTable (backend: BackendAbstraction.IQuantumBackend option) (handCard: Card) (tableCards: Card list) : bool =
+    let cardFitsTable
+        (backend: BackendAbstraction.IQuantumBackend option)
+        (handCard: Card)
+        (tableCards: Card list)
+        : bool =
         canCapture backend handCard tableCards
 
     /// Evaluate the point value of a set of captured cards (for scoring during play).

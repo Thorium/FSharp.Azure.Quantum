@@ -21,7 +21,8 @@ module Client =
         // no jobs route, and the bearer token acquired by Authentication.fs is
         // scoped to https://quantum.microsoft.com/.default, which ARM rejects —
         // the previous ARM base URL made every live call fail with 401/404.
-        let private dataPlaneHost location = $"https://%s{location}.quantum.azure.com"
+        let private dataPlaneHost location =
+            $"https://%s{location}.quantum.azure.com"
 
         let private workspacePath subscriptionId resourceGroup workspaceName =
             sprintf
@@ -49,41 +50,46 @@ module Client =
 
     /// Quantum client configuration
     type QuantumClientConfig =
-        { SubscriptionId: string
-          ResourceGroup: string
-          WorkspaceName: string
-          /// Azure region of the workspace (e.g. "eastus") — determines the
-          /// data-plane host {location}.quantum.azure.com that serves job CRUD
-          Location: string
-          HttpClient: HttpClient
-          RetryConfig: RetryConfig option
-          Logger: ILogger option
+        {
+            SubscriptionId: string
+            ResourceGroup: string
+            WorkspaceName: string
+            /// Azure region of the workspace (e.g. "eastus") — determines the
+            /// data-plane host {location}.quantum.azure.com that serves job CRUD
+            Location: string
+            HttpClient: HttpClient
+            RetryConfig: RetryConfig option
+            Logger: ILogger option
 
-          // Cost management
-          CostEstimationEnabled: bool
-          PerJobCostLimit: decimal<USD> option
-          DailyCostLimit: decimal<USD> option }
+            // Cost management
+            CostEstimationEnabled: bool
+            PerJobCostLimit: decimal<USD> option
+            DailyCostLimit: decimal<USD> option
+        }
 
     /// Create default config
     let createConfig subscriptionId resourceGroup workspaceName location httpClient =
-        { SubscriptionId = subscriptionId
-          ResourceGroup = resourceGroup
-          WorkspaceName = workspaceName
-          Location = location
-          HttpClient = httpClient
-          RetryConfig = Some Retry.defaultConfig
-          Logger = None
-          CostEstimationEnabled = true
-          PerJobCostLimit = Some 200.0M<USD> // Conservative default: $200 per job
-          DailyCostLimit = None // No daily limit by default
+        {
+            SubscriptionId = subscriptionId
+            ResourceGroup = resourceGroup
+            WorkspaceName = workspaceName
+            Location = location
+            HttpClient = httpClient
+            RetryConfig = Some Retry.defaultConfig
+            Logger = None
+            CostEstimationEnabled = true
+            PerJobCostLimit = Some 200.0M<USD> // Conservative default: $200 per job
+            DailyCostLimit = None // No daily limit by default
         }
 
     /// Job submission response from Azure
     type SubmitJobResponse =
-        { JobId: string
-          Status: JobStatus
-          CreationTime: DateTimeOffset
-          Uri: string }
+        {
+            JobId: string
+            Status: JobStatus
+            CreationTime: DateTimeOffset
+            Uri: string
+        }
 
     /// Quantum client for Azure Quantum REST API
     type QuantumClient(config: QuantumClientConfig) =
@@ -201,13 +207,15 @@ module Client =
 
                         // Build request body
                         let body =
-                            {| id = submission.JobId
-                               name = submission.Name |> Option.defaultValue submission.JobId
-                               target = submission.Target
-                               inputData = submission.InputData
-                               inputDataFormat = submission.InputDataFormat.ToFormatString()
-                               inputParams = submission.InputParams
-                               metadata = submission.Tags |}
+                            {|
+                                id = submission.JobId
+                                name = submission.Name |> Option.defaultValue submission.JobId
+                                target = submission.Target
+                                inputData = submission.InputData
+                                inputDataFormat = submission.InputDataFormat.ToFormatString()
+                                inputParams = submission.InputParams
+                                metadata = submission.Tags
+                            |}
 
                         let jsonContent = JsonSerializer.Serialize(body, jsonOptions)
                         request.Content <- new StringContent(jsonContent, Encoding.UTF8, "application/json")
@@ -228,10 +236,12 @@ module Client =
                             let status = JobStatus.Parse(statusStr, None, None)
 
                             let submitResponse =
-                                { JobId = jobId
-                                  Status = status
-                                  CreationTime = creationTime
-                                  Uri = url }
+                                {
+                                    JobId = jobId
+                                    Status = status
+                                    CreationTime = creationTime
+                                    Uri = url
+                                }
 
                             this.Log(
                                 LogLevel.Information,
@@ -307,14 +317,16 @@ module Client =
                         let status = JobStatus.Parse(statusStr, None, None)
 
                         let quantumJob =
-                            { JobId = jobId
-                              Status = status
-                              Target = target
-                              CreationTime = creationTime
-                              BeginExecutionTime = beginExecutionTime
-                              EndExecutionTime = endExecutionTime
-                              CancellationTime = cancellationTime
-                              OutputDataUri = tryGetJsonString "outputDataUri" root }
+                            {
+                                JobId = jobId
+                                Status = status
+                                Target = target
+                                CreationTime = creationTime
+                                BeginExecutionTime = beginExecutionTime
+                                EndExecutionTime = endExecutionTime
+                                CancellationTime = cancellationTime
+                                OutputDataUri = tryGetJsonString "outputDataUri" root
+                            }
 
                         return Ok quantumJob
                     else
@@ -340,14 +352,16 @@ module Client =
                         |> Endpoints.fullUrl config.Location
 
                     let parseJob (element: JsonElement) : QuantumJob =
-                        { JobId = element.GetProperty("id").GetString()
-                          Status = JobStatus.Parse(element.GetProperty("status").GetString(), None, None)
-                          Target = element.GetProperty("target").GetString()
-                          CreationTime = element.GetProperty("creationTime").GetDateTimeOffset()
-                          BeginExecutionTime = tryGetJsonDateTimeOffset "beginExecutionTime" element
-                          EndExecutionTime = tryGetJsonDateTimeOffset "endExecutionTime" element
-                          CancellationTime = tryGetJsonDateTimeOffset "cancellationTime" element
-                          OutputDataUri = tryGetJsonString "outputDataUri" element }
+                        {
+                            JobId = element.GetProperty("id").GetString()
+                            Status = JobStatus.Parse(element.GetProperty("status").GetString(), None, None)
+                            Target = element.GetProperty("target").GetString()
+                            CreationTime = element.GetProperty("creationTime").GetDateTimeOffset()
+                            BeginExecutionTime = tryGetJsonDateTimeOffset "beginExecutionTime" element
+                            EndExecutionTime = tryGetJsonDateTimeOffset "endExecutionTime" element
+                            CancellationTime = tryGetJsonDateTimeOffset "cancellationTime" element
+                            OutputDataUri = tryGetJsonString "outputDataUri" element
+                        }
 
                     // Azure ARM list responses page through `value` + `nextLink`
                     let rec fetchPage (url: string) (acc: QuantumJob list) =
@@ -369,11 +383,10 @@ module Client =
                                 match tryGetJsonString "nextLink" root with
                                 | Some next when not (String.IsNullOrWhiteSpace next) ->
                                     return! fetchPage next (acc @ pageJobs)
-                                | _ ->
-                                    return Ok (acc @ pageJobs)
+                                | _ -> return Ok(acc @ pageJobs)
                             else
                                 let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                                return Error (Retry.categorizeHttpError response.StatusCode errorBody)
+                                return Error(Retry.categorizeHttpError response.StatusCode errorBody)
                         }
 
                     return! fetchPage firstUrl []
@@ -424,7 +437,12 @@ module Client =
                             response.StatusCode
                         )
 
-                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
+                        return
+                            Error(
+                                QuantumError.AzureError(
+                                    AzureQuantumError.UnknownError(int response.StatusCode, errorBody)
+                                )
+                            )
                 with ex ->
                     this.Log(LogLevel.Error, "Exception cancelling job {JobId}: {Exception}", jobId, ex.Message)
                     return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
@@ -462,7 +480,12 @@ module Client =
 
                         // Check if job has completed
                         if not (QuantumClient.isTerminalState status) then
-                            return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job has not completed yet")))
+                            return
+                                Error(
+                                    QuantumError.AzureError(
+                                        AzureQuantumError.UnknownError(400, "Job has not completed yet")
+                                    )
+                                )
                         else
                             // The job model never inlines results: they live in blob
                             // storage at outputDataUri (a SAS URL), like
@@ -470,7 +493,12 @@ module Client =
                             // nonexistent inline "outputData" property.
                             match tryGetJsonString "outputDataUri" root with
                             | None ->
-                                return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job does not have output data")))
+                                return
+                                    Error(
+                                        QuantumError.AzureError(
+                                            AzureQuantumError.UnknownError(400, "Job does not have output data")
+                                        )
+                                    )
                             | Some outputDataUri ->
                                 let outputDataFormat = getJsonStringOrDefault "outputDataFormat" "unknown" root
 
@@ -478,28 +506,40 @@ module Client =
                                     tryGetJsonString "executionTime" root
                                     |> Option.bind (fun durationStr ->
                                         // Parse ISO 8601 duration format (PT1.5S)
-                                        try Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
-                                        with _ -> None)
+                                        try
+                                            Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
+                                        with _ ->
+                                            None)
 
                                 // Download the result payload from blob storage. The SAS query
                                 // string is the credential: suppress the workspace bearer token,
                                 // which Azure Storage would reject (401) and must not receive.
                                 use resultRequest = new HttpRequestMessage(HttpMethod.Get, outputDataUri)
                                 Authentication.markNoAuth resultRequest
-                                use! resultResponse = config.HttpClient.SendAsync(resultRequest, ct) |> Async.AwaitTask
+
+                                use! resultResponse =
+                                    config.HttpClient.SendAsync(resultRequest, ct) |> Async.AwaitTask
 
                                 if not resultResponse.IsSuccessStatusCode then
                                     let! errorBody = resultResponse.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(int resultResponse.StatusCode, errorBody)))
+
+                                    return
+                                        Error(
+                                            QuantumError.AzureError(
+                                                AzureQuantumError.UnknownError(int resultResponse.StatusCode, errorBody)
+                                            )
+                                        )
                                 else
                                     let! outputData = resultResponse.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
 
                                     let jobResult =
-                                        { JobId = jobIdResult
-                                          Status = status
-                                          OutputData = box outputData
-                                          OutputDataFormat = outputDataFormat
-                                          ExecutionTime = executionTime }
+                                        {
+                                            JobId = jobIdResult
+                                            Status = status
+                                            OutputData = box outputData
+                                            OutputDataFormat = outputDataFormat
+                                            ExecutionTime = executionTime
+                                        }
 
                                     this.Log(
                                         LogLevel.Information,
@@ -519,7 +559,12 @@ module Client =
                             response.StatusCode
                         )
 
-                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
+                        return
+                            Error(
+                                QuantumError.AzureError(
+                                    AzureQuantumError.UnknownError(int response.StatusCode, errorBody)
+                                )
+                            )
                 with ex ->
                     this.Log(
                         LogLevel.Error,
@@ -537,7 +582,8 @@ module Client =
             | JobStatus.Succeeded -> true
             | JobStatus.Failed _ -> true
             | JobStatus.Cancelled -> true
-            | JobStatus.Waiting | JobStatus.Executing -> false
+            | JobStatus.Waiting
+            | JobStatus.Executing -> false
 
         /// Polling loop with exponential backoff (functional recursive approach)
         member private this.pollForCompletion
@@ -557,7 +603,12 @@ module Client =
                     let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
 
                     if elapsed > float timeoutMs then
-                        return Error(QuantumError.AzureError(AzureQuantumError.Timeout($"Job %s{jobId} timed out after %d{timeoutMs}ms")))
+                        return
+                            Error(
+                                QuantumError.AzureError(
+                                    AzureQuantumError.Timeout($"Job %s{jobId} timed out after %d{timeoutMs}ms")
+                                )
+                            )
                     else
                         // Poll job status
                         this.Log(LogLevel.Debug, "Polling job {JobId} status (delay: {Delay}ms)", jobId, currentDelay)
@@ -609,4 +660,3 @@ module Client =
             let timeout = defaultArg timeoutMs 1800000
 
             this.pollForCompletion jobId DateTimeOffset.UtcNow initialDelay maxDelay timeout ct
-
