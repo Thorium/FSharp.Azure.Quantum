@@ -12,7 +12,7 @@ This guide helps you select the appropriate quantum backend (LocalBackend, IonQ,
 START: What are you trying to do?
 │
 ├─ Learning / Development / Testing
-│  └─→ LocalBackend (≤20 qubits)
+│  └─→ LocalBackend (memory-derived width, ≤30)
 │
 ├─ Small problem (≤11 qubits) + Need HIGH accuracy
 │  └─→ IonQ Harmony (trapped ion, 99.5% fidelity)
@@ -53,10 +53,21 @@ START: What are you trying to do?
 **Technology:** Classical simulation of quantum state vector
 
 **Specifications:**
-- **Qubits:** Technically unlimited, practically ≤20
-  - 10 qubits: ~1 KB memory
-  - 20 qubits: ~8 MB memory
-  - 30 qubits: ~8 GB memory (impractical)
+- **Qubits:** derived from available memory at startup, not a fixed constant.
+  A state vector holds 2ⁿ amplitudes × 16 bytes, and applying a gate holds two
+  of them, so the library picks the widest n whose working set fits half of
+  available memory — reported as `StateVector.maxQubits` and through
+  `LocalBackend`'s `MaxQubits`. Override with the `FSAQ_MAX_QUBITS`
+  environment variable.
+  - 10 qubits: 16 KB
+  - 20 qubits: 16 MB
+  - 26 qubits: 1 GB (needs ~4 GB machine)
+  - 28 qubits: 4 GB (needs ~16 GB machine)
+  - 30 qubits: 16 GB (needs ~64 GB machine)
+- **Hard ceiling: 30 qubits.** The amplitudes live in one flat array and .NET
+  caps a single array at `Array.MaxLength` (2,147,483,591 elements), so 2³¹
+  amplitudes cannot be allocated at any memory size. Going wider needs a
+  chunked state representation, not more RAM.
 - **Fidelity:** Perfect (no noise, unless added deliberately)
 - **Speed:** Instant for small circuits, exponentially slower with qubits
 
@@ -64,11 +75,11 @@ START: What are you trying to do?
 - **Development and debugging** quantum algorithms
 - **Unit testing** without cloud costs
 - **Educational purposes** and learning
-- **Small problems** (≤20 qubits) where perfect accuracy is needed
+- **Small problems** (within the simulator width) where perfect accuracy is needed
 - **Algorithm prototyping** before cloud submission
 
 **❌ NOT Good For:**
-- **Large problems** (>20 qubits) - exponentially slow
+- **Large problems** (beyond the simulator width) - exponentially slow
 - **Noise studies** - too perfect unless noise model added
 - **Performance benchmarking** - simulation doesn't reflect real hardware
 
@@ -84,7 +95,7 @@ let problem = graphColoring {
     colors ["Red"; "Blue"]
 }
 
-// Automatically uses LocalBackend for ≤20 qubits
+// Automatically uses LocalBackend when the circuit fits its width
 match GraphColoring.solve problem 2 None with
 | Ok solution -> printfn "Solution: %A" solution
 | Error err -> printfn "Error: %s" err.Message

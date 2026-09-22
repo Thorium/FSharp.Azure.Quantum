@@ -125,21 +125,26 @@ module SimilaritySearchBuilderTests =
         match build problem with
         | Ok index ->
             Assert.Equal(QuantumKernel, index.Metric)
-            // Kernel matrix may or may not be computed depending on backend
 
+            // A QuantumKernel index must genuinely carry a quantum kernel: build
+            // propagates a kernel failure rather than falling back to cosine, so an
+            // Ok result always has the matrix and the config that produced it.
+            Assert.True(index.KernelMatrix.IsSome, "QuantumKernel index must carry a kernel matrix")
+            Assert.True(index.QuantumConfig.IsSome, "QuantumKernel index must record its kernel config")
 
+            let kernel = index.KernelMatrix.Value
+            Assert.Equal(testItems.Length, Array2D.length1 kernel)
+            Assert.Equal(testItems.Length, Array2D.length2 kernel)
 
+            // Structural properties hold for any shot count: a state has unit overlap
+            // with itself, the kernel is symmetric, and fidelities are probabilities.
+            // (The off-diagonal values themselves are sampled, so they are not asserted.)
+            for i in 0 .. Array2D.length1 kernel - 1 do
+                Assert.Equal(1.0, kernel.[i, i], 10)
 
-
-
-
-
-
-
-
-
-
-
+                for j in 0 .. Array2D.length2 kernel - 1 do
+                    Assert.InRange(kernel.[i, j], 0.0, 1.0)
+                    Assert.Equal(kernel.[i, j], kernel.[j, i], 10)
         | Error e -> failwith $"Expected Ok, got Error: {e}"
 
     [<Fact>]

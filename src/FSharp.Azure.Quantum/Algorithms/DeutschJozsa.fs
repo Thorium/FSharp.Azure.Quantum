@@ -192,11 +192,11 @@ module DeutschJozsa =
         // Validate inputs
         if numQubits < 1 then
             Error(QuantumError.ValidationError("numQubits", "Deutsch-Jozsa requires at least 1 qubit"))
-        elif numQubits > 20 then
+        elif numQubits > Types.NisqPracticalQubits then
             Error(
                 QuantumError.ValidationError(
                     "numQubits",
-                    "Deutsch-Jozsa with >20 qubits not practical on NISQ hardware"
+                    $"Deutsch-Jozsa with >{Types.NisqPracticalQubits} qubits not practical on NISQ hardware"
                 )
             )
         elif shots < 1 then

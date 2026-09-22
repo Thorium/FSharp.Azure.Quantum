@@ -4,6 +4,19 @@ open System
 
 module Types =
 
+    /// Qubit width beyond which an algorithm stops being meaningful on real NISQ
+    /// hardware, regardless of how large a state this library can simulate.
+    ///
+    /// This is a statement about DEVICES — coherence times, gate fidelities and the
+    /// depth a circuit survives — not about our memory. Do not conflate it with
+    /// `LocalSimulator.StateVector.maxQubits`, which is what the local simulator can
+    /// actually hold and is derived from available RAM (and is normally larger).
+    /// Validation that exists because a state vector would not fit belongs against
+    /// that value; validation that exists because the answer would be noise on
+    /// hardware belongs here.
+    [<Literal>]
+    let NisqPracticalQubits = 20
+
     /// Azure Quantum job status
     type JobStatus =
         /// Job is waiting in queue

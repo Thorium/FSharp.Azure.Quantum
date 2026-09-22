@@ -6,23 +6,26 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.CircuitBuilder
 open System
+open FSharp.Azure.Quantum.LocalSimulator
 
 /// Tests for Shor's Algorithm and Backend Adapter
 ///
-/// ⚠️ IMPLEMENTATION NOTE: Dirty Ancillas
+/// These tests drive `Shor.executeClassicallyAssisted`: period finding runs
+/// classically and a QPE circuit is executed for demonstration. That path is
+/// qubit-light and its factor output is deterministic, so the assertions below
+/// name exact factors rather than accepting "any attempt".
 ///
-/// The current modular arithmetic implementation uses "dirty ancillas"
-/// (temporary qubits not fully restored to |0⟩ after use). This is an
-/// industry-standard approach and is mathematically acceptable for Shor's
-/// algorithm since only the counting register is measured.
+/// The modular arithmetic underneath is the Beauregard (2003) construction in
+/// `Arithmetic` — clean ancillas, fully uncomputed. (An earlier note here
+/// claimed "dirty ancillas" made factoring probabilistic and listed φ-ADD as
+/// future work; that work is done. ShorArithmeticIntegrationTests asserts the
+/// workspace returns to |0…0⟩, including on a superposition of inputs.)
 ///
-/// CONSEQUENCE: Tests are probabilistic and may not always find exact factors.
+/// Genuine quantum period finding (`Shor.executeWith`, the default) is exercised
+/// by QuantumPeriodFinderBuilderTests; it is far slower because it simulates the
+/// full modular-exponentiation circuit.
 ///
-/// FUTURE ENHANCEMENT: Implement φ-ADD approach (Beauregard 2003) for more
-/// reliable factorization results. See QuantumPeriodFinderBuilderTests.fs
-/// for detailed explanation and TODO patterns.
-///
-/// Reference: src/FSharp.Azure.Quantum/Algorithms/QuantumArithmetic.fs:457-491
+/// Reference: src/FSharp.Azure.Quantum/Algorithms/QuantumArithmetic.fs
 module ShorsTests =
 
     // Import Shor module functions
@@ -72,42 +75,20 @@ module ShorsTests =
         match executeShorsWithBackend config (LocalBackend.LocalBackend() :> IQuantumBackend) 10 with
         | Error msg -> Assert.Fail($"Shor's execution failed: {msg}")
         | Ok result ->
-            // ✅ CURRENT: Dirty ancilla implementation (probabilistic)
-            // Accept either success or reasonable attempts
-            Assert.True(
-                result.Success || result.Factors.IsSome || result.Config.MaxAttempts > 0,
-                $"Should attempt factorization: {result.Message}"
-            )
+            Assert.True(result.Success, $"Should factor 15 with a=7: {result.Message}")
 
             match result.Factors with
+            | None -> Assert.Fail($"Should find factors of 15: {result.Message}")
             | Some(p, q) ->
-                // Verify factors multiply to N (minimum requirement)
                 Assert.Equal(15, p * q)
-                Assert.True(p > 1 && p < 15, "p should be non-trivial factor")
-                Assert.True(q > 1 && q < 15, "q should be non-trivial factor")
+                Assert.Equal<int Set>(Set.ofList [ 3; 5 ], Set.ofList [ p; q ])
 
-                // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
-                // When temp qubits are perfectly uncomputed:
-                // let factors = Set.ofList [p; q]
-                // Assert.True(factors.Contains(3) && factors.Contains(5),
-                //     $"Expected factors {{3, 5}}, got {{{p}, {q}}}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-            | None ->
-                // Period finding is probabilistic with dirty ancillas
-                Assert.True(true, "Probabilistic period finding may not always find factors")
+                // a=7 has order 4 mod 15, and the classically-assisted path recovers it.
+                match result.PeriodResult with
+                | None -> Assert.Fail("Successful factoring should report the period it used")
+                | Some period ->
+                    Assert.Equal(7, period.Base)
+                    Assert.Equal(4, period.Period)
 
     [<Fact>]
     let ``Shor factors 21 correctly`` () =
@@ -124,36 +105,27 @@ module ShorsTests =
         match executeShorsWithBackend config (LocalBackend.LocalBackend() :> IQuantumBackend) 10 with
         | Error msg -> Assert.Fail($"Shor's execution failed: {msg}")
         | Ok result ->
-            // ✅ CURRENT: Dirty ancilla implementation (probabilistic)
-            Assert.True(
-                result.Success || result.Factors.IsSome || result.Config.MaxAttempts > 0,
-                $"Should attempt factorization: {result.Message}"
-            )
+            Assert.True(result.Success, $"Should factor 21 with a=2: {result.Message}")
 
             match result.Factors with
+            | None -> Assert.Fail($"Should find factors of 21: {result.Message}")
             | Some(p, q) ->
                 Assert.Equal(21, p * q)
-                Assert.True(p > 1 && q > 1, "Factors should be non-trivial")
+                Assert.Equal<int Set>(Set.ofList [ 3; 7 ], Set.ofList [ p; q ])
 
-                // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
-                // let factors = Set.ofList [p; q]
-                // Assert.True(factors.Contains(3) && factors.Contains(7),
-                //     $"Expected factors {{3, 7}}, got {{{p}, {q}}}")
+                // ord(2) = 6 mod 21. QPE occasionally lands on a multiple of the
+                // order (e.g. 18) instead of the order itself; any such r is a
+                // legitimate period for factoring, so assert the defining property
+                // rather than the literal 6.
+                match result.PeriodResult with
+                | None -> Assert.Fail("Successful factoring should report the period it used")
+                | Some period ->
+                    Assert.Equal(2, period.Base)
+                    Assert.True(period.Period > 0, $"Period should be positive, got {period.Period}")
 
+                    let powMod = Seq.replicate period.Period 2 |> Seq.fold (fun acc b -> acc * b % 21) 1
 
-
-
-
-
-
-
-
-
-
-
-
-
-            | None -> Assert.True(true, "Probabilistic period finding may not always find factors")
+                    Assert.Equal(1, powMod) // 2^r ≡ 1 (mod 21)
 
     [<Fact>]
     let ``Shor handles even numbers correctly`` () =
@@ -185,17 +157,10 @@ module ShorsTests =
         match executeShorsWithBackend config (LocalBackend.LocalBackend() :> IQuantumBackend) 10 with
         | Error msg -> Assert.Fail($"Shor's execution failed: {msg}")
         | Ok result ->
-            // ✅ CURRENT: Dirty ancilla implementation (probabilistic)
-            // Primes should not factor, but dirty ancillas may give false results
-            Assert.True(
-                not result.Success || result.Factors.IsNone || result.Config.MaxAttempts > 0,
-                "Prime should fail to factor or report no factors"
-            )
-
-            // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
-            // Assert.False(result.Success, "Should fail to factor prime")
-            // Assert.True(result.Factors.IsNone, "Prime should have no factors")
-            // Assert.Contains("prime", result.Message.ToLower())
+            // 17 is prime: the classical pre-check catches it before any quantum work.
+            Assert.False(result.Success, "Should fail to factor prime")
+            Assert.True(result.Factors.IsNone, "Prime should have no factors")
+            Assert.Contains("prime", result.Message.ToLower())
 
     [<Fact>]
     let ``Shor validates input range`` () =
@@ -228,28 +193,19 @@ module ShorsTests =
         with
         | Error msg -> Assert.Fail($"Shor's execution failed: {msg}")
         | Ok result ->
-            // ✅ CURRENT: Dirty ancilla implementation (probabilistic)
-            Assert.True(
-                result.Success || result.Factors.IsSome || result.Config.MaxAttempts > 0,
-                $"Should attempt factorization with a=7: {result.Message}"
-            )
+            Assert.True(result.Success, $"Factorization with a=7 should succeed: {result.Message}")
 
             match result.Factors with
+            | None -> Assert.Fail($"Should find factors of 15 with a=7: {result.Message}")
             | Some(p, q) ->
                 Assert.Equal(15, p * q)
+                Assert.Equal<int Set>(Set.ofList [ 3; 5 ], Set.ofList [ p; q ])
 
-                // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
-                // Assert.True(result.Success, "Factorization with a=7 should succeed")
-
-                // Verify period-finding result if present
                 match result.PeriodResult with
+                | None -> Assert.Fail("Successful factoring should report the period it used")
                 | Some pResult ->
                     Assert.Equal(7, pResult.Base)
                     Assert.True(pResult.Period > 0, "Period should be positive")
-                | None -> ()
-            | None ->
-                // Probabilistic behavior may not find factors
-                Assert.True(true, "Probabilistic period finding may not succeed")
 
     [<Fact>]
     let ``Shor configuration validation`` () =
@@ -265,17 +221,20 @@ module ShorsTests =
         |> Result.map (fun _ -> Assert.Fail("Should reject 0 precision qubits"))
         |> Result.defaultWith (fun msg -> Assert.Contains("positive", msg.Message.ToLower()))
 
+        // Precision is bounded by the circuit budget (wall-clock), not by state capacity.
+        let budget = StateVector.practicalCircuitQubits
+
         let invalidConfig2 =
             {
                 NumberToFactor = 15
                 RandomBase = None
-                PrecisionQubits = 25 // Too many
+                PrecisionQubits = budget + 5 // Too many
                 MaxAttempts = 5
             }
 
         (executeShorsWithBackend invalidConfig2 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000)
-        |> Result.map (fun _ -> Assert.Fail("Should reject > 20 precision qubits"))
-        |> Result.defaultWith (fun msg -> Assert.Contains("20", msg.Message))
+        |> Result.map (fun _ -> Assert.Fail($"Should reject > {budget} precision qubits"))
+        |> Result.defaultWith (fun msg -> Assert.Contains(string budget, msg.Message))
 
     [<Fact>]
     let ``Shor factors small composites`` () =
@@ -295,34 +254,13 @@ module ShorsTests =
             match executeShorsWithBackend config (LocalBackend.LocalBackend() :> IQuantumBackend) 10 with
             | Error msg -> Assert.Fail($"Failed to factor {n}: {msg}")
             | Ok result ->
-                // ✅ CURRENT: Dirty ancilla implementation (probabilistic)
-                Assert.True(
-                    result.Success || result.Factors.IsSome || result.Config.MaxAttempts > 0,
-                    $"Should attempt to factor {n}: {result.Message}"
-                )
+                Assert.True(result.Success, $"Should successfully factor {n}: {result.Message}")
 
                 match result.Factors with
+                | None -> Assert.Fail($"Should find factors of {n}: {result.Message}")
                 | Some(p, q) ->
                     Assert.Equal(n, p * q)
-                    Assert.True(p > 1 && q > 1, "Factors should be non-trivial")
-
-                    // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
-                    // Assert.True(result.Success, $"Should successfully factor {n}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                | None -> Assert.True(true, "Probabilistic period finding may not always find factors")
+                    Assert.Equal<int Set>(Set.ofList expectedFactorList, Set.ofList [ p; q ])
 
     [<Fact>]
     let ``Shor returns correct config in result`` () =
@@ -512,14 +450,8 @@ module ShorsTests =
             }
 
         match executeShorsWithBackend config backend 10 with
-        | Error _ ->
-            // ✅ CURRENT: Dirty ancilla implementation may fail probabilistically
-            Assert.True(true, "Probabilistic behavior may result in errors")
-        | Ok result ->
-            Assert.True(
-                result.Config.PrecisionQubits >= 4,
-                $"Should use sufficient precision qubits, got {result.Config.PrecisionQubits}"
-            )
+        | Error err -> Assert.Fail($"Execution with 5 precision qubits should succeed: {err}")
+        | Ok result -> Assert.Equal(5, result.Config.PrecisionQubits)
 
     [<Fact>]
     let ``Shor result includes period information when available`` () =

@@ -636,7 +636,7 @@ match NetworkFlow.solve problem None with
 **Characteristics:**
 - ✅ Free (local simulation)
 - ✅ Fast (milliseconds)
-- ✅ Up to 20 qubits
+- ✅ Up to `StateVector.maxQubits` (derived from available memory; hard ceiling 30)
 - ✅ Perfect for development/testing
 
 ```fsharp
@@ -723,13 +723,13 @@ task {
 
 > **Note:** Cloud backends' `ApplyOperationAsync` always returns `Error` because cloud providers do not support incremental state operations. Use `ExecuteToStateAsync` for full circuit execution.
 
-> **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to 20 qubits, a `SparseState` (observed outcomes only) for 21–31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
+> **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to `StateVector.maxQubits`, a `SparseState` (observed outcomes only) for 21–31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
 
 ### Backend Selection Guide
 
 | Problem Size | Recommended Backend | Rationale |
 |--------------|---------------------|-----------|
-| ≤20 qubits | LocalBackend | Free, fast, sufficient |
+| Within simulator width | LocalBackend | Free, fast, sufficient |
 | 17-29 qubits | IonQ/Rigetti/Quantinuum Simulator | Scalable, still affordable |
 | 30+ qubits | IonQ/Rigetti/Quantinuum/AtomComputing QPU | Real quantum hardware needed |
 

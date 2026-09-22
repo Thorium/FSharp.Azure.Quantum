@@ -65,7 +65,8 @@ type QuantumState =
     /// - Single-qubit gate: O(2^n) operations
     /// - Two-qubit gate: O(2^n) operations
     /// - Exact for arbitrary unitaries
-    /// - Maximum ~20 qubits (1M dimensions = 16MB memory)
+    /// - Width capped by LocalSimulator.StateVector.maxQubits (2^n amplitudes x 16 bytes,
+    ///   derived from available memory)
     ///
     /// Best for:
     /// - Small circuits (n ≤ 15 qubits)
@@ -183,7 +184,7 @@ type QuantumState =
     /// This is the NATIVE result format of wide cloud devices (Rigetti Ankaa
     /// ~84q, IBM 127q+, QuEra 256 atoms): with `shots` samples the histogram
     /// holds at most `shots` entries REGARDLESS of qubit count, so it has no
-    /// width limit — unlike StateVector (2^n amplitudes, ≤ 20 qubits) or
+    /// width limit — unlike StateVector (2^n amplitudes, capped by available memory) or
     /// SparseState (Int32 basis indices, ≤ 31 qubits).
     ///
     /// Properties:
@@ -384,8 +385,8 @@ module QuantumState =
     let measure (state: QuantumState) (shots: int) : int[][] =
         match state with
         | QuantumState.StateVector sv ->
-            // Use LocalSimulator's measurement
-            Array.init shots (fun _ -> Measurement.measureAll sv)
+            // One pass over the 2^n distribution for the whole batch, not one per shot.
+            Measurement.sampleComputationalBasis (System.Random()) sv shots
 
         | QuantumState.FusionSuperposition superposition ->
             // Measure fusion outcomes and convert to computational basis

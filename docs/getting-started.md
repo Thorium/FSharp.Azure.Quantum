@@ -79,7 +79,7 @@ R4 → Color_0
 1. Computation expression builds graph coloring problem
 2. `GraphColoring.solve` encodes problem as QUBO
 3. QAOA quantum algorithm builds optimization circuit
-4. LocalBackend simulates quantum circuit (up to 20 qubits, free)
+4. LocalBackend simulates quantum circuit (memory-derived width, free)
 5. Returns color assignments with validation
 
 ## Key Concepts
@@ -204,7 +204,7 @@ match Knapsack.solve knapsackProblem None with
 | Learning quantum algorithms | **Direct API** | Consistent quantum experience |
 | Production with fixed problem size | **Direct API** | Simple, predictable behavior |
 | Production with variable size | **HybridSolver** | Optimizes small problems automatically |
-| Prototyping | **Direct API** | LocalBackend is fast enough (≤20 qubits) |
+| Prototyping | **Direct API** | LocalBackend is fast enough at these widths |
 | Performance-critical variable sizing | **HybridSolver** | Classical fallback saves overhead |
 
 ## Common Pitfalls & How to Avoid Them
@@ -473,14 +473,20 @@ match solve backend distances defaultConfig with
 
 // Option 2: Custom configuration for fine-tuning
 let customConfig = {
-    OptimizationShots = 100       // Low shots for fast parameter search
-    FinalShots = 1000             // High shots for accurate final result
-    EnableOptimization = true     // Enable variational loop
-    InitialParameters = (0.5, 0.5) // Starting guess for (gamma, beta)
+    OptimizationShots = 100          // Low shots for fast parameter search
+    FinalShots = 1000                // High shots for accurate final result
+    EnableOptimization = true        // Enable variational loop
+    InitialParameters = (0.5, 0.5)   // Starting guess for (gamma, beta)
+    MaxOptimizationIterations = 1000 // Cap the variational loop
 }
 let result = solve backend distances customConfig
 
-// Option 3: Disable optimization (backward compatibility)
+// Option 3: No variational loop at all — one circuit at the initial parameters.
+// Use this when the backend is expensive (e.g. topological), since every
+// optimizer iteration is a full circuit execution.
+let fastResult = solve backend distances QuantumTspSolver.fastConfig
+
+// Option 4: Disable optimization (backward compatibility)
 let resultNoOpt = solveWithShots backend distances 1000
 ```
 
@@ -544,7 +550,7 @@ let workspace = {
 // Supports: Azure CLI, Managed Identity, Environment Variables, etc.
 ```
 
-**Note:** LocalBackend (default) works without Azure credentials - perfect for development, testing, and small problems (≤20 qubits)!
+**Note:** LocalBackend (default) works without Azure credentials - perfect for development, testing, and small problems that fit the simulator width!
 
 ---
 

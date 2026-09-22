@@ -161,11 +161,13 @@ module Primitives =
 
             hamiltonian.Terms |> List.sumBy termExpectation |> Ok
 
-    /// Largest qubit count for which we densify a state/density matrix here. `StateVector.create`
-    /// itself hard-fails above 20 qubits, so reject at that bound and return `Error` rather than
-    /// throwing out of the API (or wastefully allocating a multi-GB dense vector first).
-    [<Literal>]
-    let private maxDenseQubits = 20
+    /// Largest qubit count for which we densify a state/density matrix here.
+    /// `StateVector.create` hard-fails above its own capacity, so reject at that same
+    /// bound and return `Error` rather than throwing out of the API (or wastefully
+    /// allocating a multi-GB dense vector first). Derived from available memory, so
+    /// this is not a constant — see LocalSimulator.StateVector.maxQubits.
+    let private maxDenseQubits =
+        FSharp.Azure.Quantum.LocalSimulator.StateVector.maxQubits
 
     /// ⟨H⟩ = Tr(ρH) = Σ_terms cᵢ Σⱼ [Pᵢ · (column j of ρ)]ⱼ on a density matrix.
     let private expectationOnDensityMatrix

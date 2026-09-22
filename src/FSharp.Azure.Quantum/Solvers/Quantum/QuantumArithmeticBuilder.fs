@@ -127,9 +127,10 @@ module QuantumArithmeticOps =
         | ModularMultiply -> 2 * n + 3 // input + output + overflow + flag + AND-ancilla
         | ModularExponentiate -> 2 * n + 5 // result + temp + control + AND + overflow + flag + AND
 
-    /// Maximum total qubits supported by LocalBackend simulation
-    [<Literal>]
-    let private maxSimulationQubits = 20
+    /// Widest arithmetic circuit worth running: these build hundreds of gates, so the
+    /// budget is wall-clock, not capacity -- see StateVector.practicalCircuitQubits.
+    let private maxSimulationQubits =
+        FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits
 
     /// <summary>
     /// Validates an arithmetic operation specification.

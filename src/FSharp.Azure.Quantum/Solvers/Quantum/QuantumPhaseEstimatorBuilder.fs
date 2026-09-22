@@ -153,8 +153,13 @@ module QuantumPhaseEstimator =
         // Check precision
         if problem.Precision < 1 then
             Error(QuantumError.ValidationError("Precision", "must be at least 1 qubit"))
-        elif problem.Precision > 20 then
-            Error(QuantumError.ValidationError("Precision", "exceeds practical limit (20 qubits) for NISQ devices"))
+        elif problem.Precision > Types.NisqPracticalQubits then
+            Error(
+                QuantumError.ValidationError(
+                    "Precision",
+                    $"exceeds practical limit ({Types.NisqPracticalQubits} qubits) for NISQ devices"
+                )
+            )
 
         // Check target qubits
         elif problem.TargetQubits < 1 then

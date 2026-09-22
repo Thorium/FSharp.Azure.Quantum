@@ -7,6 +7,7 @@ open FSharp.Azure.Quantum.Algorithms.QuantumMonteCarlo
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open System.Threading.Tasks
+open FSharp.Azure.Quantum.LocalSimulator
 
 module QuantumMonteCarloTests =
 
@@ -106,11 +107,14 @@ module QuantumMonteCarloTests =
         :> Task
 
     [<Fact>]
-    let ``estimateExpectation rejects NumQubits > 20`` () =
+    let ``estimateExpectation rejects NumQubits beyond the circuit budget`` () =
         task {
+            // Bounded by how wide a circuit finishes, not by how wide a state fits —
+            // Grover amplification applies many gates, and each qubit doubles all of
+            // them. Derived rather than hardcoded so it holds on any machine.
             let config =
                 { createSimpleConfig 1 1 100 with
-                    NumQubits = 21
+                    NumQubits = StateVector.practicalCircuitQubits + 1
                 }
 
             let qb = createBackend ()

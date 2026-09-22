@@ -257,8 +257,13 @@ module QuantumDistributions =
         | Ok() ->
             if intent.NumQubits <= 0 then
                 Error(QuantumError.ValidationError("NumQubits", "must be positive"))
-            elif intent.NumQubits > 20 then
-                Error(QuantumError.ValidationError("NumQubits", "too large for backend execution (max 20)"))
+            elif intent.NumQubits > FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits then
+                Error(
+                    QuantumError.ValidationError(
+                        "NumQubits",
+                        $"too large for backend execution (max {FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits})"
+                    )
+                )
             else
                 // QuantumDistributions uses QRNG as its entropy source.
                 // If the backend cannot run QRNG, distribution sampling cannot proceed.

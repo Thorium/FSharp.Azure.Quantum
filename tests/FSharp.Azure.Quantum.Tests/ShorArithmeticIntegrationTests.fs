@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Tests
 
+open System.Numerics
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -273,3 +274,111 @@ module ShorArithmeticIntegrationTests =
             Assert.Fail("controlledModularMultiplication should no longer return NotImplemented")
         | Error err -> Assert.Fail($"Unexpected error: {err}")
         | Ok _ -> () // Success - the stub has been properly wired
+
+    // ========================================================================
+    // WORKSPACE CLEANLINESS
+    // ========================================================================
+    //
+    // Shor's correctness rests on the modular-multiplication workspace being
+    // *uncomputed*, not merely unread. If the temp and ancilla qubits kept any
+    // record of the input y, they would stay entangled with the target register
+    // and dephase the counting register, so QPE would return noise instead of
+    // s/r. These tests assert the workspace returns to |0…0⟩ exactly — which is
+    // what the Beauregard (2003) circuit in Arithmetic buys over a "dirty
+    // ancilla" construction.
+
+    /// Read the single computational basis state a deterministic circuit produced.
+    let private basisIndexOf (state: QuantumState) : int =
+        match state with
+        | QuantumState.StateVector sv ->
+            let topIdx, topProb = Measurement.getTopOutcomes 1 sv |> Array.head
+
+            if topProb < 0.99 then
+                failwith $"State is not a computational basis state (top prob = {topProb:F6})"
+
+            topIdx
+        | other -> failwith $"Expected StateVector, got: {QuantumState.stateType other}"
+
+    [<Fact>]
+    let ``controlledModularMultiplication restores every workspace qubit to zero`` () =
+        // N=5, a=3, n=3 bits. Layout: control=0, target=[1;2;3],
+        // temp=[4;5;6], ancilla=[7;8;9;10] — everything but control and target.
+        let controlQubit = 0
+        let targetQubits = [ 1; 2; 3 ]
+        let totalQubits = 11
+        let workspaceQubits = [ 4 .. totalQubits - 1 ]
+
+        for y in 1..4 do
+            let (bknd, state) = prepareState totalQubits targetQubits y
+
+            let state' =
+                (bknd.ApplyOperation (QuantumOperation.Gate(X controlQubit)) state)
+                |> Result.defaultWith (fun err -> failwith $"Control prep failed: {err}")
+
+            match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state' with
+            | Error err -> Assert.Fail($"controlledModularMultiplication failed for y={y}: {err}")
+            | Ok resultState ->
+                // Target holds 3y mod 5 ...
+                Assert.Equal((3 * y) % 5, readRegisterValue targetQubits resultState)
+
+                // ... and every workspace qubit is back to |0⟩.
+                let idx = basisIndexOf resultState
+
+                for q in workspaceQubits do
+                    Assert.Equal(0, (idx >>> q) &&& 1)
+
+    [<Fact>]
+    let ``controlledModularMultiplication leaves no workspace residue in superposition`` () =
+        // The real test of uncomputation: run the multiplication on a superposition
+        // of inputs. With a dirty workspace the temp register would stay correlated
+        // with y and the target register would be a mixed state; with clean
+        // uncomputation the result is a pure superposition over 3y mod 5 alone.
+        let controlQubit = 0
+        let targetQubits = [ 1; 2; 3 ]
+        let totalQubits = 11
+
+        let bknd = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let prepared =
+            result {
+                let! s0 = bknd.InitializeState totalQubits
+                let! s1 = bknd.ApplyOperation (QuantumOperation.Gate(X controlQubit)) s0
+                // |y⟩ over {0,1,2,3}: Hadamard the two low target qubits
+                let! s2 = bknd.ApplyOperation (QuantumOperation.Gate(H targetQubits.[0])) s1
+                return! bknd.ApplyOperation (QuantumOperation.Gate(H targetQubits.[1])) s2
+            }
+
+        let state =
+            prepared |> Result.defaultWith (fun err -> failwith $"State prep failed: {err}")
+
+        match Shor.controlledModularMultiplication controlQubit targetQubits 3 5 bknd state with
+        | Error err -> Assert.Fail($"controlledModularMultiplication failed: {err}")
+        | Ok resultState ->
+            match resultState with
+            | QuantumState.StateVector sv ->
+                let dim = StateVector.dimension sv
+
+                let amplitudes: Complex array =
+                    Array.init dim (fun i -> StateVector.getAmplitude i sv)
+
+                let occupied =
+                    amplitudes
+                    |> Array.indexed
+                    |> Array.filter (fun (_, amp) -> amp.Magnitude > 1e-9)
+                    |> Array.map fst
+
+                // Four inputs → four outputs, one basis state each.
+                Assert.Equal(4, occupied.Length)
+
+                let outputs =
+                    occupied
+                    |> Array.map (fun idx ->
+                        // No amplitude may sit outside the target register.
+                        for q in 4 .. totalQubits - 1 do
+                            Assert.Equal(0, (idx >>> q) &&& 1)
+
+                        targetQubits |> List.mapi (fun pos q -> ((idx >>> q) &&& 1) <<< pos) |> List.sum)
+                    |> Array.sort
+
+                Assert.Equal<int array>([| 0; 1; 3; 4 |], outputs) // 3·{0,1,2,3} mod 5
+            | other -> failwith $"Expected StateVector, got: {QuantumState.stateType other}"

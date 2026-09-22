@@ -30,58 +30,100 @@ module TopologicalBuilderTests =
                 }
 
 
-            match! TopologicalBuilder.execute backend program with
-            | Ok _ -> Assert.True(true)
+            match! TopologicalBuilder.executeWithContext backend program with
+            | Ok(_, ctx) ->
+                Assert.Equal<TopologicalBuilder.OperationRecord list>(
+                    [ TopologicalBuilder.Init(AnyonSpecies.AnyonType.Ising, 4) ],
+                    List.rev ctx.History
+                )
             | Error err -> Assert.Fail($"Program failed: {err.Message}")
         }
 
     [<Fact>]
-    let ``Builder operations thread state correctly`` () = task {
-        let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
+    let ``Builder operations thread state correctly`` () =
+        task {
+            let backend =
+                TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
 
-        let program = topological backend {
-            do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-            do! TopologicalBuilder.braid 0
-            do! TopologicalBuilder.braid 2
-            return ()
+            let program =
+                topological backend {
+                    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+                    do! TopologicalBuilder.braid 0
+                    do! TopologicalBuilder.braid 2
+                    return ()
+                }
+
+            match! TopologicalBuilder.executeWithContext backend program with
+            | Ok(_, ctx) ->
+                // "Threaded correctly" means the context carried every operation
+                // through in program order — not merely that nothing errored.
+                Assert.Equal<TopologicalBuilder.OperationRecord list>(
+                    [
+                        TopologicalBuilder.Init(AnyonSpecies.AnyonType.Ising, 4)
+                        TopologicalBuilder.Braid 0
+                        TopologicalBuilder.Braid 2
+                    ],
+                    List.rev ctx.History
+                )
+
+                // ...and that the final state is the braided one, still normalized.
+                match ctx.CurrentState with
+                | QuantumState.FusionSuperposition fs ->
+                    match TopologicalOperations.fromInterface fs with
+                    | Some superposition ->
+                        let norm =
+                            superposition.Terms
+                            |> List.sumBy (fun (amp, _) -> amp.Magnitude * amp.Magnitude)
+
+                        Assert.Equal(1.0, norm, 10)
+                    | None -> Assert.Fail("Could not unwrap final superposition")
+                | other -> Assert.Fail($"Expected FusionSuperposition, got {other}")
+            | Error err -> Assert.Fail($"Program failed: {err.Message}")
         }
-
-        match! TopologicalBuilder.execute backend program with
-        | Ok _ -> Assert.True(true) // Success - operations threaded correctly
-        | Error err -> Assert.Fail($"Program failed: {err.Message}")
-    }
 
     [<Fact>]
-    let ``Builder works with ANY backend (backend-agnostic principle)`` () = task {
-        // This test demonstrates the key architectural principle:
-        // Programs work with ANY IQuantumBackend implementation
+    let ``Builder works with ANY backend (backend-agnostic principle)`` () =
+        task {
+            // This test demonstrates the key architectural principle:
+            // Programs work with ANY IQuantumBackend implementation
 
-        // Test with simulator backend
-        let simulatorBackend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
+            // Test with simulator backend
+            let simulatorBackend =
+                TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
 
-        let program = topological simulatorBackend {
-            do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-            do! TopologicalBuilder.braid 0
-            return ()
+            let program =
+                topological simulatorBackend {
+                    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+                    do! TopologicalBuilder.braid 0
+                    return ()
+                }
+
+            match! TopologicalBuilder.executeWithContext simulatorBackend program with
+            | Ok(_, ctx) ->
+                Assert.Equal<TopologicalBuilder.OperationRecord list>(
+                    [
+                        TopologicalBuilder.Init(AnyonSpecies.AnyonType.Ising, 4)
+                        TopologicalBuilder.Braid 0
+                    ],
+                    List.rev ctx.History
+                )
+            | Error err -> Assert.Fail($"Program failed: {err.Message}")
+
+            // In future: Same program will work with hardware backend!
+            // let hardwareBackend = MicrosoftMajoranaBackend.create(...)
+            // let! hardwareResult = topological hardwareBackend { ... }
+            // Programs are COMPLETELY backend-agnostic!
         }
-
-        match! TopologicalBuilder.execute simulatorBackend program with
-        | Ok _ -> Assert.True(true)
-        | Error err -> Assert.Fail($"Program failed: {err.Message}")
-
-        // In future: Same program will work with hardware backend!
-        // let hardwareBackend = MicrosoftMajoranaBackend.create(...)
-        // let! hardwareResult = topological hardwareBackend { ... }
-        // Programs are COMPLETELY backend-agnostic!
-    }
 
     [<Fact>]
     let ``Builder with braiding sequence`` () =
         task {
             // Increased backend capacity to 20 anyons to support 6 logical qubits
-            let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 20
+            let backend =
+                TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 20
 
             let topology = topological backend
+
             let program =
                 topology {
                     do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 6
@@ -91,12 +133,18 @@ module TopologicalBuilderTests =
                     return ()
                 }
 
-            match! TopologicalBuilder.execute backend program with
-            | Ok _ ->
-                // Successfully completed braiding sequence
-                Assert.True(true)
-            | Error err ->
-                Assert.Fail($"Program failed: {err.Message}")
+            match! TopologicalBuilder.executeWithContext backend program with
+            | Ok(_, ctx) ->
+                Assert.Equal<TopologicalBuilder.OperationRecord list>(
+                    [
+                        TopologicalBuilder.Init(AnyonSpecies.AnyonType.Ising, 6)
+                        TopologicalBuilder.Braid 0
+                        TopologicalBuilder.Braid 2
+                        TopologicalBuilder.Braid 4
+                    ],
+                    List.rev ctx.History
+                )
+            | Error err -> Assert.Fail($"Program failed: {err.Message}")
         }
 
     // ============================================================================
@@ -104,75 +152,86 @@ module TopologicalBuilderTests =
     // ============================================================================
 
     [<Fact>]
-    let ``Builder measure works on pure state (single term)`` () = task {
-        let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
+    let ``Builder measure works on pure state (single term)`` () =
+        task {
+            let backend =
+                TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
 
-        let program = topological backend {
-            do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-            let! outcome = TopologicalBuilder.measure 0
-            return outcome
+            let program =
+                topological backend {
+                    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+                    let! outcome = TopologicalBuilder.measure 0
+                    return outcome
+                }
+
+
+            match! TopologicalBuilder.execute backend program with
+            | Ok outcome ->
+                // A σ-pair of the |0000⟩ encoding fuses deterministically to the vacuum,
+                // so the measurement outcome is not merely "some particle" — it is fixed.
+                Assert.Equal(AnyonSpecies.Particle.Vacuum, outcome)
+            | Error err -> Assert.Fail($"Pure state measurement failed: {err.Message}")
         }
-
-
-        match! TopologicalBuilder.execute backend program with
-        | Ok outcome ->
-            // Measurement should succeed on a pure state
-            Assert.True(true, $"Got outcome: {outcome}")
-        | Error err -> Assert.Fail($"Pure state measurement failed: {err.Message}")
-    }
 
     [<Fact>]
     let ``Builder measure works on multi-term superposition after F-move`` () =
         task {
-            // Create a state, apply F-move via backend to create multi-term superposition,
-            // then measure through the builder
-            let backend =
-                TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
+            // Apply an F-move via the backend to produce a genuine multi-term
+            // superposition, then measure it through the builder.
+            //
+            // The anyon theory matters here. In the Ising |0…0⟩ encoding every
+            // intermediate charge is abelian (1 or ψ), so every F-matrix is 1×1 and
+            // the F-move is the identity — it can never create a superposition. The
+            // Fibonacci |111⟩ encoding fuses three τ charges, whose F-matrix
+            // (F^τττ_τ) is the 2×2 golden-ratio matrix, so the F-move is genuinely
+            // non-trivial there.
+            let anyonType = AnyonSpecies.AnyonType.Fibonacci
 
-            // Initialize 4 Ising anyons
-            let initResult = backend.InitializeState 4
+            let backend = TopologicalUnifiedBackendFactory.createUnified anyonType 20
 
-            match initResult with
-            | Error err -> Assert.Fail($"Init failed: {err.Message}")
-            | Ok initState ->
+            match FusionTree.fromComputationalBasis [ 1; 1; 1 ] anyonType with
+            | Error err -> Assert.Fail($"Encoding failed: {err.Message}")
+            | Ok tree ->
+                let pure' = TopologicalOperations.pureState (FusionTree.create tree anyonType)
 
-                // Apply F-move to create multi-term superposition
-                let fMoveResult =
-                    backend.ApplyOperation (QuantumOperation.FMove(FMoveDirection.Forward, 0)) initState
+                let initState =
+                    QuantumState.FusionSuperposition(TopologicalOperations.toInterface pure')
 
-                match fMoveResult with
+                match backend.ApplyOperation (QuantumOperation.FMove(FMoveDirection.Forward, 0)) initState with
                 | Error err -> Assert.Fail($"F-move failed: {err.Message}")
                 | Ok fMovedState ->
 
-                    // Verify we actually have a multi-term superposition
                     match fMovedState with
                     | QuantumState.FusionSuperposition fs ->
                         match TopologicalOperations.fromInterface fs with
-                        | Some superposition ->
-                            // Only test multi-term path if F-move actually created multiple terms
-                            if superposition.Terms.Length > 1 then
-                                // Create builder context with this multi-term state
-                                let ctx: TopologicalBuilder.BuilderContext =
-                                    {
-                                        Backend = backend
-                                        CurrentState = fMovedState
-                                        MeasurementResults = []
-                                        ExecutionLog = []
-                                        History = []
-                                    }
-
-                                // Attempt measurement on multi-term superposition
-                                match! TopologicalBuilder.measure 0 ctx with
-                                | Ok(particle, newCtx) ->
-                                    // Measurement should succeed and return a valid particle
-                                    Assert.NotNull(box particle)
-                                    Assert.NotEmpty(newCtx.MeasurementResults)
-                                | Error err ->
-                                    Assert.Fail($"Multi-term measurement should succeed but got: {err.Message}")
-                            else
-                                // Single-term F-move result — measure should work (already tested)
-                                Assert.True(true, "F-move produced single term; skip multi-term test")
                         | None -> Assert.Fail("Could not unwrap superposition")
+                        | Some superposition ->
+                            // The F-move must actually branch — no escape hatch.
+                            Assert.Equal(2, superposition.Terms.Length)
+
+                            // ...and it is a unitary basis change, so the norm is preserved.
+                            let norm =
+                                superposition.Terms
+                                |> List.sumBy (fun (amp, _) -> amp.Magnitude * amp.Magnitude)
+
+                            Assert.Equal(1.0, norm, 10)
+
+                            let ctx: TopologicalBuilder.BuilderContext =
+                                {
+                                    Backend = backend
+                                    CurrentState = fMovedState
+                                    MeasurementResults = []
+                                    ExecutionLog = []
+                                    History = []
+                                }
+
+                            match! TopologicalBuilder.measure 0 ctx with
+                            | Ok(particle, newCtx) ->
+                                // Both terms of F^τττ_τ keep the leftmost pair fusing to τ,
+                                // so the outcome is deterministic even though the state is not.
+                                Assert.Equal(AnyonSpecies.Particle.Tau, particle)
+                                Assert.NotEmpty(newCtx.MeasurementResults)
+                            | Error err -> Assert.Fail($"Multi-term measurement should succeed but got: {err.Message}")
                     | _ -> Assert.Fail("Expected FusionSuperposition state")
         }
 

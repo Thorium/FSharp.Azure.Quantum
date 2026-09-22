@@ -176,7 +176,7 @@ if (result.IsOk) {
 1. Computation expression builds graph coloring problem
 2. `GraphColoring.solve` calls `QuantumGraphColoringSolver` internally
 3. QAOA quantum algorithm encodes problem as QUBO (Quadratic Unconstrained Binary Optimization)
-4. LocalBackend simulates quantum circuit (≤20 qubits)
+4. LocalBackend simulates quantum circuit (memory-derived width)
 5. Returns color assignments with validation
 
 ---
@@ -1330,7 +1330,7 @@ graph TB
     end
     
     subgraph "Layer 3: Quantum Backends"
-        LOCAL["LocalBackend<br/>(≤20 qubits)"]
+        LOCAL["LocalBackend<br/>(memory-derived width)"]
         IONQ["IonQBackend<br/>(Azure Quantum)"]
         RIGETTI["RigettiBackend<br/>(Azure Quantum)"]
         ATOM["AtomComputingBackend<br/>(Azure Quantum, 100+ qubits)"]
@@ -3108,7 +3108,7 @@ var result = ExecutePhaseEstimator(problem);
 | Amplitude Amplification | ✅ Built-in | ✅ Built-in | ✅ Q# built-in | ✅ Built-in | ❌ Manual |
 | | | | | | |
 | **🖥️ LOCAL SIMULATION** | | | | | |
-| Local Simulator | ✅ Built-in (≤20 qubits) | ✅ Aer (≤30 qubits) | ✅ Full-state (≤30 qubits) | ✅ Built-in (≤20 qubits) | ✅ Local simulator |
+| Local Simulator | ✅ Built-in (memory-derived, ≤30) | ✅ Aer (≤30 qubits) | ✅ Full-state (≤30 qubits) | ✅ Built-in (≤20 qubits) | ✅ Local simulator |
 | Noise Simulation | ❌ Some | ✅ AerSimulator noise models | ✅ Open/Closed systems | ✅ Built-in | ✅ Built-in |
 | GPU Acceleration | ❌ No | ✅ Aer GPU | ✅ Yes | ✅ Yes | ✅ Yes |
 | State Vector | ✅ Pure F# implementation | ✅ C++ backend | ✅ C++ backend | ✅ C++ backend | ✅ C++ backend |
@@ -3297,7 +3297,7 @@ consumes — **OpenQASM 3.0** for gate devices (`OpenQasm.exportV3`) and **AHS**
 - **`BraketExecution.BraketBackend`** — a gate `IQuantumBackend` that submits OpenQASM 3.0 to any
   Braket gate device by ARN: **IonQ, Rigetti, IQM, OQC, Infleqtion**, and the SV1/DM1/TN1
   simulators (`Braket.Devices.*`). Results come back as a `QuantumState` reconstructed from the
-  measurement histogram (dense ≤20 qubits, sparse 21–31, `MeasurementHistogram` above — no width
+  measurement histogram (dense up to `StateVector.maxQubits`, sparse through 31, `MeasurementHistogram` above — no width
   limit); `ExecuteToHistogramAsync` returns the raw bitstring→count histogram at any width.
 - **`BraketExecution.submitAhsAsync`** — submits a neutral-atom `RydbergProgram` to **QuEra Aquila**.
 

@@ -97,8 +97,9 @@ module AmplitudeAmplification =
             let reflection =
                 let twoInnerProduct = 2.0 * innerProduct
 
-                [| 0 .. dimension - 1 |]
-                |> Array.map (fun i ->
+                // Array.init, not a map over `[| 0 .. dimension - 1 |]`: the latter
+                // materialises a second 2^n array of ints purely to iterate over one.
+                Array.init dimension (fun i ->
                     let psiAmp = StateVector.getAmplitude i targetState
                     let phiAmp = StateVector.getAmplitude i state
 
@@ -565,8 +566,7 @@ module AmplitudeAmplification =
 
             // Create W-state: (|100⟩ + |010⟩ + |001⟩)/√3
             let amplitudes =
-                [| 0 .. dimension - 1 |]
-                |> Array.map (fun i ->
+                Array.init dimension (fun i ->
                     match i with
                     | 1 -> Complex(invSqrt3, 0.0) // |001⟩
                     | 2 -> Complex(invSqrt3, 0.0) // |010⟩
@@ -589,8 +589,7 @@ module AmplitudeAmplification =
             let amplitude = Complex(1.0 / Math.Sqrt(float numStates), 0.0)
 
             let amplitudes =
-                [| 0 .. dimension - 1 |]
-                |> Array.map (fun i -> if i < numStates then amplitude else Complex.Zero)
+                Array.init dimension (fun i -> if i < numStates then amplitude else Complex.Zero)
 
             StateVector.create amplitudes
 

@@ -30,7 +30,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 /// Limitations:
 /// - This implementation focuses on educational value (N ≤ 100)
 /// - For larger numbers, use ShorsBackendAdapter with cloud backends
-/// - Local simulation limited by available qubits (~16-20)
+/// - Genuine quantum path bounded by StateVector.practicalCircuitQubits (wall-clock, not capacity)
 ///
 /// Example:
 /// ```fsharp
@@ -51,6 +51,21 @@ module Shor =
 
     open FSharp.Azure.Quantum.Algorithms.ShorsTypes
     open FSharp.Azure.Quantum.Algorithms.QPE
+
+    /// Qubits the genuine quantum path may spend on one circuit.
+    ///
+    /// Shor's modular-exponentiation circuit is counting + 2·registerBits + 4 wide,
+    /// so this decides which N are factored quantumly rather than through the
+    /// classically-assisted fallback.
+    ///
+    /// Budgeted against how wide a circuit FINISHES, not how wide a state FITS. The
+    /// distinction matters here more than anywhere: the circuit applies hundreds of
+    /// gates, and each qubit doubles the cost of every one of them. Budgeting against
+    /// memory capacity instead pulls N=33, 35, 51 off the fast classical fallback and
+    /// onto 26-qubit circuits that take hours — the state fits comfortably; the run
+    /// does not finish. Raise FSAQ_MAX_CIRCUIT_QUBITS to opt into the wider circuits.
+    let private simulatorQubitBudget =
+        FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits
 
     // ========================================================================
     // CLASSICAL NUMBER THEORY HELPERS
@@ -393,7 +408,7 @@ module Shor =
         //     - dcAdd ancilla (doublyControlledAddConstant inside Beauregard): 1 qubit
         //   Total: 2n + 5 qubits
         //
-        // For educational Shor's (N ≤ 100): n ≤ 7 bits, total ≤ 19 qubits (within 20-qubit limit).
+        // For educational Shor's (N ≤ 100): n ≤ 7 bits, so total ≤ 19 qubits.
         //
         // The caller must provide a state with enough qubits to accommodate
         // targetQubits + tempQubits + internal ancilla chain.
@@ -520,7 +535,7 @@ module Shor =
     /// Constraints:
     /// - N must be > 1 and composite (not checked here; caller's responsibility)
     /// - a must be coprime to N and 1 < a < N
-    /// - Total qubits must not exceed backend limit (20 for LocalBackend)
+    /// - Total qubits must not exceed the local simulator's memory-derived capacity
     let estimateModExpPhase
         (baseNum: int)
         (modulus: int)
@@ -549,12 +564,13 @@ module Shor =
             // Total: countingQubits + 2n + 4
             let totalQubits = countingQubits + 2 * n + 4
 
-            if totalQubits > 20 then
+            if totalQubits > simulatorQubitBudget then
                 Error(
                     QuantumError.ValidationError(
                         "totalQubits",
                         $"Requires {totalQubits} qubits (counting={countingQubits}, register={n}, workspace={n + 4}) "
-                        + $"but LocalBackend supports at most 20. Reduce countingQubits to ≤ {20 - 2 * n - 4}."
+                        + $"but the local simulator holds at most {simulatorQubitBudget}. "
+                        + $"Reduce countingQubits to ≤ {simulatorQubitBudget - 2 * n - 4}."
                     )
                 )
             else
@@ -696,17 +712,17 @@ module Shor =
         : Result<PeriodFindingResult, QuantumError> =
 
         let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
-        let maxCounting = 20 - 2 * registerBits - 4
+        let maxCounting = simulatorQubitBudget - 2 * registerBits - 4
 
         if maxCounting < registerBits then
             // With fewer counting qubits than register bits the phase grid 2^c < N, so the
             // continued-fraction step can only ever return the dyadic denominator 2^c — the
-            // retries below would burn maxAttempts full ~20-qubit simulations and then fail
+            // retries below would burn maxAttempts full-width simulations and then fail
             // anyway (for any period that is not a power of two ≤ 2^c). Fail fast instead.
             Error(
                 QuantumError.ValidationError(
                     "n",
-                    $"N={n} needs {registerBits} counting qubits to resolve the period, but only {max 0 maxCounting} fit the 20-qubit simulator budget (counting + 2·{registerBits} + 4). Use findPeriod (falls back automatically) or findPeriodWith (classically assisted)."
+                    $"N={n} needs {registerBits} counting qubits to resolve the period, but only {max 0 maxCounting} fit the {simulatorQubitBudget}-qubit simulator budget (counting + 2·{registerBits} + 4). Use findPeriod (falls back automatically) or findPeriodWith (classically assisted)."
                 )
             )
         else
@@ -771,7 +787,7 @@ module Shor =
         : Result<PeriodFindingResult, QuantumError> =
 
         let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
-        let maxCounting = 20 - 2 * registerBits - 4
+        let maxCounting = simulatorQubitBudget - 2 * registerBits - 4
 
         if maxCounting < registerBits then
             // The classically-assisted QPE demo is capped at 16 counting qubits
@@ -859,8 +875,13 @@ module Shor =
             Error(QuantumError.ValidationError("NumberToFactor", "must be ≤ 1000 for local simulation"))
         elif config.PrecisionQubits <= 0 then
             Error(QuantumError.ValidationError("PrecisionQubits", "must be positive"))
-        elif config.PrecisionQubits > 20 then
-            Error(QuantumError.ValidationError("PrecisionQubits", "must be ≤ 20 for local simulation"))
+        elif config.PrecisionQubits > simulatorQubitBudget then
+            Error(
+                QuantumError.ValidationError(
+                    "PrecisionQubits",
+                    $"must be ≤ {simulatorQubitBudget} for local simulation"
+                )
+            )
 
         // ========== CLASSICAL PRE-CHECKS ==========
         // Check if N < 4 (too small) - MUST CHECK FIRST before even/prime checks.
@@ -891,11 +912,11 @@ module Shor =
                 )
             else
                 // Genuine quantum period finding needs enough counting qubits to resolve the
-                // period within the simulator's 20-qubit budget (counting + 2·registerBits + 4).
+                // period within the simulator budget (counting + 2·registerBits + 4).
                 // When it cannot, fall back to the classically-assisted path so factoring still
                 // succeeds for larger N rather than failing silently or erroring on the qubit limit.
                 let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
-                let maxCounting = 20 - 2 * registerBits - 4
+                let maxCounting = simulatorQubitBudget - 2 * registerBits - 4
 
                 let effectiveMethod =
                     match intent.Method with
@@ -929,38 +950,55 @@ module Shor =
                     // runs instead of tripping that validation.
                     findPeriodWith a modulus (min 16 precisionQubits) exactness backend
 
-            let rec tryFindFactors attempt a : Result<ShorsResult, QuantumError> =
-                result {
-                    if attempt > maxAttempts then
-                        return
+            // Whether a period-finding failure is worth another base.
+            //
+            // QPE is probabilistic: `findPeriodQuantum` gives up after its own retry budget
+            // and reports OperationError("Period finding", …). That is a failure OF THIS
+            // BASE, not of the configuration, and retrying with a fresh base is exactly what
+            // the outer attempt budget is for — so it must not abort the whole run while
+            // attempts remain. Everything else (a validation error, a qubit-budget error,
+            // a backend failure) would fail identically for every base, so it is returned
+            // straight away rather than burned through maxAttempts times.
+            let isRetryablePeriodFailure (err: QuantumError) =
+                match err with
+                | QuantumError.OperationError("Period finding", _) -> true
+                | _ -> false
+
+            let rec tryFindFactors attempt a (lastError: QuantumError option) : Result<ShorsResult, QuantumError> =
+                if attempt > maxAttempts then
+                    // Out of attempts. If the last thing that happened was a probabilistic
+                    // period-finding failure, surface it — it explains the outcome better
+                    // than a bare count.
+                    let reason =
+                        match lastError with
+                        | Some err -> $"Failed to find factors after {maxAttempts} attempts ({err.Message})"
+                        | None -> $"Failed to find factors after {maxAttempts} attempts"
+
+                    Ok(mkResult modulus None None false reason config)
+                else
+                    let g = gcd a modulus
+
+                    if g <> 1 then
+                        // A freshly drawn retry base sharing a factor with N is a lucky
+                        // classical hit — no period finding needed.
+                        Ok(
                             mkResult
                                 modulus
+                                (Some(g, modulus / g))
                                 None
-                                None
-                                false
-                                $"Failed to find factors after {maxAttempts} attempts"
+                                true
+                                $"Lucky! gcd({a}, {modulus}) = {g} (non-trivial factor)"
                                 config
+                        )
                     else
-                        let g = gcd a modulus
-
-                        if g <> 1 then
-                            // A freshly drawn retry base sharing a factor with N is a lucky
-                            // classical hit — no period finding needed.
-                            return
-                                mkResult
-                                    modulus
-                                    (Some(g, modulus / g))
-                                    None
-                                    true
-                                    $"Lucky! gcd({a}, {modulus}) = {g} (non-trivial factor)"
-                                    config
-                        else
-
-                            let! periodResult = findPeriodOnce a
-
+                        match findPeriodOnce a with
+                        | Error err when isRetryablePeriodFailure err ->
+                            tryFindFactors (attempt + 1) (chooseRandomBase modulus None) (Some err)
+                        | Error err -> Error err
+                        | Ok periodResult ->
                             match extractFactorsFromPeriod a periodResult.Period modulus with
                             | Some(p, q) ->
-                                return
+                                Ok(
                                     mkResult
                                         modulus
                                         (Some(p, q))
@@ -968,15 +1006,15 @@ module Shor =
                                         true
                                         $"Factors found using period r={periodResult.Period}"
                                         config
+                                )
                             | None ->
                                 // Period finding is deterministic for a given base on the
                                 // classically-assisted path, so retrying the SAME base would fail
                                 // forever (e.g. N=33 with a=2: r=10, 2^5 ≡ -1 mod 33). Draw a fresh
                                 // random base for each retry.
-                                return! tryFindFactors (attempt + 1) (chooseRandomBase modulus None)
-                }
+                                tryFindFactors (attempt + 1) (chooseRandomBase modulus None) None
 
-            tryFindFactors 1 baseNum
+            tryFindFactors 1 baseNum None
 
     // ========================================================================
     // MAIN SHOR'S ALGORITHM EXECUTION
@@ -1071,10 +1109,11 @@ module Shor =
     /// </example>
     let factor (n: int) (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
 
-        // Calculate recommended precision: 2 * log₂(N) + 3, clamped to `plan`'s 20-qubit
+        // Calculate recommended precision: 2 * log₂(N) + 3, clamped to the simulator
         // validation bound (the formula exceeds it from N = 512; for such N the plan degrades
         // to the classically-assisted path anyway, which clamps further to its own 16 cap).
-        let precisionQubits = min 20 (2 * int (Math.Log(float n, 2.0)) + 3)
+        let precisionQubits =
+            min simulatorQubitBudget (2 * int (Math.Log(float n, 2.0)) + 3)
 
         let config =
             {

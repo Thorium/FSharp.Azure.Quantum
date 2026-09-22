@@ -517,10 +517,14 @@ module HybridSolver =
 
                     task { return res }
 
-    /// Solve TSP problem using hybrid solver with optional backend override.
+    /// Solve TSP problem using hybrid solver with an explicit QAOA configuration.
     ///
-    /// This is an additive API that enables using HybridSolver with gate-based backends
-    /// (e.g., LocalBackend) and topological backends (e.g., TopologicalUnifiedBackend).
+    /// Use this over `solveTspWithBackend` when the backend makes the default
+    /// variational loop too expensive. `QuantumTspSolver.defaultConfig` runs up to
+    /// 1000 Nelder-Mead iterations, each a full QAOA circuit execution — negligible
+    /// on a state-vector simulator, but hours on a topological backend, whose
+    /// fusion-tree state carries 2^n explicit terms per gate. Pass
+    /// `QuantumTspSolver.fastConfig` (or a smaller MaxOptimizationIterations) there.
     ///
     /// Parameters:
     ///   distances - Distance matrix for TSP problem
@@ -528,12 +532,14 @@ module HybridSolver =
     ///   timeout - Optional timeout for classical solver (milliseconds)
     ///   forceMethod - Optional override to force specific solver method
     ///   backend - Optional unified backend to use when forceMethod=Quantum
-    let solveTspWithBackend
+    ///   quantumConfig - QAOA shots, initial parameters and optimizer budget
+    let solveTspWithBackendAndConfig
         (distances: float[,])
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
         (backend: IQuantumBackend option)
+        (quantumConfig: QuantumTspSolver.QuantumTspConfig)
         : QuantumResult<Solution<TspSolver.TspSolution>> =
 
         let startTime = DateTime.UtcNow
@@ -552,7 +558,6 @@ module HybridSolver =
 
         | Some Quantum ->
             // Execute quantum TSP solver using provided backend (or default LocalBackend)
-            let quantumConfig = QuantumTspSolver.defaultConfig
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
             match QuantumTspSolver.solve actualBackend distances quantumConfig with
@@ -604,8 +609,6 @@ module HybridSolver =
                             |> Ok
 
                         | _ ->
-                            let quantumConfig = QuantumTspSolver.defaultConfig
-
                             match QuantumTspSolver.solve actualBackend distances quantumConfig with
                             | Error err ->
                                 Error(QuantumError.OperationError("Quantum TSP solver", QuantumResult.toString err))
@@ -634,6 +637,29 @@ module HybridSolver =
                     <| startTime
                     <| Some recommendation
                     |> Ok)
+
+    /// Solve TSP problem using hybrid solver with optional backend override.
+    ///
+    /// This is an additive API that enables using HybridSolver with gate-based backends
+    /// (e.g., LocalBackend) and topological backends (e.g., TopologicalUnifiedBackend).
+    ///
+    /// Uses `QuantumTspSolver.defaultConfig`; call `solveTspWithBackendAndConfig` when
+    /// the backend cannot afford its 1000-iteration variational loop.
+    ///
+    /// Parameters:
+    ///   distances - Distance matrix for TSP problem
+    ///   budget - Optional budget limit for quantum execution (USD)
+    ///   timeout - Optional timeout for classical solver (milliseconds)
+    ///   forceMethod - Optional override to force specific solver method
+    ///   backend - Optional unified backend to use when forceMethod=Quantum
+    let solveTspWithBackend
+        (distances: float[,])
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        (backend: IQuantumBackend option)
+        : QuantumResult<Solution<TspSolver.TspSolution>> =
+        solveTspWithBackendAndConfig distances budget timeout forceMethod backend QuantumTspSolver.defaultConfig
 
     /// Solve TSP problem using hybrid solver with automatic quantum vs classical selection
     ///

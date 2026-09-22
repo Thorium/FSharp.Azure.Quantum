@@ -138,6 +138,7 @@ module TSP =
                     FinalShots = 1000
                     EnableOptimization = true
                     InitialParameters = (0.5, 0.5)
+                    MaxOptimizationIterations = 1000
                 }
 
             // Call quantum TSP solver directly using computation expression

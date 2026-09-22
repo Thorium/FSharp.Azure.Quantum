@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.LocalSimulator
 
 /// Tests for Shor.estimateModExpPhase (full quantum modular-exponentiation QPE)
 /// and QPE rejection of ModularExponentiation unitary.
@@ -81,13 +82,26 @@ module ModExpPhaseTests =
         | Ok _ -> Assert.Fail("Expected error for countingQubits > 16")
 
     [<Fact>]
-    let ``estimateModExpPhase rejects exceeding 20-qubit limit`` () =
+    let ``estimateModExpPhase rejects exceeding the simulator qubit budget`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
-        // N=15, n=4 bits, workspace = 2*4+4 = 12, so c > 8 would exceed 20
-        match Shor.estimateModExpPhase 2 15 9 bknd with
-        | Error(QuantumError.ValidationError("totalQubits", msg)) -> Assert.Contains("20", msg)
+        let budget = StateVector.practicalCircuitQubits
+
+        // The circuit is countingQubits + 2n + 4 wide for an n-bit modulus. Counting
+        // is separately capped at 16, so to reach the totalQubits guard the REGISTER
+        // has to be what overruns the budget: pick the smallest n with
+        // 16 + 2n + 4 > budget. The budget is wall-clock, not capacity, so this is
+        // derived rather than hardcoded, and tracks FSAQ_MAX_CIRCUIT_QUBITS.
+        let countingQubits = 16
+        let registerBits = max 4 ((budget - 20) / 2 + 1)
+
+        // 2^n - 1 is an odd n-bit number, so it is coprime to base 2.
+        let modulus = (1 <<< registerBits) - 1
+        Assert.True(countingQubits + 2 * registerBits + 4 > budget, "test setup must exceed the budget")
+
+        match Shor.estimateModExpPhase 2 modulus countingQubits bknd with
+        | Error(QuantumError.ValidationError("totalQubits", msg)) -> Assert.Contains(string budget, msg)
         | Error err -> Assert.Fail($"Expected ValidationError for totalQubits, got: {err}")
-        | Ok _ -> Assert.Fail("Expected error when total qubits exceed 20")
+        | Ok _ -> Assert.Fail($"Expected error when total qubits exceed {budget}")
 
     // ========================================================================
     // estimateModExpPhase EXECUTION TESTS

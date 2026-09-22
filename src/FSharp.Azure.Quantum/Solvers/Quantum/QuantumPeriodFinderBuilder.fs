@@ -120,7 +120,13 @@ module QuantumPeriodFinder =
             /// Total qubits used (precision + log₂(N))
             QubitsUsed: int
 
-            /// Number of attempts made to find period
+            /// Number of QPE shots the successful period-finding run consumed.
+            ///
+            /// This counts phase-estimation shots inside one period-finding call, NOT
+            /// the builder's MaxAttempts base-retry budget — QPE is probabilistic and
+            /// retries internally, so this is routinely larger than MaxAttempts.
+            /// It is 0 when no period was found: a lucky gcd, an even or prime N, or
+            /// an exhausted run.
             Attempts: int
 
             /// Whether factorization succeeded
@@ -151,8 +157,13 @@ module QuantumPeriodFinder =
         // Check precision
         elif problem.Precision < 1 then
             Error(QuantumError.ValidationError("Precision", "must be at least 1 qubit"))
-        elif problem.Precision > 20 then
-            Error(QuantumError.ValidationError("Precision", "exceeds practical limit (20 qubits) for NISQ devices"))
+        elif problem.Precision > Types.NisqPracticalQubits then
+            Error(
+                QuantumError.ValidationError(
+                    "Precision",
+                    $"exceeds practical limit ({Types.NisqPracticalQubits} qubits) for NISQ devices"
+                )
+            )
 
         // Check attempts
         elif problem.MaxAttempts < 1 then
@@ -302,13 +313,17 @@ module QuantumPeriodFinder =
             let qubitsUsed =
                 problem.Precision + int (ceil (log (float problem.Number) / log 2.0))
 
-            // Extract period and phase from PeriodResult
+            // Extract period and phase from PeriodResult.
+            //
+            // There is no PeriodResult when no period was found: either a lucky
+            // gcd(a, N) > 1 factored N classically, N was even or prime, or every
+            // attempt was exhausted. Report zero QPE shots in that case — reporting
+            // MaxAttempts instead claimed work that never happened, and made
+            // Attempts unreadable as "how much quantum effort this took".
             let (period, baseUsed, phaseEst, attempts) =
                 match shorsResult.PeriodResult with
                 | Some pr -> (pr.Period, pr.Base, pr.PhaseEstimate, pr.Attempts)
-                | None ->
-                    // Failed to find period - use defaults
-                    (0, problem.Base |> Option.defaultValue 2, 0.0, problem.MaxAttempts)
+                | None -> (0, problem.Base |> Option.defaultValue 2, 0.0, 0)
 
             return
                 {

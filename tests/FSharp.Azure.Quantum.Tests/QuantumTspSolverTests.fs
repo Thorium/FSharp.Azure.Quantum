@@ -84,23 +84,12 @@ module QuantumTspSolverTests =
         match result with
         | Error err ->
             Assert.Contains("qubits", err.Message)
-            // Backend name should be in error message (type resolution issue prevents checking directly)
-            // Assert.Contains(backend.Name, err.Message)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        | Ok _ -> Assert.True(false, "Should reject problem too large")
+            // The solver checks backend capacity up front, so the message names the
+            // backend and the required size rather than surfacing a bare limit error
+            // from deep inside circuit execution.
+            Assert.Contains(backend.Name, err.Message)
+            Assert.Contains("36", err.Message) // 6 cities → 6² qubits
+        | Ok _ -> Assert.Fail("Should reject problem too large")
 
     // ========================================================================
     // Basic Execution Tests

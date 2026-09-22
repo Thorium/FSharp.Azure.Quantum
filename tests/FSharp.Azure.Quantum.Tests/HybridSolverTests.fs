@@ -3,12 +3,17 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 module HybridSolverTests =
 
-    [<Fact>]
-    let ``solveTspWithBackend forced quantum accepts topological backend`` () =
+    // Slow: a 3-city TSP is 3² = 9 qubits under the one-hot time encoding, and a
+    // topological backend carries that as a fusion-tree state of 2⁹ explicit terms
+    // through every gate — one circuit execution is ~2 minutes. That is the floor
+    // for this problem on this backend, independent of the QAOA configuration.
+    [<Fact; Trait("Category", "Slow")>]
+    let ``solveTspWithBackendAndConfig forced quantum accepts topological backend`` () =
         // Arrange: 3-city symmetric TSP instance
         let distances = array2D [ [ 0.0; 1.0; 2.0 ]; [ 1.0; 0.0; 3.0 ]; [ 2.0; 3.0; 0.0 ] ]
 
@@ -16,17 +21,34 @@ module HybridSolverTests =
         let backend =
             FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 50
 
+        // The default config's variational loop runs up to 1000 Nelder-Mead
+        // iterations, each a full circuit execution — hours on this backend. What
+        // this test checks is that an injected non-gate backend is accepted and
+        // routed to the quantum path, so skip the loop entirely.
+        let quantumConfig =
+            { QuantumTspSolver.fastConfig with
+                FinalShots = 200
+            }
+
         // Act
         let result =
-            HybridSolver.solveTspWithBackend distances None None (Some HybridSolver.SolverMethod.Quantum) (Some backend)
+            HybridSolver.solveTspWithBackendAndConfig
+                distances
+                None
+                None
+                (Some HybridSolver.SolverMethod.Quantum)
+                (Some backend)
+                quantumConfig
 
         // Assert
         // Don't require a successful decode (QAOA is probabilistic and depends on backend capabilities);
         // instead, verify the injected backend is accepted and quantum path is attempted.
         match result with
-        | Ok solution -> Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
+        | Ok solution ->
+            Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
+            Assert.Equal(3, solution.Result.Tour.Length)
         | Error(FSharp.Azure.Quantum.Core.QuantumError.OperationError(op, _)) -> Assert.Equal("Quantum TSP solver", op)
-        | Error err -> Assert.True(false, err.Message)
+        | Error err -> Assert.Fail(err.Message)
 
     [<Fact>]
     let ``solvePortfolioWithBackend forced classical returns Classical`` () =

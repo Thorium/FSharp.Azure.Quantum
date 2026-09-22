@@ -510,7 +510,7 @@ match VQC.train backend featureMap variationalForm initialParams trainData train
 **Symptoms:** Backend error on circuit execution
 
 **Solutions:**
-- LocalBackend supports ≤20 qubits
+- LocalBackend's width is derived from available memory
 - Reduce feature dimensionality (PCA, feature selection)
 - Use cloud backend for larger circuits
 - Batch features (train multiple smaller classifiers)

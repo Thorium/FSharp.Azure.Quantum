@@ -5,6 +5,7 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.QuantumArithmeticOps
+open FSharp.Azure.Quantum.LocalSimulator
 
 /// Unit tests for QuantumArithmeticBuilder
 /// Tests the computation expression builder and QFT-based arithmetic operations
@@ -46,11 +47,13 @@ module QuantumArithmeticBuilderTests =
 
     [<Fact>]
     let ``quantumArithmetic builder rejects excessive qubits`` () =
+        // Arithmetic circuits are hundreds of gates deep, so the bound is the
+        // wall-clock circuit budget rather than state capacity. Derived, not hardcoded.
         let result =
             quantumArithmetic {
                 operands 42 17
                 operation Add
-                qubits 21
+                qubits (StateVector.practicalCircuitQubits + 1)
             }
 
         result

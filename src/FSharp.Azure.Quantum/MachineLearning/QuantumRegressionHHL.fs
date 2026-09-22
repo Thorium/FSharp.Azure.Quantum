@@ -278,11 +278,11 @@ module QuantumRegressionHHL =
             let solutionQubits = int (Math.Log(float paddedDim, 2.0))
             let totalQubits = config.EigenvalueQubits + solutionQubits + 1
 
-            if totalQubits > 20 then
+            if totalQubits > FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits then
                 Error(
                     QuantumError.ValidationError(
                         "Input",
-                        $"System too large: {totalQubits} qubits required (max 20 for local simulation). Reduce features or eigenvalue qubits."
+                        $"System too large: {totalQubits} qubits required (max {FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits} for local simulation). Reduce features or eigenvalue qubits."
                     )
                 )
             elif paddedDim > 1024 then

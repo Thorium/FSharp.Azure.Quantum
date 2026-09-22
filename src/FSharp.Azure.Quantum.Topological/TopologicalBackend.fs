@@ -80,11 +80,9 @@ module TopologicalUnifiedBackend =
 
                 match stateVector with
                 | QuantumState.StateVector sv ->
-                    Ok
-                        [|
-                            for _ in 1..numShots do
-                                yield LocalSimulator.Measurement.measureAll sv
-                        |]
+                    // One pass over the distribution for the whole batch; sampling per
+                    // shot rebuilt the entire 2^n distribution each time.
+                    Ok(LocalSimulator.Measurement.sampleComputationalBasis (Random()) sv numShots)
                 | _ ->
                     // Conversion succeeded but returned unexpected type
                     Error
@@ -952,23 +950,33 @@ module TopologicalUnifiedBackend =
                 match initialResult with
                 | Error err -> Error err
                 | Ok initialState ->
-                    // Extract gates from circuit wrapper.
-                    // Circuit.Gates is stored most-recent-first (addGate prepends);
-                    // List.rev restores program order, matching LocalBackend.
-                    let operations =
-                        match circuit with
-                        | :? CircuitWrapper as wrapper ->
-                            wrapper.Circuit.Gates |> List.rev |> List.map QuantumOperation.Gate
-                        | _ -> [] // Empty circuit if not a CircuitWrapper
+                    // Extract gates from the circuit wrapper. CircuitAdapter.tryGetCircuit
+                    // understands both CircuitWrapper and QaoaCircuitWrapper (the latter is
+                    // lowered to a gate circuit), matching LocalBackend.ExecuteToState.
+                    // An unrecognised wrapper is an error, NOT an empty circuit: silently
+                    // executing nothing returns |0...0⟩, which callers cannot distinguish
+                    // from a genuine result (QAOA solvers would report an empty partition).
+                    match CircuitAdapter.tryGetCircuit circuit with
+                    | None ->
+                        Error(
+                            QuantumError.OperationError(
+                                "TopologicalBackend",
+                                $"Circuit type {circuit.GetType().Name} not supported by TopologicalBackend.ExecuteToState - wrap with CircuitWrapper or QaoaCircuitWrapper"
+                            )
+                        )
+                    | Some cbCircuit ->
+                        // Circuit.Gates is stored most-recent-first (addGate prepends);
+                        // List.rev restores program order, matching LocalBackend.
+                        let operations = cbCircuit.Gates |> List.rev |> List.map QuantumOperation.Gate
 
-                    // Apply each operation in sequence
-                    operations
-                    |> List.fold
-                        (fun stateResult operation ->
-                            stateResult
-                            |> Result.bind (fun currentState ->
-                                (this :> IQuantumBackend).ApplyOperation operation currentState))
-                        (Ok initialState)
+                        // Apply each operation in sequence
+                        operations
+                        |> List.fold
+                            (fun stateResult operation ->
+                                stateResult
+                                |> Result.bind (fun currentState ->
+                                    (this :> IQuantumBackend).ApplyOperation operation currentState))
+                            (Ok initialState)
 
             member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
                 try

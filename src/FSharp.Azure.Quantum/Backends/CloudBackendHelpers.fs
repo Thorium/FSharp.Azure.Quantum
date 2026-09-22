@@ -19,10 +19,11 @@ module CloudBackendHelpers =
 
     /// Convert a measurement histogram to a QuantumState. Three tiers:
     ///
-    /// - ≤ 20 qubits: dense StateVector (amplitudes = sqrt(count/totalShots),
-    ///   zero phase — measurement destroys phase information)
-    /// - 21–31 qubits: SparseState — only observed outcomes carry amplitude
-    ///   (≤ shots entries), avoiding the 2^n dense allocation
+    /// - up to StateVector.maxQubits: dense StateVector (amplitudes = sqrt(count/totalShots),
+    ///   zero phase — measurement destroys phase information). That width is derived
+    ///   from available memory, not fixed.
+    /// - above that, through 31 qubits: SparseState — only observed outcomes carry
+    ///   amplitude (≤ shots entries), avoiding the 2^n dense allocation
     /// - > 31 qubits: MeasurementHistogram — the honest sampled-data
     ///   representation with NO width limit (basis indices no longer fit Int32).
     ///   This is what makes wide cloud hardware usable through this path
@@ -47,7 +48,8 @@ module CloudBackendHelpers =
 
             index
 
-        let maxDenseQubits = 20 // StateVector: 2^n amplitudes
+        // StateVector holds 2^n amplitudes, so its width depends on available memory.
+        let maxDenseQubits = FSharp.Azure.Quantum.LocalSimulator.StateVector.maxQubits
         let maxSparseQubits = 31 // SparseState: basis indices must fit Int32
 
         if numQubits > maxSparseQubits then

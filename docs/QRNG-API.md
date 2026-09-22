@@ -275,7 +275,7 @@ Perfect randomness: `H = 1.0` (maximum entropy for binary)
 
 ### Batch Processing
 
-To avoid excessive memory usage, QRNG processes bits in batches of ≤20 qubits at a time (state vector size = 2²⁰ = 1M complex numbers). This allows generating up to 1 million random bits efficiently.
+To avoid excessive memory usage, QRNG processes bits in batches of 20 qubits at a time (state vector size = 2²⁰ = 1M complex numbers). This allows generating up to 1 million random bits efficiently.
 
 ---
 

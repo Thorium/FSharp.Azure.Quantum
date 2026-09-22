@@ -350,8 +350,14 @@ module QuantumMonteCarlo =
                     // Validate config
                     if config.NumQubits < 1 then
                         return! Error(QuantumError.ValidationError("NumQubits", "Must be >= 1"))
-                    elif config.NumQubits > 20 then
-                        return! Error(QuantumError.ValidationError("NumQubits", "Too large (max 20)"))
+                    elif config.NumQubits > FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits then
+                        return!
+                            Error(
+                                QuantumError.ValidationError(
+                                    "NumQubits",
+                                    $"Too large (max {FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits})"
+                                )
+                            )
                     elif config.GroverIterations < 0 then
                         return! Error(QuantumError.ValidationError("GroverIterations", "Must be >= 0"))
                     elif config.Shots < 100 then

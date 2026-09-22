@@ -118,10 +118,11 @@ module Oracle =
     let applyLocal (spec: OracleSpec) (state: StateVector.StateVector) : StateVector.StateVector =
         let dimension = StateVector.dimension state
 
-        // Create new amplitude array with phase flips
+        // Create new amplitude array with phase flips.
+        // Array.init rather than a map over `[| 0 .. dimension - 1 |]`, which would
+        // allocate a second 2ⁿ array of ints purely to iterate over one.
         let newAmplitudes =
-            [| 0 .. dimension - 1 |]
-            |> Array.map (fun i ->
+            Array.init dimension (fun i ->
                 let amp = StateVector.getAmplitude i state
 
                 if isSolution spec i then
@@ -141,8 +142,13 @@ module Oracle =
     /// This is the main entry point for creating oracles.
     /// Returns CompiledOracle that works with both local and Azure backends.
     let compile (spec: OracleSpec) (numQubits: int) : QuantumResult<CompiledOracle> =
-        if numQubits < 1 || numQubits > 20 then
-            Error(QuantumError.ValidationError("NumQubits", $"must be between 1 and 20, got {numQubits}"))
+        if numQubits < 1 || numQubits > Types.NisqPracticalQubits then
+            Error(
+                QuantumError.ValidationError(
+                    "NumQubits",
+                    $"must be between 1 and {Types.NisqPracticalQubits}, got {numQubits}"
+                )
+            )
         else
             let searchSpaceSize = 1 <<< numQubits // 2^numQubits
 
@@ -428,8 +434,13 @@ module Oracle =
     let private validateFormula (formula: SatFormula) : QuantumResult<unit> =
         if formula.NumVariables < 1 then
             Error(QuantumError.ValidationError("NumVariables", $"must be at least 1, got {formula.NumVariables}"))
-        elif formula.NumVariables > 20 then
-            Error(QuantumError.ValidationError("NumVariables", $"too large ({formula.NumVariables}), maximum is 20"))
+        elif formula.NumVariables > Types.NisqPracticalQubits then
+            Error(
+                QuantumError.ValidationError(
+                    "NumVariables",
+                    $"too large ({formula.NumVariables}), maximum is {Types.NisqPracticalQubits}"
+                )
+            )
         elif formula.Clauses.IsEmpty then
             Error(QuantumError.ValidationError("Clauses", "formula must have at least one clause"))
         else
@@ -714,11 +725,11 @@ module Oracle =
             let numQubits = config.Graph.NumVertices * qubitsPerVert
 
             // Validate qubit count is reasonable for Grover
-            if numQubits > 20 then
+            if numQubits > Types.NisqPracticalQubits then
                 Error(
                     QuantumError.ValidationError(
                         "NumQubits",
-                        $"resulting qubit count ({numQubits}) exceeds Grover limit (20). "
+                        $"resulting qubit count ({numQubits}) exceeds Grover limit ({Types.NisqPracticalQubits}). "
                         + $"Try fewer vertices ({config.Graph.NumVertices}) or colors ({config.NumColors})"
                     )
                 )
@@ -811,11 +822,11 @@ module Oracle =
     let private validateCliqueConfig (config: CliqueConfig) : QuantumResult<unit> =
         if config.Graph.NumVertices < 1 then
             Error(QuantumError.ValidationError("NumVertices", $"must be at least 1, got {config.Graph.NumVertices}"))
-        elif config.Graph.NumVertices > 20 then
+        elif config.Graph.NumVertices > Types.NisqPracticalQubits then
             Error(
                 QuantumError.ValidationError(
                     "NumVertices",
-                    $"too large ({config.Graph.NumVertices}), maximum is 20 for Grover"
+                    $"too large ({config.Graph.NumVertices}), maximum is {Types.NisqPracticalQubits} for Grover"
                 )
             )
         elif config.CliqueSize < 2 then
@@ -998,11 +1009,11 @@ module Oracle =
             let qubitsPerVert = qubitsPerVertex config.NumColors
             let numQubits = config.Graph.NumVertices * qubitsPerVert
 
-            if numQubits > 20 then
+            if numQubits > Types.NisqPracticalQubits then
                 Error(
                     QuantumError.ValidationError(
                         "NumQubits",
-                        $"resulting qubit count ({numQubits}) exceeds Grover limit (20)"
+                        $"resulting qubit count ({numQubits}) exceeds Grover limit ({Types.NisqPracticalQubits})"
                     )
                 )
             else

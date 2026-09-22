@@ -144,7 +144,7 @@ Some algorithms in this library are implemented as **intent → plan → execute
 This is mostly transparent to users: you call the same API, but the backend may choose a different execution strategy. See the [Intent-First Algorithms ADR](adr-intent-first-algorithms).
 
 
-- **LocalBackend** - Fast simulation (≤20 qubits, free)
+- **LocalBackend** - Fast simulation (memory-derived width, free)
 - **IonQBackend** - Azure Quantum (29+ qubits simulator, 36 qubits QPU - Forte)
 - **RigettiBackend** - Azure Quantum (40+ qubits simulator, 84 qubits QPU - Ankaa-3)
 - **AtomComputingBackend** - Azure Quantum (100+ qubits, neutral atoms, all-to-all connectivity)
@@ -453,7 +453,7 @@ match solveQuantum backend problem with
 **Best Practice**: 
 - **Use direct quantum API** (`GraphColoring.solve`, `MaxCut.solve`, etc.) for consistent quantum experience across all problem sizes
 - **Use HybridSolver** only if you need automatic classical fallback for very small problems (< 20 variables)
-- **LocalBackend (default)** provides free, fast quantum simulation up to 20 qubits - ideal for development, testing, and many production use cases
+- **LocalBackend (default)** provides free, fast quantum simulation at a width derived from available memory - ideal for development, testing, and many production use cases
 - **Cloud backends** (IonQ, Rigetti) for larger problems or real quantum hardware experimentation
 
 ## 🔧 Backend Selection Guide
@@ -470,7 +470,7 @@ match MaxCut.solve problem None with
 **Characteristics:**
 - ✅ Free (local simulation)
 - ✅ Fast (milliseconds)
-- ✅ Up to 20 qubits
+- ✅ Up to `StateVector.maxQubits` (derived from available memory; hard ceiling 30)
 - ✅ Perfect for development and testing
 
 ### Azure Quantum (Cloud)
@@ -544,7 +544,7 @@ Contributions welcome! See [GitHub Repository](https://github.com/thorium/FSharp
 | Network Flow | ≤15 nodes | 20+ nodes |
 | Task Scheduling | ≤15 tasks | 20+ tasks |
 
-**Note:** LocalBackend supports up to 20 qubits. Larger problems require cloud backends.
+**Note:** LocalBackend's width is derived from available memory (hard ceiling 30 qubits); see `StateVector.maxQubits`. Larger problems require cloud backends.
 
 ## 📄 License
 

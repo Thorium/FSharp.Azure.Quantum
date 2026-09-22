@@ -177,20 +177,23 @@ module PrimitivesTests =
         | other -> failwith $"expected a shots ValidationError, got: {other}"
 
     [<Fact>]
-    let ``expectation on a sparse state above 20 qubits returns Error, not an exception`` () =
-        // Densifying would blow past StateVector's 20-qubit limit; must be a clean Error.
+    let ``expectation on a sparse state wider than the densify limit returns Error, not an exception`` () =
+        // Densifying would blow past what StateVector can hold; must be a clean Error.
+        // That width is derived from available memory, so size the state relative to it.
+        let width = LocalSimulator.StateVector.maxQubits + 5
+
         let h: TrotterSuzuki.PauliHamiltonian =
             {
                 Terms =
                     [
                         {
-                            Operators = Array.create 25 'Z'
+                            Operators = Array.create width 'Z'
                             Coefficient = Complex(1.0, 0.0)
                         }
                     ]
-                NumQubits = 25
+                NumQubits = width
             }
 
-        match Primitives.expectation h (QuantumState.SparseState(Map.empty, 25)) with
+        match Primitives.expectation h (QuantumState.SparseState(Map.empty, width)) with
         | Error(QuantumError.ValidationError("numQubits", _)) -> ()
         | other -> failwith $"expected a numQubits ValidationError, got: {other}"

@@ -206,9 +206,12 @@ module QuantumLinearSystemSolver =
 
             let totalQubits = problem.EigenvalueQubits + solutionQubits + 1 // +1 for ancilla
 
-            if totalQubits > 20 then
+            if totalQubits > Types.NisqPracticalQubits then
                 Error(
-                    QuantumError.ValidationError("TotalQubits", $"({totalQubits}) exceeds practical limit (20 qubits)")
+                    QuantumError.ValidationError(
+                        "TotalQubits",
+                        $"({totalQubits}) exceeds practical limit ({Types.NisqPracticalQubits} qubits)"
+                    )
                 )
             else
                 Ok()
@@ -341,7 +344,7 @@ module QuantumLinearSystemSolver =
         /// - Eigenvalue qubits: 2-12 (practical range)
         /// - Matrix dimension: 2-16 (power of 2)
         /// - Vector dimension matches matrix
-        /// - Total qubits ≤ 20 (eigenvalue + solution + ancilla)
+        /// - Total qubits ≤ Types.NisqPracticalQubits (eigenvalue + solution + ancilla)
         ///
         /// This method enables early error detection before executing the algorithm.
         /// </remarks>

@@ -168,6 +168,14 @@ module TopologicalOperations =
         | LeftToRight -> RightToLeft
         | RightToLeft -> LeftToRight
 
+    /// Apply the associativity (F) move to a single fusion node.
+    ///
+    /// The F-symbol [F^{abc}_d]_{ef} depends only on the TOTAL CHARGE of each of the three
+    /// operands, never on their internal structure, so an operand may itself be a fusion
+    /// subtree: only the bracketing and the intermediate channel change. (Matching bare
+    /// leaves only made the F-move a silent identity on every state the backend actually
+    /// builds — FusionTree.fromComputationalBasis encodes each logical qubit as a σ-pair
+    /// Fusion node, so no node of such a tree has three leaf operands.)
     let private applyLocalFMove
         (direction: FMoveDirection)
         (anyonType: AnyonSpecies.AnyonType)
@@ -175,98 +183,84 @@ module TopologicalOperations =
         : TopologicalResult<(Complex * FusionTree.Tree) list> =
         topologicalResult {
             match subtree with
-            // Left-associated: ((a×b→e)×c→d)
+            // Left-associated: ((a×b→e)×c→d) → (a×(b×c→f)→d)
             | FusionTree.Fusion(FusionTree.Fusion(aTree, bTree, e), cTree, d) when direction = LeftToRight ->
-                match aTree, bTree, cTree with
-                | FusionTree.Leaf a, FusionTree.Leaf b, FusionTree.Leaf c ->
-                    let! fMatrix = BraidingOperators.fusionBasisChange a b c d anyonType
-                    let! possibleF = FusionRules.channels b c anyonType
+                let a = FusionTree.totalCharge aTree anyonType
+                let b = FusionTree.totalCharge bTree anyonType
+                let c = FusionTree.totalCharge cTree anyonType
 
-                    let validF =
-                        possibleF
-                        |> List.choose (fun f ->
-                            match FusionRules.isPossible a f d anyonType with
-                            | Ok true -> Some f
-                            | _ -> None)
+                let! fMatrix = BraidingOperators.fusionBasisChange a b c d anyonType
+                let! possibleF = FusionRules.channels b c anyonType
 
-                    // fMatrix rows correspond to e-channels for (a×b)×c; columns correspond to f-channels for a×(b×c)
-                    let! possibleE = FusionRules.channels a b anyonType
+                let validF =
+                    possibleF
+                    |> List.choose (fun f ->
+                        match FusionRules.isPossible a f d anyonType with
+                        | Ok true -> Some f
+                        | _ -> None)
 
-                    let validE =
-                        possibleE
-                        |> List.choose (fun e2 ->
-                            match FusionRules.isPossible e2 c d anyonType with
-                            | Ok true -> Some e2
-                            | _ -> None)
+                // fMatrix rows correspond to e-channels for (a×b)×c; columns correspond to f-channels for a×(b×c)
+                let! possibleE = FusionRules.channels a b anyonType
 
-                    match validE |> List.tryFindIndex ((=) e) with
-                    | None -> return [ (Complex.One, subtree) ]
-                    | Some rowIndex ->
-                        let terms =
-                            validF
-                            |> List.mapi (fun colIndex f ->
-                                let coeff = fMatrix.[rowIndex, colIndex]
+                let validE =
+                    possibleE
+                    |> List.choose (fun e2 ->
+                        match FusionRules.isPossible e2 c d anyonType with
+                        | Ok true -> Some e2
+                        | _ -> None)
 
-                                let newSubtree =
-                                    FusionTree.Fusion(
-                                        FusionTree.Leaf a,
-                                        FusionTree.Fusion(FusionTree.Leaf b, FusionTree.Leaf c, f),
-                                        d
-                                    )
+                match validE |> List.tryFindIndex ((=) e) with
+                | None -> return [ (Complex.One, subtree) ]
+                | Some rowIndex ->
+                    let terms =
+                        validF
+                        |> List.mapi (fun colIndex f ->
+                            let coeff = fMatrix.[rowIndex, colIndex]
+                            let newSubtree = FusionTree.Fusion(aTree, FusionTree.Fusion(bTree, cTree, f), d)
+                            (coeff, newSubtree))
+                        |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-14)
 
-                                (coeff, newSubtree))
-                            |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-14)
+                    return terms
 
-                        return terms
-                | _ -> return [ (Complex.One, subtree) ]
-
-            // Right-associated: (a×(b×c→f)→d)
+            // Right-associated: (a×(b×c→f)→d) → ((a×b→e)×c→d)
             | FusionTree.Fusion(aTree, FusionTree.Fusion(bTree, cTree, f), d) when direction = RightToLeft ->
-                match aTree, bTree, cTree with
-                | FusionTree.Leaf a, FusionTree.Leaf b, FusionTree.Leaf c ->
-                    // Inverse basis change is conjugate transpose since F is unitary.
-                    let! fMatrix = BraidingOperators.fusionBasisChange a b c d anyonType
-                    let! possibleE = FusionRules.channels a b anyonType
+                let a = FusionTree.totalCharge aTree anyonType
+                let b = FusionTree.totalCharge bTree anyonType
+                let c = FusionTree.totalCharge cTree anyonType
 
-                    let validE =
-                        possibleE
-                        |> List.choose (fun e ->
-                            match FusionRules.isPossible e c d anyonType with
-                            | Ok true -> Some e
-                            | _ -> None)
+                // Inverse basis change is conjugate transpose since F is unitary.
+                let! fMatrix = BraidingOperators.fusionBasisChange a b c d anyonType
+                let! possibleE = FusionRules.channels a b anyonType
 
-                    // Determine column of current f in validF ordering.
-                    let! possibleF = FusionRules.channels b c anyonType
+                let validE =
+                    possibleE
+                    |> List.choose (fun e ->
+                        match FusionRules.isPossible e c d anyonType with
+                        | Ok true -> Some e
+                        | _ -> None)
 
-                    let validF =
-                        possibleF
-                        |> List.choose (fun f2 ->
-                            match FusionRules.isPossible a f2 d anyonType with
-                            | Ok true -> Some f2
-                            | _ -> None)
+                // Determine column of current f in validF ordering.
+                let! possibleF = FusionRules.channels b c anyonType
 
-                    let colIndexOpt = validF |> List.tryFindIndex ((=) f)
+                let validF =
+                    possibleF
+                    |> List.choose (fun f2 ->
+                        match FusionRules.isPossible a f2 d anyonType with
+                        | Ok true -> Some f2
+                        | _ -> None)
 
-                    match colIndexOpt with
-                    | None -> return [ (Complex.One, subtree) ]
-                    | Some colIndex ->
-                        let terms =
-                            validE
-                            |> List.mapi (fun rowIndex e ->
-                                let coeff = Complex.Conjugate fMatrix.[rowIndex, colIndex]
+                match validF |> List.tryFindIndex ((=) f) with
+                | None -> return [ (Complex.One, subtree) ]
+                | Some colIndex ->
+                    let terms =
+                        validE
+                        |> List.mapi (fun rowIndex e ->
+                            let coeff = Complex.Conjugate fMatrix.[rowIndex, colIndex]
+                            let newSubtree = FusionTree.Fusion(FusionTree.Fusion(aTree, bTree, e), cTree, d)
+                            (coeff, newSubtree))
+                        |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-14)
 
-                                let newSubtree =
-                                    FusionTree.Fusion(
-                                        FusionTree.Fusion(FusionTree.Leaf a, FusionTree.Leaf b, e),
-                                        FusionTree.Leaf c,
-                                        d
-                                    )
-
-                                (coeff, newSubtree))
-                            |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-14)
-
-                        return terms
-                | _ -> return [ (Complex.One, subtree) ]
+                    return terms
 
             | _ -> return [ (Complex.One, subtree) ]
         }

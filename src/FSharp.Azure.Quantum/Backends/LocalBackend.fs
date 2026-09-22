@@ -16,7 +16,7 @@ open FSharp.Azure.Quantum.LocalSimulator
 /// - Gate-based quantum simulation using state vectors
 /// - Native StateVector representation (no conversion needed)
 /// - Supports all standard gates (H, X, Y, Z, RX, RY, RZ, CNOT, CZ, etc.)
-/// - Efficient for circuits up to 30 qubits (practical limit ~20 qubits depending on available memory)
+/// - Width limited by StateVector.maxQubits: derived from available memory, capped at 30
 /// - Implements both IQuantumBackend and IQuantumBackend
 ///
 /// Usage:
@@ -123,6 +123,81 @@ module LocalBackend =
                 | None -> failwith $"Conditional gate references qubit {q} before it was measured"
             | g -> (applyGate g state, outcomes)
 
+        /// Apply a gate by overwriting an owned state, or report that it has no
+        /// in-place kernel and must go through the allocating path.
+        ///
+        /// Returns true when it handled the gate. Gates without a kernel here
+        /// (RXX/RYY, which mix four indices at once, and anything that measures)
+        /// fall back rather than being silently skipped.
+        let tryApplyGateInPlace (numQubits: int) (gate: CircuitBuilder.Gate) (owned: StateVector.Owned) : bool =
+            // The in-place kernels index by bit mask and do not range-check, where the
+            // allocating gates `failwith` on a bad index. Rather than duplicate their
+            // validation, refuse the gate: the fallback path then raises exactly the
+            // error it always did. Silently computing a wrong state for an invalid
+            // circuit would be far worse than the lost optimisation.
+            let inRange indices =
+                indices |> List.forall (fun q -> q >= 0 && q < numQubits)
+
+            let single index matrix =
+                inRange [ index ]
+                && (Gates.InPlace.applySingleQubitGate index matrix owned
+                    true)
+
+            let controlled controls target matrix =
+                // Distinctness matters too: a control that is also the target would
+                // make the mask/target overlap and silently misbehave.
+                inRange (target :: controls)
+                && not (List.contains target controls)
+                && List.distinct controls = controls
+                && (let controlMask = controls |> List.fold (fun acc c -> acc ||| (1 <<< c)) 0
+
+                    Gates.InPlace.applyControlledGate controlMask target matrix owned
+                    true)
+
+            match gate with
+            | CircuitBuilder.H q -> single q Gates.Matrices.h
+            | CircuitBuilder.X q -> single q Gates.Matrices.x
+            | CircuitBuilder.Y q -> single q Gates.Matrices.y
+            | CircuitBuilder.Z q -> single q Gates.Matrices.z
+            | CircuitBuilder.S q -> single q Gates.Matrices.s
+            | CircuitBuilder.SDG q -> single q Gates.Matrices.sdg
+            | CircuitBuilder.T q -> single q Gates.Matrices.t
+            | CircuitBuilder.TDG q -> single q Gates.Matrices.tdg
+            | CircuitBuilder.P(q, angle) -> single q (Gates.Matrices.p angle)
+            | CircuitBuilder.RX(q, angle) -> single q (Gates.Matrices.rx angle)
+            | CircuitBuilder.RY(q, angle) -> single q (Gates.Matrices.ry angle)
+            | CircuitBuilder.RZ(q, angle) -> single q (Gates.Matrices.rz angle)
+
+            // U3(θ,φ,λ) = Rz(φ)·Ry(θ)·Rz(λ), same decomposition as applyGate.
+            | CircuitBuilder.U3(q, theta, phi, lambda) ->
+                inRange [ q ]
+                && (Gates.InPlace.applySingleQubitGate q (Gates.Matrices.rz lambda) owned
+                    Gates.InPlace.applySingleQubitGate q (Gates.Matrices.ry theta) owned
+                    Gates.InPlace.applySingleQubitGate q (Gates.Matrices.rz phi) owned
+                    true)
+
+            | CircuitBuilder.CNOT(control, target) -> controlled [ control ] target Gates.Matrices.x
+            | CircuitBuilder.CZ(control, target) -> controlled [ control ] target Gates.Matrices.z
+            | CircuitBuilder.CP(control, target, angle) -> controlled [ control ] target (Gates.Matrices.p angle)
+            | CircuitBuilder.CRX(control, target, angle) -> controlled [ control ] target (Gates.Matrices.rx angle)
+            | CircuitBuilder.CRY(control, target, angle) -> controlled [ control ] target (Gates.Matrices.ry angle)
+            | CircuitBuilder.CRZ(control, target, angle) -> controlled [ control ] target (Gates.Matrices.rz angle)
+            | CircuitBuilder.CCX(control1, control2, target) ->
+                controlled [ control1; control2 ] target Gates.Matrices.x
+            | CircuitBuilder.MCZ(controls, target) -> controlled controls target Gates.Matrices.z
+
+            | CircuitBuilder.SWAP(q1, q2) ->
+                inRange [ q1; q2 ]
+                && q1 <> q2
+                && (Gates.InPlace.applySwap q1 q2 owned
+                    true)
+
+            | CircuitBuilder.Barrier _ -> true // synchronisation directive, no effect
+
+            // RXX/RYY mix four indices at once; Measure/Conditional/Reset need the
+            // outcome-tracking path. Both go through the allocating fold.
+            | _ -> false
+
         /// Execute circuit on state vector
         let executeCircuit
             (circuit: CircuitBuilder.Circuit)
@@ -132,11 +207,26 @@ module LocalBackend =
                 // Initialize to |0⟩^⊗n
                 let initialState = StateVector.init numQubits
 
-                // Apply gates sequentially (gates stored in reverse order internally)
+                // Gates are stored most-recent-first; List.rev restores program order.
+                let gates = circuit.Gates |> List.rev
+
+                // Nothing else holds a reference to the states produced inside this
+                // fold — each is consumed by the next gate and never read again — so
+                // gates may overwrite them rather than allocating a fresh 2^n array
+                // apiece. At 30 qubits that is 16 GB of allocation per gate avoided.
+                // Gates without an in-place kernel fall back to the allocating path,
+                // and ownership is re-taken on the state they return.
                 let finalState =
-                    circuit.Gates
-                    |> List.rev
-                    |> List.fold (fun acc gate -> applyGateTracked gate acc) (initialState, Map.empty)
+                    gates
+                    |> List.fold
+                        (fun (state: StateVector.StateVector, outcomes: Map<int, int>) gate ->
+                            let owned = StateVector.takeOwnership state
+
+                            if tryApplyGateInPlace numQubits gate owned then
+                                (StateVector.release owned, outcomes)
+                            else
+                                applyGateTracked gate (state, outcomes))
+                        (initialState, Map.empty)
                     |> fst
 
                 Ok finalState
@@ -145,12 +235,11 @@ module LocalBackend =
                 Error(QuantumError.OperationError("LocalBackend", "Execution was cancelled"))
             | ex -> Error(QuantumError.OperationError("LocalBackend", ex.Message))
 
-        /// Sample measurements from state vector
-        let sampleMeasurements (state: StateVector.StateVector) (numShots: int) : int[][] =
-            [|
-                for _ in 1..numShots do
-                    yield Measurement.measureAll state
-            |]
+        // (A `sampleMeasurements` helper used to sit here with no callers — measurement
+        // goes through QuantumState.measure / Measurement.measureAll directly. It was
+        // removed for the same reason `executeCircuit` had to be reconnected above:
+        // unreachable code in this file reads as if it were the implementation, and an
+        // optimisation applied to it silently does nothing.)
 
         // ====================================================================
         // IQuantumBackend Implementation
@@ -163,45 +252,18 @@ module LocalBackend =
                 let numQubits = circuit.NumQubits
 
                 // Pattern match on specific circuit wrapper types to extract gates
+                // Both wrappers run the SAME fold. They used to carry a copy of it
+                // each, which is how `executeCircuit` below ended up unreachable —
+                // and an optimisation applied there had no effect on either caller.
                 match box circuit with
                 | :? CircuitAbstraction.CircuitWrapper as wrapper ->
-                    // Extract CircuitBuilder.Circuit and apply gates
-                    let cbCircuit = wrapper.Circuit
-
-                    try
-                        let initialState = StateVector.init numQubits
-
-                        let finalState =
-                            cbCircuit.Gates
-                            |> List.rev
-                            |> List.fold (fun acc gate -> applyGateTracked gate acc) (initialState, Map.empty)
-                            |> fst
-
-                        Ok(QuantumState.StateVector finalState)
-                    with
-                    | :? OperationCanceledException ->
-                        Error(QuantumError.OperationError("LocalBackend", "Execution was cancelled"))
-                    | ex -> Error(QuantumError.OperationError("LocalBackend", ex.Message))
+                    executeCircuit wrapper.Circuit numQubits |> Result.map QuantumState.StateVector
 
                 | :? CircuitAbstraction.QaoaCircuitWrapper as qaoaWrapper ->
-                    // Convert QaoaCircuit to CircuitBuilder.Circuit and execute
-                    let qaoaCircuit = qaoaWrapper.QaoaCircuit
-                    let cbCircuit = CircuitAbstraction.CircuitAdapter.qaoaCircuitToCircuit qaoaCircuit
+                    let cbCircuit =
+                        CircuitAbstraction.CircuitAdapter.qaoaCircuitToCircuit qaoaWrapper.QaoaCircuit
 
-                    try
-                        let initialState = StateVector.init numQubits
-
-                        let finalState =
-                            cbCircuit.Gates
-                            |> List.rev
-                            |> List.fold (fun acc gate -> applyGateTracked gate acc) (initialState, Map.empty)
-                            |> fst
-
-                        Ok(QuantumState.StateVector finalState)
-                    with
-                    | :? OperationCanceledException ->
-                        Error(QuantumError.OperationError("LocalBackend", "Execution was cancelled"))
-                    | ex -> Error(QuantumError.OperationError("LocalBackend", ex.Message))
+                    executeCircuit cbCircuit numQubits |> Result.map QuantumState.StateVector
 
                 | _ ->
                     // For unknown circuit types, cannot execute directly
@@ -292,14 +354,16 @@ module LocalBackend =
                             | QuantumState.StateVector sv ->
                                 let dim = 1 <<< intent.NumQubits
 
+                                // Array.init, not a map over `[| 0 .. dim - 1 |]`: that
+                                // allocates a second 2ⁿ array of ints to iterate over.
+                                // The result is handed over rather than copied, since
+                                // nothing else references it.
                                 let amps =
-                                    [| 0 .. dim - 1 |]
-                                    |> Array.map (fun i ->
+                                    Array.init dim (fun i ->
                                         let amp = StateVector.getAmplitude i sv
                                         if intent.IsMarked i then -amp else amp)
 
-                                let newSv = StateVector.create amps
-                                Ok(QuantumState.StateVector newSv)
+                                Ok(QuantumState.StateVector(StateVector.ofAmplitudesOwned amps))
                             | _ ->
                                 Error(
                                     QuantumError.OperationError(
@@ -314,20 +378,21 @@ module LocalBackend =
                             | QuantumState.StateVector sv ->
                                 let dim = 1 <<< numQubits
 
-                                let sumAmp =
-                                    [| 0 .. dim - 1 |]
-                                    |> Array.fold (fun acc i -> acc + StateVector.getAmplitude i sv) Complex.Zero
+                                // Sum in a plain loop: folding over `[| 0 .. dim - 1 |]`
+                                // allocated a 2ⁿ array of ints just to have something
+                                // to fold, and the map below allocated a second one.
+                                let mutable sumAmp = Complex.Zero
+
+                                for i in 0 .. dim - 1 do
+                                    sumAmp <- sumAmp + StateVector.getAmplitude i sv
 
                                 let meanAmp = sumAmp / Complex(float dim, 0.0)
+                                let twiceMean = meanAmp * Complex(2.0, 0.0)
 
                                 let amps =
-                                    [| 0 .. dim - 1 |]
-                                    |> Array.map (fun i ->
-                                        let a = StateVector.getAmplitude i sv
-                                        (meanAmp * Complex(2.0, 0.0)) - a)
+                                    Array.init dim (fun i -> twiceMean - StateVector.getAmplitude i sv)
 
-                                let newSv = StateVector.create amps
-                                Ok(QuantumState.StateVector newSv)
+                                Ok(QuantumState.StateVector(StateVector.ofAmplitudesOwned amps))
                             | _ ->
                                 Error(
                                     QuantumError.OperationError(
@@ -553,9 +618,14 @@ module LocalBackend =
                 task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
         interface IQubitLimitedBackend with
-            /// LocalBackend uses QaoaSimulator which supports up to 20 qubits.
-            /// Beyond ~20 qubits the state vector (2^n complex entries) becomes impractical.
-            member _.MaxQubits = Some 20
+            /// However wide a dense state vector this machine can actually hold.
+            ///
+            /// An n-qubit state is 2ⁿ × 16 bytes, so the answer depends on installed
+            /// memory rather than on any fixed number: StateVector.maxQubits derives it
+            /// from GC.GetGCMemoryInfo().TotalAvailableMemoryBytes, clamped to the
+            /// structural maximum of 30 (Array.MaxLength cannot hold 2³¹ amplitudes)
+            /// and floored at 20. Override with the FSAQ_MAX_QUBITS environment variable.
+            member _.MaxQubits = Some StateVector.maxQubits
 
 /// Factory functions for creating local backend instances
 module LocalBackendFactory =

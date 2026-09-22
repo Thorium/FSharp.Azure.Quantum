@@ -121,9 +121,10 @@ module BraketExecution =
         }
 
     /// Largest circuit for which we materialise a DENSE state vector from the histogram.
-    /// Must match `StateVector.create`'s 20-qubit limit (2^20 amplitudes).
-    [<Literal>]
-    let private maxDenseStateQubits = 20
+    /// Must match what `StateVector.create` accepts, which is derived from available
+    /// memory rather than fixed -- see LocalSimulator.StateVector.maxQubits.
+    let private maxDenseStateQubits =
+        FSharp.Azure.Quantum.LocalSimulator.StateVector.maxQubits
 
     /// Largest circuit for which we materialise a SPARSE state from the histogram.
     /// `QuantumState.SparseState` keys basis indices as Int32, so 31 qubits is the
@@ -145,7 +146,7 @@ module BraketExecution =
             None
 
     /// Build a `QuantumState` from a measurement histogram. Three tiers:
-    /// - dense StateVector up to 20 qubits (amplitudes = √p, phases unknowable from counts)
+    /// - dense StateVector up to StateVector.maxQubits (amplitudes = √p, phases unknowable from counts)
     /// - SparseState up to 31 qubits (only observed outcomes carry amplitude)
     /// - MeasurementHistogram beyond that — the honest sampled-data representation
     ///   with NO width limit (≤ shots entries regardless of qubit count)
@@ -231,7 +232,7 @@ module BraketExecution =
         /// Braket qubit-0-first bit order). This is the natural result format for
         /// cloud-scale circuits: the histogram holds at most `shots` entries regardless
         /// of qubit count, so there is NO width limit here — unlike the QuantumState
-        /// reconstruction in ExecuteToState (dense ≤ 20 qubits, sparse ≤ 31).
+        /// reconstruction in ExecuteToState (dense ≤ StateVector.maxQubits, sparse ≤ 31).
         member _.ExecuteToHistogramAsync
             (circuit: ICircuit, ct: CancellationToken)
             : Task<Result<Map<string, int>, QuantumError>> =

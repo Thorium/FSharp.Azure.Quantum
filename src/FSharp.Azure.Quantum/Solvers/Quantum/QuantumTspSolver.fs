@@ -146,6 +146,15 @@ module QuantumTspSolver =
 
             /// Initial parameters (gamma, beta) if optimization disabled
             InitialParameters: float * float
+
+            /// Upper bound on Nelder-Mead iterations when EnableOptimization is true.
+            ///
+            /// Each iteration executes a full QAOA circuit, so this is the knob that
+            /// makes the variational loop affordable on an expensive backend: a
+            /// state-vector simulator runs 1000 iterations in milliseconds, while a
+            /// topological (fusion-tree) backend carries 2^n explicit terms per gate
+            /// and would need hours for the same budget.
+            MaxOptimizationIterations: int
         }
 
     /// Default configuration for quantum TSP solving
@@ -155,6 +164,17 @@ module QuantumTspSolver =
             FinalShots = 1000
             EnableOptimization = true
             InitialParameters = (0.5, 0.5)
+            MaxOptimizationIterations = 1000
+        }
+
+    /// Configuration for quick prototyping: no variational loop at all.
+    /// Runs a single QAOA circuit at the initial parameters, which is what you
+    /// want when the backend is slow or you only need a feasible tour.
+    let fastConfig =
+        { defaultConfig with
+            OptimizationShots = 50
+            FinalShots = 500
+            EnableOptimization = false
         }
 
     /// Quantum TSP solution with execution details
@@ -222,12 +242,36 @@ module QuantumTspSolver =
         let numCities = distances.GetLength 0
         let requiredQubits = numCities * numCities // TSP uses N^2 qubits for N cities
 
+        // Backend capacity, when the backend declares one (IQubitLimitedBackend).
+        // Checking here — rather than letting the backend fail deep inside circuit
+        // execution — lets the message name the problem size, the backend and its
+        // limit, instead of a bare "qubits must be between 0 and N".
+        let capacityError =
+            BackendAbstraction.UnifiedBackend.getMaxQubits backend
+            |> Option.bind (fun maxQubits ->
+                if requiredQubits > maxQubits then
+                    Some(
+                        QuantumError.ValidationError(
+                            "numCities",
+                            $"TSP with {numCities} cities needs {requiredQubits} qubits (N²), but backend '{backend.Name}' supports at most {maxQubits} qubits"
+                        )
+                    )
+                else
+                    None)
+
         if numCities < 2 then
             Error(QuantumError.ValidationError("numCities", "TSP requires at least 2 cities"))
-        // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
-        // Backends will return errors if qubit count exceeded
         elif config.FinalShots <= 0 then
             Error(QuantumError.ValidationError("numShots", "Number of shots must be positive"))
+        elif config.EnableOptimization && config.MaxOptimizationIterations <= 0 then
+            Error(
+                QuantumError.ValidationError(
+                    "MaxOptimizationIterations",
+                    $"must be > 0 when optimization is enabled, got {config.MaxOptimizationIterations}"
+                )
+            )
+        elif capacityError.IsSome then
+            Error capacityError.Value
         else
             try
                 // Step 1: Build GraphOptimization problem from distance matrix
@@ -279,7 +323,7 @@ module QuantumTspSolver =
                         let upperBounds = [| 2.0 * Math.PI; 2.0 * Math.PI |]
 
                         // Run classical optimizer to find best parameters
-                        // (default tolerance/iteration budget; QuantumTspConfig has no such fields)
+                        // (default tolerance; iteration budget from the config)
                         let optimizationResult =
                             QaoaOptimizer.Optimizer.minimizeWithBounds
                                 objectiveFn
@@ -287,7 +331,7 @@ module QuantumTspSolver =
                                 lowerBounds
                                 upperBounds
                                 1e-6
-                                1000
+                                config.MaxOptimizationIterations
 
                         let optGamma = optimizationResult.OptimizedParameters.[0]
                         let optBeta = optimizationResult.OptimizedParameters.[1]

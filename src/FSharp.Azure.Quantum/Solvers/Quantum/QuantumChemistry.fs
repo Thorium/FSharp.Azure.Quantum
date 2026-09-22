@@ -2561,7 +2561,7 @@ module FermionMapping =
 // │    - This doubles the qubit count: nQubits = 2 * NumOrbitals            │
 // │                                                                         │
 // │ 5. QUBIT LIMITS                                                         │
-// │    - Maximum 20 qubits (10 spatial orbitals) for NISQ simulation        │
+// │    - Maximum Types.NisqPracticalQubits (10 spatial orbitals) on NISQ       │
 // │    - H2 in STO-3G: 2 orbitals → 4 qubits ✓                              │
 // │    - H2O in STO-3G: 7 orbitals → 14 qubits ✓                            │
 // │    - Large molecules require active space selection                     │
@@ -2930,11 +2930,11 @@ module MolecularHamiltonian =
 
             // Validate qubit count
             do!
-                if numSpinOrbitals > 20 then
+                if numSpinOrbitals > Types.NisqPracticalQubits then
                     Error(
                         QuantumError.ValidationError(
                             "MoleculeSize",
-                            $"Molecule too large: {n} spatial orbitals → {numSpinOrbitals} spin orbitals (max 20). "
+                            $"Molecule too large: {n} spatial orbitals → {numSpinOrbitals} spin orbitals (max {Types.NisqPracticalQubits}). "
                             + "Consider using active space selection to reduce orbital count."
                         )
                     )
@@ -3085,11 +3085,11 @@ module MolecularHamiltonian =
                     (nq, 1.0, 0.5)
 
             do!
-                if numQubits > 20 then
+                if numQubits > Types.NisqPracticalQubits then
                     Error(
                         QuantumError.ValidationError(
                             "MoleculeSize",
-                            $"Molecule too large: {numQubits} qubits required (max 20)"
+                            $"Molecule too large: {numQubits} qubits required (max {Types.NisqPracticalQubits})"
                         )
                     )
                 else

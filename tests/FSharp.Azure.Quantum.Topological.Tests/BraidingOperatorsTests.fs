@@ -68,13 +68,12 @@ module BraidingOperatorsTests =
 
         match BraidingOperators.matrixElement halfSpin halfSpin halfSpin halfSpin spin0 spin0 su2k3 with
         | Ok value ->
-            // Should get a non-trivial complex value (not notImplemented)
-            Assert.True(true, $"Got F-matrix element: {value}")
-        | Error err ->
-            Assert.False(
-                err.Message.Contains("not implemented"),
-                $"SU(2)_3 F-matrix should not return 'not implemented': {err.Message}"
-            )
+            // SU(2)_3 is the Fibonacci theory in disguise, so this entry is the
+            // golden-ratio symbol 1/φ = (1 - √5) / 2 ≈ -0.618034 — not merely "some
+            // value that isn't NotImplemented".
+            let goldenRatio = (1.0 + sqrt 5.0) / 2.0
+            assertComplexEqual (Complex(-1.0 / goldenRatio, 0.0)) value 1e-10
+        | Error err -> Assert.Fail($"SU(2)_3 F-matrix element should succeed: {err.Message}")
 
     [<Fact>]
     let ``F-matrix element: SU(2)_4 returns Ok for valid fusion channels`` () =
@@ -86,12 +85,8 @@ module BraidingOperatorsTests =
         // j=1 × j=1 can fuse to j=0, j=1, j=2
         // F[j1,j1,j1,j1; j0,j0] should be valid
         match BraidingOperators.matrixElement spin1 spin1 spin1 spin1 spin0 spin0 su2k4 with
-        | Ok _ -> Assert.True(true)
-        | Error err ->
-            Assert.False(
-                err.Message.Contains("not implemented"),
-                $"SU(2)_4 F-matrix should not return 'not implemented': {err.Message}"
-            )
+        | Ok value -> assertComplexEqual (Complex(0.5, 0.0)) value 1e-10
+        | Error err -> Assert.Fail($"SU(2)_4 F-matrix element should succeed: {err.Message}")
 
     [<Fact>]
     let ``F-matrix: SU(2)_3 fusionBasisChange produces unitary matrix`` () =
@@ -255,11 +250,11 @@ module BraidingOperatorsTests =
 
         match BraidingOperators.matrixElement halfSpin halfSpin halfSpin halfSpin spin3half spin0 su2k3 with
         | Ok value ->
-            // Should be zero since j=3/2 is not a valid fusion channel for j=1/2 × j=1/2
+            // j=3/2 is not a fusion channel of j=1/2 × j=1/2, so the symbol is zero.
+            // An impossible channel is a well-defined query with a zero answer, not a
+            // failure, so this must not come back as an Error either.
             assertComplexEqual Complex.Zero value 1e-10
-        | Error _ ->
-            // Error is also acceptable — means fusion validation rejected it
-            Assert.True(true)
+        | Error err -> Assert.Fail($"An impossible fusion channel should give zero, not an error: {err.Message}")
 
 
     [<Fact>]
@@ -466,22 +461,9 @@ module BraidingOperatorsTests =
         | Ok f ->
             Assert.Equal(1, Array2D.length1 f)
             Assert.Equal(1, Array2D.length2 f)
-            // Note: The actual value may not be 1 due to fusion tree conventions
-            // Just verify it exists and has correct dimensions
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            // A 1×1 basis change between two one-dimensional fusion spaces is the
+            // identity in this gauge.
+            assertComplexEqual Complex.One f.[0, 0] 1e-10
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
 
     // ============================================================================
@@ -502,9 +484,64 @@ module BraidingOperatorsTests =
             assertUnitMagnitude r.[1, 1]
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
 
-    // TODO: F-matrix unitarity test requires understanding the specific fusion basis convention
-    // The fusionBasisChange function may return matrices in a specific gauge that need
-    // additional context to properly verify unitarity
+    /// Assert F × F† = I for a fusion-basis-change matrix.
+    /// F is a change of orthonormal basis between the (a×b)×c and a×(b×c) fusion
+    /// trees, so it is unitary in every gauge — a gauge transformation rephases
+    /// basis vectors and maps unitaries to unitaries.
+    let private assertUnitary (label: string) (f: Complex[,]) =
+        let rows = Array2D.length1 f
+        let cols = Array2D.length2 f
+        Assert.Equal(rows, cols)
+
+        for i in 0 .. rows - 1 do
+            for j in 0 .. rows - 1 do
+                let entry =
+                    Seq.init cols (fun k -> f.[i, k] * Complex.Conjugate f.[j, k])
+                    |> Seq.fold (+) Complex.Zero
+
+                let expected = if i = j then Complex.One else Complex.Zero
+
+                Assert.True(
+                    Complex.Abs(entry - expected) < 1e-10,
+                    $"{label}: (F·F†)[{i},{j}] = {entry}, expected {expected}"
+                )
+
+    [<Fact>]
+    let ``F-matrix unitarity: F × F† = I`` () =
+        // Every fusion-basis change is unitary, for both non-abelian 2×2 blocks
+        // (σσσ→σ, τττ→τ) and the deterministic 1×1 blocks.
+        let cases =
+            [
+                "Ising σσσ→σ",
+                AnyonSpecies.Particle.Sigma,
+                AnyonSpecies.Particle.Sigma,
+                AnyonSpecies.Particle.Sigma,
+                AnyonSpecies.Particle.Sigma,
+                AnyonSpecies.AnyonType.Ising
+                "Ising ψψ1→1",
+                AnyonSpecies.Particle.Psi,
+                AnyonSpecies.Particle.Psi,
+                AnyonSpecies.Particle.Vacuum,
+                AnyonSpecies.Particle.Vacuum,
+                AnyonSpecies.AnyonType.Ising
+                "Fibonacci τττ→τ",
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.AnyonType.Fibonacci
+                "Fibonacci τττ→1",
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.Particle.Tau,
+                AnyonSpecies.Particle.Vacuum,
+                AnyonSpecies.AnyonType.Fibonacci
+            ]
+
+        for (label, a, b, c, d, anyonType) in cases do
+            match BraidingOperators.fusionBasisChange a b c d anyonType with
+            | Ok f -> assertUnitary label f
+            | Error err -> Assert.Fail($"{label}: expected Ok but got Error: {err.Message}")
 
     [<Fact>]
     let ``R-matrix elements are on unit circle`` () =
@@ -535,20 +572,64 @@ module BraidingOperatorsTests =
             |> Result.map (fun r -> assertUnitMagnitude r)
             |> Result.defaultWith (fun err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")))
 
-    [<Fact>]
-    let ``Yang-Baxter verification: Ising σσσ braid relations`` () =
-        // Yang-Baxter equation: (R₁₂ ⊗ I)(I ⊗ R₂₃)(R₁₂ ⊗ I) = (I ⊗ R₂₃)(R₁₂ ⊗ I)(I ⊗ R₂₃)
-        // For three Sigma anyons, verify basic consistency
+    /// Braid a superposition through a sequence of elementary generators (all clockwise).
+    let private braidSequence (generators: int list) (start: TopologicalOperations.Superposition) =
+        generators
+        |> List.fold
+            (fun acc i -> acc |> Result.bind (TopologicalOperations.braidSuperpositionDirected i true))
+            (Ok start)
 
-        match
-            BraidingOperators.matrix
-                AnyonSpecies.Particle.Sigma
-                AnyonSpecies.Particle.Sigma
-                AnyonSpecies.AnyonType.Ising
-        with
-        | Ok rSigmaSigma ->
-            // R-matrix is diagonal, so Yang-Baxter is automatically satisfied for diagonal case
-            // Just verify structure is consistent
-            Assert.Equal(2, Array2D.length1 rSigmaSigma)
-            Assert.True(true) // Placeholder for full Yang-Baxter verification
-        | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
+    /// Total |LHS - RHS| over the shared basis of two superpositions.
+    let private superpositionDistance
+        (lhs: TopologicalOperations.Superposition)
+        (rhs: TopologicalOperations.Superposition)
+        =
+        let byTree (s: TopologicalOperations.Superposition) =
+            s.Terms
+            |> List.map (fun (amp, state) -> (sprintf "%A" state.Tree), amp)
+            |> List.sortBy fst
+
+        let l, r = byTree lhs, byTree rhs
+        Assert.Equal(l.Length, r.Length)
+
+        List.zip l r
+        |> List.sumBy (fun ((kl, al), (kr, ar)) ->
+            Assert.Equal(kl, kr)
+            Complex.Abs(al - ar))
+
+    [<Fact>]
+    let ``Yang-Baxter verification: σ₁σ₂σ₁ = σ₂σ₁σ₂ on three anyons`` () =
+        // The braid relation acting on the actual fusion space — not just a shape
+        // check on the R-matrix. Both sides are applied to every basis tree of the
+        // three-anyon space and must agree amplitude for amplitude.
+        //
+        // Three anyons is the scope of this test by necessity: braiding a cross-pair
+        // neighbour on a larger tree is reported NotImplemented by
+        // braidSuperpositionDirected ("the F-move machinery required for cross-pair
+        // braids is only implemented for 3-anyon trees"), so a 4-anyon version would
+        // be asserting a gap rather than the relation.
+        let cases =
+            [
+                AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma
+                AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau
+            ]
+
+        for (anyonType, particle, totalCharge) in cases do
+            match FusionTree.allTrees [ particle; particle; particle ] totalCharge anyonType with
+            | Error err -> Assert.Fail($"{anyonType}: could not enumerate basis: {err.Message}")
+            | Ok trees ->
+                Assert.Equal(2, trees.Length) // both theories give a 2-dimensional space
+
+                for tree in trees do
+                    let start = TopologicalOperations.pureState (FusionTree.create tree anyonType)
+
+                    match braidSequence [ 0; 1; 0 ] start, braidSequence [ 1; 0; 1 ] start with
+                    | Ok lhs, Ok rhs ->
+                        let distance = superpositionDistance lhs rhs
+
+                        Assert.True(
+                            distance < 1e-10,
+                            $"{anyonType} on {FusionTree.toString tree}: |σ₁σ₂σ₁ - σ₂σ₁σ₂| = {distance}"
+                        )
+                    | Error err, _
+                    | _, Error err -> Assert.Fail($"{anyonType}: braiding failed: {err.Message}")

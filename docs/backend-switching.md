@@ -11,7 +11,7 @@ title: Switching Between Local and Azure Backends
 
 FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` module that works with both:
 
-1. **Local Simulator** - Fast, free, offline simulation (up to 20 qubits)
+1. **Local Simulator** - Fast, free, offline simulation (width derived from available memory, up to 30 qubits)
 2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access (requires Azure subscription and workspace configuration)
 
 **Key Feature:** The same `QaoaCircuit` type is used for both backends, making backend switching a **one-line code change**.
@@ -33,7 +33,7 @@ let distances = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Method 1: Local simulator backend (up to 20 qubits)
+// Method 1: Local simulator backend (width derived from available memory)
 let localBackend = LocalBackendFactory.createUnified()
 match solve localBackend distances defaultConfig with
 | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
@@ -187,7 +187,7 @@ This API provides:
 |----------|-------|-------|
 | **Development** | ✅ Instant feedback | ❌ Network latency |
 | **Unit Testing** | ✅ Fast, reliable | ❌ Slow, costs money |
-| **Small problems** (≤20 qubits) | ✅ Free, fast | ❌ Overkill |
+| **Small problems** (within simulator width) | ✅ Free, fast | ❌ Overkill |
 | **Offline work** | ✅ No internet needed | ❌ Requires connection |
 | **Algorithm prototyping** | ✅ Rapid iteration | ❌ Slower iteration |
 
@@ -195,12 +195,12 @@ This API provides:
 
 | Scenario | Local | Azure |
 |----------|-------|-------|
-| **Large problems** (>20 qubits) | ❌ Not supported | ✅ Scales to 20+ qubits |
+| **Large problems** (beyond simulator width) | ❌ Not supported | ✅ Scales further |
 ## Comparison: Local vs Azure
 
 | Feature | Local Simulator | Azure Quantum |
 |---------|----------------|---------------|
-| **Qubit limit** | ≤20 qubits (1048576 dimensions) | 100+ qubits (cloud) |
+| **Qubit limit** | memory-derived, ≤30 (2ⁿ × 16 bytes) | 100+ qubits (cloud) |
 | **Cost** | Free | Pay per shot |
 | **Network** | Offline capable | Requires internet |
 | **Speed (3 cities)** | <100ms | Seconds (network + queue) |
@@ -433,7 +433,7 @@ All cloud backends implement the same `IQuantumBackend` interface (sync and asyn
 ## Summary
 
 **Current Implementation:**
-- ✅ **Local simulation**: Fully functional (≤20 qubits, ~4 cities for TSP)
+- ✅ **Local simulation**: Fully functional (memory-derived width, ~4 cities for TSP)
 - ✅ **Unified API**: Same `solve` function for all backends (sync and async)
 - ✅ **Async support**: Task-based async with CancellationToken on all backends
 - ✅ **Cloud backends**: Rigetti, IonQ, Quantinuum, AtomComputing via CloudBackendFactory

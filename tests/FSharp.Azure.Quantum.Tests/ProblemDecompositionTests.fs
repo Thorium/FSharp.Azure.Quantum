@@ -494,11 +494,13 @@ module SolveWithDecompositionTests =
         | Ok _ -> Assert.Fail("Expected Error but got Ok")
 
     [<Fact>]
-    let ``solveWithDecomposition with LocalBackend respects 20 qubit limit`` () =
-        // LocalBackend implements IQubitLimitedBackend with MaxQubits = Some 20
+    let ``solveWithDecomposition with LocalBackend respects its qubit limit`` () =
+        // LocalBackend's limit is derived from available memory, not a constant,
+        // so the oversized problem below is sized relative to whatever it reports.
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let maxQubits = UnifiedBackend.getMaxQubits backend
-        Assert.Equal(Some 20, maxQubits)
+        Assert.Equal(Some StateVector.maxQubits, maxQubits)
+        let limit = StateVector.maxQubits
 
         let mutable wasDecomposed = false
         let solveFn (n: int) = Ok n
@@ -510,8 +512,8 @@ module SolveWithDecompositionTests =
         let recombineFn (xs: int list) = xs |> List.sum
         let estimateQubits (n: int) = n
 
-        // 25 qubits > 20 limit → should decompose
+        // Over the backend's limit → should decompose
         let _result =
-            solveWithDecomposition backend 25 estimateQubits decomposeFn recombineFn solveFn
+            solveWithDecomposition backend (limit + 5) estimateQubits decomposeFn recombineFn solveFn
 
         Assert.True(wasDecomposed, "Should decompose when problem exceeds LocalBackend limit")

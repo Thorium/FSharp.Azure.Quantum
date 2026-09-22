@@ -297,3 +297,107 @@ module MeasurementTests =
         Assert.True(counts.ContainsKey 3)
         Assert.False(counts.ContainsKey 1)
         Assert.False(counts.ContainsKey 2)
+
+    // ========================================================================
+    // BATCH SAMPLING
+    // ========================================================================
+    //
+    // `sampleComputationalBasis` replaced a per-shot call to
+    // `measureComputationalBasis`, which rebuilt the whole 2^n probability
+    // distribution every single shot. The saving is large (O(shots·2^n) to
+    // O(2^n + shots·log 2^n)), so the thing that must be pinned is that the
+    // OUTCOME DISTRIBUTION did not move with it.
+
+    /// Index of a bit array, LSB first — the convention measureAll uses.
+    let private basisIndexOf (bits: int[]) =
+        bits |> Array.mapi (fun i b -> b <<< i) |> Array.sum
+
+    [<Fact>]
+    let ``batch sampling only ever returns basis states the state supports`` () =
+        // |01> + |10> over 2 qubits: outcomes 0 and 3 must never appear.
+        let half = 1.0 / sqrt 2.0
+
+        let sv =
+            StateVector.create [| Complex.Zero; Complex(half, 0.0); Complex(half, 0.0); Complex.Zero |]
+
+        let samples = Measurement.sampleComputationalBasis (System.Random(7)) sv 2000
+
+        Assert.Equal(2000, samples.Length)
+
+        for bits in samples do
+            Assert.Equal(2, bits.Length)
+            let index = basisIndexOf bits
+            Assert.True(index = 1 || index = 2, $"impossible outcome {index} for this state")
+
+    [<Fact>]
+    let ``batch sampling reproduces a known non-uniform distribution`` () =
+        // p = [0.1; 0.2; 0.3; 0.4] — deliberately lopsided, so a sampler that
+        // silently used a uniform draw or an off-by-one cumulative bound would show up.
+        let probabilities = [| 0.1; 0.2; 0.3; 0.4 |]
+
+        let sv =
+            probabilities |> Array.map (fun p -> Complex(sqrt p, 0.0)) |> StateVector.create
+
+        let shots = 200000
+        let samples = Measurement.sampleComputationalBasis (System.Random(11)) sv shots
+
+        let counts = Array.zeroCreate 4
+
+        for bits in samples do
+            counts.[basisIndexOf bits] <- counts.[basisIndexOf bits] + 1
+
+        for i in 0..3 do
+            let observed = float counts.[i] / float shots
+
+            Assert.True(
+                abs (observed - probabilities.[i]) < 0.01,
+                $"basis state {i}: expected p={probabilities.[i]}, sampled {observed}"
+            )
+
+    [<Fact>]
+    let ``batch sampling agrees with per-shot measurement in distribution`` () =
+        // The replaced implementation, sampled independently. Both estimate the same
+        // distribution, so their histograms must agree to within sampling error.
+        let probabilities = [| 0.05; 0.15; 0.5; 0.3 |]
+
+        let sv =
+            probabilities |> Array.map (fun p -> Complex(sqrt p, 0.0)) |> StateVector.create
+
+        let shots = 200000
+
+        let batchCounts = Array.zeroCreate 4
+
+        for bits in Measurement.sampleComputationalBasis (System.Random(23)) sv shots do
+            batchCounts.[basisIndexOf bits] <- batchCounts.[basisIndexOf bits] + 1
+
+        let perShotRng = System.Random(29)
+        let perShotCounts = Array.zeroCreate 4
+
+        for _ in 1..shots do
+            let index = Measurement.measureComputationalBasis perShotRng sv
+            perShotCounts.[index] <- perShotCounts.[index] + 1
+
+        for i in 0..3 do
+            let batch = float batchCounts.[i] / float shots
+            let perShot = float perShotCounts.[i] / float shots
+
+            Assert.True(abs (batch - perShot) < 0.01, $"basis state {i}: batch {batch} vs per-shot {perShot}")
+
+    [<Fact>]
+    let ``batch sampling handles the degenerate and single-outcome cases`` () =
+        // A basis state: every shot must return it.
+        let sv = StateVector.init 3
+        let samples = Measurement.sampleComputationalBasis (System.Random(3)) sv 100
+
+        for bits in samples do
+            Assert.Equal(0, basisIndexOf bits)
+
+        // Zero shots is an empty batch, not a failure.
+        Assert.Empty(Measurement.sampleComputationalBasis (System.Random(3)) sv 0)
+
+        // A one-qubit state still produces one bit per shot.
+        let single = StateVector.init 1
+        let oneQubit = Measurement.sampleComputationalBasis (System.Random(5)) single 10
+
+        for bits in oneQubit do
+            Assert.Equal(1, bits.Length)

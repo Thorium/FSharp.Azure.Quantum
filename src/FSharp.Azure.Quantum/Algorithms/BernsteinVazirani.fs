@@ -162,11 +162,11 @@ module BernsteinVazirani =
 
         if numQubits < 1 then
             Error(QuantumError.ValidationError("numQubits", "Bernstein-Vazirani requires at least 1 qubit"))
-        elif numQubits > 20 then
+        elif numQubits > Types.NisqPracticalQubits then
             Error(
                 QuantumError.ValidationError(
                     "numQubits",
-                    "Bernstein-Vazirani with >20 qubits not practical on NISQ hardware"
+                    $"Bernstein-Vazirani with >{Types.NisqPracticalQubits} qubits not practical on NISQ hardware"
                 )
             )
         elif shots < 1 then

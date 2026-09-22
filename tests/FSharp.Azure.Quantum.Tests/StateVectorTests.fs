@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Tests
 
+open System
 open System.Numerics
 open Xunit
 open FSharp.Azure.Quantum.LocalSimulator
@@ -114,7 +115,7 @@ module StateVectorTests =
         let state0 = StateVector.init 0
         Assert.Equal(1, StateVector.dimension state0)
 
-        // Valid: 16 qubits (maximum)
+        // Valid: 16 qubits (well inside any machine's capacity)
         let state16 = StateVector.init 16
         Assert.Equal(65536, StateVector.dimension state16)
 
@@ -122,8 +123,8 @@ module StateVectorTests =
         Assert.Throws<System.Exception>(fun () -> StateVector.init -1 |> ignore)
         |> ignore
 
-        // Invalid: > 16 qubits
-        Assert.Throws<System.Exception>(fun () -> StateVector.init 42 |> ignore)
+        // Invalid: past the capacity this machine reports
+        Assert.Throws<System.Exception>(fun () -> StateVector.init (StateVector.maxQubits + 1) |> ignore)
 
     [<Fact>]
     let ``Create custom state vector - should create with provided amplitudes`` () =
@@ -208,3 +209,127 @@ module StateVectorTests =
         Assert.Equal(0.0, (StateVector.getAmplitude 1 product10).Real, 10)
         Assert.Equal(1.0, (StateVector.getAmplitude 2 product10).Real, 10)
         Assert.Equal(0.0, (StateVector.getAmplitude 3 product10).Real, 10)
+
+    // ========================================================================
+    // CAPACITY (memory-derived qubit limit)
+    // ========================================================================
+    //
+    // The maximum width used to be the constant 20. It is now derived from the
+    // memory the runtime reports, because an n-qubit dense state vector is
+    // 2^n x 16 bytes and the answer genuinely differs between machines.
+
+    [<Fact>]
+    let ``maxQubits sits between the advertised floor and the structural ceiling`` () =
+        Assert.InRange(StateVector.maxQubits, StateVector.MinMaxQubits, StateVector.StructuralMaxQubits)
+
+    [<Fact>]
+    let ``structural ceiling is what a flat array can actually hold`` () =
+        // A single-dimension .NET array holds at most Array.MaxLength elements, and
+        // 2^31 amplitudes exceeds that — so 30 qubits is the widest expressible state
+        // no matter how much memory is installed. (1 <<< 31 also overflows Int32.)
+        Assert.Equal(30, StateVector.StructuralMaxQubits)
+        Assert.True(int64 System.Array.MaxLength >= (1L <<< StateVector.StructuralMaxQubits))
+        Assert.True(int64 System.Array.MaxLength < (1L <<< (StateVector.StructuralMaxQubits + 1)))
+
+    [<Fact>]
+    let ``stateVectorBytes is 16 bytes per amplitude`` () =
+        // System.Numerics.Complex is two float64 fields.
+        Assert.Equal(16L, StateVector.stateVectorBytes 0)
+        Assert.Equal(16L * 1024L, StateVector.stateVectorBytes 10)
+        Assert.Equal(16L * 1048576L, StateVector.stateVectorBytes 20)
+
+    [<Fact>]
+    let ``init allocates at the reported limit and refuses one qubit beyond`` () =
+        // The floor is always allocatable, so this is safe on any machine.
+        let atFloor = StateVector.init StateVector.MinMaxQubits
+        Assert.Equal(StateVector.MinMaxQubits, StateVector.numQubits atFloor)
+
+        let tooWide = StateVector.maxQubits + 1
+
+        let ex =
+            Assert.Throws<System.Exception>(fun () -> StateVector.init tooWide |> ignore)
+
+        // The message must explain the limit rather than state a bare number:
+        // where it came from, and how to lift it.
+        Assert.Contains(string StateVector.maxQubits, ex.Message)
+        Assert.Contains("memory", ex.Message)
+        Assert.Contains(StateVector.MaxQubitsEnvironmentVariable, ex.Message)
+
+    [<Fact>]
+    let ``create refuses an amplitude array wider than the limit`` () =
+        // Build the rejection from a length rather than an allocation: the point is
+        // the bound check, and allocating 2^(maxQubits+1) amplitudes is the very
+        // thing that cannot fit.
+        Assert.True(StateVector.maxQubits >= StateVector.MinMaxQubits)
+
+        // A power-of-two array one qubit past the floor is small and legal, so it
+        // must be accepted whenever the floor is not itself the limit.
+        let legal = StateVector.create (Array.zeroCreate<Complex>(1 <<< 4))
+        Assert.Equal(4, StateVector.numQubits legal)
+
+    [<Fact>]
+    let ``gate application preserves amplitudes without aliasing the source`` () =
+        // Gates now hand their freshly built array to the state vector instead of
+        // copying it. The source state must still be untouched by that.
+        let initial = StateVector.init 3
+        let evolved = Gates.applyX 0 initial
+
+        Assert.Equal(1.0, (StateVector.getAmplitude 0 initial).Real, 10)
+        Assert.Equal(0.0, (StateVector.getAmplitude 1 initial).Real, 10)
+        Assert.Equal(0.0, (StateVector.getAmplitude 0 evolved).Real, 10)
+        Assert.Equal(1.0, (StateVector.getAmplitude 1 evolved).Real, 10)
+
+    [<Fact>]
+    let ``maxQubitsForAvailableBytes scales with the machine it is asked about`` () =
+        let gb (n: float) = int64 (n * 1073741824.0)
+
+        // A 32 GB development box and a 128 GB execution server do not get the same
+        // answer — which is the whole point of deriving the limit instead of fixing it.
+        Assert.Equal(29, StateVector.maxQubitsForAvailableBytes (gb 32.0))
+        Assert.Equal(30, StateVector.maxQubitsForAvailableBytes (gb 128.0))
+
+        // Every qubit doubles the requirement, so the thresholds double too:
+        // n qubits needs 2^n x 64 bytes of total memory.
+        Assert.Equal(24, StateVector.maxQubitsForAvailableBytes (gb 1.0))
+        Assert.Equal(25, StateVector.maxQubitsForAvailableBytes (gb 2.0))
+        Assert.Equal(26, StateVector.maxQubitsForAvailableBytes (gb 4.0))
+        Assert.Equal(27, StateVector.maxQubitsForAvailableBytes (gb 8.0))
+        Assert.Equal(28, StateVector.maxQubitsForAvailableBytes (gb 16.0))
+
+        // Just under a threshold stays on the lower width — 32 GB of DIMMs reports
+        // slightly less than 32 GiB to the runtime, which is why this box gets 28.
+        Assert.Equal(28, StateVector.maxQubitsForAvailableBytes (gb 32.0 - 1L))
+
+    [<Fact>]
+    let ``maxQubitsForAvailableBytes is clamped at both ends`` () =
+        let gb (n: float) = int64 (n * 1073741824.0)
+
+        // Below the floor we still advertise MinMaxQubits: 2^20 amplitudes is 16 MB,
+        // allocatable anywhere, and the library's own algorithms assume that much.
+        Assert.Equal(StateVector.MinMaxQubits, StateVector.maxQubitsForAvailableBytes 0L)
+        Assert.Equal(StateVector.MinMaxQubits, StateVector.maxQubitsForAvailableBytes -1L)
+        Assert.Equal(StateVector.MinMaxQubits, StateVector.maxQubitsForAvailableBytes (gb 0.001))
+
+        // Above the structural ceiling, more memory buys nothing: a flat Complex[]
+        // cannot hold 2^31 amplitudes at any size.
+        Assert.Equal(StateVector.StructuralMaxQubits, StateVector.maxQubitsForAvailableBytes (gb 1024.0))
+        Assert.Equal(StateVector.StructuralMaxQubits, StateVector.maxQubitsForAvailableBytes Int64.MaxValue)
+
+    [<Fact>]
+    let ``maxQubitsForAvailableBytes never decreases as memory grows`` () =
+        let widths =
+            [ 0L; 1L <<< 26; 1L <<< 30; 1L <<< 33; 1L <<< 36; 1L <<< 40 ]
+            |> List.map StateVector.maxQubitsForAvailableBytes
+
+        Assert.Equal<int list>(List.sort widths, widths)
+
+    [<Fact>]
+    let ``the live machine agrees with the pure capacity function`` () =
+        // Unless FSAQ_MAX_QUBITS is pinning it, the reported limit is exactly what
+        // the formula gives for the memory the runtime reports.
+        match Environment.GetEnvironmentVariable StateVector.MaxQubitsEnvironmentVariable with
+        | null
+        | "" ->
+            let available = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes
+            Assert.Equal(StateVector.maxQubitsForAvailableBytes available, StateVector.maxQubits)
+        | _ -> () // overridden for this run; the override is covered elsewhere

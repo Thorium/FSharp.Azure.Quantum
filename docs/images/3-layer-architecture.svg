@@ -100,7 +100,7 @@
   <!-- Backends Row 1 -->
   <rect x="70" y="690" width="150" height="70" class="backend-box" style="fill:#5B9BD5" />
   <text x="145" y="715" class="text-label" fill="#fff">LocalBackend</text>
-  <text x="145" y="733" class="text-small" fill="#fff">(≤20 qubits)</text>
+  <text x="145" y="733" class="text-small" fill="#fff">(memory-derived)</text>
   <text x="145" y="748" class="text-small" fill="#fff">Simulation</text>
   
   <rect x="240" y="690" width="150" height="70" class="backend-box" style="fill:#70AD47" />

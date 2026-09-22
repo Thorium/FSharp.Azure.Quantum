@@ -226,7 +226,7 @@ module CloudBackends =
                 // Rigetti QVM simulator: effectively unlimited for small circuits
                 // Rigetti QPU Ankaa-3: 84 qubits
                 if target.Contains "qpu" then Some 84
-                elif target.Contains "sim" then Some 20 // StateVector.create limit
+                elif target.Contains "sim" then Some 20 // conservative provider-simulator default
                 else None
 
     // ============================================================================
@@ -411,7 +411,7 @@ module CloudBackends =
                 // IonQ Forte: 36 qubits
                 if target.Contains "aria" then Some 25
                 elif target.Contains "forte" then Some 36
-                elif target.Contains "simulator" then Some 20 // StateVector.create limit
+                elif target.Contains "simulator" then Some 20 // conservative provider-simulator default
                 else None
 
     // ============================================================================
@@ -629,7 +629,7 @@ module CloudBackends =
                 // Quantinuum H2: 56 qubits
                 if target.Contains "h2" then Some 56
                 elif target.Contains "h1" then Some 32
-                else Some 20 // Conservative default, StateVector limit
+                else Some 20 // conservative provider-simulator default
 
     // ============================================================================
     // ATOM COMPUTING CLOUD BACKEND
@@ -826,7 +826,7 @@ module CloudBackends =
                 // Atom Computing Phoenix: 100+ qubits
                 // Simulator: limited by state vector size
                 if target.Contains "qpu" then Some 100
-                elif target.Contains "sim" then Some 20 // StateVector.create limit
+                elif target.Contains "sim" then Some 20 // conservative provider-simulator default
                 else None
 
     /// IQuantumBackend implementation for IQM (superconducting) via Azure Quantum.
@@ -1017,7 +1017,7 @@ module CloudBackends =
 
         interface IQubitLimitedBackend with
             member _.MaxQubits =
-                // IQM Garnet: 20 qubits; simulator limited by state-vector size.
+                // IQM Garnet: 20 qubits; simulator capped conservatively at the same width.
                 if target.Contains "qpu" then Some 20
                 elif target.Contains "sim" then Some 20
                 else None

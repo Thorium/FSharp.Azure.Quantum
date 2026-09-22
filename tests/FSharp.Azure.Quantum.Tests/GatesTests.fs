@@ -590,3 +590,280 @@ module GatesTests =
 
         Assert.Throws<Exception>(fun () -> Gates.applyRzz 0 0 1.0 state |> ignore)
         |> ignore
+
+    // ========================================================================
+    // KERNEL DIFFERENTIAL TESTS
+    // ========================================================================
+    //
+    // The single-qubit kernel walks index PAIRS and reads the amplitude array
+    // directly, rather than walking every index and re-reading its partner through
+    // the bounds-checked accessor. That is a performance rewrite of arithmetic that
+    // must not change, so it is pinned against the obvious formulation below rather
+    // than against hand-written expected values.
+
+    /// The straightforward formulation: for every index, look up its partner.
+    /// Deliberately naive — it is the oracle, not the implementation.
+    let private referenceSingleQubit
+        (q: int)
+        (a: Complex, b: Complex, c: Complex, d: Complex)
+        (src: Complex[])
+        : Complex[] =
+        Array.init src.Length (fun i ->
+            let bit = 1 <<< q
+
+            if (i &&& bit) <> 0 then
+                c * src.[i ^^^ bit] + d * src.[i]
+            else
+                a * src.[i] + b * src.[i ||| bit])
+
+    let private randomAmplitudes (rng: Random) (numQubits: int) : Complex[] =
+        let amps =
+            Array.init (1 <<< numQubits) (fun _ -> Complex(rng.NextDouble() * 2.0 - 1.0, rng.NextDouble() * 2.0 - 1.0))
+
+        let norm = sqrt (amps |> Array.sumBy (fun z -> z.Magnitude * z.Magnitude))
+        amps |> Array.map (fun z -> z / Complex(norm, 0.0))
+
+    [<Fact>]
+    let ``single-qubit kernel matches the reference formulation exactly`` () =
+        let rng = Random(20260922) // fixed seed: a failure must be reproducible
+        let sqrtHalf = 1.0 / sqrt 2.0
+
+        let gates
+            : (string *
+              (int -> StateVector.StateVector -> StateVector.StateVector) *
+              (Complex * Complex * Complex * Complex)) list =
+            [
+                "H",
+                Gates.applyH,
+                (Complex(sqrtHalf, 0.0), Complex(sqrtHalf, 0.0), Complex(sqrtHalf, 0.0), Complex(-sqrtHalf, 0.0))
+                "X", Gates.applyX, (Complex.Zero, Complex.One, Complex.One, Complex.Zero)
+                "Y", Gates.applyY, (Complex.Zero, Complex(0.0, -1.0), Complex(0.0, 1.0), Complex.Zero)
+                "Z", Gates.applyZ, (Complex.One, Complex.Zero, Complex.Zero, -Complex.One)
+                "S", Gates.applyS, (Complex.One, Complex.Zero, Complex.Zero, Complex(0.0, 1.0))
+                "SDG", Gates.applySDG, (Complex.One, Complex.Zero, Complex.Zero, Complex(0.0, -1.0))
+                "T",
+                Gates.applyT,
+                (Complex.One, Complex.Zero, Complex.Zero, Complex(cos (Math.PI / 4.0), sin (Math.PI / 4.0)))
+                "TDG",
+                Gates.applyTDG,
+                (Complex.One, Complex.Zero, Complex.Zero, Complex(cos (-Math.PI / 4.0), sin (-Math.PI / 4.0)))
+            ]
+
+        for numQubits in [ 1; 2; 3; 5; 8 ] do
+            for q in 0 .. numQubits - 1 do
+                let amplitudes = randomAmplitudes rng numQubits
+                let state = StateVector.create amplitudes
+
+                for (name, gate, matrix) in gates do
+                    let actual = gate q state
+                    let expected = referenceSingleQubit q matrix amplitudes
+
+                    for i in 0 .. amplitudes.Length - 1 do
+                        let difference = Complex.Abs(StateVector.getAmplitude i actual - expected.[i])
+
+                        Assert.True(
+                            difference < 1e-12,
+                            $"{name} on qubit {q} of {numQubits}: amplitude {i} differs by {difference}"
+                        )
+
+    [<Fact>]
+    let ``rotation kernels match the reference formulation across angles`` () =
+        let rng = Random(20260923)
+
+        for numQubits in [ 1; 3; 6 ] do
+            for q in 0 .. numQubits - 1 do
+                let amplitudes = randomAmplitudes rng numQubits
+                let state = StateVector.create amplitudes
+
+                for theta in [ 0.0; 0.3; Math.PI / 2.0; Math.PI; 2.3; -1.1 ] do
+                    let half = theta / 2.0
+
+                    let cases =
+                        [
+                            "RX",
+                            Gates.applyRx q theta state,
+                            (Complex(cos half, 0.0),
+                             Complex(0.0, -sin half),
+                             Complex(0.0, -sin half),
+                             Complex(cos half, 0.0))
+                            "RY",
+                            Gates.applyRy q theta state,
+                            (Complex(cos half, 0.0),
+                             Complex(-sin half, 0.0),
+                             Complex(sin half, 0.0),
+                             Complex(cos half, 0.0))
+                            "P",
+                            Gates.applyP q theta state,
+                            (Complex.One, Complex.Zero, Complex.Zero, Complex(cos theta, sin theta))
+                        ]
+
+                    for (name, actual, matrix) in cases do
+                        let expected = referenceSingleQubit q matrix amplitudes
+
+                        for i in 0 .. amplitudes.Length - 1 do
+                            let difference = Complex.Abs(StateVector.getAmplitude i actual - expected.[i])
+
+                            Assert.True(
+                                difference < 1e-12,
+                                $"{name}({theta}) on qubit {q}: amplitude {i} differs by {difference}"
+                            )
+
+    [<Fact>]
+    let ``applying a gate never mutates the state it was given`` () =
+        // The kernel reads the amplitude array directly, so this is the property that
+        // stops it from aliasing. Primitives.expectation depends on it: it reads the
+        // source state again after deriving another state from it.
+        let rng = Random(20260924)
+        let amplitudes = randomAmplitudes rng 6
+        let state = StateVector.create amplitudes
+
+        let derived =
+            state
+            |> Gates.applyH 0
+            |> Gates.applyRx 3 1.1
+            |> Gates.applyT 5
+            |> Gates.applyX 2
+
+        for i in 0 .. amplitudes.Length - 1 do
+            Assert.Equal(amplitudes.[i].Real, (StateVector.getAmplitude i state).Real, 12)
+            Assert.Equal(amplitudes.[i].Imaginary, (StateVector.getAmplitude i state).Imaginary, 12)
+
+        // ...and the derived state really is different, so the check above is not vacuous.
+        let anyDifference =
+            [ 0 .. amplitudes.Length - 1 ]
+            |> List.exists (fun i -> Complex.Abs(StateVector.getAmplitude i derived - amplitudes.[i]) > 1e-9)
+
+        Assert.True(anyDifference, "derived state should differ from the source")
+
+    // ========================================================================
+    // TWO- AND THREE-QUBIT KERNEL DIFFERENTIAL TESTS
+    // ========================================================================
+    //
+    // Same discipline as the single-qubit oracle above: the controlled kernels are
+    // pinned against the obvious formulation rather than against hand-computed
+    // amplitudes, so a performance rewrite of them cannot quietly change the maths.
+
+    /// Naive controlled gate: for every index, decide from its own bits and look up
+    /// the partner. Deliberately the slow, transparent version — it is the oracle.
+    let private referenceControlled
+        (controlMask: int)
+        (targetIndex: int)
+        (a: Complex, b: Complex, c: Complex, d: Complex)
+        (src: Complex[])
+        : Complex[] =
+        let bit = 1 <<< targetIndex
+
+        Array.init src.Length (fun i ->
+            if i &&& controlMask <> controlMask then
+                src.[i] // a control is |0⟩: untouched
+            elif i &&& bit <> 0 then
+                c * src.[i ^^^ bit] + d * src.[i]
+            else
+                a * src.[i] + b * src.[i ||| bit])
+
+    /// Naive SWAP: exchange amplitudes whose two qubits disagree.
+    let private referenceSwap (q1: int) (q2: int) (src: Complex[]) : Complex[] =
+        let mask1 = 1 <<< q1
+        let mask2 = 1 <<< q2
+
+        Array.init src.Length (fun i ->
+            let bit1 = i &&& mask1 <> 0
+            let bit2 = i &&& mask2 <> 0
+            if bit1 = bit2 then src.[i] else src.[i ^^^ mask1 ^^^ mask2])
+
+    let private assertMatches (label: string) (expected: Complex[]) (actual: StateVector.StateVector) =
+        for i in 0 .. expected.Length - 1 do
+            let difference = Complex.Abs(StateVector.getAmplitude i actual - expected.[i])
+            Assert.True(difference < 1e-12, $"{label}: amplitude {i} differs by {difference}")
+
+    [<Fact>]
+    let ``controlled kernels match the reference formulation`` () =
+        let rng = Random(20260926)
+        let numQubits = 5
+
+        for control in 0 .. numQubits - 1 do
+            for target in 0 .. numQubits - 1 do
+                if control <> target then
+                    let amplitudes = randomAmplitudes rng numQubits
+                    let state = StateVector.create amplitudes
+                    let mask = 1 <<< control
+                    let angle = rng.NextDouble() * 4.0 - 2.0
+
+                    let cases =
+                        [
+                            "CNOT", Gates.applyCNOT control target state, Gates.Matrices.x
+                            "CZ", Gates.applyCZ control target state, Gates.Matrices.z
+                            "CP", Gates.applyCP control target angle state, Gates.Matrices.p angle
+                            "CRX", Gates.applyCRX control target angle state, Gates.Matrices.rx angle
+                            "CRY", Gates.applyCRY control target angle state, Gates.Matrices.ry angle
+                            "CRZ", Gates.applyCRZ control target angle state, Gates.Matrices.rz angle
+                        ]
+
+                    for (name, actual, matrix) in cases do
+                        assertMatches
+                            $"{name}(c={control}, t={target})"
+                            (referenceControlled mask target matrix amplitudes)
+                            actual
+
+    [<Fact>]
+    let ``Toffoli and multi-controlled Z match the reference formulation`` () =
+        let rng = Random(20260927)
+        let numQubits = 5
+
+        for control1 in 0 .. numQubits - 1 do
+            for control2 in 0 .. numQubits - 1 do
+                for target in 0 .. numQubits - 1 do
+                    if control1 <> control2 && control1 <> target && control2 <> target then
+                        let amplitudes = randomAmplitudes rng numQubits
+                        let state = StateVector.create amplitudes
+                        let mask = (1 <<< control1) ||| (1 <<< control2)
+
+                        assertMatches
+                            $"CCX({control1},{control2}->{target})"
+                            (referenceControlled mask target Gates.Matrices.x amplitudes)
+                            (Gates.applyCCX control1 control2 target state)
+
+                        assertMatches
+                            $"MCZ([{control1};{control2}]->{target})"
+                            (referenceControlled mask target Gates.Matrices.z amplitudes)
+                            (Gates.applyMultiControlledZ [ control1; control2 ] target state)
+
+    [<Fact>]
+    let ``SWAP matches the reference formulation`` () =
+        let rng = Random(20260928)
+        let numQubits = 5
+
+        for q1 in 0 .. numQubits - 1 do
+            for q2 in 0 .. numQubits - 1 do
+                if q1 <> q2 then
+                    let amplitudes = randomAmplitudes rng numQubits
+                    let state = StateVector.create amplitudes
+
+                    assertMatches $"SWAP({q1},{q2})" (referenceSwap q1 q2 amplitudes) (Gates.applySWAP q1 q2 state)
+
+    [<Fact>]
+    let ``controlled gates leave the state they were given untouched`` () =
+        // These kernels read the amplitude array directly, so this is the property
+        // that stops them aliasing their source.
+        let rng = Random(20260929)
+        let amplitudes = randomAmplitudes rng 5
+        let state = StateVector.create amplitudes
+
+        let derived =
+            state
+            |> Gates.applyCNOT 0 1
+            |> Gates.applyCZ 1 2
+            |> Gates.applyCRY 2 3 0.7
+            |> Gates.applyCCX 0 1 4
+            |> Gates.applySWAP 3 4
+            |> Gates.applyMultiControlledZ [ 0; 1; 2 ] 3
+
+        for i in 0 .. amplitudes.Length - 1 do
+            Assert.Equal(amplitudes.[i].Real, (StateVector.getAmplitude i state).Real, 12)
+            Assert.Equal(amplitudes.[i].Imaginary, (StateVector.getAmplitude i state).Imaginary, 12)
+
+        let anyDifference =
+            [ 0 .. amplitudes.Length - 1 ]
+            |> List.exists (fun i -> Complex.Abs(StateVector.getAmplitude i derived - amplitudes.[i]) > 1e-9)
+
+        Assert.True(anyDifference, "derived state should differ from the source")

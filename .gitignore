@@ -90,3 +90,5 @@ examples/**/*.model
 examples/**/*.tqp
 examples/**/schedule.txt
 examples/**/output/
+
+/nupkgs/

@@ -7,6 +7,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.LocalSimulator
 
 // Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
@@ -965,16 +966,18 @@ module BudgetExecutionTests =
 module IQubitLimitedBackendTests =
 
     [<Fact>]
-    let ``LocalBackend implements IQubitLimitedBackend with MaxQubits 20`` () =
+    let ``LocalBackend reports the state vector capacity of this machine`` () =
+        // Not a fixed constant: an n-qubit dense state vector is 2^n x 16 bytes, so
+        // the limit is derived from available memory (see StateVector.maxQubits).
         let backend = LocalBackend.LocalBackend()
         let limited = backend :> BackendAbstraction.IQubitLimitedBackend
-        Assert.Equal(Some 20, limited.MaxQubits)
+        Assert.Equal(Some StateVector.maxQubits, limited.MaxQubits)
 
     [<Fact>]
     let ``getMaxQubits returns Some for LocalBackend`` () =
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
-        Assert.Equal(Some 20, maxQubits)
+        Assert.Equal(Some StateVector.maxQubits, maxQubits)
 
     [<Fact>]
     let ``LocalBackend is recognized as IQubitLimitedBackend via type test`` () =
@@ -988,7 +991,7 @@ module IQubitLimitedBackendTests =
     let ``getCapabilities includes MaxQubits from IQubitLimitedBackend`` () =
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let caps = BackendAbstraction.UnifiedBackend.getCapabilities backend
-        Assert.Equal(Some 20, caps.MaxQubits)
+        Assert.Equal(Some StateVector.maxQubits, caps.MaxQubits)
 
 // ============================================================================
 // ASYNC QAOA EXECUTION TESTS
