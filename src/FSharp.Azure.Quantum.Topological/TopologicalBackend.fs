@@ -326,6 +326,21 @@ module TopologicalUnifiedBackend =
 
                 Ok(TopologicalOperations.normalize { Terms = terms; AnyonType = anyonType })
 
+        /// True when every populated term sits on the all-zero computational basis state.
+        ///
+        /// Both native QPE paths CONSTRUCT their output from |0..0> rather than applying a
+        /// circuit to the incoming state — the intent is defined as "transforms |0>^(c+t) to
+        /// the standard QPE state", so that is the whole of its contract. The gate lowering
+        /// they replaced happened to apply gates to whatever state it was handed, which for a
+        /// non-zero input produces something the contract never defined. Left unchecked the
+        /// two silently disagree: applying a QPE intent after an X gave amplitude 1 here and
+        /// ~0 on the gate simulator. Out of contract is refused, not answered.
+        let isComputationalZero (fusionState: TopologicalOperations.Superposition) : bool =
+            fusionState.Terms
+            |> List.forall (fun (amplitude, st) ->
+                amplitude.Magnitude <= 1e-12
+                || (FusionTree.toComputationalBasis st.Tree |> List.toArray |> bitsToIntLsbFirst) = 0)
+
         // ====================================================================
         // Native Modular-Exponentiation QPE (no gate compilation)
         // ====================================================================
@@ -447,6 +462,109 @@ module TopologicalUnifiedBackend =
                     { Terms = terms; AnyonType = anyonType }
 
                 Ok(TopologicalOperations.normalize superposition)
+
+        // ====================================================================
+        // Native single-qubit QPE (no gate compilation)
+        // ====================================================================
+
+        /// QPE for the single-qubit unitaries, applied straight to the fusion encoding.
+        ///
+        /// Simpler than the modular-exponentiation case: all four of these unitaries are
+        /// DIAGONAL in the computational basis, so the controlled-U ladder imprints a phase
+        /// on |x> rather than permuting basis labels, and the target qubit never moves. The
+        /// whole circuit collapses to one phase per counting value followed by the inverse
+        /// QFT, with no intermediate state to build.
+        ///
+        /// Phases follow the gate lowering this replaces, which is the contract:
+        ///   CP(j, target, θ·2^j)  fires only when control AND target are 1, so a target
+        ///                         prepared in |0> accumulates nothing at all;
+        ///   CRZ(j, target, θ·2^j) applies rz = diag(e^(-iθ/2), e^(+iθ/2)) to the target, so
+        ///                         its sign follows the target bit rather than vanishing.
+        ///
+        /// `applySwaps` follows the QPE convention used by the modular-exponentiation path:
+        /// the inverse QFT omits its closing swaps, leaving the counting register
+        /// bit-reversed, and the swaps put it back when asked.
+        let singleQubitQpeSuperposition
+            (unitary: QpeUnitary)
+            (countingQubits: int)
+            (prepareTargetOne: bool)
+            (stateQubits: int)
+            (applySwaps: bool)
+            (anyonType: AnyonSpecies.AnyonType)
+            : Result<TopologicalOperations.Superposition, string> =
+
+            let countingDim = 1 <<< countingQubits
+            let totalQubits = max stateQubits (countingQubits + 1)
+            let scale = 1.0 / float countingDim
+            let targetBit = if prepareTargetOne then 1 else 0
+
+            // Phase per unit application of the controlled unitary. Returned as an option so
+            // that ModularExponentiation — which belongs to modExpQpeSuperposition and is
+            // routed there by the caller — cannot fall through to a phase of zero and quietly
+            // produce the QPE spectrum of the identity.
+            let unitPhase =
+                match unitary with
+                | QpeUnitary.PhaseGate theta -> Some(float targetBit * theta)
+                | QpeUnitary.TGate -> Some(float targetBit * Math.PI / 4.0)
+                | QpeUnitary.SGate -> Some(float targetBit * Math.PI / 2.0)
+                | QpeUnitary.RotationZ theta ->
+                    // rz = diag(e^(-i0/2), e^(+i0/2)), so unlike CP this does not vanish when
+                    // the target is |0>; it changes sign with the target bit.
+                    let sign = if targetBit = 1 then 1.0 else -1.0
+                    Some(sign * theta / 2.0)
+                | QpeUnitary.ModularExponentiation _ -> None
+
+            // Phase the controlled-U ladder leaves on |x>, summed over the set bits of x.
+            let phaseOf (x: int) (perUnit: float) = float x * perUnit
+
+            let reverseCountingBits (value: int) =
+                [ 0 .. countingQubits - 1 ]
+                |> List.fold (fun acc j -> acc ||| (((value >>> j) &&& 1) <<< (countingQubits - 1 - j))) 0
+
+            match unitPhase with
+            | None ->
+                Error
+                    "modular exponentiation is realised by modExpQpeSuperposition; this path handles only the single-qubit unitaries"
+            | Some perUnit ->
+
+                let encoded =
+                    [
+                        for k in 0 .. countingDim - 1 do
+                            let amplitude =
+                                [ 0 .. countingDim - 1 ]
+                                |> List.fold
+                                    (fun acc x ->
+                                        let angle =
+                                            phaseOf x perUnit - 2.0 * Math.PI * float k * float x / float countingDim
+
+                                        acc + Complex(scale * cos angle, scale * sin angle))
+                                    Complex.Zero
+
+                            if amplitude.Magnitude > 1e-14 then
+                                let countingIndex = if applySwaps then k else reverseCountingBits k
+                                let basisIndex = countingIndex ||| (targetBit <<< countingQubits)
+                                let bits = intToBitsLsbFirst totalQubits basisIndex |> Array.toList
+
+                                yield
+                                    FusionTree.fromComputationalBasis bits anyonType
+                                    |> Result.map (fun tree -> (amplitude, FusionTree.create tree anyonType))
+                    ]
+
+                match
+                    encoded
+                    |> List.tryPick (function
+                        | Error err -> Some err
+                        | Ok _ -> None)
+                with
+                | Some err -> Error err.Message
+                | None ->
+                    let terms =
+                        encoded
+                        |> List.choose (function
+                            | Ok term -> Some term
+                            | Error _ -> None)
+
+                    Ok(TopologicalOperations.normalize { Terms = terms; AnyonType = anyonType })
 
         // ====================================================================
         // Helper Functions for Operation Application
@@ -894,6 +1012,16 @@ module TopologicalUnifiedBackend =
                                             $"state has {QuantumState.numQubits state} qubits, fewer than the {intent.CountingQubits + intent.TargetQubits} the QPE intent covers"
                                         )
                                     )
+                                elif not (isComputationalZero fusionState) then
+                                    // The intent is defined as transforming |0>^(c+t). Both native paths build
+                                    // that output directly rather than applying a circuit, so an input that is
+                                    // not |0..0> would be discarded in silence rather than transformed.
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "TopologicalBackend",
+                                            "QPE prepares its own state and is defined only from |0..0>; apply it before other operations, or lower it to gates if you need it mid-circuit"
+                                        )
+                                    )
                                 elif modExpParameters.IsSome then
                                     let (baseNum, modulus) = modExpParameters.Value
 
@@ -929,64 +1057,23 @@ module TopologicalUnifiedBackend =
                                         )
                                     )
                                 else
-                                    let targetQubit = intent.CountingQubits
-
-                                    let hadamardOps =
-                                        List.init
-                                            (max 0 intent.CountingQubits)
-                                            (CircuitBuilder.H >> QuantumOperation.Gate)
-
-                                    let eigenPrepOps =
-                                        if intent.PrepareTargetOne then
-                                            [ QuantumOperation.Gate(CircuitBuilder.X targetQubit) ]
-                                        else
-                                            []
-
-                                    let controlledOps =
-                                        List.init (max 0 intent.CountingQubits) (fun j ->
-                                            let applications = 1 <<< j
-
-                                            match intent.Unitary with
-                                            | QpeUnitary.PhaseGate theta ->
-                                                let totalTheta = float applications * theta
-                                                QuantumOperation.Gate(CircuitBuilder.CP(j, targetQubit, totalTheta))
-                                            | QpeUnitary.TGate ->
-                                                let totalTheta = float applications * Math.PI / 4.0
-                                                QuantumOperation.Gate(CircuitBuilder.CP(j, targetQubit, totalTheta))
-                                            | QpeUnitary.SGate ->
-                                                let totalTheta = float applications * Math.PI / 2.0
-                                                QuantumOperation.Gate(CircuitBuilder.CP(j, targetQubit, totalTheta))
-                                            | QpeUnitary.RotationZ theta ->
-                                                let totalTheta = float applications * theta
-                                                QuantumOperation.Gate(CircuitBuilder.CRZ(j, targetQubit, totalTheta))
-                                            | QpeUnitary.ModularExponentiation _ ->
-                                                // Unreachable: guarded by elif check above.
-                                                failwith
-                                                    "ModularExponentiation QPE cannot be executed via TopologicalBackend. Use Shor.estimateModExpPhase.")
-
-                                    let inverseQftOps =
-                                        [ (intent.CountingQubits - 1) .. -1 .. 0 ]
-                                        |> List.collect (fun tq ->
-                                            let phases =
-                                                [ tq + 1 .. intent.CountingQubits - 1 ]
-                                                |> List.map (fun k ->
-                                                    let power = k - tq + 1
-                                                    let angle = -2.0 * Math.PI / float (1 <<< power)
-                                                    QuantumOperation.Gate(CircuitBuilder.CP(k, tq, angle)))
-
-                                            let h = QuantumOperation.Gate(CircuitBuilder.H tq)
-                                            phases @ [ h ])
-
-                                    let swapOps =
-                                        if intent.ApplySwaps then
-                                            List.init (max 0 (intent.CountingQubits / 2)) (fun i ->
-                                                let j = intent.CountingQubits - 1 - i
-                                                QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
-                                        else
-                                            []
-
-                                    let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
-                                    (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
+                                    // Realised on the fusion encoding, not lowered to gates.
+                                    // These unitaries are diagonal, so the whole controlled-U
+                                    // ladder is one phase per counting value — see
+                                    // singleQubitQpeSuperposition for the phase conventions.
+                                    singleQubitQpeSuperposition
+                                        intent.Unitary
+                                        intent.CountingQubits
+                                        intent.PrepareTargetOne
+                                        (QuantumState.numQubits state)
+                                        intent.ApplySwaps
+                                        anyonType
+                                    |> Result.mapError (fun message ->
+                                        QuantumError.OperationError("TopologicalBackend", message))
+                                    |> Result.map (fun superposition ->
+                                        QuantumState.FusionSuperposition(
+                                            TopologicalOperations.toInterface superposition
+                                        ))
 
                             | QuantumOperation.Algorithm(AlgorithmOperation.HHL intent) ->
                                 // Diagonal HHL inversion via the shared multiplexed multi-controlled RY.

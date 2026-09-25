@@ -786,8 +786,7 @@ module AlgorithmExtensionsTests =
             {
                 CountingQubits = 3
                 TargetQubits = 4 // ceil(log2 15)
-                UnitaryOperator =
-                    FSharp.Azure.Quantum.Algorithms.QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                UnitaryOperator = FSharp.Azure.Quantum.Algorithms.QPE.UnitaryOperator.ModularExponentiation(7, 15)
                 EigenVector = None
             }
 
@@ -801,3 +800,130 @@ module AlgorithmExtensionsTests =
                 abs (scaled - System.Math.Round scaled) < 1e-9,
                 $"Phase {result.EstimatedPhase} is not a multiple of 1/4; period finding could not recover r=4"
             )
+
+    // ========================================================================
+    // Native single-qubit QPE against the gate simulator
+    // ========================================================================
+    //
+    // Every unitary, both swap settings, both eigenstate preparations. PrepareTargetOne
+    // matters more than it looks: CP fires only when control AND target are 1, so a target
+    // left in |0> accumulates no phase at all, whereas CRZ applies rz = diag(e^(-i0/2),
+    // e^(+i0/2)) and merely flips sign. An implementation that treated them alike would pass
+    // half of these.
+    let singleQubitUnitaries: obj[] seq =
+        seq {
+            for applySwaps in [ true; false ] do
+                for prepareOne in [ true; false ] do
+                    yield [| box "T"; box applySwaps; box prepareOne |]
+                    yield [| box "S"; box applySwaps; box prepareOne |]
+                    yield [| box "Phase"; box applySwaps; box prepareOne |]
+                    yield [| box "Rz"; box applySwaps; box prepareOne |]
+        }
+
+    [<Theory; MemberData(nameof singleQubitUnitaries)>]
+    let ``native single-qubit QPE agrees with the gate simulator``
+        (kind: string)
+        (applySwaps: bool)
+        (prepareOne: bool)
+        =
+        let countingQubits = 3
+
+        let unitary =
+            match kind with
+            | "T" -> BackendAbstraction.QpeUnitary.TGate
+            | "S" -> BackendAbstraction.QpeUnitary.SGate
+            | "Phase" -> BackendAbstraction.QpeUnitary.PhaseGate(System.Math.PI / 3.0)
+            | _ -> BackendAbstraction.QpeUnitary.RotationZ(System.Math.PI / 5.0)
+
+        let qpeOp =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QPE
+                    {
+                        CountingQubits = countingQubits
+                        TargetQubits = 1
+                        Unitary = unitary
+                        PrepareTargetOne = prepareOne
+                        ApplySwaps = applySwaps
+                    }
+            )
+
+        // Angles that are not dyadic fractions of 2*pi (pi/3, pi/5) spread the phase across
+        // the whole counting register instead of landing on one outcome, so every amplitude
+        // carries information rather than just the peak.
+        let run (backend: BackendAbstraction.IQuantumBackend) =
+            backend.InitializeState(countingQubits + 1)
+            |> Result.bind (backend.ApplyOperation qpeOp)
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 10
+
+        match run localBackend, run topoBackend with
+        | Ok gateState, Ok topoState ->
+            let expected = amplitudesOf gateState
+            let actual = amplitudesOf topoState
+
+            Assert.Equal(expected.Length, actual.Length)
+
+            for i in 0 .. expected.Length - 1 do
+                Assert.True(
+                    (expected.[i] - actual.[i]).Magnitude < 1e-9,
+                    $"{kind} (swaps={applySwaps}, prepareOne={prepareOne}) amplitude {i}: gate {expected.[i]} vs topological {actual.[i]}"
+                )
+        | Error err, _ -> failwith $"Gate simulator failed: {err}"
+        | _, Error err -> failwith $"Topological backend failed: {err}"
+
+    [<Fact>]
+    let ``QPE intent refuses a non-zero input instead of discarding it`` () =
+        // The native handlers build the QPE output from scratch instead of applying a circuit
+        // to the incoming state. That is within the documented contract — the intent says it
+        // transforms |0..0> — but the gate lowering they replaced applied gates to WHATEVER
+        // state was there. If a caller applies the intent mid-circuit, the two disagree and
+        // the native one answers silently.
+        let countingQubits = 3
+
+        let qpeOp =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QPE
+                    {
+                        CountingQubits = countingQubits
+                        TargetQubits = 1
+                        Unitary = BackendAbstraction.QpeUnitary.TGate
+                        PrepareTargetOne = true
+                        ApplySwaps = true
+                    }
+            )
+
+        // Input is NOT |0000>: flip a counting qubit first.
+        let run (backend: BackendAbstraction.IQuantumBackend) =
+            backend.InitializeState(countingQubits + 1)
+            |> Result.bind (
+                backend.ApplyOperation(
+                    BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.X 0)
+                )
+            )
+            |> Result.bind (backend.ApplyOperation qpeOp)
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 10
+
+        // The gate simulator applies the circuit to whatever it is given, which for a
+        // non-zero input is outside what the intent defines. The native path must refuse
+        // rather than answer: it once returned amplitude 1 where the gate simulator had ~0.
+        match run topoBackend with
+        | Ok state ->
+            failwith (
+                "Should refuse a QPE intent on a non-zero input rather than discard it silently; got "
+                + sprintf "%A" (amplitudesOf state)
+            )
+        | Error(QuantumError.OperationError("TopologicalBackend", message)) -> Assert.Contains("|0..0>", message)
+        | Error err -> failwith $"Expected a contract refusal, got: {err}"
+
+        // ...and the gate simulator still accepts it, so this is a deliberate difference in
+        // contract strictness, not the native path being unable to run.
+        match run localBackend with
+        | Ok _ -> ()
+        | Error err -> failwith $"Gate simulator should still accept it: {err}"
