@@ -586,7 +586,7 @@ module BraidingOperatorsTests =
         =
         let byTree (s: TopologicalOperations.Superposition) =
             s.Terms
-            |> List.map (fun (amp, state) -> (sprintf "%A" state.Tree), amp)
+            |> List.map (fun (amp, state) -> $"%A{state.Tree}", amp)
             |> List.sortBy fst
 
         let l, r = byTree lhs, byTree rhs

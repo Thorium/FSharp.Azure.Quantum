@@ -631,3 +631,59 @@ module TaskSchedulingTests =
             | Error msg -> Assert.Fail($"solveQuantum should find a precedence-feasible schedule: %A{msg}")
         }
         :> Task
+
+    // ============================================================================
+    // TEST: A dependency chain longer than the slot cap is sized for, and a
+    // backend too small for it is refused up front
+    // (regression: 8 tasks capped the grid at 2 slots, so a 5-task chain could
+    //  never be placed and every run ended in "no valid solutions" after sampling.)
+    // ============================================================================
+
+    [<Fact>]
+    let ``solveQuantum refuses a chain the local simulator cannot hold, naming the qubits`` () =
+        task {
+            let chained id after' =
+                match after' with
+                | Some prev ->
+                    scheduledTask {
+                        taskId id
+                        duration (minutes 5.0)
+                        after prev
+                    }
+                | None ->
+                    scheduledTask {
+                        taskId id
+                        duration (minutes 5.0)
+                    }
+
+            // A 5-task chain plus 3 independent tasks: 8 tasks x 5 slots = 40 qubits.
+            let tasks' =
+                [
+                    chained "C1" None
+                    chained "C2" (Some "C1")
+                    chained "C3" (Some "C2")
+                    chained "C4" (Some "C3")
+                    chained "C5" (Some "C4")
+                    chained "I1" None
+                    chained "I2" None
+                    chained "I3" None
+                ]
+
+            let problem =
+                scheduling {
+                    tasks tasks'
+                    resources []
+                    objective MinimizeMakespan
+                }
+
+            let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            | Error(QuantumError.ValidationError(field, reason)) ->
+                Assert.Equal("qubits", field)
+                Assert.Contains("40 qubits", reason)
+                Assert.Contains("5 slots", reason)
+            | Error other -> Assert.Fail($"expected a qubit-capacity validation error, got %A{other}")
+            | Ok _ -> Assert.Fail("8 tasks with a 5-task chain need 40 qubits; the local simulator cannot hold them")
+        }
+        :> Task

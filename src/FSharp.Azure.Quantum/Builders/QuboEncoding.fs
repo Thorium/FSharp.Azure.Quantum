@@ -597,7 +597,7 @@ module ProblemTransformer =
         if actualRows <> qubo.Size || actualCols <> qubo.Size then
             Validation.failure
                 [
-                    sprintf "Size mismatch: declared size %d but matrix is %dx%d" qubo.Size actualRows actualCols
+                    $"Size mismatch: declared size %d{qubo.Size} but matrix is %d{actualRows}x%d{actualCols}"
                 ]
         else
             // Check 2: Matrix symmetry (only if sizes match)
@@ -609,7 +609,7 @@ module ProblemTransformer =
                             let qji = qubo.Coefficients.[j, i]
 
                             if abs (qij - qji) > 1e-10 then
-                                yield sprintf "Asymmetry detected: Q[%d,%d] = %f but Q[%d,%d] = %f" i j qij j i qji
+                                yield $"Asymmetry detected: Q[%d{i},%d{j}] = %f{qij} but Q[%d{j},%d{i}] = %f{qji}"
                 ]
 
             // Check 3: No invalid values (NaN, Infinity)

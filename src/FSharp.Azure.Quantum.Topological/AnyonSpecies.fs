@@ -128,7 +128,7 @@ module AnyonSpecies =
         | SU2Level k ->
             // General SU(2)_k has k+1 particles (spin 0, 1/2, ..., k/2)
             // Generate all j values: j_doubled from 0 to k
-            let particleList = [ 0..k ] |> List.map (fun j_doubled -> SpinJ(j_doubled, k))
+            let particleList = List.init (max 0 (k + 1)) (fun j_doubled -> SpinJ(j_doubled, k))
             Ok particleList
 
     /// Total quantum dimension D for normalization

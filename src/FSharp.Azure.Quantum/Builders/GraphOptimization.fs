@@ -486,8 +486,7 @@ module GraphOptimization =
                     |> List.collect (fun edge ->
                         match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
                         | Some uIdx, Some vIdx ->
-                            [ 0 .. numColors - 1 ]
-                            |> List.map (fun c ->
+                            List.init (max 0 numColors) (fun c ->
                                 // Penalty term: x_{u,c} * x_{v,c}
                                 let varU = uIdx * numColors + c
                                 let varV = vIdx * numColors + c

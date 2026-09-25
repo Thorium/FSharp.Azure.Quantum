@@ -183,8 +183,8 @@ module SocialNetworkAnalyzerTests =
         match solve problem with
         | Ok result ->
             Assert.True(
-                result.Message.Contains("communities")
-                || result.Message.Contains("No communities"),
+                result.Message.Contains "communities"
+                || result.Message.Contains "No communities",
                 $"Message should mention communities, got: {result.Message}"
             )
         | Error e -> failwith $"Should succeed, got error: {e}"
@@ -753,8 +753,8 @@ module SocialNetworkAnalyzerTests =
             Assert.Equal(3, result.TotalPeople)
 
             Assert.True(
-                result.Message.Contains("communities")
-                || result.Message.Contains("No communities"),
+                result.Message.Contains "communities"
+                || result.Message.Contains "No communities",
                 $"Message should mention communities, got: {result.Message}"
             )
         | Error e -> failwith $"Should succeed with legacy API, got error: {e}"

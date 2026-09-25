@@ -250,13 +250,13 @@ let checkSudoku4x4 (assignment: Map<int, int>) =
         let rowsValid =
             [ 0..3 ]
             |> List.forall (fun row ->
-                let values = [ 0..3 ] |> List.map (fun col -> grid.[row * 4 + col])
+                let values = List.init 4 (fun col -> grid.[row * 4 + col])
                 List.sort values = [ 1; 2; 3; 4 ])
 
         let colsValid =
             [ 0..3 ]
             |> List.forall (fun col ->
-                let values = [ 0..3 ] |> List.map (fun row -> grid.[row * 4 + col])
+                let values = List.init 4 (fun row -> grid.[row * 4 + col])
                 List.sort values = [ 1; 2; 3; 4 ])
 
         let boxesValid =
@@ -438,7 +438,7 @@ let runQueens () =
 
             for row in 0..3 do
                 let col = solution.Assignment.[row]
-                let board = [ 0..3 ] |> List.map (fun c -> if c = col then "Q" else ".")
+                let board = List.init 4 (fun c -> if c = col then "Q" else ".")
                 printfn "    %s" (String.concat " " board)
 
             printfn ""

@@ -615,7 +615,7 @@ let createFeatureMapCircuit (features: float array) (nQubits: int) : string =
     // Build quantum circuit string (for display)
     let sb = System.Text.StringBuilder()
 
-    sb.AppendLine($"// ZZ-Feature Map for ADMET (%d{nQubits} qubits, depth %d{featureMapDepth})")
+    sb.AppendLine $"// ZZ-Feature Map for ADMET (%d{nQubits} qubits, depth %d{featureMapDepth})"
     |> ignore
 
     for layer in 0 .. featureMapDepth - 1 do

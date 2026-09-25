@@ -641,7 +641,7 @@ module QuantumTeleportation =
             let totalTrials = List.length results
 
             // Average fidelity
-            let avgFidelity = results |> List.map (fun r -> r.Fidelity) |> List.average
+            let avgFidelity = results |> List.averageBy (fun r -> r.Fidelity)
 
             // Count measurement outcomes
             let count00 =

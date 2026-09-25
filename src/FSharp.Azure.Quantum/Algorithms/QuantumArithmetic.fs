@@ -73,7 +73,7 @@ module Arithmetic =
 
     /// Convert integer to binary representation (LSB first)
     let private intToBinary (n: int) (width: int) : int list =
-        [ 0 .. width - 1 ] |> List.map (fun i -> (n >>> i) &&& 1)
+        List.init (max 0 width) (fun i -> (n >>> i) &&& 1)
 
     /// Compute number of qubits needed to represent integer n
     let private qubitCountFor (n: int) : int =
@@ -152,8 +152,7 @@ module Arithmetic =
 
         let swapSequence =
             if applySwaps then
-                [ 0 .. numQubits / 2 - 1 ]
-                |> List.map (fun i ->
+                List.init (max 0 (numQubits / 2)) (fun i ->
                     let j = numQubits - 1 - i
                     QuantumOperation.Gate(CB.SWAP(registerQubits.[i], registerQubits.[j])))
             else
@@ -1841,3 +1840,205 @@ module QuantumArithmetic =
         circuit |> forwardMultiply <| 0 <| constant |> controlledSwap |> uncompute
         <| 0
         <| inverseConstant
+
+/// The Beauregard (2003) modular-exponentiation circuit, as operations rather than as an
+/// execution against one backend.
+///
+/// Why this module exists: `Arithmetic` above is written in executor style — every function
+/// threads a backend and a state and applies as it goes. That makes the circuit unavailable
+/// as data, which is why `QPE.plan` used to refuse a ModularExponentiation unitary and point
+/// callers at `Shor.estimateModExpPhase`, and why a braid backend had to be given its own
+/// separate implementation. Exposing the same circuit as a `QuantumOperation list` lets every
+/// backend execute it through one path: gate backends run the gates, braid backends compile
+/// them to braids, and a backend with something better still claims the intent natively.
+module ModularExponentiationCircuit =
+
+    /// Records the operations applied to it and computes nothing.
+    ///
+    /// This extracts `Arithmetic`'s circuit by running the real code against a backend that
+    /// only remembers what it was asked to do. That is sound here, and only here, because the
+    /// modular arithmetic is state-INDEPENDENT: it performs no measurement, reads no
+    /// amplitude, and branches on nothing but qubit indices and classical constants (the four
+    /// `match state with` sites in `Arithmetic` bound a validation check, never the operations
+    /// emitted). Running the real implementation is also why the extracted circuit cannot
+    /// drift from the executed one — there is only one implementation, not two.
+    ///
+    /// The state is `SparseState` with an empty amplitude map, so the recorder costs nothing
+    /// at any width: no 2^n vector is ever allocated.
+    type private OperationRecorder(numQubits: int) =
+        let recorded = ResizeArray<QuantumOperation>()
+
+        member _.Recorded: QuantumOperation list = List.ofSeq recorded
+
+        member _.State: QuantumState = QuantumState.SparseState(Map.empty, numQubits)
+
+        interface IQuantumBackend with
+            member _.Name = "beauregard-circuit-recorder"
+            member _.NativeStateType = QuantumStateType.GateBased
+
+            member _.InitializeState n =
+                Ok(QuantumState.SparseState(Map.empty, n))
+
+            member _.ApplyOperation operation state =
+                recorded.Add operation
+                Ok state
+
+            // Gates only. Answering false for algorithm intents keeps any nested lowering on
+            // primitive gates, which is what makes the recorded list portable to a backend
+            // that shares none of this one's shortcuts.
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm _ -> false
+                | _ -> true
+
+            member _.ExecuteToState _ =
+                Error(
+                    QuantumError.OperationError(
+                        "OperationRecorder",
+                        "records operations only; it does not execute circuits"
+                    )
+                )
+
+            member this.ExecuteToStateAsync circuit _ =
+                System.Threading.Tasks.Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
+
+            member this.ApplyOperationAsync operation state _ =
+                System.Threading.Tasks.Task.FromResult((this :> IQuantumBackend).ApplyOperation operation state)
+
+    /// Bits needed to hold a residue mod N — the width of the target register.
+    ///
+    /// Callers must size `TargetQubits` to this: the lowering derives the register width
+    /// from the modulus, so a different count would be quietly ignored rather than honoured.
+    let registerBitsFor (modulus: int) : int =
+        int (ceil (Math.Log(float modulus, 2.0)))
+
+    /// Qubits the controlled modular multiplication needs above `controlQubit` and
+    /// `targetQubits`: an n-qubit temp register plus the Arithmetic module's internal
+    /// ancilla chain (andAncilla, overflow, flag, and the doubly-controlled adder's own).
+    let workspaceQubits (numBits: int) : int = numBits + 5
+
+    /// C|y⟩ → C|a·y mod N⟩ as operations.
+    let buildControlledModularMultiplication
+        (controlQubit: int)
+        (targetQubits: int list)
+        (a: int)
+        (n: int)
+        : Result<QuantumOperation list, QuantumError> =
+
+        let numBits = List.length targetQubits
+
+        if numBits = 0 then
+            Error(
+                QuantumError.ValidationError(
+                    "targetQubits",
+                    "controlled modular multiplication requires at least one target qubit"
+                )
+            )
+        else
+            let maxExistingQubit = max controlQubit (List.max targetQubits)
+            let tempQubits = [ maxExistingQubit + 1 .. maxExistingQubit + numBits ]
+            let totalQubits = maxExistingQubit + workspaceQubits numBits
+
+            let recorder = OperationRecorder(totalQubits)
+
+            Arithmetic.controlledMultiplyConstantModNInPlace
+                controlQubit
+                targetQubits
+                tempQubits
+                a
+                n
+                recorder.State
+                (recorder :> IQuantumBackend)
+            |> Result.map (fun _ -> recorder.Recorded)
+
+    /// The full period-finding QPE circuit for U_a: |x⟩ → |a·x mod N⟩.
+    ///
+    /// Layout, matching `Shor.estimateModExpPhase` so every route agrees:
+    ///   [0 .. c-1]                counting register
+    ///   [c .. c+n-1]              target register, prepared in |1⟩
+    ///   [c+n .. c+2n+3]           workspace claimed by the arithmetic
+    ///
+    /// `applySwaps` follows the QPE convention: when false the inverse QFT omits its closing
+    /// bit-reversal swaps and the caller undoes the ordering classically.
+    let buildModExpQpe
+        (baseNum: int)
+        (modulus: int)
+        (countingQubits: int)
+        (applySwaps: bool)
+        : Result<QuantumOperation list, QuantumError> =
+
+        if modulus < 2 then
+            Error(QuantumError.ValidationError("modulus", "must be at least 2"))
+        elif baseNum < 2 || baseNum >= modulus then
+            Error(QuantumError.ValidationError("baseNum", $"must be in range [2, {modulus - 1}]"))
+        elif countingQubits <= 0 then
+            Error(QuantumError.ValidationError("countingQubits", "must be positive"))
+        else
+            let registerBits = registerBitsFor modulus
+            let targetQubits = [ countingQubits .. countingQubits + registerBits - 1 ]
+
+            // a^(2^j) mod N, folded classically. Squaring the running value keeps this exact
+            // for every j without ever forming a^(2^j) itself.
+            let powers =
+                List.init countingQubits id
+                |> List.scan (fun acc _ -> acc * acc % modulus) (baseNum % modulus)
+                |> List.take countingQubits
+
+            let hadamards = List.init countingQubits (CB.H >> QuantumOperation.Gate)
+
+            // Target register to |1⟩: the eigenvector basis for modular multiplication.
+            let prepareTarget = [ QuantumOperation.Gate(CB.X(List.head targetQubits)) ]
+
+            let controlledMultiplications =
+                powers
+                |> List.indexed
+                |> List.map (fun (j, aToPower) -> buildControlledModularMultiplication j targetQubits aToPower modulus)
+                |> List.fold
+                    (fun acc step ->
+                        match acc, step with
+                        | Error e, _ -> Error e
+                        | _, Error e -> Error e
+                        | Ok gathered, Ok ops -> Ok(gathered @ ops))
+                    (Ok [])
+
+            controlledMultiplications
+            |> Result.map (fun modMulOps ->
+                // Inverse QFT WITHOUT swaps, then the bit reversal afterwards if asked.
+                //
+                // The swap placement is not cosmetic. An inverse QFT that undoes a forward one
+                // applies the swaps FIRST, which is what both buildQftGateOps and the QFT
+                // intent's inverse form emit. Here there was no forward QFT — the Fourier-basis
+                // state came from the controlled multiplications — so swapping first permutes
+                // it before it is read and smears the phase across the counting register.
+                // Hence ApplySwaps = false, with the reversal kept explicit and appended.
+                //
+                // Emitted as an INTENT rather than expanded into H and controlled-phase gates,
+                // so that a backend able to transform the counting register directly gets the
+                // chance to. An expanded gate list dissolves into primitives that never reach
+                // the intent dispatcher, which is why route A stopped composing at exactly
+                // this point. Backends without a native QFT lower it straight back to the same
+                // gates, so nothing is lost by asking.
+                let inverseQft =
+                    [
+                        QuantumOperation.Algorithm(
+                            AlgorithmOperation.QFT
+                                {
+                                    NumQubits = countingQubits
+                                    Inverse = true
+                                    ApplySwaps = false
+                                }
+                        )
+                    ]
+
+                let bitReversal =
+                    if applySwaps then
+                        List.init (countingQubits / 2) (fun i ->
+                            QuantumOperation.Gate(CB.SWAP(i, countingQubits - 1 - i)))
+                    else
+                        []
+
+                hadamards @ prepareTarget @ modMulOps @ inverseQft @ bitReversal)
+
+    /// Total qubits `buildModExpQpe` addresses: counting + 2n + 4.
+    let totalQubitsFor (modulus: int) (countingQubits: int) : int =
+        countingQubits + 2 * registerBitsFor modulus + 4

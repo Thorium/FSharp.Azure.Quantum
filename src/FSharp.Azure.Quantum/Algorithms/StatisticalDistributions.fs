@@ -220,8 +220,7 @@ module StatisticalDistributions =
         if numBins < 2 then
             failwith "numBins must be >= 2"
 
-        [| 0 .. numBins - 1 |]
-        |> Array.map (fun i ->
+        Array.init (max 0 numBins) (fun i ->
             // Uniform quantile spacing
             let pLower = (float i) / float numBins
             let pUpper = (float i + 1.0) / float numBins
@@ -243,8 +242,7 @@ module StatisticalDistributions =
         if numBins < 2 then
             failwith "numBins must be >= 2"
 
-        [| 0 .. numBins - 1 |]
-        |> Array.map (fun i ->
+        Array.init (max 0 numBins) (fun i ->
             // Uniform quantile spacing
             let pLower = (float i) / float numBins
             let pUpper = (float i + 1.0) / float numBins

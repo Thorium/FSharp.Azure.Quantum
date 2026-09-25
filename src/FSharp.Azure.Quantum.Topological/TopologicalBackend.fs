@@ -211,6 +211,244 @@ module TopologicalUnifiedBackend =
             diffused |> TopologicalOperations.normalize
 
         // ====================================================================
+        // Native Quantum Fourier Transform (no gate compilation)
+        // ====================================================================
+
+        /// The QFT applied straight to a fusion superposition — exact, and with no gate
+        /// compilation, so no Solovay-Kitaev approximation.
+        ///
+        /// The index convention is derived from the gate circuit rather than assumed, which
+        /// is the only way to get it right: the circuit numbers qubit 0 as the MOST
+        /// significant bit (hence its bit reversal is SWAP(i, n-1-i)), while the fusion
+        /// encoding reads the same register least-significant first. Writing R for bit
+        /// reversal, F for the rotation block and S for the closing swaps, the lowering
+        /// composes S∘F forward and F⁻¹∘S inverse. In LSB indices that works out to:
+        ///
+        ///   forward:  out[a] = (1/√N) Σ_u in[u] ω^( +R(u) · (swaps ? R(a) : a) )
+        ///   inverse:  out[a] = (1/√N) Σ_u in[u] ω^( -R(a) · (swaps ? R(u) : u) )
+        ///
+        /// So the forward transform always reverses the INPUT index and the inverse always
+        /// reverses the OUTPUT index, with ApplySwaps reversing whichever one is left. That
+        /// duality is easy to miss: permuting the output in both directions passes a test
+        /// built on a bit-reversal-symmetric input such as |000> or |111>, and fails on an
+        /// asymmetric one like |011>.
+        /// `stateQubits` may exceed `numQubits`: the intent covers qubits 0 .. numQubits-1 and
+        /// the rest ride along untouched. That is how the transform appears inside a larger
+        /// circuit — Shor's inverse QFT runs on the counting register of a much wider state —
+        /// so the sub-register case is the one that matters for composition, not an edge case.
+        /// Each combination of the untouched high bits is transformed independently.
+        let qftOnTerms
+            (numQubits: int)
+            (stateQubits: int)
+            (inverse: bool)
+            (applySwaps: bool)
+            (fusionState: TopologicalOperations.Superposition)
+            (anyonType: AnyonSpecies.AnyonType)
+            : Result<TopologicalOperations.Superposition, string> =
+
+            let dimension = 1 <<< numQubits
+            let mask = dimension - 1
+            let scale = 1.0 / sqrt (float dimension)
+            let sign = if inverse then -1.0 else 1.0
+
+            let reverseBits (value: int) =
+                [ 0 .. numQubits - 1 ]
+                |> List.fold (fun acc j -> acc ||| (((value >>> j) &&& 1) <<< (numQubits - 1 - j))) 0
+
+            let inputFactor (u: int) =
+                if inverse then
+                    (if applySwaps then reverseBits u else u)
+                else
+                    reverseBits u
+
+            let outputFactor (a: int) =
+                if inverse then
+                    reverseBits a
+                else
+                    (if applySwaps then reverseBits a else a)
+
+            let combined = TopologicalOperations.combineLikeTerms fusionState
+
+            // Keyed by the untouched high bits, then by the transformed low bits.
+            let amplitudeByRest =
+                combined.Terms
+                |> List.fold
+                    (fun acc (amplitude, st) ->
+                        let bits = FusionTree.toComputationalBasis st.Tree |> List.toArray
+                        let index = bitsToIntLsbFirst bits
+                        let rest = index >>> numQubits
+                        let u = index &&& mask
+
+                        let block = acc |> Map.tryFind rest |> Option.defaultValue Map.empty
+                        let existing = block |> Map.tryFind u |> Option.defaultValue Complex.Zero
+                        acc |> Map.add rest (block |> Map.add u (existing + amplitude)))
+                    Map.empty
+
+            let encoded =
+                [
+                    for KeyValue(rest, block) in amplitudeByRest do
+                        for a in 0 .. dimension - 1 do
+                            let outFactor = outputFactor a
+
+                            let amplitude =
+                                block
+                                |> Map.fold
+                                    (fun acc u amp ->
+                                        let angle =
+                                            sign * 2.0 * Math.PI * float (inputFactor u) * float outFactor
+                                            / float dimension
+
+                                        acc + amp * Complex(scale * cos angle, scale * sin angle))
+                                    Complex.Zero
+
+                            if amplitude.Magnitude > 1e-14 then
+                                let index = (rest <<< numQubits) ||| a
+                                let bits = intToBitsLsbFirst stateQubits index |> Array.toList
+
+                                yield
+                                    FusionTree.fromComputationalBasis bits anyonType
+                                    |> Result.map (fun tree -> (amplitude, FusionTree.create tree anyonType))
+                ]
+
+            match
+                encoded
+                |> List.tryPick (function
+                    | Error err -> Some err
+                    | Ok _ -> None)
+            with
+            | Some err -> Error err.Message
+            | None ->
+                let terms =
+                    encoded
+                    |> List.choose (function
+                        | Ok term -> Some term
+                        | Error _ -> None)
+
+                Ok(TopologicalOperations.normalize { Terms = terms; AnyonType = anyonType })
+
+        // ====================================================================
+        // Native Modular-Exponentiation QPE (no gate compilation)
+        // ====================================================================
+
+        /// a^exp mod m by repeated squaring. Modulus stays under 1000 here, so the
+        /// intermediate products cannot overflow an int.
+        let rec modPowInt (baseNum: int) (exp: int) (modulus: int) : int =
+            if exp = 0 then
+                1 % modulus
+            else
+                let half = modPowInt baseNum (exp / 2) modulus
+                let squared = half * half % modulus
+
+                if exp % 2 = 0 then squared else squared * baseNum % modulus
+
+        /// Shor's period-finding QPE applied straight to a fusion superposition.
+        ///
+        /// This is route A: the semantic intent realised on the fusion-tree encoding with
+        /// no gate compilation, so it pays no Solovay-Kitaev cost. Route B — BraidToGate,
+        /// gate-based Shor, GateToBraid — is what Shor falls back to for backends that do
+        /// not offer this, and is much slower.
+        ///
+        /// Same fidelity class as the native Grover primitives above: amplitudes are
+        /// transformed in the computational basis the fusion trees encode. U_a is realised
+        /// as the basis permutation it is, rather than by expanding the Beauregard
+        /// arithmetic, so there is no ancilla workspace and nothing to uncompute. The
+        /// period still comes out of the measured phase — nothing here is computed
+        /// classically and presented as a quantum result.
+        ///
+        /// Qubit layout, matching Shor.estimateModExpPhase so both routes agree:
+        ///   [0 .. c-1]     counting register
+        ///   [c .. c+n-1]   target register
+        ///
+        /// With applySwaps = false the counting register is left bit-reversed, which is
+        /// what an inverse QFT without its closing swaps genuinely produces; the caller
+        /// undoes it. That keeps this observationally identical to the gate route.
+        /// `stateQubits` may exceed counting + target. The intent occupies the low
+        /// counting + target qubits and anything above rides along in |0>, exactly as the QFT
+        /// does over a sub-register. That matters because the state width depends on which
+        /// plan runs: QPE.execute sizes for the Beauregard lowering (counting + 2n + 4) before
+        /// it knows whether the backend will claim the intent natively, so a handler that
+        /// demanded precisely counting + target rejected every state QPE.execute built.
+        let modExpQpeSuperposition
+            (baseNum: int)
+            (modulus: int)
+            (countingQubits: int)
+            (targetQubits: int)
+            (stateQubits: int)
+            (applySwaps: bool)
+            (anyonType: AnyonSpecies.AnyonType)
+            : Result<TopologicalOperations.Superposition, string> =
+
+            let countingDim = 1 <<< countingQubits
+            let totalQubits = max stateQubits (countingQubits + targetQubits)
+            let scale = 1.0 / float countingDim
+
+            // H on the counting register, target prepared in |1>, then |x>|1> -> |x>|a^x mod N>.
+            // Those three steps collapse into one pass: U_a only permutes basis labels, so
+            // nothing mixes until the inverse QFT below.
+            let targetOf = Array.init countingDim (fun x -> modPowInt baseNum x modulus)
+
+            // Group the counting values by the target they land on. Each group is one orbit
+            // of the modular exponentiation, and only those x contribute to that y.
+            let orbits = [ 0 .. countingDim - 1 ] |> List.groupBy (fun x -> targetOf.[x])
+
+            // Inverse QFT on the counting register:
+            //   amp(k, y) = (1 / 2^c) * sum over x in orbit(y) of exp(-2*pi*i*k*x / 2^c)
+            let spectrum =
+                [
+                    for k in 0 .. countingDim - 1 do
+                        for (y, xs) in orbits do
+                            // Folded rather than summed: System.Numerics.Complex has no
+                            // get_Zero, so List.sumBy cannot see it as a numeric type.
+                            let amplitude =
+                                xs
+                                |> List.fold
+                                    (fun acc x ->
+                                        let angle = -2.0 * Math.PI * float k * float x / float countingDim
+                                        acc + Complex(scale * cos angle, scale * sin angle))
+                                    Complex.Zero
+
+                            if amplitude.Magnitude > 1e-14 then
+                                yield (k, y, amplitude)
+                ]
+
+            let reverseCountingBits (value: int) =
+                [ 0 .. countingQubits - 1 ]
+                |> List.fold
+                    (fun acc j ->
+                        let bit = (value >>> j) &&& 1
+                        acc ||| (bit <<< (countingQubits - 1 - j)))
+                    0
+
+            let encoded =
+                spectrum
+                |> List.map (fun (k, y, amplitude) ->
+                    let countingIndex = if applySwaps then k else reverseCountingBits k
+                    let basisIndex = countingIndex ||| (y <<< countingQubits)
+                    let bits = intToBitsLsbFirst totalQubits basisIndex |> Array.toList
+
+                    FusionTree.fromComputationalBasis bits anyonType
+                    |> Result.map (fun tree -> (amplitude, FusionTree.create tree anyonType)))
+
+            match
+                encoded
+                |> List.tryPick (function
+                    | Error err -> Some err
+                    | Ok _ -> None)
+            with
+            | Some err -> Error err.Message
+            | None ->
+                let terms =
+                    encoded
+                    |> List.choose (function
+                        | Ok term -> Some term
+                        | Error _ -> None)
+
+                let superposition: TopologicalOperations.Superposition =
+                    { Terms = terms; AnyonType = anyonType }
+
+                Ok(TopologicalOperations.normalize superposition)
+
+        // ====================================================================
         // Helper Functions for Operation Application
         // ====================================================================
 
@@ -536,36 +774,53 @@ module TopologicalUnifiedBackend =
                         try
                             match operation with
                             | QuantumOperation.Algorithm(AlgorithmOperation.QFT intent) ->
-                                // QFT intent execution for the topological model.
-                                // Currently implemented as explicit lowering to gate operations.
-                                let qftOps =
-                                    let applyQftStepOps targetQubit =
-                                        let hOp = QuantumOperation.Gate(CircuitBuilder.H targetQubit)
 
-                                        let phases =
-                                            [ targetQubit + 1 .. intent.NumQubits - 1 ]
-                                            |> List.map (fun k ->
-                                                let power = k - targetQubit
-                                                let angle = 2.0 * Math.PI / float (1 <<< power)
-                                                let angle = if intent.Inverse then -angle else angle
-                                                QuantumOperation.Gate(CircuitBuilder.CP(k, targetQubit, angle)))
+                                // Realised on the fusion encoding, not lowered to gates. See qftOnTerms for the
 
-                                        hOp :: phases
+                                // index convention and why it is derived from the circuit rather than assumed.
 
-                                    let qftSequence = [ 0 .. intent.NumQubits - 1 ] |> List.collect applyQftStepOps
+                                if intent.NumQubits <= 0 then
 
-                                    let swapSequence =
-                                        if intent.ApplySwaps then
-                                            [ 0 .. intent.NumQubits / 2 - 1 ]
-                                            |> List.map (fun i ->
-                                                let j = intent.NumQubits - 1 - i
-                                                QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
-                                        else
-                                            []
+                                    Error(QuantumError.ValidationError("NumQubits", "must be positive"))
 
-                                    qftSequence @ swapSequence
+                                elif QuantumState.numQubits state < intent.NumQubits then
 
-                                (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence qftOps) state
+                                    Error(
+
+                                        QuantumError.ValidationError(
+
+                                            "state",
+
+                                            $"state has {QuantumState.numQubits state} qubits, fewer than the {intent.NumQubits} the QFT intent covers"
+
+                                        )
+
+                                    )
+
+                                else
+
+                                    qftOnTerms
+
+                                        intent.NumQubits
+
+                                        (QuantumState.numQubits state)
+
+                                        intent.Inverse
+
+                                        intent.ApplySwaps
+
+                                        fusionState
+
+                                        anyonType
+
+                                    |> Result.mapError (fun message ->
+                                        QuantumError.OperationError("TopologicalBackend", message))
+
+                                    |> Result.map (fun superposition ->
+
+                                        QuantumState.FusionSuperposition(
+                                            TopologicalOperations.toInterface superposition
+                                        ))
 
                             | QuantumOperation.Algorithm(AlgorithmOperation.GroverPrepare numQubits) ->
                                 // Build |s⟩ over computational basis.
@@ -573,8 +828,7 @@ module TopologicalUnifiedBackend =
                                     let dim = 1 <<< numQubits
 
                                     let stateResults =
-                                        [ 0 .. dim - 1 ]
-                                        |> List.map (fun x ->
+                                        List.init (max 0 dim) (fun x ->
                                             let bits = intToBitsLsbFirst numQubits x |> Array.toList
 
                                             FusionTree.fromComputationalBasis bits anyonType
@@ -619,44 +873,68 @@ module TopologicalUnifiedBackend =
                                 Ok(QuantumState.FusionSuperposition(TopologicalOperations.toInterface diffused))
 
                             | QuantumOperation.Algorithm(AlgorithmOperation.QPE intent) ->
-                                // Execute QPE intent by lowering to gate operations.
+                                // Two routes live here. ModularExponentiation is realised
+                                // natively on the fusion encoding (route A, no gate
+                                // compilation); the single-qubit unitaries are lowered to
+                                // gates below and compiled to braids like anything else.
                                 //
                                 // Note: `intent.ApplySwaps` controls whether the final bit-reversal SWAPs
                                 // are applied. QPE can omit swaps and undo bit order classically.
+                                let modExpParameters =
+                                    match intent.Unitary with
+                                    | QpeUnitary.ModularExponentiation(baseNum, modulus) -> Some(baseNum, modulus)
+                                    | _ -> None
+
                                 if intent.CountingQubits <= 0 then
                                     Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
+                                elif QuantumState.numQubits state < (intent.CountingQubits + intent.TargetQubits) then
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "state",
+                                            $"state has {QuantumState.numQubits state} qubits, fewer than the {intent.CountingQubits + intent.TargetQubits} the QPE intent covers"
+                                        )
+                                    )
+                                elif modExpParameters.IsSome then
+                                    let (baseNum, modulus) = modExpParameters.Value
+
+                                    if modulus < 2 then
+                                        Error(QuantumError.ValidationError("modulus", "must be at least 2"))
+                                    elif modulus > (1 <<< intent.TargetQubits) then
+                                        Error(
+                                            QuantumError.ValidationError(
+                                                "TargetQubits",
+                                                $"target register of {intent.TargetQubits} qubits cannot hold residues mod {modulus}"
+                                            )
+                                        )
+                                    else
+                                        modExpQpeSuperposition
+                                            baseNum
+                                            modulus
+                                            intent.CountingQubits
+                                            intent.TargetQubits
+                                            (QuantumState.numQubits state)
+                                            intent.ApplySwaps
+                                            anyonType
+                                        |> Result.mapError (fun message ->
+                                            QuantumError.OperationError("TopologicalBackend", message))
+                                        |> Result.map (fun superposition ->
+                                            QuantumState.FusionSuperposition(
+                                                TopologicalOperations.toInterface superposition
+                                            ))
                                 elif intent.TargetQubits <> 1 then
                                     Error(
                                         QuantumError.ValidationError(
                                             "TargetQubits",
-                                            "only TargetQubits = 1 is supported by QPE intent"
-                                        )
-                                    )
-                                elif
-                                    (match intent.Unitary with
-                                     | QpeUnitary.ModularExponentiation _ -> true
-                                     | _ -> false)
-                                then
-                                    Error(
-                                        QuantumError.OperationError(
-                                            "TopologicalBackend",
-                                            "ModularExponentiation QPE cannot be executed via TopologicalBackend's native QPE handler. "
-                                            + "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."
-                                        )
-                                    )
-                                elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
-                                    Error(
-                                        QuantumError.ValidationError(
-                                            "state",
-                                            "state qubit count does not match QPE intent"
+                                            "only TargetQubits = 1 is supported for single-qubit QPE unitaries"
                                         )
                                     )
                                 else
                                     let targetQubit = intent.CountingQubits
 
                                     let hadamardOps =
-                                        [ 0 .. intent.CountingQubits - 1 ]
-                                        |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+                                        List.init
+                                            (max 0 intent.CountingQubits)
+                                            (CircuitBuilder.H >> QuantumOperation.Gate)
 
                                     let eigenPrepOps =
                                         if intent.PrepareTargetOne then
@@ -665,8 +943,7 @@ module TopologicalUnifiedBackend =
                                             []
 
                                     let controlledOps =
-                                        [ 0 .. intent.CountingQubits - 1 ]
-                                        |> List.map (fun j ->
+                                        List.init (max 0 intent.CountingQubits) (fun j ->
                                             let applications = 1 <<< j
 
                                             match intent.Unitary with
@@ -702,8 +979,7 @@ module TopologicalUnifiedBackend =
 
                                     let swapOps =
                                         if intent.ApplySwaps then
-                                            [ 0 .. intent.CountingQubits / 2 - 1 ]
-                                            |> List.map (fun i ->
+                                            List.init (max 0 (intent.CountingQubits / 2)) (fun i ->
                                                 let j = intent.CountingQubits - 1 - i
                                                 QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
                                         else
@@ -813,7 +1089,31 @@ module TopologicalUnifiedBackend =
             member this.SupportsOperation(operation: QuantumOperation) : bool =
                 match operation with
                 | QuantumOperation.Algorithm(AlgorithmOperation.QFT _) -> true
-                | QuantumOperation.Algorithm(AlgorithmOperation.QPE _) -> true
+                | QuantumOperation.Algorithm(AlgorithmOperation.QPE intent) ->
+                    // Which unitary this backend can realise — not how many target qubits
+                    // were asked for. TargetQubits is determined by the unitary (1 for the
+                    // single-qubit ones, ceil(log2 N) for ModularExponentiation), so testing
+                    // it here would be a magic number standing in for the case below, and a
+                    // mismatched count is malformed input for ApplyOperation to reject, not
+                    // a capability this backend lacks.
+                    //
+                    // Both QPE routes are available here, so this is true either way:
+                    //   A) ModularExponentiation realised natively on the fusion encoding
+                    //      (modExpQpeSuperposition) — no gate compilation, no Solovay-Kitaev;
+                    //   B) the single-qubit unitaries lowered to gates and compiled to braids.
+                    // Shor's planner reads this to pick ExecuteNatively over the slower
+                    // BraidToGate -> gate-based Shor -> GateToBraid round trip.
+                    //
+                    // TargetQubits is deliberately not tested: it is a consequence of the
+                    // unitary (1 for the single-qubit cases, ceil(log2 N) for modular
+                    // exponentiation), so a wrong count is malformed input for ApplyOperation
+                    // to reject, not a capability this backend lacks.
+                    match intent.Unitary with
+                    | QpeUnitary.ModularExponentiation _
+                    | QpeUnitary.PhaseGate _
+                    | QpeUnitary.TGate
+                    | QpeUnitary.SGate
+                    | QpeUnitary.RotationZ _ -> true
                 | QuantumOperation.Algorithm(AlgorithmOperation.HHL _) -> true
                 | QuantumOperation.Algorithm(AlgorithmOperation.GroverPrepare _)
                 | QuantumOperation.Algorithm(AlgorithmOperation.GroverOraclePhaseFlip _)

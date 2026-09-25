@@ -170,7 +170,7 @@ let recommend (cipher: CipherInfo) (qSafe: bool) (qBits: float) : string =
             qBits
             (cipher.KeyBits * 2)
     else
-        sprintf "%s is NOT quantum-safe (%.0f-bit quantum). UPGRADE IMMEDIATELY." cipher.Name qBits
+        $"%s{cipher.Name} is NOT quantum-safe (%.0f{qBits}-bit quantum). UPGRADE IMMEDIATELY."
 
 /// Analyse one cipher.
 let analyseCipher (cipher: CipherInfo) : CipherResult =

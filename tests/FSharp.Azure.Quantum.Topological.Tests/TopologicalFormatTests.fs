@@ -306,9 +306,7 @@ BRAID -1
                     Operations = [ Braid 0 ]
                 }
 
-            let! result = Executor.executeProgramAsync backend program CancellationToken.None
-
-            match result with
+            match! Executor.executeProgramAsync backend program CancellationToken.None with
             | Error err ->
                 let errStr = $"{err}"
                 Assert.Contains("INIT", errStr)
@@ -357,9 +355,7 @@ BRAID -1
                 | Ok() ->
                     let backend = TopologicalUnifiedBackendFactory.createIsing 16
 
-                    let! result = Executor.executeFileAsync backend tempFile CancellationToken.None
-
-                    match result with
+                    match! Executor.executeFileAsync backend tempFile CancellationToken.None with
                     | Ok exec ->
                         Assert.NotNull(box exec.FinalState)
                         Assert.True(exec.Messages.Length > 0, "Should have execution messages")
@@ -407,9 +403,7 @@ BRAID -1
                 // Read and execute asynchronously
                 let backend = TopologicalUnifiedBackendFactory.createIsing 16
 
-                let! result = Executor.executeFileAsync backend tempFile CancellationToken.None
-
-                match result with
+                match! Executor.executeFileAsync backend tempFile CancellationToken.None with
                 | Ok exec ->
                     Assert.NotNull(box exec.FinalState)
                     // 3 braid operations should produce 3 messages

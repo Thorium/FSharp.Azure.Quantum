@@ -230,7 +230,7 @@ module QaoaExecutionHelpers =
             | Error _ -> Double.MaxValue // Penalty for failed execution
             | Ok measurements ->
                 // Calculate average QUBO energy across all measurements
-                measurements |> Array.map (fun bits -> evaluateQubo qubo bits) |> Array.average
+                measurements |> Array.averageBy (fun bits -> evaluateQubo qubo bits)
 
     /// Execute QAOA with Nelder-Mead parameter optimization.
     /// Returns: (bestBitstring, optimizedParameters, converged)
@@ -853,7 +853,7 @@ module QaoaExecutionHelpers =
                     | None -> false
 
                 // Check if problem exceeds capacity
-                let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
+                let maxQubits = BackendAbstraction.UnifiedBackend.getRunnableQubits backend
 
                 let exceedsCapacity =
                     match budget.Decomposition with
@@ -938,7 +938,7 @@ module QaoaExecutionHelpers =
                     | Some maxMs -> stopwatch.ElapsedMilliseconds > int64 maxMs
                     | None -> false
 
-                let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
+                let maxQubits = BackendAbstraction.UnifiedBackend.getRunnableQubits backend
 
                 let exceedsCapacity =
                     match budget.Decomposition with

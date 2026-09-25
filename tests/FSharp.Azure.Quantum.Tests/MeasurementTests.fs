@@ -320,7 +320,7 @@ module MeasurementTests =
         let sv =
             StateVector.create [| Complex.Zero; Complex(half, 0.0); Complex(half, 0.0); Complex.Zero |]
 
-        let samples = Measurement.sampleComputationalBasis (System.Random(7)) sv 2000
+        let samples = Measurement.sampleComputationalBasis (Random(7)) sv 2000
 
         Assert.Equal(2000, samples.Length)
 
@@ -339,7 +339,7 @@ module MeasurementTests =
             probabilities |> Array.map (fun p -> Complex(sqrt p, 0.0)) |> StateVector.create
 
         let shots = 200000
-        let samples = Measurement.sampleComputationalBasis (System.Random(11)) sv shots
+        let samples = Measurement.sampleComputationalBasis (Random(11)) sv shots
 
         let counts = Array.zeroCreate 4
 
@@ -367,10 +367,10 @@ module MeasurementTests =
 
         let batchCounts = Array.zeroCreate 4
 
-        for bits in Measurement.sampleComputationalBasis (System.Random(23)) sv shots do
+        for bits in Measurement.sampleComputationalBasis (Random(23)) sv shots do
             batchCounts.[basisIndexOf bits] <- batchCounts.[basisIndexOf bits] + 1
 
-        let perShotRng = System.Random(29)
+        let perShotRng = Random(29)
         let perShotCounts = Array.zeroCreate 4
 
         for _ in 1..shots do
@@ -387,17 +387,17 @@ module MeasurementTests =
     let ``batch sampling handles the degenerate and single-outcome cases`` () =
         // A basis state: every shot must return it.
         let sv = StateVector.init 3
-        let samples = Measurement.sampleComputationalBasis (System.Random(3)) sv 100
+        let samples = Measurement.sampleComputationalBasis (Random(3)) sv 100
 
         for bits in samples do
             Assert.Equal(0, basisIndexOf bits)
 
         // Zero shots is an empty batch, not a failure.
-        Assert.Empty(Measurement.sampleComputationalBasis (System.Random(3)) sv 0)
+        Assert.Empty(Measurement.sampleComputationalBasis (Random(3)) sv 0)
 
         // A one-qubit state still produces one bit per shot.
         let single = StateVector.init 1
-        let oneQubit = Measurement.sampleComputationalBasis (System.Random(5)) single 10
+        let oneQubit = Measurement.sampleComputationalBasis (Random(5)) single 10
 
         for bits in oneQubit do
             Assert.Equal(1, bits.Length)

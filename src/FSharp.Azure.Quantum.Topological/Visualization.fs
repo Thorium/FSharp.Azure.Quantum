@@ -23,7 +23,7 @@ module VisualizationExtensions =
                     // Leaf: single anyon particle
                     sb.AppendLine($"    n%d{nodeId}[\"%A{particle}\"]") |> ignore
 
-                    sb.AppendLine($"    style n%d{nodeId} fill:#95e1d3,stroke:#333,stroke-width:2px")
+                    sb.AppendLine $"    style n%d{nodeId} fill:#95e1d3,stroke:#333,stroke-width:2px"
                     |> ignore
 
                     nodeId + 1
@@ -33,7 +33,7 @@ module VisualizationExtensions =
                     let currentNode = nodeId
                     sb.AppendLine($"    n%d{currentNode}[\"Fusion<br/>→ %A{channel}\"]") |> ignore
 
-                    sb.AppendLine($"    style n%d{currentNode} fill:#4ecdc4,stroke:#333,stroke-width:2px")
+                    sb.AppendLine $"    style n%d{currentNode} fill:#4ecdc4,stroke:#333,stroke-width:2px"
                     |> ignore
 
                     // Render left subtree
@@ -148,7 +148,7 @@ module VisualizationExtensions =
                             let right = getAnyonName (index + 1)
                             sb.AppendLine($"    Note over %s{left},%s{right}: Measure Fusion") |> ignore
 
-                            sb.AppendLine($"    %s{left}-->>%s{right}: Result: %A{outcome} (P=%.2f{prob})")
+                            sb.AppendLine $"    %s{left}-->>%s{right}: Result: %A{outcome} (P=%.2f{prob})"
                             |> ignore
 
                             anyonCount

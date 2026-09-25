@@ -124,8 +124,7 @@ module ToricCode =
         let horizontalEdges =
             [ 0 .. lattice.Height - 1 ]
             |> List.collect (fun y ->
-                [ 0 .. lattice.Width - 1 ]
-                |> List.map (fun x ->
+                List.init (max 0 lattice.Width) (fun x ->
                     {
                         Position = { X = x; Y = y }
                         Type = Horizontal
@@ -134,8 +133,7 @@ module ToricCode =
         let verticalEdges =
             [ 0 .. lattice.Height - 1 ]
             |> List.collect (fun y ->
-                [ 0 .. lattice.Width - 1 ]
-                |> List.map (fun x ->
+                List.init (max 0 lattice.Width) (fun x ->
                     {
                         Position = { X = x; Y = y }
                         Type = Vertical
@@ -241,7 +239,7 @@ module ToricCode =
     let measureSyndrome (state: ToricCodeState) : Syndrome =
         let vertices =
             [ 0 .. state.Lattice.Height - 1 ]
-            |> List.collect (fun y -> [ 0 .. state.Lattice.Width - 1 ] |> List.map (fun x -> { X = x; Y = y }))
+            |> List.collect (fun y -> List.init (max 0 state.Lattice.Width) (fun x -> { X = x; Y = y }))
 
         let vertexSyndrome =
             vertices |> List.map (fun v -> (v, measureVertexOperator state v)) |> Map.ofList

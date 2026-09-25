@@ -891,8 +891,7 @@ module FinancialData =
         else
             let mean = returns.LogReturns |> Array.average
 
-            let variance =
-                returns.LogReturns |> Array.map (fun r -> (r - mean) ** 2.0) |> Array.average
+            let variance = returns.LogReturns |> Array.averageBy (fun r -> (r - mean) ** 2.0)
 
             sqrt (variance * annualizationFactor)
 

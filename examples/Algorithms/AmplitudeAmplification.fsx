@@ -41,8 +41,7 @@ let shots = 4000
 let uniformPrep =
     let empty = CircuitBuilder.empty numQubits
 
-    [ 0 .. numQubits - 1 ]
-    |> List.map CircuitBuilder.H
+    List.init (max 0 numQubits) CircuitBuilder.H
     |> List.fold (fun c g -> CircuitBuilder.addGate g c) empty
 
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend

@@ -10,10 +10,16 @@ open FSharp.Azure.Quantum.LocalSimulator
 
 /// Tests for Shor's Algorithm and Backend Adapter
 ///
-/// These tests drive `Shor.executeClassicallyAssisted`: period finding runs
-/// classically and a QPE circuit is executed for demonstration. That path is
-/// qubit-light and its factor output is deterministic, so the assertions below
-/// name exact factors rather than accepting "any attempt".
+/// These tests drive `Shor.execute`, which is now the only path: period finding
+/// is QPE on modular exponentiation. The classically-assisted path they used to
+/// call is gone — it found the period by trial division and ran a QPE circuit
+/// whose phase was built from that answer, so it could not fail and proved
+/// nothing. Its determinism is why the assertions below name exact factors.
+///
+/// Consequence: every test here that factors an odd N now simulates a 17- to
+/// 20-qubit circuit and is marked ExtraSlow. The ones that stay fast are the
+/// ones that never reach period finding — even N, primes, and config
+/// validation — which are steps of Shor's algorithm, not substitutes for it.
 ///
 /// The modular arithmetic underneath is the Beauregard (2003) construction in
 /// `Arithmetic` — clean ancillas, fully uncomputed. (An earlier note here
@@ -38,7 +44,7 @@ module ShorsTests =
     /// Execute Shor's algorithm (backward compatibility wrapper)
     /// NOTE: shots parameter ignored in new API (state-based execution)
     let executeShorsWithBackend (config: ShorsConfig) (backend: IQuantumBackend) (shots: int) =
-        Shor.executeClassicallyAssisted config backend
+        Shor.execute config backend
 
     /// Factor number with backend (convenience wrapper)
     /// NOTE: shots parameter ignored in new API (state-based execution)
@@ -51,7 +57,7 @@ module ShorsTests =
                 MaxAttempts = 5
             }
         // Return Result type to match old signature
-        match Shor.executeClassicallyAssisted config backend with
+        match Shor.execute config backend with
         | Ok result -> if result.Success then Ok result else Error result.Message
         | Error err -> Error $"%A{err}"
 
@@ -59,7 +65,7 @@ module ShorsTests =
     // LOCAL SIMULATION TESTS (using ShorsAlgorithm module)
     // ========================================================================
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor factors 15 correctly`` () =
         // 15 = 3 × 5 (classic Shor's example)
         // OPTIMIZED: Use 5 precision qubits and 10 shots for fast execution
@@ -90,7 +96,7 @@ module ShorsTests =
                     Assert.Equal(7, period.Base)
                     Assert.Equal(4, period.Period)
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor factors 21 correctly`` () =
         // 21 = 3 × 7
         // OPTIMIZED: Use 5 precision qubits and 10 shots
@@ -176,7 +182,7 @@ module ShorsTests =
         |> Result.map (fun _ -> Assert.Fail("Should reject N > 1000"))
         |> Result.defaultWith (fun msg -> Assert.Contains("1000", msg))
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor with specific base`` () =
         // factorWithBackend 15 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000 using base a=7 (known to work)
         // OPTIMIZED: Reduced precision and shots
@@ -262,7 +268,7 @@ module ShorsTests =
                     Assert.Equal(n, p * q)
                     Assert.Equal<int Set>(Set.ofList expectedFactorList, Set.ofList [ p; q ])
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor returns correct config in result`` () =
         // OPTIMIZED: Reduced precision and shots
         let config =
@@ -313,7 +319,7 @@ module ShorsTests =
                 Assert.Equal(14, p * q)
                 Assert.True(p = 2 || q = 2, "One factor should be 2")
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor backend factorWithBackend 15 (LocalBackend.LocalBackend() :> IQuantumBackend) 1000 example`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
@@ -356,7 +362,7 @@ module ShorsTests =
                     // If no period found, ensure error message explains why
                     Assert.False(String.IsNullOrEmpty(result.Message), "Should provide meaningful error message")
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Period extraction works end-to-end`` () =
         // Test that Shor can extract periods correctly end-to-end
         // This replaces the internal extractPeriodFromHistogram test
@@ -414,7 +420,7 @@ module ShorsTests =
             // If it errors, should be a reasonable validation error
             Assert.NotNull(err)
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor config precision affects accuracy`` () =
         // Test that precision configuration affects results
         // This validates that the circuit creation respects precision parameter
@@ -436,7 +442,7 @@ module ShorsTests =
             Assert.True(result.Config.PrecisionQubits = 10, "Config should be preserved")
         | Error err -> Assert.Fail($"High precision execution failed: {err}")
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor backend config uses correct precision`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
@@ -453,7 +459,7 @@ module ShorsTests =
         | Error err -> Assert.Fail($"Execution with 5 precision qubits should succeed: {err}")
         | Ok result -> Assert.Equal(5, result.Config.PrecisionQubits)
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>]
     let ``Shor result includes period information when available`` () =
         // OPTIMIZED: Reduced precision and shots
         let config =

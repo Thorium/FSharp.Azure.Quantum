@@ -153,8 +153,7 @@ module QFT =
 
         let swapSequence =
             if config.ApplySwaps then
-                [ 0 .. numQubits / 2 - 1 ]
-                |> List.map (fun i ->
+                List.init (max 0 (numQubits / 2)) (fun i ->
                     let j = numQubits - 1 - i
                     QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
             else
@@ -628,4 +627,4 @@ module QFT =
             else
                 "without SWAPs"
 
-        sprintf "%s (%s)\nGates: %d | Time: %.2f ms" qftType swapStr result.GateCount result.ExecutionTimeMs
+        $"%s{qftType} (%s{swapStr})\nGates: %d{result.GateCount} | Time: %.2f{result.ExecutionTimeMs} ms"

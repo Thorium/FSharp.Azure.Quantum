@@ -572,6 +572,8 @@ module MoleculeFormats =
                             )
                     | _ -> Error $"Cannot parse atom/bond counts from '{countsLine}'"
 
+        let private sRegex = Regex @">\s*<([^>]+)>"
+
         /// Parse data fields from SDF format using tail recursion
         let private parseDataFields (lines: string array) (startLine: int) : Map<string, string> * int =
             let rec loop lineNum currentField (valueBuilder: StringBuilder) properties =
@@ -600,7 +602,7 @@ module MoleculeFormats =
                             | None -> properties
 
                         // Parse new field name
-                        let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
+                        let fieldMatch = sRegex.Match line
 
                         if fieldMatch.Success then
                             loop (lineNum + 1) (Some fieldMatch.Groups.[1].Value) (StringBuilder()) updatedProps

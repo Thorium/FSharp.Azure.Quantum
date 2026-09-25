@@ -382,3 +382,172 @@ module ShorArithmeticIntegrationTests =
 
                 Assert.Equal<int array>([| 0; 1; 3; 4 |], outputs) // 3·{0,1,2,3} mod 5
             | other -> failwith $"Expected StateVector, got: {QuantumState.stateType other}"
+
+    // ========================================================================
+    // BEAUREGARD CIRCUIT AS OPERATIONS (unified lowering)
+    // ========================================================================
+    //
+    // ModularExponentiationCircuit exposes the same Beauregard circuit as a
+    // QuantumOperation list, so QPE can lower a ModularExponentiation unitary for any
+    // backend instead of refusing it. These tests check the extracted circuit really is
+    // period-finding QPE, not merely that something was produced.
+
+    /// Marginal distribution over the counting register of a final state vector.
+    let private countingDistribution (countingQubits: int) (state: QuantumState) : float[] =
+        match state with
+        | QuantumState.StateVector sv ->
+            let dimension = StateVector.dimension sv
+            let counts = Array.zeroCreate<float>(1 <<< countingQubits)
+
+            for index in 0 .. dimension - 1 do
+                let amplitude = StateVector.getAmplitude index sv
+                let countingValue = index &&& ((1 <<< countingQubits) - 1)
+                counts.[countingValue] <- counts.[countingValue] + amplitude.Magnitude * amplitude.Magnitude
+
+            counts
+        | other -> failwith $"Expected StateVector, got: {QuantumState.stateType other}"
+
+    [<Fact>]
+    let ``extracted Beauregard QPE circuit concentrates on multiples of 2^c / r`` () =
+        // ord(7 mod 15) = 4 and 4 divides 2^3, so an exact QPE puts ALL of its probability
+        // on k in {0, 2, 4, 6} — the multiples of 2^c / r. Anything leaking elsewhere means
+        // the extracted circuit is not the circuit Arithmetic executes.
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let baseNum, modulus, countingQubits = 7, 15, 3
+
+        match ModularExponentiationCircuit.buildModExpQpe baseNum modulus countingQubits true with
+        | Error err -> failwith $"Building the modular-exponentiation QPE circuit failed: {err}"
+        | Ok ops ->
+            let totalQubits = ModularExponentiationCircuit.totalQubitsFor modulus countingQubits
+
+            let finalState =
+                backend.InitializeState totalQubits
+                |> Result.bind (UnifiedBackend.applySequence backend ops)
+
+            match finalState with
+            | Error err -> failwith $"Executing the extracted circuit failed: {err}"
+            | Ok state ->
+                let distribution = countingDistribution countingQubits state
+
+                let onPeriodMultiples = [ 0; 2; 4; 6 ] |> List.sumBy (fun k -> distribution.[k])
+
+                Assert.True(
+                    onPeriodMultiples > 0.99,
+                    $"Expected the counting register on multiples of 8/4, got %.4f{onPeriodMultiples} there; distribution = %A{distribution}"
+                )
+
+    [<Fact>]
+    let ``extracted circuit and the executed one agree on the modular multiplication`` () =
+        // The extraction runs Arithmetic's own code against a recording backend, so this
+        // pins that recording and executing cannot drift: same control, same register, same
+        // constant, same modulus, compared as final state vectors rather than as op lists.
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let targetQubits = [ 1; 2; 3 ]
+        let constant, modulus = 3, 5
+        let totalQubits = 1 + ModularExponentiationCircuit.workspaceQubits 3 + 3
+
+        // Control set to |1> so the multiplication actually fires.
+        let withControlSet () =
+            let (_, prepared) = prepareState totalQubits targetQubits 2
+            backend.ApplyOperation (QuantumOperation.Gate(X 0)) prepared
+
+        let executed =
+            withControlSet ()
+            |> Result.bind (Shor.controlledModularMultiplication 0 targetQubits constant modulus backend)
+
+        let extracted =
+            ModularExponentiationCircuit.buildControlledModularMultiplication 0 targetQubits constant modulus
+            |> Result.bind (fun ops -> withControlSet () |> Result.bind (UnifiedBackend.applySequence backend ops))
+
+        match executed, extracted with
+        | Ok(QuantumState.StateVector left), Ok(QuantumState.StateVector right) ->
+            let dimension = StateVector.dimension left
+            Assert.Equal(dimension, StateVector.dimension right)
+
+            for index in 0 .. dimension - 1 do
+                let a = StateVector.getAmplitude index left
+                let b = StateVector.getAmplitude index right
+                Assert.True((a - b).Magnitude < 1e-9, $"Amplitude {index} differs: {a} vs {b}")
+        | Error err, _ -> failwith $"Executed path failed: {err}"
+        | _, Error err -> failwith $"Extracted path failed: {err}"
+        | other -> failwith $"Expected two state vectors, got: %A{other}"
+
+    [<Fact>]
+    let ``QPE execute now accepts a modular-exponentiation unitary`` () =
+        // This is the unification in one assertion. QPE.execute used to refuse this config
+        // outright and tell the caller to go to Shor.estimateModExpPhase, because the
+        // Beauregard circuit existed only as an execution inside Shor. It is now lowered by
+        // QPE.plan like any other unitary, so the generic entry point handles it.
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 4 // ceil(log2 15)
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                EigenVector = None
+            }
+
+        match QPE.execute config backend with
+        | Error err -> failwith $"QPE.execute refused a modular-exponentiation unitary: {err}"
+        | Ok result ->
+            // ord(7 mod 15) = 4, so the phase is s/4 and the peak sits on a multiple of 1/4.
+            let scaled = result.EstimatedPhase * 4.0
+            let nearestMultiple = System.Math.Round scaled
+
+            Assert.True(
+                abs (scaled - nearestMultiple) < 1e-9,
+                $"Phase %.6f{result.EstimatedPhase} is not a multiple of 1/4, so period finding would not recover r=4"
+            )
+
+    [<Fact>]
+    let ``QPE lowers modular exponentiation for a backend that cannot take the intent`` () =
+        // LocalBackend declines the modular-exponentiation QPE intent (its native handler has
+        // no Beauregard arithmetic), so the planner must hand it the lowered circuit rather
+        // than failing. That fallback is what makes this work on any gate backend.
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let intent: QPE.QpeExecutionIntent =
+            {
+                ApplyBitReversalSwaps = false
+                Config =
+                    {
+                        CountingQubits = 3
+                        TargetQubits = 4
+                        UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                        EigenVector = None
+                    }
+                Exactness = QPE.Exact
+            }
+
+        match QPE.plan backend intent with
+        | Ok(QPE.QpePlan.ExecuteViaOps(ops, _)) -> Assert.NotEmpty ops
+        | Ok(QPE.QpePlan.ExecuteNatively _) ->
+            failwith "LocalBackend has no native modular-exponentiation QPE; planning it would error at execution"
+        | Error err -> failwith $"Planning failed: {err}"
+
+    [<Fact>]
+    let ``lowered modular-exponentiation QPE keeps its inverse QFT as an intent`` () =
+        // Route A only composes if sub-algorithms survive lowering. An op list that expands
+        // the inverse QFT into H and controlled-phase gates dissolves it into primitives that
+        // never reach a backend's intent dispatcher, so a backend able to transform the
+        // counting register directly would never be asked. This is a structural assertion
+        // because the behavioural difference is invisible on a gate backend, which lowers the
+        // intent straight back to the same gates.
+        match ModularExponentiationCircuit.buildModExpQpe 7 15 3 false with
+        | Error err -> failwith $"Building the circuit failed: {err}"
+        | Ok ops ->
+            let qftIntents =
+                ops
+                |> List.choose (function
+                    | QuantumOperation.Algorithm(AlgorithmOperation.QFT intent) -> Some intent
+                    | _ -> None)
+
+            let intent = Assert.Single qftIntents
+            Assert.Equal(3, intent.NumQubits)
+            Assert.True(intent.Inverse, "Period finding reads the counting register with an INVERSE QFT")
+
+            // The swaps must NOT be folded into the intent: its inverse form applies them
+            // before the rotations, whereas here they belong after. Getting this wrong put
+            // only 62% of the probability on the period multiples instead of over 99%.
+            Assert.False(intent.ApplySwaps, "Bit reversal is appended explicitly, not delegated to the intent")

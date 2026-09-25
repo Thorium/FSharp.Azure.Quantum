@@ -26,7 +26,12 @@ module ShorTests =
     // PLANNER TESTS (ADR: intent -> plan -> execute)
     // ========================================================================
 
-    type private NoQpeIntentBackend(inner: IQuantumBackend) =
+    /// A backend that claims modular-exponentiation QPE as one semantic operation.
+    ///
+    /// No shipped backend does this yet — the Beauregard arithmetic lives in Shor, which
+    /// compiles after both LocalBackend and TopologicalBackend — so the native branch of
+    /// the planner would otherwise be untested and free to rot.
+    type private NativeModExpQpeBackend(inner: IQuantumBackend) =
         interface IQuantumBackend with
             member _.ExecuteToState circuit = inner.ExecuteToState circuit
             member _.NativeStateType = inner.NativeStateType
@@ -34,10 +39,10 @@ module ShorTests =
 
             member _.SupportsOperation operation =
                 match operation with
-                | QuantumOperation.Algorithm(AlgorithmOperation.QPE _) -> false
+                | QuantumOperation.Algorithm(AlgorithmOperation.QPE _) -> true
                 | _ -> inner.SupportsOperation operation
 
-            member _.Name = inner.Name + " (no-qpe-intent)"
+            member _.Name = inner.Name + " (native-modexp-qpe)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
 
             member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
@@ -45,67 +50,61 @@ module ShorTests =
             member _.ApplyOperationAsync operation state ct =
                 inner.ApplyOperationAsync operation state ct
 
+    let private periodIntent: ShorPeriodFindingIntent =
+        {
+            Base = 7
+            Modulus = 15
+            CountingQubits = 3
+        }
+
     [<Fact>]
-    let ``Shor period-finding planner prefers native QPE intent when supported`` () =
+    let ``Shor period-finding planner hands the whole intent to a backend that claims it`` () =
+        let backend = createBackend () |> NativeModExpQpeBackend :> IQuantumBackend
+
+        match planPeriodFinding backend periodIntent with
+        | Ok(ShorPeriodFindingPlan.ExecuteNatively qpeIntent) ->
+            Assert.Equal(3, qpeIntent.CountingQubits)
+            // ceil(log2 15) = 4 register bits for the target, which is exactly the shape
+            // no shipped backend accepts yet — hence the test double above.
+            Assert.Equal(4, qpeIntent.TargetQubits)
+
+            match qpeIntent.Unitary with
+            | QpeUnitary.ModularExponentiation(baseNum, modulus) ->
+                Assert.Equal(7, baseNum)
+                Assert.Equal(15, modulus)
+            | other -> Assert.Fail($"Expected a ModularExponentiation unitary, got {other}")
+        | Ok(ShorPeriodFindingPlan.ExecuteViaModExpCircuit _) ->
+            Assert.Fail("Backend claimed native modular-exponentiation QPE but the planner lowered anyway")
+        | Error err -> Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``Shor period-finding planner lowers to the circuit when the backend declines`` () =
+        // The real LocalBackend, not a double: its SupportsOperation used to answer true
+        // for every QPE intent while ApplyOperation rejected this one, so this pins the
+        // honest answer as much as it pins the planner.
         let backend = createBackend ()
 
-        let intent: ShorPeriodFindingIntent =
-            {
-                Base = 7
-                Modulus = 15
-                PrecisionQubits = 3
-                Exactness = QPE.Exact
-            }
-
-        match planPeriodFinding backend intent with
-        | Ok(ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo(_, _, _, _, qpePlan)) ->
-            match qpePlan with
-            | QPE.QpePlan.ExecuteNatively(_, exactness) -> Assert.Equal(QPE.Exact, exactness)
-            | QPE.QpePlan.ExecuteViaOps _ -> Assert.Fail("Expected QPE ExecuteNatively plan")
+        match planPeriodFinding backend periodIntent with
+        | Ok(ShorPeriodFindingPlan.ExecuteViaModExpCircuit(baseNum, modulus, counting)) ->
+            Assert.Equal(7, baseNum)
+            Assert.Equal(15, modulus)
+            Assert.Equal(3, counting)
+        | Ok(ShorPeriodFindingPlan.ExecuteNatively _) ->
+            Assert.Fail("LocalBackend cannot execute modular-exponentiation QPE natively; planning it is a bug")
         | Error err -> Assert.Fail($"Planning failed: {err}")
 
     [<Fact>]
-    let ``Shor period-finding planner lowers QPE when intent op unsupported`` () =
-        let backend = createBackend () |> NoQpeIntentBackend :> IQuantumBackend
+    let ``Shor period-finding planner rejects a base that is not coprime to N`` () =
+        let backend = createBackend ()
 
-        let intent: ShorPeriodFindingIntent =
-            {
-                Base = 7
-                Modulus = 15
-                PrecisionQubits = 3
-                Exactness = QPE.Exact
-            }
-
-        match planPeriodFinding backend intent with
-        | Ok(ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo(_, _, _, _, qpePlan)) ->
-            match qpePlan with
-            | QPE.QpePlan.ExecuteViaOps(ops, exactness) ->
-                Assert.Equal(QPE.Exact, exactness)
-                Assert.NotEmpty ops
-                Assert.True(ops |> List.forall backend.SupportsOperation)
-            | QPE.QpePlan.ExecuteNatively _ -> Assert.Fail("Expected QPE ExecuteViaOps plan")
-        | Error err -> Assert.Fail($"Planning failed: {err}")
-
-    [<Fact>]
-    let ``Shor period-finding planner preserves approximate exactness`` () =
-        let backend = createBackend () |> NoQpeIntentBackend :> IQuantumBackend
-
-        let approximate = QPE.Approximate 0.001
-
-        let intent: ShorPeriodFindingIntent =
-            {
-                Base = 7
-                Modulus = 15
-                PrecisionQubits = 3
-                Exactness = approximate
-            }
-
-        match planPeriodFinding backend intent with
-        | Ok(ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo(_, _, _, _, qpePlan)) ->
-            match qpePlan with
-            | QPE.QpePlan.ExecuteViaOps(_, exactness) -> Assert.Equal(approximate, exactness)
-            | QPE.QpePlan.ExecuteNatively _ -> Assert.Fail("Expected QPE ExecuteViaOps plan")
-        | Error err -> Assert.Fail($"Planning failed: {err}")
+        // gcd(5, 15) = 5. This is caught at planning rather than after a simulation,
+        // and the caller turns it into a factor instead of a period-finding run.
+        match planPeriodFinding backend { periodIntent with Base = 5 } with
+        | Ok _ -> Assert.Fail("Should reject a base sharing a factor with N")
+        | Error(QuantumError.ValidationError(field, message)) ->
+            Assert.Equal("Base", field)
+            Assert.Contains("coprime", message)
+        | Error err -> Assert.Fail($"Expected a ValidationError, got: {err}")
 
     // ========================================================================
     // CLASSICAL PRE-CHECK TESTS
@@ -191,7 +190,7 @@ module ShorTests =
             ()
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>] // genuine quantum period finding since the classical path was removed
     let ``factor21 uses correct configuration`` () =
         let backend = createBackend ()
 
@@ -203,14 +202,14 @@ module ShorTests =
         | Error(QuantumError.NotImplemented _) -> () // Expected
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>] // genuine quantum period finding since the classical path was removed
     let ``factor calculates precision qubits correctly`` () =
         let backend = createBackend ()
 
         // For N=15: log₂(15) ≈ 3.9 → 2*3.9+3 = 10.8 → round to 10
         // For N=21: log₂(21) ≈ 4.4 → 2*4.4+3 = 11.8 → round to 11
 
-        match factorClassicallyAssisted 15 backend with
+        match factor 15 backend with
         | Ok result ->
             // Precision should be around 10-11 qubits
             Assert.InRange(result.Config.PrecisionQubits, 9, 12)
@@ -221,12 +220,12 @@ module ShorTests =
     // NOT IMPLEMENTED ERROR TESTS
     // ========================================================================
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>] // genuine quantum period finding since the classical path was removed
     let ``Shor's algorithm returns NotImplemented for composite odd numbers`` () =
         let backend = createBackend ()
 
         // 15 is composite and odd, requires quantum period-finding
-        match factorClassicallyAssisted 15 backend with
+        match factor 15 backend with
         | Ok result ->
             // If somehow implemented, validate success
             Assert.Equal(15, result.Number)
@@ -261,42 +260,44 @@ module ShorTests =
     // CUSTOM CONFIGURATION TESTS
     // ========================================================================
 
-    [<Fact>]
+    // These two check that a config is accepted and round-trips, not that factoring is hard.
+    // They used N=35 and N=21, which now cost a refusal and a 20-qubit circuit respectively.
+    // N=15 at 3 counting qubits keeps them honest and quick: every order of a base mod 15
+    // divides 8, so the phase grid resolves exactly and QPE lands first try.
+    [<Fact; Trait("Category", "Slow")>]
     let ``execute accepts custom ShorsConfig`` () =
         let backend = createBackend ()
 
         let config =
             {
-                NumberToFactor = 35
+                NumberToFactor = 15
                 RandomBase = Some 2
-                PrecisionQubits = 10
+                PrecisionQubits = 3
                 MaxAttempts = 5
             }
 
-        match executeClassicallyAssisted config backend with
+        match execute config backend with
         | Ok result ->
-            Assert.Equal(35, result.Number)
+            Assert.Equal(15, result.Number)
             Assert.Equal(config, result.Config)
-        | Error(QuantumError.NotImplemented _) -> () // Expected
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
-    [<Fact>]
+    [<Fact; Trait("Category", "Slow")>]
     let ``execute with None RandomBase allows algorithm to choose`` () =
         let backend = createBackend ()
 
         let config =
             {
-                NumberToFactor = 21
+                NumberToFactor = 15
                 RandomBase = None // Let algorithm choose
-                PrecisionQubits = 8
-                MaxAttempts = 3
+                PrecisionQubits = 3
+                MaxAttempts = 5
             }
 
-        match executeClassicallyAssisted config backend with
+        match execute config backend with
         | Ok result ->
-            Assert.Equal(21, result.Number)
+            Assert.Equal(15, result.Number)
             Assert.Equal(None, config.RandomBase)
-        | Error(QuantumError.NotImplemented _) -> () // Expected
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     // ========================================================================
@@ -319,21 +320,31 @@ module ShorTests =
         | Error err -> Assert.Fail($"Should handle perfect square: {err}")
 
     [<Fact>]
-    let ``Shor's algorithm handles semi-primes`` () =
+    let ``Shor refuses a semi-prime whose circuit exceeds the qubit budget`` () =
         let backend = createBackend ()
 
-        // 35 = 5 × 7 (semi-prime: product of two primes)
-        match factorClassicallyAssisted 35 backend with
-        | Ok result ->
-            Assert.Equal(35, result.Number)
+        // 35 = 5 × 7 needs 6 register bits, leaving 20 - 2*6 - 4 = 4 counting qubits — fewer
+        // than the 6 required to resolve the period. This used to return [5; 7] from a
+        // classical trial-division search dressed as a quantum result. Refusing is the
+        // honest answer, and asserting the refusal is what stops the fallback coming back.
+        //
+        // The base is pinned because it must be coprime to 35 for period finding to be
+        // reached at all: an unlucky draw (a=30, say) makes gcd(a, 35) a factor outright,
+        // which is a genuine step of Shor's algorithm and returns Ok before any planning.
+        let config =
+            {
+                NumberToFactor = 35
+                RandomBase = Some 2 // gcd(2, 35) = 1
+                PrecisionQubits = 8
+                MaxAttempts = 1
+            }
 
-            match result.Factors with
-            | Some(5, 7)
-            | Some(7, 5) -> () // Success
-            | Some(p, q) -> Assert.Equal(35, p * q)
-            | None -> () // Quantum part not implemented, acceptable
-        | Error(QuantumError.NotImplemented _) -> () // Expected
-        | Error err -> Assert.Fail($"Unexpected error: {err}")
+        match execute config backend with
+        | Ok result -> Assert.Fail($"Should refuse N=35 rather than factor it classically: {result.Message}")
+        | Error(QuantumError.ValidationError(_, message)) ->
+            Assert.Contains("counting qubits", message)
+            Assert.DoesNotContain("classically assisted", message)
+        | Error err -> Assert.Fail($"Expected a qubit-budget ValidationError: {err}")
 
     // ========================================================================
     // RULE1 COMPLIANCE TESTS
@@ -400,7 +411,7 @@ module ShorTests =
                 Assert.Equal(4, pr.Period)
             | None -> ()
 
-    [<Fact>]
+    [<Fact; Trait("Category", "ExtraSlow")>] // genuine quantum period finding since the classical path was removed
     let ``factor21 successfully factors 21 into 3 and 7`` () =
         let backend = createBackend ()
 
@@ -425,25 +436,6 @@ module ShorTests =
                 // Period of 2 mod 21 should be 6 (since 2^6 = 64 ≡ 1 mod 21)
                 Assert.Equal(6, pr.Period)
             | None -> ()
-
-    [<Fact>]
-    let ``factor with N=35 successfully factors into 5 and 7`` () =
-        let backend = createBackend ()
-
-        // factor (genuine default) auto-falls back to classically-assisted when N is too large
-        // for the genuine quantum circuit (N=35 needs more counting qubits than fit in 20 qubits).
-        match factor 35 backend with
-        | Error err -> Assert.Fail($"Should succeed: {err}")
-        | Ok result ->
-            Assert.True(result.Success)
-            Assert.Equal(35, result.Number)
-
-            match result.Factors with
-            | Some(p, q) ->
-                Assert.Equal(35, p * q)
-                let factors = [ p; q ] |> List.sort
-                Assert.Equal<int list>([ 5; 7 ], factors)
-            | None -> Assert.Fail("Should find factors for 35")
 
     [<Fact>]
     let ``findPeriod validates inputs`` () =
@@ -481,17 +473,16 @@ module ShorTests =
             Assert.InRange(result.Period, 1, 15)
 
     [<Fact>]
-    let ``findPeriod falls back to classically-assisted for N too large for the quantum circuit`` () =
+    let ``findPeriod refuses N too large for the quantum circuit rather than going classical`` () =
         let backend = createBackend ()
 
-        // N=35 needs 6 register bits; the genuine quantum circuit would need more counting
-        // qubits than fit the 20-qubit budget, so findPeriod must fall back (mirroring plan)
-        // instead of burning 16 futile QPE attempts and erroring.
+        // N=35 needs 6 register bits, more counting qubits than the 20-qubit budget leaves.
+        // findPeriod used to answer 12 here — ord(2 mod 35), found by trial division. It is
+        // the right number and the wrong way to get it, so the contract is now an error.
         match findPeriod 2 35 8 backend with
-        | Error err -> Assert.Fail($"Should fall back and succeed: {err}")
-        | Ok result ->
-            Assert.Equal(2, result.Base)
-            Assert.Equal(12, result.Period) // ord(2 mod 35) = 12
+        | Ok result -> Assert.Fail($"Should refuse N=35, but returned period {result.Period}")
+        | Error(QuantumError.ValidationError(_, reason)) -> Assert.Contains("counting qubits", reason)
+        | Error err -> Assert.Fail($"Expected a qubit-budget ValidationError: {err}")
 
     [<Fact>]
     let ``findPeriodQuantum fails fast for N too large for the qubit budget`` () =
@@ -505,22 +496,28 @@ module ShorTests =
         | Error err -> Assert.Fail($"Expected ValidationError, got: {err}")
 
     [<Fact>]
-    let ``factorClassicallyAssisted factors N in the 128-1000 range it is documented for`` () =
+    let ``factoring N in the 128-1000 range is refused, not faked`` () =
         let backend = createBackend ()
 
-        // Regression: the 2·log₂(N)+3 precision recommendation exceeds the classically-assisted
-        // path's 16-qubit cap from N=128, which previously made this error for its whole
-        // documented "larger N" range.
-        match factorClassicallyAssisted 143 backend with
-        | Error err -> Assert.Fail($"Should succeed for N=143: {err}")
-        | Ok result ->
-            Assert.True(result.Success, $"Should factor 143: {result.Message}")
+        // This used to assert that N=143 factors into 11 and 13. It did — classically. The
+        // "128-1000 range it is documented for" was a range the quantum circuit has never
+        // been able to reach on a 20-qubit budget, so the documentation described the
+        // fallback rather than the algorithm. Now the range is simply out of reach and says so.
+        //
+        // Base pinned coprime for the same reason as the N=35 case above: a random draw
+        // hitting a multiple of 11 or 13 factors 143 by gcd and never reaches planning.
+        let config =
+            {
+                NumberToFactor = 143
+                RandomBase = Some 2 // gcd(2, 143) = 1
+                PrecisionQubits = 8
+                MaxAttempts = 1
+            }
 
-            match result.Factors with
-            | Some(p, q) ->
-                Assert.Equal(143, p * q)
-                Assert.Equal<int list>([ 11; 13 ], List.sort [ p; q ])
-            | None -> Assert.Fail("Should find factors for 143")
+        match execute config backend with
+        | Ok result -> Assert.Fail($"Should refuse N=143 rather than factor it classically: {result.Message}")
+        | Error(QuantumError.ValidationError(_, reason)) -> Assert.Contains("counting qubits", reason)
+        | Error err -> Assert.Fail($"Expected a qubit-budget ValidationError: {err}")
 
     [<Fact>]
     let ``Shor demonstrates QPE for period finding`` () =
@@ -537,7 +534,7 @@ module ShorTests =
                 MaxAttempts = 3
             }
 
-        match executeClassicallyAssisted config backend with
+        match execute config backend with
         | Ok result when result.PeriodResult.IsSome ->
             let pr = result.PeriodResult.Value
             // Phase estimate should be in range [0, 1)

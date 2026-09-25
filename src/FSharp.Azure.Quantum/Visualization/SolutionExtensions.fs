@@ -129,7 +129,7 @@ module SolutionVisualizationExtensions =
                     else
                         String.concat ", " node.ConflictsWith
 
-                sb.AppendLine($"  %s{node.Id}%s{fixedStr} → conflicts with: %s{conflictsStr}")
+                sb.AppendLine $"  %s{node.Id}%s{fixedStr} → conflicts with: %s{conflictsStr}"
                 |> ignore)
 
             sb.ToString()
@@ -162,7 +162,7 @@ module SolutionVisualizationExtensions =
                         let color = if coef > 0.0 then "red" else "green"
                         sb.AppendLine($"        v%d{i} -.\"%.2f{coef}\".-> v%d{i}") |> ignore
 
-                        sb.AppendLine($"        style v%d{i} stroke:%s{color},stroke-width:3px")
+                        sb.AppendLine $"        style v%d{i} stroke:%s{color},stroke-width:3px"
                         |> ignore
                     else
                         // Off-diagonal term (quadratic coefficient)

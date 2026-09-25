@@ -123,8 +123,7 @@ module BraketExecution =
     /// Largest circuit for which we materialise a DENSE state vector from the histogram.
     /// Must match what `StateVector.create` accepts, which is derived from available
     /// memory rather than fixed -- see LocalSimulator.StateVector.maxQubits.
-    let private maxDenseStateQubits =
-        FSharp.Azure.Quantum.LocalSimulator.StateVector.maxQubits
+    let private maxDenseStateQubits = StateVector.maxQubits
 
     /// Largest circuit for which we materialise a SPARSE state from the histogram.
     /// `QuantumState.SparseState` keys basis indices as Int32, so 31 qubits is the

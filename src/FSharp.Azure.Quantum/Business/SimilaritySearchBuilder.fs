@@ -588,8 +588,7 @@ module SimilaritySearch =
 
             // Helper: Update centroids based on assignments
             let updateCentroids (assignments: int array) (centroids: float array array) =
-                [| 0 .. numClusters - 1 |]
-                |> Array.map (fun c ->
+                Array.init (max 0 numClusters) (fun c ->
                     let clusterFeatures =
                         features
                         |> Array.indexed
@@ -618,8 +617,7 @@ module SimilaritySearch =
 
             // Group items by cluster
             let clusters =
-                [| 0 .. numClusters - 1 |]
-                |> Array.map (fun c ->
+                Array.init (max 0 numClusters) (fun c ->
                     index.Items
                     |> Array.indexed
                     |> Array.filter (fun (i, _) -> finalAssignments.[i] = c)

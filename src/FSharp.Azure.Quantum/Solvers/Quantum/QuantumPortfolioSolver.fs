@@ -202,8 +202,7 @@ module QuantumPortfolioSolver =
                 // ========================================================================
 
                 let diversificationTerms =
-                    [ 0 .. numAssets - 1 ]
-                    |> List.map (fun i ->
+                    List.init (max 0 numAssets) (fun i ->
                         let diversificationBonus = -0.1 * penaltyWeight / float numAssets
                         ((i, i), diversificationBonus))
 
@@ -341,8 +340,7 @@ module QuantumPortfolioSolver =
                     let avgAllocationValue = problem.Constraints.Budget / float numAssets
 
                     let transactionCostTerms =
-                        [ 0 .. numAssets - 1 ]
-                        |> List.map (fun i ->
+                        List.init (max 0 numAssets) (fun i ->
                             let asset = problem.Assets.[i]
                             let currentHolding = holdings |> Map.tryFind asset.Symbol |> Option.defaultValue 0.0
 

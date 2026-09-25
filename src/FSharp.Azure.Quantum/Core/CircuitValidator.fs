@@ -284,7 +284,7 @@ module CircuitValidator =
 
         | UnsupportedGate(gate, backend, supportedGates) ->
             let supportedList = supportedGates |> Set.toList |> String.concat ", "
-            sprintf "Gate '%s' is not supported by %s. Supported gates: %s" gate backend supportedList
+            $"Gate '%s{gate}' is not supported by %s{backend}. Supported gates: %s{supportedList}"
 
         | CircuitDepthExceeded(depth, limit, backend) ->
             sprintf
@@ -372,14 +372,14 @@ module CircuitValidator =
         if gammaParams.Length <> depth then
             Error(
                 InvalidParameter(
-                    sprintf "Gamma parameter array length (%d) must match QAOA depth (%d)" gammaParams.Length depth
+                    $"Gamma parameter array length (%d{gammaParams.Length}) must match QAOA depth (%d{depth})"
                 )
             )
         // Check beta parameters length
         elif betaParams.Length <> depth then
             Error(
                 InvalidParameter(
-                    sprintf "Beta parameter array length (%d) must match QAOA depth (%d)" betaParams.Length depth
+                    $"Beta parameter array length (%d{betaParams.Length}) must match QAOA depth (%d{depth})"
                 )
             )
         else

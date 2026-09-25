@@ -6,12 +6,23 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.9</Version>
+    <Version>0.4.10</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.9: Rebuilt against FSharp.Azure.Quantum v1.4.9
+    <PackageReleaseNotes>v0.4.10: Rebuilt against FSharp.Azure.Quantum v1.4.10
+- FIXED: TopologicalBackend.SupportsOperation returned true for every QPE intent, including the modular-exponentiation unitary its own ApplyOperation refuses. Shor's period-finding planner asks exactly this to decide whether the backend takes the intent whole, so the blanket answer would have routed it into a handler that then errored. It now answers by unitary
+- FIXED (wrong results): the QFT intent used a controlled-rotation angle of 2*pi/2^(k-j) where the canonical lowering (QFT.fs and LocalBackend) uses 2*pi/2^(k-j+1). Every controlled rotation was twice the angle it should have been, so AlgorithmOperation.QFT returned a wrong state on this backend for any input that actually fired one. It survived because the QFT intent had no test here at all — it is covered only against the gate simulator in the core package
+- NEW: the QFT now runs natively on the fusion encoding, exactly like the Grover and modular-exponentiation primitives — exact, and with no gate compilation, so no Solovay-Kitaev approximation. It handles a sub-register as well as a whole state, which is the case that matters for composition: an inverse QFT over a counting register inside a wider circuit
+- The index convention is derived from the gate circuit rather than assumed. The circuit numbers qubit 0 as the MOST significant bit while the fusion encoding reads the register least-significant first, so the forward transform reverses the input index and the inverse reverses the output index, with ApplySwaps reversing whichever is left. Verified column by column: all four Inverse x ApplySwaps combinations against the gate simulator over every basis state, whole-register and sub-register, plus round trips and a superposition. The probe matters — |000> and |111> are bit-reversal symmetric and hide index errors, while a single low bit fires no rotation and hides angle errors
+- NEW: modular-exponentiation QPE runs natively here, on the fusion-tree encoding, with no gate compilation and so no Solovay-Kitaev cost. Shor's planner sees SupportsOperation accept the intent and hands it over whole, instead of falling back to the slower BraidToGate -&gt; gate-based Shor -&gt; GateToBraid round trip. Same fidelity class as the native Grover primitives beside it: amplitudes are transformed in the computational basis the fusion trees encode, and U_a is realised as the basis permutation it is. The period still comes out of the measured phase
+- As a result `factorWithTopology` genuinely factors 15 on an Ising backend in about a tenth of a second; its test had been skipped as "&gt;10 min" because the gate route compiled hundreds of gates through Solovay-Kitaev
+- FIXED: TopologicalBackend.ExecuteToState executed nothing for circuits submitted through any wrapper other than CircuitWrapper. It fell through to an empty result, so a QAOA run against the Ising or Fibonacci backend silently reported a cut of 0 instead of failing. Unknown wrappers now return an error
+- FIXED: local F-move application matched only bare Leaf subtrees, so it was a no-op on nested fusion trees. It now dispatches on the total charge of each subtree
+- Requires FSharp.Azure.Quantum v1.4.10+
+
+v0.4.9: Rebuilt against FSharp.Azure.Quantum v1.4.9
 - Codebase-wide Fantomas formatting; no functional changes intended
 - Requires FSharp.Azure.Quantum v1.4.9+
 

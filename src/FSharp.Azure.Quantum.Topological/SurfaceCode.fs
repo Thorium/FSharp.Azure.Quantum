@@ -573,65 +573,63 @@ module SurfaceCode =
             //   - 1 square face (center at 2*cx+1, 2*cy+1)
             //   - Surrounding octagon faces shared with neighbors
             let halfD = (distance - 1) / 2
-            let mutable faces = []
             let mutable qubitSet = Set.empty
 
             // Build grid of squares and octagons
-            for cy in 0..halfD do
-                for cx in 0..halfD do
-                    // Square face at (2cx, 2cy) - colored Red
-                    let sqVerts =
-                        [
-                            { X = 2 * cx; Y = 2 * cy }
-                            { X = 2 * cx + 1; Y = 2 * cy }
-                            { X = 2 * cx + 1; Y = 2 * cy + 1 }
-                            { X = 2 * cx; Y = 2 * cy + 1 }
-                        ]
+            let faces =
+                [
+                    for cy in 0..halfD do
+                        for cx in 0..halfD do
+                            // Square face at (2cx, 2cy) - colored Red
+                            let sqVerts =
+                                [
+                                    { X = 2 * cx; Y = 2 * cy }
+                                    { X = 2 * cx + 1; Y = 2 * cy }
+                                    { X = 2 * cx + 1; Y = 2 * cy + 1 }
+                                    { X = 2 * cx; Y = 2 * cy + 1 }
+                                ]
 
-                    faces <-
-                        {
-                            Center = { X = 2 * cx; Y = 2 * cy }
-                            Color = Red
-                            Vertices = sqVerts
-                        }
-                        :: faces
+                            {
+                                Center = { X = 2 * cx; Y = 2 * cy }
+                                Color = Red
+                                Vertices = sqVerts
+                            }
 
-                    for v in sqVerts do
-                        qubitSet <- Set.add v qubitSet
+                            for v in sqVerts do
+                                qubitSet <- Set.add v qubitSet
 
-            // Octagon faces (Green and Blue alternating)
-            for cy in 0 .. halfD - 1 do
-                for cx in 0 .. halfD - 1 do
-                    // Octagon between four squares
-                    let octVerts =
-                        [
-                            { X = 2 * cx + 1; Y = 2 * cy }
-                            { X = 2 * cx + 2; Y = 2 * cy }
-                            { X = 2 * cx + 2; Y = 2 * cy + 1 }
-                            { X = 2 * cx + 2; Y = 2 * cy + 2 }
-                            { X = 2 * cx + 1; Y = 2 * cy + 2 }
-                            { X = 2 * cx; Y = 2 * cy + 2 }
-                            { X = 2 * cx; Y = 2 * cy + 1 }
-                            { X = 2 * cx + 1; Y = 2 * cy + 1 }
-                        ]
+                    // Octagon faces (Green and Blue alternating)
+                    for cy in 0 .. halfD - 1 do
+                        for cx in 0 .. halfD - 1 do
+                            // Octagon between four squares
+                            let octVerts =
+                                [
+                                    { X = 2 * cx + 1; Y = 2 * cy }
+                                    { X = 2 * cx + 2; Y = 2 * cy }
+                                    { X = 2 * cx + 2; Y = 2 * cy + 1 }
+                                    { X = 2 * cx + 2; Y = 2 * cy + 2 }
+                                    { X = 2 * cx + 1; Y = 2 * cy + 2 }
+                                    { X = 2 * cx; Y = 2 * cy + 2 }
+                                    { X = 2 * cx; Y = 2 * cy + 1 }
+                                    { X = 2 * cx + 1; Y = 2 * cy + 1 }
+                                ]
 
-                    let color = if (cx + cy) % 2 = 0 then Green else Blue
+                            let color = if (cx + cy) % 2 = 0 then Green else Blue
 
-                    faces <-
-                        {
-                            Center = { X = 2 * cx + 1; Y = 2 * cy + 1 }
-                            Color = color
-                            Vertices = octVerts
-                        }
-                        :: faces
+                            {
+                                Center = { X = 2 * cx + 1; Y = 2 * cy + 1 }
+                                Color = color
+                                Vertices = octVerts
+                            }
 
-                    for v in octVerts do
-                        qubitSet <- Set.add v qubitSet
+                            for v in octVerts do
+                                qubitSet <- Set.add v qubitSet
+                ]
 
             Ok
                 {
                     Distance = distance
-                    Faces = faces |> List.rev
+                    Faces = faces
                     QubitPositions = qubitSet |> Set.toList |> List.sortBy (fun c -> (c.Y, c.X))
                 }
 

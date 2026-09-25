@@ -110,8 +110,7 @@ if not quiet then
 
 let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : ProblemHamiltonian =
     let diagonalTerms =
-        [ 0 .. nVerts - 1 ]
-        |> List.map (fun v ->
+        List.init (max 0 nVerts) (fun v ->
             let weight =
                 edgeList
                 |> List.filter (fun (u, w, _) -> u = v || w = v)
@@ -225,8 +224,7 @@ match backend.Execute circuit numShots with
             let bitstringStr = String.Join("", bitstring)
 
             let partitionStr =
-                [ 0 .. numVertices - 1 ]
-                |> List.map (fun v -> if bitstring.[v] = 0 then $"%d{v}" else $"[%d{v}]")
+                List.init (max 0 numVertices) (fun v -> if bitstring.[v] = 0 then $"%d{v}" else $"[%d{v}]")
                 |> String.concat " "
 
             printfn "  %s       | %5d | %9.1f | %s" bitstringStr count cutValue partitionStr

@@ -420,9 +420,9 @@ module QuantumLinearSystemSolver =
                     None
 
             let isQuantum =
-                backendName.Contains("IonQ")
-                || backendName.Contains("Rigetti")
-                || backendName.Contains("Quantinuum")
+                backendName.Contains "IonQ"
+                || backendName.Contains "Rigetti"
+                || backendName.Contains "Quantinuum"
 
             // Map HHL result to LinearSystemSolution
             return

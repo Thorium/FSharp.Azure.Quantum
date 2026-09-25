@@ -1,0 +1,2 @@
+model,count,payload_l,loaded_speed_ms,empty_speed_ms,endurance_min,drop_time_s,lane_spacing_m
+HeavyLift-40,60,40,8,12,10,6,30

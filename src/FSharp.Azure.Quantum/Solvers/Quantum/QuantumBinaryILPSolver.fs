@@ -212,8 +212,7 @@ module QuantumBinaryILPSolver =
                         |> List.map (fun (i, ai) -> (i, ai))
 
                     let slackCoeffs =
-                        [ 0 .. tk - 1 ]
-                        |> List.map (fun t ->
+                        List.init (max 0 tk) (fun t ->
                             let idx = slackStart + t
                             let coeff = pown 2.0 t
                             (idx, coeff))

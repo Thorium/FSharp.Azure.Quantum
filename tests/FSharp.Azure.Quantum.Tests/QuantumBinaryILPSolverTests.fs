@@ -172,8 +172,7 @@ module QuboEncodingTests =
 
             // Generate all 2^n bitstrings
             let allBitstrings =
-                [ 0 .. (1 <<< n) - 1 ]
-                |> List.map (fun k -> Array.init n (fun i -> (k >>> i) &&& 1))
+                List.init (max 0 (1 <<< n)) (fun k -> Array.init n (fun i -> (k >>> i) &&& 1))
 
             let bestBits = allBitstrings |> List.minBy evaluateEnergy
 

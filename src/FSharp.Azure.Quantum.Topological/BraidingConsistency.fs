@@ -67,8 +67,7 @@ module BraidingConsistency =
         | AnyonSpecies.AnyonType.SU2Level k ->
             // General SU(2)_k: particles are spins j=0, 1/2, ..., k/2
             // represented as SpinJ(j_doubled, k) with j_doubled from 0 to k
-            [ 0..k ]
-            |> List.map (fun j_doubled -> AnyonSpecies.Particle.SpinJ(j_doubled, k))
+            List.init (max 0 (k + 1)) (fun j_doubled -> AnyonSpecies.Particle.SpinJ(j_doubled, k))
 
     /// Get fusion channels a×b, returning empty list when fusion is undefined.
     ///

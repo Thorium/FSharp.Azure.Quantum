@@ -573,8 +573,7 @@ module KauffmanBracket =
             if n = 0 then
                 [ Map.empty ]
             else
-                [ 0 .. (1 <<< n) - 1 ]
-                |> List.map (fun stateNum ->
+                List.init (max 0 (1 <<< n)) (fun stateNum ->
                     crossingIds
                     |> List.mapi (fun i cid ->
                         let bit = (stateNum >>> i) &&& 1

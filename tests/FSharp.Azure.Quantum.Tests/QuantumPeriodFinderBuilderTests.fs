@@ -208,7 +208,13 @@ module QuantumPeriodFinderBuilderTests =
         let problem =
             periodFinder {
                 number 21
-                precision 8 // Reduced from 10 for faster execution
+                // Inert as a speed knob, despite appearances. findPeriodQuantum clamps
+                // counting qubits to practicalCircuitQubits - 2*registerBits - 4, here
+                // 20 - 2*5 - 4 = 6, so 10, 8 and 6 all simulate the same 20-qubit circuit
+                // and only the reported QubitsUsed changes. 5 is the last value that does
+                // anything (a 19-qubit circuit); at 4 the phase grid 2^4 = 16 drops below
+                // N = 21 and the continued fraction can no longer resolve a period of 6.
+                precision 8
                 // 4 of the 10 coprime bases below 21 yield no factors from their period
                 // (4 and 16 have odd order 3; 5 and 17 give a^(r/2) ≡ -1 mod 21), so each
                 // attempt fails with probability 4/18. Three attempts would leave a ~1%
@@ -225,23 +231,28 @@ module QuantumPeriodFinderBuilderTests =
             | Error err -> Assert.Fail($"Should factor 21: {err.Message}")
 
     [<Fact>]
-    let ``solve should factor N=35 (5 × 7)`` () =
+    let ``solve should refuse N=35, whose circuit does not fit the budget`` () =
         let problem =
             periodFinder {
                 number 35
-                precision 10 // Reduced from 12 for faster execution
-                maxAttempts 3 // Reduced from 10 for faster execution
+                // Coprime to 35, so period finding is actually reached. With a random base
+                // an unlucky draw makes gcd(a, 35) a factor outright — a real step of Shor's
+                // algorithm that returns before the qubit budget is ever consulted.
+                chosenBase 2
+                precision 10
+                maxAttempts 3
             }
 
         match problem with
         | Error err -> Assert.Fail($"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
-            // N=35 needs 6 register bits, so the full modular-exponentiation circuit
-            // (counting + 2·6 + 4) exceeds the 20-qubit budget and `solve` falls back
-            // to the classically-assisted path — which factors 35 every time.
-            | Ok result -> assertFactors 35 [ 5; 7 ] result
-            | Error err -> Assert.Fail($"Should factor 35: {err.Message}")
+            // N=35 needs 6 register bits, so the modular-exponentiation circuit
+            // (counting + 2·6 + 4) leaves 4 counting qubits where 6 are required.
+            // This test asserted [5; 7] until the classical fallback was removed —
+            // factors that trial division found, reported as a quantum result.
+            | Ok result -> Assert.Fail($"Should refuse N=35 rather than factor it classically: {result.Message}")
+            | Error err -> Assert.Contains("counting qubits", err.Message)
 
     // ========================================================================
     // EDGE CASE TESTS
@@ -299,7 +310,10 @@ module QuantumPeriodFinderBuilderTests =
         let highPrecision =
             periodFinder {
                 number 15
-                precision 12 // Reduced from 16 for faster execution
+                // Also clamped: 20 - 2*4 - 4 = 8 counting qubits for N = 15, so 16 and 12
+                // cost the same. What this test actually contrasts is 8 counting qubits
+                // against the 4 above, which is a real difference in circuit width.
+                precision 12
                 maxAttempts 2 // Reduced for faster execution
             }
 

@@ -151,8 +151,7 @@ module QRNG =
                 // This is MUCH faster than batching: 2^1 = 2 amplitudes vs 2^20 = 1M amplitudes!
                 let rng = Random(s)
 
-                [ 0 .. numBits - 1 ]
-                |> List.map (fun _ ->
+                List.init (max 0 numBits) (fun _ ->
                     // Initialize single-qubit state |0⟩
                     let state = StateVector.init 1
 

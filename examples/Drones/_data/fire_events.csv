@@ -1,0 +1,9 @@
+minute,event,target,value
+0,wind_dir,,45
+0,wind_speed,,4
+15,wind_dir,,120
+15,wind_speed,,7
+22,close_source,NLAKE,
+30,spot_fire,S6,0.25
+38,lose_drones,,15
+45,open_source,NLAKE,

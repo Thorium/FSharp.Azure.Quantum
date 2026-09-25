@@ -113,7 +113,7 @@ module ModularData =
                     let value =
                         match i, j with
                         | 0, 0 -> 1.0
-                        | 0, 1 -> phi
+                        | 0, 1
                         | 1, 0 -> phi
                         | 1, 1 -> -1.0
                         | _ ->

@@ -52,7 +52,7 @@ module StatisticalDistributionsTests =
         // Approximate integration using trapezoidal rule
         let dx = 0.1
         let xs = [| -5.0 .. dx .. 5.0 |]
-        let integral = xs |> Array.map normalPDF |> Array.sum |> (*) dx
+        let integral = (xs |> Array.sumBy normalPDF) |> (*) dx
 
         Assert.InRange(integral, 0.99, 1.01) // Should be close to 1
 

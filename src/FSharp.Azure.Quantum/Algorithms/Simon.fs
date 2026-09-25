@@ -75,7 +75,7 @@ module Simon =
     // ========================================================================
 
     let private hadamardsOnInputRegister (numInputQubits: int) : QuantumOperation list =
-        [ 0 .. numInputQubits - 1 ] |> List.map (H >> QuantumOperation.Gate)
+        List.init (max 0 numInputQubits) (H >> QuantumOperation.Gate)
 
     // ========================================================================
     // GF(2) LINEAR ALGEBRA (classical post-processing)
@@ -170,8 +170,7 @@ module Simon =
     let xorOracleForSecret (secret: int[]) (backend: IQuantumBackend) : Oracle =
         let n = secret.Length
 
-        let copyOps =
-            [ 0 .. n - 1 ] |> List.map (fun i -> QuantumOperation.Gate(CNOT(i, n + i)))
+        let copyOps = List.init (max 0 n) (fun i -> QuantumOperation.Gate(CNOT(i, n + i)))
 
         let maskOps =
             match secret |> Array.tryFindIndex ((=) 1) with

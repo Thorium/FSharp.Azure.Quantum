@@ -667,10 +667,10 @@ module EkertQKD =
         sb.AppendLine "" |> ignore
         sb.AppendLine "Bounds:" |> ignore
 
-        sb.AppendLine($"  Classical (local hidden variables): |S| <= %.4f{chsh.ClassicalBound}")
+        sb.AppendLine $"  Classical (local hidden variables): |S| <= %.4f{chsh.ClassicalBound}"
         |> ignore
 
-        sb.AppendLine($"  Quantum (Bell state):               |S| =  %.4f{chsh.QuantumBound}")
+        sb.AppendLine $"  Quantum (Bell state):               |S| =  %.4f{chsh.QuantumBound}"
         |> ignore
 
         sb.AppendLine "" |> ignore
@@ -724,7 +724,7 @@ module EkertQKD =
 
             let isKey = if isMatchingBasis aBasis bBasis then " [KEY]" else ""
 
-            sb.AppendLine($"  (%s{aStr} deg, %s{bStr} deg): %d{count} pairs%s{isKey}")
+            sb.AppendLine $"  (%s{aStr} deg, %s{bStr} deg): %d{count} pairs%s{isKey}"
             |> ignore
 
         sb.AppendLine "" |> ignore

@@ -391,10 +391,7 @@ module QuantumPatternMatcherBuilderTests =
         | Ok solution ->
             Assert.NotEmpty(solution.BackendName)
             // Backend name should be the type name of LocalBackend
-            Assert.True(
-                solution.BackendName.Contains("Backend")
-                || solution.BackendName.Contains("Local")
-            )
+            Assert.True(solution.BackendName.Contains "Backend" || solution.BackendName.Contains "Local")
         | Error err ->
             // Algorithm may fail (backend limitation) - verify backend was attempted
             Assert.True(err.Message.Length > 0, "Should return descriptive error message")
@@ -558,7 +555,7 @@ module QuantumPatternMatcherBuilderTests =
         | Error err ->
             // Should get error about predicate, search failure, or no matches
             Assert.True(
-                err.Message.Contains("Grover search failed")
+                err.Message.Contains "Grover search failed"
                 || err.Message.Contains "No matching patterns found"
                 || err.Message.Contains "matches no solutions",
                 $"Expected error about search failure or no matches, got: {err.Message}"

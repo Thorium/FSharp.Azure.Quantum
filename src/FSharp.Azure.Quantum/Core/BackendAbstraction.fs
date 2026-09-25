@@ -446,6 +446,20 @@ module BackendAbstraction =
         /// Maximum number of qubits supported (None = unlimited/unknown).
         abstract member MaxQubits: int option
 
+    /// A backend that can HOLD more qubits than it can RUN in reasonable time.
+    ///
+    /// Capacity and wall-clock are different limits, and conflating them is how a quick
+    /// refusal turns into an hours-long simulation: a 25-qubit state fits in memory
+    /// comfortably and still takes hours once an optimiser drives a thousand iterations
+    /// through it. `MaxQubits` answers "does it fit"; this answers "will it finish".
+    ///
+    /// Simulators implement this. Hardware does not need to — a shot costs the same there
+    /// whatever the width — so callers treat its absence as "capacity is the only limit".
+    type IWallClockLimitedBackend =
+        inherit IQuantumBackend
+        /// Widest circuit worth running, as opposed to the widest state that fits.
+        abstract member PracticalQubits: int
+
     /// Backend capabilities descriptor
     ///
     /// Describes what features a backend supports.
@@ -609,6 +623,26 @@ module BackendAbstraction =
             match backend with
             | :? IQubitLimitedBackend as lb -> lb.MaxQubits
             | _ -> None
+
+        /// Widest problem this backend can actually RUN: capacity and wall-clock together.
+        ///
+        /// Use this, not `getMaxQubits`, to admit or refuse a problem — especially an
+        /// iterative one. `getMaxQubits` reports what fits in memory, which on a simulator
+        /// is far more than what finishes: checking capacity alone let a 5-city TSP put a
+        /// 25-qubit state through a thousand optimiser iterations instead of being refused.
+        let getRunnableQubits (backend: IQuantumBackend) : int option =
+            let capacity = getMaxQubits backend
+
+            let wallClock =
+                match backend with
+                | :? IWallClockLimitedBackend as wb -> Some wb.PracticalQubits
+                | _ -> None
+
+            match capacity, wallClock with
+            | Some c, Some w -> Some(min c w)
+            | Some c, None -> Some c
+            | None, Some w -> Some w
+            | None, None -> None
 
         /// Execute operation with automatic state conversion if needed
         ///

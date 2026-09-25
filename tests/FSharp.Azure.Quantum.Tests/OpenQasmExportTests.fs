@@ -131,8 +131,8 @@ module OpenQasmExportTests =
         let gateLines =
             lines
             |> Array.filter (fun line ->
-                line.Contains("h q")
-                || line.Contains("x q")
+                line.Contains "h q"
+                || line.Contains "x q"
                 || line.Contains "cx q"
                 || line.Contains "y q"
                 || line.Contains "rz(")

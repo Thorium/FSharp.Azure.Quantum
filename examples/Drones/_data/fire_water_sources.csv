@@ -1,0 +1,5 @@
+source_id,name,latitude,longitude,fill_slots,fill_time_s
+NLAKE,North Lake,62.9050,27.6420,4,25
+RIVER,River Bend,62.8830,27.6080,3,30
+EPOND,East Pond,62.8900,27.6980,2,20
+SRES,South Reservoir,62.8660,27.6560,4,35

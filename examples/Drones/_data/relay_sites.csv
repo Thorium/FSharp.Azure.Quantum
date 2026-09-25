@@ -1,0 +1,8 @@
+site_id,name,latitude,longitude,altitude_m
+RS1,Hill NW,37.7870,-122.4390,40
+RS2,Park W,37.7760,-122.4330,20
+RS3,Roof SE,37.7640,-122.4060,30
+RS4,Mast N,37.7920,-122.4220,35
+RS5,Pier E,37.7770,-122.4020,5
+RS6,Field S,37.7600,-122.4200,10
+RS7,Tower W,37.7830,-122.4480,45

@@ -317,8 +317,8 @@ module QuantumTreeSearchBuilderTests =
             // Algorithm may fail to find solution (LocalBackend simulation limitation)
             // Accept both uppercase and lowercase versions
             let hasExpectedError =
-                err.Message.Contains("No solution found")
-                || err.Message.Contains("no solution found")
+                err.Message.Contains "No solution found"
+                || err.Message.Contains "no solution found"
 
             Assert.True(hasExpectedError, $"Expected 'no solution found' error, got: {err.Message}")
 
@@ -395,10 +395,7 @@ module QuantumTreeSearchBuilderTests =
         | Ok solution ->
             Assert.NotEmpty(solution.BackendName)
             // Backend name should be the type name of LocalBackend
-            Assert.True(
-                solution.BackendName.Contains("Backend")
-                || solution.BackendName.Contains("Local")
-            )
+            Assert.True(solution.BackendName.Contains "Backend" || solution.BackendName.Contains "Local")
         | Error err ->
             // Algorithm may fail (backend limitation) - verify backend was attempted
             Assert.True(err.Message.Length > 0, "Should return descriptive error message")

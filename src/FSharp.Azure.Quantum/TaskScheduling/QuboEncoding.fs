@@ -203,8 +203,7 @@ module QuboEncoding =
         else
             resources
             |> List.collect (fun resource ->
-                [ 0 .. timeHorizon - 1 ]
-                |> List.map (fun t ->
+                List.init (max 0 timeHorizon) (fun t ->
                     // Find tasks that overlap at time t
                     let overlappingVars =
                         tasks

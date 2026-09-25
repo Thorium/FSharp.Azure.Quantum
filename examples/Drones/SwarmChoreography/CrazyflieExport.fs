@@ -246,6 +246,143 @@ let writeJson (path: string) (show: ShowDefinition) =
 // PYTHON SCRIPT GENERATION
 // =============================================================================
 
+/// The show part of crazyflie_show.py: every drone's whole show is uploaded
+/// as an on-board trajectory and started after take-off, so a lost radio does
+/// not stop a drone in the middle of the others (see the evidence pack).
+let private onBoardShow =
+    """# ==============================================================================
+# ON-BOARD TRAJECTORIES
+# ==============================================================================
+#
+# Each drone's whole show after take-off is uploaded to it before take-off and
+# flown ON BOARD by the high-level commander. A drone that loses the radio
+# after the start keeps flying the show; at the end it holds above its final
+# slot instead of landing (the land command cannot reach it). VERIFY on the
+# firmware you fly that a started trajectory keeps running, and the last
+# setpoint is held, without radio traffic.
+
+TRAJECTORY_ID = 1
+PAUSE_DURATION = 0.5  # seconds held at every formation
+
+
+def smooth_piece(p0, p1, duration):
+    # 7th-order smooth step from p0 to p1 (zero velocity and acceleration at
+    # both ends). Every drone uses the same time profile, so the drones keep
+    # the relative geometry of straight, synchronised lines.
+    polys = []
+    for a, b in zip(p0, p1):
+        d = b - a
+        t = duration
+        polys.append(Poly([a, 0.0, 0.0, 0.0,
+                           35.0 * d / t ** 4, -84.0 * d / t ** 5,
+                           70.0 * d / t ** 6, -20.0 * d / t ** 7]))
+    return Poly4D(duration, polys[0], polys[1], polys[2], Poly([0.0] * 8))
+
+
+def hold_piece(p, duration):
+    return Poly4D(duration,
+                  Poly([p[0]] + [0.0] * 7), Poly([p[1]] + [0.0] * 7),
+                  Poly([p[2]] + [0.0] * 7), Poly([0.0] * 8))
+
+
+def trajectory_for(drone_id):
+    # The start formation is where take-off leaves the drone; from there a
+    # move and a pause per formation, exactly as the evidence pack models it.
+    pieces = []
+    here = None
+    for name in FORMATION_SEQUENCE:
+        wp = FORMATIONS[name]['waypoints'].get(drone_id)
+        if wp is None:
+            continue
+        target = (wp['x'], wp['y'], wp['z'])
+        if here is None:
+            here = target
+            continue
+        pieces.append(smooth_piece(here, target, wp['duration']))
+        pieces.append(hold_piece(target, PAUSE_DURATION))
+        here = target
+    return pieces
+
+
+def check_waypoints():
+    # The show must fit the space as exported: nothing is clamped in flight.
+    for name in FORMATION_SEQUENCE:
+        for drone_id, wp in FORMATIONS[name]['waypoints'].items():
+            if not (MIN_HEIGHT <= wp['z'] <= MAX_HEIGHT):
+                raise ValueError(f'{name}: drone {drone_id} at z={wp["z"]} m is outside {MIN_HEIGHT}-{MAX_HEIGHT} m')
+
+
+def upload_trajectory(scf, drone_id):
+    cf = scf.cf
+    pieces = trajectory_for(drone_id)
+    trajectory_mem = cf.mem.get_mems(MemoryElement.TYPE_TRAJ)[0]
+    trajectory_mem.trajectory = pieces
+    if not trajectory_mem.write_data_sync():
+        raise RuntimeError(f'{cf.link_uri}: trajectory upload failed')
+    cf.high_level_commander.define_trajectory(TRAJECTORY_ID, 0, len(pieces))
+    start = FORMATIONS[FORMATION_SEQUENCE[0]]['waypoints'][drone_id]
+    color = start.get('color', None)
+    if color:
+        set_led_color(cf, color[0], color[1], color[2])
+
+
+def start_trajectory(scf):
+    scf.cf.high_level_commander.start_trajectory(TRAJECTORY_ID, 1.0, relative=False)
+
+
+# ==============================================================================
+# MAIN EXECUTION
+# ==============================================================================
+
+def run_show():
+    print('=' * 60)
+    print('CRAZYFLIE SWARM CHOREOGRAPHY')
+    print(f'Drones: {len(DRONE_URIS)}')
+    print('=' * 60)
+    print()
+
+    check_waypoints()
+    cflib.crtp.init_drivers()
+    factory = CachedCfFactory(rw_cache='./cf_cache')
+
+    with Swarm(DRONE_URIS, factory=factory) as swarm:
+        print('Connected to all drones!')
+        print('Resetting position estimators...')
+        swarm.parallel_safe(reset_estimator)
+
+        # Every drone gets its whole show before anyone takes off; a failed
+        # upload raises here, on the ground.
+        print('Uploading trajectories...')
+        ids = {uri: [i] for i, uri in enumerate(DRONE_URIS)}
+        swarm.parallel_safe(upload_trajectory, ids)
+        duration = sum(p.duration for p in trajectory_for(0))
+
+        # From take-off on, every way out of this block lands every drone where
+        # it is: the end of the show, Ctrl+C (emergency stop, also during the
+        # take-off) or an error. Every airborne formation is flat, so no drone
+        # is above another.
+        try:
+            print('Taking off...')
+            swarm.parallel_safe(takeoff)
+            print(f'Show running on board ({duration:.1f} s)...')
+            swarm.parallel_safe(start_trajectory)
+            end = time.time() + duration
+            while time.time() < end and not EMERGENCY_STOP.is_set():
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            print('\nShow interrupted by user: landing in place')
+            EMERGENCY_STOP.set()
+        finally:
+            print('Landing...')
+            swarm.parallel_safe(land)
+            print('All drones landed!')
+
+    print()
+    print('Show complete!')
+
+
+"""
+
 /// Generate executable Python script for Crazyflie swarm
 let toPythonScript (show: ShowDefinition) : string =
     let sb = StringBuilder()
@@ -300,7 +437,7 @@ let toPythonScript (show: ShowDefinition) : string =
     |> ignore
 
     sb.AppendLine("from cflib.crazyflie.mem import MemoryElement") |> ignore
-    sb.AppendLine("from cflib.crazyflie.mem import Poly4D") |> ignore
+    sb.AppendLine("from cflib.crazyflie.mem import Poly, Poly4D") |> ignore
     sb.AppendLine("") |> ignore
 
     // Configuration
@@ -511,155 +648,7 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("") |> ignore
     sb.AppendLine("") |> ignore
 
-    sb.AppendLine("def go_to_position(scf, x, y, z, duration, color=None):")
-    |> ignore
-
-    sb.AppendLine("    \"\"\"") |> ignore
-    sb.AppendLine("    Move drone to absolute position.") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    Args:") |> ignore
-    sb.AppendLine("        scf: SyncCrazyflie instance") |> ignore
-    sb.AppendLine("        x, y, z: Target position in meters") |> ignore
-    sb.AppendLine("        duration: Time to reach position in seconds") |> ignore
-    sb.AppendLine("        color: Optional (r, g, b) tuple for LED") |> ignore
-    sb.AppendLine("    \"\"\"") |> ignore
-    sb.AppendLine("    if EMERGENCY_STOP.is_set():") |> ignore
-    sb.AppendLine("        return") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    cf = scf.cf") |> ignore
-    sb.AppendLine("    commander = cf.high_level_commander") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Clamp height for safety") |> ignore
-    sb.AppendLine("    z = max(MIN_HEIGHT, min(MAX_HEIGHT, z))") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Set LED color if specified") |> ignore
-    sb.AppendLine("    if color:") |> ignore
-
-    sb.AppendLine("        set_led_color(cf, color[0], color[1], color[2])")
-    |> ignore
-
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Go to position") |> ignore
-    sb.AppendLine("    commander.go_to(x, y, z, 0, duration)") |> ignore
-    sb.AppendLine("    time.sleep(duration)") |> ignore
-    sb.AppendLine("") |> ignore
-    sb.AppendLine("") |> ignore
-    sb.AppendLine("def execute_formation(swarm, formation_name):") |> ignore
-    sb.AppendLine("    \"\"\"") |> ignore
-
-    sb.AppendLine("    Execute a single formation transition for all drones.")
-    |> ignore
-
-    sb.AppendLine("    \"\"\"") |> ignore
-    sb.AppendLine("    if formation_name not in FORMATIONS:") |> ignore
-    sb.AppendLine("        print(f'Unknown formation: {formation_name}')") |> ignore
-    sb.AppendLine("        return") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    formation = FORMATIONS[formation_name]") |> ignore
-
-    sb.AppendLine("    print(f'\\nExecuting formation: {formation_name}')")
-    |> ignore
-
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Build args dict for parallel execution") |> ignore
-    sb.AppendLine("    args = {}") |> ignore
-
-    sb.AppendLine("    for drone_id, wp in formation['waypoints'].items():")
-    |> ignore
-
-    sb.AppendLine("        uri = DRONE_URIS[drone_id]") |> ignore
-    sb.AppendLine("        color = wp.get('color', None)") |> ignore
-
-    sb.AppendLine("        args[uri] = [wp['x'], wp['y'], wp['z'], wp['duration'], color]")
-    |> ignore
-
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Execute in parallel") |> ignore
-
-    sb.AppendLine(
-        "    swarm.parallel_safe(lambda scf, x, y, z, dur, col: go_to_position(scf, x, y, z, dur, col), args)"
-    )
-    |> ignore
-
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Small pause between formations") |> ignore
-    sb.AppendLine("    time.sleep(0.5)") |> ignore
-    sb.AppendLine("") |> ignore
-    sb.AppendLine("") |> ignore
-
-    // Main function
-    sb.AppendLine("# ==============================================================================")
-    |> ignore
-
-    sb.AppendLine("# MAIN EXECUTION") |> ignore
-
-    sb.AppendLine("# ==============================================================================")
-    |> ignore
-
-    sb.AppendLine("") |> ignore
-    sb.AppendLine("def run_show():") |> ignore
-    sb.AppendLine("    \"\"\"Execute the complete drone show.\"\"\"") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    print('=' * 60)") |> ignore
-    sb.AppendLine("    print('CRAZYFLIE SWARM CHOREOGRAPHY')") |> ignore
-
-    sb.AppendLine($"    print('Generated by: {show.Metadata.GeneratedBy}')")
-    |> ignore
-
-    sb.AppendLine($"    print('Optimization: {show.Metadata.OptimizationMethod}')")
-    |> ignore
-
-    sb.AppendLine($"    print(f'Drones: {{len(DRONE_URIS)}}')") |> ignore
-    sb.AppendLine("    print('=' * 60)") |> ignore
-    sb.AppendLine("    print()") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    # Initialize drivers") |> ignore
-    sb.AppendLine("    cflib.crtp.init_drivers()") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    factory = CachedCfFactory(rw_cache='./cf_cache')") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    with Swarm(DRONE_URIS, factory=factory) as swarm:") |> ignore
-    sb.AppendLine("        print('Connected to all drones!')") |> ignore
-    sb.AppendLine("        print()") |> ignore
-    sb.AppendLine("        ") |> ignore
-    sb.AppendLine("        # Reset estimators") |> ignore
-    sb.AppendLine("        print('Resetting position estimators...')") |> ignore
-    sb.AppendLine("        swarm.parallel_safe(reset_estimator)") |> ignore
-    sb.AppendLine("        print()") |> ignore
-    sb.AppendLine("        ") |> ignore
-    sb.AppendLine("        # Takeoff") |> ignore
-    sb.AppendLine("        print('Taking off...')") |> ignore
-    sb.AppendLine("        swarm.parallel_safe(takeoff)") |> ignore
-    sb.AppendLine("        print('All drones airborne!')") |> ignore
-    sb.AppendLine("        print()") |> ignore
-    sb.AppendLine("        ") |> ignore
-    sb.AppendLine("        # Execute formation sequence") |> ignore
-    sb.AppendLine("        try:") |> ignore
-    sb.AppendLine("            for formation_name in FORMATION_SEQUENCE:") |> ignore
-    sb.AppendLine("                if EMERGENCY_STOP.is_set():") |> ignore
-
-    sb.AppendLine("                    print('Emergency stop triggered!')")
-    |> ignore
-
-    sb.AppendLine("                    break") |> ignore
-
-    sb.AppendLine("                execute_formation(swarm, formation_name)")
-    |> ignore
-
-    sb.AppendLine("        except KeyboardInterrupt:") |> ignore
-    sb.AppendLine("            print('\\nShow interrupted by user')") |> ignore
-    sb.AppendLine("            EMERGENCY_STOP.set()") |> ignore
-    sb.AppendLine("        ") |> ignore
-    sb.AppendLine("        # Land") |> ignore
-    sb.AppendLine("        print()") |> ignore
-    sb.AppendLine("        print('Landing...')") |> ignore
-    sb.AppendLine("        swarm.parallel_safe(land)") |> ignore
-    sb.AppendLine("        print('All drones landed!')") |> ignore
-    sb.AppendLine("    ") |> ignore
-    sb.AppendLine("    print()") |> ignore
-    sb.AppendLine("    print('Show complete!')") |> ignore
-    sb.AppendLine("") |> ignore
-    sb.AppendLine("") |> ignore
+    sb.Append(onBoardShow) |> ignore
     sb.AppendLine("if __name__ == '__main__':") |> ignore
     sb.AppendLine("    logging.basicConfig(level=logging.WARNING)") |> ignore
     sb.AppendLine("    ") |> ignore

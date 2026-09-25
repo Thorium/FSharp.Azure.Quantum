@@ -69,7 +69,7 @@ module BernsteinVazirani =
     // ========================================================================
 
     let private gatesOnAllQubits (gate: int -> Gate) (numQubits: int) : QuantumOperation list =
-        [ 0 .. numQubits - 1 ] |> List.map (gate >> QuantumOperation.Gate)
+        List.init (max 0 numQubits) (gate >> QuantumOperation.Gate)
 
     // ========================================================================
     // ORACLE CONSTRUCTORS

@@ -261,8 +261,7 @@ module MultiClassSVM =
 
         let K = Array2D.length1 confMatrix
 
-        [| 0 .. K - 1 |]
-        |> Array.map (fun i ->
+        Array.init (max 0 K) (fun i ->
             // True positives: diagonal entry
             let tp = float confMatrix.[i, i]
 

@@ -934,7 +934,7 @@ module QuboEncodingTests =
 
             Assert.True(
                 softPenalty < hardPenalty,
-                sprintf "Soft penalty %f must be < hard penalty %f (weight=%f)" softPenalty hardPenalty weight
+                $"Soft penalty %f{softPenalty} must be < hard penalty %f{hardPenalty} (weight=%f{weight})"
             ))
 
     [<Fact>]

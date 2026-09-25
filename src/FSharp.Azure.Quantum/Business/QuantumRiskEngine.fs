@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business
 
+open System
 open System.Numerics
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
@@ -48,13 +49,13 @@ module RiskEngine =
 
     // Mock data generator for fallback
     let private generateMockReturns n =
-        let rng = System.Random(42)
+        let rng = Random(42)
 
         Array.init n (fun _ ->
             // Log-normal returns: mu=0.0005, sigma=0.02
             let u1 = rng.NextDouble()
             let u2 = rng.NextDouble()
-            let z = sqrt (-2.0 * log u1) * cos (2.0 * System.Math.PI * u2)
+            let z = sqrt (-2.0 * log u1) * cos (2.0 * Math.PI * u2)
             0.0005 + 0.02 * z)
 
     // ========================================================================
@@ -328,7 +329,7 @@ module RiskEngine =
     /// Monte Carlo path always yields `Ok`.
     let executeAsync (config: RiskConfiguration) : Async<QuantumResult<RiskReport>> =
         async {
-            let startTime = System.DateTime.Now
+            let startTime = DateTime.Now
 
             // 0. Validate configuration
             if config.ConfidenceLevel <= 0.0 || config.ConfidenceLevel >= 1.0 then
@@ -390,7 +391,7 @@ module RiskEngine =
                                         |> Array.skip 1
                                         |> Array.choose (fun line ->
                                             match
-                                                System.Double.TryParse(
+                                                Double.TryParse(
                                                     line.Trim(),
                                                     System.Globalization.NumberStyles.Float,
                                                     System.Globalization.CultureInfo.InvariantCulture
@@ -450,7 +451,7 @@ module RiskEngine =
                                 else
                                     ValueNone
 
-                            let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
+                            let executionTime = (DateTime.Now - startTime).TotalMilliseconds
 
                             return
                                 Ok
@@ -511,7 +512,7 @@ module RiskEngine =
                             else
                                 ValueNone
 
-                        let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
+                        let executionTime = (DateTime.Now - startTime).TotalMilliseconds
 
                         return
                             Ok
@@ -542,7 +543,7 @@ module RiskEngine =
         | Ok report -> report
         | Error err ->
             raise (
-                System.InvalidOperationException(
+                InvalidOperationException(
                     $"Risk analysis failed: {err.Message}. Use executeAsync to handle this as a Result."
                 )
             )

@@ -369,8 +369,7 @@ module QuantumConstraintSolver =
                 // Decode a search-space index into a variable assignment using
                 // mixed-radix (base domainSize) positional decoding.
                 let decodeAssignment (idx: int) : Map<int, 'T> =
-                    [ 0 .. numVariables - 1 ]
-                    |> List.map (fun varIdx ->
+                    List.init (max 0 numVariables) (fun varIdx ->
                         // Calculate which domain value this variable should have
                         // based on the search index
                         let quotient = idx / (pown domainSize varIdx)

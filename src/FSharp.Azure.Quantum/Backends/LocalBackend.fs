@@ -292,8 +292,7 @@ module LocalBackend =
 
                                 let swapSequence =
                                     if intent.ApplySwaps then
-                                        [ 0 .. numQubits / 2 - 1 ]
-                                        |> List.map (fun i ->
+                                        List.init (max 0 (numQubits / 2)) (fun i ->
                                             let j = numQubits - 1 - i
                                             QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
                                     else
@@ -343,8 +342,7 @@ module LocalBackend =
 
                         | QuantumOperation.Algorithm(AlgorithmOperation.GroverPrepare numQubits) ->
                             // Uniform superposition is Hadamard on all qubits.
-                            let ops =
-                                [ 0 .. numQubits - 1 ] |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+                            let ops = List.init (max 0 numQubits) (CircuitBuilder.H >> QuantumOperation.Gate)
 
                             (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
 
@@ -389,8 +387,7 @@ module LocalBackend =
                                 let meanAmp = sumAmp / Complex(float dim, 0.0)
                                 let twiceMean = meanAmp * Complex(2.0, 0.0)
 
-                                let amps =
-                                    Array.init dim (fun i -> twiceMean - StateVector.getAmplitude i sv)
+                                let amps = Array.init dim (fun i -> twiceMean - StateVector.getAmplitude i sv)
 
                                 Ok(QuantumState.StateVector(StateVector.ofAmplitudesOwned amps))
                             | _ ->
@@ -432,8 +429,7 @@ module LocalBackend =
                                 let targetQubit = intent.CountingQubits
 
                                 let hadamardOps =
-                                    [ 0 .. intent.CountingQubits - 1 ]
-                                    |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+                                    List.init (max 0 intent.CountingQubits) (CircuitBuilder.H >> QuantumOperation.Gate)
 
                                 let eigenPrepOps =
                                     if intent.PrepareTargetOne then
@@ -442,8 +438,7 @@ module LocalBackend =
                                         []
 
                                 let controlledOps =
-                                    [ 0 .. intent.CountingQubits - 1 ]
-                                    |> List.map (fun j ->
+                                    List.init (max 0 intent.CountingQubits) (fun j ->
                                         let applications = 1 <<< j
 
                                         match intent.Unitary with
@@ -485,8 +480,7 @@ module LocalBackend =
 
                                 let swapOps =
                                     if intent.ApplySwaps then
-                                        [ 0 .. intent.CountingQubits / 2 - 1 ]
-                                        |> List.map (fun i ->
+                                        List.init (max 0 (intent.CountingQubits / 2)) (fun i ->
                                             let j = intent.CountingQubits - 1 - i
                                             QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
                                     else
@@ -579,7 +573,20 @@ module LocalBackend =
             member _.SupportsOperation(operation: QuantumOperation) : bool =
                 match operation with
                 | QuantumOperation.Algorithm(AlgorithmOperation.QFT _) -> true
-                | QuantumOperation.Algorithm(AlgorithmOperation.QPE _) -> true
+                | QuantumOperation.Algorithm(AlgorithmOperation.QPE intent) ->
+                    // Which unitary this backend's QPE handler can realise. TargetQubits is
+                    // a consequence of the unitary (1 for the single-qubit ones, ceil(log2 N)
+                    // for ModularExponentiation), so a wrong count is malformed input for
+                    // ApplyOperation to reject rather than a missing capability.
+                    //
+                    // ModularExponentiation needs the Beauregard arithmetic, which lives in
+                    // Shor and compiles after this file — so period finding lowers it to the
+                    // explicit circuit instead. Answering true for every QPE intent, as this
+                    // used to, made the answer useless to a planner: it claimed an operation
+                    // ApplyOperation refuses a few lines below.
+                    match intent.Unitary with
+                    | QpeUnitary.ModularExponentiation _ -> false
+                    | _ -> true
                 | QuantumOperation.Algorithm(AlgorithmOperation.HHL _) -> true
                 | QuantumOperation.Algorithm(AlgorithmOperation.GroverPrepare _) -> true
                 | QuantumOperation.Algorithm(AlgorithmOperation.GroverOraclePhaseFlip _) -> true
@@ -626,6 +633,14 @@ module LocalBackend =
             /// structural maximum of 30 (Array.MaxLength cannot hold 2³¹ amplitudes)
             /// and floored at 20. Override with the FSAQ_MAX_QUBITS environment variable.
             member _.MaxQubits = Some StateVector.maxQubits
+
+        interface IWallClockLimitedBackend with
+            /// However wide a circuit this machine can actually FINISH, which is well under
+            /// what it can hold. Every gate touches all 2ⁿ amplitudes, so each extra qubit
+            /// doubles the time per gate, and an iterative solver multiplies that by its
+            /// whole optimisation budget. Callers admitting a problem should ask
+            /// UnifiedBackend.getRunnableQubits, which takes this and MaxQubits together.
+            member _.PracticalQubits = StateVector.practicalCircuitQubits
 
 /// Factory functions for creating local backend instances
 module LocalBackendFactory =

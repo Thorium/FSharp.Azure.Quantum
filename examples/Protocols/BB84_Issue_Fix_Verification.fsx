@@ -222,10 +222,7 @@ let consistencyResults =
 
 let test3Failures =
     consistencyResults
-    |> List.choose (fun r ->
-        match r with
-        | Error e -> Some e
-        | Ok _ -> None)
+    |> List.choose (fun r -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some e))
 
 let test3Pass = test3Failures.IsEmpty
 

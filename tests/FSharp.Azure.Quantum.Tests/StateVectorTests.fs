@@ -103,10 +103,10 @@ module StateVectorTests =
         Assert.Equal(0.0, amp3.Real, 10)
 
         // Invalid indices should throw
-        Assert.Throws<System.Exception>(fun () -> StateVector.getAmplitude -1 state |> ignore)
+        Assert.Throws<Exception>(fun () -> StateVector.getAmplitude -1 state |> ignore)
         |> ignore
 
-        Assert.Throws<System.Exception>(fun () -> StateVector.getAmplitude 4 state |> ignore)
+        Assert.Throws<Exception>(fun () -> StateVector.getAmplitude 4 state |> ignore)
         |> ignore
 
     [<Fact>]
@@ -120,11 +120,10 @@ module StateVectorTests =
         Assert.Equal(65536, StateVector.dimension state16)
 
         // Invalid: negative qubits
-        Assert.Throws<System.Exception>(fun () -> StateVector.init -1 |> ignore)
-        |> ignore
+        Assert.Throws<Exception>(fun () -> StateVector.init -1 |> ignore) |> ignore
 
         // Invalid: past the capacity this machine reports
-        Assert.Throws<System.Exception>(fun () -> StateVector.init (StateVector.maxQubits + 1) |> ignore)
+        Assert.Throws<Exception>(fun () -> StateVector.init (StateVector.maxQubits + 1) |> ignore)
 
     [<Fact>]
     let ``Create custom state vector - should create with provided amplitudes`` () =
@@ -228,8 +227,8 @@ module StateVectorTests =
         // 2^31 amplitudes exceeds that — so 30 qubits is the widest expressible state
         // no matter how much memory is installed. (1 <<< 31 also overflows Int32.)
         Assert.Equal(30, StateVector.StructuralMaxQubits)
-        Assert.True(int64 System.Array.MaxLength >= (1L <<< StateVector.StructuralMaxQubits))
-        Assert.True(int64 System.Array.MaxLength < (1L <<< (StateVector.StructuralMaxQubits + 1)))
+        Assert.True(int64 Array.MaxLength >= (1L <<< StateVector.StructuralMaxQubits))
+        Assert.True(int64 Array.MaxLength < (1L <<< (StateVector.StructuralMaxQubits + 1)))
 
     [<Fact>]
     let ``stateVectorBytes is 16 bytes per amplitude`` () =
@@ -246,8 +245,7 @@ module StateVectorTests =
 
         let tooWide = StateVector.maxQubits + 1
 
-        let ex =
-            Assert.Throws<System.Exception>(fun () -> StateVector.init tooWide |> ignore)
+        let ex = Assert.Throws<Exception>(fun () -> StateVector.init tooWide |> ignore)
 
         // The message must explain the limit rather than state a bare number:
         // where it came from, and how to lift it.

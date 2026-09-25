@@ -151,7 +151,7 @@ module Grover =
 
         // Create Hadamard operations for all qubits
         let hadamardOps =
-            [ 0 .. numQubits - 1 ] |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+            List.init (max 0 numQubits) (CircuitBuilder.H >> QuantumOperation.Gate)
 
         // Apply sequence efficiently (single conversion if needed)
         UnifiedBackend.applySequence backend hadamardOps state
@@ -459,7 +459,7 @@ module Grover =
         }
 
     let private lowerPrepareOps (numQubits: int) : QuantumOperation list =
-        [ 0 .. numQubits - 1 ] |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+        List.init (max 0 numQubits) (CircuitBuilder.H >> QuantumOperation.Gate)
 
     let private lowerSingleTargetOracleOps (target: int) (numQubits: int) : QuantumOperation list =
         [

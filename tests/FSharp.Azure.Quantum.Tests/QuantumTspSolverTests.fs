@@ -91,6 +91,29 @@ module QuantumTspSolverTests =
             Assert.Contains("36", err.Message) // 6 cities → 6² qubits
         | Ok _ -> Assert.Fail("Should reject problem too large")
 
+    [<Fact>]
+    let ``solve should reject a problem that fits in memory but not in time`` () =
+        // 5 cities → 25 qubits. That FITS: the memory-derived capacity is 28 on a 32GB box
+        // and 30 on a large one. It does not FINISH — the solver drives a 25-qubit state
+        // through its whole optimisation budget, which is hours.
+        //
+        // Checking capacity alone admitted this, which is why the admission check asks
+        // getRunnableQubits (capacity and wall-clock together) rather than getMaxQubits.
+        // The 6-city case above cannot catch it: 36 qubits exceeds capacity too, so it is
+        // refused either way.
+        let backend: BackendAbstraction.IQuantumBackend = createLocalBackend ()
+        let distances = Array2D.zeroCreate 5 5
+
+        match solveWithShots backend distances 100 with
+        | Error err ->
+            Assert.Contains("qubits", err.Message)
+            Assert.Contains("25", err.Message)
+        | Ok _ ->
+            Assert.Fail(
+                "Should refuse 25 qubits: it fits the memory budget but not the wall-clock one, "
+                + "so accepting it trades a fast refusal for an hours-long run"
+            )
+
     // ========================================================================
     // Basic Execution Tests
     // ========================================================================

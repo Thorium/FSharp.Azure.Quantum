@@ -166,8 +166,7 @@ module Primitives =
     /// bound and return `Error` rather than throwing out of the API (or wastefully
     /// allocating a multi-GB dense vector first). Derived from available memory, so
     /// this is not a constant — see LocalSimulator.StateVector.maxQubits.
-    let private maxDenseQubits =
-        FSharp.Azure.Quantum.LocalSimulator.StateVector.maxQubits
+    let private maxDenseQubits = StateVector.maxQubits
 
     /// ⟨H⟩ = Tr(ρH) = Σ_terms cᵢ Σⱼ [Pᵢ · (column j of ρ)]ⱼ on a density matrix.
     let private expectationOnDensityMatrix

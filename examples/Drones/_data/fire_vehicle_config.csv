@@ -1,0 +1,5 @@
+setting,value,note
+lost_link_action,continue_to_recovery,finish the current cycle along the lanes and land at the lake recovery slot
+lost_link_timeout_s,5,seconds without C2 before the action starts
+lane_failure_action,descend_in_place,controlled descent straight down out of the lane
+low_battery_action,continue_to_recovery,never cut across other lanes to get home

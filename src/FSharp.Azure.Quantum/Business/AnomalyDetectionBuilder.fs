@@ -637,8 +637,7 @@ module AnomalyDetector =
 
         // Compute distance from normal examples in each feature
         let featureContributions =
-            [| 0 .. sample.Length - 1 |]
-            |> Array.map (fun i ->
+            Array.init sample.Length (fun i ->
                 let featureValue = sample.[i]
                 let normalValues = trainingData |> Array.map (fun x -> x.[i])
                 let mean = Array.average normalValues

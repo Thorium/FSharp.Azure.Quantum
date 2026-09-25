@@ -386,7 +386,7 @@ module QuantumState =
         match state with
         | QuantumState.StateVector sv ->
             // One pass over the 2^n distribution for the whole batch, not one per shot.
-            Measurement.sampleComputationalBasis (System.Random()) sv shots
+            Measurement.sampleComputationalBasis (Random()) sv shots
 
         | QuantumState.FusionSuperposition superposition ->
             // Measure fusion outcomes and convert to computational basis
@@ -658,8 +658,7 @@ module QuantumState =
             if dim <= 8 then
                 // Small state: Show all amplitudes
                 let amplitudeStrs =
-                    [ 0 .. dim - 1 ]
-                    |> List.map (fun i ->
+                    List.init (max 0 dim) (fun i ->
                         let amp = StateVector.getAmplitude i sv
                         let bitstring = Convert.ToString(i, 2).PadLeft(n, '0')
                         $"|{bitstring}⟩: {amp.Real:F4} + {amp.Imaginary:F4}i")

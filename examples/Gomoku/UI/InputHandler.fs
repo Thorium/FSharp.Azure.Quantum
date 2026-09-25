@@ -135,9 +135,8 @@ module InputHandler =
 
         let choice =
             AnsiConsole.Prompt(
-                SelectionPrompt<string>()
-                    .Title("[cyan]Select board size:[/]")
-                    .AddChoices([ "15x15 (Standard Gomoku)"; "19x19 (Go board)"; "Custom size" ])
+                SelectionPrompt<string>().Title("[cyan]Select board size:[/]").AddChoices
+                    [ "15x15 (Standard Gomoku)"; "19x19 (Go board)"; "Custom size" ]
             )
 
         match choice with

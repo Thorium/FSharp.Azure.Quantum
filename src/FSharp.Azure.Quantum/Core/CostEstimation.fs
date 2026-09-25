@@ -1044,10 +1044,10 @@ module CostEstimation =
     /// CSV field escaping - handles commas, quotes, and newlines in field values
     let private escapeCsvField (field: string) : string =
         if
-            field.Contains(',')
-            || field.Contains('"')
-            || field.Contains('\n')
-            || field.Contains('\r')
+            field.Contains ','
+            || field.Contains '"'
+            || field.Contains '\n'
+            || field.Contains '\r'
         then
             // Escape quotes by doubling them, then wrap in quotes
             "\"" + field.Replace("\"", "\"\"") + "\""

@@ -629,8 +629,8 @@ module RealDWaveBackend =
                                         let binary = isingToQubo spinMap
 
                                         let bitstring =
-                                            [| 0 .. numQubits - 1 |]
-                                            |> Array.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
+                                            Array.init (max 0 numQubits) (fun i ->
+                                                Map.tryFind i binary |> Option.defaultValue 0)
 
                                         Array.replicate occurrences bitstring)
 

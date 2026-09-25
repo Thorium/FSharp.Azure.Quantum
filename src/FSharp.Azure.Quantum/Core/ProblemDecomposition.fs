@@ -78,7 +78,7 @@ module ProblemDecomposition =
                 | subs -> RunDecomposed subs
 
         | AdaptiveToBackend ->
-            let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
+            let maxQubits = BackendAbstraction.UnifiedBackend.getRunnableQubits backend
 
             match maxQubits with
             | None ->

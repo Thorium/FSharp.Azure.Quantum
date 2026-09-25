@@ -214,7 +214,7 @@ module TranspilerProperties =
 
                 let foreign =
                     transpiled.Gates
-                    |> List.filter (fun g -> not (native backend g))
+                    |> List.filter (native backend >> not)
                     |> List.map getGateName
                     |> List.distinct
 

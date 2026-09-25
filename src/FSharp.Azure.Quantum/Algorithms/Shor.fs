@@ -67,6 +67,37 @@ module Shor =
     let private simulatorQubitBudget =
         FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits
 
+    /// Bits needed to hold a residue mod N — the width of each of the two work registers.
+    ///
+    /// Delegated rather than recomputed: the circuit lowering derives its register width the
+    /// same way, and if the two ever disagreed this module would budget for a circuit of one
+    /// size and then build one of another.
+    let private registerBitsFor (n: int) : int =
+        ModularExponentiationCircuit.registerBitsFor n
+
+    /// Counting qubits left for QPE once modular exponentiation has taken its workspace.
+    /// The circuit is counting + 2·registerBits + 4, so this is what the budget leaves over.
+    /// It goes negative for large N, which is why callers compare it against registerBits
+    /// rather than against zero.
+    let private maxCountingQubitsFor (n: int) : int =
+        simulatorQubitBudget - 2 * registerBitsFor n - 4
+
+    /// Reported when the modular-exponentiation circuit for N does not fit the budget.
+    ///
+    /// This is the error that used to be a classical fallback. It names the shortfall and
+    /// the one knob that moves it, and it deliberately does not offer a classical route,
+    /// because there no longer is one.
+    let private unfittableCircuitError (n: int) : QuantumError =
+        let registerBits = registerBitsFor n
+
+        QuantumError.ValidationError(
+            "n",
+            $"N={n} needs {registerBits} counting qubits to resolve the period, but only "
+            + $"{max 0 (maxCountingQubitsFor n)} fit the {simulatorQubitBudget}-qubit circuit budget "
+            + $"(counting + 2·{registerBits} + 4). Raise FSAQ_MAX_CIRCUIT_QUBITS if the machine "
+            + "has the memory and the time, or factor a smaller N."
+        )
+
     // ========================================================================
     // CLASSICAL NUMBER THEORY HELPERS
     // ========================================================================
@@ -155,154 +186,6 @@ module Shor =
             (num, denom, error))
         |> List.minBy (fun (_, _, error) -> error)
         |> fun (num, denom, _) -> if denom > 0 then Some(num, denom) else None
-
-    // ========================================================================
-    // INTENT -> PLAN -> EXECUTION (ADR: intent-first algorithms)
-    // ========================================================================
-
-
-    /// Canonical intent for Shor period finding.
-    ///
-    /// Note: this unified implementation is currently classically-assisted.
-    /// The quantum portion is a QPE demonstration and is planned explicitly.
-    type ShorPeriodFindingIntent =
-        {
-            Base: int
-            Modulus: int
-            PrecisionQubits: int
-            Exactness: QPE.Exactness
-        }
-
-    [<RequireQualifiedAccess>]
-    type ShorPeriodFindingPlan =
-        /// Educational implementation:
-        /// - computes the true period classically
-        /// - runs planned QPE to demonstrate phase estimation
-        | ExecuteClassicalWithQpeDemo of
-            baseNum: int *
-            modulus: int *
-            classicalPeriod: int *
-            qpeIntent: QPE.QpeExecutionIntent *
-            qpePlan: QPE.QpePlan
-
-    let private findPeriodClassically (a: int) (n: int) (maxPeriod: int) : int option =
-        [ 1..maxPeriod ] |> List.tryFind (fun r -> modPow a r n = 1)
-
-    let planPeriodFinding
-        (backend: IQuantumBackend)
-        (intent: ShorPeriodFindingIntent)
-        : Result<ShorPeriodFindingPlan, QuantumError> =
-        let a = intent.Base
-        let n = intent.Modulus
-        let precisionQubits = intent.PrecisionQubits
-
-        // Validate inputs (kept consistent with the existing public API).
-        if a <= 0 || a >= n then
-            Error(QuantumError.ValidationError("a", $"must be in range (0, {n})"))
-        elif gcd a n <> 1 then
-            Error(QuantumError.ValidationError("a", $"{a} is not coprime to {n} (gcd={gcd a n})"))
-        elif precisionQubits <= 0 || precisionQubits > 16 then
-            Error(QuantumError.ValidationError("precisionQubits", "must be in range [1, 16] for local simulation"))
-        else
-            match findPeriodClassically a n (2 * n) with
-            | None -> Error(QuantumError.OperationError("Period finding", $"Could not find period for a={a}, N={n}"))
-            | Some period ->
-                // Demonstrate QPE with phase = s / r (deterministic s=1).
-                let s = 1
-                let phaseEstimate = float s / float period
-
-                let qpeConfig: QPE.QPEConfig =
-                    {
-                        CountingQubits = precisionQubits
-                        TargetQubits = 1
-                        UnitaryOperator = QPE.UnitaryOperator.PhaseGate(2.0 * Math.PI * phaseEstimate)
-                        EigenVector = None
-                    }
-
-                let qpeIntent: QPE.QpeExecutionIntent =
-                    {
-                        ApplyBitReversalSwaps = false
-                        Config = qpeConfig
-                        Exactness = intent.Exactness
-                    }
-
-                QPE.plan backend qpeIntent
-                |> Result.map (fun qpePlan ->
-                    ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo(a, n, period, qpeIntent, qpePlan))
-
-    let private executeQpePlan
-        (backend: IQuantumBackend)
-        (state: QuantumState)
-        (plan: QPE.QpePlan)
-        : Result<QuantumState, QuantumError> =
-
-        match plan with
-        | QPE.QpePlan.ExecuteNatively(coreIntent, _) ->
-            backend.ApplyOperation (QuantumOperation.Algorithm(AlgorithmOperation.QPE coreIntent)) state
-        | QPE.QpePlan.ExecuteViaOps(ops, _) -> UnifiedBackend.applySequence backend ops state
-
-    let private estimatePhaseFromPlan
-        (backend: IQuantumBackend)
-        (qpeIntent: QPE.QpeExecutionIntent)
-        (qpePlan: QPE.QpePlan)
-        : Result<float, QuantumError> =
-
-        result {
-            let totalQubits = qpeIntent.Config.CountingQubits + qpeIntent.Config.TargetQubits
-            let! initialState = backend.InitializeState totalQubits
-            let! preparedState = executeQpePlan backend initialState qpePlan
-
-            // Match QPE's measurement strategy for consistency.
-            let measurements = UnifiedBackend.measureState preparedState 1000
-
-            let measuredCountingBits =
-                measurements.[0] |> Array.take qpeIntent.Config.CountingQubits
-
-            let canonicalCountingBits =
-                if qpeIntent.ApplyBitReversalSwaps then
-                    measuredCountingBits
-                else
-                    Array.rev measuredCountingBits
-
-            let measurementOutcome =
-                canonicalCountingBits
-                |> Array.indexed
-                |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
-
-            return float measurementOutcome / float (1 <<< qpeIntent.Config.CountingQubits)
-        }
-
-    let private executePeriodFindingPlan
-        (backend: IQuantumBackend)
-        (plan: ShorPeriodFindingPlan)
-        : Result<PeriodFindingResult, QuantumError> =
-
-        match plan with
-        | ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo(baseNum, modulus, classicalPeriod, qpeIntent, qpePlan) ->
-            result {
-                let expectedPhase = 1.0 / float classicalPeriod
-                let! estimatedPhase = estimatePhaseFromPlan backend qpeIntent qpePlan
-
-                // Extract period from the estimated phase.
-                // If QPE result doesn't validate, fall back to the classically-found period.
-                match continuedFractionConvergent estimatedPhase modulus with
-                | Some(_, r) when r > 0 && r < modulus && modPow baseNum r modulus = 1 ->
-                    return
-                        {
-                            Period = r
-                            Base = baseNum
-                            PhaseEstimate = estimatedPhase
-                            Attempts = 1
-                        }
-                | _ ->
-                    return
-                        {
-                            Period = classicalPeriod
-                            Base = baseNum
-                            PhaseEstimate = expectedPhase
-                            Attempts = 1
-                        }
-            }
 
     // ========================================================================
     // FACTOR EXTRACTION FROM PERIOD (CLASSICAL)
@@ -575,69 +458,20 @@ module Shor =
                 )
             else
                 result {
-                    // Step 1: Initialize all qubits to |0⟩
+                    // Steps 1-5 — Hadamards on the counting register, target prepared in |1⟩,
+                    // the controlled modular multiplications, and the inverse QFT — come from
+                    // the shared lowering rather than being assembled here.
+                    //
+                    // They used to be built inline, which meant this circuit had two
+                    // constructions: this one and ModularExponentiationCircuit's. They agreed,
+                    // but agreeing is not the same as being one thing, and every other
+                    // duplicate in this area has eventually drifted. `applySwaps = false`
+                    // leaves the counting register bit-reversed, undone classically below.
+                    let! ops =
+                        ModularExponentiationCircuit.buildModExpQpe baseNum modulus countingQubits false
+
                     let! initialState = backend.InitializeState totalQubits
-
-                    // Step 2: Apply Hadamard to all counting qubits
-                    let hadamardOps =
-                        [ 0 .. countingQubits - 1 ]
-                        |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
-
-                    let! stateAfterH = UnifiedBackend.applySequence backend hadamardOps initialState
-
-                    // Step 3: Prepare target register in |1⟩ (least significant bit)
-                    // Target register is qubits [countingQubits .. countingQubits+n-1]
-                    // |1⟩ means the LSB (qubit countingQubits) is |1⟩
-                    let targetLsb = countingQubits
-
-                    let! stateAfterEigenPrep =
-                        backend.ApplyOperation (QuantumOperation.Gate(CircuitBuilder.X targetLsb)) stateAfterH
-
-                    // Step 4: Apply controlled modular multiplications
-                    // For each counting qubit j, apply controlled-U^(2^j) where U|x⟩ = |a^(2^j) · x mod N⟩
-                    let targetQubits = [ countingQubits .. countingQubits + n - 1 ]
-
-                    let! stateAfterModMul =
-                        [ 0 .. countingQubits - 1 ]
-                        |> List.fold
-                            (fun stateResult j ->
-                                result {
-                                    let! currentState = stateResult
-                                    let controlQubit = j
-                                    // a^(2^j) mod N — computed classically
-                                    let power = 1 <<< j
-                                    let aToThePower = modPow baseNum power modulus
-
-                                    // Apply controlled modular multiplication
-                                    return!
-                                        controlledModularMultiplication
-                                            controlQubit
-                                            targetQubits
-                                            aToThePower
-                                            modulus
-                                            backend
-                                            currentState
-                                })
-                            (Ok stateAfterEigenPrep)
-
-                    // Step 5: Apply inverse QFT to counting register
-                    // Build inverse QFT ops manually (same approach as QPE.buildLoweringOps)
-                    // Inverse QFT processes qubits from (c-1) down to 0
-                    let inverseQftOps =
-                        [ (countingQubits - 1) .. -1 .. 0 ]
-                        |> List.collect (fun targetQubit ->
-                            let controlledPhaseOps =
-                                [ targetQubit + 1 .. countingQubits - 1 ]
-                                |> List.map (fun k ->
-                                    let power = k - targetQubit + 1
-                                    let angle = -2.0 * Math.PI / float (1 <<< power)
-                                    QuantumOperation.Gate(CircuitBuilder.CP(k, targetQubit, angle)))
-
-                            let hadamardOp = QuantumOperation.Gate(CircuitBuilder.H targetQubit)
-                            controlledPhaseOps @ [ hadamardOp ])
-
-                    let! stateAfterQft =
-                        UnifiedBackend.applySequence backend inverseQftOps stateAfterModMul
+                    let! stateAfterQft = UnifiedBackend.applySequence backend ops initialState
 
                     // Step 6: Measure counting register and extract phase.
                     // We consume exactly one shot (measurements.[0]); QPE is inherently probabilistic
@@ -668,6 +502,116 @@ module Shor =
                         }
                 }
     // ========================================================================
+    // INTENT -> PLAN -> EXECUTION (ADR: intent-first algorithms)
+    // ========================================================================
+    //
+    // Period finding states WHAT it wants — the phase of U_a on a counting register of
+    // a given width — and the backend decides HOW. That indirection is what lets a
+    // non-simulator backend (the topological one, say) run Shor: it can claim the whole
+    // modular-exponentiation QPE as one semantic intent instead of receiving a gate list.
+    //
+    // Both plan cases are quantum. An earlier version of this pipeline had exactly one
+    // case, ExecuteClassicalWithQpeDemo, which found the period by trial division and
+    // then ran a QPE circuit whose phase was built from that answer. The pattern was
+    // sound; what it was planning was not.
+
+    /// Canonical intent for Shor period finding: estimate the phase of U_a |x⟩ = |ax mod N⟩.
+    type ShorPeriodFindingIntent =
+        {
+            Base: int
+            Modulus: int
+            CountingQubits: int
+        }
+
+    [<RequireQualifiedAccess>]
+    type ShorPeriodFindingPlan =
+        /// The backend executes modular-exponentiation QPE as one semantic operation.
+        /// Offered to any backend whose SupportsOperation accepts the intent.
+        | ExecuteNatively of intent: QpeIntent
+
+        /// The backend receives the Beauregard (2003) modular-arithmetic circuit gate by
+        /// gate, via estimateModExpPhase. Every gate-based backend can run this.
+        | ExecuteViaModExpCircuit of baseNum: int * modulus: int * countingQubits: int
+
+    /// Choose how period finding will run on this backend.
+    ///
+    /// Backends that advertise native modular-exponentiation QPE get the intent whole;
+    /// everyone else gets the explicit circuit. Note that a backend must answer
+    /// SupportsOperation honestly for this to work — LocalBackend and TopologicalBackend
+    /// both used to return true for every QPE intent while their ApplyOperation rejected
+    /// this one, which is why the choice is made against the fully-built intent.
+    let planPeriodFinding
+        (backend: IQuantumBackend)
+        (intent: ShorPeriodFindingIntent)
+        : Result<ShorPeriodFindingPlan, QuantumError> =
+
+        let a = intent.Base
+        let n = intent.Modulus
+        let countingQubits = intent.CountingQubits
+
+        if a <= 1 || a >= n then
+            Error(QuantumError.ValidationError("Base", $"must be in range (1, {n})"))
+        elif gcd a n <> 1 then
+            Error(QuantumError.ValidationError("Base", $"{a} is not coprime to {n} (gcd={gcd a n})"))
+        elif countingQubits <= 0 then
+            Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
+        else
+            let qpeIntent: QpeIntent =
+                {
+                    CountingQubits = countingQubits
+                    TargetQubits = registerBitsFor n
+                    Unitary = QpeUnitary.ModularExponentiation(a, n)
+                    PrepareTargetOne = true
+                    ApplySwaps = false
+                }
+
+            if backend.SupportsOperation(QuantumOperation.Algorithm(AlgorithmOperation.QPE qpeIntent)) then
+                Ok(ShorPeriodFindingPlan.ExecuteNatively qpeIntent)
+            else
+                Ok(ShorPeriodFindingPlan.ExecuteViaModExpCircuit(a, n, countingQubits))
+
+    /// Run a period-finding plan and return the estimated phase.
+    let private executePeriodFindingPlan
+        (backend: IQuantumBackend)
+        (plan: ShorPeriodFindingPlan)
+        : Result<ModExpPhaseResult, QuantumError> =
+
+        match plan with
+        | ShorPeriodFindingPlan.ExecuteViaModExpCircuit(a, n, countingQubits) ->
+            estimateModExpPhase a n countingQubits backend
+
+        | ShorPeriodFindingPlan.ExecuteNatively qpeIntent ->
+            result {
+                let totalQubits = qpeIntent.CountingQubits + qpeIntent.TargetQubits
+                let! initialState = backend.InitializeState totalQubits
+
+                let! preparedState =
+                    backend.ApplyOperation (QuantumOperation.Algorithm(AlgorithmOperation.QPE qpeIntent)) initialState
+
+                let measurements = UnifiedBackend.measureState preparedState 1
+
+                let countingBits = measurements.[0] |> Array.take qpeIntent.CountingQubits
+
+                // ApplySwaps is false above, so the inverse QFT leaves the counting
+                // register bit-reversed and it is undone here rather than in gates.
+                let canonicalBits = Array.rev countingBits
+
+                let measurementOutcome =
+                    canonicalBits
+                    |> Array.indexed
+                    |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+
+                return
+                    {
+                        EstimatedPhase = float measurementOutcome / float (1 <<< qpeIntent.CountingQubits)
+                        MeasurementOutcome = measurementOutcome
+                        CountingQubits = qpeIntent.CountingQubits
+                        TotalQubits = totalQubits
+                        ModularMultiplications = qpeIntent.CountingQubits
+                    }
+            }
+
+    // ========================================================================
     // PERIOD FINDING USING QPE
     // ========================================================================
 
@@ -684,26 +628,19 @@ module Shor =
     /// Uses QPE to estimate phase φ of eigenvalue e^(2πiφ) where U^r = I.
     /// The period r is extracted from φ = s/r using continued fraction approximation.
     ///
-    /// EDUCATIONAL IMPLEMENTATION:
-    /// For small N, this uses a classical period-finding fallback with QPE demonstration.
-    /// A full quantum implementation requires complex modular arithmetic circuits.
+    /// The period is found by the quantum routine or not at all. There is no classical
+    /// period-finding path: when the modular-exponentiation circuit does not fit the
+    /// simulator's qubit budget this errors rather than computing the answer classically
+    /// and presenting it as a quantum result.
     /// </remarks>
-    /// Period-finding strategy.
-    [<RequireQualifiedAccess>]
-    type PeriodFindingMethod =
-        /// Genuine QPE on the modular-exponentiation circuit (the default). Accurate, but the
-        /// counting + 2n + 4 qubit footprint limits it to small N on a local simulator.
-        | Quantum
-        /// Classically-assisted demonstration: the period is found classically and a QPE circuit
-        /// is run for illustration. Qubit-light; use for larger N where the full quantum
-        /// modular-exponentiation circuit exceeds the simulator's qubit budget.
-        | ClassicallyAssisted
-
-    /// Genuine quantum period finding: run QPE on modular exponentiation (estimateModExpPhase),
+    /// Genuine quantum period finding: plan modular-exponentiation QPE for this backend,
     /// then recover the period from the measured phase φ ≈ s/r via its continued-fraction
     /// convergent. Each QPE shot is probabilistic, so this retries until it obtains a convergent
     /// r satisfying a^r ≡ 1 (mod N). Counting qubits are clamped so the circuit fits the
     /// simulator's qubit budget.
+    ///
+    /// The plan is made once and reused across attempts: which backend path runs cannot
+    /// change between shots, only the measurement outcome does.
     let findPeriodQuantum
         (a: int)
         (n: int)
@@ -711,27 +648,30 @@ module Shor =
         (backend: IQuantumBackend)
         : Result<PeriodFindingResult, QuantumError> =
 
-        let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
-        let maxCounting = simulatorQubitBudget - 2 * registerBits - 4
+        let maxCounting = maxCountingQubitsFor n
 
-        if maxCounting < registerBits then
+        if maxCounting < registerBitsFor n then
             // With fewer counting qubits than register bits the phase grid 2^c < N, so the
             // continued-fraction step can only ever return the dyadic denominator 2^c — the
             // retries below would burn maxAttempts full-width simulations and then fail
             // anyway (for any period that is not a power of two ≤ 2^c). Fail fast instead.
-            Error(
-                QuantumError.ValidationError(
-                    "n",
-                    $"N={n} needs {registerBits} counting qubits to resolve the period, but only {max 0 maxCounting} fit the {simulatorQubitBudget}-qubit simulator budget (counting + 2·{registerBits} + 4). Use findPeriod (falls back automatically) or findPeriodWith (classically assisted)."
-                )
-            )
+            Error(unfittableCircuitError n)
         else
 
             let countingQubits = max 1 (min precisionQubits maxCounting)
             let maxAttempts = 16
 
+            let periodFindingPlan =
+                planPeriodFinding
+                    backend
+                    {
+                        Base = a
+                        Modulus = n
+                        CountingQubits = countingQubits
+                    }
+
             let rec attempt tries =
-                match estimateModExpPhase a n countingQubits backend with
+                match periodFindingPlan |> Result.bind (executePeriodFindingPlan backend) with
                 | Error e -> Error e
                 | Ok phaseResult ->
                     match continuedFractionConvergent phaseResult.EstimatedPhase n with
@@ -754,31 +694,12 @@ module Shor =
 
             attempt 1
 
-    /// Classically-assisted period finding (period found classically + QPE demonstration).
-    /// Qubit-light; suitable for larger N where the full quantum circuit exceeds the budget.
-    let findPeriodWith
-        (a: int)
-        (n: int)
-        (precisionQubits: int)
-        (exactness: QPE.Exactness)
-        (backend: IQuantumBackend)
-        : Result<PeriodFindingResult, QuantumError> =
-
-        let intent: ShorPeriodFindingIntent =
-            {
-                Base = a
-                Modulus = n
-                PrecisionQubits = precisionQubits
-                Exactness = exactness
-            }
-
-        planPeriodFinding backend intent
-        |> Result.bind (executePeriodFindingPlan backend)
-
-    /// Find the period of a^x mod N. Uses the genuine quantum QPE-on-modular-exponentiation
-    /// routine when it fits the simulator's qubit budget; for larger N it falls back to the
-    /// classically-assisted path (mirroring `plan`), so period finding still succeeds instead
-    /// of erroring on the qubit limit.
+    /// Find the period of a^x mod N by QPE on modular exponentiation.
+    ///
+    /// Identical to `findPeriodQuantum` — it exists as the conventional name. Where this
+    /// once degraded to a classical period search for N too large for the simulator, it
+    /// now reports that qubit-budget error unchanged. A period this library returns was
+    /// measured, not computed.
     let findPeriod
         (a: int)
         (n: int)
@@ -786,43 +707,33 @@ module Shor =
         (backend: IQuantumBackend)
         : Result<PeriodFindingResult, QuantumError> =
 
-        let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
-        let maxCounting = simulatorQubitBudget - 2 * registerBits - 4
-
-        if maxCounting < registerBits then
-            // The classically-assisted QPE demo is capped at 16 counting qubits
-            // (planPeriodFinding validation), so clamp the requested precision.
-            findPeriodWith a n (min 16 precisionQubits) QPE.Exactness.Exact backend
-        else
-            findPeriodQuantum a n precisionQubits backend
+        findPeriodQuantum a n precisionQubits backend
 
     // ========================================================================
     // INTENT -> PLAN -> EXECUTION (ADR: Shor factoring)
     // ========================================================================
 
     /// Canonical, algorithm-level intent for Shor factorization.
-    ///
-    /// This unified implementation is currently classically-assisted for period finding.
     type ShorExecutionIntent =
         {
             Config: ShorsConfig
             Exactness: QPE.Exactness
-            Method: PeriodFindingMethod
         }
 
     [<RequireQualifiedAccess>]
     type ShorPlan =
-        /// Entire algorithm result is known classically (or from validation).
+        /// The result is settled without period finding: N is even, prime or a perfect
+        /// power, or the drawn base shares a factor with N. These are steps of Shor's
+        /// algorithm, not substitutes for its quantum subroutine.
         | ReturnResult of ShorsResult
 
-        /// Execute the period-finding + factor-extraction path. Period finding runs per
-        /// attempt using the selected strategy (genuine quantum or classically assisted).
+        /// Execute the period-finding + factor-extraction path. Period finding is QPE on
+        /// modular exponentiation, per attempt; there is no other strategy.
         | ExecuteQuantum of
             baseNum: int *
             modulus: int *
             precisionQubits: int *
             exactness: QPE.Exactness *
-            method: PeriodFindingMethod *
             maxAttempts: int *
             config: ShorsConfig
 
@@ -868,10 +779,26 @@ module Shor =
         let config = intent.Config
         let n = config.NumberToFactor
 
+        let approximateEpsilon =
+            match intent.Exactness with
+            | QPE.Exactness.Approximate epsilon -> Some epsilon
+            | QPE.Exactness.Exact -> None
+
         // ========== CONFIGURATION VALIDATION ==========
+        // Exactness was only ever read by the classically-assisted QPE demonstration. The
+        // quantum path builds its inverse QFT with every controlled-phase rotation present,
+        // so there is nothing for Approximate to loosen. Refuse it rather than accept a
+        // parameter and ignore it — an approximate QFT is real work, not a default.
+        if approximateEpsilon.IsSome then
+            Error(
+                QuantumError.ValidationError(
+                    "Exactness",
+                    $"Shor period finding builds an exact inverse QFT; Approximate {approximateEpsilon.Value} is not implemented. Pass QPE.Exactness.Exact."
+                )
+            )
         // Validate number range FIRST (before precision qubits check)
         // This ensures N > 1000 error takes precedence over derived precision errors.
-        if n > 1000 then
+        elif n > 1000 then
             Error(QuantumError.ValidationError("NumberToFactor", "must be ≤ 1000 for local simulation"))
         elif config.PrecisionQubits <= 0 then
             Error(QuantumError.ValidationError("PrecisionQubits", "must be positive"))
@@ -894,7 +821,7 @@ module Shor =
         elif isPrime n then
             Ok(ShorPlan.ReturnResult(mkResult n None None false "Number is prime (no non-trivial factors)" config))
         else
-            // ========== QUANTUM PERIOD-FINDING (HYBRID) ==========
+            // ========== QUANTUM PERIOD-FINDING ==========
             let a = chooseRandomBase n config.RandomBase
             let gcdResult = gcd a n
 
@@ -910,45 +837,22 @@ module Shor =
                             config
                     )
                 )
+            elif maxCountingQubitsFor n < registerBitsFor n then
+                // Period finding needs enough counting qubits to resolve the period within
+                // the simulator budget. When it does not fit, say so. Computing the period
+                // classically and returning it as a quantum result is the one thing this
+                // library must not do, so infeasibility is reported at plan time rather
+                // than papered over at execution time.
+                Error(unfittableCircuitError n)
             else
-                // Genuine quantum period finding needs enough counting qubits to resolve the
-                // period within the simulator budget (counting + 2·registerBits + 4).
-                // When it cannot, fall back to the classically-assisted path so factoring still
-                // succeeds for larger N rather than failing silently or erroring on the qubit limit.
-                let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
-                let maxCounting = simulatorQubitBudget - 2 * registerBits - 4
-
-                let effectiveMethod =
-                    match intent.Method with
-                    | PeriodFindingMethod.Quantum when maxCounting < registerBits ->
-                        PeriodFindingMethod.ClassicallyAssisted
-                    | m -> m
-
-                Ok(
-                    ShorPlan.ExecuteQuantum(
-                        a,
-                        n,
-                        config.PrecisionQubits,
-                        intent.Exactness,
-                        effectiveMethod,
-                        config.MaxAttempts,
-                        config
-                    )
-                )
+                Ok(ShorPlan.ExecuteQuantum(a, n, config.PrecisionQubits, intent.Exactness, config.MaxAttempts, config))
 
     let private executePlan (backend: IQuantumBackend) (plan: ShorPlan) : Result<ShorsResult, QuantumError> =
         match plan with
         | ShorPlan.ReturnResult result -> Ok result
-        | ShorPlan.ExecuteQuantum(baseNum, modulus, precisionQubits, exactness, method, maxAttempts, config) ->
+        | ShorPlan.ExecuteQuantum(baseNum, modulus, precisionQubits, _exactness, maxAttempts, config) ->
             let findPeriodOnce a =
-                match method with
-                | PeriodFindingMethod.Quantum -> findPeriodQuantum a modulus precisionQubits backend
-                | PeriodFindingMethod.ClassicallyAssisted ->
-                    // `plan` accepts up to 20 precision qubits and may have degraded the method
-                    // from Quantum for a large N, but the classically-assisted QPE demo is capped
-                    // at 16 (planPeriodFinding validation) — clamp so the fallback path actually
-                    // runs instead of tripping that validation.
-                    findPeriodWith a modulus (min 16 precisionQubits) exactness backend
+                findPeriodQuantum a modulus precisionQubits backend
 
             // Whether a period-finding failure is worth another base.
             //
@@ -1052,11 +956,11 @@ module Shor =
     /// | Error err -> printfn "Error: %A" err
     /// </code>
     /// </example>
-    /// Execute Shor factoring with an explicit period-finding strategy.
-    let executeWithMethod
+    /// Execute Shor factoring. Period finding is QPE on modular exponentiation; there is
+    /// no strategy to choose, which is why the former `executeWithMethod` is gone.
+    let executeWith
         (config: ShorsConfig)
         (exactness: QPE.Exactness)
-        (method: PeriodFindingMethod)
         (backend: IQuantumBackend)
         : Result<ShorsResult, QuantumError> =
 
@@ -1064,31 +968,13 @@ module Shor =
             {
                 Config = config
                 Exactness = exactness
-                Method = method
             }
 
         plan backend intent |> Result.bind (executePlan backend)
 
-    /// Execute Shor factoring with genuine quantum period finding (default).
-    let executeWith
-        (config: ShorsConfig)
-        (exactness: QPE.Exactness)
-        (backend: IQuantumBackend)
-        : Result<ShorsResult, QuantumError> =
-
-        executeWithMethod config exactness PeriodFindingMethod.Quantum backend
-
     let execute (config: ShorsConfig) (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
 
         executeWith config QPE.Exactness.Exact backend
-
-    /// Execute Shor factoring with the classically-assisted period-finding path (fast, qubit-light).
-    let executeClassicallyAssisted
-        (config: ShorsConfig)
-        (backend: IQuantumBackend)
-        : Result<ShorsResult, QuantumError> =
-
-        executeWithMethod config QPE.Exactness.Exact PeriodFindingMethod.ClassicallyAssisted backend
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -1124,27 +1010,6 @@ module Shor =
             }
 
         executeWith config QPE.Exactness.Exact backend
-
-    /// Factor a number using the classically-assisted period-finding path. Qubit-light and
-    /// fast for any N ≤ 1000, at the cost of finding the period classically (with a QPE
-    /// demonstration). Use this for N too large for the full quantum circuit.
-    let factorClassicallyAssisted (n: int) (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
-
-        // The classically-assisted QPE demo is capped at 16 counting qubits
-        // (planPeriodFinding validation); the 2·log₂(N) + 3 recommendation exceeds that
-        // from N = 128, which previously made this function error for exactly the larger-N
-        // range it exists to serve.
-        let precisionQubits = min 16 (2 * int (Math.Log(float n, 2.0)) + 3)
-
-        let config =
-            {
-                NumberToFactor = n
-                RandomBase = None
-                PrecisionQubits = precisionQubits
-                MaxAttempts = 3
-            }
-
-        executeWithMethod config QPE.Exactness.Exact PeriodFindingMethod.ClassicallyAssisted backend
 
     /// <summary>
     /// Factor 15 using Shor's algorithm.
@@ -1186,15 +1051,19 @@ module Shor =
     /// <returns>Factorization result or error</returns>
     let factor21 (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
 
-        // N=21 (period r=6) needs the full 2n+4 workspace; the genuine circuit is ~20 qubits
-        // and slow, so the convenience entry uses the classically-assisted path. For genuine
-        // quantum on N=21 call executeWithMethod ... PeriodFindingMethod.Quantum directly.
+        // N=21 (period r=6) needs the full 2n+4 workspace, so the genuine circuit is 20
+        // qubits and this is slow — tens of minutes on a local simulator. It is slow because
+        // it is real; the previous version returned in milliseconds by finding the period
+        // classically, which is not factoring 21 on a quantum computer.
+        //
+        // MaxAttempts is 10 rather than 3: four of the ten coprime bases below 21 yield no
+        // factors from their period, so a small budget turns an honest run into a coin flip.
         let config =
             {
                 NumberToFactor = 21
                 RandomBase = Some 2 // Known to work well for N=21
                 PrecisionQubits = 8
-                MaxAttempts = 3
+                MaxAttempts = 10
             }
 
-        executeWithMethod config QPE.Exactness.Exact PeriodFindingMethod.ClassicallyAssisted backend
+        executeWith config QPE.Exactness.Exact backend

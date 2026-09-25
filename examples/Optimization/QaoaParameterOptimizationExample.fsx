@@ -120,8 +120,7 @@ let numVertices = 3
 
 let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : ProblemHamiltonian =
     let diagonalTerms =
-        [ 0 .. nVerts - 1 ]
-        |> List.map (fun v ->
+        List.init (max 0 nVerts) (fun v ->
             let weight =
                 edgeList
                 |> List.filter (fun (u, w, _) -> u = v || w = v)

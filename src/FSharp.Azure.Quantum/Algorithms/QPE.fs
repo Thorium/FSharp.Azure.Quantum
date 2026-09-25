@@ -215,8 +215,7 @@ module QPE =
 
         // Step 2: Apply Hadamard to counting qubits: |+⟩^⊗n
         let hadamardOps =
-            [ 0 .. config.CountingQubits - 1 ]
-            |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+            List.init (max 0 config.CountingQubits) (CircuitBuilder.H >> QuantumOperation.Gate)
 
         // Step 3: Prepare target qubits in eigenvector
         // For phase gates, the default eigenvector is |1⟩; a custom eigenvector
@@ -252,8 +251,7 @@ module QPE =
 
         // Step 4: Apply controlled-U^(2^j) for each counting qubit j
         let controlledOps =
-            [ 0 .. config.CountingQubits - 1 ]
-            |> List.map (fun j ->
+            List.init (max 0 config.CountingQubits) (fun j ->
                 let applications = 1 <<< j
 
                 match config.UnitaryOperator with
@@ -297,8 +295,7 @@ module QPE =
         // Apply bit-reversal swaps to counting qubits (optional)
         let swapOps =
             if intent.ApplyBitReversalSwaps then
-                [ 0 .. config.CountingQubits / 2 - 1 ]
-                |> List.map (fun i ->
+                List.init (max 0 (config.CountingQubits / 2)) (fun i ->
                     let j = config.CountingQubits - 1 - i
                     QuantumOperation.Gate(CircuitBuilder.SWAP(i, j)))
             else
@@ -327,18 +324,65 @@ module QPE =
                 | Approximate epsilon when epsilon <= 0.0 ->
                     Error(QuantumError.ValidationError("Exactness", "epsilon must be positive"))
                 | _ ->
-                    // ModularExponentiation cannot be lowered to simple gate ops by QPE;
-                    // it requires multi-qubit Beauregard circuits from the Arithmetic module
-                    // which compiles after QPE. Use Shor.estimateModExpPhase instead.
                     match intent.Config.UnitaryOperator with
-                    | ModularExponentiation _ ->
-                        Error(
-                            QuantumError.OperationError(
-                                "QPE",
-                                "ModularExponentiation cannot be executed via QPE's built-in lowering. "
-                                + "Use Shor.estimateModExpPhase which has access to the Beauregard arithmetic circuits."
+                    | ModularExponentiation(baseNum, modulus) ->
+                        // Lowered to the Beauregard circuit, which is now available as
+                        // operations rather than only as an execution inside Shor. This is
+                        // what makes Shor's period finding a unified-backend algorithm: a
+                        // gate backend runs these gates, a braid backend compiles them to
+                        // braids, and any backend claiming the intent natively takes the
+                        // ExecuteNatively branch below instead.
+                        //
+                        // Until QuantumArithmetic.fs was moved ahead of this file, there was
+                        // nothing to lower to and this case returned an error telling callers
+                        // to go to Shor.estimateModExpPhase directly.
+                        // The register width follows from the modulus, so a TargetQubits that
+                        // disagrees would be silently ignored by the lowering rather than
+                        // honoured. Likewise the eigenvector: modular exponentiation is
+                        // estimated on |1⟩, the generator of the multiplicative order, and a
+                        // custom one has nowhere to go. Both are refused rather than dropped.
+                        let requiredTargetQubits = ModularExponentiationCircuit.registerBitsFor modulus
+
+                        if intent.Config.TargetQubits <> requiredTargetQubits then
+                            Error(
+                                QuantumError.ValidationError(
+                                    "TargetQubits",
+                                    $"ModularExponentiation mod {modulus} needs a {requiredTargetQubits}-qubit target register, but {intent.Config.TargetQubits} were requested"
+                                )
                             )
-                        )
+                        elif intent.Config.EigenVector.IsSome then
+                            Error(
+                                QuantumError.ValidationError(
+                                    "EigenVector",
+                                    "ModularExponentiation estimates the phase on |1⟩; a custom eigenvector is not supported"
+                                )
+                            )
+                        else
+
+                            let nativeOperation =
+                                QuantumOperation.Algorithm(
+                                    AlgorithmOperation.QPE
+                                        {
+                                            CountingQubits = intent.Config.CountingQubits
+                                            TargetQubits = intent.Config.TargetQubits
+                                            Unitary = QpeUnitary.ModularExponentiation(baseNum, modulus)
+                                            PrepareTargetOne = true
+                                            ApplySwaps = intent.ApplyBitReversalSwaps
+                                        }
+                                )
+
+                            if backend.SupportsOperation nativeOperation then
+                                match nativeOperation with
+                                | QuantumOperation.Algorithm(AlgorithmOperation.QPE nativeIntent) ->
+                                    Ok(QpePlan.ExecuteNatively(nativeIntent, intent.Exactness))
+                                | _ -> Error(QuantumError.OperationError("QPE", "unreachable: intent was just built"))
+                            else
+                                ModularExponentiationCircuit.buildModExpQpe
+                                    baseNum
+                                    modulus
+                                    intent.Config.CountingQubits
+                                    intent.ApplyBitReversalSwaps
+                                |> Result.map (fun ops -> QpePlan.ExecuteViaOps(ops, intent.Exactness))
                     | _ ->
                         // Validate a custom eigenvector before planning. The native
                         // QpeIntent cannot carry an eigenvector, so a custom one also
@@ -502,70 +546,67 @@ module QPE =
                         )
                     )
             else
-                match config.UnitaryOperator with
-                | ModularExponentiation(baseNum, modulus) ->
-                    return!
-                        Error(
-                            QuantumError.OperationError(
-                                "QPE",
-                                $"ModularExponentiation(base={baseNum}, N={modulus}) cannot be executed via QPE.execute. "
-                                + "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."
-                            )
-                        )
-                | _ ->
+                let totalQubits =
+                    match config.UnitaryOperator with
+                    | ModularExponentiation(_, modulus) ->
+                        // The Beauregard lowering claims counting + 2n + 4: the target
+                        // register plus a temp register of the same width plus its ancilla
+                        // chain. Sizing this as counting + target would leave the
+                        // arithmetic no workspace, so modular exponentiation used to be
+                        // refused here and delegated to Shor.estimateModExpPhase.
+                        ModularExponentiationCircuit.totalQubitsFor modulus config.CountingQubits
+                    | _ -> config.CountingQubits + config.TargetQubits
 
-                    let totalQubits = config.CountingQubits + config.TargetQubits
+                // Step 1: Initialize state |0⟩^(⊗(n+m))
+                let! initialState = backend.InitializeState totalQubits
 
-                    // Step 1: Initialize state |0⟩^(⊗(n+m))
-                    let! initialState = backend.InitializeState totalQubits
+                // Step 2: Build intent, plan execution strategy, execute plan.
+                let executionIntent: QpeExecutionIntent =
+                    {
+                        ApplyBitReversalSwaps = applyBitReversalSwaps
+                        Config = config
+                        Exactness = exactness
+                    }
 
-                    // Step 2: Build intent, plan execution strategy, execute plan.
-                    let executionIntent: QpeExecutionIntent =
-                        {
-                            ApplyBitReversalSwaps = applyBitReversalSwaps
-                            Config = config
-                            Exactness = exactness
-                        }
+                let! (preparedState, gateCount) = executePlanned backend executionIntent initialState
 
-                    let! (preparedState, gateCount) = executePlanned backend executionIntent initialState
+                // Step 3: Measure final state (all qubits)
+                let measurements = UnifiedBackend.measureState preparedState 1000
 
-                    // Step 3: Measure final state (all qubits)
-                    let measurements = UnifiedBackend.measureState preparedState 1000
+                // Extract the phase from the counting register. QPE encodes the phase in
+                // the PEAK of the measurement distribution, so use the MOST FREQUENT outcome
+                // over all shots. (Reading a single sample — measurements.[0] — was a bug:
+                // for a non-dyadic phase the distribution is spread, so one sample lands on a
+                // low-probability outcome such as 0 often enough to be unreliable/flaky.)
+                //
+                // When we omit the final bit-reversal SWAPs, the measured register is in
+                // bit-reversed order; compensate classically before converting to an integer.
+                let outcomeOf (measurement: int[]) =
+                    let bits = measurement |> Array.take config.CountingQubits
+                    let canonical = if applyBitReversalSwaps then bits else Array.rev bits
 
-                    // Extract the phase from the counting register. QPE encodes the phase in
-                    // the PEAK of the measurement distribution, so use the MOST FREQUENT outcome
-                    // over all shots. (Reading a single sample — measurements.[0] — was a bug:
-                    // for a non-dyadic phase the distribution is spread, so one sample lands on a
-                    // low-probability outcome such as 0 often enough to be unreliable/flaky.)
-                    //
-                    // When we omit the final bit-reversal SWAPs, the measured register is in
-                    // bit-reversed order; compensate classically before converting to an integer.
-                    let outcomeOf (measurement: int[]) =
-                        let bits = measurement |> Array.take config.CountingQubits
-                        let canonical = if applyBitReversalSwaps then bits else Array.rev bits
+                    canonical
+                    |> Array.indexed
+                    |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
 
-                        canonical
-                        |> Array.indexed
-                        |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+                let measurementOutcome =
+                    measurements
+                    |> Array.map outcomeOf
+                    |> Array.countBy id
+                    |> Array.maxBy snd // mode = peak of the QPE distribution
+                    |> fst
 
-                    let measurementOutcome =
-                        measurements
-                        |> Array.map outcomeOf
-                        |> Array.countBy id
-                        |> Array.maxBy snd // mode = peak of the QPE distribution
-                        |> fst
+                let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
 
-                    let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
-
-                    return
-                        {
-                            EstimatedPhase = estimatedPhase
-                            MeasurementOutcome = measurementOutcome
-                            Precision = config.CountingQubits
-                            FinalState = preparedState
-                            GateCount = gateCount
-                            Config = config
-                        }
+                return
+                    {
+                        EstimatedPhase = estimatedPhase
+                        MeasurementOutcome = measurementOutcome
+                        Precision = config.CountingQubits
+                        FinalState = preparedState
+                        GateCount = gateCount
+                        Config = config
+                    }
         }
 
     let executeWith

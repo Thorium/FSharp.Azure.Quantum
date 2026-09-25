@@ -295,10 +295,7 @@ module QuantumConstraintSolverBuilderTests =
         | Ok solution ->
             Assert.NotEmpty(solution.BackendName)
             // Backend name should be the type name of LocalBackend
-            Assert.True(
-                solution.BackendName.Contains("Backend")
-                || solution.BackendName.Contains("Local")
-            )
+            Assert.True(solution.BackendName.Contains "Backend" || solution.BackendName.Contains "Local")
         | Error err ->
             // Algorithm may fail (backend limitation) - verify backend was attempted
             Assert.True(err.Message.Length > 0, "Should return descriptive error message")
@@ -376,7 +373,7 @@ module QuantumConstraintSolverBuilderTests =
     [<Fact>]
     let ``QuantumConstraintSolver.describeSolution should truncate long assignments`` () =
         // Arrange
-        let manyVars = [ 0..14 ] |> List.map (fun i -> (i, i * 2)) |> Map.ofList
+        let manyVars = List.init 15 (fun i -> (i, i * 2)) |> Map.ofList
 
         let solution: QuantumConstraintSolver.ConstraintSolution<int> =
             {

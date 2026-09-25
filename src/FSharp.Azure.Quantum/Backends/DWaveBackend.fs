@@ -110,8 +110,7 @@ module DWaveBackend =
             else
                 /// Generate random spin configuration
                 let randomSpins () : Map<int, int> =
-                    [ 0 .. numQubits - 1 ]
-                    |> List.map (fun i -> (i, if rng.NextDouble() < 0.5 then -1 else 1))
+                    List.init (max 0 numQubits) (fun i -> (i, if rng.NextDouble() < 0.5 then -1 else 1))
                     |> Map.ofList
 
                 /// Flip a single spin
@@ -243,8 +242,8 @@ module DWaveBackend =
                                         let binary = isingToQubo sol.Spins
 
                                         let bitstring =
-                                            [ 0 .. numQubits - 1 ]
-                                            |> List.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
+                                            List.init (max 0 numQubits) (fun i ->
+                                                Map.tryFind i binary |> Option.defaultValue 0)
                                             |> List.toArray
                                         // Repeat bitstring NumOccurrences times
                                         List.replicate sol.NumOccurrences bitstring)

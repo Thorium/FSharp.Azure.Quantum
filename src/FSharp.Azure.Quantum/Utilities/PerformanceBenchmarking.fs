@@ -353,10 +353,10 @@ module PerformanceBenchmarking =
             sb.AppendLine() |> ignore
 
             // Table header
-            sb.AppendLine("| Problem Size | Solver | Execution Time (ms) | Solution Quality | Cost ($) |")
+            sb.AppendLine "| Problem Size | Solver | Execution Time (ms) | Solution Quality | Cost ($) |"
             |> ignore
 
-            sb.AppendLine("|-------------|--------|-------------------|-----------------|---------|")
+            sb.AppendLine "|-------------|--------|-------------------|-----------------|---------|"
             |> ignore
 
             // Table rows sorted by problem size and solver
@@ -384,15 +384,14 @@ module PerformanceBenchmarking =
             sb.AppendLine() |> ignore
 
             for comp in comparisons do
-                sb.AppendLine($"### %s{comp.ProblemType} - %d{comp.ProblemSize} units")
-                |> ignore
+                sb.AppendLine $"### %s{comp.ProblemType} - %d{comp.ProblemSize} units" |> ignore
 
                 sb.AppendLine() |> ignore
 
-                sb.AppendLine($"- **Classical Time:** %d{comp.ClassicalResult.ExecutionTimeMs} ms")
+                sb.AppendLine $"- **Classical Time:** %d{comp.ClassicalResult.ExecutionTimeMs} ms"
                 |> ignore
 
-                sb.AppendLine($"- **Classical Quality:** %.4f{comp.ClassicalResult.SolutionQuality}")
+                sb.AppendLine $"- **Classical Quality:** %.4f{comp.ClassicalResult.SolutionQuality}"
                 |> ignore
 
                 match comp.SpeedupFactor with

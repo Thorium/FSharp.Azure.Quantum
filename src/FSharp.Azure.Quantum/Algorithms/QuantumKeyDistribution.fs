@@ -854,7 +854,7 @@ module QuantumKeyDistribution =
 
         sb.AppendLine "Information Metrics:" |> ignore
 
-        sb.AppendLine($"  Mutual Information I(A:E): %.3f{info.MutualInformation} bits")
+        sb.AppendLine $"  Mutual Information I(A:E): %.3f{info.MutualInformation} bits"
         |> ignore
 
         sb.AppendLine(sprintf "  Correct Guess Probability: %.1f%%" (info.CorrectGuessProb * 100.0))
@@ -1467,8 +1467,7 @@ module QuantumKeyDistribution =
             sb.AppendLine $"  Errors detected: {ec.ErrorsDetected}" |> ignore
             sb.AppendLine $"  Errors corrected: {ec.ErrorsCorrected}" |> ignore
 
-            sb.AppendLine($"  Information leaked: %.1f{ec.InformationLeaked} bits")
-            |> ignore
+            sb.AppendLine $"  Information leaked: %.1f{ec.InformationLeaked} bits" |> ignore
 
             let ecStatus = if ec.Success then "✅ SUCCESS" else "⚠️ PARTIAL"
             sb.AppendLine $"  Status: {ecStatus}" |> ignore
@@ -1502,7 +1501,7 @@ module QuantumKeyDistribution =
         sb.AppendLine(sprintf "  End-to-end efficiency: %.1f%%" (result.EndToEndEfficiency * 100.0))
         |> ignore
 
-        sb.AppendLine($"  Total info leaked to Eve: %.1f{result.TotalInformationLeaked} bits")
+        sb.AppendLine $"  Total info leaked to Eve: %.1f{result.TotalInformationLeaked} bits"
         |> ignore
 
         let finalStatus =

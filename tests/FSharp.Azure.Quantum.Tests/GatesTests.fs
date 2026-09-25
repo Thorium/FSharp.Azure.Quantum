@@ -754,12 +754,9 @@ module GatesTests =
         let bit = 1 <<< targetIndex
 
         Array.init src.Length (fun i ->
-            if i &&& controlMask <> controlMask then
-                src.[i] // a control is |0⟩: untouched
-            elif i &&& bit <> 0 then
-                c * src.[i ^^^ bit] + d * src.[i]
-            else
-                a * src.[i] + b * src.[i ||| bit])
+            if i &&& controlMask <> controlMask then src.[i] // a control is |0⟩: untouched
+            elif i &&& bit <> 0 then c * src.[i ^^^ bit] + d * src.[i]
+            else a * src.[i] + b * src.[i ||| bit])
 
     /// Naive SWAP: exchange amplitudes whose two qubits disagree.
     let private referenceSwap (q1: int) (q2: int) (src: Complex[]) : Complex[] =

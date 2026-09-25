@@ -8,6 +8,36 @@ open Types
 /// Quantum solver for resource-constrained scheduling
 module QuantumSolver =
 
+    /// Tasks in the longest chain of finish-to-start dependencies (1 when none).
+    let internal longestChain (tasks: ScheduledTask<'T> list) (dependencies: Dependency list) : int =
+        let preds =
+            dependencies
+            |> List.map (fun (FinishToStart(pred, succ, _)) -> (succ, pred))
+            |> List.groupBy fst
+            |> List.map (fun (succ, ps) -> (succ, ps |> List.map snd))
+            |> Map.ofList
+
+        let memo = System.Collections.Generic.Dictionary<string, int>()
+
+        // `seen` guards against cycles (validation does not reject them), so a
+        // cyclic input still terminates here and ends in "no valid solutions".
+        let rec depth (seen: Set<string>) (id: string) =
+            match memo.TryGetValue id with
+            | true, d -> d
+            | _ ->
+                let d =
+                    1
+                    + (preds.TryFind id
+                       |> Option.defaultValue []
+                       |> List.filter (seen.Contains >> not)
+                       |> List.map (depth (seen.Add id))
+                       |> List.fold max 0)
+
+                memo.[id] <- d
+                d
+
+        tasks |> List.map (fun t -> depth Set.empty t.Id) |> List.fold max 1
+
     /// Solve scheduling problem with resource constraints using quantum backend
     ///
     /// RULE 1 COMPLIANCE:
@@ -57,9 +87,17 @@ module QuantumSolver =
                     |> function
                         | [] -> 1.0
                         | xs -> List.min xs
-                // Cap slots so numTasks × timeHorizon stays modest (~18 qubits).
+                // Cap slots so numTasks × timeHorizon stays modest (~18 qubits)...
                 let maxSlots = max 2 (min 10 (18 / max 1 numTasks))
-                let timeHorizon = max 2 (min maxSlots (int (ceil (horizonMin / minDurMin))))
+
+                // ...but never below the longest dependency chain: k tasks that
+                // must run one after another need k slots, and with fewer no
+                // bitstring is a valid schedule; sampling would only end in
+                // "no valid solutions".
+                let chain = longestChain problem.Tasks problem.Dependencies
+
+                let timeHorizon =
+                    max chain (max 2 (min maxSlots (int (ceil (horizonMin / minDurMin)))))
 
                 let slotMinutes =
                     if timeHorizon > 0 then
@@ -67,165 +105,187 @@ module QuantumSolver =
                     else
                         1.0
 
-                // Encode problem as QUBO
-                match QuboEncoding.toQubo problem timeHorizon slotMinutes with
-                | Error err -> return Error err
-                | Ok quboMatrix ->
+                let neededQubits = numTasks * timeHorizon
 
-                    // Convert sparse QUBO to dense array for QAOA
-                    let quboArray = Array2D.zeroCreate quboMatrix.NumVariables quboMatrix.NumVariables
+                // The budget is what FINISHES, not what fits: widening the grid for a long
+                // chain must not turn a quick refusal into a multi-gigabyte, minutes-long
+                // simulation. getRunnableQubits takes capacity and wall-clock together, so
+                // the backend declares its own limits instead of this module type-testing
+                // for the local simulator.
+                let capacity = BackendAbstraction.UnifiedBackend.getRunnableQubits backend
 
-                    for KeyValue((i, j), value) in quboMatrix.Q do
-                        quboArray.[i, j] <- value
+                match capacity with
+                | Some maxQubits when neededQubits > maxQubits ->
+                    return
+                        Error(
+                            QuantumError.ValidationError(
+                                "qubits",
+                                $"the schedule needs {neededQubits} qubits ({numTasks} tasks x {timeHorizon} time slots; the longest dependency chain alone needs {chain} slots) and {backend.Name} can run {maxQubits} (for the local simulator the wall-clock budget, FSAQ_MAX_CIRCUIT_QUBITS): use a larger backend or schedule classically"
+                            )
+                        )
+                | _ ->
 
-                    // Create QAOA problem and mixer Hamiltonians
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create quboMatrix.NumVariables
-
-                    // Build QAOA circuit with initial parameters
-                    let gamma, beta = 0.5, 0.5 // Initial parameters
-
-                    let qaoaCircuit =
-                        QaoaCircuit.QaoaCircuit.build problemHam mixerHam [| (gamma, beta) |]
-
-                    // Wrap QAOA circuit for backend execution
-                    let circuitWrapper =
-                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-
-                    // Execute on quantum backend to get state
-                    let numShots = 1000
-
-                    match backend.ExecuteToState circuitWrapper with
+                    // Encode problem as QUBO
+                    match QuboEncoding.toQubo problem timeHorizon slotMinutes with
                     | Error err -> return Error err
-                    | Ok state ->
+                    | Ok quboMatrix ->
 
-                        // Perform measurements on quantum state
-                        let measurements = QuantumState.measure state numShots
+                        // Convert sparse QUBO to dense array for QAOA
+                        let quboArray = Array2D.zeroCreate quboMatrix.NumVariables quboMatrix.NumVariables
 
-                        // Decode measurements to find best schedule
-                        // Reuse variable mapping function
-                        let (_, reverseMapping, _) =
-                            QuboEncoding.createVariableMappings problem.Tasks timeHorizon
+                        for KeyValue((i, j), value) in quboMatrix.Q do
+                            quboArray.[i, j] <- value
 
-                        // Decode each measurement and find best feasible solution
-                        // A schedule respects precedence iff every finish-to-start dependency holds:
-                        // the successor starts no earlier than the predecessor finishes (+ lag).
-                        let respectsDependencies (assignments: TaskAssignment list) =
-                            problem.Dependencies
-                            |> List.forall (fun dep ->
-                                match dep with
-                                | FinishToStart(predId, succId, lag) ->
+                        // Create QAOA problem and mixer Hamiltonians
+                        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+                        let mixerHam = QaoaCircuit.MixerHamiltonian.create quboMatrix.NumVariables
+
+                        // Build QAOA circuit with initial parameters
+                        let gamma, beta = 0.5, 0.5 // Initial parameters
+
+                        let qaoaCircuit =
+                            QaoaCircuit.QaoaCircuit.build problemHam mixerHam [| (gamma, beta) |]
+
+                        // Wrap QAOA circuit for backend execution
+                        let circuitWrapper =
+                            CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+
+                        // Execute on quantum backend to get state
+                        let numShots = 1000
+
+                        match backend.ExecuteToState circuitWrapper with
+                        | Error err -> return Error err
+                        | Ok state ->
+
+                            // Perform measurements on quantum state
+                            let measurements = QuantumState.measure state numShots
+
+                            // Decode measurements to find best schedule
+                            // Reuse variable mapping function
+                            let (_, reverseMapping, _) =
+                                QuboEncoding.createVariableMappings problem.Tasks timeHorizon
+
+                            // Decode each measurement and find best feasible solution
+                            // A schedule respects precedence iff every finish-to-start dependency holds:
+                            // the successor starts no earlier than the predecessor finishes (+ lag).
+                            let respectsDependencies (assignments: TaskAssignment list) =
+                                problem.Dependencies
+                                |> List.forall (fun dep ->
+                                    match dep with
+                                    | FinishToStart(predId, succId, lag) ->
+                                        match
+                                            assignments |> List.tryFind (fun a -> a.TaskId = predId),
+                                            assignments |> List.tryFind (fun a -> a.TaskId = succId)
+                                        with
+                                        | Some pred, Some succ -> succ.StartTime >= pred.EndTime + lag
+                                        | _ -> true)
+
+                            // A schedule respects resource limits iff at every moment the combined usage of all
+                            // concurrently running tasks stays within each resource's capacity. Usage only changes
+                            // when a task starts, so checking at each assignment's start time is sufficient.
+                            let respectsResources (assignments: TaskAssignment list) =
+                                problem.Resources
+                                |> List.forall (fun resource ->
+                                    assignments
+                                    |> List.forall (fun a ->
+                                        let usageAtStart =
+                                            assignments
+                                            |> List.sumBy (fun b ->
+                                                if b.StartTime <= a.StartTime && a.StartTime < b.EndTime then
+                                                    b.AssignedResources
+                                                    |> Map.tryFind resource.Id
+                                                    |> Option.defaultValue 0.0
+                                                else
+                                                    0.0)
+
+                                        usageAtStart <= resource.Capacity + 1e-9))
+
+                            let solutions =
+                                measurements
+                                |> Array.choose (fun bitstring ->
+                                    // One-hot REPAIR decode: tasks with multiple set start bits take
+                                    // their earliest set slot (QAOA rarely samples exact one-hot
+                                    // states, so the strict decode would reject nearly every shot);
+                                    // tasks with zero set bits still yield no start, making
+                                    // buildSolutionFromStarts return None. Feasibility of repaired
+                                    // schedules is enforced by the classical validation below.
+                                    let taskStarts = QuboEncoding.decodeBitstringWithRepair bitstring reverseMapping
+
                                     match
-                                        assignments |> List.tryFind (fun a -> a.TaskId = predId),
-                                        assignments |> List.tryFind (fun a -> a.TaskId = succId)
+                                        QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes
                                     with
-                                    | Some pred, Some succ -> succ.StartTime >= pred.EndTime + lag
-                                    | _ -> true)
+                                    // Keep only fully feasible measurements (precedence AND resource capacity).
+                                    // The QUBO penalties bias QAOA sampling toward these, but the final
+                                    // min-makespan selection must not pick a lower-makespan measurement that
+                                    // VIOLATES the constraints the user specified — otherwise the returned
+                                    // "solution" would silently break dependencies or overload resources.
+                                    | Some assignments when
+                                        respectsDependencies assignments && respectsResources assignments
+                                        ->
+                                        let makespan = ScheduleMetrics.calculateMakespan assignments
+                                        Some(makespan, assignments)
+                                    | _ -> None)
 
-                        // A schedule respects resource limits iff at every moment the combined usage of all
-                        // concurrently running tasks stays within each resource's capacity. Usage only changes
-                        // when a task starts, so checking at each assignment's start time is sufficient.
-                        let respectsResources (assignments: TaskAssignment list) =
-                            problem.Resources
-                            |> List.forall (fun resource ->
-                                assignments
-                                |> List.forall (fun a ->
-                                    let usageAtStart =
-                                        assignments
-                                        |> List.sumBy (fun b ->
-                                            if b.StartTime <= a.StartTime && a.StartTime < b.EndTime then
-                                                b.AssignedResources
-                                                |> Map.tryFind resource.Id
-                                                |> Option.defaultValue 0.0
-                                            else
-                                                0.0)
-
-                                    usageAtStart <= resource.Capacity + 1e-9))
-
-                        let solutions =
-                            measurements
-                            |> Array.choose (fun bitstring ->
-                                // One-hot REPAIR decode: tasks with multiple set start bits take
-                                // their earliest set slot (QAOA rarely samples exact one-hot
-                                // states, so the strict decode would reject nearly every shot);
-                                // tasks with zero set bits still yield no start, making
-                                // buildSolutionFromStarts return None. Feasibility of repaired
-                                // schedules is enforced by the classical validation below.
-                                let taskStarts = QuboEncoding.decodeBitstringWithRepair bitstring reverseMapping
-
-                                match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes with
-                                // Keep only fully feasible measurements (precedence AND resource capacity).
-                                // The QUBO penalties bias QAOA sampling toward these, but the final
-                                // min-makespan selection must not pick a lower-makespan measurement that
-                                // VIOLATES the constraints the user specified — otherwise the returned
-                                // "solution" would silently break dependencies or overload resources.
-                                | Some assignments when
-                                    respectsDependencies assignments && respectsResources assignments
-                                    ->
-                                    let makespan = ScheduleMetrics.calculateMakespan assignments
-                                    Some(makespan, assignments)
-                                | _ -> None)
-
-                        if Array.isEmpty solutions then
-                            return
-                                Error(
-                                    QuantumError.OperationError(
-                                        "Quantum scheduling",
-                                        "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."
+                            if Array.isEmpty solutions then
+                                return
+                                    Error(
+                                        QuantumError.OperationError(
+                                            "Quantum scheduling",
+                                            "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."
+                                        )
                                     )
-                                )
-                        else
-                            // Select the best feasible solution PER THE DECLARED OBJECTIVE.
-                            // MinimizeCost and MaximizeResourceUtilization share the makespan
-                            // selection because, in this model, resource assignments always equal
-                            // each task's fixed requirements: total cost is identical for every
-                            // feasible schedule, and utilisation is maximised by minimising
-                            // makespan (see QuboEncoding.toQubo).
-                            let totalLatenessMinutes (assignments: TaskAssignment list) =
-                                assignments
-                                |> List.sumBy (fun a ->
-                                    problem.Tasks
-                                    |> List.tryFind (fun t -> t.Id = a.TaskId)
-                                    |> Option.bind (fun t -> t.Deadline)
-                                    |> Option.map (fun deadline -> max 0.0 (a.EndTime - deadline).TotalMinutes)
-                                    |> Option.defaultValue 0.0)
+                            else
+                                // Select the best feasible solution PER THE DECLARED OBJECTIVE.
+                                // MinimizeCost and MaximizeResourceUtilization share the makespan
+                                // selection because, in this model, resource assignments always equal
+                                // each task's fixed requirements: total cost is identical for every
+                                // feasible schedule, and utilisation is maximised by minimising
+                                // makespan (see QuboEncoding.toQubo).
+                                let totalLatenessMinutes (assignments: TaskAssignment list) =
+                                    assignments
+                                    |> List.sumBy (fun a ->
+                                        problem.Tasks
+                                        |> List.tryFind (fun t -> t.Id = a.TaskId)
+                                        |> Option.bind (fun t -> t.Deadline)
+                                        |> Option.map (fun deadline -> max 0.0 (a.EndTime - deadline).TotalMinutes)
+                                        |> Option.defaultValue 0.0)
 
-                            let (bestMakespan, bestAssignments) =
-                                match problem.Objective with
-                                | MinimizeLateness ->
-                                    // Least total lateness first; makespan breaks ties.
-                                    solutions
-                                    |> Array.minBy (fun (makespan, assignments) ->
-                                        (totalLatenessMinutes assignments, makespan))
-                                | MinimizeMakespan
-                                | MinimizeCost
-                                | MaximizeResourceUtilization -> solutions |> Array.minBy fst
+                                let (bestMakespan, bestAssignments) =
+                                    match problem.Objective with
+                                    | MinimizeLateness ->
+                                        // Least total lateness first; makespan breaks ties.
+                                        solutions
+                                        |> Array.minBy (fun (makespan, assignments) ->
+                                            (totalLatenessMinutes assignments, makespan))
+                                    | MinimizeMakespan
+                                    | MinimizeCost
+                                    | MaximizeResourceUtilization -> solutions |> Array.minBy fst
 
-                            // Score the quantum-decoded schedule with the shared ScheduleMetrics helpers
-                            // (pure metric calculation — no classical solving in the quantum path)
-                            let totalCost = ScheduleMetrics.calculateTotalCost bestAssignments problem.Resources
+                                // Score the quantum-decoded schedule with the shared ScheduleMetrics helpers
+                                // (pure metric calculation — no classical solving in the quantum path)
+                                let totalCost = ScheduleMetrics.calculateTotalCost bestAssignments problem.Resources
 
-                            let completionTimes =
-                                bestAssignments |> List.map (fun a -> a.TaskId, a.EndTime) |> Map.ofList
+                                let completionTimes =
+                                    bestAssignments |> List.map (fun a -> a.TaskId, a.EndTime) |> Map.ofList
 
-                            let violations =
-                                ScheduleMetrics.findDeadlineViolations problem.Tasks completionTimes
+                                let violations =
+                                    ScheduleMetrics.findDeadlineViolations problem.Tasks completionTimes
 
-                            let resourceUtil =
-                                ScheduleMetrics.calculateResourceUtilization
-                                    bestAssignments
-                                    problem.Resources
-                                    bestMakespan
+                                let resourceUtil =
+                                    ScheduleMetrics.calculateResourceUtilization
+                                        bestAssignments
+                                        problem.Resources
+                                        bestMakespan
 
-                            let solution =
-                                {
-                                    Assignments = bestAssignments
-                                    Makespan = bestMakespan
-                                    TotalCost = totalCost
-                                    ResourceUtilization = resourceUtil
-                                    DeadlineViolations = violations
-                                    IsValid = List.isEmpty violations
-                                }
+                                let solution =
+                                    {
+                                        Assignments = bestAssignments
+                                        Makespan = bestMakespan
+                                        TotalCost = totalCost
+                                        ResourceUtilization = resourceUtil
+                                        DeadlineViolations = violations
+                                        IsValid = List.isEmpty violations
+                                    }
 
-                            return Ok solution
+                                return Ok solution
         }

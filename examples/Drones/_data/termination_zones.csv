@@ -1,0 +1,4 @@
+zone_id,name,latitude,longitude,altitude_m,radius_m
+TZ1,Sports field W,37.7765,-122.4470,20,150
+TZ2,Quarry NW,37.7920,-122.4420,20,150
+TZ3,Parking lot SE,37.7620,-122.4030,20,150

@@ -275,8 +275,7 @@ module QuantumMonteCarlo =
         let half = Math.PI / 2.0
 
         let coarse =
-            [ 0..gridN ]
-            |> List.map (fun i -> let th = half * float i / float gridN in (th, logLikelihood th))
+            List.init (max 0 (gridN + 1)) (fun i -> let th = half * float i / float gridN in (th, logLikelihood th))
             |> List.maxBy snd
             |> fst
 
@@ -350,12 +349,12 @@ module QuantumMonteCarlo =
                     // Validate config
                     if config.NumQubits < 1 then
                         return! Error(QuantumError.ValidationError("NumQubits", "Must be >= 1"))
-                    elif config.NumQubits > FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits then
+                    elif config.NumQubits > StateVector.practicalCircuitQubits then
                         return!
                             Error(
                                 QuantumError.ValidationError(
                                     "NumQubits",
-                                    $"Too large (max {FSharp.Azure.Quantum.LocalSimulator.StateVector.practicalCircuitQubits})"
+                                    $"Too large (max {StateVector.practicalCircuitQubits})"
                                 )
                             )
                     elif config.GroverIterations < 0 then

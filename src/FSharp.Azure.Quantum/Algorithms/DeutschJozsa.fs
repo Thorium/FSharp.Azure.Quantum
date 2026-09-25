@@ -83,7 +83,7 @@ module DeutschJozsa =
     // ========================================================================
 
     let private gatesOnAllQubits (gate: int -> Gate) (numQubits: int) : QuantumOperation list =
-        [ 0 .. numQubits - 1 ] |> List.map (gate >> QuantumOperation.Gate)
+        List.init (max 0 numQubits) (gate >> QuantumOperation.Gate)
 
     let private oracleFromOps (backend: IQuantumBackend) (ops: QuantumOperation list) : Oracle =
         fun state -> UnifiedBackend.applySequence backend ops state

@@ -211,67 +211,118 @@ module ModExpPhaseTests =
             Assert.Equal(2, result.ModularMultiplications)
 
     // ========================================================================
-    // QPE REJECTS ModularExponentiation (plan and execute)
+    // QPE HANDLES ModularExponentiation (plan and execute)
     // ========================================================================
+    //
+    // These three tests asserted the opposite until the Beauregard circuit became
+    // available as operations. QPE could not lower a ModularExponentiation unitary, so
+    // plan and execute both refused it and pointed callers at Shor.estimateModExpPhase —
+    // which meant Shor's period finding was the one algorithm that could not go through
+    // the unified backend path, and a non-gate backend had to reimplement it.
+    //
+    // ord(2 mod 7) = 3, so the phase is s/3 and a 4-qubit counting register cannot
+    // represent it exactly. These assert the mechanism, not a particular phase.
+
+    let private modExpConfig: QPE.QPEConfig =
+        {
+            CountingQubits = 4
+            TargetQubits = 3
+            UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
+            EigenVector = None
+        }
 
     [<Fact>]
-    let ``QPE plan rejects ModularExponentiation with descriptive error`` () =
+    let ``QPE plan lowers ModularExponentiation to the Beauregard circuit`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
-
-        let config: QPE.QPEConfig =
-            {
-                CountingQubits = 4
-                TargetQubits = 3
-                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
-                EigenVector = None
-            }
 
         let intent: QPE.QpeExecutionIntent =
             {
                 ApplyBitReversalSwaps = false
-                Config = config
+                Config = modExpConfig
                 Exactness = QPE.Exact
             }
 
         match QPE.plan bknd intent with
-        | Error(QuantumError.OperationError("QPE", msg)) ->
-            Assert.Contains("ModularExponentiation", msg)
-            Assert.Contains("Shor.estimateModExpPhase", msg)
-        | Error err -> Assert.Fail($"Expected OperationError for QPE, got: {err}")
-        | Ok _ -> Assert.Fail("Expected QPE plan to reject ModularExponentiation")
+        | Ok(QPE.QpePlan.ExecuteViaOps(ops, exactness)) ->
+            Assert.Equal(QPE.Exact, exactness)
+            Assert.NotEmpty ops
+            // Every lowered operation must be something the backend can actually run,
+            // otherwise the plan is a promise it cannot keep.
+            Assert.True(ops |> List.forall bknd.SupportsOperation)
+        | Ok(QPE.QpePlan.ExecuteNatively _) ->
+            Assert.Fail("LocalBackend has no native modular-exponentiation QPE; planning one would fail at execution")
+        | Error err -> Assert.Fail($"Expected a lowered plan, got: {err}")
 
     [<Fact>]
-    let ``QPE executeWithExactness rejects ModularExponentiation`` () =
+    let ``QPE executeWithExactness runs ModularExponentiation`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
 
-        let config: QPE.QPEConfig =
-            {
-                CountingQubits = 4
-                TargetQubits = 3
-                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
-                EigenVector = None
-            }
-
-        match QPE.executeWithExactness config bknd false QPE.Exact with
-        | Error(QuantumError.OperationError("QPE", msg)) ->
-            Assert.Contains("ModularExponentiation", msg)
-            Assert.Contains("Shor.estimateModExpPhase", msg)
-        | Error err -> Assert.Fail($"Expected OperationError for QPE, got: {err}")
-        | Ok _ -> Assert.Fail("Expected QPE execute to reject ModularExponentiation")
+        match QPE.executeWithExactness modExpConfig bknd false QPE.Exact with
+        | Ok result ->
+            Assert.Equal(4, result.Precision)
+            Assert.True(result.MeasurementOutcome < (1 <<< 4))
+            Assert.InRange(result.EstimatedPhase, 0.0, 1.0)
+        | Error err -> Assert.Fail($"Expected modular-exponentiation QPE to run, got: {err}")
 
     [<Fact>]
-    let ``QPE execute rejects ModularExponentiation`` () =
+    let ``QPE execute runs ModularExponentiation`` () =
         let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
 
-        let config: QPE.QPEConfig =
+        match QPE.execute modExpConfig bknd with
+        | Ok result ->
+            // Total qubits must cover the arithmetic workspace (counting + 2n + 4), not just
+            // the counting and target registers — sizing it as 4 + 3 would leave the
+            // Beauregard circuit nowhere to put its temp register and ancilla chain.
+            Assert.Equal(ModularExponentiationCircuit.totalQubitsFor 7 4, QuantumState.numQubits result.FinalState)
+        | Error err -> Assert.Fail($"Expected modular-exponentiation QPE to run, got: {err}")
+
+    [<Fact>]
+    let ``QPE rejects a target register that does not match the modulus`` () =
+        // The lowering derives the register width from the modulus, so a disagreeing
+        // TargetQubits would be ignored rather than honoured — the caller would get a
+        // correct answer to a different question than the one they asked.
+        let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let intent: QPE.QpeExecutionIntent =
             {
-                CountingQubits = 4
-                TargetQubits = 3
-                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 7)
-                EigenVector = None
+                ApplyBitReversalSwaps = false
+                Config = { modExpConfig with TargetQubits = 5 } // mod 7 needs 3
+                Exactness = QPE.Exact
             }
 
-        match QPE.execute config bknd with
-        | Error(QuantumError.OperationError("QPE", msg)) -> Assert.Contains("ModularExponentiation", msg)
-        | Error err -> Assert.Fail($"Expected OperationError for QPE, got: {err}")
-        | Ok _ -> Assert.Fail("Expected QPE execute to reject ModularExponentiation")
+        match QPE.plan bknd intent with
+        | Error(QuantumError.ValidationError("TargetQubits", message)) -> Assert.Contains("3-qubit", message)
+        | Error err -> Assert.Fail($"Expected a TargetQubits ValidationError, got: {err}")
+        | Ok _ -> Assert.Fail("Should reject a target register the lowering would ignore")
+
+    [<Fact>]
+    let ``QPE rejects a custom eigenvector for modular exponentiation`` () =
+        // Modular exponentiation is estimated on |1>, the generator of the multiplicative
+        // order. A supplied eigenvector has nowhere to go, so accepting one silently would
+        // mean returning a phase that has nothing to do with the state the caller passed.
+        let bknd = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        // |000⟩ over the 3-qubit target register.
+        let eigenVector =
+            Array.init 8 (fun i ->
+                if i = 0 then
+                    System.Numerics.Complex.One
+                else
+                    System.Numerics.Complex.Zero)
+            |> StateVector.create
+            |> QuantumState.StateVector
+
+        let intent: QPE.QpeExecutionIntent =
+            {
+                ApplyBitReversalSwaps = false
+                Config =
+                    { modExpConfig with
+                        EigenVector = Some eigenVector
+                    }
+                Exactness = QPE.Exact
+            }
+
+        match QPE.plan bknd intent with
+        | Error(QuantumError.ValidationError("EigenVector", message)) -> Assert.Contains("|1⟩", message)
+        | Error err -> Assert.Fail($"Expected an EigenVector ValidationError, got: {err}")
+        | Ok _ -> Assert.Fail("Should reject a custom eigenvector it cannot use")

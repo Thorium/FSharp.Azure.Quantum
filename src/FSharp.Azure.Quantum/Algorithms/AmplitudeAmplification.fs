@@ -326,15 +326,14 @@ module AmplitudeAmplification =
 
         let private lowerUniformSuperpositionPrepOps (numQubits: int) : QuantumOperation list =
 
-            [ 0 .. numQubits - 1 ] |> List.map (CircuitBuilder.H >> QuantumOperation.Gate)
+            List.init (max 0 numQubits) (CircuitBuilder.H >> QuantumOperation.Gate)
 
         let private isUniformSuperpositionCircuit (prep: CircuitBuilder.Circuit) : bool =
             // Heuristic: equal qubit count and exactly one H gate per qubit and nothing else.
             if prep.Gates.Length <> prep.QubitCount then
                 false
             else
-                let expectedSet =
-                    [ 0 .. prep.QubitCount - 1 ] |> List.map CircuitBuilder.H |> Set.ofList
+                let expectedSet = List.init (max 0 prep.QubitCount) CircuitBuilder.H |> Set.ofList
 
                 Set.ofList prep.Gates = expectedSet
 

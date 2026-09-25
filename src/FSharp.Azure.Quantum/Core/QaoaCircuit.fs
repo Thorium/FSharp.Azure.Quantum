@@ -382,7 +382,7 @@ module QaoaCircuit =
 
             // QAOA layers
             for i, layer in Array.indexed circuit.Layers do
-                sb.AppendLine($"// QAOA Layer {i + 1} (γ={layer.Gamma}, β={layer.Beta})")
+                sb.AppendLine $"// QAOA Layer {i + 1} (γ={layer.Gamma}, β={layer.Beta})"
                 |> ignore
 
                 // Cost layer

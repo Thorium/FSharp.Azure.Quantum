@@ -94,13 +94,12 @@ module DataPreprocessing =
 
             // Compute mean for each feature
             let meanValues =
-                [| 0 .. numFeatures - 1 |]
-                |> Array.map (fun featureIdx -> data |> Array.map (fun sample -> sample.[featureIdx]) |> Array.average)
+                Array.init (max 0 numFeatures) (fun featureIdx ->
+                    data |> Array.averageBy (fun sample -> sample.[featureIdx]))
 
             // Compute standard deviation for each feature
             let stdValues =
-                [| 0 .. numFeatures - 1 |]
-                |> Array.map (fun featureIdx ->
+                Array.init (max 0 numFeatures) (fun featureIdx ->
                     let mean = meanValues.[featureIdx]
 
                     let variance =
@@ -263,8 +262,7 @@ module DataPreprocessing =
             let foldSize = n / k
             let remainder = n % k
 
-            [| 0 .. k - 1 |]
-            |> Array.map (fun foldIdx ->
+            Array.init (max 0 k) (fun foldIdx ->
                 // Calculate fold boundaries
                 let foldStart = foldIdx * foldSize + min foldIdx remainder
                 let foldEnd = foldStart + foldSize + (if foldIdx < remainder then 1 else 0)

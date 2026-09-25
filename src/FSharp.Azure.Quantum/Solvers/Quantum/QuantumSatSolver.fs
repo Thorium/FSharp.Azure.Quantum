@@ -513,8 +513,7 @@ module QuantumSatSolver =
 
         let rec improve (current: bool[]) =
             let gains =
-                [ 0 .. problem.NumVariables - 1 ]
-                |> List.map (fun v -> (v, flipGain problem current v))
+                List.init (max 0 problem.NumVariables) (fun v -> (v, flipGain problem current v))
                 |> List.filter (fun (_, g) -> g > 0.0)
                 |> List.sortByDescending snd
 
@@ -677,8 +676,7 @@ module QuantumSatSolver =
 
             let rec improve (current: bool[]) =
                 let gains =
-                    [ 0 .. problem.NumVariables - 1 ]
-                    |> List.map (fun v -> (v, flipGain problem current v))
+                    List.init (max 0 problem.NumVariables) (fun v -> (v, flipGain problem current v))
                     |> List.filter (fun (_, g) -> g > 0.0)
                     |> List.sortByDescending snd
 

@@ -1150,8 +1150,7 @@ module FermionMapping =
             let j = op.OrbitalIndex
 
             // Build Z-string: Z₀ Z₁ ... Z_{j-1}
-            let zString =
-                [ 0 .. j - 1 ] |> List.map (fun i -> (i, QaoaCircuit.PauliZ)) |> Map.ofList
+            let zString = List.init (max 0 j) (fun i -> (i, QaoaCircuit.PauliZ)) |> Map.ofList
 
             match op.OperatorType with
             | Creation ->
@@ -3662,8 +3661,7 @@ module HamiltonianSimulation =
                     let targetQubit = fst nonIdentityQubits[nonIdentityQubits.Length - 1]
 
                     let cnotLadderGates =
-                        [| 0 .. nonIdentityQubits.Length - 2 |]
-                        |> Array.map (fun i ->
+                        Array.init (max 0 ((nonIdentityQubits.Length - 2) + 1)) (fun i ->
                             let controlQubit = fst nonIdentityQubits[i]
                             QuantumOperation.Gate(CNOT(controlQubit, targetQubit)))
                         |> Array.toList

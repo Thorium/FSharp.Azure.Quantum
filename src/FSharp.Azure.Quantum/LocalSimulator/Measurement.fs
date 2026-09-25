@@ -234,8 +234,7 @@ module Measurement =
         let numQubits = StateVector.numQubits state
 
         // Convert basis index to bit array
-        [| 0 .. numQubits - 1 |]
-        |> Array.map (fun qubitIdx -> (basisIndex >>> qubitIdx) &&& 1)
+        Array.init (max 0 numQubits) (fun qubitIdx -> (basisIndex >>> qubitIdx) &&& 1)
 
     /// Draw `shots` independent computational-basis outcomes from one state.
     ///

@@ -444,7 +444,7 @@ module QuantumDistributions =
         let n = float values.Length
 
         let mean = values |> Array.average
-        let variance = values |> Array.map (fun x -> (x - mean) ** 2.0) |> Array.average
+        let variance = values |> Array.averageBy (fun x -> (x - mean) ** 2.0)
         let stddev = sqrt variance
 
         {

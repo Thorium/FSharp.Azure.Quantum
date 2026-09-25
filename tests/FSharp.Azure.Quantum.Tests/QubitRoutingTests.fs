@@ -101,8 +101,7 @@ module QubitRoutingTests =
             idxL
 
         let maxDiff =
-            [ 0 .. ampsRouted.Length - 1 ]
-            |> List.map (fun i -> (ampsRouted.[i] - ampsOrig.[toLogical i]).Magnitude)
+            List.init ampsRouted.Length (fun i -> (ampsRouted.[i] - ampsOrig.[toLogical i]).Magnitude)
             |> List.max
 
         Assert.True(maxDiff < 1e-9, $"max amplitude diff %g{maxDiff}")

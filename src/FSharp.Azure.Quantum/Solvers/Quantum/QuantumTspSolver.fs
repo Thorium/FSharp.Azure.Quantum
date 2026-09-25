@@ -247,7 +247,7 @@ module QuantumTspSolver =
         // execution — lets the message name the problem size, the backend and its
         // limit, instead of a bare "qubits must be between 0 and N".
         let capacityError =
-            BackendAbstraction.UnifiedBackend.getMaxQubits backend
+            BackendAbstraction.UnifiedBackend.getRunnableQubits backend
             |> Option.bind (fun maxQubits ->
                 if requiredQubits > maxQubits then
                     Some(
@@ -276,8 +276,7 @@ module QuantumTspSolver =
             try
                 // Step 1: Build GraphOptimization problem from distance matrix
                 let nodes =
-                    [ 0 .. numCities - 1 ]
-                    |> List.map (fun i -> GraphOptimization.node (string i) i)
+                    List.init (max 0 numCities) (fun i -> GraphOptimization.node (string i) i)
 
                 let edges =
                     [

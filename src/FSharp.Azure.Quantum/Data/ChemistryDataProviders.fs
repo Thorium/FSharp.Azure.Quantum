@@ -1069,6 +1069,8 @@ module ChemistryDataProviders =
             with ex ->
                 Error $"Failed to parse MOL block: {ex.Message}"
 
+        let private sRegex = Regex @">\s*<([^>]+)>"
+
         /// Parse associated data fields from SDF format
         let parseDataFields (lines: string array) (startLine: int) : Map<string, string> * int =
             let saveField props fieldOpt (valueBuilder: System.Text.StringBuilder) =
@@ -1094,7 +1096,7 @@ module ChemistryDataProviders =
                     if line.StartsWith("> ") || line.StartsWith(">  ") then
                         // Save previous field, start new one
                         let updatedProps = saveField props currentField currentValue
-                        let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
+                        let fieldMatch = sRegex.Match line
 
                         if fieldMatch.Success then
                             loop
@@ -2014,7 +2016,9 @@ module ChemistryDataProviders =
                     (fun (state: PdbParseState) line ->
                         if
                             line.Length < 6
-                            || state.FirstModelEnded && (line.[0..4] = "ATOM " || line.[0..5] = "HETATM")
+                            || state.FirstModelEnded
+                               && (line.StartsWith("ATOM ", StringComparison.Ordinal)
+                                   || line.StartsWith("HETATM", StringComparison.Ordinal))
                         then
                             state
                         else

@@ -193,6 +193,8 @@ module MolecularData =
                 ("SH", 28.24) // Thiol
             ]
 
+    let private dAZazHddRegex = Regex(@"^\[(\d*)([A-Z][a-z]?)([H]?)(\d*)([+-]?\d*)\]")
+    let private clBrBCNOPSFIRegex = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
     // ========================================================================
     // SMILES PARSER
     // ========================================================================
@@ -204,8 +206,8 @@ module MolecularData =
         else
             // Organic subset: B, C, N, O, P, S, F, Cl, Br, I
             // Lowercase = aromatic: b, c, n, o, p, s
-            let organicSubset = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
-            let bracketAtom = Regex(@"^\[(\d*)([A-Z][a-z]?)([H]?)(\d*)([+-]?\d*)\]")
+            let organicSubset = clBrBCNOPSFIRegex
+            let bracketAtom = dAZazHddRegex
 
             let matchOrganic = organicSubset.Match smilesFragment
 
@@ -265,12 +267,15 @@ module MolecularData =
                 else
                     None
 
+    let private dRegex = Regex(@"^%?\d+")
+    let private compiledRegex = Regex(@"^\[[^\]]+\]")
+
     /// Simple SMILES tokenizer
     let private tokenizeSmiles (smiles: string) : string list =
         let organic = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
-        let bracket = Regex(@"^\[[^\]]+\]")
+        let bracket = compiledRegex
         let bond = Regex(@"^[-=#:$]")
-        let ring = Regex(@"^%?\d+")
+        let ring = dRegex
         let branch = Regex(@"^[()]")
         let dot = Regex(@"^\.")
 

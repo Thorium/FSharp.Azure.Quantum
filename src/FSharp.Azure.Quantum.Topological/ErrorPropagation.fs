@@ -110,7 +110,7 @@ module ErrorPropagation =
 
         | Quadratic ->
             // RMS (root mean square): ε_total = √(Σεᵢ²)
-            errors |> List.map (fun e -> e * e) |> List.sum |> sqrt
+            (errors |> List.sumBy (fun e -> e * e)) |> sqrt
 
         | DiamondNorm ->
             // Worst case: same as additive for conservative estimate

@@ -16,22 +16,127 @@ open System.Numerics
 /// These tests verify the integration architecture works correctly.
 module AlgorithmExtensionsTests =
 
-    [<Fact(Skip = "Shor on 30 Ising anyons compiles hundreds of gates through Solovay-Kitaev; >10 min")>]
-    let ``AlgorithmExtensions - factorWithTopology accepts topological backend`` () =
-        // Arrange
-        // Factoring 15 needs 8 precision + 4 target qubits = 12 qubits
-        // Ising anyons: 2n + 2 anyons -> 2*12 + 2 = 26 anyons
+    // Shor has two routes onto a topological backend:
+    //   A) the modular-exponentiation QPE intent realised directly on the fusion encoding,
+    //      which is what these tests pin;
+    //   B) BraidToGate -> gate-based Shor -> GateToBraid, far slower because every gate
+    //      goes through Solovay-Kitaev.
+    // Route A is implemented (modExpQpeSuperposition), so the planner takes it. Neither
+    // route is limited by anyons: this backend has no qubits of its own, it encodes them
+    // (2n+2 Ising anyons per n qubits).
+    //
+    // The two planning tests below cost nothing; the two execution tests after them are
+    // what actually prove route A computes the right phase.
+    [<Fact>]
+    let ``Shor period finding takes the native intent on a topological backend`` () =
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
+
+        let intent: Shor.ShorPeriodFindingIntent =
+            {
+                Base = 7
+                Modulus = 15
+                CountingQubits = 3
+            }
+
+        match Shor.planPeriodFinding topoBackend intent with
+        | Ok(Shor.ShorPeriodFindingPlan.ExecuteNatively qpeIntent) ->
+            Assert.Equal(3, qpeIntent.CountingQubits)
+            Assert.Equal(4, qpeIntent.TargetQubits) // ceil(log2 15)
+
+            match qpeIntent.Unitary with
+            | BackendAbstraction.QpeUnitary.ModularExponentiation(baseNum, modulus) ->
+                Assert.Equal(7, baseNum)
+                Assert.Equal(15, modulus)
+            | other -> Assert.Fail($"Expected a ModularExponentiation unitary, got {other}")
+        | Ok(Shor.ShorPeriodFindingPlan.ExecuteViaModExpCircuit _) ->
+            Assert.Fail("Fell back to the gate circuit; the topological backend executes this intent natively")
+        | Error err -> Assert.Fail($"Planning Shor for a topological backend failed: {err}")
+
+    [<Fact>]
+    let ``topological backend still accepts the QPE intents its lowering can handle`` () =
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
+
+        let singleTargetQpe: BackendAbstraction.QpeIntent =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                Unitary = BackendAbstraction.QpeUnitary.PhaseGate(System.Math.PI / 4.0)
+                PrepareTargetOne = true
+                ApplySwaps = false
+            }
+
+        Assert.True(
+            topoBackend.SupportsOperation(
+                BackendAbstraction.QuantumOperation.Algorithm(BackendAbstraction.AlgorithmOperation.QPE singleTargetQpe)
+            ),
+            "Narrowing SupportsOperation to match ApplyOperation must not disable ordinary QPE"
+        )
+
+    [<Fact>]
+    let ``native modular-exponentiation QPE recovers the period of 7 mod 15`` () =
+        // 7 qubits: 3 counting + ceil(log2 15) = 4 target, so 2*7 + 2 = 16 Ising anyons.
+        // ord(7 mod 15) = 4, and 4 divides the 8-point phase grid, so the phase is exact
+        // and one shot suffices — this is deterministic, not a lucky draw.
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
+
+        match Shor.findPeriodQuantum 7 15 3 topoBackend with
+        | Ok result ->
+            Assert.Equal(7, result.Base)
+            Assert.Equal(4, result.Period)
+        | Error err -> Assert.Fail($"Native modular-exponentiation QPE failed on a topological backend: {err}")
+
+    [<Fact>]
+    let ``native topological QPE agrees with the gate circuit on the local simulator`` () =
+        // Differential check across the two routes. The topological backend takes route A
+        // (the intent, realised on the fusion encoding); LocalBackend declines it and takes
+        // route B (the Beauregard circuit). Same period or one of them is wrong.
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        match Shor.findPeriodQuantum 7 15 3 topoBackend, Shor.findPeriodQuantum 7 15 3 localBackend with
+        | Ok native, Ok circuit ->
+            Assert.Equal(circuit.Period, native.Period)
+            Assert.Equal(circuit.Base, native.Base)
+        | Error err, _ -> Assert.Fail($"Native route failed: {err}")
+        | _, Error err -> Assert.Fail($"Circuit route failed: {err}")
+
+    // Was skipped as ">10 min": Shor on 30 Ising anyons compiled hundreds of gates through
+    // Solovay-Kitaev. Route A pays none of that — the modular-exponentiation QPE intent is
+    // realised on the fusion encoding directly — so this runs again.
+    [<Fact>]
+    let ``AlgorithmExtensions - factorWithTopology factors 15 on a topological backend`` () =
+        // 3 counting + ceil(log2 15) = 4 target qubits for the native route.
+        // Ising anyons: 2n + 2 -> comfortably inside 30.
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 30
 
-        // Act
-        // Use 15 as standard test case
-        let result = AlgorithmExtensions.factorWithTopology 15 topoBackend None
+        // The base is pinned for two reasons: gcd(7, 15) = 1, so period finding is actually
+        // reached rather than short-circuited by a lucky common factor; and ord(7 mod 15) = 4
+        // divides the 8-point phase grid, making the run deterministic rather than a draw.
+        let config: ShorsTypes.ShorsConfig =
+            {
+                NumberToFactor = 15
+                RandomBase = Some 7
+                PrecisionQubits = 3
+                MaxAttempts = 3
+            }
 
-        // Assert
-        match result with
-        | Ok _ -> Assert.True(true)
-        | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
-        | Error err -> Assert.True(false, $"Unexpected error: {err}")
+        match AlgorithmExtensions.factorWithTopology 15 topoBackend (Some config) with
+        | Ok result ->
+            Assert.True(result.Success, $"Should factor 15 on a topological backend: {result.Message}")
+
+            match result.Factors with
+            | Some(p, q) ->
+                Assert.Equal(15, p * q)
+                Assert.Equal<int list>([ 3; 5 ], List.sort [ p; q ])
+            | None -> Assert.Fail($"Should find the factors of 15: {result.Message}")
+
+            // Period finding ran, rather than a gcd shortcut standing in for it.
+            match result.PeriodResult with
+            | Some period -> Assert.Equal(4, period.Period)
+            | None -> Assert.Fail("Factored without period finding; the quantum subroutine did not run")
+        | Error err -> Assert.Fail($"factorWithTopology failed: {err}")
 
     [<Fact>]
     let ``AlgorithmExtensions - solveLinearSystemTopology accepts topological backend`` () =
@@ -392,3 +497,307 @@ module AlgorithmExtensionsTests =
         match Shor.estimateModExpPhase 6 15 2 topoBackend with
         | Error(QuantumError.ValidationError("baseNum", msg)) -> Assert.Contains("coprime", msg)
         | other -> Assert.Fail($"Expected coprime ValidationError, got: {other}")
+
+    // ========================================================================
+    // QFT INTENT: topological against the gate simulator
+    // ========================================================================
+    //
+    // The QFT intent had no coverage on this backend at all — it is exercised only in the
+    // main project, against LocalBackend. Both backends implement the same lowering shape
+    // (H on each target, then controlled phases from the higher qubits), so comparing them
+    // isolates the one thing that can differ: the rotation angles.
+
+    /// Amplitudes of a state, whichever representation it is in.
+    let private amplitudesOf (state: QuantumState) : Complex[] =
+        match state with
+        | QuantumState.StateVector sv ->
+            Array.init (FSharp.Azure.Quantum.LocalSimulator.StateVector.dimension sv) (fun i ->
+                FSharp.Azure.Quantum.LocalSimulator.StateVector.getAmplitude i sv)
+        | QuantumState.FusionSuperposition fs -> fs.GetAmplitudeVector()
+        | other -> failwith $"Unexpected state representation: {other}"
+
+    // All four combinations: the bit-ordering convention is easy to get right for one and
+    // wrong for the others, and the first version of the native transform did exactly that.
+    [<Theory>]
+    [<InlineData(false, true)>]
+    [<InlineData(false, false)>]
+    [<InlineData(true, true)>]
+    [<InlineData(true, false)>]
+    let ``topological QFT intent agrees with the gate simulator`` (inverse: bool) (applySwaps: bool) =
+        let numQubits = 3
+
+        let qftIntent =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QFT
+                    {
+                        NumQubits = numQubits
+                        Inverse = inverse
+                        ApplySwaps = applySwaps
+                    }
+            )
+
+        // Sweep every basis state, which compares the two implementations column by column
+        // and so pins the whole unitary rather than one of its columns.
+        //
+        // A single probe is not enough and picking one is easy to get wrong: |000> and |111>
+        // are bit-reversal symmetric, so they hide index-permutation errors entirely, while a
+        // single low bit such as |001> fires no controlled phase and hides angle errors. An
+        // earlier version of this test used |111> and reported three of four configurations
+        // passing for an implementation that was wrong in all four.
+        let prepare (backend: BackendAbstraction.IQuantumBackend) (basisState: int) =
+            [ 0 .. numQubits - 1 ]
+            |> List.filter (fun q -> (basisState >>> q) &&& 1 = 1)
+            |> List.fold
+                (fun stateResult q ->
+                    stateResult
+                    |> Result.bind (
+                        backend.ApplyOperation(
+                            BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.X q)
+                        )
+                    ))
+                (backend.InitializeState numQubits)
+            |> Result.bind (backend.ApplyOperation qftIntent)
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
+
+        for basisState in 0 .. (1 <<< numQubits) - 1 do
+            match prepare localBackend basisState, prepare topoBackend basisState with
+            | Ok gateState, Ok topoState ->
+                let expected = amplitudesOf gateState
+                let actual = amplitudesOf topoState
+
+                Assert.Equal(expected.Length, actual.Length)
+
+                for i in 0 .. expected.Length - 1 do
+                    Assert.True(
+                        (expected.[i] - actual.[i]).Magnitude < 1e-9,
+                        $"Basis state {basisState}, amplitude {i}: gate simulator {expected.[i]} vs topological {actual.[i]}"
+                    )
+            | Error err, _ -> failwith $"Gate simulator failed on basis state {basisState}: {err}"
+            | _, Error err -> failwith $"Topological backend failed on basis state {basisState}: {err}"
+
+    [<Fact>]
+    let ``native topological QFT is unitary on a superposition`` () =
+        // Columns agreeing one at a time does not by itself prove the transform is linear in
+        // the implementation: it rebuilds fusion terms per output index. A superposition
+        // input exercises the summation across terms.
+        let numQubits = 3
+
+        let qftIntent =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QFT
+                    {
+                        NumQubits = numQubits
+                        Inverse = false
+                        ApplySwaps = true
+                    }
+            )
+
+        let prepare (backend: BackendAbstraction.IQuantumBackend) =
+            backend.InitializeState numQubits
+            |> Result.bind (
+                backend.ApplyOperation(
+                    BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.H 0)
+                )
+            )
+            |> Result.bind (
+                backend.ApplyOperation(
+                    BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.X 1)
+                )
+            )
+            |> Result.bind (backend.ApplyOperation qftIntent)
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
+
+        match prepare localBackend, prepare topoBackend with
+        | Ok gateState, Ok topoState ->
+            let expected = amplitudesOf gateState
+            let actual = amplitudesOf topoState
+
+            for i in 0 .. expected.Length - 1 do
+                Assert.True(
+                    (expected.[i] - actual.[i]).Magnitude < 1e-9,
+                    $"Amplitude {i}: gate simulator {expected.[i]} vs topological {actual.[i]}"
+                )
+        | Error err, _ -> failwith $"Gate simulator failed: {err}"
+        | _, Error err -> failwith $"Topological backend failed: {err}"
+
+    [<Theory>]
+    [<InlineData(true)>]
+    [<InlineData(false)>]
+    let ``QFT intent round-trips on the gate simulator`` (applySwaps: bool) =
+        // Forward then inverse must be the identity on any backend, for either swap setting.
+        // If this fails the canonical lowering itself is inconsistent, which would make it a
+        // poor contract to hold the topological implementation to.
+        let numQubits = 3
+
+        let qft inverse =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QFT
+                    {
+                        NumQubits = numQubits
+                        Inverse = inverse
+                        ApplySwaps = applySwaps
+                    }
+            )
+
+        let backend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        // |001>, NOT |111>: a bit-reversal-symmetric input hides a permutation error,
+        // because reversing its bits gives the same state back.
+        let roundTripped =
+            backend.InitializeState numQubits
+            |> Result.bind (
+                backend.ApplyOperation(
+                    BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.X 0)
+                )
+            )
+            |> Result.bind (backend.ApplyOperation(qft false))
+            |> Result.bind (backend.ApplyOperation(qft true))
+
+        match roundTripped with
+        | Error err -> failwith $"Round trip failed: {err}"
+        | Ok state ->
+            let amplitudes = amplitudesOf state
+            // |001> is index 1.
+            for i in 0 .. amplitudes.Length - 1 do
+                let expected = if i = 1 then 1.0 else 0.0
+
+                Assert.True(
+                    abs (amplitudes.[i].Magnitude - expected) < 1e-9,
+                    $"Amplitude {i} should be {expected} after QFT then inverse QFT, got {amplitudes.[i]}"
+                )
+
+    [<Theory>]
+    [<InlineData(false, true)>]
+    [<InlineData(false, false)>]
+    [<InlineData(true, true)>]
+    [<InlineData(true, false)>]
+    let ``native topological QFT transforms a sub-register`` (inverse: bool) (applySwaps: bool) =
+        // A QFT intent covering fewer qubits than the state is the case that matters for
+        // composition: Shor's inverse QFT runs on the counting register of a state that also
+        // holds the target register and the arithmetic workspace. Transforming the whole
+        // state instead, or ignoring the untouched high bits, is wrong in a way that the
+        // whole-state tests above cannot see.
+        let qftQubits = 2
+        let stateQubits = 4
+
+        let qftIntent =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QFT
+                    {
+                        NumQubits = qftQubits
+                        Inverse = inverse
+                        ApplySwaps = applySwaps
+                    }
+            )
+
+        let prepare (backend: BackendAbstraction.IQuantumBackend) (basisState: int) =
+            [ 0 .. stateQubits - 1 ]
+            |> List.filter (fun q -> (basisState >>> q) &&& 1 = 1)
+            |> List.fold
+                (fun stateResult q ->
+                    stateResult
+                    |> Result.bind (
+                        backend.ApplyOperation(
+                            BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.X q)
+                        )
+                    ))
+                (backend.InitializeState stateQubits)
+            |> Result.bind (backend.ApplyOperation qftIntent)
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 10
+
+        for basisState in 0 .. (1 <<< stateQubits) - 1 do
+            match prepare localBackend basisState, prepare topoBackend basisState with
+            | Ok gateState, Ok topoState ->
+                let expected = amplitudesOf gateState
+                let actual = amplitudesOf topoState
+
+                Assert.Equal(expected.Length, actual.Length)
+
+                for i in 0 .. expected.Length - 1 do
+                    Assert.True(
+                        (expected.[i] - actual.[i]).Magnitude < 1e-9,
+                        $"Basis state {basisState}, amplitude {i}: gate simulator {expected.[i]} vs topological {actual.[i]}"
+                    )
+            | Error err, _ -> failwith $"Gate simulator failed on basis state {basisState}: {err}"
+            | _, Error err -> failwith $"Topological backend failed on basis state {basisState}: {err}"
+
+    [<Fact>]
+    let ``braiding keeps states inside the computational-basis encoding`` () =
+        // The native primitives on this backend — Grover's three, modular-exponentiation QPE,
+        // and now the QFT — all read fusion terms through FusionTree.toComputationalBasis,
+        // which maps any channel it does not recognise to a 0 bit rather than failing. If a
+        // braid could move a state outside that encoding, those primitives would silently
+        // mangle it where the gate path would not, so this pins the assumption they rest on.
+        let backend = TopologicalUnifiedBackendFactory.createIsing 8
+        let numQubits = 3
+
+        let braided =
+            backend.InitializeState numQubits
+            |> Result.bind (
+                backend.ApplyOperation(
+                    BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.H 0)
+                )
+            )
+            // Within-pair braids (even leaf indices). Cross-pair braiding is the operation
+            // that could move a state between fusion channels, and this backend refuses it
+            // outright: "the F-move machinery required for cross-pair braids is only
+            // implemented for 3-anyon trees". That refusal is what keeps the encoding total.
+            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 0))
+            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 2))
+
+        match braided with
+        | Error err -> failwith $"Braiding failed: {err}"
+        | Ok(QuantumState.FusionSuperposition fs) ->
+            // Amplitudes must survive a round trip through the encoding the native
+            // primitives use: same number of basis states, same total probability.
+            let amplitudes = fs.GetAmplitudeVector()
+            let total = amplitudes |> Array.sumBy (fun a -> a.Magnitude * a.Magnitude)
+
+            Assert.True(
+                abs (total - 1.0) < 1e-9,
+                $"Braided state should stay normalised in the computational-basis view, got {total}"
+            )
+        | Ok other -> failwith $"Expected a fusion superposition, got {other}"
+
+    [<Fact>]
+    let ``QPE execute runs modular exponentiation on a topological backend`` () =
+        // Regression: QPE.execute sizes the state for the Beauregard lowering
+        // (counting + 2n + 4) because it allocates before planning, so it cannot know whether
+        // the backend will claim the intent natively. The native handler demanded exactly
+        // counting + target and rejected every state QPE.execute built, making this
+        // combination always fail. Shor's own path was unaffected because it allocates after
+        // planning. The handler now accepts the wider state and leaves the surplus in |0>.
+        let backend = TopologicalUnifiedBackendFactory.createIsing 32
+
+        let config: FSharp.Azure.Quantum.Algorithms.QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 4 // ceil(log2 15)
+                UnitaryOperator =
+                    FSharp.Azure.Quantum.Algorithms.QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                EigenVector = None
+            }
+
+        match FSharp.Azure.Quantum.Algorithms.QPE.execute config backend with
+        | Error err -> failwith $"QPE.execute with ModularExponentiation failed on a topological backend: {err}"
+        | Ok result ->
+            // ord(7 mod 15) = 4, so the phase must land on a multiple of 1/4.
+            let scaled = result.EstimatedPhase * 4.0
+
+            Assert.True(
+                abs (scaled - System.Math.Round scaled) < 1e-9,
+                $"Phase {result.EstimatedPhase} is not a multiple of 1/4; period finding could not recover r=4"
+            )

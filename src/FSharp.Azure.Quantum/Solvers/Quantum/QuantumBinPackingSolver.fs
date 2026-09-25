@@ -155,7 +155,7 @@ module QuantumBinPackingSolver =
             [ 0 .. n - 1 ]
             |> List.fold
                 (fun acc i ->
-                    let varIndices = [ 0 .. b - 1 ] |> List.map (itemBinIndex b i)
+                    let varIndices = List.init (max 0 b) (itemBinIndex b i)
                     // Linear: -lambda1 per variable
                     let acc =
                         varIndices
@@ -244,7 +244,7 @@ module QuantumBinPackingSolver =
         //        = lambda3 * x_{ij} - lambda3 * x_{ij} * y_j
         let activationTerms =
             [ 0 .. n - 1 ]
-            |> List.collect (fun i -> [ 0 .. b - 1 ] |> List.map (fun j -> (i, j)))
+            |> List.collect (fun i -> List.init (max 0 b) (fun j -> (i, j)))
             |> List.fold
                 (fun acc (i, j) ->
                     let xij = itemBinIndex b i j

@@ -185,6 +185,9 @@ module OpenQasmImport =
     /// Multi-line comments are removed during preprocessing in parse()
     let private removeComments (line: string) : string = commentPattern.Replace(line, "")
 
+    let private ddsspissddRegex =
+        Regex(@"^(-?)(\d+(?:\.\d+)?)?\s*\*?\s*pi(?:\s*/\s*(\d+(?:\.\d+)?))?$", RegexOptions.Compiled)
+
     /// Parse angle string to float, supporting:
     /// - Numeric literals: "1.5707", "-1.5707", "3.14e-2"
     /// - Pi expressions: "pi", "pi/2", "pi/4", "2*pi", "3*pi/4", "-pi", "-pi/4"
@@ -195,8 +198,7 @@ module OpenQasmImport =
         | true, value -> Ok value
         | false, _ ->
             // Try pi expression parsing
-            let piPattern =
-                Regex(@"^(-?)(\d+(?:\.\d+)?)?\s*\*?\s*pi(?:\s*/\s*(\d+(?:\.\d+)?))?$", RegexOptions.Compiled)
+            let piPattern = ddsspissddRegex
 
             let m = piPattern.Match s
 
@@ -441,8 +443,8 @@ module OpenQasmImport =
             // for rotation gates missing from qelib1.inc/stdgates.inc). The body only
             // *defines* the gate, so it is skipped; calls to it are parsed as normal gates.
             elif
-                cleanLine.StartsWith("gate ")
-                || cleanLine.StartsWith("gate\t")
+                cleanLine.StartsWith "gate "
+                || cleanLine.StartsWith "gate\t"
                 || cleanLine = "gate"
             then
                 if cleanLine.Contains('{') && cleanLine.TrimEnd().EndsWith("}") then
@@ -792,7 +794,7 @@ module OpenQasmImport =
                                     }
                             | Error msg -> Error $"Line {state.LineNumber}: {msg}"
 
-            else if
+            elif
                 // Unknown line format - provide helpful error
                 cleanLine.StartsWith "OPENQASM"
             then

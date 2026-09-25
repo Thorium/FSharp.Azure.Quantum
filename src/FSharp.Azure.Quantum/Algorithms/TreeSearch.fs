@@ -124,8 +124,7 @@ module TreeSearch =
         let bitsPerLevel = bitsNeeded branchingFactor
         let mask = (1 <<< bitsPerLevel) - 1
 
-        [ 0 .. maxDepth - 1 ]
-        |> List.map (fun depth -> (encoded >>> (depth * bitsPerLevel)) &&& mask)
+        List.init (max 0 maxDepth) (fun depth -> (encoded >>> (depth * bitsPerLevel)) &&& mask)
 
     // ========================================================================
     // PATH EVALUATION

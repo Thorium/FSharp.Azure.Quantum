@@ -49,7 +49,7 @@ module CloudBackendHelpers =
             index
 
         // StateVector holds 2^n amplitudes, so its width depends on available memory.
-        let maxDenseQubits = FSharp.Azure.Quantum.LocalSimulator.StateVector.maxQubits
+        let maxDenseQubits = StateVector.maxQubits
         let maxSparseQubits = 31 // SparseState: basis indices must fit Int32
 
         if numQubits > maxSparseQubits then
