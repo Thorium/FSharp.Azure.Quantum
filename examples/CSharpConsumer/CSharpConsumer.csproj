@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
-    <Reference Include="FSharp.Azure.Quantum.Business.CSharp">
+    <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" Condition="Exists('..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj')" />
+    <Reference Include="FSharp.Azure.Quantum.Business.CSharp" Condition="Exists('..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj')">
       <HintPath>..\..\src\FSharp.Azure.Quantum\Business\CSharp\bin\$(Configuration)\net10.0\FSharp.Azure.Quantum.Business.CSharp.dll</HintPath>
     </Reference>
   </ItemGroup>
@@ -13,5 +13,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!-- Copied out of the repository the sources above are missing, so use the NuGet packages. -->
+  <ItemGroup Condition="!Exists('..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj')">
+    <PackageReference Include="FSharp.Azure.Quantum" Version="*" />
+  </ItemGroup>
 
 </Project>

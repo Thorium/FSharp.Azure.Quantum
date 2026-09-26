@@ -15,7 +15,12 @@
       [3] Mitarai et al., Phys. Rev. A 98, 032309 (2018)
 *)
 
+// The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
+#if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#else
+#r "nuget: FSharp.Azure.Quantum"
+#endif
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

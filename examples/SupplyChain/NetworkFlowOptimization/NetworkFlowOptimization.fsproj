@@ -13,6 +13,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+    <ProjectReference Include="..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" Condition="Exists('..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj')" />
   </ItemGroup>
+  <!-- Copied out of the repository the sources above are missing, so use the NuGet packages. -->
+  <ItemGroup Condition="!Exists('..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj')">
+    <PackageReference Include="FSharp.Azure.Quantum" Version="*" />
+  </ItemGroup>
+
 </Project>

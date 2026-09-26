@@ -91,8 +91,12 @@ looks like, then flags anything unusual. No need for labeled attack data!
 /// Anomaly Detection Example: Security Threat Detection
 /// Implementation using quantum one-class classification
 
-//#r "nuget: FSharp.Azure.Quantum"
+// The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
+#if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#else
+#r "nuget: FSharp.Azure.Quantum"
+#endif
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 
 #load "../_common/Cli.fs"

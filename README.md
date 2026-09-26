@@ -122,6 +122,16 @@ flowchart TD
 dotnet add package FSharp.Azure.Quantum
 ```
 
+In an F# script (`.fsx`), reference the package instead; `dotnet add package` does not reach scripts:
+
+```fsharp
+#r "nuget: FSharp.Azure.Quantum"
+```
+
+The [examples](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples) do this already:
+download the `examples` folder and run any script with `dotnet fsi <script>.fsx`, with no build of this
+repository needed. See [Running Examples](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/README.md#running-examples).
+
 ### F# Computation Expressions
 
 ```fsharp

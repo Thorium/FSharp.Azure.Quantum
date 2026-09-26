@@ -34,7 +34,12 @@
 // MathNet.Numerics is required at runtime by FinancialData.calculateParametricVaR
 // (Student-t quantile via MathNet.Numerics.Distributions.StudentT.InvCDF).
 #r "nuget: MathNet.Numerics, 5.0.0"
+// The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
+#if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#else
+#r "nuget: FSharp.Azure.Quantum"
+#endif
 
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

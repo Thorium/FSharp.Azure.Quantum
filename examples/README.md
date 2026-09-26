@@ -440,10 +440,8 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ### For Business Users (Start Here!)
 
-**Step 1:** Install the library
-```bash
-dotnet add package FSharp.Azure.Quantum
-```
+**Step 1:** Get this `examples` folder (clone the repository or download it as a zip). The scripts fetch
+the library from NuGet themselves; see [Running Examples](#running-examples).
 
 **Step 2:** Run the easiest example (AutoML)
 ```bash
@@ -502,32 +500,38 @@ dotnet fsi ToricCodeExample.fsx
 ## Running Examples
 
 ### Prerequisites
-```bash
-# Install .NET 8.0+
-dotnet --version
+- The .NET 10 SDK (`dotnet --version` shows 10.x). Nothing else: you do not need to build this
+  repository or add a package to a project.
+- The whole `examples` folder, not a single script. Most scripts load shared helpers from
+  [`_common/`](_common/) (`Cli.fs`, `Data.fs`, `Reporting.fs`) and some read sample data next to them,
+  so keep the folder layout as it is.
 
-# Install FSharp.Azure.Quantum
-dotnet add package FSharp.Azure.Quantum
-```
-
-### Running Individual Examples
+### Running a script
 ```bash
-# Navigate to example directory
 cd examples/BinaryClassification
-
-# Run with F# Interactive
 dotnet fsi FraudDetection.fsx
+dotnet fsi FraudDetection.fsx -- --help
 ```
 
-### Running Examples
+Each script references the latest published package directly (`#r "nuget: FSharp.Azure.Quantum"`),
+so the first run downloads it and later runs start at once.
+
+### Running the project examples
+The folders with a `.fsproj` or `.csproj` (for example [`CSharpConsumer/`](CSharpConsumer/),
+[`Gomoku/`](Gomoku/) and the C# projects under `InvestmentPortfolio/CSharp` and `Kasino/CSharp`)
+are ordinary console apps:
 ```bash
-# Build the library once so the examples' #r reference resolves:
-dotnet build ../src/FSharp.Azure.Quantum/FSharp.Azure.Quantum.fsproj
-
-# Then run any example individually, e.g.:
-dotnet fsi Algorithms/QuantumFourierTransform.fsx
-dotnet fsi Clique/FraudRingDetection.fsx
+dotnet run --project examples/CSharpConsumer
 ```
+Outside this repository they use the NuGet packages; inside it they build against the source.
+
+### Against your own build of the library
+When you change the library itself, run a script against the repository's Debug build instead of NuGet:
+```bash
+dotnet build src/FSharp.Azure.Quantum/FSharp.Azure.Quantum.fsproj
+dotnet fsi --define:LOCAL_BUILD examples/Algorithms/QuantumFourierTransform.fsx
+```
+The Topological examples also need `src/FSharp.Azure.Quantum.Topological` built.
 
 ---
 
