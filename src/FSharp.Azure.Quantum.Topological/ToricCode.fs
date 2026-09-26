@@ -362,13 +362,16 @@ module ToricCode =
     /// Every pair of excitations is connected with weight equal to
     /// their toric (Manhattan) distance. This is the input graph for MWPM.
     let buildMatchingGraph (lattice: Lattice) (excitations: Coords list) : MatchingEdge list =
+        // Indexed through an array: indexing the list is O(i) per access, cubic over all pairs.
+        let points = List.toArray excitations
+
         [
-            for i in 0 .. excitations.Length - 2 do
-                for j in i + 1 .. excitations.Length - 1 do
+            for i in 0 .. points.Length - 2 do
+                for j in i + 1 .. points.Length - 1 do
                     {
-                        From = excitations.[i]
-                        To = excitations.[j]
-                        Weight = toricDistance lattice excitations.[i] excitations.[j]
+                        From = points.[i]
+                        To = points.[j]
+                        Weight = toricDistance lattice points.[i] points.[j]
                     }
         ]
 

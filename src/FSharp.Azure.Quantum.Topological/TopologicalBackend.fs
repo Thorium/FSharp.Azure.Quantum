@@ -173,34 +173,29 @@ module TopologicalUnifiedBackend =
 
             let dim = 1 <<< numQubits
 
-            // Compute mean amplitude across all 2^n computational basis states.
-            let sumAmp =
-                [ 0 .. dim - 1 ]
-                |> List.fold
-                    (fun acc x ->
-                        let a = ampByBasis |> Map.tryFind x |> Option.defaultValue Complex.Zero
-                        acc + a)
-                    Complex.Zero
+            // Compute mean amplitude across all 2^n computational basis states. Absent
+            // basis states contribute zero, so summing the map (in ascending key order,
+            // as the full range did) gives the same value without walking 2^n indices.
+            let sumAmp = ampByBasis |> Map.fold (fun acc _ a -> acc + a) Complex.Zero
 
             let meanAmp = sumAmp / Complex(float dim, 0.0)
 
-            // Produce new terms by reflecting each basis amplitude about the mean.
+            // Produce new terms by reflecting each basis amplitude about the mean. Every
+            // basis state can be non-zero after reflection, so this visits all 2^n, but
+            // yields directly instead of first building a 2^n-cell index list.
             let newTerms =
-                [ 0 .. dim - 1 ]
-                |> List.choose (fun x ->
-                    let a = ampByBasis |> Map.tryFind x |> Option.defaultValue Complex.Zero
-                    let reflected = (meanAmp * Complex(2.0, 0.0)) - a
+                [
+                    for x in 0 .. dim - 1 do
+                        let a = ampByBasis |> Map.tryFind x |> Option.defaultValue Complex.Zero
+                        let reflected = (meanAmp * Complex(2.0, 0.0)) - a
 
-                    if Complex.Abs reflected <= 1e-14 then
-                        None
-                    else
-                        let bits = intToBitsLsbFirst numQubits x |> Array.toList
+                        if Complex.Abs reflected > 1e-14 then
+                            let bits = intToBitsLsbFirst numQubits x |> Array.toList
 
-                        match FusionTree.fromComputationalBasis bits anyonType with
-                        | Error _ -> None
-                        | Ok tree ->
-                            let state = FusionTree.create tree anyonType
-                            Some(reflected, state))
+                            match FusionTree.fromComputationalBasis bits anyonType with
+                            | Error _ -> ()
+                            | Ok tree -> yield (reflected, FusionTree.create tree anyonType)
+                ]
 
             let diffused: TopologicalOperations.Superposition =
                 {
@@ -209,6 +204,79 @@ module TopologicalUnifiedBackend =
                 }
 
             diffused |> TopologicalOperations.normalize
+
+        // ====================================================================
+        // Dense Fourier machinery shared by the native transforms
+        // ====================================================================
+
+        /// out[i] = in[R(i)], where R reverses the low `numQubits` bits. An involution.
+        ///
+        /// The index conventions the native transforms were derived with — forward
+        /// reverses the input index, inverse reverses the output index, ApplySwaps
+        /// reverses whichever is left — are exactly this permutation applied before or
+        /// after a standard transform. Keeping them as permutations is what lets the
+        /// transform itself be a plain FFT.
+        let bitReversed (numQubits: int) (values: Complex[]) : Complex[] =
+            let reverse (value: int) =
+                [ 0 .. numQubits - 1 ]
+                |> List.fold (fun acc j -> acc ||| (((value >>> j) &&& 1) <<< (numQubits - 1 - j))) 0
+
+            Array.init values.Length (fun i -> values.[reverse i])
+
+        /// Unitary discrete Fourier transform of a dense vector of power-of-two length:
+        ///   out[k] = (1/√N) · Σ_x in[x] · e^(sign · 2πi · k·x / N),  sign = +1, or −1 when inverse.
+        ///
+        /// Iterative radix-2 Cooley–Tukey, O(N log N). Each native transform used to evaluate
+        /// that sum directly, O(N²): at 12 counting qubits that was 5 s, and every two more
+        /// qubits multiplied it by about sixteen, so the 16 that QPE.execute permits would have
+        /// taken twenty minutes. In-place butterflies are the one place in this file where
+        /// mutation is the honest expression of the algorithm rather than a shortcut.
+        let fourierTransform (inverse: bool) (values: Complex[]) : Complex[] =
+            let n = values.Length
+            let result = Array.copy values
+
+            // Bit-reversal permutation first; the butterflies then read in natural order.
+            let mutable j = 0
+
+            for i in 1 .. n - 1 do
+                let mutable bit = n >>> 1
+
+                while j &&& bit <> 0 do
+                    j <- j ^^^ bit
+                    bit <- bit >>> 1
+
+                j <- j ||| bit
+
+                if i < j then
+                    let swap = result.[i]
+                    result.[i] <- result.[j]
+                    result.[j] <- swap
+
+            let sign = if inverse then -1.0 else 1.0
+            let mutable len = 2
+
+            while len <= n do
+                let angle = sign * 2.0 * Math.PI / float len
+                let wlen = Complex(cos angle, sin angle)
+                let half = len / 2
+                let mutable start = 0
+
+                while start < n do
+                    let mutable w = Complex.One
+
+                    for k in 0 .. half - 1 do
+                        let u = result.[start + k]
+                        let v = result.[start + k + half] * w
+                        result.[start + k] <- u + v
+                        result.[start + k + half] <- u - v
+                        w <- w * wlen
+
+                    start <- start + len
+
+                len <- len <<< 1
+
+            let scale = 1.0 / sqrt (float n)
+            result |> Array.map (fun c -> c * scale)
 
         // ====================================================================
         // Native Quantum Fourier Transform (no gate compilation)
@@ -248,25 +316,8 @@ module TopologicalUnifiedBackend =
 
             let dimension = 1 <<< numQubits
             let mask = dimension - 1
-            let scale = 1.0 / sqrt (float dimension)
-            let sign = if inverse then -1.0 else 1.0
-
-            let reverseBits (value: int) =
-                [ 0 .. numQubits - 1 ]
-                |> List.fold (fun acc j -> acc ||| (((value >>> j) &&& 1) <<< (numQubits - 1 - j))) 0
-
-            let inputFactor (u: int) =
-                if inverse then
-                    (if applySwaps then reverseBits u else u)
-                else
-                    reverseBits u
-
-            let outputFactor (a: int) =
-                if inverse then
-                    reverseBits a
-                else
-                    (if applySwaps then reverseBits a else a)
-
+            // The index convention lives in the encode step below, as bit-reversal
+            // permutations around a standard transform; see bitReversed.
             let combined = TopologicalOperations.combineLikeTerms fusionState
 
             // Keyed by the untouched high bits, then by the transformed low bits.
@@ -287,19 +338,32 @@ module TopologicalUnifiedBackend =
             let encoded =
                 [
                     for KeyValue(rest, block) in amplitudeByRest do
+                        // One dense transform per setting of the untouched high bits.
+                        let dense = Array.zeroCreate<Complex> dimension
+
+                        for KeyValue(u, amplitude) in block do
+                            dense.[u] <- amplitude
+
+                        // The convention derived from the gate circuit, as permutations
+                        // around a standard transform: forward reverses the input index,
+                        // inverse reverses the output index, ApplySwaps reverses whichever
+                        // is left.
+                        let input =
+                            if (not inverse) || applySwaps then
+                                bitReversed numQubits dense
+                            else
+                                dense
+
+                        let transformed = fourierTransform inverse input
+
+                        let output =
+                            if inverse || applySwaps then
+                                bitReversed numQubits transformed
+                            else
+                                transformed
+
                         for a in 0 .. dimension - 1 do
-                            let outFactor = outputFactor a
-
-                            let amplitude =
-                                block
-                                |> Map.fold
-                                    (fun acc u amp ->
-                                        let angle =
-                                            sign * 2.0 * Math.PI * float (inputFactor u) * float outFactor
-                                            / float dimension
-
-                                        acc + amp * Complex(scale * cos angle, scale * sin angle))
-                                    Complex.Zero
+                            let amplitude = output.[a]
 
                             if amplitude.Magnitude > 1e-14 then
                                 let index = (rest <<< numQubits) ||| a
@@ -395,7 +459,9 @@ module TopologicalUnifiedBackend =
 
             let countingDim = 1 <<< countingQubits
             let totalQubits = max stateQubits (countingQubits + targetQubits)
-            let scale = 1.0 / float countingDim
+            // Amplitude of each counting value after the Hadamards; the unitary transform
+            // below supplies the other 1/√2^c, so together they make the 1/2^c of the sum.
+            let uniform = 1.0 / sqrt (float countingDim)
 
             // H on the counting register, target prepared in |1>, then |x>|1> -> |x>|a^x mod N>.
             // Those three steps collapse into one pass: U_a only permutes basis labels, so
@@ -406,21 +472,23 @@ module TopologicalUnifiedBackend =
             // of the modular exponentiation, and only those x contribute to that y.
             let orbits = [ 0 .. countingDim - 1 ] |> List.groupBy (fun x -> targetOf.[x])
 
-            // Inverse QFT on the counting register:
-            //   amp(k, y) = (1 / 2^c) * sum over x in orbit(y) of exp(-2*pi*i*k*x / 2^c)
+            // Inverse QFT on the counting register, one transform per orbit. The counting
+            // values landing on target y form a set X_y, and
+            //   amp(k, y) = (1/√2^c) · Σ over x in X_y of (1/√2^c) · exp(-2πi·k·x / 2^c)
+            // is the unitary inverse transform of X_y's indicator at the initial uniform
+            // amplitude. There are r orbits, so this is O(r · c · 2^c) rather than O(4^c).
             let spectrum =
                 [
-                    for k in 0 .. countingDim - 1 do
-                        for (y, xs) in orbits do
-                            // Folded rather than summed: System.Numerics.Complex has no
-                            // get_Zero, so List.sumBy cannot see it as a numeric type.
-                            let amplitude =
-                                xs
-                                |> List.fold
-                                    (fun acc x ->
-                                        let angle = -2.0 * Math.PI * float k * float x / float countingDim
-                                        acc + Complex(scale * cos angle, scale * sin angle))
-                                    Complex.Zero
+                    for (y, xs) in orbits do
+                        let dense = Array.zeroCreate<Complex> countingDim
+
+                        for x in xs do
+                            dense.[x] <- Complex(uniform, 0.0)
+
+                        let transformed = fourierTransform true dense
+
+                        for k in 0 .. countingDim - 1 do
+                            let amplitude = transformed.[k]
 
                             if amplitude.Magnitude > 1e-14 then
                                 yield (k, y, amplitude)
@@ -495,7 +563,9 @@ module TopologicalUnifiedBackend =
 
             let countingDim = 1 <<< countingQubits
             let totalQubits = max stateQubits (countingQubits + 1)
-            let scale = 1.0 / float countingDim
+            // Amplitude of each counting value after the Hadamards; the unitary transform
+            // below supplies the other 1/√2^c.
+            let uniform = 1.0 / sqrt (float countingDim)
             let targetBit = if prepareTargetOne then 1 else 0
 
             // Phase per unit application of the controlled unitary. Returned as an option so
@@ -529,16 +599,17 @@ module TopologicalUnifiedBackend =
 
                 let encoded =
                     [
-                        for k in 0 .. countingDim - 1 do
-                            let amplitude =
-                                [ 0 .. countingDim - 1 ]
-                                |> List.fold
-                                    (fun acc x ->
-                                        let angle =
-                                            phaseOf x perUnit - 2.0 * Math.PI * float k * float x / float countingDim
+                        // The controlled-U ladder leaves e^(i·phaseOf x) on |x> at uniform
+                        // magnitude; the inverse QFT of that vector is the whole spectrum.
+                        let dense =
+                            Array.init countingDim (fun x ->
+                                let angle = phaseOf x perUnit
+                                Complex(uniform * cos angle, uniform * sin angle))
 
-                                        acc + Complex(scale * cos angle, scale * sin angle))
-                                    Complex.Zero
+                        let transformed = fourierTransform true dense
+
+                        for k in 0 .. countingDim - 1 do
+                            let amplitude = transformed.[k]
 
                             if amplitude.Magnitude > 1e-14 then
                                 let countingIndex = if applySwaps then k else reverseCountingBits k
@@ -565,6 +636,105 @@ module TopologicalUnifiedBackend =
                             | Error _ -> None)
 
                     Ok(TopologicalOperations.normalize { Terms = terms; AnyonType = anyonType })
+
+        // ====================================================================
+        // Native HHL eigenvalue inversion (no gate compilation)
+        // ====================================================================
+
+        /// The HHL inversion step applied straight to the fusion encoding.
+        ///
+        /// The shared applyHhlInversion realises "RY(θ_k) on the ancilla, controlled by the
+        /// solution register reading |k>" as X-flips, a multi-controlled X built from
+        /// H·MCZ·H, and two half-rotations — a dozen gates per eigenvalue, each compiled to
+        /// braids on this backend. But the operation is diagonal in every qubit except the
+        /// ancilla: for a term whose solution register reads k it is one 2x2 rotation of the
+        /// ancilla bit and nothing else. So it is O(terms), needs no transform, and touches
+        /// none of the gate machinery. Unlike the QFT and QPE natives it TRANSFORMS its input
+        /// rather than preparing from |0..0>, so any state is a valid input.
+        ///
+        /// Rotation convention matches the gate simulator's ry. With s = clamp(c_k / λ_k) and
+        /// θ_k = 2·asin(s): cos(θ_k/2) = √(1 − s²), sin(θ_k/2) = s, and
+        ///   |0>  ->   cos·|0> + sin·|1>          |1>  ->  −sin·|0> + cos·|1>
+        /// An eigenvalue below MinEigenvalue leaves its terms untouched, as the gate path does.
+        let hhlInversionOnTerms
+            (intent: HhlIntent)
+            (fusionState: TopologicalOperations.Superposition)
+            (anyonType: AnyonSpecies.AnyonType)
+            : Result<TopologicalOperations.Superposition, string> =
+
+            let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+            let ancillaBit = 1 <<< (intent.EigenvalueQubits + intent.SolutionQubits)
+            let solutionMask = (1 <<< intent.SolutionQubits) - 1
+
+            let clampToUnit x =
+                if x > 1.0 then 1.0
+                elif x < -1.0 then -1.0
+                else x
+
+            // sin(θ_k / 2) for solution basis state k, or None when its eigenvalue is skipped.
+            let halfSine (k: int) : float option =
+                let eigenvalue = intent.DiagonalEigenvalues.[k]
+
+                if abs eigenvalue < intent.MinEigenvalue then
+                    None
+                else
+                    let constant =
+                        match intent.InversionMethod with
+                        | HhlEigenvalueInversionMethod.ExactRotation c
+                        | HhlEigenvalueInversionMethod.LinearApproximation c -> c
+                        | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
+                            let absLambda = abs eigenvalue
+
+                            segments
+                            |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
+                            |> Option.map (fun (_, _, c) -> c)
+                            |> Option.defaultValue 1.0
+
+                    Some(clampToUnit (constant / eigenvalue))
+
+            let encoded =
+                [
+                    for (amplitude, st) in fusionState.Terms do
+                        let bits = FusionTree.toComputationalBasis st.Tree |> List.toArray
+                        let index = bitsToIntLsbFirst bits
+                        let k = (index >>> intent.EigenvalueQubits) &&& solutionMask
+                        let ancillaSet = index &&& ancillaBit <> 0
+
+                        match halfSine k with
+                        | None -> yield Ok(amplitude, st)
+                        | Some s ->
+                            let c = sqrt (1.0 - s * s)
+
+                            let toZero, toOne =
+                                if ancillaSet then
+                                    (amplitude * Complex(-s, 0.0), amplitude * Complex(c, 0.0))
+                                else
+                                    (amplitude * Complex(c, 0.0), amplitude * Complex(s, 0.0))
+
+                            for (target, ampOut) in [ (index &&& ~~~ancillaBit, toZero); (index ||| ancillaBit, toOne) ] do
+                                if ampOut.Magnitude > 1e-14 then
+                                    let outBits = intToBitsLsbFirst totalQubits target |> Array.toList
+
+                                    yield
+                                        FusionTree.fromComputationalBasis outBits anyonType
+                                        |> Result.map (fun tree -> (ampOut, FusionTree.create tree anyonType))
+                ]
+
+            match
+                encoded
+                |> List.tryPick (function
+                    | Error err -> Some err
+                    | Ok _ -> None)
+            with
+            | Some err -> Error err.Message
+            | None ->
+                let terms =
+                    encoded
+                    |> List.choose (function
+                        | Ok term -> Some term
+                        | Error _ -> None)
+
+                Ok(TopologicalOperations.normalize { Terms = terms; AnyonType = anyonType })
 
         // ====================================================================
         // Helper Functions for Operation Application
@@ -1076,11 +1246,36 @@ module TopologicalUnifiedBackend =
                                         ))
 
                             | QuantumOperation.Algorithm(AlgorithmOperation.HHL intent) ->
-                                // Diagonal HHL inversion via the shared multiplexed multi-controlled RY.
-                                // The CRY/MCZ gates are realised as braids by GateToBraid, so HHL inverts
-                                // identically and correctly (for any solution-register size) on gated and
-                                // topological hardware.
-                                applyHhlInversion (this :> IQuantumBackend) intent state
+                                // Realised on the fusion encoding: one rotation of the ancilla bit per
+                                // term, keyed by what its solution register reads. This used to go
+                                // through the shared applyHhlInversion, whose multi-controlled RY was
+                                // compiled to braids gate by gate; the two agree amplitude for
+                                // amplitude (see the topological HHL differential test), and the same
+                                // two validations the shared function performs are kept here.
+                                let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+
+                                if QuantumState.numQubits state <> totalQubits then
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "state",
+                                            $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"
+                                        )
+                                    )
+                                elif intent.DiagonalEigenvalues.Length <> (1 <<< intent.SolutionQubits) then
+                                    Error(
+                                        QuantumError.ValidationError(
+                                            "DiagonalEigenvalues",
+                                            $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"
+                                        )
+                                    )
+                                else
+                                    hhlInversionOnTerms intent fusionState anyonType
+                                    |> Result.mapError (fun message ->
+                                        QuantumError.OperationError("TopologicalBackend", message))
+                                    |> Result.map (fun superposition ->
+                                        QuantumState.FusionSuperposition(
+                                            TopologicalOperations.toInterface superposition
+                                        ))
 
                             | QuantumOperation.Braid anyonIndex ->
 

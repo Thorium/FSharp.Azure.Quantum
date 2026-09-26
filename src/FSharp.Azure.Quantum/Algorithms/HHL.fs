@@ -133,6 +133,10 @@ module HHL =
     /// Encodes classical vector b as quantum amplitudes.
     /// </summary>
     /// <param name="inputVector">Input vector (must be normalized)</param>
+    /// <param name="totalQubits">
+    /// Width of the whole register: eigenvalue qubits + solution qubits + 1 ancilla.
+    /// Too small for the vector's dimension is a validation error.
+    /// </param>
     /// <param name="backend">Quantum backend</param>
     /// <returns>Quantum state |b⟩ or error</returns>
     /// <remarks>
@@ -263,60 +267,36 @@ module HHL =
     /// </summary>
     /// <param name="ancillaQubit">Index of ancilla qubit</param>
     /// <param name="state">Quantum state</param>
-    /// <param name="conditionNumber">Condition number κ = λ_max / λ_min (optional)</param>
     /// <returns>Probability that ancilla qubit is |1⟩</returns>
     /// <remarks>
-    /// For HHL, the success probability depends on the condition number κ.
-    /// Theoretical bound: P_success ≥ 1/κ²
-    /// Actual probability depends on input state overlap with eigenvectors.
-    ///
-    /// If conditionNumber is provided and > 1, we apply a correction factor
-    /// to give a more realistic estimate that accounts for the worst-case
-    /// eigenvalue scaling.
+    /// This is the measured probability Σ|αᵢ|² over basis states with the ancilla set,
+    /// with no correction applied. The theoretical bound P_success ≥ 1/κ² depends on the
+    /// condition number κ; the actual value depends on the input's overlap with the
+    /// eigenvectors, which is what this measures.
     /// </remarks>
-    let private calculateSuccessProbability
-        (ancillaQubit: int)
-        (state: QuantumState)
-        (_conditionNumber: float option)
-        : float =
+    let private calculateSuccessProbability (ancillaQubit: int) (state: QuantumState) : float =
 
+        // A loop over the basis indices, not a 2ⁿ-cell F# list of them: at 28 qubits
+        // that list alone is several GB. Same summation order.
+        let ancillaProbability (dimension: int) (amplitudeAt: int -> Complex) =
+            let ancillaMask = 1 <<< ancillaQubit
+            let mutable measuredProb = 0.0
+
+            for i in 0 .. dimension - 1 do
+                if (i &&& ancillaMask) <> 0 then
+                    let amp = amplitudeAt i
+                    measuredProb <- measuredProb + amp.Magnitude * amp.Magnitude
+
+            measuredProb
+
+        // Report the genuine measured success probability P(ancilla = |1⟩).
         match state with
         | QuantumState.StateVector stateVec ->
-            let dimension = StateVector.dimension stateVec
-            let ancillaMask = 1 <<< ancillaQubit
-
-            let measuredProb =
-                [ 0 .. dimension - 1 ]
-                |> List.sumBy (fun i ->
-                    let ancillaIs1 = (i &&& ancillaMask) <> 0
-
-                    if ancillaIs1 then
-                        let amp = StateVector.getAmplitude i stateVec
-                        amp.Magnitude * amp.Magnitude
-                    else
-                        0.0)
-
-            // Report the genuine measured success probability P(ancilla = |1⟩).
-            measuredProb
+            ancillaProbability (StateVector.dimension stateVec) (fun i -> StateVector.getAmplitude i stateVec)
 
         | QuantumState.FusionSuperposition fs ->
             let amplitudeVec = fs.GetAmplitudeVector()
-            let dimension = amplitudeVec.Length
-            let ancillaMask = 1 <<< ancillaQubit
-
-            let measuredProb =
-                [ 0 .. dimension - 1 ]
-                |> List.sumBy (fun i ->
-                    let ancillaIs1 = (i &&& ancillaMask) <> 0
-
-                    if ancillaIs1 then
-                        let amp = amplitudeVec.[i]
-                        amp.Magnitude * amp.Magnitude
-                    else
-                        0.0)
-
-            // Report the genuine measured success probability P(ancilla = |1⟩).
-            measuredProb
+            ancillaProbability amplitudeVec.Length (fun i -> amplitudeVec.[i])
 
         | _ -> 0.0 // Unknown for other representations
 
@@ -950,12 +930,13 @@ module HHL =
             let intent = toExecutionIntent config
             let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
 
-            let! (plan, diagonalEigenvalues, ancillaQubit, conditionNumber) = plan backend intent
+            let! (plan, diagonalEigenvalues, ancillaQubit, _conditionNumber) =
+                plan backend intent
+
             let! inputState = prepareInputState intent.InputVector totalQubits backend
             let! invertedState = executePlan backend inputState plan
 
-            let successProb =
-                calculateSuccessProbability ancillaQubit invertedState (Some conditionNumber)
+            let successProb = calculateSuccessProbability ancillaQubit invertedState
 
             let! finalState, postSelectionSuccess =
                 if intent.UsePostSelection then

@@ -11,10 +11,13 @@
     <Compile Include="..\..\_common\Reporting.fs" Link="_common\Reporting.fs" />
     <Compile Include="..\_common\DroneDomain.fs" Link="_common\DroneDomain.fs" />
     <Compile Include="..\_common\PermissionEvidence.fs" Link="_common\PermissionEvidence.fs" />
+    <Compile Include="..\_common\MavlinkMission.fs" Link="_common\MavlinkMission.fs" />
     <Compile Include="FireDomain.fs" />
     <Compile Include="AirBridge.fs" />
     <Compile Include="QuantumPlanner.fs" />
     <Compile Include="FireSim.fs" />
+    <Compile Include="Demand.fs" />
+    <Compile Include="Dispatch.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

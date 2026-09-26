@@ -235,15 +235,28 @@ module EntanglementEntropy =
     ///
     /// The density matrix is Hermitian, positive semidefinite, and has Tr(ρ) = 1
     /// when the input state is normalized.
+    ///
+    /// The result is dense: 16·4ⁿ bytes for an n-qubit state (4 GB at 14 qubits).
+    /// To get a subsystem's entropy use `entanglementEntropy`, which never builds it.
     let densityMatrix (amplitudes: Complex list) : Complex[,] =
-        let n = amplitudes.Length
-        let rho = Array2D.create n n Complex.Zero
+        // One conversion: indexing the list inside the double loop is O(i) per access.
+        let psi = List.toArray amplitudes
+        Array2D.init psi.Length psi.Length (fun i j -> psi.[i] * Complex.Conjugate psi.[j])
 
-        for i in 0 .. n - 1 do
-            for j in 0 .. n - 1 do
-                rho.[i, j] <- amplitudes.[i] * Complex.Conjugate(amplitudes.[j])
+    /// Reduced density matrix ρ_A = Tr_B |ψ⟩⟨ψ| straight from the amplitudes:
+    ///   (ρ_A)_{i,i'} = Σⱼ ψ_{i⊗j} ψ*_{i'⊗j}
+    /// Memory is dimA², never (dimA·dimB)²: building ρ_AB first and tracing it would
+    /// allocate 16·4ⁿ bytes only to discard all but dimA² of them.
+    let private reducedDensityMatrixA (psi: Complex[]) (dimA: int) (dimB: int) : Complex[,] =
+        Array2D.init dimA dimA (fun i i' ->
+            let rowI = i * dimB
+            let rowI' = i' * dimB
+            let mutable sum = Complex.Zero
 
-        rho
+            for j in 0 .. dimB - 1 do
+                sum <- sum + psi.[rowI + j] * Complex.Conjugate psi.[rowI' + j]
+
+            sum)
 
     /// Partial trace over subsystem B.
     ///
@@ -503,9 +516,9 @@ module EntanglementEntropy =
     /// Compute entanglement entropy of a pure bipartite state.
     ///
     /// Given a state vector |ψ⟩_AB and subsystem dimensions dimA, dimB:
-    /// 1. Construct density matrix ρ_AB = |ψ⟩⟨ψ|
-    /// 2. Partial trace: ρ_A = Tr_B(ρ_AB)
-    /// 3. Compute S(ρ_A) = -Tr(ρ_A log ρ_A)
+    /// 1. Reduced density matrix ρ_A = Tr_B(|ψ⟩⟨ψ|), computed from the amplitudes
+    ///    directly (dimA² memory; ρ_AB itself is never built)
+    /// 2. Compute S(ρ_A) = -Tr(ρ_A log ρ_A)
     ///
     /// This is the standard measure of bipartite entanglement for pure states.
     let entanglementEntropy
@@ -514,13 +527,16 @@ module EntanglementEntropy =
         (dimB: int)
         : TopologicalResult<VonNeumannEntropyCalculation> =
 
-        if amplitudes.Length <> dimA * dimB then
+        let psi = List.toArray amplitudes
+
+        if psi.Length <> dimA * dimB then
             TopologicalResult.validationError
                 "amplitudes"
-                $"State vector length {amplitudes.Length} ≠ dimA ({dimA}) × dimB ({dimB})"
+                $"State vector length {psi.Length} ≠ dimA ({dimA}) × dimB ({dimB})"
+        elif dimA <= 0 || dimB <= 0 then
+            TopologicalResult.validationError "dimensions" "Subsystem dimensions must be positive"
         else
-            let rhoAB = densityMatrix amplitudes
-            partialTraceB rhoAB dimA dimB |> Result.bind vonNeumannEntropyFromDensityMatrix
+            reducedDensityMatrixA psi dimA dimB |> vonNeumannEntropyFromDensityMatrix
 
     // ========================================================================
     // GROUND STATE DEGENERACY AND ENTROPY

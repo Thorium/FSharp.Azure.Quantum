@@ -159,59 +159,47 @@ module MottonenStatePreparation =
     /// For each qubit k and control pattern c, compute angle θ(k,c) such that:
     /// RY(θ) transforms |0⟩ → cos(θ/2)|0⟩ + sin(θ/2)|1⟩
     ///
-    /// This ensures correct amplitude distribution in computational basis
-    let private calculateAmplitudeAngles (state: StateVector) : float[,] =
+    /// This ensures correct amplitude distribution in computational basis.
+    ///
+    /// Returns one array per level: level k holds the 2^(n-k-1) angles its
+    /// multiplexed rotation uses, 2ⁿ - 1 in total. A rectangular n × 2^(n-1) table
+    /// leaves most of its slots unused: at 20 qubits it was five times the memory of
+    /// the state being prepared.
+    let private calculateAmplitudeAngles (state: StateVector) : float[][] =
         let n = state.NumQubits
         let dim = 1 <<< n
 
         // Extract magnitude of each amplitude
         let magnitudes = state.Amplitudes |> Array.map (fun a -> a.Magnitude)
 
-        // angles[qubit, control_pattern]
-        let angles = Array2D.zeroCreate n (1 <<< (n - 1))
-
         // Process each qubit level (from most significant to least significant)
-        for k in 0 .. n - 1 do
+        Array.init n (fun k ->
             let numControls = n - k - 1
             let numPatterns = 1 <<< numControls
 
             // For each control bit pattern, calculate rotation angle
-            for c in 0 .. numPatterns - 1 do
-                // Calculate angle for this qubit and control pattern
-                // Group amplitudes into pairs based on qubit k value
-                let sum0, sum1 =
-                    [ 0 .. (1 <<< k) - 1 ]
-                    |> List.fold
-                        (fun (s0, s1) i ->
-                            let baseIdx = (c <<< (k + 1)) ||| i
-                            let idx0 = baseIdx
-                            let idx1 = baseIdx ||| (1 <<< k)
+            Array.init numPatterns (fun c ->
+                // Group amplitudes into pairs based on qubit k value. A loop, not a
+                // list fold: the fold allocated a 2^k-cell list for every pattern.
+                // Same summation order, so the angles are bit-identical.
+                let mutable sum0 = 0.0
+                let mutable sum1 = 0.0
 
-                            let contrib0 =
-                                if idx0 < dim then
-                                    magnitudes[idx0] * magnitudes[idx0]
-                                else
-                                    0.0
+                for i in 0 .. (1 <<< k) - 1 do
+                    let idx0 = (c <<< (k + 1)) ||| i
+                    let idx1 = idx0 ||| (1 <<< k)
 
-                            let contrib1 =
-                                if idx1 < dim then
-                                    magnitudes[idx1] * magnitudes[idx1]
-                                else
-                                    0.0
+                    if idx0 < dim then
+                        sum0 <- sum0 + magnitudes[idx0] * magnitudes[idx0]
 
-                            (s0 + contrib0, s1 + contrib1))
-                        (0.0, 0.0)
+                    if idx1 < dim then
+                        sum1 <- sum1 + magnitudes[idx1] * magnitudes[idx1]
 
                 // Calculate rotation angle: tan(θ/2) = sqrt(sum1/sum0)
-                let angle =
-                    if sum0 + sum1 < 1e-10 then
-                        0.0
-                    else
-                        2.0 * atan2 (sqrt sum1) (sqrt sum0)
-
-                angles[k, c] <- angle
-
-        angles
+                if sum0 + sum1 < 1e-10 then
+                    0.0
+                else
+                    2.0 * atan2 (sqrt sum1) (sqrt sum0)))
 
     /// Apply amplitude preparation gates using Gray code traversal
     ///
@@ -219,10 +207,10 @@ module MottonenStatePreparation =
     /// - Adjacent control patterns differ by 1 bit
     /// - Only 1 CNOT needed to switch between patterns (vs. O(n) naive)
     /// - Total CNOTs: O(2ⁿ) vs. O(n·2ⁿ) naive
-    let private applyAmplitudeGates (angles: float[,]) (qubits: int[]) (circuit: Circuit) : Circuit =
+    let private applyAmplitudeGates (angles: float[][]) (qubits: int[]) (circuit: Circuit) : Circuit =
 
         let n = qubits.Length
-        let numQubits = Array2D.length1 angles
+        let numQubits = angles.Length
 
         if n <> numQubits then
             failwith $"Qubit count mismatch: expected {numQubits}, got {n}"
@@ -233,9 +221,7 @@ module MottonenStatePreparation =
         [ numQubits - 1 .. -1 .. 0 ]
         |> List.fold
             (fun currentCirc targetQubitIdx ->
-                let numControls = numQubits - targetQubitIdx - 1
-                let numPatterns = 1 <<< numControls
-                let levelAngles = Array.init numPatterns (fun c -> angles[targetQubitIdx, c])
+                let levelAngles = angles[targetQubitIdx]
                 let controlQubits = qubits[targetQubitIdx + 1 .. numQubits - 1]
 
                 currentCirc
@@ -277,12 +263,13 @@ module MottonenStatePreparation =
 
                 let levelAngles =
                     Array.init numPatterns (fun c ->
-                        let totalDiff =
-                            [ 0 .. lowCount - 1 ]
-                            |> List.sumBy (fun low ->
-                                let idx0 = (c <<< (k + 1)) ||| low
-                                let idx1 = idx0 ||| (1 <<< k)
-                                phases[idx1] - phases[idx0])
+                        // A loop, not List.sumBy over a fresh 2^k-cell list per pattern.
+                        let mutable totalDiff = 0.0
+
+                        for low in 0 .. lowCount - 1 do
+                            let idx0 = (c <<< (k + 1)) ||| low
+                            let idx1 = idx0 ||| (1 <<< k)
+                            totalDiff <- totalDiff + (phases[idx1] - phases[idx0])
 
                         totalDiff / float lowCount)
 

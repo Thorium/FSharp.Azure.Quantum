@@ -1951,16 +1951,26 @@ module ModularExponentiationCircuit =
                 (recorder :> IQuantumBackend)
             |> Result.map (fun _ -> recorder.Recorded)
 
-    /// The full period-finding QPE circuit for U_a: |x⟩ → |a·x mod N⟩.
+    /// How the inverse QFT over the counting register is emitted.
     ///
-    /// Layout, matching `Shor.estimateModExpPhase` so every route agrees:
-    ///   [0 .. c-1]                counting register
-    ///   [c .. c+n-1]              target register, prepared in |1⟩
-    ///   [c+n .. c+2n+3]           workspace claimed by the arithmetic
+    /// The two forms are the same unitary — `buildQftGateOps [0..c-1] true false` is exactly
+    /// what the intent lowers to on a gate backend — but they compose differently:
     ///
-    /// `applySwaps` follows the QPE convention: when false the inverse QFT omits its closing
-    /// bit-reversal swaps and the caller undoes the ordering classically.
-    let buildModExpQpe
+    ///   - `QftAsIntent` keeps it as `AlgorithmOperation.QFT`, so a backend that can transform
+    ///     the counting register directly (the topological backend does) is asked to. An
+    ///     expanded gate list dissolves into primitives that never reach the intent
+    ///     dispatcher, which is where route A stopped composing before.
+    ///   - `QftAsGates` expands it, for whole-circuit submission: `submitAsCircuit` lowers the
+    ///     op list to a gate circuit and refuses any algorithm intent it meets, so a cloud
+    ///     backend needs the gates spelled out.
+    [<RequireQualifiedAccess>]
+    type QftEmission =
+        | QftAsIntent
+        | QftAsGates
+
+    /// Shared body of `buildModExpQpe` and `buildModExpQpeAsGates`; see those for the contract.
+    let private buildModExpQpeWith
+        (qftEmission: QftEmission)
         (baseNum: int)
         (modulus: int)
         (countingQubits: int)
@@ -2012,23 +2022,22 @@ module ModularExponentiationCircuit =
                 // it before it is read and smears the phase across the counting register.
                 // Hence ApplySwaps = false, with the reversal kept explicit and appended.
                 //
-                // Emitted as an INTENT rather than expanded into H and controlled-phase gates,
-                // so that a backend able to transform the counting register directly gets the
-                // chance to. An expanded gate list dissolves into primitives that never reach
-                // the intent dispatcher, which is why route A stopped composing at exactly
-                // this point. Backends without a native QFT lower it straight back to the same
-                // gates, so nothing is lost by asking.
+                // Whether that inverse QFT is an intent or spelled out as gates is the caller's
+                // choice (see QftEmission); the unitary is identical either way.
                 let inverseQft =
-                    [
-                        QuantumOperation.Algorithm(
-                            AlgorithmOperation.QFT
-                                {
-                                    NumQubits = countingQubits
-                                    Inverse = true
-                                    ApplySwaps = false
-                                }
-                        )
-                    ]
+                    match qftEmission with
+                    | QftEmission.QftAsIntent ->
+                        [
+                            QuantumOperation.Algorithm(
+                                AlgorithmOperation.QFT
+                                    {
+                                        NumQubits = countingQubits
+                                        Inverse = true
+                                        ApplySwaps = false
+                                    }
+                            )
+                        ]
+                    | QftEmission.QftAsGates -> Arithmetic.buildQftGateOps [ 0 .. countingQubits - 1 ] true false
 
                 let bitReversal =
                     if applySwaps then
@@ -2038,6 +2047,35 @@ module ModularExponentiationCircuit =
                         []
 
                 hadamards @ prepareTarget @ modMulOps @ inverseQft @ bitReversal)
+
+    /// The full period-finding QPE circuit for U_a: |x⟩ → |a·x mod N⟩, with its inverse QFT
+    /// kept as an intent so a backend with a native QFT can take it. Use this from planners.
+    ///
+    /// Layout, matching `Shor.estimateModExpPhase` so every route agrees:
+    ///   [0 .. c-1]                counting register
+    ///   [c .. c+n-1]              target register, prepared in |1⟩
+    ///   [c+n .. c+2n+3]           workspace claimed by the arithmetic
+    ///
+    /// `applySwaps` follows the QPE convention: when false the inverse QFT omits its closing
+    /// bit-reversal swaps and the caller undoes the ordering classically.
+    let buildModExpQpe
+        (baseNum: int)
+        (modulus: int)
+        (countingQubits: int)
+        (applySwaps: bool)
+        : Result<QuantumOperation list, QuantumError> =
+        buildModExpQpeWith QftEmission.QftAsIntent baseNum modulus countingQubits applySwaps
+
+    /// Same circuit as `buildModExpQpe`, fully expanded to gates. Use this for whole-circuit
+    /// submission, where the op list is lowered to a gate circuit and an algorithm intent
+    /// would be refused rather than lowered.
+    let buildModExpQpeAsGates
+        (baseNum: int)
+        (modulus: int)
+        (countingQubits: int)
+        (applySwaps: bool)
+        : Result<QuantumOperation list, QuantumError> =
+        buildModExpQpeWith QftEmission.QftAsGates baseNum modulus countingQubits applySwaps
 
     /// Total qubits `buildModExpQpe` addresses: counting + 2n + 4.
     let totalQubitsFor (modulus: int) (countingQubits: int) : int =

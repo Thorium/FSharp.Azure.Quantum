@@ -27,6 +27,7 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Topological
 
 open FSharp.Azure.Quantum.Examples.Common
+open FSharp.Azure.Quantum.Examples.Drones
 open FSharp.Azure.Quantum.Examples.Drones.Domain
 
 // =============================================================================
@@ -971,7 +972,7 @@ module Evidence =
 
         let toLocal (lat: float) (lon: float) (altAboveHome: float) =
             let l =
-                MAVLinkExport.geoToLocal
+                MavlinkMission.geoToLocal
                     origin
                     { origin with
                         Latitude = lat
@@ -982,7 +983,7 @@ module Evidence =
 
         // GlobalRelativeAlt frame: the autopilot flies the written altitude
         // above home, whatever --home-alt was.
-        let pointOf (item: MAVLinkExport.MissionItem) =
+        let pointOf (item: MavlinkMission.MissionItem) =
             toLocal item.Latitude item.Longitude item.Altitude
 
         // ArduPilot's home is where the drone armed; the export declares it per
@@ -995,7 +996,7 @@ module Evidence =
 
         // Replay each mission: DO_CHANGE_SPEED sets the speed of the legs that
         // follow, NAV_WAYPOINT flies a leg and holds, the last item ends the flight.
-        let replay (d: int) (m: MAVLinkExport.DroneMission) =
+        let replay (d: int) (m: MavlinkMission.DroneMission) =
             let start = ref (p3 0.0 0.0 0.0)
             let here = ref (p3 0.0 0.0 0.0)
             let speed = ref cruise
@@ -1006,15 +1007,15 @@ module Evidence =
 
             for item in m.Items do
                 match item.Command with
-                | MAVLinkExport.NavTakeoff ->
+                | MavlinkMission.NavTakeoff ->
                     // ArduPilot ignores NAV_TAKEOFF's lat/lon and climbs where the
                     // drone was armed; the export writes that arming point there.
                     let p = pointOf item
                     start.Value <- { p with Z = 0.0 }
                     here.Value <- p
                     current.Add(Leg(p, speed.Value))
-                | MAVLinkExport.DoChangeSpeed -> speed.Value <- item.Param2
-                | MAVLinkExport.NavWaypoint ->
+                | MavlinkMission.DoChangeSpeed -> speed.Value <- item.Param2
+                | MavlinkMission.NavWaypoint ->
                     segments.Add(List.ofSeq current)
                     current.Clear()
                     let p = pointOf item
@@ -1025,8 +1026,8 @@ module Evidence =
                     points.Add p
                     here.Value <- p
                 // NAV_DELAY keeps its seconds as a float: the hold's fraction.
-                | MAVLinkExport.NavDelay -> current.Add(Wait item.Param1)
-                | MAVLinkExport.NavLand ->
+                | MavlinkMission.NavDelay -> current.Add(Wait item.Param1)
+                | MavlinkMission.NavLand ->
                     // Fly to the landing point at the current height, then land.
                     let target = pointOf item
                     let v = speed.Value
@@ -1035,7 +1036,7 @@ module Evidence =
                         fun (p: Ev.P3) ->
                             let above = p3 target.X target.Y p.Z
                             Leg(above, v) :: landSteps above
-                | MAVLinkExport.NavReturnToLaunch -> ending.Value <- rtl rtlOf.[d] homes.[d]
+                | MavlinkMission.NavReturnToLaunch -> ending.Value <- rtl rtlOf.[d] homes.[d]
                 | _ -> ()
 
             segments.Add(List.ofSeq current)
@@ -1392,10 +1393,10 @@ module Evidence =
                 let parms =
                     swarm.Missions
                     |> List.map (fun m ->
-                        let path = Path.Combine(dir, MAVLinkExport.ParamFile.fileName m)
+                        let path = Path.Combine(dir, MavlinkMission.ParamFile.fileName m)
 
                         if File.Exists path then
-                            Some(MAVLinkExport.ParamFile.parse (File.ReadAllText path))
+                            Some(MavlinkMission.ParamFile.parse (File.ReadAllText path))
                         else
                             None)
                     |> Array.ofList
@@ -2584,7 +2585,7 @@ This example is **RULE 1 compliant**:
                         let homeLon = lonStr |> float
                         let homeAlt = Cli.getOr "home-alt" "0.0" args |> float
 
-                        let homePosition: MAVLinkExport.GeoCoordinate =
+                        let homePosition: MavlinkMission.GeoCoordinate =
                             {
                                 Latitude = homeLat
                                 Longitude = homeLon

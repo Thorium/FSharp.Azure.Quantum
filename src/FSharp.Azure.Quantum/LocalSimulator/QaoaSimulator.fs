@@ -228,12 +228,15 @@ module QaoaSimulator =
                 let qubitValue = if (basisIndex &&& bitMask) <> 0 then -1.0 else 1.0
                 costCoefficients[qubitIndex] * qubitValue)
 
-        // Sum over all basis states
-        [ 0 .. dimension - 1 ]
-        |> List.sumBy (fun basisIndex ->
+        // Sum over all basis states: a loop, not List.sumBy over a 2ⁿ-cell index list.
+        let mutable expected = 0.0
+
+        for basisIndex in 0 .. dimension - 1 do
             let amplitude = StateVector.getAmplitude basisIndex state
             let probability = amplitude.Magnitude * amplitude.Magnitude
-            probability * computeBasisCost basisIndex)
+            expected <- expected + probability * computeBasisCost basisIndex
+
+        expected
 
     // ============================================================================
     // 6. HIGH-LEVEL SIMULATION API

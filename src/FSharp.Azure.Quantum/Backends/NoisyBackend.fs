@@ -211,7 +211,20 @@ module DensityMatrixSimulator =
                 task { return (this :> IQuantumBackend).ExecuteToState circuit }
 
             member _.InitializeState(numQubits: int) : Result<QuantumState, QuantumError> =
-                Ok(QuantumState.StateVector(StateVector.init numQubits))
+                // |0…0⟩⟨0…0| in this backend's OWN representation.
+                //
+                // It used to hand out a StateVector while declaring NativeStateType = Mixed.
+                // applySequence converts the initial state to the backend's native type
+                // before applying anything, and GateBased → Mixed is not implemented, so it
+                // failed there — before ApplyOperation was ever called. The
+                // incremental-unsupported fallback that routes algorithms to ExecuteToState
+                // therefore never fired, and no applySequence-based algorithm (QPE, QFT,
+                // Grover) could run on this backend at all. A backend must initialise in the
+                // representation it declares.
+                let dim = 1 <<< numQubits
+                let rho0 = Array2D.zeroCreate dim dim
+                rho0.[0, 0] <- Complex.One
+                Ok(QuantumState.DensityMatrix(rho0, numQubits))
 
             member _.ApplyOperation
                 (_op: QuantumOperation)

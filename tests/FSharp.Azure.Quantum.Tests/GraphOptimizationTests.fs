@@ -701,6 +701,65 @@ module GraphOptimizationTests =
         let result = validateConstraints problem solution
         Assert.False(result) // Should fail because A has degree 3 > 2
 
+    // A structural constraint over a selection: the problem is the 4-node graph
+    // A-B, B-C, C-A, C-D (one triangle), and the solution selects some of its edges.
+    let private structuralCase (constr: GraphConstraint) (selected: Edge<float> list option) =
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes([ node "A" "A"; node "B" "B"; node "C" "C"; node "D" "D" ])
+                .Edges([ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "A" 1.0; edge "C" "D" 1.0 ])
+                .AddConstraint(constr)
+                .Objective(MinimizeTotalWeight)
+                .Build()
+
+        validateConstraints
+            problem
+            {
+                Graph = problem.Graph
+                NodeAssignments = None
+                SelectedEdges = selected
+                ObjectiveValue = 0.0
+                IsFeasible = true
+                Violations = []
+            }
+
+    [<Fact>]
+    let ``validateConstraints - Acyclic rejects a cyclic selection and accepts a tree`` () =
+        // Was hard-wired to true: every selection passed.
+        Assert.False(structuralCase Acyclic (Some [ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "A" 1.0 ]))
+        Assert.True(structuralCase Acyclic (Some [ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "D" 1.0 ]))
+        // Without a selection the problem graph is judged, and it has a triangle.
+        Assert.False(structuralCase Acyclic None)
+
+    [<Fact>]
+    let ``validateConstraints - Acyclic on directed edges means no directed cycle`` () =
+        // A→B, B→C, A→C is a DAG (a cycle only if direction is ignored); adding C→A closes one.
+        let dag =
+            [ directedEdge "A" "B" 1.0; directedEdge "B" "C" 1.0; directedEdge "A" "C" 1.0 ]
+
+        Assert.True(structuralCase Acyclic (Some dag))
+        Assert.False(structuralCase Acyclic (Some(directedEdge "C" "A" 1.0 :: dag)))
+
+    [<Fact>]
+    let ``validateConstraints - Connected judges the selection, not the problem graph`` () =
+        // Was "the problem graph has any edge": two disjoint edges passed.
+        Assert.False(structuralCase Connected (Some [ edge "A" "B" 1.0; edge "C" "D" 1.0 ]))
+        Assert.True(structuralCase Connected (Some [ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "D" 1.0 ]))
+        Assert.True(structuralCase Connected None)
+
+    [<Fact>]
+    let ``validateConstraints - DegreeLimit judges the selection when there is one`` () =
+        // Node C has degree 3 in the problem graph, but the selection is a path.
+        Assert.False(structuralCase (DegreeLimit 2) None)
+        Assert.True(structuralCase (DegreeLimit 2) (Some [ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "D" 1.0 ]))
+
+    [<Fact>]
+    let ``validateConstraints - MinDegree counts isolated nodes as degree zero`` () =
+        // D has no selected edge. The adjacency map has no entry for it, which the old
+        // check iterated over, so D passed any minimum.
+        Assert.False(structuralCase (MinDegree 1) (Some [ edge "A" "B" 1.0; edge "B" "C" 1.0 ]))
+        Assert.True(structuralCase (MinDegree 1) (Some [ edge "A" "B" 1.0; edge "C" "D" 1.0 ]))
+
     // ============================================================================
     // TDD CYCLE #3: OBJECTIVE VALUE CALCULATION IN decodeSolution
     // ============================================================================

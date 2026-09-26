@@ -55,18 +55,17 @@ module Measurement =
         let dimension = StateVector.dimension state
         let bitMask = 1 <<< qubitIndex
 
-        let (prob0, prob1) =
-            [ 0 .. dimension - 1 ]
-            |> List.fold
-                (fun (p0, p1) basisIndex ->
-                    let probability = getBasisStateProbability basisIndex state
-                    let qubitIs1 = (basisIndex &&& bitMask) <> 0
+        // A loop, not a fold over a 2ⁿ-cell index list with a tuple per step.
+        let mutable prob0 = 0.0
+        let mutable prob1 = 0.0
 
-                    if qubitIs1 then
-                        (p0, p1 + probability)
-                    else
-                        (p0 + probability, p1))
-                (0.0, 0.0)
+        for basisIndex in 0 .. dimension - 1 do
+            let probability = getBasisStateProbability basisIndex state
+
+            if (basisIndex &&& bitMask) <> 0 then
+                prob1 <- prob1 + probability
+            else
+                prob0 <- prob0 + probability
 
         (prob0, prob1)
 
@@ -201,11 +200,15 @@ module Measurement =
     let computeExpectedValue (classicalFunction: int -> float) (state: StateVector.StateVector) : float =
         let dimension = StateVector.dimension state
 
-        [ 0 .. dimension - 1 ]
-        |> List.sumBy (fun basisIndex ->
+        // A loop, not List.sumBy over a 2ⁿ-cell index list. Same summation order.
+        let mutable expected = 0.0
+
+        for basisIndex in 0 .. dimension - 1 do
             let probability = getBasisStateProbability basisIndex state
             let value = classicalFunction basisIndex
-            probability * value)
+            expected <- expected + probability * value
+
+        expected
 
     /// Compute standard deviation of classical function over measurement outcomes
     ///

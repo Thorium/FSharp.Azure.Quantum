@@ -359,12 +359,15 @@ module SurfaceCode =
                     BoundaryMatches = 0
                 }
         else
-            // Build weighted edges: defect-to-defect + defect-to-boundary
+            // Build weighted edges: defect-to-defect + defect-to-boundary. Indexed through
+            // an array: indexing the list is O(i) per access, cubic over all pairs.
+            let defectArray = List.toArray defects
+
             let defectEdges =
                 [
-                    for i in 0 .. defects.Length - 2 do
-                        for j in i + 1 .. defects.Length - 1 do
-                            (defects.[i], defects.[j], planarDistance defects.[i] defects.[j])
+                    for i in 0 .. defectArray.Length - 2 do
+                        for j in i + 1 .. defectArray.Length - 1 do
+                            (defectArray.[i], defectArray.[j], planarDistance defectArray.[i] defectArray.[j])
                 ]
 
             let boundaryEdges =
@@ -745,11 +748,14 @@ module SurfaceCode =
                 "defects"
                 "Odd number of defects; expected even from stabilizer constraints"
         else
+            // Indexed through an array: indexing the list is O(i) per access.
+            let defectArray = List.toArray defects
+
             let edges =
                 [
-                    for i in 0 .. defects.Length - 2 do
-                        for j in i + 1 .. defects.Length - 1 do
-                            (defects.[i], defects.[j], planarDistance defects.[i] defects.[j])
+                    for i in 0 .. defectArray.Length - 2 do
+                        for j in i + 1 .. defectArray.Length - 1 do
+                            (defectArray.[i], defectArray.[j], planarDistance defectArray.[i] defectArray.[j])
                 ]
                 |> List.sortBy (fun (_, _, w) -> w)
 

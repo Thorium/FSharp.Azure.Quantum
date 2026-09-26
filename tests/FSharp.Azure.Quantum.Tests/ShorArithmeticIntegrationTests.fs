@@ -551,3 +551,44 @@ module ShorArithmeticIntegrationTests =
             // before the rotations, whereas here they belong after. Getting this wrong put
             // only 62% of the probability on the period multiples instead of over 99%.
             Assert.False(intent.ApplySwaps, "Bit reversal is appended explicitly, not delegated to the intent")
+
+    [<Fact>]
+    let ``gates-form modular-exponentiation QPE carries no intents and matches the intent form`` () =
+        // The whole-circuit path lowers an op list to a gate circuit and REFUSES any
+        // algorithm intent it meets, so it needs the inverse QFT spelled out. That is what
+        // buildModExpQpeAsGates is for. It must be the same unitary as the intent form —
+        // buildQftGateOps [0..c-1] true false is exactly what the intent lowers to — so both
+        // must put the counting register on the same period multiples.
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let baseNum, modulus, countingQubits = 7, 15, 3
+
+        match ModularExponentiationCircuit.buildModExpQpeAsGates baseNum modulus countingQubits true with
+        | Error err -> failwith $"Building the gates-form circuit failed: {err}"
+        | Ok gateOps ->
+            let intents =
+                gateOps
+                |> List.filter (function
+                    | QuantumOperation.Algorithm _ -> true
+                    | _ -> false)
+
+            Assert.Empty intents
+
+            let totalQubits = ModularExponentiationCircuit.totalQubitsFor modulus countingQubits
+
+            let onMultiples (ops: QuantumOperation list) =
+                backend.InitializeState totalQubits
+                |> Result.bind (UnifiedBackend.applySequence backend ops)
+                |> Result.map (fun state ->
+                    let d = countingDistribution countingQubits state
+                    [ 0; 2; 4; 6 ] |> List.sumBy (fun k -> d.[k]))
+
+            match
+                onMultiples gateOps,
+                ModularExponentiationCircuit.buildModExpQpe baseNum modulus countingQubits true
+                |> Result.bind onMultiples
+            with
+            | Ok gates, Ok intent ->
+                Assert.True(gates > 0.99, $"gates form puts only %.4f{gates} on the period multiples")
+                Assert.True(abs (gates - intent) < 1e-9, $"gates form %.6f{gates} vs intent form %.6f{intent}")
+            | Error err, _ -> failwith $"Gates form failed to execute: {err}"
+            | _, Error err -> failwith $"Intent form failed to execute: {err}"

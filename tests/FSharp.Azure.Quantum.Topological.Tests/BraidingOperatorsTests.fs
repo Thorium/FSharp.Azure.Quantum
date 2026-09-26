@@ -633,3 +633,87 @@ module BraidingOperatorsTests =
                         )
                     | Error err, _
                     | _, Error err -> Assert.Fail($"{anyonType}: braiding failed: {err.Message}")
+
+    // ========================================================================
+    // Cross-pair braiding on the σ-pair comb encoding
+    // ========================================================================
+    //
+    // The encoding fuses anyons in pairs and folds the pairs left to right into a comb, so a
+    // cross-pair braid — odd generator index, the right leaf of one pair against the left
+    // leaf of the next — is always the same structural move. The executor used to refuse it
+    // outright; it now re-associates with F-moves until the two leaves are siblings, applies
+    // R, and re-associates back.
+    //
+    // The oracle is the braid group, not a gate simulator. Yang–Baxter, far commutativity
+    // and σ·σ⁻¹ = 1 are identities the F and R data must satisfy on any number of anyons
+    // (they are the pentagon and hexagon equations in disguise), so a wrong re-association
+    // cannot pass them. Ising only: fromComputationalBasis has no Fibonacci comb encoding,
+    // and Fibonacci's cross-pair braid remains covered by the three-anyon test above.
+
+    /// Every computational-basis state of `qubits` σ-pairs, as pure fusion states.
+    let private combBasis (qubits: int) =
+        let anyonType = AnyonSpecies.AnyonType.Ising
+
+        [
+            for value in 0 .. (1 <<< qubits) - 1 do
+                let bits = [ for q in 0 .. qubits - 1 -> (value >>> q) &&& 1 ]
+
+                match FusionTree.fromComputationalBasis bits anyonType with
+                | Ok tree -> yield TopologicalOperations.pureState (FusionTree.create tree anyonType)
+                | Error err -> failwith $"could not encode {bits}: {err.Message}"
+        ]
+
+    let private assertBraidWordsAgree
+        (label: string)
+        (lhs: int list)
+        (rhs: int list)
+        (start: TopologicalOperations.Superposition)
+        =
+        match braidSequence lhs start, braidSequence rhs start with
+        | Ok l, Ok r ->
+            let distance = superpositionDistance l r
+            Assert.True(distance < 1e-10, $"{label}: |lhs − rhs| = {distance}")
+        | Error err, _
+        | _, Error err -> Assert.Fail($"{label}: braiding failed: {err.Message}")
+
+    [<Theory>]
+    [<InlineData(2)>]
+    [<InlineData(3)>]
+    [<InlineData(4)>]
+    let ``Yang-Baxter holds across pair boundaries on the comb encoding`` (qubits: int) =
+        // σ_i σ_{i+1} σ_i = σ_{i+1} σ_i σ_{i+1} for every i on every basis state. Every
+        // triple containing an odd i exercises a cross-pair braid, and every i does for
+        // i >= 1.
+        let anyons = 2 * qubits
+
+        for start in combBasis qubits do
+            for i in 0 .. anyons - 3 do
+                assertBraidWordsAgree $"{qubits} pairs, i={i}" [ i; i + 1; i ] [ i + 1; i; i + 1 ] start
+
+    [<Theory>]
+    [<InlineData(3)>]
+    [<InlineData(4)>]
+    let ``distant generators commute across pair boundaries`` (qubits: int) =
+        // σ_i σ_j = σ_j σ_i for |i − j| >= 2, including two cross-pair generators at once.
+        let anyons = 2 * qubits
+
+        for start in combBasis qubits do
+            for i in 0 .. anyons - 2 do
+                for j in i + 2 .. anyons - 2 do
+                    assertBraidWordsAgree $"{qubits} pairs, i={i}, j={j}" [ i; j ] [ j; i ] start
+
+    [<Theory>]
+    [<InlineData(2)>]
+    [<InlineData(3)>]
+    let ``a cross-pair braid followed by its inverse is the identity`` (qubits: int) =
+        for start in combBasis qubits do
+            for i in 1..2 .. 2 * qubits - 3 do // odd indices are the cross-pair ones
+                let roundTrip =
+                    TopologicalOperations.braidSuperpositionDirected i true start
+                    |> Result.bind (TopologicalOperations.braidSuperpositionDirected i false)
+
+                match roundTrip with
+                | Ok back ->
+                    let distance = superpositionDistance back start
+                    Assert.True(distance < 1e-10, $"i={i}: |σ_i σ_i⁻¹ ψ − ψ| = {distance}")
+                | Error err -> Assert.Fail($"i={i}: {err.Message}")

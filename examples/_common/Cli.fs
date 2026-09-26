@@ -50,21 +50,47 @@ module Cli =
     let getOr (name: string) (fallback: string) (args: ParsedArgs) : string =
         tryGet name args |> Option.defaultValue fallback
 
-    let getIntOr (name: string) (fallback: int) (args: ParsedArgs) : int =
-        match tryGet name args with
-        | None -> fallback
-        | Some s ->
-            match Int32.TryParse s with
-            | true, v -> v
-            | false, _ -> fallback
+    // Numbers parse the same on every locale: "1.5" is one and a half whether
+    // the machine writes decimals with a point or a comma.
+    let private invariant = Globalization.CultureInfo.InvariantCulture
 
-    let getFloatOr (name: string) (fallback: float) (args: ParsedArgs) : float =
+    let private parseInt (s: string) =
+        match Int32.TryParse(s, Globalization.NumberStyles.Integer, invariant) with
+        | true, v -> Some v
+        | false, _ -> None
+
+    let private parseFloat (s: string) =
+        match Double.TryParse(s, Globalization.NumberStyles.Float, invariant) with
+        | true, v -> Some v
+        | false, _ -> None
+
+    /// The option as an int: Ok None when absent, Error when it is not a number.
+    let tryInt (name: string) (args: ParsedArgs) : Result<int option, string> =
         match tryGet name args with
-        | None -> fallback
+        | None -> Ok None
         | Some s ->
-            match Double.TryParse s with
-            | true, v -> v
-            | false, _ -> fallback
+            match parseInt s with
+            | Some v -> Ok(Some v)
+            | None -> Error(sprintf "--%s: '%s' is not a whole number" name s)
+
+    /// The option as a float: Ok None when absent, Error when it is not a number.
+    let tryFloat (name: string) (args: ParsedArgs) : Result<float option, string> =
+        match tryGet name args with
+        | None -> Ok None
+        | Some s ->
+            match parseFloat s with
+            | Some v -> Ok(Some v)
+            | None -> Error(sprintf "--%s: '%s' is not a number" name s)
+
+    /// The option as an int, or the fallback when absent or not a number.
+    /// Callers for whom a bad value must not pass silently use `tryInt`.
+    let getIntOr (name: string) (fallback: int) (args: ParsedArgs) : int =
+        tryGet name args |> Option.bind parseInt |> Option.defaultValue fallback
+
+    /// The option as a float, or the fallback when absent or not a number.
+    /// Callers for whom a bad value must not pass silently use `tryFloat`.
+    let getFloatOr (name: string) (fallback: float) (args: ParsedArgs) : float =
+        tryGet name args |> Option.bind parseFloat |> Option.defaultValue fallback
 
     let getList (name: string) (args: ParsedArgs) : string list =
         args.Values |> Map.tryFind name |> Option.defaultValue []

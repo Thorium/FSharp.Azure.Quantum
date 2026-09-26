@@ -330,3 +330,112 @@ module QPETests =
                 "QPE should submit a complete circuit via ExecuteToState on a cloud-style backend"
             )
         | Error err -> Assert.Fail($"Cloud-style QPE failed: {err}")
+
+    [<Fact>]
+    let ``QPE on modular exponentiation runs on a cloud-style backend via whole-circuit submission`` () =
+        // Regression. A cloud-style backend claims every operation, so plan() hands it the
+        // modular-exponentiation intent natively; ApplyOperation then refuses incremental
+        // execution and QPE falls back to whole-circuit submission. That fallback called
+        // the single-qubit lowering, whose ModularExponentiation arm was a `failwith`
+        // justified as "plan() rejects it first" — an invariant that stopped holding the
+        // day plan() learned to lower modular exponentiation. Every cloud backend and the
+        // noisy local one threw here instead of returning a Result.
+        let cloud = CloudStyleBackend(LocalBackend.LocalBackend() :> IQuantumBackend)
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 4 // ceil(log2 15)
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                EigenVector = None
+            }
+
+        match QPE.execute config (cloud :> IQuantumBackend) with
+        | Ok result ->
+            Assert.True(
+                cloud.ExecuteToStateCalls > 0,
+                "modular-exponentiation QPE should submit a complete circuit via ExecuteToState on a cloud-style backend"
+            )
+
+            // ord(7 mod 15) = 4, so the measured phase sits on a multiple of 1/4.
+            let scaled = result.EstimatedPhase * 4.0
+
+            Assert.True(
+                abs (scaled - System.Math.Round scaled) < 1e-9,
+                $"phase {result.EstimatedPhase} is not a multiple of 1/4; the whole-circuit lowering is wrong"
+            )
+        | Error err -> Assert.Fail($"Cloud-style modular-exponentiation QPE failed: {err}")
+
+    [<Fact>]
+    let ``QPE refuses Approximate exactness for modular exponentiation`` () =
+        // The lowering builds an exact inverse QFT and the native handlers transform
+        // exactly, so Approximate had nothing to act on and was silently ignored — while
+        // Shor refuses the identical input. Same input, same answer.
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 4
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                EigenVector = None
+            }
+
+        match QPE.executeWithExactness config backend false (QPE.Approximate 0.01) with
+        | Error(QuantumError.ValidationError("Exactness", message)) -> Assert.Contains("Approximate", message)
+        | Error err -> Assert.Fail($"Expected an Exactness ValidationError, got: {err}")
+        | Ok _ -> Assert.Fail("Should refuse Approximate for modular exponentiation, as Shor does")
+
+    [<Fact>]
+    let ``single-qubit QPE runs on the noisy local backend via whole-circuit submission`` () =
+        // Regression for a pre-existing defect the modular-exponentiation crash exposed.
+        // NoisyLocalBackend handed out a StateVector while declaring NativeStateType =
+        // Mixed, so applySequence failed converting the initial state before the
+        // incremental-unsupported fallback could route the algorithm to ExecuteToState —
+        // no applySequence-based algorithm had ever run here. It now initialises as
+        // |0..0><0..0| in its own representation, and isZeroState admits that state.
+        //
+        // T on |1> has eigenphase pi/4, i.e. phi = 1/8, which a 3-qubit counting register
+        // resolves exactly. Noiseless, so the assertion is deterministic.
+        let backend =
+            DensityMatrixSimulator.NoisyLocalBackend(DensityMatrixSimulator.noiseless) :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
+        match QPE.execute config backend with
+        | Ok result ->
+            Assert.True(
+                abs (result.EstimatedPhase - 0.125) < 1e-9,
+                $"expected phase 1/8 for T, got {result.EstimatedPhase} on the noisy backend"
+            )
+        | Error err -> Assert.Fail($"Single-qubit QPE failed on the noisy backend: {err}")
+
+    [<Fact>]
+    let ``QPE on modular exponentiation is refused by the noisy backend's qubit cap, not crashed`` () =
+        // The whole fallback path now runs on this backend — plan, lowered ops, incremental
+        // refusal, gates form, ExecuteToState — and stops only at the density-matrix
+        // simulator's own 8-qubit cap. No modular-exponentiation instance can ever fit: the
+        // Beauregard workspace alone is 2n + 4 >= 8, before any counting qubit. So on this
+        // backend the honest answer is that ValidationError. It used to be a thrown
+        // exception from the lowering, and before that a conversion failure.
+        let backend =
+            DensityMatrixSimulator.NoisyLocalBackend(DensityMatrixSimulator.noiseless) :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 2
+                TargetQubits = 2 // ceil(log2 3); the smallest instance is still 10 qubits
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(2, 3)
+                EigenVector = None
+            }
+
+        match QPE.execute config backend with
+        | Error(QuantumError.ValidationError("numQubits", message)) -> Assert.Contains("8 qubits", message)
+        | Error err -> Assert.Fail($"Expected the density-matrix qubit-cap ValidationError, got: {err}")
+        | Ok _ -> Assert.Fail("A 10-qubit density-matrix simulation cannot succeed under an 8-qubit cap")

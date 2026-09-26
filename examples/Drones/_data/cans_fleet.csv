@@ -1,0 +1,2 @@
+model,count,payload_l,loaded_speed_ms,empty_speed_ms,endurance_min,drop_time_s,swap_time_s,lane_spacing_m,lane_base_alt_m,lane_layer_step_m,lane_return_offset_m,min_separation_m,min_vertical_m
+MicroQuad,4,0,1.0,1.0,7,2,60,0.5,0.8,0.5,1.0,0.5,1.0

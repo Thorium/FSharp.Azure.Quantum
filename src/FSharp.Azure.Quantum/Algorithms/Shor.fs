@@ -925,6 +925,31 @@ module Shor =
     // ========================================================================
 
     /// <summary>
+    /// Execute Shor's factoring algorithm with an explicit QPE exactness.
+    /// Period finding is QPE on modular exponentiation; there is no strategy to choose.
+    /// </summary>
+    /// <param name="config">Shor's algorithm configuration</param>
+    /// <param name="exactness">
+    /// QPE exactness. Only <c>Exact</c> is accepted: period finding builds an exact inverse
+    /// QFT, so <c>Approximate</c> is not implemented and is refused with a validation error.
+    /// </param>
+    /// <param name="backend">Quantum backend</param>
+    /// <returns>Factorization result or error</returns>
+    let executeWith
+        (config: ShorsConfig)
+        (exactness: QPE.Exactness)
+        (backend: IQuantumBackend)
+        : Result<ShorsResult, QuantumError> =
+
+        let intent: ShorExecutionIntent =
+            {
+                Config = config
+                Exactness = exactness
+            }
+
+        plan backend intent |> Result.bind (executePlan backend)
+
+    /// <summary>
     /// Execute Shor's factoring algorithm.
     /// Given composite number N, find non-trivial factors p and q such that N = p × q.
     /// </summary>
@@ -956,22 +981,6 @@ module Shor =
     /// | Error err -> printfn "Error: %A" err
     /// </code>
     /// </example>
-    /// Execute Shor factoring. Period finding is QPE on modular exponentiation; there is
-    /// no strategy to choose, which is why the former `executeWithMethod` is gone.
-    let executeWith
-        (config: ShorsConfig)
-        (exactness: QPE.Exactness)
-        (backend: IQuantumBackend)
-        : Result<ShorsResult, QuantumError> =
-
-        let intent: ShorExecutionIntent =
-            {
-                Config = config
-                Exactness = exactness
-            }
-
-        plan backend intent |> Result.bind (executePlan backend)
-
     let execute (config: ShorsConfig) (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
 
         executeWith config QPE.Exactness.Exact backend

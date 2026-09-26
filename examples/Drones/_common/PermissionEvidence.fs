@@ -366,9 +366,9 @@ module Checks =
             }
 
     /// `altitudes`: (what, metres AGL) for every planned point.
-    let altitude (altitudes: (string * float) list) =
-        let ceiling = Regulations.maxAltitudeAglMeters
-
+    /// `ceiling`: the operation's own altitude limit in metres AGL (the
+    /// regulatory ceiling outdoors, the room height indoors).
+    let altitudeUnder (ceiling: float) (altitudes: (string * float) list) =
         let over =
             altitudes
             |> List.filter (fun (_, a) -> a > ceiling)
@@ -389,6 +389,10 @@ module Checks =
             Status = pass over.IsEmpty
             Details = over |> List.truncate 10 |> List.map (fun (w, a) -> sprintf "%s at %.1f m" w a)
         }
+
+    /// `altitudes`: (what, metres AGL) against the regulatory ceiling.
+    let altitude (altitudes: (string * float) list) =
+        altitudeUnder Regulations.maxAltitudeAglMeters altitudes
 
     /// `distancesKm`: (what, horizontal distance from the pilot station).
     let c2Link (stationName: string) (frequencyMhz: float) (fadeMarginDb: float) (distancesKm: (string * float) list) =

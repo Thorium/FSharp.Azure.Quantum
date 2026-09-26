@@ -205,7 +205,7 @@ module QPE =
 
         config.CountingQubits + eigenPrep + controlled + inverseQft + swaps
 
-    let private buildLoweringOps (intent: QpeExecutionIntent) : QuantumOperation list =
+    let private buildLoweringOps (intent: QpeExecutionIntent) : Result<QuantumOperation list, QuantumError> =
         let config = intent.Config
 
         let shouldIncludeControlledPhase (angle: float) =
@@ -249,28 +249,48 @@ module QPE =
                     [ QuantumOperation.Gate(CircuitBuilder.X targetQubit) ]
                 | _ -> []
 
-        // Step 4: Apply controlled-U^(2^j) for each counting qubit j
-        let controlledOps =
-            List.init (max 0 config.CountingQubits) (fun j ->
-                let applications = 1 <<< j
+        // Step 4: Apply controlled-U^(2^j) for each counting qubit j.
+        //
+        // Per-qubit op as a Result, so that a modular-exponentiation unitary arriving here
+        // is an ERROR rather than a throw. It used to be a `failwith` justified as
+        // "unreachable: plan() rejects ModularExponentiation first" — an invariant that
+        // held in another function and stopped holding the day plan() learned to lower
+        // modular exponentiation, at which point every cloud backend and the noisy local
+        // one crashed in the whole-circuit fallback. `List.init` is eager, so this has to be
+        // decided per element; a guard at the end of the function would run too late.
+        let controlledOpFor (j: int) : Result<QuantumOperation, QuantumError> =
+            let applications = 1 <<< j
 
-                match config.UnitaryOperator with
-                | PhaseGate theta ->
-                    let totalTheta = float applications * theta
-                    QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta))
-                | TGate ->
-                    let totalTheta = float applications * Math.PI / 4.0
-                    QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta))
-                | SGate ->
-                    let totalTheta = float applications * Math.PI / 2.0
-                    QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta))
-                | RotationZ theta ->
-                    let totalTheta = float applications * theta
-                    QuantumOperation.Gate(CircuitBuilder.CRZ(j, config.CountingQubits, totalTheta))
-                | ModularExponentiation _ ->
-                    // Unreachable: plan() rejects ModularExponentiation before buildLoweringOps is called.
-                    failwith
-                        $"ModularExponentiation cannot be lowered to gate ops; use Shor.estimateModExpPhase, calling buildLoweringOps with intent: {intent}")
+            match config.UnitaryOperator with
+            | PhaseGate theta ->
+                let totalTheta = float applications * theta
+                Ok(QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta)))
+            | TGate ->
+                let totalTheta = float applications * Math.PI / 4.0
+                Ok(QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta)))
+            | SGate ->
+                let totalTheta = float applications * Math.PI / 2.0
+                Ok(QuantumOperation.Gate(CircuitBuilder.CP(j, config.CountingQubits, totalTheta)))
+            | RotationZ theta ->
+                let totalTheta = float applications * theta
+                Ok(QuantumOperation.Gate(CircuitBuilder.CRZ(j, config.CountingQubits, totalTheta)))
+            | ModularExponentiation _ ->
+                Error(
+                    QuantumError.OperationError(
+                        "QPE",
+                        "modular exponentiation is not a single-qubit unitary and does not lower here; lowerToOps routes it to ModularExponentiationCircuit"
+                    )
+                )
+
+        let controlledOps =
+            List.init (max 0 config.CountingQubits) controlledOpFor
+            |> List.fold
+                (fun acc step ->
+                    match acc, step with
+                    | Error e, _ -> Error e
+                    | _, Error e -> Error e
+                    | Ok gathered, Ok op -> Ok(gathered @ [ op ]))
+                (Ok [])
 
         // Step 5: Apply inverse QFT to counting register manually
         // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)
@@ -301,7 +321,48 @@ module QPE =
             else
                 []
 
-        hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
+        controlledOps
+        |> Result.map (fun controlled -> hadamardOps @ eigenPrepOps @ controlled @ inverseQftOps @ swapOps)
+
+    /// Width of the state QPE must allocate: the intent's registers, plus the arithmetic
+    /// workspace when the unitary is modular exponentiation.
+    ///
+    /// One definition, used by `execute` and by the whole-circuit fallback. They used to
+    /// size independently, and the fallback's counting + target left the Beauregard
+    /// circuit no workspace at all.
+    let private stateWidthFor (config: QPEConfig) : int =
+        match config.UnitaryOperator with
+        | ModularExponentiation(_, modulus) -> ModularExponentiationCircuit.totalQubitsFor modulus config.CountingQubits
+        | _ -> config.CountingQubits + config.TargetQubits
+
+    /// Lower an intent to operations, keeping any sub-algorithm as an intent so a backend
+    /// with a native QFT can take it.
+    ///
+    /// The one sanctioned way to lower. It dispatches modular exponentiation to its own
+    /// builder, which is why `buildLoweringOps` treats one as an error: everything the
+    /// planner or a fallback lowers passes through here first.
+    let private lowerToOps (intent: QpeExecutionIntent) : Result<QuantumOperation list, QuantumError> =
+        match intent.Config.UnitaryOperator with
+        | ModularExponentiation(baseNum, modulus) ->
+            ModularExponentiationCircuit.buildModExpQpe
+                baseNum
+                modulus
+                intent.Config.CountingQubits
+                intent.ApplyBitReversalSwaps
+        | _ -> buildLoweringOps intent
+
+    /// As `lowerToOps`, with every sub-algorithm expanded to gates, for whole-circuit
+    /// submission: `submitAsCircuit` refuses algorithm intents rather than lowering them.
+    /// The single-qubit lowering emits only gates already, so it is shared.
+    let private lowerToOpsAsGates (intent: QpeExecutionIntent) : Result<QuantumOperation list, QuantumError> =
+        match intent.Config.UnitaryOperator with
+        | ModularExponentiation(baseNum, modulus) ->
+            ModularExponentiationCircuit.buildModExpQpeAsGates
+                baseNum
+                modulus
+                intent.Config.CountingQubits
+                intent.ApplyBitReversalSwaps
+        | _ -> buildLoweringOps intent
 
     let plan (backend: IQuantumBackend) (intent: QpeExecutionIntent) : Result<QpePlan, QuantumError> =
         // QPE requires gate-based operations (or explicit native intent support).
@@ -357,6 +418,21 @@ module QPE =
                                     "ModularExponentiation estimates the phase on |1⟩; a custom eigenvector is not supported"
                                 )
                             )
+                        elif
+                            (match intent.Exactness with
+                             | Approximate _ -> true
+                             | Exact -> false)
+                        then
+                            // The Beauregard lowering builds an exact inverse QFT and the native
+                            // handlers transform exactly, so there is nothing for Approximate to
+                            // loosen. Shor refuses it for the same reason; accepting it here
+                            // and ignoring it would make the two disagree on the same input.
+                            Error(
+                                QuantumError.ValidationError(
+                                    "Exactness",
+                                    "QPE on modular exponentiation builds an exact inverse QFT; Approximate is not implemented. Pass Exact."
+                                )
+                            )
                         else
 
                             let nativeOperation =
@@ -377,11 +453,7 @@ module QPE =
                                     Ok(QpePlan.ExecuteNatively(nativeIntent, intent.Exactness))
                                 | _ -> Error(QuantumError.OperationError("QPE", "unreachable: intent was just built"))
                             else
-                                ModularExponentiationCircuit.buildModExpQpe
-                                    baseNum
-                                    modulus
-                                    intent.Config.CountingQubits
-                                    intent.ApplyBitReversalSwaps
+                                lowerToOps intent
                                 |> Result.map (fun ops -> QpePlan.ExecuteViaOps(ops, intent.Exactness))
                     | _ ->
                         // Validate a custom eigenvector before planning. The native
@@ -422,17 +494,18 @@ module QPE =
                             if intent.Config.EigenVector.IsNone && backend.SupportsOperation nativeOp then
                                 Ok(QpePlan.ExecuteNatively(coreIntent, intent.Exactness))
                             else
-                                let lowerOps = buildLoweringOps intent
-
-                                if lowerOps |> List.forall backend.SupportsOperation then
-                                    Ok(QpePlan.ExecuteViaOps(lowerOps, intent.Exactness))
-                                else
-                                    Error(
-                                        QuantumError.OperationError(
-                                            "QPE",
-                                            $"Backend '{backend.Name}' does not support required operations for QPE"
+                                match lowerToOps intent with
+                                | Error e -> Error e
+                                | Ok lowerOps ->
+                                    if lowerOps |> List.forall backend.SupportsOperation then
+                                        Ok(QpePlan.ExecuteViaOps(lowerOps, intent.Exactness))
+                                    else
+                                        Error(
+                                            QuantumError.OperationError(
+                                                "QPE",
+                                                $"Backend '{backend.Name}' does not support required operations for QPE"
+                                            )
                                         )
-                                    )
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -479,8 +552,13 @@ module QPE =
                             )
                         )
                 else
-                    let lowerOps = buildLoweringOps intent
-                    let totalQubits = intent.Config.CountingQubits + intent.Config.TargetQubits
+                    // Expanded to gates: submitAsCircuit lowers the list to a gate circuit and
+                    // refuses any algorithm intent it meets, so the inverse QFT the planner
+                    // keeps as an intent must be spelled out here. Sized by stateWidthFor,
+                    // not counting + target — for modular exponentiation that left the
+                    // Beauregard circuit no workspace.
+                    let! lowerOps = lowerToOpsAsGates intent
+                    let totalQubits = stateWidthFor intent.Config
                     let! preparedState = UnifiedBackend.submitAsCircuit backend totalQubits lowerOps
                     return (preparedState, lowerOps.Length)
 
@@ -546,16 +624,7 @@ module QPE =
                         )
                     )
             else
-                let totalQubits =
-                    match config.UnitaryOperator with
-                    | ModularExponentiation(_, modulus) ->
-                        // The Beauregard lowering claims counting + 2n + 4: the target
-                        // register plus a temp register of the same width plus its ancilla
-                        // chain. Sizing this as counting + target would leave the
-                        // arithmetic no workspace, so modular exponentiation used to be
-                        // refused here and delegated to Shor.estimateModExpPhase.
-                        ModularExponentiationCircuit.totalQubitsFor modulus config.CountingQubits
-                    | _ -> config.CountingQubits + config.TargetQubits
+                let totalQubits = stateWidthFor config
 
                 // Step 1: Initialize state |0⟩^(⊗(n+m))
                 let! initialState = backend.InitializeState totalQubits

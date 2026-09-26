@@ -736,11 +736,18 @@ module AlgorithmExtensionsTests =
 
     [<Fact>]
     let ``braiding keeps states inside the computational-basis encoding`` () =
-        // The native primitives on this backend — Grover's three, modular-exponentiation QPE,
-        // and now the QFT — all read fusion terms through FusionTree.toComputationalBasis,
+        // The native primitives on this backend — Grover's three, the QFT, both QPEs and the
+        // HHL inversion — all read fusion terms through FusionTree.toComputationalBasis,
         // which maps any channel it does not recognise to a 0 bit rather than failing. If a
         // braid could move a state outside that encoding, those primitives would silently
         // mangle it where the gate path would not, so this pins the assumption they rest on.
+        //
+        // Cross-pair braids used to be refused outright, which kept the encoding total by
+        // construction. They are now executed by F-moves that re-associate the comb and
+        // re-associate it back, so the invariant is no longer free: the final tree must be
+        // a comb of σ-pairs again, differing only in its channels. This test now includes
+        // one, and its normalisation check is exactly what would fail if the re-association
+        // left a non-comb tree behind.
         let backend = TopologicalUnifiedBackendFactory.createIsing 8
         let numQubits = 3
 
@@ -751,12 +758,9 @@ module AlgorithmExtensionsTests =
                     BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.H 0)
                 )
             )
-            // Within-pair braids (even leaf indices). Cross-pair braiding is the operation
-            // that could move a state between fusion channels, and this backend refuses it
-            // outright: "the F-move machinery required for cross-pair braids is only
-            // implemented for 3-anyon trees". That refusal is what keeps the encoding total.
-            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 0))
-            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 2))
+            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 0)) // within pair 0
+            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 1)) // ACROSS pairs 0 and 1
+            |> Result.bind (backend.ApplyOperation(BackendAbstraction.QuantumOperation.Braid 2)) // within pair 1
 
         match braided with
         | Error err -> failwith $"Braiding failed: {err}"
@@ -927,3 +931,138 @@ module AlgorithmExtensionsTests =
         match run localBackend with
         | Ok _ -> ()
         | Error err -> failwith $"Gate simulator should still accept it: {err}"
+
+    // ========================================================================
+    // Cost of the native transforms at increasing width
+    // ========================================================================
+
+    // A non-dyadic phase, so the counting register is DENSE after the inverse QFT and the
+    // transform cannot shortcut on sparsity in either direction: 2^c output terms, the shape
+    // that scales worst. This is a functional guard for the native path at real widths, in
+    // the Slow category; it deliberately asserts nothing about wall-clock time, because on
+    // the development box the same case varies about 2x between runs (c=12 read 4 s and 9 s
+    // in consecutive runs), which would make a timed gate a flake rather than a check.
+    //
+    // Measured 2026-09-26, for the record. With the direct O(4^c) sum: c=8 645 ms, c=10
+    // 940 ms, c=12 5 s. With the radix-2 FFT: c=8 221-426 ms, c=10 ~1 s, c=12 4-9 s,
+    // c=14 20 s. The step from c=12 to c=14 is ~2.2x, the floor for emitting four times as
+    // many fusion-tree terms; the direct sum would have added 4^14 ~ 268M complex operations
+    // there on its own. What remains is ~1 ms per emitted term in fusion-tree construction,
+    // a constant, not a complexity class.
+    [<Theory; Trait("Category", "Slow")>]
+    [<InlineData(8)>]
+    [<InlineData(10)>]
+    [<InlineData(12)>]
+    [<InlineData(14)>]
+    let ``native single-qubit QPE produces a normalised dense state at increasing counting width``
+        (countingQubits: int)
+        =
+        let backend =
+            TopologicalUnifiedBackendFactory.createIsing (2 * (countingQubits + 1) + 2)
+
+        let qpeOp =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.QPE
+                    {
+                        CountingQubits = countingQubits
+                        TargetQubits = 1
+                        Unitary = BackendAbstraction.QpeUnitary.PhaseGate(System.Math.PI / 5.0)
+                        PrepareTargetOne = true
+                        ApplySwaps = true
+                    }
+            )
+
+        let result =
+            backend.InitializeState(countingQubits + 1)
+            |> Result.bind (backend.ApplyOperation qpeOp)
+
+        match result with
+        | Ok(QuantumState.FusionSuperposition superposition) ->
+            Assert.Equal(countingQubits + 1, superposition.LogicalQubits)
+
+            Assert.True(
+                superposition.IsNormalized,
+                $"c={countingQubits}: the dense QPE output must be normalised; a transform that drops or double-counts terms is not"
+            )
+        | Ok other -> failwith $"c={countingQubits}: expected a fusion superposition, got {other}"
+        | Error err -> failwith $"c={countingQubits} failed: {err}"
+
+    // ========================================================================
+    // HHL inversion: topological against the gate simulator
+    // ========================================================================
+    //
+    // The two existing topological HHL tests assert that SupportsOperation says yes, and that
+    // solveLinearSystemTopology returns EITHER Ok OR an OperationError — so they pass whether
+    // the inversion is right, wrong, or does not run. That is the shape of test that let the
+    // QFT return doubled rotation angles unnoticed. This one compares amplitudes, column by
+    // column over every basis state of the whole register.
+
+    let hhlInversionMethods: obj[] seq =
+        seq {
+            yield [| box "exact"; box 0.1 |]
+            yield [| box "exact"; box 0.75 |] // λ = 0.5 falls below the threshold and is skipped
+            yield [| box "piecewise"; box 0.1 |]
+        }
+
+    [<Theory; MemberData(nameof hhlInversionMethods)>]
+    let ``topological HHL inversion agrees with the gate simulator`` (method: string) (minEigenvalue: float) =
+        let eigenvalueQubits, solutionQubits = 1, 2
+        let totalQubits = eigenvalueQubits + solutionQubits + 1
+
+        let inversion =
+            match method with
+            | "exact" -> BackendAbstraction.HhlEigenvalueInversionMethod.ExactRotation 0.5
+            | _ ->
+                // A different constant per band, so a wrong band lookup shows up.
+                BackendAbstraction.HhlEigenvalueInversionMethod.PiecewiseLinear
+                    [| (0.0, 1.5, 0.4); (1.5, 3.0, 0.6); (3.0, 10.0, 0.9) |]
+
+        let hhlOp =
+            BackendAbstraction.QuantumOperation.Algorithm(
+                BackendAbstraction.AlgorithmOperation.HHL
+                    {
+                        EigenvalueQubits = eigenvalueQubits
+                        SolutionQubits = solutionQubits
+                        // With c = 0.5: sines 0.5, 0.25, 0.125 and 1.0 — the last is a full flip.
+                        DiagonalEigenvalues = [| 1.0; 2.0; 4.0; 0.5 |]
+                        InversionMethod = inversion
+                        MinEigenvalue = minEigenvalue
+                    }
+            )
+
+        // Every basis state of the whole register — eigenvalue qubit, solution register and
+        // ancilla alike — so an eigenvalue qubit that should ride along untouched, or an
+        // ancilla that starts in |1>, is covered too.
+        let prepare (backend: BackendAbstraction.IQuantumBackend) (basisState: int) =
+            [ 0 .. totalQubits - 1 ]
+            |> List.filter (fun q -> (basisState >>> q) &&& 1 = 1)
+            |> List.fold
+                (fun st q ->
+                    st
+                    |> Result.bind (
+                        backend.ApplyOperation(
+                            BackendAbstraction.QuantumOperation.Gate(FSharp.Azure.Quantum.CircuitBuilder.X q)
+                        )
+                    ))
+                (backend.InitializeState totalQubits)
+            |> Result.bind (backend.ApplyOperation hhlOp)
+
+        let localBackend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing (2 * totalQubits + 2)
+
+        for basisState in 0 .. (1 <<< totalQubits) - 1 do
+            match prepare localBackend basisState, prepare topoBackend basisState with
+            | Ok gateState, Ok topoState ->
+                let expected = amplitudesOf gateState
+                let actual = amplitudesOf topoState
+                Assert.Equal(expected.Length, actual.Length)
+
+                for i in 0 .. expected.Length - 1 do
+                    Assert.True(
+                        (expected.[i] - actual.[i]).Magnitude < 1e-9,
+                        $"{method}/min={minEigenvalue}, basis {basisState}, amplitude {i}: gate {expected.[i]} vs topological {actual.[i]}"
+                    )
+            | Error err, _ -> failwith $"Gate simulator failed on basis {basisState}: {err}"
+            | _, Error err -> failwith $"Topological backend failed on basis {basisState}: {err}"

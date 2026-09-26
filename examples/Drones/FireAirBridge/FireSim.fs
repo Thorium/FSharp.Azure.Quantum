@@ -11,6 +11,10 @@
 /// `MinSalvoLpm` is mostly wasted (evaporation, a fire that outruns it), so
 /// the planner must mass drones on a few hotspots rather than spread them.
 ///
+/// The physics constants are per minute, as fire behaviour is usually quoted;
+/// every function takes the simulation tick and scales them, so the model
+/// also runs at a one-second tick.
+///
 /// Scale: sectors are about a hectare, i.e. spot fires and mop-up hotspots,
 /// the work drones are plausible for (night, smoke, helicopters grounded).
 /// A drone swarm does not replace a bucket helicopter on a running front.
@@ -77,10 +81,16 @@ let initial (sectors: FireSector[]) : SectorState[] =
             EverIgnited = s.InitialIntensity > 0.0
         })
 
+/// Minutes in one tick: the factor from the per-minute constants to per-tick.
+let private perTick (tick: Tick) = Tick.seconds tick / 60.0
+
+/// The salvo floor in litres per tick.
+let floorPerTick (phys: FirePhysics) (tick: Tick) = phys.MinSalvoLpm * perTick tick
+
 let private windGrowth (cond: Conditions) = 1.0 + cond.WindSpeedMs / 10.0
 
 /// Heat flowing into sector j per minute from its burning neighbours.
-let private exposureRate
+let private exposureRatePerMin
     (phys: FirePhysics)
     (cond: Conditions)
     (sectors: FireSector[])
@@ -98,75 +108,80 @@ let private exposureRate
 
         state.[n].Intensity * (phys.BaseSpread + downwind * cond.WindSpeedMs / 10.0))
 
-/// What each sector asks of the air bridge this minute.
+/// Litres per minute a burning sector asks for.
+let private burningDemandLpm (phys: FirePhysics) (cond: Conditions) (s: FireSector) (st: SectorState) =
+    let growth =
+        phys.GrowthPerMin * windGrowth cond * st.Intensity * (1.0 - st.Intensity)
+
+    s.AreaHa * phys.KnockdownLPerHa * (growth + st.Intensity / phys.KnockdownTargetMin)
+
+/// What each sector asks of the air bridge this tick.
 let needs
     (phys: FirePhysics)
+    (tick: Tick)
     (cond: Conditions)
     (sectors: FireSector[])
     (index: Map<string, int>)
     (state: SectorState[])
     : SectorNeed[] =
+    let k = perTick tick
+
     sectors
     |> Array.mapi (fun j s ->
         let st = state.[j]
 
         if st.Intensity > 0.0 then
-            let growth =
-                phys.GrowthPerMin * windGrowth cond * st.Intensity * (1.0 - st.Intensity)
-
             {
-                DemandLpm =
-                    s.AreaHa
-                    * phys.KnockdownLPerHa
-                    * (growth + st.Intensity / phys.KnockdownTargetMin)
+                DemandPerTick = burningDemandLpm phys cond s st * k
                 Weight = s.AssetPriority
                 Concentrated = true
             }
         else
-            let threat = exposureRate phys cond sectors index state j
+            let threat = exposureRatePerMin phys cond sectors index state j
 
             if threat < 0.01 then
                 {
-                    DemandLpm = 0.0
+                    DemandPerTick = 0.0
                     Weight = 0.0
                     Concentrated = false
                 }
             else
                 // Pre-wetting is worth as much as the threat is real.
                 {
-                    DemandLpm =
+                    DemandPerTick =
                         s.AreaHa
                         * phys.PrewetLPerHa
                         * ((1.0 - st.Wetness) / phys.KnockdownTargetMin + phys.WetDecayPerMin)
+                        * k
                     Weight = s.AssetPriority * min 1.0 threat
                     Concentrated = false
                 })
 
-/// Advance the fire one minute given the water that landed in each sector.
+/// Advance the fire one tick given the water that landed in each sector.
 let step
     (phys: FirePhysics)
+    (tick: Tick)
     (cond: Conditions)
     (sectors: FireSector[])
     (index: Map<string, int>)
     (state: SectorState[])
     (deliveredL: float[])
     : SectorState[] =
+    let k = perTick tick
+
     state
     |> Array.mapi (fun j st ->
         let s = sectors.[j]
 
         if st.Intensity > 0.0 then
             let growth =
-                phys.GrowthPerMin * windGrowth cond * st.Intensity * (1.0 - st.Intensity)
+                phys.GrowthPerMin * windGrowth cond * st.Intensity * (1.0 - st.Intensity) * k
 
-            let demand =
-                s.AreaHa
-                * phys.KnockdownLPerHa
-                * (growth + st.Intensity / phys.KnockdownTargetMin)
+            let demand = burningDemandLpm phys cond s st * k
 
             // Same floor the evaluator uses: min(salvo, demand).
             let effective =
-                if deliveredL.[j] < min phys.MinSalvoLpm demand - 1e-9 then
+                if deliveredL.[j] < min (floorPerTick phys tick) demand - 1e-9 then
                     deliveredL.[j] * phys.ThinEfficiency
                 else
                     deliveredL.[j]
@@ -187,11 +202,12 @@ let step
             let wet =
                 min
                     1.0
-                    (st.Wetness * (1.0 - phys.WetDecayPerMin)
+                    (st.Wetness * (1.0 - phys.WetDecayPerMin * k)
                      + deliveredL.[j] / (s.AreaHa * phys.PrewetLPerHa))
 
             let exposure =
-                st.Exposure + exposureRate phys cond sectors index state j * (1.0 - wet)
+                st.Exposure
+                + exposureRatePerMin phys cond sectors index state j * k * (1.0 - wet)
 
             if exposure >= phys.IgnitionExposure then
                 {

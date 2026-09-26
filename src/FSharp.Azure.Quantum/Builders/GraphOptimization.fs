@@ -845,6 +845,84 @@ module GraphOptimization =
     // TDD CYCLE 2 - CONSTRAINT VALIDATION
     // ========================================================================
 
+    /// Weak connectivity: every node in `nodeIds` reachable from the first one when
+    /// edge direction is ignored. An empty node set is vacuously connected.
+    let private isConnected (nodeIds: string list) (edges: Edge<'T> list) : bool =
+        match nodeIds with
+        | [] -> true
+        | start :: _ ->
+            let neighbours = Graph.buildAdjacency false edges
+            let visited = System.Collections.Generic.HashSet<string>()
+            let pending = System.Collections.Generic.Stack<string>()
+            pending.Push start
+            visited.Add start |> ignore
+
+            while pending.Count > 0 do
+                let current = pending.Pop()
+
+                for next in neighbours |> Map.tryFind current |> Option.defaultValue [] do
+                    if visited.Add next then
+                        pending.Push next
+
+            nodeIds |> List.forall visited.Contains
+
+    /// True when the edges contain a cycle. Directed edges (or a directed graph) are
+    /// checked for a directed cycle (Kahn's algorithm); otherwise any cycle ignoring
+    /// direction counts, including a self-loop or two parallel edges (union-find).
+    let private hasCycle (directed: bool) (edges: Edge<'T> list) : bool =
+        if directed || (not edges.IsEmpty && edges |> List.forall (fun e -> e.Directed)) then
+            let nodes = edges |> List.collect (fun e -> [ e.Source; e.Target ]) |> List.distinct
+            let successors = Graph.buildAdjacency true edges
+            let inDegree = System.Collections.Generic.Dictionary<string, int>()
+
+            for n in nodes do
+                inDegree[n] <- 0
+
+            for e in edges do
+                inDegree[e.Target] <- inDegree[e.Target] + 1
+
+            let ready =
+                System.Collections.Generic.Queue<string>(nodes |> List.filter (fun n -> inDegree[n] = 0))
+
+            let mutable removed = 0
+
+            while ready.Count > 0 do
+                let current = ready.Dequeue()
+                removed <- removed + 1
+
+                for next in successors |> Map.tryFind current |> Option.defaultValue [] do
+                    inDegree[next] <- inDegree[next] - 1
+
+                    if inDegree[next] = 0 then
+                        ready.Enqueue next
+
+            // Nodes on (or downstream of) a cycle never reach in-degree 0.
+            removed < nodes.Length
+        else
+            let parent = System.Collections.Generic.Dictionary<string, string>()
+
+            let rec find (x: string) =
+                match parent.TryGetValue x with
+                | true, p when p <> x ->
+                    let root = find p
+                    parent[x] <- root
+                    root
+                | true, _ -> x
+                | false, _ ->
+                    parent[x] <- x
+                    x
+
+            edges
+            |> List.exists (fun e ->
+                let rootS = find e.Source
+                let rootT = find e.Target
+
+                if rootS = rootT then
+                    true
+                else
+                    parent[rootS] <- rootT
+                    false)
+
     /// <summary>
     /// Validate that a solution satisfies all problem constraints.
     /// </summary>
@@ -854,13 +932,17 @@ module GraphOptimization =
     /// <returns>True if all constraints are satisfied, false otherwise</returns>
     ///
     /// <remarks>
+    /// The structural constraints (DegreeLimit, MinDegree, Connected, Acyclic) check the
+    /// solution's SelectedEdges when it has them, and the problem graph otherwise.
     /// <para><b>Supported Constraints:</b></para>
     /// <list type="bullet">
     ///   <item><b>NoAdjacentEqual:</b> Adjacent nodes must have different values (graph coloring)</item>
     ///   <item><b>DegreeLimit:</b> Each node's degree ≤ maxDegree (network design)</item>
+    ///   <item><b>MinDegree:</b> Every node's degree ≥ minDegree, isolated nodes included</item>
     ///   <item><b>VisitOnce:</b> Each node visited exactly once (TSP)</item>
-    ///   <item><b>Connected:</b> Selected edges form connected subgraph</item>
-    ///   <item><b>Acyclic:</b> Selected edges form tree (no cycles)</item>
+    ///   <item><b>Connected:</b> Selected edges form a connected subgraph; without a selection,
+    ///   every node of the problem graph is reachable (edge direction ignored)</item>
+    ///   <item><b>Acyclic:</b> No cycle: a directed cycle for directed edges, any cycle otherwise</item>
     /// </list>
     /// </remarks>
     ///
@@ -885,6 +967,30 @@ module GraphOptimization =
         (problem: GraphOptimizationProblem<'TNode, 'TEdge>)
         (solution: GraphOptimizationSolution<'TNode, 'TEdge>)
         : bool =
+        // The edge set the structural constraints judge: the solution's selection when it
+        // has one, else the problem graph. Checking the problem graph while a selection
+        // exists would pass any selection at all.
+        let edgesUnderTest =
+            solution.SelectedEdges |> Option.defaultValue problem.Graph.Edges
+
+        let adjacencyUnderTest =
+            match solution.SelectedEdges with
+            | Some selected -> Graph.buildAdjacency problem.Graph.Directed selected
+            | None -> problem.Graph.Adjacency
+
+        let degreeOf nodeId =
+            adjacencyUnderTest
+            |> Map.tryFind nodeId
+            |> Option.map List.length
+            |> Option.defaultValue 0
+
+        let allNodeIds =
+            [
+                yield! problem.Graph.Nodes |> Map.keys
+                yield! adjacencyUnderTest |> Map.keys
+            ]
+            |> List.distinct
+
         problem.Constraints
         |> List.forall (fun constr ->
             match constr with
@@ -902,7 +1008,7 @@ module GraphOptimization =
 
             | DegreeLimit maxDegree ->
                 // Check that no node has degree > maxDegree
-                problem.Graph.Adjacency
+                adjacencyUnderTest
                 |> Map.forall (fun _ neighbors -> neighbors.Length <= maxDegree)
 
             | VisitOnce ->
@@ -918,18 +1024,22 @@ module GraphOptimization =
                     visitedNodes.Length = nodeIds.Length
                 | None -> true
 
-            | Acyclic ->
-                // Check for cycles (simplified: always true for now)
-                true
+            | Acyclic -> not (hasCycle problem.Graph.Directed edgesUnderTest)
 
             | Connected ->
-                // Check graph connectivity (simplified: assume valid if has edges)
-                problem.Graph.Edges.Length > 0
+                match solution.SelectedEdges with
+                | Some selected ->
+                    // The subgraph the selection forms: its own endpoints, one component.
+                    let touched =
+                        selected |> List.collect (fun e -> [ e.Source; e.Target ]) |> List.distinct
+
+                    isConnected touched selected
+                | None -> isConnected allNodeIds problem.Graph.Edges
 
             | MinDegree minDegree ->
-                // Check that all nodes have degree >= minDegree
-                problem.Graph.Adjacency
-                |> Map.forall (fun _ neighbors -> neighbors.Length >= minDegree)
+                // Every node, including isolated ones: an adjacency map has no entry for
+                // a node without edges, so iterating the map alone passed them unchecked.
+                allNodeIds |> List.forall (fun nodeId -> degreeOf nodeId >= minDegree)
 
             | OneIncoming ->
                 // Check that each node has exactly one incoming edge

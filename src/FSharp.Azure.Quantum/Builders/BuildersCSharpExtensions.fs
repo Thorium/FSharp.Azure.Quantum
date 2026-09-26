@@ -330,13 +330,17 @@ type CSharpBuilders private () =
     /// <param name="riskFreeRate">Risk-free interest rate (annualized)</param>
     /// <param name="volatility">Volatility of underlying asset (annualized)</param>
     /// <param name="timeToExpiry">Time to expiry in years</param>
+    /// <param name="numQubits">Qubits discretising the price distribution into 2^numQubits levels (2 to 10)</param>
+    /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
+    /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
     /// <remarks>
     /// **RULE1 COMPLIANCE**: Backend is REQUIRED (not optional).
     ///
-    /// Uses Quantum Monte Carlo for quadratic speedup over classical Monte Carlo.
-    /// Classical MC: O(1/ε²) samples, Quantum MC: O(1/ε) queries → 100x speedup!
+    /// Uses Quantum Monte Carlo (amplitude estimation). Asymptotically it needs O(1/ε)
+    /// oracle queries where classical Monte Carlo needs O(1/ε²) samples: a quadratic
+    /// advantage on fault-tolerant hardware, not a measured speedup of this library.
     /// </remarks>
     static member PriceEuropeanCall
         (
@@ -367,6 +371,9 @@ type CSharpBuilders private () =
     /// <param name="riskFreeRate">Risk-free interest rate (annualized)</param>
     /// <param name="volatility">Volatility of underlying asset (annualized)</param>
     /// <param name="timeToExpiry">Time to expiry in years</param>
+    /// <param name="numQubits">Qubits discretising the price distribution into 2^numQubits levels (2 to 10)</param>
+    /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
+    /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
     static member PriceEuropeanPut
@@ -399,6 +406,9 @@ type CSharpBuilders private () =
     /// <param name="volatility">Volatility of underlying asset (annualized)</param>
     /// <param name="timeToExpiry">Time to expiry in years</param>
     /// <param name="timeSteps">Number of time steps for averaging</param>
+    /// <param name="numQubits">Qubits discretising the price distribution into 2^numQubits levels (2 to 10)</param>
+    /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
+    /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
     static member PriceAsianCall
@@ -433,6 +443,9 @@ type CSharpBuilders private () =
     /// <param name="volatility">Volatility of underlying asset (annualized)</param>
     /// <param name="timeToExpiry">Time to expiry in years</param>
     /// <param name="timeSteps">Number of time steps for averaging</param>
+    /// <param name="numQubits">Qubits discretising the price distribution into 2^numQubits levels (2 to 10)</param>
+    /// <param name="groverIterations">Amplitude-amplification iterations; more give higher precision (0 to 100)</param>
+    /// <param name="shots">Measurement shots for the amplitude estimate (1 to 1,000,000)</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
     static member PriceAsianPut

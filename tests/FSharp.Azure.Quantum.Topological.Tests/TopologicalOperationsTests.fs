@@ -744,20 +744,39 @@ module TopologicalOperationsTests =
     // ========================================================================
 
     [<Fact>]
-    let ``Cross-pair braid on multi-pair encoding returns explicit error instead of silent global phase`` () =
-        // Braiding leaves (1, 2) crosses two σ-pairs. The executor cannot apply
-        // this without F-move basis changes (implemented only for 3-anyon trees).
-        // Previously it silently applied the first fusion channel's R-phase as a
-        // GLOBAL phase — i.e. the braid became identity while reporting success.
+    let ``Cross-pair braid on multi-pair encoding is a genuine braid, not a silent global phase`` () =
+        // Braiding leaves (1, 2) crosses two σ-pairs. This test has guarded the same thing
+        // through three implementations. Originally the executor applied the first fusion
+        // channel's R-phase as a GLOBAL phase — the braid became identity while reporting
+        // success — and the test asserted an explicit NotImplemented instead. Now the
+        // executor re-associates through the comb with F-moves and braids for real, so the
+        // test asserts what its intent always was: the result is not the input up to a
+        // phase. On |00> the genuine σ₁ entangles the two pairs' fusion channels, so the
+        // overlap with the input is 1/√2, not 1 — and that needs no R- or F-matrix
+        // convention to check, so it cannot be right by accident.
         match FusionTree.fromComputationalBasis [ 0; 0 ] AnyonSpecies.AnyonType.Ising with
         | Error err -> Assert.Fail($"Failed to build state: {err.Message}")
         | Ok tree ->
             let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
 
             match TopologicalOperations.braidAdjacentAnyons 1 state with
-            | Ok _ -> Assert.Fail("Cross-pair braid should fail explicitly")
-            | Error(TopologicalError.NotImplemented(feature, _)) -> Assert.Contains("Cross-pair", feature)
-            | Error err -> Assert.Fail($"Expected NotImplemented but got {err.Category}")
+            | Error err -> Assert.Fail($"Cross-pair braid on the comb encoding should succeed: {err.Message}")
+            | Ok braided ->
+                let norm =
+                    braided.Terms |> List.sumBy (fun (amp, _) -> amp.Magnitude * amp.Magnitude)
+
+                Assert.True(abs (norm - 1.0) < 1e-9, $"braided state should be normalised, got {norm}")
+
+                let overlap =
+                    braided.Terms
+                    |> List.tryFind (fun (_, st) -> st.Tree = tree)
+                    |> Option.map fst
+                    |> Option.defaultValue Complex.Zero
+
+                Assert.True(
+                    overlap.Magnitude < 0.99,
+                    $"a global phase would leave |<in|out>| = 1; a genuine cross-pair braid on |00> gives 1/√2. Got {overlap.Magnitude}"
+                )
 
     [<Fact>]
     let ``Within-pair braid for qubit 1 uses leaf index 2 and applies channel-dependent phase`` () =

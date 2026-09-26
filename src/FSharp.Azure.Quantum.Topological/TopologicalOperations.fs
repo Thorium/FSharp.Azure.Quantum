@@ -336,6 +336,155 @@ module TopologicalOperations =
     let private conjugateIfInverse (isClockwise: bool) (phase: Complex) : Complex =
         if isClockwise then phase else Complex.Conjugate phase
 
+    let rec private getAtPath (path: Branch list) (tree: FusionTree.Tree) : FusionTree.Tree =
+        match path, tree with
+        | [], _ -> tree
+        | _, FusionTree.Leaf _ -> tree
+        | L :: rest, FusionTree.Fusion(l, _, _) -> getAtPath rest l
+        | R :: rest, FusionTree.Fusion(_, r, _) -> getAtPath rest r
+
+    /// Apply a local F-move to the subtree at `path`, rebuilding the whole tree for each
+    /// term the move produces.
+    let private applyFMoveAt
+        (direction: FMoveDirection)
+        (path: Branch list)
+        (anyonType: AnyonSpecies.AnyonType)
+        (tree: FusionTree.Tree)
+        : TopologicalResult<(Complex * FusionTree.Tree) list> =
+        let subtree = getAtPath path tree
+
+        // applyLocalFMove returns the IDENTITY for a shape it does not recognise — fMove relies
+        // on that. Here the path is computed, so a shape mismatch means the walk itself is
+        // wrong, and an identity would turn that into a normalised wrong state that reports
+        // success: the exact failure this executor once had. Refuse instead.
+        let shapeFits =
+            match direction, subtree with
+            | LeftToRight, FusionTree.Fusion(FusionTree.Fusion _, _, _) -> true
+            | RightToLeft, FusionTree.Fusion(_, FusionTree.Fusion _, _) -> true
+            | _ -> false
+
+        if not shapeFits then
+            TopologicalResult.computationError
+                "fMove"
+                $"F-move ({direction}) at path %A{path} found a subtree of the wrong shape: {FusionTree.toString subtree}"
+        else
+            applyLocalFMove direction anyonType subtree
+            |> Result.map (List.map (fun (coeff, newSubtree) -> (coeff, replaceAtPath path newSubtree tree)))
+
+    /// A cross-pair braid on the σ-pair comb encoding, or None when the tree is not that shape.
+    ///
+    /// The encoding fuses leaves in pairs P_0 .. P_{n-1} and folds them left to right:
+    /// C_0 = P_0, C_k = (C_{k-1} × P_k). A braid at odd index 2q+1 exchanges the right leaf
+    /// of P_q with the left leaf of P_{q+1}, which are never siblings in that tree. The
+    /// move is the same F · R · F⁻¹ that braidWithinTriple performs for three anyons,
+    /// walked through the comb until the two leaves ARE siblings:
+    ///
+    ///   S = ((C_{q-1} × P_q) × P_{q+1})              the node where P_{q+1} attaches
+    ///   1. F→ at S          C_{q-1} × (P_q × P_{q+1})
+    ///   2. F→ at S/R        C_{q-1} × (a × (b × P_{q+1}))            with P_q = (a × b)
+    ///   3. F← at S/R/R      C_{q-1} × (a × ((b × c) × d))            with P_{q+1} = (c × d)
+    ///   4. R on (b × c) at S/R/R/L
+    ///   5–7. the inverses of 3, 2 and 1
+    ///
+    /// For q = 0 there is no C_{-1}: S = (P_0 × P_1) already has step 1's shape, so steps 1
+    /// and 7 are skipped and the inner paths lose their leading R.
+    ///
+    /// This is verified by braid-group relations rather than against a gate simulator —
+    /// Yang–Baxter, far commutativity, σ·σ⁻¹ = 1 — which are identities the F and R data
+    /// must satisfy on any number of anyons, so a wrong re-association cannot pass them.
+    let private tryBraidCrossPairInComb
+        (leftIndex: int)
+        (isClockwise: bool)
+        (state: FusionTree.State)
+        : TopologicalResult<Superposition> option =
+        let numLeaves = (FusionTree.leaves state.Tree).Length
+
+        if leftIndex % 2 = 0 || numLeaves % 2 <> 0 || leftIndex + 1 >= numLeaves then
+            None
+        else
+            let pairs = numLeaves / 2
+            let q = leftIndex / 2 // the right leaf of P_q against the left leaf of P_{q+1}
+
+            // The comb is left-nested, so C_k sits (pairs - 1 - k) left steps below the root.
+            let pathToS = List.replicate (pairs - 2 - q) L
+
+            let isLeafPair =
+                function
+                | FusionTree.Fusion(FusionTree.Leaf _, FusionTree.Leaf _, _) -> true
+                | _ -> false
+
+            // Confirm S has the comb shape at this point, and locate M = (P_q × P_{q+1}) —
+            // S's right child after step 1, or S itself when q = 0.
+            // S is reached by an all-left path, so its leaf offset is 0; requiring it to hold
+            // exactly the leaves of pairs 0 .. q+1 pins it to C_{q+1}. Without this, a spine
+            // that is not left-nested could put a node with the right LOCAL shape at that
+            // path, and the braid would land on the wrong two leaves while reporting success.
+            let subtree = getAtPath pathToS state.Tree
+            let isExactlyPairs = FusionTree.size subtree = 2 * (q + 2)
+
+            let pathToM =
+                match subtree with
+                | FusionTree.Fusion(FusionTree.Fusion(_, pq, _), pq1, _) when
+                    isExactlyPairs && q > 0 && isLeafPair pq && isLeafPair pq1
+                    ->
+                    Some(pathToS @ [ R ])
+                | FusionTree.Fusion(pq, pq1, _) when isExactlyPairs && q = 0 && isLeafPair pq && isLeafPair pq1 ->
+                    Some pathToS
+                | _ -> None
+
+            pathToM
+            |> Option.map (fun pathToM ->
+                topologicalResult {
+                    let anyonType = state.AnyonType
+
+                    // Push every term through one step, multiplying amplitudes through.
+                    let expand step terms =
+                        terms
+                        |> List.fold
+                            (fun accResult (amp: Complex, tree) ->
+                                topologicalResult {
+                                    let! acc = accResult
+                                    let! produced = step tree
+                                    return (produced |> List.map (fun (coeff, t) -> (amp * coeff, t))) @ acc
+                                })
+                            (Ok [])
+
+                    let fAt direction path tree =
+                        applyFMoveAt direction path anyonType tree
+
+                    let rPhaseAt path tree =
+                        match getAtPath path tree with
+                        | FusionTree.Fusion(FusionTree.Leaf b, FusionTree.Leaf c, g) ->
+                            BraidingOperators.element b c g anyonType
+                            |> Result.map (fun phase -> [ (conjugateIfInverse isClockwise phase, tree) ])
+                        | other ->
+                            TopologicalResult.computationError
+                                "braid"
+                                $"expected a fused leaf pair at the braid site, got {FusionTree.toString other}"
+
+                    let start = [ (Complex.One, state.Tree) ]
+
+                    let! s1 =
+                        if q > 0 then
+                            expand (fAt LeftToRight pathToS) start
+                        else
+                            Ok start
+
+                    let! s2 = expand (fAt LeftToRight pathToM) s1
+                    let! s3 = expand (fAt RightToLeft (pathToM @ [ R ])) s2
+                    let! s4 = expand (rPhaseAt (pathToM @ [ R; L ])) s3
+                    let! s5 = expand (fAt LeftToRight (pathToM @ [ R ])) s4
+                    let! s6 = expand (fAt RightToLeft pathToM) s5
+                    let! s7 = if q > 0 then expand (fAt RightToLeft pathToS) s6 else Ok s6
+
+                    return
+                        normalize
+                            {
+                                Terms = s7 |> List.map (fun (amp, tree) -> (amp, FusionTree.create tree anyonType))
+                                AnyonType = anyonType
+                            }
+                })
+
     /// Braid two adjacent anyons.
     ///
     /// Unlike the earlier placeholder implementation, braiding can now produce a superposition
@@ -501,28 +650,31 @@ module TopologicalOperations =
                                     AnyonType = state.AnyonType
                                 }
                     | None ->
-                        // The adjacent pair is NOT explicitly fused in this basis (e.g. a
-                        // cross-pair braid on the σ-pair encoding: leaf 2q+1 with leaf 2q+2).
-                        // Applying such a braid correctly requires F-move basis changes that
-                        // are only implemented for 3-anyon trees above.
-                        //
-                        // The previous fallback applied the FIRST fusion channel's R-phase as
-                        // a constant global phase to the whole state, silently turning the
-                        // braid into (at best) identity. Fail explicitly instead: a wrong
-                        // quantum state reported as success is worse than an honest error.
-                        let anyon1 = anyons.[leftIndex]
-                        let anyon2 = anyons.[leftIndex + 1]
+                        // The adjacent pair is NOT explicitly fused in this basis — a cross-pair
+                        // braid. On the σ-pair comb encoding that is a fixed structural move
+                        // (see tryBraidCrossPairInComb): re-associate with F-moves until the two
+                        // leaves are siblings, apply R, re-associate back.
+                        match tryBraidCrossPairInComb leftIndex isClockwise state with
+                        | Some crossPair -> return! crossPair
+                        | None ->
+                            // Neither the comb encoding nor one of the 3-anyon shapes handled
+                            // above. An earlier fallback applied the FIRST fusion channel's
+                            // R-phase as a global phase to the whole state, silently turning the
+                            // braid into (at best) identity. Fail explicitly instead: a wrong
+                            // quantum state reported as success is worse than an honest error.
+                            let anyon1 = anyons.[leftIndex]
+                            let anyon2 = anyons.[leftIndex + 1]
 
-                        return!
-                            TopologicalResult.notImplemented
-                                "Cross-pair anyon braiding"
-                                (Some(
-                                    $"Braiding anyons at positions ({leftIndex}, {leftIndex + 1}) [{anyon1} × {anyon2}] "
-                                    + "is not supported for this tree shape: the pair is not an explicitly fused "
-                                    + "leaf pair in the current basis, and the F-move machinery required for "
-                                    + "cross-pair braids is only implemented for 3-anyon trees. Within-pair braids "
-                                    + "(even leaf indices in the σ-pair encoding) are supported."
-                                ))
+                            return!
+                                TopologicalResult.notImplemented
+                                    "Cross-pair anyon braiding"
+                                    (Some(
+                                        $"Braiding anyons at positions ({leftIndex}, {leftIndex + 1}) [{anyon1} × {anyon2}] "
+                                        + "is not supported for this tree shape: the pair is not an explicitly fused "
+                                        + "leaf pair in the current basis, and cross-pair braids are implemented only "
+                                        + "for 3-anyon trees and for the σ-pair comb encoding that fromComputationalBasis "
+                                        + "produces. Within-pair braids (even leaf indices) are supported on any shape."
+                                    ))
             }
 
     let braidAdjacentAnyons (leftIndex: int) (state: FusionTree.State) : TopologicalResult<Superposition> =

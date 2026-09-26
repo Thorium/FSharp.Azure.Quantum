@@ -21,16 +21,18 @@ module QuantumStateConversion =
         let dimension = 1 <<< n
         let epsilon = 1e-12
 
+        // A lazy range: a [ 0 .. dimension - 1 ] list would allocate all 2ⁿ indices up
+        // front just to keep the (typically few) non-zero ones.
         let nonZeroAmplitudes =
-            [ 0 .. dimension - 1 ]
-            |> List.choose (fun i ->
+            seq { 0 .. dimension - 1 }
+            |> Seq.choose (fun i ->
                 let amplitude = StateVector.getAmplitude i sv
 
                 if amplitude.Magnitude > epsilon then
                     Some(i, amplitude)
                 else
                     None)
-            |> Map.ofList
+            |> Map.ofSeq
 
         (nonZeroAmplitudes, n)
 

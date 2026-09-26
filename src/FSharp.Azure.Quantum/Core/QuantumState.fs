@@ -601,12 +601,12 @@ module QuantumState =
             let n = StateVector.numQubits sv
             let dim = 1 <<< n
 
-            let totalProb =
-                [ 0 .. dim - 1 ]
-                |> List.sumBy (fun i ->
-                    let amp = StateVector.getAmplitude i sv
-                    let magnitude = amp.Magnitude
-                    magnitude * magnitude)
+            // A loop, not List.sumBy over a 2ⁿ-cell index list. Same summation order.
+            let mutable totalProb = 0.0
+
+            for i in 0 .. dim - 1 do
+                let magnitude = (StateVector.getAmplitude i sv).Magnitude
+                totalProb <- totalProb + magnitude * magnitude
 
             abs (totalProb - 1.0) < 1e-10
 
@@ -627,7 +627,10 @@ module QuantumState =
         | QuantumState.DensityMatrix(rho, n) ->
             // Trace(ρ) should be 1
             let dim = 1 <<< n
-            let trace = [ 0 .. dim - 1 ] |> List.sumBy (fun i -> rho.[i, i].Magnitude)
+            let mutable trace = 0.0
+
+            for i in 0 .. dim - 1 do
+                trace <- trace + rho.[i, i].Magnitude
 
             abs (trace - 1.0) < 1e-10
 

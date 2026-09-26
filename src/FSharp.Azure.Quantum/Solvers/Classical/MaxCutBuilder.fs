@@ -125,11 +125,14 @@ module MaxCut =
     /// EXAMPLE:
     ///   let problem = MaxCut.completeGraph ["A"; "B"; "C"] 1.0
     let completeGraph (vertices: string list) (weight: float) : MaxCutProblem =
+        // Indexed through an array: indexing the list is O(i) per access.
+        let vs = List.toArray vertices
+
         let edges =
             [
-                for i in 0 .. vertices.Length - 1 do
-                    for j in i + 1 .. vertices.Length - 1 do
-                        yield (vertices.[i], vertices.[j], weight)
+                for i in 0 .. vs.Length - 1 do
+                    for j in i + 1 .. vs.Length - 1 do
+                        yield (vs.[i], vs.[j], weight)
             ]
 
         createProblem vertices edges
@@ -144,13 +147,14 @@ module MaxCut =
     ///   let problem = MaxCut.cycleGraph ["A"; "B"; "C"; "D"] 1.0
     ///   // Creates: A-B-C-D-A
     let cycleGraph (vertices: string list) (weight: float) : MaxCutProblem =
-        let n = vertices.Length
+        let vs = List.toArray vertices
+        let n = vs.Length
 
         let edges =
             [
                 for i in 0 .. n - 1 do
                     let j = (i + 1) % n
-                    yield (vertices.[i], vertices.[j], weight)
+                    yield (vs.[i], vs.[j], weight)
             ]
 
         createProblem vertices edges
@@ -165,10 +169,12 @@ module MaxCut =
     ///   let problem = MaxCut.pathGraph ["A"; "B"; "C"; "D"] 1.0
     ///   // Creates: A-B-C-D
     let pathGraph (vertices: string list) (weight: float) : MaxCutProblem =
+        let vs = List.toArray vertices
+
         let edges =
             [
-                for i in 0 .. vertices.Length - 2 do
-                    yield (vertices.[i], vertices.[i + 1], weight)
+                for i in 0 .. vs.Length - 2 do
+                    yield (vs.[i], vs.[i + 1], weight)
             ]
 
         createProblem vertices edges

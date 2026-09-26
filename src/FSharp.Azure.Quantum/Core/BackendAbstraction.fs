@@ -796,6 +796,12 @@ module BackendAbstraction =
             | QuantumState.StateVector sv ->
                 let a0 = StateVector.getAmplitude 0 sv
                 abs (a0.Magnitude - 1.0) < 1e-9
+            | QuantumState.DensityMatrix(rho, _) ->
+                // A density matrix has unit trace, so ρ₀₀ = 1 pins it to the pure |0…0⟩⟨0…0|.
+                // A mixed backend initialises in this form, and without this arm the
+                // whole-circuit fallback refused it as "not from |0>" — the check only knew
+                // state vectors, so the backend could never reach its own ExecuteToState.
+                abs (rho.[0, 0].Magnitude - 1.0) < 1e-9
             | _ -> false
 
         /// Measure state and return classical outcomes

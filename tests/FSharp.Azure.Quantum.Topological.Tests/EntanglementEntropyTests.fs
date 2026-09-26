@@ -731,6 +731,46 @@ module EntanglementEntropyTests =
             Assert.True(result.Entropy < log 2.0, "Should be less than maximally entangled")
         | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
 
+    [<Fact>]
+    let ``entanglementEntropy matches the dense density-matrix path on random states`` () =
+        // entanglementEntropy computes ρ_A from the amplitudes without building ρ_AB.
+        // The dense path (densityMatrix → partialTraceB) is the reference: same
+        // eigenvalues, same entropy, for every split of 1..6 qubits.
+        let rng = System.Random 20260926
+
+        for n in 1..6 do
+            for qubitsA in 0..n do
+                let dimA = 1 <<< qubitsA
+                let dimB = 1 <<< (n - qubitsA)
+
+                let raw =
+                    List.init (dimA * dimB) (fun _ -> Complex(rng.NextDouble() - 0.5, rng.NextDouble() - 0.5))
+
+                let norm = raw |> List.sumBy (fun a -> a.Magnitude * a.Magnitude) |> sqrt
+                let amps = raw |> List.map (fun a -> a / Complex(norm, 0.0))
+
+                let reference =
+                    EntanglementEntropy.partialTraceB (EntanglementEntropy.densityMatrix amps) dimA dimB
+                    |> Result.bind EntanglementEntropy.vonNeumannEntropyFromDensityMatrix
+
+                match EntanglementEntropy.entanglementEntropy amps dimA dimB, reference with
+                | Ok actual, Ok expected ->
+                    Assert.Equal(expected.Entropy, actual.Entropy, 10)
+                    Assert.Equal(expected.Eigenvalues.Length, actual.Eigenvalues.Length)
+
+                    List.iter2
+                        (fun (e: float) (a: float) -> Assert.Equal(e, a, 10))
+                        expected.Eigenvalues
+                        actual.Eigenvalues
+                | actual, expected -> Assert.Fail($"n={n} dimA={dimA}: {actual} vs {expected}")
+
+    [<Fact>]
+    let ``entanglementEntropy refuses non-positive subsystem dimensions`` () =
+        // (-1) × (-1) = 1 matches a one-amplitude state; the dimensions are still invalid.
+        match EntanglementEntropy.entanglementEntropy [ Complex.One ] -1 -1 with
+        | Error _ -> ()
+        | Ok r -> Assert.Fail($"Expected Error for negative dimensions, got entropy {r.Entropy}")
+
     // ========================================================================
     // INTEGRATION WITH ANYON SPECIES
     // ========================================================================
