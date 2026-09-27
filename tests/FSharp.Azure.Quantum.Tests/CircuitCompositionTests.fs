@@ -9,10 +9,9 @@ module CircuitCompositionTests =
 
     [<Fact>]
     let ``bellState creates H followed by CNOT`` () =
-        let bell = bellState 0 1
-        Assert.Equal(2, bell.Gates.Length)
-        Assert.Equal(Gate.H 0, bell.Gates.[0])
-        Assert.Equal(Gate.CNOT(0, 1), bell.Gates.[1])
+        // Circuit.Gates is stored newest-first; getGates returns program order
+        let gates = bellState 0 1 |> getGates
+        Assert.Equal<Gate list>([ Gate.H 0; Gate.CNOT(0, 1) ], gates)
 
     [<Fact>]
     let ``ghzState for three qubits has H and two CNOTs`` () =

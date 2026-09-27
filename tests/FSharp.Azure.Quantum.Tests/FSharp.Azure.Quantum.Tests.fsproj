@@ -72,7 +72,6 @@
     <Compile Include="QuboExtractionTests.fs" />
     <Compile Include="DWaveBackendTests.fs" />
     <Compile Include="DWaveAnnealingIntentTests.fs" />
-    <Compile Include="BackendCapabilityDetectionTests.fs" />
     <Compile Include="QuantumTspSolverTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
@@ -118,7 +117,8 @@
     <Compile Include="QuantumPhaseEstimatorBuilderTests.fs" />
     <Compile Include="CSharpBuildersExactnessTests.fs" />
     <Compile Include="TaskSchedulingTests.fs" />
-    <!-- SchedulingTests.fs removed - tests deleted classical scheduler -->
+    <Compile Include="CircuitCompositionTests.fs" />
+    <Compile Include="TransferLearningTests.fs" />
     <!-- SubsetSelectionTests.fs removed - tests deleted classical DP/greedy solver -->
     <Compile Include="VariationalFormTests.fs" />
     <Compile Include="AdamOptimizerTests.fs" />

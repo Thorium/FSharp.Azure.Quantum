@@ -81,7 +81,7 @@ module TransferLearningTests =
         | Ok(params, frozenIndices) ->
             Assert.Equal<float seq>(pretrainedParams, params)
             Assert.Equal(4, frozenIndices.Length) // 2 layers * 2 params/layer
-            Assert.Equal([| 0; 1; 2; 3 |], frozenIndices)
+            Assert.Equal<int seq>([| 0; 1; 2; 3 |], frozenIndices)
 
     [<Fact>]
     let ``Initialize for fine-tuning rejects negative freeze layers`` () =
@@ -91,7 +91,7 @@ module TransferLearningTests =
 
         match ModelSerialization.initializeForFineTuning pretrainedParams numLayers freezeLayers with
         | Ok _ -> Assert.Fail("Should reject negative freezeLayers")
-        | Error msg -> Assert.Contains("non-negative", msg)
+        | Error msg -> Assert.Contains("non-negative", msg.Message)
 
     [<Fact>]
     let ``Initialize for fine-tuning rejects freeze layers exceeding total`` () =
@@ -101,7 +101,7 @@ module TransferLearningTests =
 
         match ModelSerialization.initializeForFineTuning pretrainedParams numLayers freezeLayers with
         | Ok _ -> Assert.Fail("Should reject freezeLayers > numLayers")
-        | Error msg -> Assert.Contains("cannot exceed", msg)
+        | Error msg -> Assert.Contains("cannot exceed", msg.Message)
 
     [<Fact>]
     let ``Initialize for fine-tuning rejects uneven parameter distribution`` () =
@@ -111,7 +111,7 @@ module TransferLearningTests =
 
         match ModelSerialization.initializeForFineTuning pretrainedParams numLayers freezeLayers with
         | Ok _ -> Assert.Fail("Should reject uneven parameter distribution")
-        | Error msg -> Assert.Contains("not evenly divisible", msg)
+        | Error msg -> Assert.Contains("not evenly divisible", msg.Message)
 
     // ========================================================================
     // UPDATE PARAMETERS WITH FROZEN LAYERS TESTS
@@ -134,7 +134,7 @@ module TransferLearningTests =
 
         // Last 3 params should be updated
         Assert.Equal(3.96, updated.[3], 5) // 4.0 - 0.1 * 0.4
-        Assert.Equal(5.95, updated.[4], 5) // 5.0 - 0.1 * 0.5
+        Assert.Equal(4.95, updated.[4], 5) // 5.0 - 0.1 * 0.5
         Assert.Equal(5.94, updated.[5], 5) // 6.0 - 0.1 * 0.6
 
     [<Fact>]
@@ -262,7 +262,7 @@ module TransferLearningTests =
                 | Error e -> Assert.Fail($"Extract failed: {e}")
                 | Ok extractedParams ->
                     Assert.Equal(4, extractedParams.Length) // 2 layers * 2 params/layer
-                    Assert.Equal([| 0.1; 0.2; 0.3; 0.4 |], extractedParams)
+                    Assert.Equal<float seq>([| 0.1; 0.2; 0.3; 0.4 |], extractedParams)
         finally
             cleanupTestFile testFile
 
@@ -281,7 +281,7 @@ module TransferLearningTests =
 
                 match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
                 | Ok _ -> Assert.Fail("Should reject extractLayers > numLayers")
-                | Error msg -> Assert.Contains("cannot exceed", msg)
+                | Error msg -> Assert.Contains("cannot exceed", msg.Message)
         finally
             cleanupTestFile testFile
 
@@ -302,6 +302,6 @@ module TransferLearningTests =
                 | Error e -> Assert.Fail($"Extract failed: {e}")
                 | Ok extractedParams ->
                     Assert.Equal(8, extractedParams.Length)
-                    Assert.Equal([| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |], extractedParams)
+                    Assert.Equal<float seq>([| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |], extractedParams)
         finally
             cleanupTestFile testFile

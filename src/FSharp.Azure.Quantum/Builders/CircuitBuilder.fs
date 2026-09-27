@@ -1189,6 +1189,7 @@ module CircuitBuilder =
     type CircuitStatistics =
         {
             TotalGates: int
+            /// Single-qubit gates, excluding measurements (those are in MeasurementCount)
             SingleQubitGates: int
             TwoQubitGates: int
             MultiQubitGates: int
@@ -1202,8 +1203,16 @@ module CircuitBuilder =
     let statistics (circuit: Circuit) : CircuitStatistics =
         let gates = circuit.Gates
 
+        // A measurement touches one qubit but is not a gate: counting it here as well made
+        // single + two + multi + measurements exceed TotalGates, and the resource report
+        // listed each measurement under both headings.
         let singleQubitCount =
-            gates |> List.filter (fun g -> (getAffectedQubits g).Length = 1) |> List.length
+            gates
+            |> List.filter (fun g ->
+                match g with
+                | Measure _ -> false
+                | _ -> (getAffectedQubits g).Length = 1)
+            |> List.length
 
         let twoQubitCount =
             gates |> List.filter (fun g -> (getAffectedQubits g).Length = 2) |> List.length

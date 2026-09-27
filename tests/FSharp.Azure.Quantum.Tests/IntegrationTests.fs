@@ -233,7 +233,6 @@ module IntegrationTests =
     // Test Scenario 5: HybridSolver Small Problem
     // ===========================================
 
-    (* TODO: Depends on HybridSolver (commented out)
     [<Fact>]
     let ``HybridSolver - Small TSP should route to classical automatically`` () =
         // Arrange: Small 5-city problem
@@ -259,9 +258,7 @@ module IntegrationTests =
             | None -> ()
         | Error msg -> 
             Assert.Fail($"Expected successful solution, got error: {msg}")
-    *)
 
-    (* TODO: Depends on HybridSolver (commented out)
     [<Fact>]
     let ``HybridSolver - Small Portfolio should route to classical automatically`` () =
         // Arrange: Small 3-asset portfolio
@@ -287,9 +284,7 @@ module IntegrationTests =
             Assert.Contains("classical", solution.Reasoning.ToLower())
         | Error msg -> 
             Assert.Fail($"Expected successful solution, got error: {msg}")
-    *)
 
-    (* TODO: HybridSolver tests commented out
     // ===========================================
     // Test Scenario 6: HybridSolver Large Problem
     // ===========================================
@@ -323,7 +318,6 @@ module IntegrationTests =
             Assert.True(solution.Result.TourLength > 0.0)
         | Error msg -> 
             Assert.Fail($"Expected successful solution, got error: {msg}")
-    *)
 
     // ===========================================
     // Test Scenario 7: Budget Enforcement
@@ -373,7 +367,6 @@ module IntegrationTests =
         |> Result.map (fun allocation -> Assert.Empty(allocation.Allocations))
         |> Result.defaultWith (fun msg -> Assert.False(String.IsNullOrWhiteSpace(msg.Message)))
 
-    (* TODO: Depends on HybridSolver (commented out)
     [<Fact>]
     let ``Error Handling - HybridSolver with invalid input returns error`` () =
         // Arrange: Empty distance matrix
@@ -391,7 +384,6 @@ module IntegrationTests =
             // If it errors, message should be informative
             Assert.False(String.IsNullOrWhiteSpace(msg.Message))
             Assert.True(msg.Message.Length > 5, "Error message should be descriptive")
-    *)
 
     [<Fact>]
     let ``Error Handling - TSP with single city should return valid trivial tour`` () =
