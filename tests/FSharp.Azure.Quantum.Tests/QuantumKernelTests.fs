@@ -625,9 +625,10 @@ let ``computeKernelAsync - accepts cancellation token`` () : Task =
         let y = [| 0.7; 0.4 |]
         let shots = 100
 
+        // The token is never cancelled: passing it must not change the outcome.
         use cts = new CancellationTokenSource()
-        // Local backend doesn't observe cancellation, so it should succeed
+
         match! computeKernelAsync backend featureMap x y shots cts.Token with
-        | Ok kernelValue -> Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0)
-        | Error _ -> () // Also acceptable if backend respects cancellation
+        | Ok kernelValue -> Assert.InRange(kernelValue, 0.0, 1.0)
+        | Error e -> Assert.Fail($"an uncancelled token must not fail the kernel: {e.Message}")
     }

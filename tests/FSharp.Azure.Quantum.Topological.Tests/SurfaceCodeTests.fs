@@ -668,4 +668,4 @@ module SurfaceCodeTests =
             let colorSyndrome = SurfaceCode.measureColorCodeSyndrome colorState
             Assert.Empty(SurfaceCode.getColorCodeDefects colorSyndrome.XDefects)
             Assert.Empty(SurfaceCode.getColorCodeDefects colorSyndrome.ZDefects)
-        | Error _ -> () // Color code lattice creation may be tested separately
+        | Error err -> Assert.Fail($"a distance-3 color code lattice is valid: {err.Message}")

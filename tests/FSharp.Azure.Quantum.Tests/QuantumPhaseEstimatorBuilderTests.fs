@@ -286,7 +286,7 @@ module QuantumPhaseEstimatorBuilderTests =
                     highError <= lowError + 0.01,
                     $"High precision error %.6f{highError} should be ≤ low precision error %.6f{lowError}"
                 )
-            | _ -> Assert.True(true, "One estimation may fail")
+            | low, high -> Assert.Fail($"both estimations should succeed: low=%A{low}, high=%A{high}")
         | _ -> Assert.True(false, "Problem creation should succeed")
 
     [<Fact>]

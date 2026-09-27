@@ -158,13 +158,16 @@ module AlgorithmExtensionsTests =
                 AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
 
             // Assert
+            // I·x = b with b = |0⟩: the solution must be |0⟩ up to normalisation
             match result with
-            | Ok _ -> Assert.True(true)
-            | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
-            | Error(QuantumError.NotImplemented _) ->
-                // Expected: GateBased-to-TopologicalBraiding conversion is not implemented in Core
-                Assert.True(true)
-            | Error err -> Assert.True(false, $"Unexpected error: {err}")
+            | Ok r ->
+                Assert.Equal(2, r.Solution.Length)
+
+                Assert.True(
+                    r.Solution[1].Magnitude < 1e-6 * r.Solution[0].Magnitude,
+                    $"expected x ∝ (1, 0), got {r.Solution[0]}, {r.Solution[1]}"
+                )
+            | Error err -> Assert.Fail($"HHL on the Ising backend failed: {err}")
         | _ -> Assert.True(false, "Failed to create HHL test data")
 
     [<Fact>]
@@ -209,9 +212,9 @@ module AlgorithmExtensionsTests =
             let result =
                 AlgorithmExtensions.searchWithTopologyFibonacci oracle topoBackend config
 
-            result
-            |> Result.map (fun _ -> Assert.True(true))
-            |> Result.defaultWith (fun _ -> Assert.True(true)) // Backend execution error is acceptable
+            match result with
+            | Ok r -> Assert.Contains(1, r.Solutions)
+            | Error err -> Assert.Fail($"Fibonacci search failed: {err}")
         | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
 
     [<Fact>]
@@ -223,9 +226,9 @@ module AlgorithmExtensionsTests =
         let result =
             AlgorithmExtensions.searchSingleWithTopologyFibonacci 1 3 topoBackend config
 
-        result
-        |> Result.map (fun _ -> Assert.True(true))
-        |> Result.defaultWith (fun _ -> Assert.True(true)) // Backend error is acceptable
+        match result with
+        | Ok r -> Assert.Contains(1, r.Solutions)
+        | Error err -> Assert.Fail($"Fibonacci search failed: {err}")
 
     [<Fact>]
     let ``AlgorithmExtensions - searchWithPredicateTopologyFibonacci accepts predicate`` () =
@@ -237,9 +240,11 @@ module AlgorithmExtensionsTests =
         let result =
             AlgorithmExtensions.searchWithPredicateTopologyFibonacci isEven 3 topoBackend config
 
-        result
-        |> Result.map (fun _ -> Assert.True(true))
-        |> Result.defaultWith (fun _ -> Assert.True(true)) // Backend error is acceptable
+        match result with
+        | Ok r ->
+            Assert.NotEmpty(r.Solutions)
+            Assert.All(r.Solutions, (fun s -> Assert.True(isEven s, $"{s} is not even")))
+        | Error err -> Assert.Fail($"Fibonacci search failed: {err}")
 
     [<Fact>]
     let ``AlgorithmExtensions - Adapter respects qubit count limits`` () =
@@ -269,10 +274,15 @@ module AlgorithmExtensionsTests =
         let result = AlgorithmExtensions.qftWithTopology 3 topoBackend config
 
         // Assert
+        // QFT|000⟩ is the uniform superposition: every basis state has probability 1/8
         match result with
-        | Ok _ -> Assert.True(true)
-        | Error(QuantumError.OperationError(name, _)) -> Assert.Equal("TopologicalBackend", name)
-        | Error err -> Assert.True(false, $"Unexpected error: {err}")
+        | Ok r ->
+            Assert.Equal(3, QuantumState.numQubits r.FinalState)
+
+            for i in 0..7 do
+                let bits = [| for q in 0..2 -> (i >>> q) &&& 1 |]
+                Assert.Equal(0.125, QuantumState.probability bits r.FinalState, 1e-9)
+        | Error err -> Assert.Fail($"QFT on the Ising backend failed: {err}")
 
     // ========================================================================
     // HHL ON TOPOLOGICAL BACKEND

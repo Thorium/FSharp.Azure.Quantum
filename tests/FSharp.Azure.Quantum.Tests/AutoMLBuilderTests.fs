@@ -235,13 +235,12 @@ module AutoMLBuilderTests =
         | Ok result ->
             match predict [| 0.1; 0.2 |] result with
             | Ok prediction ->
-                // Prediction type depends on best model
+                // defaultProblem tries binary classification only
                 match prediction with
                 | BinaryPrediction p ->
-                    Assert.True(p.Label = 0 || p.Label = 1)
-                    Assert.True(p.Confidence >= 0.0 && p.Confidence <= 1.0)
-                | AnomalyPrediction _ -> ()
-                | _ -> ()
+                    Assert.Contains(p.Label, [ 0; 1 ])
+                    Assert.InRange(p.Confidence, 0.0, 1.0)
+                | other -> Assert.Fail($"only binary classification was tried, got %A{other}")
             | Error e -> failwith $"Expected Ok from predict, got Error: {e}"
         | Error e -> failwith $"Expected Ok from search, got Error: {e}"
 

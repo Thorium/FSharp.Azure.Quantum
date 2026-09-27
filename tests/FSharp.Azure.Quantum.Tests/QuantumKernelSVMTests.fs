@@ -230,7 +230,7 @@ let ``predict - should classify training samples correctly`` () =
             | Ok prediction ->
                 if prediction.Label = trainLabels.[i] then
                     correctCount <- correctCount + 1
-            | Error _ -> ()
+            | Error e -> Assert.Fail($"prediction of training sample {i} failed: {e.Message}")
 
         // Should get at least 50% correct (with quantum noise)
         Assert.True(correctCount >= 2, $"Should classify at least 2/4 training samples correctly, got %d{correctCount}")
@@ -597,11 +597,12 @@ let ``predictAsync - accepts cancellation token`` () : Task =
         | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
         | Ok model ->
             let testSample = [| 0.15; 0.15 |]
+            // The token is never cancelled: passing it must not change the outcome.
             use cts = new CancellationTokenSource()
-            // Local backend doesn't observe cancellation, so it should succeed
+
             match! predictAsync backend model testSample shots cts.Token with
-            | Ok prediction -> Assert.True(prediction.Label = 0 || prediction.Label = 1)
-            | Error _ -> () // Also acceptable if backend respects cancellation
+            | Ok prediction -> Assert.Contains(prediction.Label, [ 0; 1 ])
+            | Error e -> Assert.Fail($"an uncancelled token must not fail the prediction: {e.Message}")
     }
 
 // ============================================================================

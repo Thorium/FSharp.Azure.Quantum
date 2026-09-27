@@ -941,11 +941,12 @@ module VQCTests =
             let features = [| 0.5; 0.5 |]
             let valueRange = (0.0, 1.0)
 
+            // The token is never cancelled: passing it must not change the outcome.
             use cts = new CancellationTokenSource()
-            // Local backend doesn't observe cancellation, so it should succeed
+
             match!
                 predictRegressionAsync backend featureMap variationalForm parameters features 10 valueRange cts.Token
             with
-            | Ok pred -> Assert.True(pred.Value >= 0.0 && pred.Value <= 1.0)
-            | Error _ -> () // Also acceptable if backend respects cancellation
+            | Ok pred -> Assert.InRange(pred.Value, 0.0, 1.0)
+            | Error e -> Assert.Fail($"an uncancelled token must not fail the prediction: {e.Message}")
         }

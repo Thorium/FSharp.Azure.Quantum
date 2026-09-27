@@ -302,8 +302,8 @@ module MolecularDataTests =
         match loadFromSmilesList [ "C"; ""; "CCO" ] with
         | Ok dataset ->
             // Empty string fails parseSmiles, but "C" and "CCO" succeed
-            Assert.True(dataset.Molecules.Length >= 2)
-        | Error _ -> () // Also acceptable if all fail
+            Assert.Equal(2, dataset.Molecules.Length)
+        | Error e -> Assert.Fail($"two of three SMILES are valid, expected Ok: {e}")
 
     [<Fact>]
     let ``loadFromSmilesList returns error when all fail`` () =

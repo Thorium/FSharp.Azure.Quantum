@@ -106,12 +106,21 @@ module FMatrixTests =
         let sigma = AnyonSpecies.Particle.Sigma
         let tau = AnyonSpecies.Particle.Tau // Doesn't exist in Ising theory
 
-        // This should fail validation since Tau is not a valid Ising particle
-        match FMatrix.getFSymbol data (fIndex sigma sigma sigma tau sigma sigma) with
-        | Error _ -> () // Expected - invalid particle type
-        | Ok value ->
-            // Or might return 0 for invalid channel
-            Assert.Equal(0.0, value.Real)
+        // Tau as the first operand reaches particle validation (τ × σ is checked first).
+        match FMatrix.getFSymbol data (fIndex tau sigma sigma sigma sigma sigma) with
+        | Error _ -> ()
+        | Ok value -> Assert.Fail($"Tau is not an Ising particle, yet F = {value}")
+
+    [<Fact>]
+    let ``Ising F-symbol of a forbidden fusion channel is zero`` () =
+        // σ × σ = 1 + ψ never gives σ, so F[σ,σ,σ,d;σ,f] is zero whatever d and f are.
+        let data = computeFMatrixOrFail AnyonSpecies.AnyonType.Ising
+        let sigma = AnyonSpecies.Particle.Sigma
+        let psi = AnyonSpecies.Particle.Psi
+
+        match FMatrix.getFSymbol data (fIndex sigma sigma sigma psi sigma sigma) with
+        | Ok value -> Assert.Equal(Complex.Zero, value)
+        | Error e -> Assert.Fail($"a forbidden channel is zero, not an error: {e}")
 
     // ========================================================================
     // FIBONACCI F-MATRIX TESTS

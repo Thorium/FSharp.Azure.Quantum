@@ -206,54 +206,28 @@ module ShorTests =
     let ``factor calculates precision qubits correctly`` () =
         let backend = createBackend ()
 
-        // For N=15: log₂(15) ≈ 3.9 → 2*3.9+3 = 10.8 → round to 10
-        // For N=21: log₂(21) ≈ 4.4 → 2*4.4+3 = 11.8 → round to 11
+        // precision = 2 * floor(log₂ N) + 3: for N=15 that is 2*3+3 = 9
 
         match factor 15 backend with
-        | Ok result ->
-            // Precision should be around 10-11 qubits
-            Assert.InRange(result.Config.PrecisionQubits, 9, 12)
-        | Error(QuantumError.NotImplemented _) -> () // Expected - quantum part not implemented
+        | Ok result -> Assert.Equal(9, result.Config.PrecisionQubits)
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     // ========================================================================
-    // NOT IMPLEMENTED ERROR TESTS
+    // COMPOSITE ODD NUMBERS (quantum period finding)
     // ========================================================================
 
     [<Fact; Trait("Category", "ExtraSlow")>] // genuine quantum period finding since the classical path was removed
-    let ``Shor's algorithm returns NotImplemented for composite odd numbers`` () =
+    let ``Shor's algorithm factors the composite odd number 15`` () =
         let backend = createBackend ()
 
         // 15 is composite and odd, requires quantum period-finding
         match factor 15 backend with
         | Ok result ->
-            // If somehow implemented, validate success
             Assert.Equal(15, result.Number)
 
             match result.Factors with
-            | Some(p, q) ->
-                Assert.Equal(15, p * q)
-                Assert.Contains(3, [ p; q ])
-                Assert.Contains(5, [ p; q ])
-            | None -> ()
-        | Error(QuantumError.NotImplemented(feature, hint)) ->
-            // Expected: quantum subroutine not yet implemented
-            Assert.Contains("Shor", feature)
-            Assert.True(hint.IsSome, "Should provide implementation hint")
-        | Error err -> Assert.Fail($"Unexpected error type: {err}")
-
-    [<Fact>]
-    let ``factor15 returns meaningful error for quantum subroutine`` () =
-        let backend = createBackend ()
-
-        match factor15 backend with
-        | Ok _ -> () // If implemented, that's fine
-        | Error(QuantumError.NotImplemented(feature, Some hint)) ->
-            // Should have helpful hint
-            Assert.False(System.String.IsNullOrWhiteSpace(hint))
-        | Error(QuantumError.NotImplemented(feature, None)) ->
-            // Still acceptable but less helpful
-            ()
+            | Some(p, q) -> Assert.Equal<int list>([ 3; 5 ], List.sort [ p; q ])
+            | None -> Assert.Fail($"Expected the factors 3 and 5: {result.Message}")
         | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     // ========================================================================
@@ -350,20 +324,9 @@ module ShorTests =
     // RULE1 COMPLIANCE TESTS
     // ========================================================================
 
-    [<Fact; Trait("Category", "Slow")>] // genuine end-to-end factoring of 15 (~5 min)
-    let ``Shor accepts IQuantumBackend`` () =
-        // This test validates that Shor follows RULE1
-        let backend = createBackend ()
-
-        // Should compile and accept IQuantumBackend
-        let result = factor 15 backend
-
-        // We don't care about the result, just that it compiles and runs
-        Assert.True(true)
-
     [<Fact; Trait("Category", "ExtraSlow")>] // genuine end-to-end factoring of 15 (~5 min)
     let ``Shor works with LocalBackend`` () =
-        // Validate that LocalBackend is compatible
+        // RULE1: Shor takes any IQuantumBackend; here the local simulator
         let backend = LocalBackend() :> IQuantumBackend
 
         let config =
@@ -374,9 +337,12 @@ module ShorTests =
                 MaxAttempts = 3
             }
 
-        // Should accept LocalBackend
-        let result = execute config backend
-        Assert.True(true) // Just validate it compiles and runs
+        match execute config backend with
+        | Ok result ->
+            match result.Factors with
+            | Some(p, q) -> Assert.Equal<int list>([ 3; 5 ], List.sort [ p; q ])
+            | None -> Assert.Fail($"Expected the factors 3 and 5: {result.Message}")
+        | Error err -> Assert.Fail($"Unexpected error: {err}")
 
     // ========================================================================
     // QUANTUM PATH TESTS (NEW - Actual Factorization)

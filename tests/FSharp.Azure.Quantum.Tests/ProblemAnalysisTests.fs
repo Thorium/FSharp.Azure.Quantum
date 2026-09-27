@@ -90,14 +90,13 @@ module ProblemAnalysisTests =
         // Act: Classify
         let result = ProblemAnalysis.classifyProblem singleCity
 
-        // Assert: Should handle gracefully
+        // Assert: a 1x1 matrix is valid; the only tour is the city itself
         match result with
         | Ok problemInfo ->
             Assert.Equal(1, problemInfo.Size)
-            Assert.True(problemInfo.Size > 0, "Size should be positive even for edge case")
-        | Error _ ->
-            // Alternatively, rejecting size=1 is also valid
-            Assert.True(true, "Rejecting single-node TSP is acceptable")
+            Assert.Equal(1.0, problemInfo.SearchSpaceSize)
+            Assert.True(problemInfo.IsSymmetric)
+        | Error e -> Assert.Fail($"a single city is a valid TSP, got: {e}")
 
     [<Fact>]
     let ``Should detect asymmetric distance matrix`` () =
@@ -113,14 +112,13 @@ module ProblemAnalysisTests =
         // Act: Classify
         let result = ProblemAnalysis.classifyProblem asymmetricMatrix
 
-        // Assert: Should either detect asymmetry or classify differently
+        // Assert: still a (directed) TSP, flagged as asymmetric
         match result with
         | Ok problemInfo ->
-            // If it classifies as TSP, it should note asymmetry
-            Assert.True(true, "Detected problem characteristics")
-        | Error errorMsg ->
-            // Or reject as invalid TSP
-            Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message))
+            Assert.Equal(ProblemAnalysis.ProblemType.TSP, problemInfo.ProblemType)
+            Assert.Equal(3, problemInfo.Size)
+            Assert.False(problemInfo.IsSymmetric, "d(0,1)=10 but d(1,0)=20")
+        | Error e -> Assert.Fail($"an asymmetric matrix is a valid directed TSP, got: {e}")
 
     [<Fact>]
     let ``Should reject matrix with negative distances`` () =

@@ -409,15 +409,12 @@ module QuantumPatternMatcherBuilderTests =
         // Act
         let result = QuantumPatternMatcher.solve problem
 
-        // Assert - Qubit calculation should be correct regardless of algorithm success
+        // Assert
         match result with
         | Ok solution ->
             // 256 = 2^8 → 8 qubits
             Assert.Equal(8, solution.QubitsRequired)
-        | Error _ ->
-            // Even if algorithm fails, we can verify qubit estimation separately
-            let qubitsEstimated = int (ceil (log (float 256) / log 2.0))
-            Assert.Equal(8, qubitsEstimated)
+        | Error e -> Assert.Fail($"an 8-qubit search should run on the local simulator: {e}")
 
     [<Fact>]
     let ``QuantumPatternMatcher.solve should respect TopN limit`` () =
@@ -435,11 +432,11 @@ module QuantumPatternMatcherBuilderTests =
         // Assert
         match result with
         | Ok solution ->
-            // Should return at most 3 matches
-            Assert.True(List.length solution.Matches <= 3)
-        | Error _ ->
-            // Algorithm may fail - that's okay for builder API test
-            Assert.True(true)
+            // At most 3 matches, and every one of them satisfies the pattern
+            Assert.NotEmpty(solution.Matches)
+            Assert.True(List.length solution.Matches <= 3, $"TopN is 3, got {solution.Matches}")
+            Assert.All(solution.Matches, (fun m -> Assert.True(evenNumberPattern m, $"{m} is not even")))
+        | Error e -> Assert.Fail($"a 4-qubit search should run on the local simulator: {e}")
 
     // ========================================================================
     // DESCRIBE SOLUTION TESTS

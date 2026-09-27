@@ -157,9 +157,12 @@ module BackendAbstractionTests =
         match backend.ExecuteToState wrapper with
         | Ok state ->
             match state with
-            | QuantumState.StateVector sv ->
-                // Verify state is valid (implementation details checked elsewhere)
-                Assert.True(true, "Bell state circuit executed")
+            | QuantumState.StateVector _ ->
+                // (|00⟩ + |11⟩)/√2
+                Assert.Equal(0.5, QuantumState.probability [| 0; 0 |] state, 1e-12)
+                Assert.Equal(0.5, QuantumState.probability [| 1; 1 |] state, 1e-12)
+                Assert.Equal(0.0, QuantumState.probability [| 0; 1 |] state, 1e-12)
+                Assert.Equal(0.0, QuantumState.probability [| 1; 0 |] state, 1e-12)
             | _ -> Assert.True(false, "Expected StateVector")
         | Error err -> Assert.True(false, $"Circuit execution failed: %A{err}")
 
@@ -172,7 +175,7 @@ module BackendAbstractionTests =
         match backend.ExecuteToState wrapper with
         | Ok state ->
             match state with
-            | QuantumState.StateVector _ -> Assert.True(true, "Empty circuit returns |000⟩")
+            | QuantumState.StateVector _ -> Assert.Equal(1.0, QuantumState.probability [| 0; 0; 0 |] state, 1e-12)
             | _ -> Assert.True(false, "Expected StateVector")
         | Error err -> Assert.True(false, $"Empty circuit failed: %A{err}")
 

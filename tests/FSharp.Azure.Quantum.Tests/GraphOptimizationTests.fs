@@ -540,93 +540,6 @@ module GraphOptimizationTests =
         Assert.Equal(4.0, actualValue) // All 4 edges cross the partition
 
     // ============================================================================
-    // TDD CYCLE 2 - CLASSICAL SOLVERS
-    // ============================================================================
-
-    [<Fact>]
-    let ``solveClassical - greedy coloring for graph coloring`` () =
-        let nodes =
-            [ node "A" "Node A"; node "B" "Node B"; node "C" "Node C"; node "D" "Node D" ]
-
-        let edges =
-            [ edge "A" "B" 1.0; edge "B" "C" 1.0; edge "C" "D" 1.0; edge "D" "A" 1.0 ]
-
-        let problem =
-            GraphOptimizationBuilder<string, float>().Nodes(nodes).Edges(edges).Objective(MinimizeColors).Build()
-
-        let solution = solveClassical problem
-
-        // Should produce valid coloring
-        Assert.NotNull(solution)
-        Assert.True(solution.ObjectiveValue >= 2.0) // At least 2 colors needed (cycle)
-
-        // Verify NodeAssignments exists
-        Assert.True(solution.NodeAssignments.IsSome)
-        let assignments = solution.NodeAssignments.Value
-
-        // Verify no adjacent nodes have same color
-        for edge in problem.Graph.Edges do
-            let colorU = assignments.[edge.Source]
-            let colorV = assignments.[edge.Target]
-            Assert.NotEqual(colorU, colorV)
-
-    [<Fact>]
-    let ``solveClassical - nearest neighbor for TSP`` () =
-        let cities = [ node "A" "City A"; node "B" "City B"; node "C" "City C" ]
-        let routes = [ edge "A" "B" 10.0; edge "B" "C" 20.0; edge "C" "A" 15.0 ]
-
-        let problem =
-            GraphOptimizationBuilder<string, float>()
-                .Nodes(cities)
-                .Edges(routes)
-                .Objective(MinimizeTotalWeight)
-                .AddConstraint(VisitOnce)
-                .Build()
-
-        let solution = solveClassical problem
-
-        // Should produce valid tour
-        Assert.NotNull(solution)
-        Assert.True(solution.SelectedEdges.IsSome)
-
-        let selectedEdges = solution.SelectedEdges.Value
-        Assert.Equal(3, selectedEdges.Length) // Complete tour
-
-        // Objective value should be sum of selected edges
-        Assert.True(solution.ObjectiveValue > 0.0)
-
-    [<Fact>]
-    let ``solveClassical - randomized maxcut for graph partitioning`` () =
-        let nodes = List.init 4 (fun i -> node $"N{i}" i)
-
-        let edges =
-            [
-                edge "N0" "N1" 1.0
-                edge "N1" "N2" 1.0
-                edge "N2" "N3" 1.0
-                edge "N0" "N3" 1.0
-            ]
-
-        let problem =
-            GraphOptimizationBuilder<int, float>().Nodes(nodes).Edges(edges).Objective(MaximizeCut).Build()
-
-        let solution = solveClassical problem
-
-        // Should produce valid partition
-        Assert.NotNull(solution)
-        Assert.True(solution.NodeAssignments.IsSome)
-
-        let assignments = solution.NodeAssignments.Value
-        Assert.Equal(4, assignments.Count)
-
-        // Each node should be assigned to a partition (color 0 or 1)
-        for KeyValue(nodeId, color) in assignments do
-            Assert.True(color = 0 || color = 1)
-
-        // Cut size should be positive
-        Assert.True(solution.ObjectiveValue > 0.0)
-
-    // ============================================================================
     // TDD CYCLE 2 - CONSTRAINT VALIDATION
     // ============================================================================
 
@@ -990,25 +903,6 @@ module GraphOptimizationTests =
             qubo.Q.Count < 300,
             sprintf "QUBO should be sparse for linear chain (got %d terms, expected < 300)" qubo.Q.Count
         )
-
-    [<Fact>]
-    let ``Classical solver handles disconnected graph components`` () =
-        let nodes = [ node "A" 1; node "B" 2; node "C" 3; node "D" 4 ]
-
-        let edges =
-            [
-                edge "A" "B" 1.0 // Component 1
-                edge "C" "D" 1.0 // Component 2
-            ]
-
-        let problem =
-            GraphOptimizationBuilder<int, float>().Nodes(nodes).Edges(edges).Objective(MinimizeColors).Build()
-
-        let solution = solveClassical problem
-
-        // Should find valid coloring
-        Assert.True(solution.IsFeasible)
-        Assert.True(solution.NodeAssignments.IsSome)
 
     [<Fact>]
     let ``validateConstraints handles graph with no constraints`` () =

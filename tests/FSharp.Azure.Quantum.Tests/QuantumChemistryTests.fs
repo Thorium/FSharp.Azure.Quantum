@@ -468,9 +468,7 @@ module GroundStateEnergyTests =
                     abs (vqeResult.Energy - expected) < tolerance,
                     $"DFT: Expected ~%.3f{expected}, got %.3f{vqeResult.Energy}"
                 )
-            | Error _ ->
-                // DFT fallback might not be implemented yet, that's ok
-                Assert.True(true, "DFT not implemented - acceptable for now")
+            | Error e -> Assert.Fail($"ClassicalDFT is a supported method, got: {e}")
         }
         :> Task
 
@@ -589,12 +587,17 @@ module GroundStateEnergyTests =
             // Act
 
             // Assert
-            // Should either converge or return error about max iterations
+            // Hitting the iteration cap is not an error: VQE returns its best energy and
+            // reports Converged = false.
             match! GroundStateEnergy.estimateEnergy h2 config |> Async.StartImmediateAsTask with
-            | Ok _ -> Assert.True(true, "Converged successfully")
-            | Error err ->
-                // Acceptable to hit max iterations with tight constraints
-                Assert.True(true, "Hit max iterations - acceptable")
+            | Ok r ->
+                Assert.True(r.Energy < 0.0, $"H2 ground-state energy should be negative, got {r.Energy}")
+
+                Assert.True(
+                    r.Converged || r.Iterations > config.MaxIterations,
+                    $"not converged, yet stopped at iteration {r.Iterations} of {config.MaxIterations}"
+                )
+            | Error e -> Assert.Fail($"the iteration cap must not turn into an error: {e}")
         }
         :> Task
 
@@ -1750,10 +1753,7 @@ H  0.0  0.0  0.74"""
                     chemistry.GroundStateEnergy < 0.0,
                     $"Ground state energy should be negative, got {chemistry.GroundStateEnergy}"
                 )
-            | Error err ->
-                // This might fail if "h2" isn't in the default provider
-                // That's OK - we're testing the mechanism works
-                Assert.True(true, $"Provider lookup: {err.Message}")
+            | Error err -> Assert.Fail($"'h2' should load from the default provider: {err.Message}")
         }
         |> Async.StartAsTask
 

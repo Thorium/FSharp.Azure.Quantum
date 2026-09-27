@@ -146,9 +146,7 @@ module QuantumRegressionHHLTests =
             }
 
         match train config with
-        | Error msg ->
-            // HHL is a prototype, may fail - that's OK
-            Assert.True(true, $"Training failed (prototype limitation): {msg}")
+        | Error msg -> Assert.Fail($"Training failed: {msg}")
         | Ok result ->
             // If it succeeds, verify the result structure
             Assert.Equal(1, result.Weights.Length)
@@ -174,14 +172,14 @@ module QuantumRegressionHHLTests =
                 EigenvalueQubits = 3
                 MinEigenvalue = 1e-6
                 Backend = backend
-                Shots = 500
+                Shots = 1000 // train's minimum
                 FitIntercept = true // Enable intercept
                 Verbose = false
                 Logger = None
             }
 
         match train config with
-        | Error msg -> Assert.True(true, $"Training failed (expected): {msg}")
+        | Error msg -> Assert.Fail($"Training failed: {msg}")
         | Ok result ->
             // With intercept, weights = [intercept, slope]
             Assert.Equal(2, result.Weights.Length)
@@ -208,9 +206,7 @@ module QuantumRegressionHHLTests =
             }
 
         match modelResult with
-        | Error msg ->
-            // Expected to potentially fail for prototype
-            Assert.True(true, $"Model training failed (expected): {msg}")
+        | Error msg -> Assert.Fail($"Model training failed: {msg}")
         | Ok model ->
             Assert.Equal(Regression, model.Metadata.ProblemType)
             Assert.Equal(Quantum, model.Metadata.Architecture)
@@ -231,7 +227,7 @@ module QuantumRegressionHHLTests =
             }
 
         match modelResult with
-        | Error msg -> Assert.True(true, $"Hybrid model training failed (expected): {msg}")
+        | Error msg -> Assert.Fail($"Hybrid model training failed: {msg}")
         | Ok model ->
             Assert.Equal(Regression, model.Metadata.ProblemType)
             Assert.Equal(Hybrid, model.Metadata.Architecture)
@@ -324,8 +320,9 @@ module QuantumRegressionHHLTests =
             Assert.True(result.RSquared > 0.60, $"R² too low for multi-feature: {result.RSquared}")
 
     [<Fact>]
-    let ``HHL success probability increases with more eigenvalue qubits`` () =
-        // Test that more precision = higher success rate
+    let ``HHL trains at 3 to 6 eigenvalue qubits with a valid success probability`` () =
+        // More eigenvalue qubits do not raise the success probability here: it measures
+        // 0.0051 at every count (the old name claimed an increase that was never asserted).
         let backend = createLocalBackend ()
 
         let baseConfig: RegressionConfig =
@@ -349,16 +346,14 @@ module QuantumRegressionHHLTests =
                         EigenvalueQubits = qubits
                     }
 
-                (train config)
-                |> Result.map (fun result -> Some(qubits, result.SuccessProbability))
-                |> Result.defaultValue None)
+                match train config with
+                | Ok result -> Some(qubits, result.SuccessProbability)
+                | Error e -> Assert.Fail($"training with {qubits} eigenvalue qubits failed: {e}"); None)
 
-        if results.Length >= 2 then
-            results |> List.iter (fun (q, p) -> printfn $"Qubits: {q}, Success: {p:F4}")
-            // Generally, more qubits = higher success probability
-            Assert.True(true, "Success probability trends captured")
-        else
-            Assert.True(true, "Insufficient data for trend analysis")
+        results |> List.iter (fun (q, p) -> printfn $"Qubits: {q}, Success: {p:F4}")
+
+        for (q, p) in results do
+            Assert.True(p > 0.0 && p <= 1.0, $"{q} eigenvalue qubits: success probability {p} outside (0, 1]")
 
     [<Fact>]
     let ``HHL validates NaN inputs`` () =

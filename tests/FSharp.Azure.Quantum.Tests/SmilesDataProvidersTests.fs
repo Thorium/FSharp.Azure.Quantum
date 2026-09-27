@@ -15,7 +15,7 @@ let ``parseSmiles parses simple ethanol SMILES`` () =
     match parseSmiles "CCO" with
     | Ok mol ->
         Assert.Equal(Some "CCO", mol.Name)
-        Assert.True(mol.Topology.Atoms.Length > 0)
+        Assert.Equal<string[]>([| "C"; "C"; "O" |], mol.Topology.Atoms) // heavy atoms only
         Assert.True(mol.Geometry.IsNone, "SMILES should not have 3D geometry")
     | Error e -> Assert.Fail($"Expected Ok but got Error: {e}")
 
@@ -24,7 +24,7 @@ let ``parseSmiles parses benzene ring`` () =
     match parseSmiles "c1ccccc1" with
     | Ok mol ->
         Assert.Equal(6, mol.Topology.Atoms.Length) // 6 carbons
-        Assert.True(mol.Topology.Bonds.Length >= 6) // At least 6 bonds in ring
+        Assert.Equal(6, mol.Topology.Bonds.Length) // 5 chain bonds + the ring closure
     | Error e -> Assert.Fail($"Expected Ok but got Error: {e}")
 
 [<Fact>]
@@ -49,7 +49,7 @@ let ``SmilesListDatasetProvider loads all molecules`` () =
     let provider = SmilesListDatasetProvider(smiles)
 
     ((provider :> IMoleculeDatasetProvider).Load All)
-    |> Result.map (fun dataset -> Assert.True(dataset.Molecules.Length >= 2, "Should load at least 2 molecules"))
+    |> Result.map (fun dataset -> Assert.Equal(3, dataset.Molecules.Length))
     |> Result.defaultWith (fun e -> Assert.Fail($"Expected Ok but got Error: {e}"))
 
 [<Fact>]

@@ -149,29 +149,23 @@ let ``Converted metal dimers have correct multiplicities`` () =
 
 [<Fact>]
 let ``Molecule.fromDefaultProvider loads H2 successfully`` () =
-    let result = Molecule.fromDefaultProvider "H2"
-    Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
-
-    match result with
+    match Molecule.fromDefaultProvider "H2" with
     | Ok mol ->
         Assert.Equal("H2", mol.Name)
         Assert.Equal(2, mol.Atoms.Length)
         Assert.Equal(1, mol.Bonds.Length)
-    | Error _ -> ()
+    | Error e -> Assert.Fail($"Expected Ok but got: {e}")
 
 [<Fact>]
 let ``Molecule.fromDefaultProvider loads H2O with correct atoms`` () =
-    let result = Molecule.fromDefaultProvider "H2O"
-    Assert.True(Result.isOk result)
-
-    match result with
+    match Molecule.fromDefaultProvider "H2O" with
     | Ok mol ->
         Assert.Equal("H2O", mol.Name)
         Assert.Equal(3, mol.Atoms.Length)
         // Check element types
         let elements = mol.Atoms |> List.map (fun a -> a.Element) |> List.sort
         Assert.Equal<string list>([ "H"; "H"; "O" ], elements)
-    | Error _ -> ()
+    | Error e -> Assert.Fail($"Expected Ok but got: {e}")
 
 [<Fact>]
 let ``Molecule.fromDefaultProvider returns error for invalid molecule`` () =
@@ -181,9 +175,9 @@ let ``Molecule.fromDefaultProvider returns error for invalid molecule`` () =
 [<Fact>]
 let ``Molecule.fromProvider with custom provider works`` () =
     let provider = ChemistryDataProviders.defaultDatasetProvider
-    let result = Molecule.fromProvider provider "LiH"
-    Assert.True(Result.isOk result)
-    result |> Result.iter (fun mol -> Assert.Equal("LiH", mol.Name))
+    match Molecule.fromProvider provider "LiH" with
+    | Ok mol -> Assert.Equal("LiH", mol.Name)
+    | Error e -> Assert.Fail($"Expected Ok but got: {e}")
 
 [<Fact>]
 let ``Molecule.fromInstance converts MoleculeInstance correctly`` () =
@@ -211,10 +205,7 @@ let ``Molecule.fromInstance converts MoleculeInstance correctly`` () =
             Geometry = Some geometry
         }
 
-    let result = Molecule.fromInstance instance
-    Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
-
-    match result with
+    match Molecule.fromInstance instance with
     | Ok mol ->
         Assert.Equal("Carbon Monoxide", mol.Name)
         Assert.Equal(2, mol.Atoms.Length)
@@ -222,7 +213,7 @@ let ``Molecule.fromInstance converts MoleculeInstance correctly`` () =
         Assert.Equal("O", mol.Atoms.[1].Element)
         Assert.Equal(1, mol.Bonds.Length)
         Assert.Equal(2.0, mol.Bonds.[0].BondOrder)
-    | Error _ -> ()
+    | Error e -> Assert.Fail($"Expected Ok but got: {e}")
 
 [<Fact>]
 let ``Molecule.fromInstance returns error when geometry is missing`` () =

@@ -14,7 +14,7 @@
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="QuantumStateTests.fs" />
     <Compile Include="GatesTests.fs" />
-    <!-- GraphOptimizationTests.fs removed - uses solveClassical (classical algorithm) -->
+    <Compile Include="GraphOptimizationTests.fs" />
     <Compile Include="GraphObjectiveTests.fs" />
     <!-- ConstraintSatisfactionTests.fs removed - tests deleted classical CSP solver -->
     <Compile Include="OpenQasmExportTests.fs" />

@@ -1054,13 +1054,12 @@ module ExecuteQaoaCircuitAsyncTests =
             let parameters = [| (0.5, 0.3) |]
             let backend = createLocalBackend ()
 
-            // Already cancelled token — local backend completes synchronously so it may not
-            // observe cancellation, but the function should accept the token without error
+            // The token is never cancelled: passing it must not change the outcome.
             use cts = new CancellationTokenSource()
-            // Local backend doesn't observe cancellation, so it succeeds
+
             match! executeQaoaCircuitAsync backend problemHam mixerHam parameters 10 cts.Token with
-            | Ok measurements -> Assert.True(measurements.Length > 0)
-            | Error _ -> () // Also acceptable if backend respects cancellation
+            | Ok measurements -> Assert.Equal(10, measurements.Length)
+            | Error e -> Assert.Fail($"an uncancelled token must not fail the run: {e}")
         }
 
 // ============================================================================

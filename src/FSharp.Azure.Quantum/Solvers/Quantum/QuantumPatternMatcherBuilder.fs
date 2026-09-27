@@ -382,12 +382,15 @@ module QuantumPatternMatcher =
                 result {
                     let! oracle = GroverSearch.Oracle.fromPredicate oraclePredicate qubitsNeeded
 
-                    // Create Grover config
+                    // Create Grover config. Candidates are verified classically below, so the
+                    // threshold only has to separate signal from noise: keep any outcome seen at
+                    // least as often as a uniform draw (1/2^n). A fixed 5% dropped every match of
+                    // a broad pattern, e.g. 128 matches in 256 items at ~0.8% each.
                     let groverConfig =
                         { GroverSearch.Grover.defaultConfig with
                             Iterations = problem.MaxIterations
                             Shots = problem.Shots
-                            SolutionThreshold = 0.05 // 5% for LocalBackend reliability
+                            SolutionThreshold = 1.0 / float (1 <<< qubitsNeeded)
                         }
 
                     // Execute Grover search

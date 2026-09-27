@@ -248,25 +248,13 @@ module ErrorMitigationStrategyTests =
 
         let strategy = ErrorMitigationStrategy.selectStrategy criteria
 
-        // Assert
-        match strategy.Fallback with
-        | Some fallback ->
-            // Fallback should be simpler/cheaper than primary
-            match fallback with
-            | ErrorMitigationStrategy.ReadoutErrorMitigation _ -> Assert.True(true)
-            | ErrorMitigationStrategy.Combined techniques ->
-                // If combined, should have fewer techniques than primary
-                match strategy.Primary with
-                | ErrorMitigationStrategy.Combined primaryTechniques ->
-                    Assert.True(List.length techniques < List.length primaryTechniques)
-                | _ -> ()
-            | ErrorMitigationStrategy.ZeroNoiseExtrapolation _
-            | ErrorMitigationStrategy.ProbabilisticErrorCancellation _ -> ()
-        | None ->
-            // Some strategies legitimately have no fallback (e.g., Readout-only)
-            match strategy.Primary with
-            | ErrorMitigationStrategy.ReadoutErrorMitigation _ -> Assert.True(true) // Readout-only doesn't need fallback
-            | _ -> Assert.Fail("Expected fallback for non-Readout strategies")
+        // Assert: a medium circuit (depth 10-50) with budget > $10 gets ZNE + Readout,
+        // falling back to the cheaper Readout alone
+        match strategy.Primary, strategy.Fallback with
+        | ErrorMitigationStrategy.Combined [ ErrorMitigationStrategy.ZeroNoiseExtrapolation _
+                                             ErrorMitigationStrategy.ReadoutErrorMitigation _ ],
+          Some(ErrorMitigationStrategy.ReadoutErrorMitigation _) -> ()
+        | primary, fallback -> Assert.Fail($"Expected ZNE+Readout with a Readout fallback, got %A{primary} / %A{fallback}")
 
     // ============================================================================
     // Additional Tests: Cost Estimation

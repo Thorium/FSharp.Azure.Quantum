@@ -322,7 +322,14 @@ module SolovayKitaevTests =
     let ``Gate sequence handles mixed gates`` () =
         let seq = [ H; T; H ] // HTH is a common pattern
         let matrix = sequenceToMatrix seq
-        Assert.True(true) // Just verify it doesn't crash
+        // With T = diag(1, ω), ω = e^{iπ/4}: HTH = ½ [[1+ω, 1−ω], [1−ω, 1+ω]]
+        let omega = Complex.Exp(Complex.ImaginaryOne * Math.PI / 4.0)
+        let half (z: Complex) = z / Complex(2.0, 0.0)
+
+        let expected =
+            createSU2 (half (Complex.One + omega)) (half (Complex.One - omega)) (half (Complex.One - omega)) (half (Complex.One + omega))
+
+        assertMatrixEqual expected matrix
 
     // ========================================================================
     // EDGE CASES
