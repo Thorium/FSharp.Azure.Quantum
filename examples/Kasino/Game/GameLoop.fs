@@ -100,9 +100,108 @@ module GameLoop =
 
     /// How a chosen hand card should be resolved when applied.
     type HumanPlay =
-        | TakeOption of Rules.CaptureOption // capture with this specific option
-        | PlaceCard // place on the table without capturing
-        | AutoPlay // let Rules.playCard decide (capture if possible)
+        /// capture with this specific option
+        | TakeOption of Rules.CaptureOption
+        /// place on the table without capturing
+        | PlaceCard
+        /// let Rules.playCard decide (capture if possible)
+        | AutoPlay
+
+    /// Ask the human to choose among multiple capture options. In Standard
+    /// Kasino the player may also decline the capture and place the card ("0").
+    let private getCaptureOptionChoice
+        (options: Rules.CaptureOption list)
+        (variant: GameVariant)
+        (tableCards: Card list)
+        : HumanPlay option =
+        AnsiConsole.WriteLine()
+        // Single-letter labels only support A-Z; show the biggest captures first
+        // and truncate the rest (findCaptureOptions can return up to 64 options).
+        let maxShown = 24
+
+        let shown =
+            options
+            |> List.sortByDescending (fun opt -> opt.Captured.Length)
+            |> List.truncate maxShown
+
+        let allowPlace = (variant = StandardKasino)
+        let lines = ResizeArray<string>()
+
+        for i in 0 .. shown.Length - 1 do
+            let opt = shown.[i]
+
+            let combosStr =
+                opt.Combos
+                |> List.map (fun combo ->
+                    sprintf "[white on blue]{[/]%s[white on blue]}[/]" (Renderer.renderCardsOnBlue combo))
+                |> String.concat " [white on blue]+[/] "
+
+            lines.Add(
+                sprintf
+                    " [yellow on blue]%c:[/] %s [white on blue]= %d cards[/]"
+                    (char (int 'A' + i))
+                    combosStr
+                    opt.Captured.Length
+            )
+
+        if options.Length > shown.Length then
+            lines.Add(sprintf " [silver on blue](%d smaller options not shown)[/]" (options.Length - shown.Length))
+
+        if allowPlace then
+            lines.Add " [yellow on blue]0:[/] [silver on blue]place on table instead (no capture)[/]"
+
+        let joined = String.concat "\n" lines
+
+        let padded =
+            Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
+
+        let markup = Markup(padded, Style(background = Color.Blue))
+
+        let panel =
+            Panel(
+                markup,
+                Header = (PanelHeader "[bold yellow on blue] Choose which cards to capture [/]"),
+                Border = BoxBorder.Rounded,
+                BorderStyle = (Style(foreground = Color.Blue, background = Color.Blue)),
+                Padding = (Padding(0, 0))
+            )
+
+        AnsiConsole.Write(panel)
+        AnsiConsole.WriteLine()
+
+        let rec getSubChoice () =
+            let placeHint = if allowPlace then ", 0 to place," else ""
+
+            AnsiConsole.Markup(
+                sprintf "[yellow]Choose option (A-%c)%s or Q to quit:[/] " (char (int 'A' + shown.Length - 1)) placeHint
+            )
+
+            let input = Console.ReadLine()
+
+            if isNull input then
+                None
+            else
+                let trimmed = input.Trim().ToUpperInvariant()
+
+                if trimmed = "Q" then
+                    None
+                elif allowPlace && trimmed = "0" then
+                    Some PlaceCard
+                else
+                    match trimmed with
+                    | s when s.Length = 1 ->
+                        let idx = int s.[0] - int 'A'
+
+                        if idx >= 0 && idx < shown.Length then
+                            Some(TakeOption shown.[idx])
+                        else
+                            AnsiConsole.MarkupLine("[red]Invalid choice![/]")
+                            getSubChoice ()
+                    | _ ->
+                        AnsiConsole.MarkupLine("[red]Invalid choice![/]")
+                        getSubChoice ()
+
+        getSubChoice ()
 
     /// Get human player's card choice (returns None if player wants to quit).
     /// Returns (cardIndex, play) — cardIndex refers to the position in the
@@ -161,7 +260,7 @@ module GameLoop =
                 | Capture(_, captured, isSweep) ->
                     let optionNote =
                         if eval.CaptureOptions.Length > 1 then
-                            sprintf " [yellow on blue](%d capture options)[/]" eval.CaptureOptions.Length
+                            $" [yellow on blue](%d{eval.CaptureOptions.Length} capture options)[/]"
                         else
                             ""
 
@@ -190,11 +289,16 @@ module GameLoop =
                 Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
 
             let markup = Markup(padded, Style(background = Color.Blue))
-            let panel = Panel(markup)
-            panel.Header <- PanelHeader("[bold white on blue] Your options [/]")
-            panel.Border <- BoxBorder.Rounded
-            panel.BorderStyle <- Style(foreground = Color.Blue, background = Color.Blue)
-            panel.Padding <- Padding(0, 0)
+
+            let panel =
+                Panel(
+                    markup,
+                    Header = (PanelHeader "[bold white on blue] Your options [/]"),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = (Style(foreground = Color.Blue, background = Color.Blue)),
+                    Padding = (Padding(0, 0))
+                )
+
             AnsiConsole.Write(panel)
             AnsiConsole.WriteLine()
 
@@ -234,11 +338,16 @@ module GameLoop =
                 Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
 
             let markup = Markup(padded, Style(background = Color.Blue))
-            let panel = Panel(markup)
-            panel.Header <- PanelHeader("[bold white on blue] Choose a card to play [/]")
-            panel.Border <- BoxBorder.Rounded
-            panel.BorderStyle <- Style(foreground = Color.Blue, background = Color.Blue)
-            panel.Padding <- Padding(0, 0)
+
+            let panel =
+                Panel(
+                    markup,
+                    Header = (PanelHeader "[bold white on blue] Choose a card to play [/]"),
+                    Border = BoxBorder.Rounded,
+                    BorderStyle = (Style(foreground = Color.Blue, background = Color.Blue)),
+                    Padding = (Padding(0, 0))
+                )
+
             AnsiConsole.Write(panel)
             AnsiConsole.WriteLine()
 
@@ -249,10 +358,10 @@ module GameLoop =
                 else
                     ""
 
-            AnsiConsole.Markup(sprintf "[cyan]Choose card (1-%d)%s or Q to quit:[/] " sortedHand.Length placeHint)
+            AnsiConsole.Markup($"[cyan]Choose card (1-%d{sortedHand.Length})%s{placeHint} or Q to quit:[/] ")
             let input = Console.ReadLine()
 
-            if input = null then
+            if isNull input then
                 None // EOF / redirected input
             else
                 let trimmed = input.Trim().ToUpperInvariant()
@@ -303,97 +412,6 @@ module GameLoop =
                         getChoice ()
 
         getChoice ()
-
-    /// Ask the human to choose among multiple capture options. In Standard
-    /// Kasino the player may also decline the capture and place the card ("0").
-    and private getCaptureOptionChoice
-        (options: Rules.CaptureOption list)
-        (variant: GameVariant)
-        (tableCards: Card list)
-        : HumanPlay option =
-        AnsiConsole.WriteLine()
-        // Single-letter labels only support A-Z; show the biggest captures first
-        // and truncate the rest (findCaptureOptions can return up to 64 options).
-        let maxShown = 24
-
-        let shown =
-            options
-            |> List.sortByDescending (fun opt -> opt.Captured.Length)
-            |> List.truncate maxShown
-
-        let allowPlace = (variant = StandardKasino)
-        let lines = ResizeArray<string>()
-
-        for i in 0 .. shown.Length - 1 do
-            let opt = shown.[i]
-
-            let combosStr =
-                opt.Combos
-                |> List.map (fun combo ->
-                    sprintf "[white on blue]{[/]%s[white on blue]}[/]" (Renderer.renderCardsOnBlue combo))
-                |> String.concat " [white on blue]+[/] "
-
-            lines.Add(
-                sprintf
-                    " [yellow on blue]%c:[/] %s [white on blue]= %d cards[/]"
-                    (char (int 'A' + i))
-                    combosStr
-                    opt.Captured.Length
-            )
-
-        if options.Length > shown.Length then
-            lines.Add(sprintf " [silver on blue](%d smaller options not shown)[/]" (options.Length - shown.Length))
-
-        if allowPlace then
-            lines.Add(" [yellow on blue]0:[/] [silver on blue]place on table instead (no capture)[/]")
-
-        let joined = String.concat "\n" lines
-
-        let padded =
-            Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
-
-        let markup = Markup(padded, Style(background = Color.Blue))
-        let panel = Panel(markup)
-        panel.Header <- PanelHeader("[bold yellow on blue] Choose which cards to capture [/]")
-        panel.Border <- BoxBorder.Rounded
-        panel.BorderStyle <- Style(foreground = Color.Blue, background = Color.Blue)
-        panel.Padding <- Padding(0, 0)
-        AnsiConsole.Write(panel)
-        AnsiConsole.WriteLine()
-
-        let rec getSubChoice () =
-            let placeHint = if allowPlace then ", 0 to place," else ""
-
-            AnsiConsole.Markup(
-                sprintf "[yellow]Choose option (A-%c)%s or Q to quit:[/] " (char (int 'A' + shown.Length - 1)) placeHint
-            )
-
-            let input = Console.ReadLine()
-
-            if input = null then
-                None
-            else
-                let trimmed = input.Trim().ToUpperInvariant()
-
-                if trimmed = "Q" then
-                    None
-                elif allowPlace && trimmed = "0" then
-                    Some PlaceCard
-                else
-                    match trimmed with
-                    | s when s.Length = 1 ->
-                        let idx = int s.[0] - int 'A'
-
-                        if idx >= 0 && idx < shown.Length then
-                            Some(TakeOption shown.[idx])
-                        else
-                            AnsiConsole.MarkupLine("[red]Invalid choice![/]")
-                            getSubChoice ()
-                    | _ ->
-                        AnsiConsole.MarkupLine("[red]Invalid choice![/]")
-                        getSubChoice ()
-
-        getSubChoice ()
 
     /// Build game context for AI decision-making
     let private buildContext (state: GameState) (playerIdx: int) : QuantumPlayer.GameContext =
@@ -505,7 +523,8 @@ module GameLoop =
                             QuantumPlayer.ChosenOption =
                                 (match action with
                                  | TakeOption opt -> Some opt
-                                 | _ -> None)
+                                 | PlaceCard
+                                 | AutoPlay -> None)
                         }
                     | Place _ ->
                         {
@@ -608,7 +627,7 @@ module GameLoop =
             Renderer.displayGameState state.Players (List.length state.Deck) dealNum totalDeals
 
             // Play turns until all hands empty
-            while not (allHandsEmpty state) && not quit do
+            while not (allHandsEmpty state || quit) do
                 Renderer.displayTable state.Table
 
                 match playTurn config.Backend config.NoviceMode state with

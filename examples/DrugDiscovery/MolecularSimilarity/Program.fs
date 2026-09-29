@@ -40,6 +40,7 @@ module private Csv =
         (List.rev compounds, structuralErrors @ (List.rev bad))
 
 module private Features =
+    [<Literal>]
     let fingerprintBitsDefault = 1024
 
     let extractForKernel (desc: MolecularData.MolecularDescriptors) : float array =
@@ -80,7 +81,7 @@ module private Screening =
                     Fingerprint = fp
                     KernelFeatures = feats
                 }
-        | Error e -> Error(sprintf "%s (%s)" compound.CompoundId e.Message)
+        | Error e -> Error $"%s{compound.CompoundId} (%s{e.Message})"
 
     let averageTanimoto (actives: ParsedMolecule array) (candidateFp: MolecularData.MolecularFingerprint) =
         actives
@@ -265,12 +266,12 @@ module Program =
                         [
                             c.Compound.CompoundId
                             c.Compound.Smiles
-                            sprintf "%.6f" sim
-                            sprintf "%.2f" c.Descriptors.MolecularWeight
-                            sprintf "%.3f" c.Descriptors.LogP
+                            $"%.6f{sim}"
+                            $"%.2f{c.Descriptors.MolecularWeight}"
+                            $"%.3f{c.Descriptors.LogP}"
                             string c.Descriptors.HydrogenBondDonors
                             string c.Descriptors.HydrogenBondAcceptors
-                            sprintf "%.2f" c.Descriptors.TPSA
+                            $"%.2f{c.Descriptors.TPSA}"
                         ])
 
                 let header =

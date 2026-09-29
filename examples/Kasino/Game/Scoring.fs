@@ -102,4 +102,5 @@ module Scoring =
 
     /// Maximum possible fixed score in a round, excluding sweeps (which are
     /// open-ended): most cards 1 + most spades 2 + aces 4 + 10♦ 2 + 2♠ 1.
+    [<Literal>]
     let maxRoundScore = 10

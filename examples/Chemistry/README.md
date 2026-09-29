@@ -23,6 +23,14 @@ These examples focus on specific components of the quantum chemistry pipeline:
 
 *   **[HamiltonianTimeEvolution.fsx](HamiltonianTimeEvolution.fsx)**: Demonstrates how to simulate the time evolution of a molecular Hamiltonian ($e^{-iHt}$) using **Trotter-Suzuki decomposition**, which is useful for studying dynamics and reaction pathways.
 
+    ![H2 time evolution: Trotter steps against exact evolution](_images/hamiltonian-time-evolution.svg)
+
+    The picture shows H2's two electrons starting in the lower orbital and briefly moving together to the upper one, with each Trotter step compared to exact evolution. Regenerate it from the repository root:
+
+    ```
+    dotnet fsi --define:LOCAL_BUILD examples/Chemistry/HamiltonianTimeEvolution.fsx --svg
+    ```
+
 ## Theoretical Background
 
 For a deeper understanding of the quantum chemistry algorithms used in this library, we recommend:

@@ -22,33 +22,33 @@ module Renderer =
     /// Spectre color for a suit (traditional card colors)
     let private suitColor =
         function
-        | Spades -> "black"
+        | Spades
         | Clubs -> "black"
-        | Hearts -> "red"
+        | Hearts
         | Diamonds -> "red"
 
     /// Spectre color for a suit on the green table
     let private suitColorOnTable =
         function
-        | Spades -> "black on green"
+        | Spades
         | Clubs -> "black on green"
-        | Hearts -> "red on green"
+        | Hearts
         | Diamonds -> "red on green"
 
     /// Spectre color for a suit on grey23 background (for play messages with dark cards)
     let private suitColorOnGrey =
         function
-        | Spades -> "white on grey23"
+        | Spades
         | Clubs -> "white on grey23"
-        | Hearts -> "red on grey23"
+        | Hearts
         | Diamonds -> "red on grey23"
 
     /// Spectre color for a suit on blue background (for hand/options — black suits visible)
     let private suitColorOnBlue =
         function
-        | Spades -> "white on blue"
+        | Spades
         | Clubs -> "white on blue"
-        | Hearts -> "red on blue"
+        | Hearts
         | Diamonds -> "red on blue"
 
     /// Render a card with color (for hand display and general use)
@@ -117,7 +117,7 @@ module Renderer =
 
     /// Pad every line (split by \n) in a multi-line markup string.
     let padLines (bgColor: string) (targetWidth: int) (content: string) : string =
-        content.Split('\n')
+        content.Split '\n'
         |> Array.map (padLine bgColor targetWidth)
         |> String.concat "\n"
 
@@ -129,9 +129,8 @@ module Renderer =
             | LaistoKasino -> "Laistokasino"
 
         let rule =
-            Rule(sprintf "[bold yellow]%s - Finnish Card Game with Quantum AI[/]" variantName)
+            Rule($"[bold yellow]%s{variantName} - Finnish Card Game with Quantum AI[/]", Style = (Style.Parse "yellow"))
 
-        rule.Style <- Style.Parse("yellow")
         AnsiConsole.Write(rule)
         AnsiConsole.WriteLine()
 
@@ -157,25 +156,34 @@ module Renderer =
             + "  Sweeps: 1 point each, minus the table's lowest sweep count\n"
             + "[bold cyan]Special values in hand:[/] Ace=14, 2\u2660=15, 10[red]\u2666[/]=16"
 
-        let panel = Panel(sprintf "%s\n\n%s" variantText scoringText)
-        panel.Header <- PanelHeader("Rules")
-        panel.Border <- BoxBorder.Double
-        panel.BorderStyle <- Style(foreground = Color.Yellow)
+        let panel =
+            Panel(
+                $"%s{variantText}\n\n%s{scoringText}",
+                Header = (PanelHeader "Rules"),
+                Border = BoxBorder.Double,
+                BorderStyle = (Style(foreground = Color.Yellow))
+            )
+
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()
 
     /// Display the current table (green felt background, white edges)
     let displayTable (tableCards: Card list) =
         let cardsContent = renderCardsOnTable tableCards
-        let raw = sprintf " %s " cardsContent
+        let raw = $" %s{cardsContent} "
         let minInner = max 18 (visibleLength raw) // inner width (panel width - 2 for border)
         let padded = padLine "green" minInner raw
         let markup = Markup(padded, Style(background = Color.Green))
-        let panel = Panel(markup)
-        panel.Header <- PanelHeader(sprintf "[bold white on green] Table (%d cards) [/]" (List.length tableCards))
-        panel.Border <- BoxBorder.Rounded
-        panel.BorderStyle <- Style(foreground = Color.White, background = Color.Green)
-        panel.Padding <- Padding(0, 0)
+
+        let panel =
+            Panel(
+                markup,
+                Header = (PanelHeader(sprintf "[bold white on green] Table (%d cards) [/]" (List.length tableCards))),
+                Border = BoxBorder.Rounded,
+                BorderStyle = (Style(foreground = Color.White, background = Color.Green)),
+                Padding = (Padding(0, 0))
+            )
+
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()
 
@@ -187,16 +195,12 @@ module Renderer =
             else
                 player.Hand |> List.map (fun _ -> "[grey]\u2588\u2588[/]") |> String.concat " "
 
-        let raw = sprintf " %s " content
+        let raw = $" %s{content} "
         let padded = padLine "blue" (visibleLength raw) raw
         let markup = Markup(padded, Style(background = Color.Blue))
         let panel = Panel(markup)
 
-        let headerName =
-            if player.Name = "You" then
-                "Your"
-            else
-                sprintf "%s's" player.Name
+        let headerName = if player.Name = "You" then "Your" else $"%s{player.Name}'s"
 
         panel.Header <-
             PanelHeader(sprintf "[bold white on blue] %s Hand (%d cards) [/]" headerName (List.length player.Hand))
@@ -209,9 +213,9 @@ module Renderer =
 
     /// Display game state overview
     let displayGameState (players: Player list) (deckRemaining: int) (dealRound: int) (totalDeals: int) =
-        let table = Table()
-        table.Border <- TableBorder.Rounded
-        table.BorderStyle <- Style(foreground = Color.Grey)
+        let table =
+            Table(Border = TableBorder.Rounded, BorderStyle = (Style(foreground = Color.Grey)))
+
         table.AddColumn("[bold]Player[/]") |> ignore
         table.AddColumn("[bold]Type[/]") |> ignore
         table.AddColumn("[bold]Hand[/]") |> ignore
@@ -224,22 +228,22 @@ module Renderer =
 
             let typeStr =
                 match player.Type with
-                | Human -> sprintf "[%s]Human[/]" color
-                | QuantumCPU -> sprintf "[%s]Quantum CPU[/]" color
+                | Human -> $"[%s{color}]Human[/]"
+                | QuantumCPU -> $"[%s{color}]Quantum CPU[/]"
 
             table.AddRow(
-                sprintf "[%s]%s[/]" color player.Name,
+                $"[%s{color}]%s{player.Name}[/]",
                 typeStr,
                 sprintf "%d" (List.length player.Hand),
                 sprintf "%d" (List.length player.CapturedCards),
-                sprintf "%d" player.Sweeps
+                $"%d{player.Sweeps}"
             )
             |> ignore
 
         AnsiConsole.Write(table)
 
         AnsiConsole.MarkupLine(
-            sprintf "[grey]Deal round %d/%d | Deck: %d cards remaining[/]" dealRound totalDeals deckRemaining
+            $"[grey]Deal round %d{dealRound}/%d{totalDeals} | Deck: %d{deckRemaining} cards remaining[/]"
         )
 
         AnsiConsole.WriteLine()
@@ -279,14 +283,14 @@ module Renderer =
         let color = playerColorByName players playerName
 
         AnsiConsole.MarkupLine(
-            sprintf "[%s]%s[/] [grey](Quantum CPU) evaluating %d cards via QAOA...[/]" color playerName handSize
+            $"[%s{color}]%s{playerName}[/] [grey](Quantum CPU) evaluating %d{handSize} cards via QAOA...[/]"
         )
 
     /// Display end-of-round scores (single round breakdown)
     let displayRoundScores (scores: (Player * Scoring.ScoreBreakdown) list) (roundNumber: int) (players: Player list) =
-        let table = Table()
-        table.Border <- TableBorder.Double
-        table.BorderStyle <- Style(foreground = Color.Yellow)
+        let table =
+            Table(Border = TableBorder.Double, BorderStyle = (Style(foreground = Color.Yellow)))
+
         table.AddColumn("[bold]Player[/]") |> ignore
         table.AddColumn("[bold]Cards[/]") |> ignore
         table.AddColumn("[bold]Spades[/]") |> ignore
@@ -300,38 +304,38 @@ module Renderer =
             let color = playerColorByName players player.Name
 
             table.AddRow(
-                sprintf "[%s]%s[/]" color player.Name,
+                $"[%s{color}]%s{player.Name}[/]",
                 (if breakdown.MostCards > 0 then
-                     sprintf "[green]%d[/]" breakdown.MostCards
+                     $"[green]%d{breakdown.MostCards}[/]"
                  else
                      "0"),
                 (if breakdown.MostSpades > 0 then
-                     sprintf "[green]%d[/]" breakdown.MostSpades
+                     $"[green]%d{breakdown.MostSpades}[/]"
                  else
                      "0"),
                 (if breakdown.Aces > 0 then
-                     sprintf "[green]%d[/]" breakdown.Aces
+                     $"[green]%d{breakdown.Aces}[/]"
                  else
                      "0"),
                 (if breakdown.DiamondTen > 0 then
-                     sprintf "[green]%d[/]" breakdown.DiamondTen
+                     $"[green]%d{breakdown.DiamondTen}[/]"
                  else
                      "0"),
                 (if breakdown.SpadeTwo > 0 then
-                     sprintf "[green]%d[/]" breakdown.SpadeTwo
+                     $"[green]%d{breakdown.SpadeTwo}[/]"
                  else
                      "0"),
                 (if breakdown.Sweeps > 0 then
-                     sprintf "[green]%d[/]" breakdown.Sweeps
+                     $"[green]%d{breakdown.Sweeps}[/]"
                  else
                      "0"),
-                sprintf "[bold yellow]%d[/]" breakdown.Total
+                $"[bold yellow]%d{breakdown.Total}[/]"
             )
             |> ignore
 
-        let panel = Panel(table)
-        panel.Header <- PanelHeader(sprintf "Round %d Scores" roundNumber)
-        panel.Border <- BoxBorder.Double
+        let panel =
+            Panel(table, Header = (PanelHeader($"Round %d{roundNumber} Scores")), Border = BoxBorder.Double)
+
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()
 
@@ -343,8 +347,9 @@ module Renderer =
         (targetScore: int)
         =
 
-        let rule = Rule(sprintf "[bold yellow]Round %d[/]" roundNumber)
-        rule.Style <- Style.Parse("yellow")
+        let rule =
+            Rule($"[bold yellow]Round %d{roundNumber}[/]", Style = (Style.Parse "yellow"))
+
         AnsiConsole.Write(rule)
 
         if roundNumber > 1 then
@@ -354,7 +359,7 @@ module Renderer =
                     (cumulativeScores
                      |> Map.toList
                      |> List.sortByDescending snd
-                     |> List.map (fun (name, score) -> sprintf "%s=%d" name score)
+                     |> List.map (fun (name, score) -> $"%s{name}=%d{score}")
                      |> String.concat ", ")
                     targetScore
             )
@@ -369,9 +374,9 @@ module Renderer =
         (players: Player list)
         =
 
-        let table = Table()
-        table.Border <- TableBorder.Heavy
-        table.BorderStyle <- Style(foreground = Color.Cyan1)
+        let table =
+            Table(Border = TableBorder.Heavy, BorderStyle = (Style(foreground = Color.Cyan1)))
+
         table.AddColumn("[bold]Player[/]") |> ignore
         table.AddColumn("[bold]Cumulative Score[/]") |> ignore
         table.AddColumn("[bold]Remaining[/]") |> ignore
@@ -388,19 +393,23 @@ module Renderer =
                 else "green"
 
             table.AddRow(
-                sprintf "[%s]%s[/]" color name,
-                sprintf "[bold %s]%d[/]" scoreColor score,
+                $"[%s{color}]%s{name}[/]",
+                $"[bold %s{scoreColor}]%d{score}[/]",
                 (if remaining > 0 then
-                     sprintf "%d to go" remaining
+                     $"%d{remaining} to go"
                  else
                      "[red]REACHED![/]")
             )
             |> ignore
 
-        let panel = Panel(table)
-        panel.Header <- PanelHeader(sprintf "Cumulative Standings (target: %d pts)" targetScore)
-        panel.Border <- BoxBorder.Heavy
-        panel.BorderStyle <- Style(foreground = Color.Cyan1)
+        let panel =
+            Panel(
+                table,
+                Header = (PanelHeader($"Cumulative Standings (target: %d{targetScore} pts)")),
+                Border = BoxBorder.Heavy,
+                BorderStyle = (Style(foreground = Color.Cyan1))
+            )
+
         AnsiConsole.Write(panel)
         AnsiConsole.WriteLine()
 
@@ -412,8 +421,7 @@ module Renderer =
         let reached = sorted |> List.filter (fun (_, s) -> s >= targetScore)
 
         AnsiConsole.WriteLine()
-        let rule = Rule("[bold red]GAME OVER[/]")
-        rule.Style <- Style.Parse("red")
+        let rule = Rule("[bold red]GAME OVER[/]", Style = (Style.Parse "red"))
         AnsiConsole.Write(rule)
         AnsiConsole.WriteLine()
 
@@ -433,11 +441,11 @@ module Renderer =
             announceWinners winners topScore (sprintf "[bold green]%s wins the game with %d points![/]")
 
             for (name, score) in sorted |> List.filter (fun (_, s) -> s <> topScore) do
-                AnsiConsole.MarkupLine(sprintf "[grey]  %s: %d points[/]" name score)
+                AnsiConsole.MarkupLine($"[grey]  %s{name}: %d{score} points[/]")
         | LaistoKasino ->
             // Those who reached 16 lose; lowest score among remaining wins
             for (name, score) in reached do
-                AnsiConsole.MarkupLine(sprintf "[bold red]%s reached %d points and is OUT![/]" name score)
+                AnsiConsole.MarkupLine($"[bold red]%s{name} reached %d{score} points and is OUT![/]")
 
             let survivors = sorted |> List.filter (fun (_, s) -> s < targetScore)
 
@@ -458,10 +466,10 @@ module Renderer =
     let displayDealing (dealRound: int) (toTable: bool) =
         if toTable then
             AnsiConsole.MarkupLine(
-                sprintf "[grey]--- Deal round %d: dealing 4 cards to each player and 4 to table ---[/]" dealRound
+                $"[grey]--- Deal round %d{dealRound}: dealing 4 cards to each player and 4 to table ---[/]"
             )
         else
-            AnsiConsole.MarkupLine(sprintf "[grey]--- Deal round %d: dealing 4 cards to each player ---[/]" dealRound)
+            AnsiConsole.MarkupLine($"[grey]--- Deal round %d{dealRound}: dealing 4 cards to each player ---[/]")
 
         AnsiConsole.WriteLine()
 

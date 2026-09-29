@@ -34,6 +34,8 @@ Usage:
   dotnet fsi DeliveryRouting.fsx -- --input locations.csv
   dotnet fsi DeliveryRouting.fsx -- --output route.json --csv route.csv
   dotnet fsi DeliveryRouting.fsx -- --quiet --output route.json   (pipeline mode)
+  dotnet fsi DeliveryRouting.fsx -- --svg [path]                  (also draw the route as an animated SVG,
+                                                                   default _images/delivery-routing.svg)
 *)
 
 (*
@@ -95,6 +97,7 @@ References:
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "../_common/SvgAnimation.fsx"
 
 open System
 open FSharp.Azure.Quantum
@@ -131,6 +134,11 @@ Cli.exitIfHelp
             Cli.OptionSpec.Name = "quiet"
             Description = "Suppress informational output"
             Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "svg"
+            Description = "Also draw the route as an animated SVG (optional path)"
+            Default = Some "_images/delivery-routing.svg"
         }
     ]
     args
@@ -597,6 +605,373 @@ match csvPath with
 
     if not quiet then
         printfn "Results written to %s" path
+| None -> ()
+
+// ==============================================================================
+// PICTURE (only with --svg): the van driving the solved tour
+// ==============================================================================
+
+open SvgAnimation
+
+/// The route as driven: a closed tour turned to start and end at the depot.
+let drivenRoute =
+    let path = resultRoute.Path
+    let closed = path.Length > 2 && List.head path = List.last path
+
+    match List.tryFindIndex ((=) warehouse) path with
+    | Some i when closed && i > 0 ->
+        let cycle = List.take (path.Length - 1) path
+        List.skip i cycle @ List.take i cycle @ [ warehouse ]
+    | _ -> path
+
+let drawDeliveryPicture (file: string) =
+    let stops = Array.ofList drivenRoute
+    let n = stops.Length
+    let legKm = Array.init (n - 1) (fun i -> haversineDistance stops.[i] stops.[i + 1])
+    let atKm = Array.scan (+) 0.0 legKm
+    let totalKm = atKm.[n - 1]
+    let hoursAt km = (estimateDrivingTime km).TotalHours
+
+    let clock km =
+        let minutes = int (Math.Round(hoursAt km * 60.0))
+        sprintf "%d:%02d h" (minutes / 60) (minutes % 60)
+
+    let isDepot (l: Location) = l = warehouse
+    let customerCount = stops.[1..] |> Array.filter (isDepot >> not) |> Array.length
+
+    // Local map: kilometres east and north of the stops' south-west corner.
+    let midLat = (allStops |> List.averageBy (fun l -> l.Latitude)) * Math.PI / 180.0
+
+    let kmEast = 111.32 * cos midLat
+    let kmNorth = 110.57
+    let minLon = allStops |> List.map (fun l -> l.Longitude) |> List.min
+    let maxLon = allStops |> List.map (fun l -> l.Longitude) |> List.max
+    let minLat = allStops |> List.map (fun l -> l.Latitude) |> List.min
+    let maxLat = allStops |> List.map (fun l -> l.Latitude) |> List.max
+    let widthKm = max 1e-3 ((maxLon - minLon) * kmEast)
+    let heightKm = max 1e-3 ((maxLat - minLat) * kmNorth)
+    let boxX, boxY, boxW, boxH = 24.0, 66.0, 256.0, 452.0
+    let pxPerKm = min ((boxW - 40.0) / widthKm) ((boxH - 40.0) / heightKm)
+    let originX = boxX + (boxW - widthKm * pxPerKm) / 2.0
+    let originY = boxY + (boxH - heightKm * pxPerKm) / 2.0
+
+    let at (l: Location) =
+        (originX + (l.Longitude - minLon) * kmEast * pxPerKm, originY + (maxLat - l.Latitude) * kmNorth * pxPerKm)
+
+    let points = stops |> Array.map at
+
+    // Frames: two at the depot, then each leg in frames in proportion to its
+    // length (at least one, so every stop is a frame), then four back home.
+    let movingFrames = 72
+
+    let legFrames =
+        legKm
+        |> Array.map (fun km -> max 1 (int (Math.Round(km / max totalKm 1e-9 * float movingFrames))))
+
+    /// Per frame: km driven and the leg the van is on.
+    let samples =
+        [|
+            yield! Array.replicate 2 (0.0, 0)
+
+            for leg in 0 .. n - 2 do
+                for j in 1 .. legFrames.[leg] do
+                    yield (atKm.[leg] + legKm.[leg] * float j / float legFrames.[leg], leg)
+
+            yield! Array.replicate 4 (totalKm, n - 2)
+        |]
+
+    let frames = samples.Length
+
+    let position (km, leg) =
+        let x0, y0 = points.[leg]
+        let x1, y1 = points.[leg + 1]
+
+        let f =
+            if legKm.[leg] > 0.0 then
+                (km - atKm.[leg]) / legKm.[leg]
+            else
+                1.0
+
+        (x0 + (x1 - x0) * f, y0 + (y1 - y0) * f)
+
+    let vanAt = samples |> Array.map position
+
+    // First frame at which each stop has been reached.
+    let reachedFrame =
+        Array.init n (fun s -> samples |> Array.findIndex (fun (km, _) -> km >= atKm.[s] - 1e-9))
+
+    let pic =
+        Picture(
+            760.0,
+            600.0,
+            frames,
+            18.0,
+            $"Delivery route: one van, %d{customerCount} customers, %.0f{totalKm} km",
+            hold = 0.05
+        )
+
+    let accent = colour 0
+    let served = colour 2
+
+    pic.Text(
+        24.0,
+        28.0,
+        $"Delivery route: one van, %d{customerCount} customers, %.0f{totalKm} km (%s{resultSolver})",
+        size = 17.0,
+        bold = true
+    )
+
+    pic.Text(
+        24.0,
+        47.0,
+        sprintf
+            "The solved tour; the van moves at the script's %.0f km/h on straight-line legs. No loads or time windows in this model."
+            (totalKm / max (hoursAt totalKm) 1e-9),
+        size = 11.5,
+        fill = grey
+    )
+
+    // Map: frame, scale bar, the planned tour as a pale band, the driven part on top.
+    pic.Rect(boxX, boxY, boxW, boxH, fill = panel, stroke = frameColour, rx = 4.0)
+
+    let barKm =
+        [ 1.0; 2.0; 5.0; 10.0; 20.0; 50.0; 100.0; 200.0; 500.0 ]
+        |> List.filter (fun k -> k * pxPerKm <= boxW / 3.0)
+        |> List.tryLast
+        |> Option.defaultValue 1.0
+
+    pic.Line(
+        boxX + 12.0,
+        boxY + boxH - 14.0,
+        boxX + 12.0 + barKm * pxPerKm,
+        boxY + boxH - 14.0,
+        stroke = grey,
+        width = 2.0
+    )
+
+    pic.Text(boxX + 12.0, boxY + boxH - 20.0, $"%.0f{barKm} km", size = 10.0, fill = grey)
+
+    let polyline (pts: (float * float)[]) =
+        pts
+        |> Array.mapi (fun i (x, y) -> sprintf "%s%s %s" (if i = 0 then "M" else " L") (num x) (num y))
+        |> String.concat ""
+
+    pic.Path(polyline points, stroke = tint 0.7 accent, width = 8.0)
+
+    // The driven part: the whole tour drawn as one dash that grows with the
+    // distance driven, measured along the drawn line.
+    let legPx =
+        Array.init (n - 1) (fun i ->
+            let (x0, y0), (x1, y1) = points.[i], points.[i + 1]
+            sqrt ((x1 - x0) ** 2.0 + (y1 - y0) ** 2.0))
+
+    let atPx = Array.scan (+) 0.0 legPx
+    let tourPx = atPx.[n - 1] + 1.0
+
+    let drivenPx =
+        samples
+        |> Array.map (fun (km, leg) ->
+            let f =
+                if legKm.[leg] > 0.0 then
+                    (km - atKm.[leg]) / legKm.[leg]
+                else
+                    1.0
+
+            atPx.[leg] + legPx.[leg] * f)
+
+    pic.Element(
+        "path",
+        [
+            "d", polyline points
+            "stroke", accent
+            "stroke-width", "2.5"
+            "fill", "none"
+            "stroke-linejoin", "round"
+            "stroke-dasharray", sprintf "%s %s" (num tourPx) (num tourPx)
+        ],
+        animate = [ ("stroke-dashoffset", drivenPx |> Array.map (fun d -> num (tourPx - d))) ]
+    )
+
+    // Stops: numbered in visit order, green once the van has reached them.
+    for s in 1 .. n - 1 do
+        let x, y = points.[s]
+
+        if not (isDepot stops.[s]) then
+            pic.Circle(x, y, 7.5, fill = "white", stroke = grey, width = 1.2)
+
+            pic.Circle(
+                x,
+                y,
+                7.5,
+                fill = tint 0.45 served,
+                stroke = served,
+                width = 1.5,
+                animate =
+                    [
+                        ("opacity", Array.init frames (fun f -> if f >= reachedFrame.[s] then 1.0 else 0.0))
+                    ]
+            )
+
+            pic.Text(x, y + 3.2, string s, size = 9.0, anchor = "middle", bold = true)
+
+    let depotX, depotY = points.[0]
+    pic.Rect(depotX - 7.0, depotY - 7.0, 14.0, 14.0, fill = ink, rx = 2.0)
+    pic.Text(depotX + 11.0, depotY - 8.0, "Depot", size = 10.0, bold = true)
+
+    // The van: a small side view, facing the way it drives.
+    let van (x: float, y: float) (facing: float) =
+        let d v = num (v * facing)
+
+        sprintf
+            "M%s %s v-8 h%s v2 h%s l%s 3 v3 z m%s 0 a2 2 0 1 0 %s 0 a2 2 0 1 0 %s 0 m%s 0 a2 2 0 1 0 %s 0 a2 2 0 1 0 %s 0"
+            (num (x - 9.0 * facing))
+            (num (y + 3.0))
+            (d 10.0)
+            (d 4.0)
+            (d 3.0)
+            (d 4.0)
+            (d 4.0)
+            (d -4.0)
+            (d 9.0)
+            (d 4.0)
+            (d -4.0)
+
+    let facings =
+        samples
+        |> Array.scan
+            (fun previous (_, leg) ->
+                let dx = fst points.[leg + 1] - fst points.[leg]
+                if abs dx < 0.5 then previous else float (sign dx))
+            1.0
+        |> Array.skip 1
+
+    let vans = Array.init frames (fun f -> van vanAt.[f] facings.[f])
+    pic.Path(vans.[0], stroke = "white", width = 1.0, fill = accent, shapes = vans)
+
+    // Visit list: the stop the van is heading for is shaded.
+    let listX, listTop = 300.0, 92.0
+    let rowH = min 21.0 (340.0 / float (max 1 (n - 1)))
+    let rowY s = listTop + float (s - 1) * rowH
+
+    pic.Text(listX, 76.0, "Visit order", size = 13.0, bold = true)
+    pic.Text(736.0, 76.0, "arrives after", size = 10.0, fill = grey, anchor = "end")
+
+    let heading =
+        samples
+        |> Array.map (fun (km, _) ->
+            [ 1 .. n - 1 ]
+            |> List.tryFind (fun s -> atKm.[s] > km + 1e-9)
+            |> Option.defaultValue (n - 1))
+
+    pic.Rect(
+        listX - 4.0,
+        rowY heading.[0] - rowH + 5.0,
+        444.0,
+        rowH,
+        fill = tint 0.85 accent,
+        rx = 3.0,
+        animate = [ ("y", heading |> Array.map (fun s -> rowY s - rowH + 5.0)) ]
+    )
+
+    for s in 1 .. n - 1 do
+        let y = rowY s
+
+        let name =
+            if isDepot stops.[s] then
+                "Back at the depot"
+            else
+                stops.[s].Name
+
+        let reached = Array.init frames (fun f -> f >= reachedFrame.[s])
+        pic.Text(listX, y, string s, size = 11.0, fill = grey)
+
+        pic.FrameText(
+            listX + 20.0,
+            y,
+            reached |> Array.map (fun r -> if r then "✓" else ""),
+            size = 12.0,
+            fill = served,
+            bold = true
+        )
+
+        pic.FrameText(listX + 36.0, y, reached |> Array.map (fun r -> if r then "" else name), size = 11.5, fill = grey)
+        pic.FrameText(listX + 36.0, y, reached |> Array.map (fun r -> if r then name else ""), size = 11.5)
+        pic.Text(736.0, y, clock atKm.[s], size = 11.0, fill = grey, anchor = "end")
+
+    // Clock and odometer.
+    let statsY = listTop + 340.0 + 22.0
+
+    pic.FrameText(
+        listX,
+        statsY,
+        samples |> Array.map (fun (km, _) -> "Drive time " + clock km),
+        size = 16.0,
+        bold = true
+    )
+
+    pic.FrameText(
+        736.0,
+        statsY,
+        Array.init frames (fun f ->
+            let done' =
+                [ 1 .. n - 1 ]
+                |> List.filter (fun s -> f >= reachedFrame.[s] && not (isDepot stops.[s]))
+                |> List.length
+
+            $"%d{done'} of %d{customerCount} customers served"),
+        size = 12.0,
+        anchor = "end"
+    )
+
+    pic.Rect(listX, statsY + 10.0, 436.0, 8.0, fill = light, rx = 4.0)
+
+    pic.Rect(
+        listX,
+        statsY + 10.0,
+        0.0,
+        8.0,
+        fill = accent,
+        rx = 4.0,
+        animate =
+            [
+                ("width", samples |> Array.map (fun (km, _) -> 436.0 * km / max totalKm 1e-9))
+            ]
+    )
+
+    pic.Text(listX, statsY + 32.0, "distance driven", size = 10.0, fill = grey)
+    pic.Text(736.0, statsY + 32.0, $"%.0f{totalKm} km", size = 10.0, fill = grey, anchor = "end")
+
+    // Legend.
+    let legendY = 536.0
+    pic.Line(30.0, legendY, 52.0, legendY, stroke = tint 0.7 accent, width = 8.0)
+    pic.Text(58.0, legendY + 4.0, "planned tour", size = 11.0, fill = grey)
+    pic.Line(150.0, legendY, 172.0, legendY, stroke = accent, width = 2.5)
+    pic.Text(178.0, legendY + 4.0, "driven", size = 11.0, fill = grey)
+    pic.Path(van (240.0, legendY) 1.0, stroke = "white", width = 1.0, fill = accent)
+    pic.Text(254.0, legendY + 4.0, "van", size = 11.0, fill = grey)
+    pic.Circle(300.0, legendY, 7.0, fill = "white", stroke = grey, width = 1.2)
+    pic.Text(312.0, legendY + 4.0, "stop, visit order", size = 11.0, fill = grey)
+    pic.Circle(424.0, legendY, 7.0, fill = tint 0.45 served, stroke = served, width = 1.5)
+    pic.Text(436.0, legendY + 4.0, "served", size = 11.0, fill = grey)
+    pic.Rect(492.0, legendY - 7.0, 14.0, 14.0, fill = ink, rx = 2.0)
+    pic.Text(512.0, legendY + 4.0, "depot", size = 11.0, fill = grey)
+    pic.Rect(560.0, legendY - 6.0, 26.0, 12.0, fill = tint 0.85 accent, rx = 3.0)
+    pic.Text(592.0, legendY + 4.0, "next stop", size = 11.0, fill = grey)
+
+    pic.Progress(24.0, 566.0, 712.0, fill = grey)
+
+    pic.Text(
+        24.0,
+        588.0,
+        "Legs: great-circle km between the stops' coordinates. Drive time: distance over speed, no time at the stops.",
+        size = 10.0,
+        fill = grey
+    )
+
+    pic.Save file
+
+match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "delivery-routing.svg")) with
+| Some file -> drawDeliveryPicture file
 | None -> ()
 
 // ==============================================================================

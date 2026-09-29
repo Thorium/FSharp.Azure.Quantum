@@ -49,7 +49,7 @@ module Rules =
                         | true, idx when idx >= 0 && idx < tableCards.Length -> Some tableCards.[idx]
                         | _ -> None
                     | None -> None))
-            |> List.filter (fun cards -> not (List.isEmpty cards))
+            |> List.filter (List.isEmpty >> not)
 
     /// Check whether two combos share any card (by structural equality).
     let private combosOverlap (a: Card list) (b: Card list) : bool =
@@ -230,4 +230,5 @@ module Rules =
         captured |> List.sumBy Cards.scoringValue
 
     /// Calculate the point value of a sweep (clearing the table)
+    [<Literal>]
     let sweepBonus = 1.0

@@ -183,6 +183,14 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[MaxCut/AdaptQaoaMaxCut.fsx](MaxCut/AdaptQaoaMaxCut.fsx)**  
   ADAPT-QAOA — adaptive per-layer mixer selection, solves a frustrated-triangle MaxCut to optimum (`AdaptQaoa.run`)
 
+  ![ADAPT-QAOA on a triangle, step by step](MaxCut/_images/adapt-qaoa-maxcut.svg)
+
+  The picture replays one run: the mixer it picks, how each step moves the chance of every answer, and how the energy falls to the best possible value. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/MaxCut/AdaptQaoaMaxCut.fsx --svg
+  ```
+
 - **[MaxCut/DWaveMaxCutExample.fsx](MaxCut/DWaveMaxCutExample.fsx)**  
   MaxCut using D-Wave quantum annealer (2000+ qubits!)  
   **Hardware:** D-Wave Advantage (5640 qubits)  
@@ -273,6 +281,17 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 - **[Chemistry/HartreeFockInitialStateExample.fsx](Chemistry/HartreeFockInitialStateExample.fsx)**  
   Hartree-Fock initial state preparation
+
+- **[MaterialsScience/HydrogenTunneling.fsx](MaterialsScience/HydrogenTunneling.fsx)**  
+  Hydrogen tunnelling in metals: WKB barrier penetration, H/D/T isotope effects, FeH VQE
+
+  ![A proton tunnelling between two sites in iron](MaterialsScience/_images/hydrogen-tunneling.svg)
+
+  The picture shows a proton in iron moving from one site to the next through the energy barrier and back, with the time one pass takes. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/MaterialsScience/HydrogenTunneling.fsx --svg
+  ```
 
 ### Quantum Arithmetic & Cryptography
 - **[QuantumArithmetic/RSAEncryption.fsx](QuantumArithmetic/RSAEncryption.fsx)**  
@@ -387,8 +406,24 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[Topological/BellState.fsx](Topological/BellState.fsx)**  
   Bell state using topological qubits
 
+  ![Braiding anyons into a Bell state](Topological/_images/bell-state.svg)
+
+  The picture draws each braid as crossing worldlines: two swaps inside a pair only turn a phase, one swap across pairs makes 00 and 11 equally likely, and the shots then read matching bits. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/Topological/BellState.fsx --svg
+  ```
+
 - **[Topological/BasicFusion.fsx](Topological/BasicFusion.fsx)**  
   Anyon fusion demonstrations
+
+  ![Fusing anyons into 1 or ψ](Topological/_images/basic-fusion.svg)
+
+  The picture fuses anyons on a line: a pair made from nothing always fuses back to 1, while one anyon from each of two pairs gives 1 or ψ about half the time each. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/Topological/BasicFusion.fsx --svg
+  ```
 
 - **[Topological/BackendComparison.fsx](Topological/BackendComparison.fsx)**  
   Compare gate-based vs topological backends
@@ -414,6 +449,14 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 - **[Algorithms/AmplitudeAmplification.fsx](Algorithms/AmplitudeAmplification.fsx)**  
   Amplitude amplification boosting a marked state 12.5% → ~95% (`AmplitudeAmplification.Unified.execute`)
+
+  ![Amplitude amplification finding 1 answer among 8, round by round](Algorithms/_images/amplitude-amplification.svg)
+
+  The picture replays the run one step at a time: the oracle flips the right answer's bar, mirroring every bar about the average makes it grow, and two rounds past the best stop its chance falls again. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/Algorithms/AmplitudeAmplification.fsx --svg
+  ```
 
 - **[Algorithms/AdaptVqe.fsx](Algorithms/AdaptVqe.fsx)**  
   ADAPT-VQE — grows a problem-tailored ansatz operator-by-operator to a ground-state energy (`AdaptVqe.run`)

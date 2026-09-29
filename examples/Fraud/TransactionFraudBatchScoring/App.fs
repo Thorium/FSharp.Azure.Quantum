@@ -182,7 +182,7 @@ module App =
                                         Recommendation.ofPrediction p.IsPositive p.Confidence
                                         |> Recommendation.toString
 
-                                    [ t.TransactionId; string p.Label; sprintf "%.6f" p.Confidence; recText ])
+                                    [ t.TransactionId; string p.Label; $"%.6f{p.Confidence}"; recText ])
 
                         let expected = trainScores |> Array.map fst
 
@@ -210,7 +210,7 @@ module App =
                 | _, Error e ->
                     Reporting.writeTextFile
                         (Path.Combine(outDir, "run-report.md"))
-                        ("# Transaction Fraud\n\nTraining/evaluation failed: " + e.Message + "\n")
+                        ($"# Transaction Fraud\n\nTraining/evaluation failed: {e.Message}\n")
 
                     3
                 | Ok _, Ok m ->

@@ -85,9 +85,9 @@ module private Parse =
                                 Supply = supply
                                 Demand = demand
                             }
-                    | None, _ -> Error(sprintf "row=%d invalid node_type='%s'" rowNum nt)
-                    | _, (false, _) -> Error(sprintf "row=%d invalid capacity='%s'" rowNum capStr)
-                | _ -> Error(sprintf "row=%d missing node_id/node_type/capacity" rowNum))
+                    | None, _ -> Error $"row=%d{rowNum} invalid node_type='%s{nt}'"
+                    | _, (false, _) -> Error $"row=%d{rowNum} invalid capacity='%s{capStr}'"
+                | _ -> Error $"row=%d{rowNum} missing node_id/node_type/capacity")
             |> List.fold
                 (fun (oks, errs) r ->
                     match r with
@@ -109,8 +109,8 @@ module private Parse =
                 | Some f, Some t, Some costStr ->
                     match Double.TryParse costStr with
                     | true, c -> Ok { From = f; To = t; Cost = c }
-                    | false, _ -> Error(sprintf "row=%d invalid cost='%s'" rowNum costStr)
-                | _ -> Error(sprintf "row=%d missing from/to/cost" rowNum))
+                    | false, _ -> Error $"row=%d{rowNum} invalid cost='%s{costStr}'"
+                | _ -> Error $"row=%d{rowNum} missing from/to/cost")
             |> List.fold
                 (fun (oks, errs) r ->
                     match r with
@@ -227,7 +227,7 @@ module private Validate =
                         {
                             kind = "flow_conservation"
                             node = n
-                            details = sprintf "in=%d out=%d" inCount outCount
+                            details = $"in=%d{inCount} out=%d{outCount}"
                         })
 
         sinkViolations @ conservationViolations
@@ -415,7 +415,7 @@ module Program =
                     let rows =
                         selected
                         |> List.sortBy (fun e -> e.Source, e.Target)
-                        |> List.map (fun e -> [ e.Source; e.Target; sprintf "%.6f" e.Weight ])
+                        |> List.map (fun e -> [ e.Source; e.Target; $"%.6f{e.Weight}" ])
 
                     Reporting.writeCsv path [ "from"; "to"; "cost" ] rows
 

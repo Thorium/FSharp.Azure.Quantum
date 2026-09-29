@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Examples.Fraud.TransactionFraudBatchScoring
 open System
 
 module Metrics =
+    [<Struct>]
     type private AuprcState =
         {
             Tp: int

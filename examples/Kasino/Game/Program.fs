@@ -151,8 +151,9 @@ module Program =
     let private interactiveSetup () =
         AnsiConsole.Clear()
 
-        let rule = Rule("[bold yellow]Kasino - Finnish Card Game with Quantum AI[/]")
-        rule.Style <- Style.Parse("yellow")
+        let rule =
+            Rule("[bold yellow]Kasino - Finnish Card Game with Quantum AI[/]", Style = (Style.Parse "yellow"))
+
         AnsiConsole.Write(rule)
         AnsiConsole.WriteLine()
 
@@ -178,9 +179,8 @@ module Program =
         // Choose player count
         let playerCount =
             AnsiConsole.Prompt(
-                SelectionPrompt<string>()
-                    .Title("[cyan]Number of players:[/]")
-                    .AddChoices([ "2 players"; "3 players"; "4 players" ])
+                SelectionPrompt<string>().Title("[cyan]Number of players:[/]").AddChoices
+                    [ "2 players"; "3 players"; "4 players" ]
             )
 
         let players =

@@ -13,12 +13,12 @@ module Parsing =
     let private required (rowNum: int) (name: string) (row: Data.CsvRow) : Result<string, ParseError> =
         match tryGet name row with
         | Some v when v <> "" -> Ok v
-        | _ -> Error(sprintf "row=%d missing %s" rowNum name)
+        | _ -> Error $"row=%d{rowNum} missing %s{name}"
 
     let private parseFloat (rowNum: int) (name: string) (s: string) : Result<float, ParseError> =
         match Double.TryParse s with
         | true, x -> Ok x
-        | false, _ -> Error(sprintf "row=%d invalid %s" rowNum name)
+        | false, _ -> Error $"row=%d{rowNum} invalid %s{name}"
 
     let private parseIntOpt (rowNum: int) (name: string) (row: Data.CsvRow) : Result<int option, ParseError> =
         match tryGet name row with
@@ -27,7 +27,7 @@ module Parsing =
         | Some s ->
             match Int32.TryParse s with
             | true, x -> Ok(Some x)
-            | false, _ -> Error(sprintf "row=%d invalid %s" rowNum name)
+            | false, _ -> Error $"row=%d{rowNum} invalid %s{name}"
 
     let private parseRow (rowNum: int) (row: Data.CsvRow) : Result<Transaction, ParseError> =
         match required rowNum "transaction_id" row with
