@@ -1,7 +1,7 @@
 # Drone Fleet Path Planning
 
-A TSP solver orders the waypoints; the fleet then flies that order in sorties
-from a base.
+A TSP solver orders the waypoints, and the fleet flies them in range-safe
+sorties from a base.
 
 ```bash
 dotnet run --project examples/Drones/FleetPathPlanning
@@ -9,10 +9,25 @@ dotnet run --project examples/Drones/FleetPathPlanning
 
 ## Sorties
 
-The tour includes the base and is rotated to start there. `FleetPlanner`
-splits it into sorties in fleet order. Each sortie must fit the whole flight
-into the drone's `MaxRangeKm` minus the battery reserve: out to the first
-waypoint, the legs, and home again.
+`FleetPlanner` splits the waypoints into sorties. Each sortie must fit the
+whole flight into its drone's `MaxRangeKm` minus the battery reserve: out to
+the first waypoint, the legs, and home again. Up to 12 waypoints the split is
+exact. Every set of waypoints gets its shortest flight, found by dynamic
+programming over the sets, and every way of sharing the waypoints among the
+drones is tried. The split kept has:
+
+1. The fewest sorties.
+2. Then the shortest longest sortie, since the sorties fly at the same time.
+3. Then the least distance in all.
+
+Its longest sortie goes to the drone with the most range. Above 12 waypoints
+the TSP tour is cut into sorties in fleet order. On the sample the exact split
+is one sortie of 15.6 km, flown by the fixed-wing: cutting the tour in fleet
+order gave two quad sorties of 10.4 and 10.1 km.
+
+The run report shows the tour as if one aircraft flew it all, then the plan
+itself: its sorties, the longest one's flight time and the battery energy all
+of them use at rated range.
 
 A waypoint that no drone can reach is reported, and planning carries on with
 the rest.
@@ -42,8 +57,10 @@ is not left to chance:
 - The aircraft then makes a controlled descent. The evidence checks that the
   descent's drift, at the maximum operating wind, stays inside the zone's
   radius.
-- A one-way aircraft that drops out mid-flight and can't get home goes to the
-  nearest zone rather than coming down where it is.
+- An aircraft that drops out mid-flight and can't get home still flies the RTL
+  its failsafes command, and lands where the critical-battery failsafe finds
+  it. The dropout check flies both: the RTL all the way home, and the RTL cut
+  where the usable range runs out, with a landing there.
 
 ## C2 relay mesh
 
@@ -74,11 +91,97 @@ fallback above that. They are ranked in this order:
    repeater must not cut anyone off. Coverage is never given up for
    redundancy.
 3. The fewest repeaters.
-4. The shortest deployment flight.
+4. The shortest deployment flight: the order the carrier sets them down in
+   is exact for up to 8 repeaters, by dynamic programming over the sites
+   placed, and greedy above that (always the nearest site the mesh already
+   links). On the sample the exact order flies 11.1 km where the greedy one
+   flew 12.3 km.
 
 With the sample sites the mesh uses 6 repeaters, and none is a single point of
 failure. `--minimal-relays` skips step 2 and uses 3, but each of those is a
 single point of failure, and the evidence FAILs to say so.
+
+## Flying it on ArduPilot
+
+`--mavlink` writes the plan as ArduPilot missions under `mavlink/`: the relay
+carrier's deployment flight and one mission per sortie. Each mission flies
+the track the evidence checked:
+
+- Take off over the aircraft's own pad to the base's altitude, fly the legs,
+  come back over the pad and land on it. A one-way sortie lands in its
+  termination zone instead.
+- **The relay carrier** flies between sites at the base's altitude, or 10 m
+  above the highest site. At each site it descends to 1 m above it, hovers
+  3 s, and opens that repeater's release servo as it climbs away: `SERVO9`
+  for the first site, then `SERVO10`, and so on. The repeater counts as live
+  from that moment.
+- A fixed-wing flies as a QuadPlane: vertical take-off and landing on its pad,
+  fixed-wing flight in between.
+
+The flight model is the one ArduPilot flies. Every copter waypoint holds at
+least 1 s, so the copter comes to rest there instead of carrying its speed
+through the corner, and every leg is an S-curve from rest to rest with the
+autopilot's acceleration and jerk limits.
+It climbs at 2.5 m/s, descends at 1.5 m/s, lands the last metres at 0.5 m/s,
+and spools up for 4 s at launch. A copter's RTL climbs to its layer but never
+descends to it, so a fallback from above its layer returns at its own height,
+and the dropout check flies it that way.
+
+| File | Contents |
+|---|---|
+| `<drone>_mission.plan` | The mission for QGroundControl. |
+| `<drone>.waypoints` | The same as a MAVLink waypoint file. |
+| `<drone>.parm` | ArduPilot 4.7 parameters the mission relies on: speeds, waypoint radius, RTL at the sortie's own layer, lost link returns home, the carrier's release servos. |
+| `mavlink_show.fsx` | The launcher shared by all four drone examples. |
+| `plan.csv`, `plan_tracks.csv` | When each mission starts and ends, and where it is planned to be, second by second. |
+
+The launcher checks each vehicle is the kind its mission is for, sets and
+reads back every parameter, uploads and reads back every mission, and checks
+each vehicle stands on its pad. It refuses to start on any difference. It
+starts the carrier at T0 and each sortie at its launch time, once more
+checking that the vehicle stands on its pad, writes
+`telemetry.csv`, and exits when everything has landed.
+
+```bash
+dotnet run --project examples/Drones/FleetPathPlanning -- --mavlink --out runs/drone/fleet
+```
+
+```bash
+dotnet fsi runs/drone/fleet/mavlink/mavlink_show.fsx --dry-run
+```
+
+### Flown in ArduPilot SITL
+
+The default plan was flown in ArduPilot's own software-in-the-loop simulator,
+with the generated launcher, on 29 September 2026: the relay carrier on
+ArduCopter 4.7.1, the sortie on the fixed-wing as an ArduPlane 4.7.1
+QuadPlane. The carrier set down all six repeaters, then the fixed-wing flew
+all seven waypoints and came home. [SITL.md](../SITL.md) shows how to repeat
+it.
+
+![The plan flown in ArduPilot SITL: the plan as a wide pale band and the flight as a thin line, from above, height over time, and in 3-D](../_images/fleet-path-planning-sitl.svg)
+
+| Measure | Result |
+|---|---|
+| Sortie launch | UAV004 at T0+1481.6 s, planned 1481 s |
+| Every aircraft down and disarmed | T0+2229 s, planned 2218 s |
+| Closest approach between airborne aircraft | 14.1 m, limit 5 m; the evidence predicts 14.1 m |
+| Carrier from its planned track | at most 10.0 m, 95% of fixes within 9.5 m |
+| Fixed-wing at each waypoint | within 4.1 s of its planned time, passing within 31 m |
+| Fixed-wing from its planned path, whenever it got there | at most 88 m, 95% of fixes within 32 m |
+
+A fixed-wing cannot turn on a point. At 25 m/s it turns on a circle of about
+64 m, and the plan now draws its corners as ArduPlane flies them: a turn of up
+to 90 degrees cuts the corner on an arc and rejoins the next leg, and a
+sharper one swings outside the next leg before rejoining it. Against the
+straight lines the plan drew before, 95% of fixes were within 37 m. The
+largest distance, 88 m, is the transition from hover after take-off. At the
+same moment, the fixed-wing was at most 147 m from its planned position, 95%
+of fixes within 128 m: it ran up to 4 s ahead of or behind the plan along its
+track, which at 25 m/s is 100 m.
+
+The picture is animated: the 37-minute plan plays in 20 s, looping. Copters
+show as quads and the fixed-wing as a plane.
 
 ## One-pilot-to-many permission evidence
 
@@ -132,6 +235,8 @@ dropout check still failed: one fallback passed 2.3 m from a neighbour.
 | `--rtl-base-m`, `--rtl-step-m` | 60, 10 | Fallback layers |
 | `--pilots <n>` | 1 | Pilots declared in the evidence |
 | `--method` | hybrid | `hybrid` or `quantum` TSP |
+| `--mavlink` | off | Write ArduPilot missions and the launcher |
+| `--home-alt <m>` | 0 | Ground at the base above mean sea level |
 
 The limits are this example's working values from `DroneDomain.fs`, not any
 authority's rules.

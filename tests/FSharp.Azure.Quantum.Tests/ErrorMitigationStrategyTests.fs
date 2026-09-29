@@ -254,7 +254,8 @@ module ErrorMitigationStrategyTests =
         | ErrorMitigationStrategy.Combined [ ErrorMitigationStrategy.ZeroNoiseExtrapolation _
                                              ErrorMitigationStrategy.ReadoutErrorMitigation _ ],
           Some(ErrorMitigationStrategy.ReadoutErrorMitigation _) -> ()
-        | primary, fallback -> Assert.Fail($"Expected ZNE+Readout with a Readout fallback, got %A{primary} / %A{fallback}")
+        | primary, fallback ->
+            Assert.Fail($"Expected ZNE+Readout with a Readout fallback, got %A{primary} / %A{fallback}")
 
     // ============================================================================
     // Additional Tests: Cost Estimation

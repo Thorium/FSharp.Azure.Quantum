@@ -128,42 +128,57 @@ let assignedFormations
 // =============================================================================
 
 /// A point in metres from the show origin (X east, Y north, Z up above home).
+[<Struct>]
 type LocalPoint = { X: float; Y: float; Z: float }
 
 /// ArduPilot Copter speed limits the timing model relies on (its defaults).
 /// A waypoint leg's horizontal speed is the mission speed (DO_CHANGE_SPEED,
-/// ground speed); its vertical rate is capped by WPNAV_SPEED_UP / WPNAV_SPEED_DN.
+/// ground speed); its vertical rate is capped by WP_SPD_UP / WP_SPD_DN.
 module Autopilot =
-    /// WPNAV_SPEED_UP 250 cm/s
+    /// WP_SPD_UP 2.5 m/s
+    [<Literal>]
     let climbSpeedMs = 2.5
-    /// WPNAV_SPEED_DN 150 cm/s
+
+    /// WP_SPD_DN 1.5 m/s
+    [<Literal>]
     let descentSpeedMs = 1.5
+
     /// Slowest leg speed exported; a shorter leg is flown at this speed and the
     /// drone waits out the rest of the transition at the waypoint.
+    [<Literal>]
     let minLegSpeedMs = 0.5
+
     /// Hold at every formation, identical for all drones.
+    [<Literal>]
     let formationHoldS = 2.0
+
     /// NAV_TAKEOFF altitude, the same for every drone so all start the first
     /// transition together.
+    [<Literal>]
     let takeoffAltitudeM = 2.0
-    /// LAND_ALT_LOW 1000 cm: below it a landing slows to LAND_SPEED.
+
+    /// LAND_ALT_LOW_M 10 m: below it a landing slows to LAND_SPD_MS.
+    [<Literal>]
     let landAltLowM = 10.0
-    /// LAND_SPEED 50 cm/s
+
+    /// LAND_SPD_MS 0.5 m/s
+    [<Literal>]
     let landSpeedMs = 0.5
+
     /// RTL_LOIT_TIME 5000 ms: hover above home before landing.
     let rtlLoiterS = 5.0
-    /// WPNAV_ACCEL 250 cm/s/s: horizontal acceleration limit of waypoint legs.
+    /// WP_ACC 2.5 m/s/s: horizontal acceleration limit of waypoint legs.
     let accelMss = 2.5
-    /// WPNAV_ACCEL_Z 100 cm/s/s: vertical acceleration limit.
+    /// WP_ACC_Z 1 m/s/s: vertical acceleration limit.
     let accelZMss = 1.0
-    /// WPNAV_JERK 1 m/s/s/s: horizontal jerk limit (ArduPilot's S-curves).
+    /// WP_JERK 1 m/s/s/s: horizontal jerk limit (ArduPilot's S-curves).
     let jerkMsss = 1.0
-    /// PSC_JERK_Z 5 m/s/s/s: vertical jerk limit.
+    /// PSC_D_JERK 5 m/s/s/s: vertical jerk limit.
     let jerkZMsss = 5.0
 
 /// Kinematic limits of one straight leg, along the track: the horizontal part
-/// is held to the leg's speed and WPNAV_ACCEL / WPNAV_JERK, the vertical part to
-/// the climb or descent speed, WPNAV_ACCEL_Z and PSC_JERK_Z; along a sloped
+/// is held to the leg's speed and WP_ACC / WP_JERK, the vertical part to
+/// the climb or descent speed, WP_ACC_Z and PSC_D_JERK; along a sloped
 /// track each limit is divided by its axis's share of the track.
 let private trackLimits (speedMs: float) (a: LocalPoint) (b: LocalPoint) =
     let length = Math.Sqrt((b.X - a.X) ** 2.0 + (b.Y - a.Y) ** 2.0 + (b.Z - a.Z) ** 2.0)
@@ -328,7 +343,7 @@ let syncTransition (cruiseMs: float) (holdS: float) (legs: (LocalPoint * LocalPo
 
 /// RTL altitude per drone: all above the highest show point, `spacingM` apart,
 /// so drones returning at once cross at different heights. ArduPilot's RTL
-/// first climbs VERTICALLY to RTL_ALT, so the order matters too: a drone that
+/// first climbs VERTICALLY to RTL_ALT_M, so the order matters too: a drone that
 /// is ever stacked under another (closer than `spacingM` horizontally) gets
 /// the lower RTL altitude, or its climb would go through the other drone.
 /// Conflicting stackings are broken by average show height.
@@ -388,35 +403,40 @@ let rtlLoiterSeconds (cruiseMs: float) (routes: LocalPoint[][]) (homes: LocalPoi
     min 60.0 (Math.Ceiling worst)
 
 /// ArduPilot parameters one vehicle must carry for the exported mission to fly
-/// as planned and for its failsafe to be the RTL the evidence pack models.
+/// as planned and for its failsafe to be the RTL the evidence pack models: the
+/// shared ArduCopter 4.7 set, with lost link and RC loss CONTINUING the show in
+/// AUTO (the mission itself is deconflicted; a lone vertical RTL climb from
+/// under a stacked drone is not), plus the RTL and S-curve limits the timing
+/// model relies on. Low battery warns only: the pilot takes the drone out of
+/// the show by the drop-out procedure (step out of the formation plane, land
+/// there); the endurance margin keeps the critical level out of the show.
 let parameters (cruiseMs: float) (rtlAltM: float) (rtlLoiterS: float) : (string * float) list =
-    [
-        "RTL_ALT", Math.Round(rtlAltM * 100.0) // cm
-        "RTL_ALT_FINAL", 0.0 // land at home
-        "RTL_CONE_SLOPE", 0.0 // always climb to RTL_ALT
-        "RTL_CLIMB_MIN", 0.0
-        "RTL_LOIT_TIME", rtlLoiterS * 1000.0 // ms
-        "RTL_SPEED", Math.Round(cruiseMs * 100.0) // cm/s
-        "WPNAV_SPEED_UP", Autopilot.climbSpeedMs * 100.0
-        "WPNAV_SPEED_DN", Autopilot.descentSpeedMs * 100.0
-        "WPNAV_ACCEL", Autopilot.accelMss * 100.0 // the S-curve timing assumes these four
-        "WPNAV_ACCEL_Z", Autopilot.accelZMss * 100.0
-        "WPNAV_JERK", Autopilot.jerkMsss
-        "PSC_JERK_Z", Autopilot.jerkZMsss
-        "LAND_SPEED", Autopilot.landSpeedMs * 100.0
-        "LAND_SPEED_HIGH", 0.0 // = WPNAV_SPEED_DN
-        "LAND_ALT_LOW", Autopilot.landAltLowM * 100.0
-        "FS_GCS_ENABLE", 1.0 // ground-station link lost: RTL outside AUTO ...
-        "FS_THR_ENABLE", 1.0 // RC link lost: RTL outside AUTO ...
-        // ... but in AUTO (the show) and while landing, CONTINUE: bits 0, 1, 3.
-        // The mission itself is deconflicted; a lone vertical RTL climb from
-        // under a stacked drone is not.
-        "FS_OPTIONS", 11.0
-        // Low battery: warn only. The pilot takes the drone out of the show by
-        // the drop-out procedure (step out of the formation plane, land there);
-        // the endurance margin keeps the critical level out of the show.
-        "BATT_FS_LOW_ACT", 0.0
-    ]
+    let core =
+        Params.copter
+            {
+                Vehicle = ArduCopter
+                CruiseMs = cruiseMs
+                ClimbMs = Autopilot.climbSpeedMs
+                DescentMs = Autopilot.descentSpeedMs
+                RtlAltM = rtlAltM
+                WaypointRadiusM = 0.5
+                LostLink = ContinueMission
+            }
+
+    let show =
+        [
+            "RTL_LOIT_TIME", rtlLoiterS * 1000.0 // ms
+            "RTL_CONE_SLOPE", 0.0 // always climb to RTL_ALT_M
+            "RTL_CLIMB_MIN_M", 0.0
+            "RTL_SPEED_MS", cruiseMs
+            "WP_ACC", Autopilot.accelMss // the S-curve timing assumes these four
+            "WP_ACC_Z", Autopilot.accelZMss
+            "WP_JERK", Autopilot.jerkMsss
+            "PSC_D_JERK", Autopilot.jerkZMsss
+        ]
+
+    let overridden = show |> List.map fst |> Set.ofList
+    (core |> List.filter (fun (n, _) -> not (overridden.Contains n))) @ show
 
 /// Build mission items for one drone: take off where it stands, then for each
 /// waypoint set the leg speed and fly there with its hold, then land back on
@@ -568,7 +588,7 @@ let showSeparation
                 Z = p0.Z + f * (p1.Z - p0.Z)
             }
 
-    let tEnd = tracks |> Array.map (fun s -> fst (Array.last s)) |> Array.max
+    let tEnd = tracks |> Array.map (Array.last >> fst) |> Array.max
 
     [ 0.0 .. 0.05 .. tEnd ]
     |> List.map (fun t ->
@@ -607,7 +627,7 @@ let createSwarmMission
                 {
                     SystemId = i + 1
                     ComponentId = 1
-                    Name = sprintf "Drone%d" i
+                    Name = $"Drone%d{i}"
                     // ArduPilot SITL instance i serves MAVLink on TCP 5760 + 10 i.
                     ConnectionString = sprintf "tcp:127.0.0.1:%d" (5760 + i * 10)
                 }
@@ -641,6 +661,7 @@ let createSwarmMission
 
             {
                 Drone = drone
+                Vehicle = ArduCopter
                 // Its arming point, at the site's MSL altitude (plannedHomePosition
                 // and .waypoints row 0 are absolute).
                 HomePosition =
@@ -756,7 +777,7 @@ let fromTransitionResults
 
     let quantumCount =
         transitions
-        |> Array.filter (fun t -> t.Method.Contains("Quantum"))
+        |> Array.filter (fun t -> t.Method.Contains "Quantum")
         |> Array.length
 
     let optimizationMethod =

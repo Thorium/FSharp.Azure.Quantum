@@ -16,6 +16,8 @@ open System.Globalization
 open FSharp.Azure.Quantum.Examples.Common
 open FSharp.Azure.Quantum.Examples.Drones.Domain
 
+module Mav = FSharp.Azure.Quantum.Examples.Drones.MavlinkMission
+
 // =============================================================================
 // FRAME AND TICK
 // =============================================================================
@@ -36,6 +38,7 @@ module Frame =
         | LocalMetres -> "local metres"
 
 /// A position as read from a CSV row, before the frame is known.
+[<Struct>]
 type RawPos =
     | LatLon of lat: float * lon: float
     | Metres of x: float * y: float
@@ -79,6 +82,7 @@ module Tick =
 // =============================================================================
 
 /// Local planar position in km (X = east, Y = north).
+[<Struct>]
 type Pos = { X: float; Y: float }
 
 module Geometry =
@@ -214,25 +218,32 @@ type DroneClass =
 /// model must count it, or it plans cycles no whole aircraft can fly.
 module Terminal =
 
-    /// Vertical speeds the missions assume (ArduPilot's WPNAV_SPEED_UP/DN).
+    /// Vertical speeds the missions assume and set (WP_SPD_UP/DN): ArduPilot's
+    /// defaults, or the fleet's loaded speed if that is slower.
     let climbMs (fleet: DroneClass) = min 2.5 fleet.LoadedSpeedMs
     let descentMs (fleet: DroneClass) = min 1.5 fleet.LoadedSpeedMs
 
-    /// ArduPilot lands the last `landAltLowM` metres at LAND_SPEED, slower
+    /// ArduPilot lands the last `landAltLowM` metres at LAND_SPD_MS, slower
     /// than the descent above it; the tracks and the battery count it.
-    let landSpeedMs = 0.5
-    let landAltLowM = 10.0
+    let landSpeedMs = (Mav.Flight.vertical Mav.ArduCopter).LandFinalMs
+    let landAltLowM = (Mav.Flight.vertical Mav.ArduCopter).LandFinalAltM
 
     /// Seconds to descend from `altM` onto the pad.
     let landingS (fleet: DroneClass) (altM: float) =
-        max 0.0 (altM - landAltLowM) / descentMs fleet
-        + min altM landAltLowM / landSpeedMs
+        Mav.Flight.landingAtS Mav.ArduCopter (descentMs fleet) altM
+
+    /// Seconds for a terminal leg of `horizontalM` and `dzM` at `speedMs`,
+    /// flown from rest to rest as ArduCopter does (Mav.Flight.copterLeg), and
+    /// the settle hold at its waypoint.
+    let legS (fleet: DroneClass) (speedMs: float) (horizontalM: float) (dzM: float) =
+        (Mav.Flight.copterLeg speedMs (climbMs fleet) (descentMs fleet) horizontalM dzM).TotalS
+        + Mav.stopS
 
     /// Seconds an aircraft is on the ground between two sorties before the
     /// next can start: ArduPilot's disarm delay, then the launcher's upload,
     /// read-back, arm and start. Written to the .parm as DISARM_DELAY.
-    let disarmDelayS = 5.0
-    let turnaroundS = disarmDelayS + 10.0
+    let disarmDelayS = Mav.Params.disarmDelayS
+    let turnaroundS = Mav.Flight.turnaroundS
 
     /// Drop slots on an arc around the target that leaves the lane's approach
     /// sector free: slot 0 straight on from the lane, the others fanned to
@@ -247,7 +258,13 @@ module Terminal =
         else
             let step = 2.0 * Math.PI / float (slots + 1)
             let chord = spacing / (2.0 * Math.Sin(step / 2.0))
-            let radial = if step < Math.PI / 2.0 then spacing / Math.Sin step else 0.0
+
+            let radial =
+                if step < Math.PI / 2.0 then
+                    spacing / Math.Sin step
+                else
+                    0.0
+
             (max spacing (max chord radial), step)
 
     /// Radius of a ring of `slots` points one `spacing` apart (the fill slots
@@ -268,24 +285,38 @@ module Terminal =
         else
             let step = Math.PI / float (n - 1)
             let chord = separation / (2.0 * Math.Sin(step / 2.0))
-            let radial = if step < Math.PI / 2.0 then separation / Math.Sin step else 0.0
+
+            let radial =
+                if step < Math.PI / 2.0 then
+                    separation / Math.Sin step
+                else
+                    0.0
+
             (max spacing (max chord radial), step)
 
-    /// Seconds a cycle spends outside the lane: climb from the pad, the radial
-    /// leg to the source centre, the leg to the drop slot and back, the climb
-    /// to the return altitude, the radial leg back over the pad and the
-    /// descent onto it. Split into the outbound share (before the first drop)
-    /// and the rest.
+    /// Seconds a cycle spends outside the lane's cruise: the spool-up and climb
+    /// from the pad, the radial leg to the source centre, the leg to the drop
+    /// slot and back, the climb to the return altitude, the radial leg back
+    /// over the pad and the descent onto it, every leg from rest to rest, and
+    /// the lane legs' own ramps (the lane's cruise time is the corridor's).
+    /// Split into the outbound share (before the first drop) and the rest.
     let overheadS (fleet: DroneClass) (padRadiusM: float) (dropRadiusM: float) =
+        let loaded, empty = fleet.LoadedSpeedMs, fleet.EmptySpeedMs
+
         let outbound =
-            fleet.LaneBaseAltM / climbMs fleet
-            + padRadiusM / fleet.LoadedSpeedMs
-            + dropRadiusM / fleet.LoadedSpeedMs
+            Mav.Flight.spoolUpS
+            + legS fleet loaded 0.0 fleet.LaneBaseAltM
+            + legS fleet loaded padRadiusM 0.0
+            + Mav.Flight.rampS loaded
+            + Mav.stopS
+            + legS fleet loaded dropRadiusM 0.0
 
         let back =
-            fleet.ReturnOffsetM / climbMs fleet
-            + dropRadiusM / fleet.EmptySpeedMs
-            + padRadiusM / fleet.EmptySpeedMs
+            legS fleet empty 0.0 fleet.ReturnOffsetM
+            + legS fleet empty dropRadiusM 0.0
+            + Mav.Flight.rampS empty
+            + Mav.stopS
+            + legS fleet empty padRadiusM 0.0
             + landingS fleet (fleet.LaneBaseAltM + fleet.ReturnOffsetM)
 
         (outbound, back)
@@ -457,8 +488,8 @@ module Parse =
                         Neighbors = neighbors
                     }
                 )
-            | _, _, _, Error column -> Error(sprintf "row=%d invalid sector field '%s'" rowNum column)
-            | _ -> Error(sprintf "row=%d missing sector_id, name or position (latitude/longitude or x_m/y_m)" rowNum))
+            | _, _, _, Error column -> Error $"row=%d{rowNum} invalid sector field '%s{column}'"
+            | _ -> Error $"row=%d{rowNum} missing sector_id, name or position (latitude/longitude or x_m/y_m)")
 
     /// The lane geometry and separation minima are optional columns with the
     /// outdoor defaults; an indoor fleet overrides them.
@@ -494,7 +525,12 @@ module Parse =
               Some drop,
               Some spacing,
               Ok [ payload; swap; baseAlt; step; returnOffset; minSep; minVert ] when
-                count > 0 && loaded > 0.0 && empty > 0.0 && endurance > 0.0 && drop >= 0.0 && spacing > 0.0
+                count > 0
+                && loaded > 0.0
+                && empty > 0.0
+                && endurance > 0.0
+                && drop >= 0.0
+                && spacing > 0.0
                 ->
                 Ok
                     {
@@ -513,8 +549,8 @@ module Parse =
                         MinSeparationM = minSep
                         MinVerticalM = minVert
                     }
-            | _, _, _, _, _, _, _, Error column -> Error(sprintf "row=%d invalid fleet field '%s'" rowNum column)
-            | _ -> Error(sprintf "row=%d missing or invalid fleet fields" rowNum))
+            | _, _, _, _, _, _, _, Error column -> Error $"row=%d{rowNum} invalid fleet field '%s{column}'"
+            | _ -> Error $"row=%d{rowNum} missing or invalid fleet fields")
 
     /// Event times are in ticks: column `tick`, or `minute` for the fire files
     /// (they are the same thing at a one-minute tick).

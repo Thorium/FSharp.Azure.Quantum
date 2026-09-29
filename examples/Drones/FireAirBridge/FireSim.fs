@@ -63,6 +63,7 @@ let defaultPhysics =
         ThinEfficiency = 0.2
     }
 
+[<Struct>]
 type SectorState =
     {
         Intensity: float
@@ -113,7 +114,9 @@ let private burningDemandLpm (phys: FirePhysics) (cond: Conditions) (s: FireSect
     let growth =
         phys.GrowthPerMin * windGrowth cond * st.Intensity * (1.0 - st.Intensity)
 
-    s.AreaHa * phys.KnockdownLPerHa * (growth + st.Intensity / phys.KnockdownTargetMin)
+    s.AreaHa
+    * phys.KnockdownLPerHa
+    * (growth + st.Intensity / phys.KnockdownTargetMin)
 
 /// What each sector asks of the air bridge this tick.
 let needs

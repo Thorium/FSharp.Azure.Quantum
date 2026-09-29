@@ -516,6 +516,7 @@ module Shor =
     // sound; what it was planning was not.
 
     /// Canonical intent for Shor period finding: estimate the phase of U_a |x⟩ = |ax mod N⟩.
+    [<Struct>]
     type ShorPeriodFindingIntent =
         {
             Base: int

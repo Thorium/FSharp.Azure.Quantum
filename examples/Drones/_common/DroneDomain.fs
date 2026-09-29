@@ -25,26 +25,33 @@ open System
 module Regulations =
     /// Maximum altitude AGL (Above Ground Level) for recreational/commercial drones (meters)
     /// FAA Part 107: 400 feet = 121.92 meters
+    [<Literal>]
     let maxAltitudeAglMeters = 121.92
 
     /// Maximum ground speed under FAA Part 107 (m/s)
     /// 100 mph = 44.7 m/s
+    [<Literal>]
     let maxGroundSpeedMs = 44.7
 
     /// Minimum visibility for VLOS operations (statute miles)
+    [<Literal>]
     let minVisibilityMiles = 3.0
 
     /// Minimum distance from clouds - horizontal (feet)
+    [<Literal>]
     let minCloudDistanceHorizontalFt = 2000.0
 
     /// Minimum distance from clouds - below (feet)
+    [<Literal>]
     let minCloudDistanceBelowFt = 500.0
 
     /// BVLOS (Beyond Visual Line of Sight) requires special waiver
     /// Typical approved BVLOS range limit (km)
+    [<Literal>]
     let typicalBvlosRangeLimitKm = 10.0
 
     /// Night operations require anti-collision lighting visible at (statute miles)
+    [<Literal>]
     let nightLightingVisibilityMiles = 3.0
 
 // =============================================================================
@@ -59,61 +66,82 @@ module Battery =
 
     /// Typical LiPo energy density range (Wh/kg)
     /// "Typical energy densities range from 150 to 200 Wh/kg"
+    [<Literal>]
     let lipoEnergyDensityMinWhPerKg = 150.0
+
+    [<Literal>]
     let lipoEnergyDensityMaxWhPerKg = 200.0
+
+    [<Literal>]
     let lipoEnergyDensityTypicalWhPerKg = 175.0
 
     /// Solid-state battery energy density (emerging tech) (Wh/kg)
     /// "Commercial prototypes claim energy densities exceeding 300 Wh/kg"
+    [<Literal>]
     let solidStateEnergyDensityWhPerKg = 300.0
 
     /// Optimal operating temperature range for lithium-based cells (°C)
     /// "typically 20–40°C for lithium-based cells"
+    [<Literal>]
     let optimalTempMinCelsius = 20.0
+
+    [<Literal>]
     let optimalTempMaxCelsius = 40.0
 
     /// Lithium metal anode theoretical capacity (mAh/g)
     /// "lithium metal anodes with higher theoretical capacity (3860 mAh/g)"
+    [<Literal>]
     let lithiumMetalTheoreticalCapacity = 3860.0
 
     // --- Safety Thresholds ---
 
     /// Critical low battery threshold - trigger return-to-home (%)
+    [<Literal>]
     let criticalBatteryPercent = 20.0
 
     /// Warning battery threshold (%)
+    [<Literal>]
     let warningBatteryPercent = 30.0
 
     /// Emergency landing threshold (%)
+    [<Literal>]
     let emergencyLandingPercent = 10.0
 
     /// Reserve battery for emergency maneuvers (%)
+    [<Literal>]
     let reserveBatteryPercent = 15.0
 
     // --- Discharge Characteristics ---
 
     /// Voltage sag factor at high current draw
+    [<Literal>]
     let highCurrentVoltageSagFactor = 0.85
 
     /// Capacity reduction in cold weather (per 10°C below optimal)
+    [<Literal>]
     let coldWeatherCapacityLossPercentPer10C = 10.0
 
     /// Typical C-rating for multirotor discharge
+    [<Literal>]
     let typicalDischargeRateC = 25.0
 
     // --- Energy Consumption Models ---
 
     /// Hover power consumption factor (W per kg of total weight)
     /// Approximate for typical quadcopter efficiency
+    [<Literal>]
     let hoverPowerWPerKg = 150.0
 
     /// Forward flight is more efficient than hover (factor)
+    [<Literal>]
     let forwardFlightEfficiencyFactor = 0.7
 
     /// Climb power increase factor (compared to hover)
+    [<Literal>]
     let climbPowerIncreaseFactor = 1.3
 
     /// Descent power reduction factor (compared to hover)
+    [<Literal>]
     let descentPowerReductionFactor = 0.5
 
 /// Calculate estimated power consumption
@@ -155,22 +183,34 @@ module Propulsion =
 
     /// Maximum tip Mach number before compressibility effects
     /// "Maintaining tip Mach number below approximately 0.85"
+    [<Literal>]
     let maxTipMachNumber = 0.85
 
     /// Speed of sound at sea level (m/s)
+    [<Literal>]
     let speedOfSoundSeaLevelMs = 343.0
 
     /// Maximum safe tip speed (m/s)
     let maxTipSpeedMs = maxTipMachNumber * speedOfSoundSeaLevelMs // ~291 m/s
 
     /// Typical propeller efficiency range
+    [<Literal>]
     let propellerEfficiencyMin = 0.60
+
+    [<Literal>]
     let propellerEfficiencyMax = 0.85
+
+    [<Literal>]
     let propellerEfficiencyTypical = 0.75
 
     /// BLDC motor efficiency typical range
+    [<Literal>]
     let motorEfficiencyMin = 0.80
+
+    [<Literal>]
     let motorEfficiencyMax = 0.92
+
+    [<Literal>]
     let motorEfficiencyTypical = 0.88
 
 // =============================================================================
@@ -184,53 +224,67 @@ module Communication =
     // --- Frequency Bands ---
 
     /// 900 MHz band - longer range, better penetration
+    [<Literal>]
     let band900MhzFrequency = 900.0e6
 
     /// 2.4 GHz ISM band - common for consumer drones
+    [<Literal>]
     let band2400MhzFrequency = 2400.0e6
 
     /// 5.8 GHz ISM band - higher throughput, shorter range
+    [<Literal>]
     let band5800MhzFrequency = 5800.0e6
 
     // --- Link Budget Parameters ---
 
     /// Typical transmit power for consumer drone (dBm)
+    [<Literal>]
     let typicalTxPowerDbm = 20.0 // 100 mW
 
     /// Typical antenna gain (dBi)
+    [<Literal>]
     let typicalAntennaGainDbi = 3.0
 
     /// Typical receiver sensitivity (dBm)
+    [<Literal>]
     let typicalRxSensitivityDbm = -90.0
 
     /// Free-space path loss constant
+    [<Literal>]
     let freeSpacePathLossConstant = 32.44
 
     // --- MAVLink Protocol ---
 
     /// MAVLink default baud rate (bps)
+    [<Literal>]
     let mavlinkDefaultBaudRate = 57600
 
     /// MAVLink high-speed baud rate (bps)
+    [<Literal>]
     let mavlinkHighSpeedBaudRate = 115200
 
     /// MAVLink heartbeat interval (seconds)
+    [<Literal>]
     let mavlinkHeartbeatIntervalSec = 1.0
 
     /// MAVLink timeout for connection loss (seconds)
+    [<Literal>]
     let mavlinkTimeoutSec = 3.0
 
     // --- Latency Requirements ---
 
     /// Maximum acceptable control latency (ms)
     /// "ensure that control signals and telemetry feedback occur within milliseconds"
+    [<Literal>]
     let maxControlLatencyMs = 100.0
 
     /// Critical control latency requiring action (ms)
+    [<Literal>]
     let criticalControlLatencyMs = 250.0
 
     /// 5G target latency for BVLOS (ms)
     /// "ultra-low latency (as low as 1 ms)"
+    [<Literal>]
     let target5gLatencyMs = 1.0
 
 /// Calculate theoretical maximum range using Friis equation (km)
@@ -262,47 +316,59 @@ module Safety =
     // --- Separation Distances ---
 
     /// Minimum horizontal separation between drones in swarm (meters)
+    [<Literal>]
     let minSwarmSeparationMeters = 5.0
 
     /// Safe following distance for formation flight (meters)
+    [<Literal>]
     let formationFollowingDistanceMeters = 10.0
 
     /// Collision avoidance trigger distance (meters)
+    [<Literal>]
     let collisionAvoidanceTriggerMeters = 30.0
 
     /// Emergency avoidance distance (meters)
+    [<Literal>]
     let emergencyAvoidanceMeters = 15.0
 
     // --- Geofencing ---
 
     /// Default geofence buffer from no-fly zones (meters)
+    [<Literal>]
     let geofenceBufferMeters = 50.0
 
     /// Airport proximity restriction radius (km)
     /// FAA requires notification within 5 miles
+    [<Literal>]
     let airportRestrictionRadiusKm = 8.0 // ~5 miles
 
     // --- Return-to-Home Triggers ---
 
     /// Signal loss duration before RTH (seconds)
+    [<Literal>]
     let signalLossRthTriggerSec = 5.0
 
     /// GPS loss duration before emergency landing (seconds)
+    [<Literal>]
     let gpsLossEmergencyTriggerSec = 10.0
 
     /// IMU failure response - immediate controlled descent
+    [<Literal>]
     let imuFailureDescentRateMs = 2.0
 
     // --- Wind Limits ---
 
     /// Maximum safe operating wind speed (m/s)
     /// Approximately 25 mph for typical consumer drones
+    [<Literal>]
     let maxOperatingWindSpeedMs = 11.0
 
     /// Wind gust tolerance above steady wind (m/s)
+    [<Literal>]
     let windGustToleranceMs = 5.0
 
     /// Wind speed requiring mission abort (m/s)
+    [<Literal>]
     let missionAbortWindSpeedMs = 15.0
 
 // =============================================================================
@@ -314,21 +380,27 @@ module Safety =
 module Environment =
 
     /// Air density at sea level (kg/m³)
+    [<Literal>]
     let airDensitySeaLevel = 1.225
 
     /// Air density reduction per 1000m altitude (approximate)
+    [<Literal>]
     let airDensityReductionPer1000m = 0.12
 
     /// Standard temperature lapse rate (°C per 1000m)
+    [<Literal>]
     let temperatureLapseRatePer1000m = 6.5
 
     /// Sea level standard temperature (°C)
+    [<Literal>]
     let seaLevelStandardTempC = 15.0
 
     /// Earth radius for distance calculations (km)
+    [<Literal>]
     let earthRadiusKm = 6371.0
 
     /// Gravity acceleration (m/s²)
+    [<Literal>]
     let gravityMs2 = 9.81
 
 /// Calculate air density at altitude
@@ -353,21 +425,27 @@ module Swarm =
 
     /// Consensus algorithm convergence coefficient (ε)
     /// "where ε is a small positive coefficient controlling the convergence rate"
+    [<Literal>]
     let consensusConvergenceEpsilon = 0.1
 
     /// Formation control gain parameter (α)
+    [<Literal>]
     let formationControlGain = 0.5
 
     /// Maximum swarm size for decentralized control (before hierarchical needed)
+    [<Literal>]
     let maxDecentralizedSwarmSize = 50
 
     /// Communication update rate for swarm coordination (Hz)
+    [<Literal>]
     let swarmCoordinationUpdateRateHz = 10.0
 
     /// Neighbor discovery timeout (seconds)
+    [<Literal>]
     let neighborDiscoveryTimeoutSec = 2.0
 
     /// Maximum communication hops in mesh network
+    [<Literal>]
     let maxMeshHops = 5
 
 // =============================================================================
@@ -379,21 +457,27 @@ module Swarm =
 module Scheduling =
 
     /// Takeoff/landing time overhead (minutes)
+    [<Literal>]
     let takeoffLandingOverheadMin = 2.0
 
     /// Pre-flight check duration (minutes)
+    [<Literal>]
     let preflightCheckDurationMin = 5.0
 
     /// Battery swap time (minutes)
+    [<Literal>]
     let batterySwapTimeMin = 3.0
 
     /// Fast charging time to 80% (minutes, typical)
+    [<Literal>]
     let fastChargeTo80PercentMin = 45.0
 
     /// Full charge time (minutes, typical)
+    [<Literal>]
     let fullChargeTimeMin = 90.0
 
     /// Minimum ground time between flights (minutes)
+    [<Literal>]
     let minGroundTimeMin = 10.0
 
     /// Default task priority levels — AVIATION convention: LOWER number = HIGHER
@@ -403,9 +487,16 @@ module Scheduling =
     /// the scheduler, invert with `toSchedulerPriority` below so emergency tasks
     /// sort first. (The tasks.csv data used by SwarmTaskAllocation is authored in
     /// the SCHEDULER convention directly: emergency_response = 5, takeoff = 0.)
+    [<Literal>]
     let priorityEmergency = 1
+
+    [<Literal>]
     let priorityHigh = 2
+
+    [<Literal>]
     let priorityMedium = 3
+
+    [<Literal>]
     let priorityLow = 4
 
     /// Convert an aviation-convention priority (1 = highest) to the TaskScheduling
@@ -415,6 +506,7 @@ module Scheduling =
         float (priorityLow + 1 - aviationPriority)
 
     /// Emergency response preemption allowed
+    [<Literal>]
     let emergencyPreemptionEnabled = true
 
 // =============================================================================
@@ -426,27 +518,35 @@ module Scheduling =
 module Sensors =
 
     /// GPS update rate (Hz)
+    [<Literal>]
     let gpsUpdateRateHz = 10.0
 
     /// IMU update rate (Hz)
+    [<Literal>]
     let imuUpdateRateHz = 200.0
 
     /// Barometer update rate (Hz)
+    [<Literal>]
     let barometerUpdateRateHz = 50.0
 
     /// GPS horizontal accuracy (meters, typical)
+    [<Literal>]
     let gpsHorizontalAccuracyMeters = 2.5
 
     /// GPS vertical accuracy (meters, typical)
+    [<Literal>]
     let gpsVerticalAccuracyMeters = 5.0
 
     /// Barometer altitude accuracy (meters)
+    [<Literal>]
     let barometerAccuracyMeters = 0.5
 
     /// IMU gyroscope drift rate (degrees/hour, typical MEMS)
+    [<Literal>]
     let gyroscopeDriftRateDegreesPerHour = 10.0
 
     /// Magnetometer calibration validity duration (hours)
+    [<Literal>]
     let magnetometerCalibrationValidityHours = 24.0
 
 // =============================================================================
@@ -458,29 +558,51 @@ module Sensors =
 module FlightControl =
 
     /// Typical attitude control loop rate (Hz)
+    [<Literal>]
     let attitudeControlRateHz = 500.0
 
     /// Typical position control loop rate (Hz)
+    [<Literal>]
     let positionControlRateHz = 50.0
 
     /// Roll/Pitch PID typical values (multirotor)
+    [<Literal>]
     let rollPitchKpTypical = 4.5
+
+    [<Literal>]
     let rollPitchKiTypical = 0.05
+
+    [<Literal>]
     let rollPitchKdTypical = 0.15
 
     /// Yaw PID typical values
+    [<Literal>]
     let yawKpTypical = 3.0
+
+    [<Literal>]
     let yawKiTypical = 0.03
+
+    [<Literal>]
     let yawKdTypical = 0.0
 
     /// Altitude PID typical values
+    [<Literal>]
     let altitudeKpTypical = 2.0
+
+    [<Literal>]
     let altitudeKiTypical = 0.5
+
+    [<Literal>]
     let altitudeKdTypical = 0.2
 
     /// Position hold PID typical values
+    [<Literal>]
     let positionKpTypical = 1.0
+
+    [<Literal>]
     let positionKiTypical = 0.1
+
+    [<Literal>]
     let positionKdTypical = 0.3
 
 // =============================================================================
@@ -538,8 +660,10 @@ type WindCondition =
     | Calm // < 3 m/s
     | Light // 3-7 m/s
     | Moderate // 7-11 m/s
-    | Strong // 11-15 m/s (at operating limit)
-    | Dangerous // > 15 m/s (mission abort)
+    /// 11-15 m/s (at operating limit)
+    | Strong
+    /// > 15 m/s (mission abort)
+    | Dangerous
 
 /// Assess wind condition
 let getWindCondition (windSpeedMs: float) : WindCondition =
@@ -569,13 +693,13 @@ let validateMissionParameters
     let errors =
         [
             if altitudeMeters > Regulations.maxAltitudeAglMeters then
-                sprintf "Altitude %.1fm exceeds max %.1fm AGL" altitudeMeters Regulations.maxAltitudeAglMeters
+                $"Altitude %.1f{altitudeMeters}m exceeds max %.1f{Regulations.maxAltitudeAglMeters}m AGL"
             if speedMs > Regulations.maxGroundSpeedMs then
-                sprintf "Speed %.1fm/s exceeds max %.1fm/s" speedMs Regulations.maxGroundSpeedMs
+                $"Speed %.1f{speedMs}m/s exceeds max %.1f{Regulations.maxGroundSpeedMs}m/s"
             if windSpeedMs > Safety.maxOperatingWindSpeedMs then
-                sprintf "Wind %.1fm/s exceeds safe limit %.1fm/s" windSpeedMs Safety.maxOperatingWindSpeedMs
+                $"Wind %.1f{windSpeedMs}m/s exceeds safe limit %.1f{Safety.maxOperatingWindSpeedMs}m/s"
             if batteryPercent < Battery.criticalBatteryPercent then
-                sprintf "Battery %.0f%% below critical threshold %.0f%%" batteryPercent Battery.criticalBatteryPercent
+                $"Battery %.0f{batteryPercent}%% below critical threshold %.0f{Battery.criticalBatteryPercent}%%"
         ]
 
     if errors.IsEmpty then Ok() else Error errors

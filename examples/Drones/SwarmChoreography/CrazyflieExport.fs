@@ -19,6 +19,7 @@ open System.Text
 // =============================================================================
 
 /// Position in Crazyflie coordinate system (meters, relative to origin)
+[<Struct>]
 type CrazyfliePosition =
     {
         X: float // meters, forward
@@ -27,6 +28,7 @@ type CrazyfliePosition =
     }
 
 /// LED color for light shows
+[<Struct>]
 type LedColor =
     {
         R: int // 0-255
@@ -71,6 +73,7 @@ type TimedFormationWaypoints =
     }
 
 /// Show definition type - standard or collision-free
+[<Struct>]
 type ShowType =
     | Standard
     | CollisionFree of minSeparation: float
@@ -171,21 +174,21 @@ let toJson (show: ShowDefinition) : string =
     // Metadata
     sb.AppendLine("  \"metadata\": {") |> ignore
 
-    sb.AppendLine($"    \"generated_by\": \"{escapeJson show.Metadata.GeneratedBy}\",")
+    sb.AppendLine $"    \"generated_by\": \"{escapeJson show.Metadata.GeneratedBy}\","
     |> ignore
 
-    sb.AppendLine($"    \"generated_at\": \"{show.Metadata.GeneratedAt:O}\",")
+    sb.AppendLine $"    \"generated_at\": \"{show.Metadata.GeneratedAt:O}\","
     |> ignore
 
-    sb.AppendLine($"    \"optimization_method\": \"{escapeJson show.Metadata.OptimizationMethod}\",")
+    sb.AppendLine $"    \"optimization_method\": \"{escapeJson show.Metadata.OptimizationMethod}\","
     |> ignore
 
     sb.AppendLine($"    \"num_drones\": {show.Metadata.NumDrones},") |> ignore
 
-    sb.AppendLine($"    \"total_transitions\": {show.Metadata.TotalTransitions},")
+    sb.AppendLine $"    \"total_transitions\": {show.Metadata.TotalTransitions},"
     |> ignore
 
-    sb.AppendLine($"    \"total_distance_meters\": {show.Metadata.TotalDistanceMeters:F2}")
+    sb.AppendLine $"    \"total_distance_meters\": {show.Metadata.TotalDistanceMeters:F2}"
     |> ignore
 
     sb.AppendLine("  },") |> ignore
@@ -201,7 +204,7 @@ let toJson (show: ShowDefinition) : string =
             | Some n -> $", \"name\": \"{escapeJson n}\""
             | None -> ""
 
-        sb.AppendLine($"    {{ \"id\": {drone.Id}, \"uri\": \"{drone.Uri}\"{name} }}{comma}")
+        sb.AppendLine $"    {{ \"id\": {drone.Id}, \"uri\": \"{drone.Uri}\"{name} }}{comma}"
         |> ignore
 
     sb.AppendLine("  ],") |> ignore
@@ -396,7 +399,7 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine($"Optimization: {show.Metadata.OptimizationMethod}") |> ignore
     sb.AppendLine($"Drones: {show.Metadata.NumDrones}") |> ignore
 
-    sb.AppendLine($"Total distance: {show.Metadata.TotalDistanceMeters:F2} meters")
+    sb.AppendLine $"Total distance: {show.Metadata.TotalDistanceMeters:F2} meters"
     |> ignore
 
     sb.AppendLine("") |> ignore
@@ -405,12 +408,12 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("") |> ignore
     sb.AppendLine("Hardware:") |> ignore
 
-    sb.AppendLine("  - Crazyflie 2.1 drones with Lighthouse/Loco positioning")
+    sb.AppendLine "  - Crazyflie 2.1 drones with Lighthouse/Loco positioning"
     |> ignore
 
     sb.AppendLine("  - Crazyradio PA USB dongle") |> ignore
 
-    sb.AppendLine("  - Lighthouse base stations OR Loco positioning anchors")
+    sb.AppendLine "  - Lighthouse base stations OR Loco positioning anchors"
     |> ignore
 
     sb.AppendLine("\"\"\"") |> ignore
@@ -425,15 +428,15 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("from cflib.crazyflie import Crazyflie") |> ignore
     sb.AppendLine("from cflib.crazyflie.log import LogConfig") |> ignore
 
-    sb.AppendLine("from cflib.crazyflie.syncCrazyflie import SyncCrazyflie")
+    sb.AppendLine "from cflib.crazyflie.syncCrazyflie import SyncCrazyflie"
     |> ignore
 
     sb.AppendLine("from cflib.crazyflie.syncLogger import SyncLogger") |> ignore
 
-    sb.AppendLine("from cflib.positioning.motion_commander import MotionCommander")
+    sb.AppendLine "from cflib.positioning.motion_commander import MotionCommander"
     |> ignore
 
-    sb.AppendLine("from cflib.crazyflie.swarm import CachedCfFactory, Swarm")
+    sb.AppendLine "from cflib.crazyflie.swarm import CachedCfFactory, Swarm"
     |> ignore
 
     sb.AppendLine("from cflib.crazyflie.mem import MemoryElement") |> ignore
@@ -441,12 +444,12 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("") |> ignore
 
     // Configuration
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("# CONFIGURATION") |> ignore
 
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("") |> ignore
@@ -471,12 +474,12 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("") |> ignore
 
     // Waypoints data
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("# WAYPOINTS (generated from quantum optimization)") |> ignore
 
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("") |> ignore
@@ -515,40 +518,40 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("") |> ignore
 
     // Helper functions
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("# HELPER FUNCTIONS") |> ignore
 
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("") |> ignore
 
-    sb.AppendLine("POSITION_TIMEOUT = 30  # seconds to wait for position estimator")
+    sb.AppendLine "POSITION_TIMEOUT = 30  # seconds to wait for position estimator"
     |> ignore
 
     sb.AppendLine("") |> ignore
     sb.AppendLine("def wait_for_position_estimator(scf):") |> ignore
 
-    sb.AppendLine("    \"\"\"Wait for the position estimator to have a valid position (with timeout).\"\"\"")
+    sb.AppendLine "    \"\"\"Wait for the position estimator to have a valid position (with timeout).\"\"\""
     |> ignore
 
-    sb.AppendLine("    print(f'Waiting for position estimate for {scf.cf.link_uri}...')")
+    sb.AppendLine "    print(f'Waiting for position estimate for {scf.cf.link_uri}...')"
     |> ignore
 
     sb.AppendLine("    ") |> ignore
 
-    sb.AppendLine("    log_config = LogConfig(name='Position', period_in_ms=100)")
+    sb.AppendLine "    log_config = LogConfig(name='Position', period_in_ms=100)"
     |> ignore
 
-    sb.AppendLine("    log_config.add_variable('stateEstimate.x', 'float')")
+    sb.AppendLine "    log_config.add_variable('stateEstimate.x', 'float')"
     |> ignore
 
-    sb.AppendLine("    log_config.add_variable('stateEstimate.y', 'float')")
+    sb.AppendLine "    log_config.add_variable('stateEstimate.y', 'float')"
     |> ignore
 
-    sb.AppendLine("    log_config.add_variable('stateEstimate.z', 'float')")
+    sb.AppendLine "    log_config.add_variable('stateEstimate.z', 'float')"
     |> ignore
 
     sb.AppendLine("    ") |> ignore
@@ -557,10 +560,10 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("        for log_entry in logger:") |> ignore
     sb.AppendLine("            # Timeout check") |> ignore
 
-    sb.AppendLine("            if time.time() - start_time > POSITION_TIMEOUT:")
+    sb.AppendLine "            if time.time() - start_time > POSITION_TIMEOUT:"
     |> ignore
 
-    sb.AppendLine("                print(f'  TIMEOUT: Position not found within {POSITION_TIMEOUT}s')")
+    sb.AppendLine "                print(f'  TIMEOUT: Position not found within {POSITION_TIMEOUT}s')"
     |> ignore
 
     sb.AppendLine("                return False") |> ignore
@@ -571,10 +574,10 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("            ") |> ignore
     sb.AppendLine("            # Check if we have a reasonable position") |> ignore
 
-    sb.AppendLine("            if abs(x) < 10 and abs(y) < 10 and abs(z) < 5:")
+    sb.AppendLine "            if abs(x) < 10 and abs(y) < 10 and abs(z) < 5:"
     |> ignore
 
-    sb.AppendLine("                print(f'  Position found: ({x:.2f}, {y:.2f}, {z:.2f})')")
+    sb.AppendLine "                print(f'  Position found: ({x:.2f}, {y:.2f}, {z:.2f})')"
     |> ignore
 
     sb.AppendLine("                return True") |> ignore
@@ -592,19 +595,19 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("    cf.param.set_value('kalman.resetEstimation', '0')") |> ignore
     sb.AppendLine("    if not wait_for_position_estimator(scf):") |> ignore
 
-    sb.AppendLine("        print(f'  WARNING: Position estimator may not be ready for {scf.cf.link_uri}')")
+    sb.AppendLine "        print(f'  WARNING: Position estimator may not be ready for {scf.cf.link_uri}')"
     |> ignore
 
     sb.AppendLine("") |> ignore
     sb.AppendLine("") |> ignore
     sb.AppendLine("def set_led_color(cf, r, g, b):") |> ignore
 
-    sb.AppendLine("    \"\"\"Set LED ring color (requires LED ring deck).\"\"\"")
+    sb.AppendLine "    \"\"\"Set LED ring color (requires LED ring deck).\"\"\""
     |> ignore
 
     sb.AppendLine("    try:") |> ignore
 
-    sb.AppendLine("        cf.param.set_value('ring.effect', '7')  # Solid color effect")
+    sb.AppendLine "        cf.param.set_value('ring.effect', '7')  # Solid color effect"
     |> ignore
 
     sb.AppendLine("        cf.param.set_value('ring.solidRed', str(r))") |> ignore
@@ -616,17 +619,17 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("") |> ignore
 
     // Swarm execution functions
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("# SWARM EXECUTION") |> ignore
 
-    sb.AppendLine("# ==============================================================================")
+    sb.AppendLine "# =============================================================================="
     |> ignore
 
     sb.AppendLine("") |> ignore
 
-    sb.AppendLine("def takeoff(scf, height=TAKEOFF_HEIGHT, duration=TAKEOFF_DURATION):")
+    sb.AppendLine "def takeoff(scf, height=TAKEOFF_HEIGHT, duration=TAKEOFF_DURATION):"
     |> ignore
 
     sb.AppendLine("    \"\"\"Takeoff to specified height.\"\"\"") |> ignore
@@ -655,15 +658,15 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("    print()") |> ignore
     sb.AppendLine("    print('SAFETY CHECKLIST:')") |> ignore
 
-    sb.AppendLine("    print('  1. Lighthouse/Loco positioning system is running')")
+    sb.AppendLine "    print('  1. Lighthouse/Loco positioning system is running')"
     |> ignore
 
-    sb.AppendLine("    print('  2. All drones are on the ground in starting positions')")
+    sb.AppendLine "    print('  2. All drones are on the ground in starting positions')"
     |> ignore
 
     sb.AppendLine("    print('  3. Flight area is clear of obstacles')") |> ignore
 
-    sb.AppendLine("    print('  4. Emergency stop is accessible (Ctrl+C)')")
+    sb.AppendLine "    print('  4. Emergency stop is accessible (Ctrl+C)')"
     |> ignore
 
     sb.AppendLine("    print()") |> ignore
@@ -798,7 +801,7 @@ let fromTransitionResults
     let optimizationMethod =
         let quantumCount =
             transitions
-            |> Array.filter (fun t -> t.Method.Contains("Quantum"))
+            |> Array.filter (fun t -> t.Method.Contains "Quantum")
             |> Array.length
 
         if quantumCount > transitions.Length / 2 then
@@ -949,7 +952,7 @@ module CollisionFreeExport =
 
         let optimizationMethod =
             plans
-            |> List.filter (fun (_, p) -> p.Method.Contains("Quantum"))
+            |> List.filter (fun (_, p) -> p.Method.Contains "Quantum")
             |> List.length
             |> fun quantumCount ->
                 if quantumCount > plans.Length / 2 then
@@ -983,27 +986,27 @@ module CollisionFreeExport =
         // Metadata
         sb.AppendLine("  \"metadata\": {") |> ignore
 
-        sb.AppendLine($"    \"generated_by\": \"{escapeJson show.Metadata.GeneratedBy}\",")
+        sb.AppendLine $"    \"generated_by\": \"{escapeJson show.Metadata.GeneratedBy}\","
         |> ignore
 
-        sb.AppendLine($"    \"generated_at\": \"{show.Metadata.GeneratedAt:O}\",")
+        sb.AppendLine $"    \"generated_at\": \"{show.Metadata.GeneratedAt:O}\","
         |> ignore
 
-        sb.AppendLine($"    \"optimization_method\": \"{escapeJson show.Metadata.OptimizationMethod}\",")
+        sb.AppendLine $"    \"optimization_method\": \"{escapeJson show.Metadata.OptimizationMethod}\","
         |> ignore
 
         sb.AppendLine($"    \"num_drones\": {show.Metadata.NumDrones},") |> ignore
 
-        sb.AppendLine($"    \"total_transitions\": {show.Metadata.TotalTransitions},")
+        sb.AppendLine $"    \"total_transitions\": {show.Metadata.TotalTransitions},"
         |> ignore
 
-        sb.AppendLine($"    \"total_distance_meters\": {show.Metadata.TotalDistanceMeters:F2},")
+        sb.AppendLine $"    \"total_distance_meters\": {show.Metadata.TotalDistanceMeters:F2},"
         |> ignore
 
-        sb.AppendLine($"    \"min_separation_meters\": {show.MinSeparationMeters:F2},")
+        sb.AppendLine $"    \"min_separation_meters\": {show.MinSeparationMeters:F2},"
         |> ignore
 
-        sb.AppendLine($"    \"collision_free\": true") |> ignore
+        sb.AppendLine("    \"collision_free\": true") |> ignore
         sb.AppendLine("  },") |> ignore
 
         // Drones
@@ -1018,7 +1021,7 @@ module CollisionFreeExport =
                 |> Option.map (fun n -> $", \"name\": \"{escapeJson n}\"")
                 |> Option.defaultValue ""
 
-            sb.AppendLine($"    {{ \"id\": {drone.Id}, \"uri\": \"{drone.Uri}\"{name} }}{comma}")
+            sb.AppendLine $"    {{ \"id\": {drone.Id}, \"uri\": \"{drone.Uri}\"{name} }}{comma}"
             |> ignore)
 
         sb.AppendLine("  ],") |> ignore
@@ -1031,10 +1034,10 @@ module CollisionFreeExport =
             sb.AppendLine("    {") |> ignore
             sb.AppendLine($"      \"name\": \"{escapeJson formation.Name}\",") |> ignore
 
-            sb.AppendLine($"      \"base_timestamp_ms\": {formation.BaseTimestampMs},")
+            sb.AppendLine $"      \"base_timestamp_ms\": {formation.BaseTimestampMs},"
             |> ignore
 
-            sb.AppendLine($"      \"total_duration_seconds\": {formation.TotalDurationSeconds:F2},")
+            sb.AppendLine $"      \"total_duration_seconds\": {formation.TotalDurationSeconds:F2},"
             |> ignore
 
             sb.AppendLine("      \"waypoints\": [") |> ignore
@@ -1156,10 +1159,10 @@ module CollisionFreeExport =
         |> Array.iter (fun formation ->
             sb.AppendLine($"    '{escapeJson formation.Name}': {{") |> ignore
 
-            sb.AppendLine($"        'base_timestamp_ms': {formation.BaseTimestampMs},")
+            sb.AppendLine $"        'base_timestamp_ms': {formation.BaseTimestampMs},"
             |> ignore
 
-            sb.AppendLine($"        'total_duration': {formation.TotalDurationSeconds:F2},")
+            sb.AppendLine $"        'total_duration': {formation.TotalDurationSeconds:F2},"
             |> ignore
 
             sb.AppendLine("        'waypoints': {") |> ignore

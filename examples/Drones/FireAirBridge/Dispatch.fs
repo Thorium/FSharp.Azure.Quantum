@@ -95,6 +95,7 @@ let private onRing (centre: Pt) (radius: float) (angle: float) (z: float) =
 /// Neighbouring pads sit this much further apart than the minimum, so that an
 /// aircraft climbing off its pad beside a parked one is clear by more than a
 /// rounding error.
+[<Literal>]
 let private padMargin = 1.02
 
 // =============================================================================
@@ -117,6 +118,9 @@ type Sortie =
         Samples: (float * Pt)[]
         /// Seconds at which each drop lands.
         DropsAt: float list
+        /// When the scenario loses the aircraft mid-sortie: the sortie ends
+        /// there, and it is not exported (a mission cannot end in a loss).
+        LostAtS: float option
     }
 
 /// When one cycle occupies the shared places, relative to the sortie start.
@@ -145,9 +149,11 @@ type private Geom =
         RetAlt: float
     }
 
-/// The path and timing of `cycles` cycles from a launch at time 0: samples and
-/// the per-cycle occupancy times.
-let private flyCycles (fleet: DroneClass) (c: Corridor) (g: Geom) (cycles: int) =
+/// The path and timing of `cycles` cycles from MISSION_START at time 0: the
+/// spool-up on the pad, then every leg from rest to rest as ArduCopter flies
+/// it (an S-curve, sampled every second when `sampled`), and the per-cycle
+/// occupancy times.
+let private flyCycles (fleet: DroneClass) (c: Corridor) (g: Geom) (cycles: int) (sampled: bool) =
     let vUp = Terminal.climbMs fleet
     let vDown = Terminal.descentMs fleet
     let vLoaded = fleet.LoadedSpeedMs
@@ -156,22 +162,41 @@ let private flyCycles (fleet: DroneClass) (c: Corridor) (g: Geom) (cycles: int) 
     let outGs = laneM / c.OutboundS
     let retGs = laneM / c.ReturnS
     let samples = ResizeArray<float * Pt>()
-    let times = ResizeArray<CycleTimes>()
     let mutable t = 0.0
     let mutable here = pt g.Pad.X g.Pad.Y 0.0
+    // (time, legs flown by then): how far open-loop timing may have drifted.
+    let marks = ResizeArray<float * int>()
+    let mutable legs = 0
     samples.Add((0.0, here))
+    t <- Mav.Flight.spoolUpS
+    samples.Add((t, here))
 
     let leg (target: Pt) (vh: float) =
-        let dh = horizontal here target
-        let dz = target.Z - here.Z
-        let vz = if dz > 0.0 then vUp else vDown
+        let l =
+            Mav.Flight.copterLeg vh vUp vDown (horizontal here target) (target.Z - here.Z)
 
-        let dt =
-            max (if vh > 0.0 then dh / vh else 0.0) (if abs dz > 1e-9 then abs dz / vz else 0.0)
+        if sampled then
+            for dt, f in Mav.Flight.legFractions l do
+                samples.Add(
+                    (t + dt,
+                     pt
+                         (here.X + f * (target.X - here.X))
+                         (here.Y + f * (target.Y - here.Y))
+                         (here.Z + f * (target.Z - here.Z)))
+                )
 
-        t <- t + dt
+        // The climb off the pad is NAV_TAKEOFF, and the waypoint after it is
+        // where the climb ends: nothing to reach, only the hold.
+        let fromGround = here.Z < 0.1
+        t <- t + l.TotalS
+        legs <- legs + 1
         here <- target
         samples.Add((t, here))
+        // Every waypoint holds Mav.settleS so the copter comes to rest there;
+        // reaching it and the hold cost Mav.stopS.
+        t <- t + (if fromGround then Mav.settleS else Mav.stopS)
+        samples.Add((t, here))
+        marks.Add((t, legs))
 
     let hold (seconds: float) =
         if seconds > 0.0 then
@@ -180,49 +205,53 @@ let private flyCycles (fleet: DroneClass) (c: Corridor) (g: Geom) (cycles: int) 
 
     let at (p: Pt) (z: float) = pt p.X p.Y z
 
-    for _ in 1..cycles do
-        leg (at g.Pad g.OutAlt) vLoaded
-        let fillIn = t
-        hold c.Source.FillTimeS
-        let fillOut = t
-        leg (at g.SrcC g.OutAlt) vLoaded
-        let outPass = t
-        leg (at g.TgtC g.OutAlt) outGs
-        let tgtIn = t
-        leg (at g.Drop g.OutAlt) vLoaded
-        let dropIn = t
-        hold fleet.DropTimeS
-        let dropOut = t
-        leg (at g.Drop g.RetAlt) vEmpty
-        let dropClear = t
-        leg (at g.TgtC g.RetAlt) vEmpty
-        let tgtOut = t
-        leg (at g.SrcC g.RetAlt) retGs
-        let retPass = t
-        leg (at g.Pad g.RetAlt) vEmpty
+    let times: CycleTimes list =
+        [
+            for _ in 1..cycles do
+                leg (at g.Pad g.OutAlt) vLoaded
+                let fillIn = t
+                hold c.Source.FillTimeS
+                let fillOut = t
+                leg (at g.SrcC g.OutAlt) vLoaded
+                let outPass = t
+                leg (at g.TgtC g.OutAlt) outGs
+                let tgtIn = t
+                leg (at g.Drop g.OutAlt) vLoaded
+                let dropIn = t
+                hold fleet.DropTimeS
+                let dropOut = t
+                leg (at g.Drop g.RetAlt) vEmpty
+                let dropClear = t
+                leg (at g.TgtC g.RetAlt) vEmpty
+                let tgtOut = t
+                leg (at g.SrcC g.RetAlt) retGs
+                let retPass = t
+                leg (at g.Pad g.RetAlt) vEmpty
 
-        times.Add
-            {
-                FillIn = fillIn
-                FillOut = fillOut
-                OutPass = outPass
-                TgtIn = tgtIn
-                DropIn = dropIn
-                DropOut = dropOut
-                DropClear = dropClear
-                TgtOut = tgtOut
-                RetPass = retPass
-                End = t
-            }
+                {
+                    FillIn = fillIn
+                    FillOut = fillOut
+                    OutPass = outPass
+                    TgtIn = tgtIn
+                    DropIn = dropIn
+                    DropOut = dropOut
+                    DropClear = dropClear
+                    TgtOut = tgtOut
+                    RetPass = retPass
+                    End = t
+                }
+        ]
 
-    // Landing: the descent speed down to LAND_ALT_LOW, then LAND_SPEED.
+    // Landing: the descent speed down to LAND_ALT_LOW_M, then LAND_SPD_MS.
+    let landing = Terminal.landingS fleet here.Z
+
     if here.Z > Terminal.landAltLowM then
-        leg (at g.Pad Terminal.landAltLowM) vDown
+        samples.Add((t + (here.Z - Terminal.landAltLowM) / vDown, at g.Pad Terminal.landAltLowM))
 
-    t <- t + here.Z / Terminal.landSpeedMs
+    t <- t + landing
     here <- at g.Pad 0.0
     samples.Add((t, here))
-    (samples.ToArray(), times |> List.ofSeq, t)
+    (samples.ToArray(), times, t, marks.ToArray())
 
 // =============================================================================
 // RESERVATIONS
@@ -240,17 +269,25 @@ type private Passage =
         GsIn: float
         GsOut: float
         LaneM: float
+        /// How late and how early the aircraft may really pass (the launch
+        /// slack and the open-loop drift by then, Mav.Flight.lateAt/earlyAt).
+        Late: float
+        Early: float
     }
 
-/// What is already booked at the shared places. Two passages of one centre
-/// must be far enough apart in time for three things (see `gap`):
-/// - while both approach, and while both depart, the later one must not
-///   close to within a spacing of the earlier, which a faster follower does
-///   along the stretch where the two rays are still one spacing apart;
+/// What is already booked at the shared places. An aircraft comes to rest at
+/// a centre and leaves it from rest (every leg is an S-curve), so two passages
+/// of one centre must be far enough apart in time for three things (see
+/// `gap`), with `clear v d` the seconds to cover d from rest at speed limit v:
+/// - while both approach, and while both depart, the later one must stay a
+///   spacing behind the earlier along the stretch where their rays are still
+///   within a spacing of each other; a faster follower closes in over it;
 /// - in between, the earlier leaves along its out-ray while the later comes
-///   in along its in-ray; at angle phi between those rays the two are at
-///   best v dt sin(phi / 2) apart, and on one and the same ray, head on.
-/// Slots are intervals with a capacity.
+///   in along its in-ray; at angle phi between the rays two points a and b out
+///   are at least (a + b) sin(phi / 2) apart, least at the half-way time, and
+///   on one and the same ray they meet head on.
+/// Every passage is then widened by how late the earlier and how early the
+/// later may really be. Slots are intervals with a capacity, widened alike.
 type private Book(spacing: float, margin: float) =
     let passages = Dictionary<string, ResizeArray<Passage>>()
     let slots = Dictionary<string, ResizeArray<float * float>>()
@@ -258,22 +295,28 @@ type private Book(spacing: float, margin: float) =
     let angle ((ax, ay): float * float) ((bx, by): float * float) =
         Math.Acos(Math.Clamp(ax * bx + ay * by, -1.0, 1.0))
 
-    /// Seconds the later passage must follow the earlier by.
+    let clear (speedMs: float) (distanceM: float) = Mav.Flight.clearS speedMs distanceM
+
+    /// Seconds the later passage must follow the earlier by, before slack.
     let gap (earlier: Passage) (later: Passage) =
-        // Along two rays at angle theta the aircraft are within a spacing of
-        // each other out to the merge radius; a faster follower closes in
-        // over that stretch.
-        let sameWay (theta: float) (vEarlier: float) (vLater: float) =
-            let merged =
-                if theta < 1e-6 then
-                    later.LaneM
-                else
-                    min later.LaneM (spacing / (2.0 * Math.Sin(theta / 2.0)))
+        let merged (theta: float) =
+            if theta < 1e-6 then
+                later.LaneM
+            else
+                min later.LaneM (spacing / (2.0 * Math.Sin(theta / 2.0)))
 
-            (spacing + max 0.0 (vLater - vEarlier) * merged / vLater) / vEarlier
+        // Leaving the centre: the follower at distance x must find the leader
+        // a spacing further on, at x = 0 and at the end of the merged stretch.
+        let depart =
+            let m = merged (angle earlier.Out later.Out)
 
-        let approach = sameWay (angle earlier.In later.In) earlier.GsIn later.GsIn
-        let depart = sameWay (angle earlier.Out later.Out) earlier.GsOut later.GsOut
+            max (clear earlier.GsOut spacing) (clear earlier.GsOut (m + spacing) - clear later.GsOut m)
+
+        // Coming in: the same, backwards in time.
+        let approach =
+            let m = merged (angle earlier.In later.In)
+
+            max (clear later.GsIn spacing) (clear later.GsIn (m + spacing) - clear earlier.GsIn m)
 
         let crossing =
             let phi = angle earlier.Out later.In
@@ -281,25 +324,28 @@ type private Book(spacing: float, margin: float) =
             if phi < 1e-6 then
                 Double.PositiveInfinity
             else
-                spacing / (min earlier.GsOut later.GsIn * Math.Sin(phi / 2.0))
+                2.0
+                * clear (min earlier.GsOut later.GsIn) (spacing / (2.0 * Math.Sin(phi / 2.0)))
 
         margin * (max approach (max depart crossing))
 
+    let apart (earlier: Passage) (later: Passage) =
+        later.T - earlier.T >= gap earlier later + earlier.Late + later.Early - 1e-9
+
     member _.PassageFree(key: string, p: Passage) =
         match passages.TryGetValue key with
-        | true, ps ->
-            ps
-            |> Seq.forall (fun q ->
-                if q.T <= p.T then
-                    p.T - q.T >= gap q p - 1e-9
-                else
-                    q.T - p.T >= gap p q - 1e-9)
+        | true, ps -> ps |> Seq.forall (fun q -> if q.T <= p.T then apart q p else apart p q)
         | _ -> true
 
     /// Fewer than `capacity` booked intervals overlap [a, b].
     member _.SlotFree(key: string, a: float, b: float, capacity: int) =
         match slots.TryGetValue key with
-        | true, xs -> (xs |> Seq.filter (fun (x, y) -> not (b <= x + 1e-9 || a >= y - 1e-9)) |> Seq.length) < capacity
+        | true, xs ->
+            (xs
+             |> Seq.filter (fun (x, y) -> not (b <= x + 1e-9 || a >= y - 1e-9))
+             |> Seq.length)
+                <
+                capacity
         | _ -> true
 
     member _.Passage(key: string, p: Passage) =
@@ -356,10 +402,15 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
     let runEndS = float opts.Ticks * tickS
     let spacing = fleet.LaneSpacingM
     let unitsPerDrop = Demand.unitsPerDrop opts.Demand fleet
-    let usableS = fleet.EnduranceMin * 60.0 * (1.0 - Battery.reserveBatteryPercent / 100.0)
 
-    let srcCentre = sources |> Array.map (fun s -> let x, y = metres s.Pos in pt x y 0.0)
-    let tgtCentre = sectors |> Array.map (fun s -> let x, y = metres s.Pos in pt x y 0.0)
+    let usableS =
+        fleet.EnduranceMin * 60.0 * (1.0 - Battery.reserveBatteryPercent / 100.0)
+
+    let srcCentre =
+        sources |> Array.map (fun s -> let x, y = metres s.Pos in pt x y 0.0)
+
+    let tgtCentre =
+        sectors |> Array.map (fun s -> let x, y = metres s.Pos in pt x y 0.0)
 
     let homes =
         [|
@@ -371,8 +422,14 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
     // The pads face away from the source's targets: the mean direction of
     // every target from the source, plus pi.
     let awayAngle (si: int) =
-        let dx = sectors |> Array.averageBy (fun s -> tgtCentre.[Array.findIndex ((=) s) sectors].X - srcCentre.[si].X)
-        let dy = sectors |> Array.averageBy (fun s -> tgtCentre.[Array.findIndex ((=) s) sectors].Y - srcCentre.[si].Y)
+        let dx =
+            sectors
+            |> Array.averageBy (fun s -> tgtCentre.[Array.findIndex ((=) s) sectors].X - srcCentre.[si].X)
+
+        let dy =
+            sectors
+            |> Array.averageBy (fun s -> tgtCentre.[Array.findIndex ((=) s) sectors].Y - srcCentre.[si].Y)
+
         Math.Atan2(dy, dx) + Math.PI
 
     let pads =
@@ -380,13 +437,16 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
 
         homes
         |> Array.map (fun si ->
-            let radius, step = Terminal.padRing homing.[si] (padMargin * fleet.MinSeparationM) spacing
+            let radius, step =
+                Terminal.padRing homing.[si] (padMargin * fleet.MinSeparationM) spacing
+
             let k = counters.[si]
             counters.[si] <- k + 1
             let angle = awayAngle si - Math.PI / 2.0 + float k * step
             onRing srcCentre.[si] radius angle 0.0)
 
-    let droneNames = homes |> Array.mapi (fun d si -> sprintf "%s-%d" sources.[si].Id (d + 1))
+    let droneNames =
+        homes |> Array.mapi (fun d si -> sprintf "%s-%d" sources.[si].Id (d + 1))
 
     /// Drop slot k of target fi for a lane from source si: slot 0 straight on
     /// from the lane, the rest fanned to both sides, none in the approach.
@@ -417,25 +477,42 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
         let laneM = c.DistanceKm * 1000.0
         let outGs = laneM / c.OutboundS
         let retGs = laneM / c.ReturnS
-        let gapOut = opts.Margin * spacing / outGs
-        let _, times, _ = flyCycles fleet c g maxCycles
+        // The next aircraft comes into a drop slot from rest at the target centre.
+        let gapOut = opts.Margin * Mav.Flight.clearS fleet.LoadedSpeedMs spacing
+        let _, times, _, marks = flyCycles fleet c g maxCycles false
         let src = string c.SourceIdx
         let tgt = string c.SectorIdx
-        let dropKey = sprintf "drop:%d:%.3f:%.3f" c.SectorIdx g.Drop.X g.Drop.Y
+        let dropKey = $"drop:%d{c.SectorIdx}:%.3f{g.Drop.X}:%.3f{g.Drop.Y}"
 
         // Rays out of each centre: how the aircraft comes in and leaves.
         let ray (from: Pt) (toward: Pt) =
             let d = horizontal from toward
-            if d < 1e-9 then (1.0, 0.0) else ((toward.X - from.X) / d, (toward.Y - from.Y) / d)
+
+            if d < 1e-9 then
+                (1.0, 0.0)
+            else
+                ((toward.X - from.X) / d, (toward.Y - from.Y) / d)
 
         let padRay = ray g.SrcC g.Pad
         let laneRay = ray g.SrcC g.TgtC
         let backRay = ray g.TgtC g.SrcC
         let slotRay = ray g.TgtC g.Drop
 
-        let passage (t: float) (inRay, gsIn) (outRay, gsOut) =
+        let legsBy (sinceS: float) =
+            marks
+            |> Array.fold (fun n (t, legs) -> if t <= sinceS + 1e-9 then legs else n) 0
+
+        let late (sinceS: float) =
+            Mav.Flight.lateAt sinceS (legsBy sinceS)
+
+        let early (sinceS: float) =
+            Mav.Flight.earlyAt sinceS (legsBy sinceS)
+
+        let passage (sinceS: float) (inRay, gsIn) (outRay, gsOut) =
             {
-                T = t
+                T = t0 + sinceS
+                Late = late sinceS
+                Early = early sinceS
                 Corridor = c.Id
                 In = inRay
                 Out = outRay
@@ -446,16 +523,26 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
 
         let passages (ct: CycleTimes) =
             [
-                ("src-out:" + src, passage (t0 + ct.OutPass) (padRay, fleet.LoadedSpeedMs) (laneRay, outGs))
-                ("src-ret:" + src, passage (t0 + ct.RetPass) (laneRay, retGs) (padRay, fleet.EmptySpeedMs))
-                ("tgt-in:" + tgt, passage (t0 + ct.TgtIn) (backRay, outGs) (slotRay, fleet.LoadedSpeedMs))
-                ("tgt-out:" + tgt, passage (t0 + ct.TgtOut) (slotRay, fleet.EmptySpeedMs) (backRay, retGs))
+                ("src-out:" + src, passage ct.OutPass (padRay, fleet.LoadedSpeedMs) (laneRay, outGs))
+                ("src-ret:" + src, passage ct.RetPass (laneRay, retGs) (padRay, fleet.EmptySpeedMs))
+                ("tgt-in:" + tgt, passage ct.TgtIn (backRay, outGs) (slotRay, fleet.LoadedSpeedMs))
+                ("tgt-out:" + tgt, passage ct.TgtOut (slotRay, fleet.EmptySpeedMs) (backRay, retGs))
             ]
 
         let cycleFree (ct: CycleTimes) =
             (passages ct |> List.forall (fun (key, p) -> book.PassageFree(key, p)))
-            && book.SlotFree("fill:" + src, t0 + ct.FillIn, t0 + ct.FillOut, c.Source.FillSlots)
-            && book.SlotFree(dropKey, t0 + ct.DropIn, t0 + ct.DropClear + gapOut, 1)
+            && book.SlotFree(
+                "fill:" + src,
+                t0 + ct.FillIn - early ct.FillIn,
+                t0 + ct.FillOut + late ct.FillOut,
+                c.Source.FillSlots
+            )
+            && book.SlotFree(
+                dropKey,
+                t0 + ct.DropIn - early ct.DropIn,
+                t0 + ct.DropClear + gapOut + late ct.DropClear,
+                1
+            )
 
         let bookable = times |> List.takeWhile cycleFree |> List.length
 
@@ -464,8 +551,8 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
                 for key, p in passages ct do
                     book.Passage(key, p)
 
-                book.Slot("fill:" + src, t0 + ct.FillIn, t0 + ct.FillOut)
-                book.Slot(dropKey, t0 + ct.DropIn, t0 + ct.DropClear + gapOut)
+                book.Slot("fill:" + src, t0 + ct.FillIn - early ct.FillIn, t0 + ct.FillOut + late ct.FillOut)
+                book.Slot(dropKey, t0 + ct.DropIn - early ct.DropIn, t0 + ct.DropClear + gapOut + late ct.DropClear)
 
         bookable
 
@@ -487,7 +574,7 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
         // One cycle, and the final descent onto the pad that every sortie ends
         // with: the battery must cover both.
         let cycleS, descentS =
-            let _, times, endS = flyCycles fleet c (geom 0) 1
+            let _, times, endS, _ = flyCycles fleet c (geom 0) 1 false
             (times.Head.End, endS - times.Head.End)
 
         let byBattery = int (Math.Floor((usableS - flownS.[d] - descentS) / cycleS))
@@ -517,7 +604,7 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
             match best with
             | Some(g, n) when n >= 1 ->
                 tryBook t0 c g n true |> ignore
-                let samples, times, endS = flyCycles fleet c g n
+                let samples, times, endS, _ = flyCycles fleet c g n true
 
                 sorties.Add
                     {
@@ -532,6 +619,7 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
                         DropSlot = g.Drop
                         Samples = samples |> Array.map (fun (t, p) -> (t0 + t, p))
                         DropsAt = times |> List.map (fun ct -> t0 + ct.DropOut)
+                        LostAtS = None
                     }
 
                 // On the ground until it has disarmed and the launcher has put
@@ -579,6 +667,7 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
                                 LandS = from
                                 Samples = Array.append (s.Samples |> Array.filter (fun (t, _) -> t < from)) cut
                                 DropsAt = s.DropsAt |> List.filter (fun at -> at < from)
+                                LostAtS = Some from
                             }
 
                 busyUntil.[d] <- Double.PositiveInfinity
@@ -592,7 +681,9 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
             let t0 = float second
 
             let assigned (cid: string) =
-                sorties |> Seq.filter (fun s -> s.Corridor.Id = cid && s.LandS > t0) |> Seq.length
+                sorties
+                |> Seq.filter (fun s -> s.Corridor.Id = cid && s.LandS > t0)
+                |> Seq.length
 
             // One launch per source per second at most (the headway rule
             // would refuse a second one anyway).
@@ -604,18 +695,32 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
                 let have = assigned cid
                 plannedS <- plannedS + want
 
-                if want > have then
-                    let si = lane.Corridor.SourceIdx
-                    let fi = lane.Corridor.SectorIdx
+                let si = lane.Corridor.SourceIdx
+                let fi = lane.Corridor.SectorIdx
 
+                // What the target still needs beyond the drops already on
+                // their way (any that land from this tick on): a finite demand
+                // must not draw aircraft for touches others will deliver.
+                let unmet =
+                    if Double.IsPositiveInfinity remainingUnits.[fi] then
+                        Double.PositiveInfinity
+                    else
+                        let pending =
+                            sorties
+                            |> Seq.filter (fun s -> s.Corridor.SectorIdx = fi)
+                            |> Seq.sumBy (fun s -> s.DropsAt |> List.filter (fun at -> at >= from) |> List.length)
+
+                        remainingUnits.[fi] - float pending * unitsPerDrop
+
+                if want > have && unmet > 1e-9 then
                     // Enough cycles to finish the target with the aircraft the
                     // plan puts on it; a fire wants water for as long as the
                     // battery lasts.
                     let cycles =
-                        if Double.IsPositiveInfinity remainingUnits.[fi] then
+                        if Double.IsPositiveInfinity unmet then
                             Int32.MaxValue
                         else
-                            max 1 (int (Math.Ceiling(remainingUnits.[fi] / unitsPerDrop / float (max 1 want))))
+                            max 1 (int (Math.Ceiling(unmet / unitsPerDrop / float (max 1 (want - have)))))
 
                     let free =
                         Array.init homes.Length id
@@ -655,7 +760,10 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
             [
                 for d in 0 .. homes.Length - 1 do
                     let mine =
-                        sorties |> Seq.filter (fun s -> s.Drone = d) |> Seq.sortBy (fun s -> s.LaunchS) |> List.ofSeq
+                        sorties
+                        |> Seq.filter (fun s -> s.Drone = d)
+                        |> Seq.sortBy (fun s -> s.LaunchS)
+                        |> List.ofSeq
 
                     let ground = pt pads.[d].X pads.[d].Y 0.0
 
@@ -666,7 +774,8 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
                             for s in mine do
                                 yield! s.Samples |> Array.filter (fun (t, _) -> t > 0.0)
 
-                            let last = mine |> List.tryLast |> Option.map (fun s -> s.LandS) |> Option.defaultValue 0.0
+                            let last =
+                                mine |> List.tryLast |> Option.map (fun s -> s.LandS) |> Option.defaultValue 0.0
 
                             // A lost aircraft is out of the picture from its loss on;
                             // anything else is parked on its pad to the end.
@@ -674,7 +783,10 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
                                 yield (runEndS, ground)
                         |]
 
-                    { Ev.AircraftId = droneNames.[d]; Ev.Samples = samples }
+                    {
+                        Ev.AircraftId = droneNames.[d]
+                        Ev.Samples = samples
+                    }
             ]
 
         {
@@ -696,7 +808,9 @@ type Dispatcher(fleet: DroneClass, sources: WaterSource[], sectors: FireSector[]
 let home (fleet: DroneClass) (sources: WaterSource[]) (worth: Corridor -> float) (corridors: Corridor[]) : int[] =
     let perSource =
         Array.init sources.Length (fun si ->
-            corridors |> Array.filter (fun c -> c.SourceIdx = si) |> Array.sumBy (fun c -> max 0.0 (worth c)))
+            corridors
+            |> Array.filter (fun c -> c.SourceIdx = si)
+            |> Array.sumBy (worth >> max 0.0))
 
     let total = Array.sum perSource
 
@@ -707,7 +821,9 @@ let home (fleet: DroneClass) (sources: WaterSource[]) (worth: Corridor -> float)
         let floors = shares |> Array.map (fun s -> int (Math.Floor s))
         let mutable left = fleet.Count - Array.sum floors
 
-        for si in Array.init sources.Length id |> Array.sortByDescending (fun si -> shares.[si] - float floors.[si]) do
+        for si in
+            Array.init sources.Length id
+            |> Array.sortByDescending (fun si -> shares.[si] - float floors.[si]) do
             if left > 0 then
                 floors.[si] <- floors.[si] + 1
                 left <- left - 1
@@ -726,8 +842,7 @@ let home (fleet: DroneClass) (sources: WaterSource[]) (worth: Corridor -> float)
 let peakAirborne (opts: Options) (r: Result) =
     let runEndS = int (float opts.Ticks * Tick.seconds opts.Tick)
 
-    [ 0..runEndS ]
-    |> List.map (fun s ->
+    List.init (FSharp.Core.Operators.max 0 (runEndS + 1)) (fun s ->
         r.Tracks
         |> List.filter (fun t ->
             match Ev.positionAt t (float s) with
@@ -742,7 +857,13 @@ let peakAirborne (opts: Options) (r: Result) =
 
 /// Checks the dispatched flights add to the pack: the exact closest approach
 /// of every aircraft over the run, and whether whole drops did the job.
-let checks (fleet: DroneClass) (sectors: FireSector[]) (opts: Options) (events: TimedEvent list) (r: Result) : Ev.Check list =
+let checks
+    (fleet: DroneClass)
+    (sectors: FireSector[])
+    (opts: Options)
+    (events: TimedEvent list)
+    (r: Result)
+    : Ev.Check list =
     // Vertical distance counts by the fleet's vertical minimum: heights are
     // scaled so that one MinVerticalM reads as one MinSeparationM, and the
     // Euclidean closest approach then applies the horizontal minimum to both.
@@ -757,7 +878,7 @@ let checks (fleet: DroneClass) (sectors: FireSector[]) (opts: Options) (events: 
 
     let closest =
         Ev.closestApproach 1.0 (opts.GroundZ * zScale) scaled
-        |> Option.map (fun c -> { c with Where = { c.Where with Z = c.Where.Z / zScale } })
+        |> Option.map (fun c -> { c with Where.Z = c.Where.Z / zScale })
 
     let separation =
         Ev.Checks.separation
@@ -765,7 +886,7 @@ let checks (fleet: DroneClass) (sectors: FireSector[]) (opts: Options) (events: 
             // passes on its geometry, not on floating-point luck.
             (fleet.MinSeparationM * (1.0 - 1e-9))
             (sprintf
-                "exact closest approach between every pair of dispatched tracks (pads, lanes at their altitudes, drop slots, constant speed per leg), parked aircraft included; heights scaled by %.2f so that %.1f m vertical counts as %.1f m"
+                "exact closest approach between every pair of dispatched tracks (pads, lanes at their altitudes, drop slots; every leg from rest to rest as ArduCopter flies it, a 1 s settle at each waypoint), parked aircraft included; heights scaled by %.2f so that %.1f m vertical counts as %.1f m"
                 zScale
                 fleet.MinVerticalM
                 fleet.MinSeparationM)
@@ -829,10 +950,13 @@ let checks (fleet: DroneClass) (sectors: FireSector[]) (opts: Options) (events: 
                     (Array.sum r.DropsPerTarget)
                     r.Sorties.Length
                     shortfall)
-                (if Array.isEmpty missing && r.Unflyable.IsEmpty then Ev.Pass else Ev.Fail)
+                (if Array.isEmpty missing && r.Unflyable.IsEmpty then
+                     Ev.Pass
+                 else
+                     Ev.Fail)
                 ((missing
                   |> Array.truncate 10
-                  |> Array.map (fun (s, (need, got)) -> sprintf "%s: %d of %d" s.Id got need)
+                  |> Array.map (fun (s, (need, got)) -> $"%s{s.Id}: %d{got} of %d{need}")
                   |> List.ofArray)
                  @ unflyable)
         | Fire _ ->
@@ -844,7 +968,10 @@ let checks (fleet: DroneClass) (sectors: FireSector[]) (opts: Options) (events: 
                 "Whole aircraft fly the corridors the plan opens"
                 "aircraft-seconds flown on each corridor vs. the plan's rounded allocation, summed over the run; the example's working threshold is 75%"
                 (sprintf "%d drops in %d sorties%s" (Array.sum r.DropsPerTarget) r.Sorties.Length shortfall)
-                (if flownShare >= 0.75 && r.Unflyable.IsEmpty then Ev.Pass else Ev.Fail)
+                (if flownShare >= 0.75 && r.Unflyable.IsEmpty then
+                     Ev.Pass
+                 else
+                     Ev.Fail)
                 unflyable
 
     [ separation; followThrough ]
@@ -862,42 +989,25 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
 
     let acceptM = min 0.5 (fleet.LaneSpacingM / 4.0)
 
+    // Lost link or RC in AUTO: the modelled recovery is to finish the cycle
+    // along the lanes, which is what the mission does. RTL is the return lane's
+    // altitude. Copter judges a waypoint reached by WP_RADIUS_M, not by the
+    // item's own acceptance radius; the tracks turn at the waypoint. Legs set
+    // their own speeds with DO_CHANGE_SPEED.
     let parameters (retAlt: float) =
-        [
-            "RTL_ALT", Math.Round(retAlt * 100.0) // cm: the return lane's altitude
-            "RTL_ALT_FINAL", 0.0
-            "RTL_LOIT_TIME", 0.0
-            "DISARM_DELAY", Terminal.disarmDelayS
-            "LAND_ALT_LOW", Terminal.landAltLowM * 100.0 // cm
-            "WPNAV_SPEED", Math.Round(fleet.LoadedSpeedMs * 100.0) // cm/s; legs set their own with DO_CHANGE_SPEED
-            "WPNAV_SPEED_UP", Math.Round(Terminal.climbMs fleet * 100.0)
-            "WPNAV_SPEED_DN", Math.Round(Terminal.descentMs fleet * 100.0)
-            // Copter judges a waypoint reached by WPNAV_RADIUS (cm), not by the
-            // item's own acceptance radius; the tracks turn at the waypoint.
-            "WPNAV_RADIUS", Math.Round(acceptM * 100.0)
-            // The last metres onto the pad go at ArduPilot's default landing
-            // speed, slower than the modelled descent; the pad is the aircraft's
-            // own, so the extra seconds move nothing else, and the launcher
-            // starts the next sortie only once the vehicle has disarmed.
-            "LAND_SPEED", Terminal.landSpeedMs * 100.0
-            "FS_GCS_ENABLE", 1.0
-            "FS_GCS_TIMEOUT", Safety.signalLossRthTriggerSec
-            "FS_THR_ENABLE", 1.0
-            // Lost link or RC in AUTO: continue the mission (bits 0, 1), and
-            // continue a landing (bit 3). The modelled recovery is to finish
-            // the cycle along the lanes, which is what the mission does.
-            "FS_OPTIONS", 11.0
-            // Low battery warns only: the sortie already fits endurance minus
-            // reserve, and a lone RTL would cut across other lanes.
-            "BATT_FS_LOW_ACT", 0.0
-        ]
+        Mav.Params.copter
+            {
+                Vehicle = Mav.ArduCopter
+                CruiseMs = fleet.LoadedSpeedMs
+                ClimbMs = Terminal.climbMs fleet
+                DescentMs = Terminal.descentMs fleet
+                RtlAltM = retAlt
+                WaypointRadiusM = acceptM
+                LostLink = Mav.ContinueMission
+            }
 
     let waypointHold (p: Pt) (holdS: float) (items: ResizeArray<Mav.MissionItem>) =
-        let whole = Math.Floor holdS
-        items.Add(Mav.waypoint whole acceptM (toGeo p) items.Count)
-
-        if holdS - whole > 1e-3 then
-            items.Add(Mav.navDelay (Math.Round(holdS - whole, 3)) items.Count)
+        Mav.stopAt acceptM (toGeo p) holdS items
 
     let mission (k: int) (s: Sortie) : Mav.ScheduledMission =
         let at (p: Pt) z = pt p.X p.Y z
@@ -916,18 +1026,18 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
         let laneM = c.DistanceKm * 1000.0
         let outGs = laneM / c.OutboundS
         let retGs = laneM / c.ReturnS
-        items.Add(Mav.waypoint 0.0 acceptM (toGeo (at srcC s.OutAltM)) items.Count)
+        waypointHold (at srcC s.OutAltM) 0.0 items
         items.Add(Mav.setSpeed outGs items.Count)
-        items.Add(Mav.waypoint 0.0 acceptM (toGeo (at tgtC s.OutAltM)) items.Count)
+        waypointHold (at tgtC s.OutAltM) 0.0 items
         items.Add(Mav.setSpeed fleet.LoadedSpeedMs items.Count)
         waypointHold (at s.DropSlot s.OutAltM) fleet.DropTimeS items
         items.Add(Mav.setSpeed fleet.EmptySpeedMs items.Count)
-        items.Add(Mav.waypoint 0.0 acceptM (toGeo (at s.DropSlot s.RetAltM)) items.Count)
-        items.Add(Mav.waypoint 0.0 acceptM (toGeo (at tgtC s.RetAltM)) items.Count)
+        waypointHold (at s.DropSlot s.RetAltM) 0.0 items
+        waypointHold (at tgtC s.RetAltM) 0.0 items
         items.Add(Mav.setSpeed retGs items.Count)
-        items.Add(Mav.waypoint 0.0 acceptM (toGeo (at srcC s.RetAltM)) items.Count)
+        waypointHold (at srcC s.RetAltM) 0.0 items
         items.Add(Mav.setSpeed fleet.EmptySpeedMs items.Count)
-        items.Add(Mav.waypoint 0.0 acceptM (toGeo (at s.Pad s.RetAltM)) items.Count)
+        waypointHold (at s.Pad s.RetAltM) 0.0 items
 
         if s.Cycles > 1 then
             items.Add(Mav.doJump loopStart (s.Cycles - 1) items.Count)
@@ -944,7 +1054,11 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
                             Name = sprintf "%s_s%d" r.DroneNames.[s.Drone] k
                             ConnectionString = sprintf "tcp:127.0.0.1:%d" (5760 + 10 * s.Drone)
                         }
-                    HomePosition = { toGeo s.Pad with Altitude = home.Altitude }
+                    Vehicle = Mav.ArduCopter
+                    HomePosition =
+                        { toGeo s.Pad with
+                            Altitude = home.Altitude
+                        }
                     Items = List.ofSeq items
                     // One parameter set per vehicle: RTL_ALT is the highest return
                     // lane any of its sorties flies, so the launcher sees no
@@ -960,10 +1074,25 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
             LaunchS = s.LaunchS
         }
 
+    // A sortie the scenario cuts short by losing its aircraft has no mission
+    // that flies it: the full mission would fly on where the checks saw
+    // nothing. It stays out of the export; a lost aircraft flies no later sortie.
+    let exported, cut = r.Sorties |> List.partition (fun s -> s.LostAtS.IsNone)
+
+    for s in cut do
+        printfn
+            "  %s: its sortie from T0+%.0f s is not exported: the scenario loses the aircraft at T0+%.0f s"
+            r.DroneNames.[s.Drone]
+            s.LaunchS
+            (defaultArg s.LostAtS 0.0)
+
     let missions =
-        r.Sorties
+        exported
         |> List.groupBy (fun s -> s.Drone)
-        |> List.collect (fun (_, ss) -> ss |> List.sortBy (fun s -> s.LaunchS) |> List.mapi (fun k s -> mission (k + 1) s))
+        |> List.collect (fun (_, ss) ->
+            ss
+            |> List.sortBy (fun s -> s.LaunchS)
+            |> List.mapi (fun k s -> mission (k + 1) s))
 
     let dir = Path.Combine(outDir, "mavlink")
     Directory.CreateDirectory dir |> ignore
@@ -972,6 +1101,28 @@ let export (outDir: string) (fleet: DroneClass) (home: Mav.GeoCoordinate) (r: Re
     Mav.WaypointFile.writeAll dir plain
     Mav.ParamFile.writeAll dir plain
     Mav.FsxScript.writeFile (Path.Combine(dir, "mavlink_show.fsx")) missions
+
+    // Where each mission is planned to be, when: the tracks the evidence
+    // checked, in seconds after the launcher's T0.
+    let named =
+        exported
+        |> List.groupBy (fun s -> s.Drone)
+        |> List.collect (fun (_, ss) ->
+            ss
+            |> List.sortBy (fun s -> s.LaunchS)
+            |> List.mapi (fun k s -> (sprintf "%s_s%d" r.DroneNames.[s.Drone] (k + 1), s)))
+
+    Reporting.writeCsv
+        (Path.Combine(dir, "plan_tracks.csv"))
+        [ "mission"; "t_s"; "lat"; "lon"; "rel_alt_m" ]
+        [
+            for name, s in named do
+                for t, p in s.Samples do
+                    let g = toGeo p
+
+                    [ name; $"%.2f{t}"; $"%.7f{g.Latitude}"; $"%.7f{g.Longitude}"; $"%.2f{p.Z}" ]
+        ]
+
     missions.Length
 
 /// The sorties as a CSV, for people and for the launcher's operator.
@@ -996,11 +1147,11 @@ let writeSorties (outDir: string) (r: Result) =
                         r.DroneNames.[d]
                         string (k + 1)
                         s.Corridor.Id
-                        sprintf "%.1f" s.LaunchS
-                        sprintf "%.1f" s.LandS
+                        $"%.1f{s.LaunchS}"
+                        $"%.1f{s.LandS}"
                         string s.Cycles
-                        sprintf "%.1f" s.OutAltM
-                        sprintf "%.1f" s.RetAltM
+                        $"%.1f{s.OutAltM}"
+                        $"%.1f{s.RetAltM}"
                         String.Join(";", s.DropsAt |> List.map (sprintf "%.0f"))
                     ]
         ]

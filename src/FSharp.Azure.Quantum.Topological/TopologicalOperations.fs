@@ -336,6 +336,7 @@ module TopologicalOperations =
     let private conjugateIfInverse (isClockwise: bool) (phase: Complex) : Complex =
         if isClockwise then phase else Complex.Conjugate phase
 
+    [<TailCall>]
     let rec private getAtPath (path: Branch list) (tree: FusionTree.Tree) : FusionTree.Tree =
         match path, tree with
         | [], _ -> tree

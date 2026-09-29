@@ -18,6 +18,7 @@ open FSharp.Azure.Quantum.Core.CircuitAbstraction
 // =============================================================================
 
 /// 3D position in meters (local coordinates or GPS-relative)
+[<Struct>]
 type Position = { X: float; Y: float; Z: float }
 
 module Position =
@@ -127,6 +128,7 @@ module DroneProfile =
 // =============================================================================
 
 /// Duration estimate for handling an event
+[<Struct>]
 type EventDuration =
     /// Very short, others should hover and wait (< 10 seconds)
     | Momentary of maxSeconds: float
@@ -209,7 +211,7 @@ module DroneEvent =
             match evt with
             // Momentary events (< 10s)
             | ItemDropped _ -> Momentary 2.0
-            | FormationPositionReached -> Momentary 1.0
+            | FormationPositionReached
             | GpsRecovered -> Momentary 1.0
             | RechargeComplete -> Momentary 5.0
 
@@ -225,7 +227,7 @@ module DroneEvent =
             // Extended events (unknown/long)
             | LowBattery _ -> Extended
             | CriticalBattery _ -> Extended
-            | ReturnToHome -> Extended
+            | ReturnToHome
             | GpsLost -> Extended
             | HighWind _ -> Extended
             | TemperatureWarning _ -> Extended
@@ -313,29 +315,29 @@ module Protocol =
             match n.Event with
             | Standard evt ->
                 match evt with
-                | LowBattery pct -> "BAT_LOW", sprintf "%.0f" pct
-                | CriticalBattery pct -> "BAT_CRIT", sprintf "%.0f" pct
+                | LowBattery pct -> "BAT_LOW", $"%.0f{pct}"
+                | CriticalBattery pct -> "BAT_CRIT", $"%.0f{pct}"
                 | RechargeComplete -> "RECHARGED", ""
-                | ObstacleDetected(dir, dist) -> "OBSTACLE", sprintf "%.1f,%.1f" dir dist
+                | ObstacleDetected(dir, dist) -> "OBSTACLE", $"%.1f{dir},%.1f{dist}"
                 | GpsLost -> "GPS_LOST", ""
                 | GpsRecovered -> "GPS_OK", ""
                 | ReturnToHome -> "RTH", ""
-                | PointOfInterest(pos, conf) -> "POI", sprintf "%.2f,%.2f,%.2f,%.2f" pos.X pos.Y pos.Z conf
+                | PointOfInterest(pos, conf) -> "POI", $"%.2f{pos.X},%.2f{pos.Y},%.2f{pos.Z},%.2f{conf}"
                 | ItemReadyToDrop -> "DROP_RDY", ""
                 | ItemDropped ok -> "DROPPED", if ok then "1" else "0"
                 | PayloadPickedUp -> "PICKED", ""
-                | PersonRecognized(id, pos) -> "PERSON", sprintf "%s,%.2f,%.2f,%.2f" id pos.X pos.Y pos.Z
+                | PersonRecognized(id, pos) -> "PERSON", $"%s{id},%.2f{pos.X},%.2f{pos.Y},%.2f{pos.Z}"
                 | GestureDetected g -> "GESTURE", g
                 | FollowMeRequested id -> "FOLLOW", id
-                | HighWind speed -> "WIND", sprintf "%.1f" speed
-                | TemperatureWarning temp -> "TEMP", sprintf "%.1f" temp
+                | HighWind speed -> "WIND", $"%.1f{speed}"
+                | TemperatureWarning temp -> "TEMP", $"%.1f{temp}"
                 | RainDetected -> "RAIN", ""
-                | MotorWarning(idx, sev) -> "MOTOR", sprintf "%d,%.2f" idx sev
+                | MotorWarning(idx, sev) -> "MOTOR", $"%d{idx},%.2f{sev}"
                 | SensorFault name -> "SENSOR", name
-                | CommunicationDegraded signalStrength -> "COMM", sprintf "%.0f" signalStrength
+                | CommunicationDegraded signalStrength -> "COMM", $"%.0f{signalStrength}"
                 | ReadyToRejoin -> "REJOIN", ""
                 | FormationPositionReached -> "POS_OK", ""
-                | CollisionRisk(other, dist) -> "COLLISION", sprintf "%d,%.2f" other dist
+                | CollisionRisk(other, dist) -> "COLLISION", $"%d{other},%.2f{dist}"
             | Custom evt ->
                 "CUSTOM:" + evt.EventType,
                 evt.Payload
@@ -345,8 +347,8 @@ module Protocol =
 
         let durationStr =
             match DroneEvent.suggestedDuration n.Event with
-            | Momentary s -> sprintf "M%.0f" s
-            | Brief s -> sprintf "B%.0f" s
+            | Momentary s -> $"M%.0f{s}"
+            | Brief s -> $"B%.0f{s}"
             | Extended -> "X"
 
         sprintf
@@ -362,7 +364,7 @@ module Protocol =
     /// Decode notification from text
     let decodeNotification (text: string) : Result<SwarmNotification, string> =
         try
-            let parts = text.Split('|')
+            let parts = text.Split '|'
 
             if parts.Length < 7 || parts.[0] <> "EVT" then
                 Error "Invalid format: expected EVT|..."
@@ -382,8 +384,8 @@ module Protocol =
 
                 let duration =
                     match durationStr with
-                    | s when s.StartsWith("M") -> Momentary(float (s.Substring(1)))
-                    | s when s.StartsWith("B") -> Brief(float (s.Substring(1)))
+                    | s when s.StartsWith "M" -> Momentary(float (s.Substring 1))
+                    | s when s.StartsWith "B" -> Brief(float (s.Substring 1))
                     | _ -> Extended
 
                 let tryParseFloats (s: string) = s.Split(',') |> Array.map float
@@ -425,7 +427,7 @@ module Protocol =
 
                     // Social/Interactive
                     | "PERSON" ->
-                        match extra.IndexOf(',') with
+                        match extra.IndexOf ',' with
                         | idx when idx > 0 ->
                             let personId = extra.Substring(0, idx)
                             let coords = tryParseFloats (extra.Substring(idx + 1))
@@ -455,7 +457,7 @@ module Protocol =
 
                     // Hardware
                     | "MOTOR" ->
-                        let vals = extra.Split(',')
+                        let vals = extra.Split ','
                         Standard(MotorWarning(int vals.[0], float vals.[1]))
                     | "SENSOR" -> Standard(SensorFault extra)
                     | "COMM" -> Standard(CommunicationDegraded(float extra))
@@ -464,20 +466,20 @@ module Protocol =
                     | "REJOIN" -> Standard ReadyToRejoin
                     | "POS_OK" -> Standard FormationPositionReached
                     | "COLLISION" ->
-                        let vals = extra.Split(',')
+                        let vals = extra.Split ','
                         Standard(CollisionRisk(int vals.[0], float vals.[1]))
 
                     // Custom events
-                    | s when s.StartsWith("CUSTOM:") ->
-                        let customType = s.Substring(7)
+                    | s when s.StartsWith "CUSTOM:" ->
+                        let customType = s.Substring 7
 
                         let payload =
                             if String.IsNullOrEmpty(extra) then
                                 Map.empty
                             else
-                                extra.Split(',')
+                                extra.Split ','
                                 |> Array.choose (fun kv ->
-                                    let eqIdx = kv.IndexOf('=')
+                                    let eqIdx = kv.IndexOf '='
 
                                     if eqIdx > 0 then
                                         Some(kv.Substring(0, eqIdx), kv.Substring(eqIdx + 1))
@@ -510,7 +512,7 @@ module Protocol =
                         Priority = if DroneEvent.isUrgent event then Critical else Normal
                     }
         with ex ->
-            Error(sprintf "Parse error: %s" ex.Message)
+            Error $"Parse error: %s{ex.Message}"
 
     /// Encode command as simple text
     /// Format: "CMD|<target>|<command>|<params>"
@@ -522,21 +524,21 @@ module Protocol =
 
         let cmdStr, cmdParams =
             match cmd.Command with
-            | Hold secs -> "HOLD", sprintf "%.0f" secs
+            | Hold secs -> "HOLD", $"%.0f{secs}"
             | Resume -> "RESUME", ""
-            | GoTo pos -> "GOTO", sprintf "%.2f,%.2f,%.2f" pos.X pos.Y pos.Z
+            | GoTo pos -> "GOTO", $"%.2f{pos.X},%.2f{pos.Y},%.2f{pos.Z}"
             | Land -> "LAND", ""
             | ReturnHome -> "RTH", ""
-            | SetSpeed mps -> "SPEED", sprintf "%.1f" mps
+            | SetSpeed mps -> "SPEED", $"%.1f{mps}"
             | CustomCommand(name, pars) ->
                 "CUSTOM:" + name, pars |> Map.toList |> List.map (fun (k, v) -> k + "=" + v) |> String.concat ","
 
-        sprintf "CMD|%s|%s|%s" targetStr cmdStr cmdParams
+        $"CMD|%s{targetStr}|%s{cmdStr}|%s{cmdParams}"
 
     /// Decode command from text
     let decodeCommand (text: string) : Result<SwarmCommand, string> =
         try
-            let parts = text.Split('|')
+            let parts = text.Split '|'
 
             if parts.Length < 3 || parts.[0] <> "CMD" then
                 Error "Invalid format: expected CMD|..."
@@ -566,16 +568,16 @@ module Protocol =
                     | "LAND" -> Land
                     | "RTH" -> ReturnHome
                     | "SPEED" -> SetSpeed(float cmdParams)
-                    | s when s.StartsWith("CUSTOM:") ->
-                        let name = s.Substring(7)
+                    | s when s.StartsWith "CUSTOM:" ->
+                        let name = s.Substring 7
 
                         let pars =
                             if String.IsNullOrEmpty(cmdParams) then
                                 Map.empty
                             else
-                                cmdParams.Split(',')
+                                cmdParams.Split ','
                                 |> Array.choose (fun kv ->
-                                    match kv.Split('=') with
+                                    match kv.Split '=' with
                                     | [| k; v |] -> Some(k, v)
                                     | _ -> None)
                                 |> Map.ofArray
@@ -590,7 +592,7 @@ module Protocol =
                         Timestamp = DateTime.UtcNow
                     }
         with ex ->
-            Error(sprintf "Parse error: %s" ex.Message)
+            Error $"Parse error: %s{ex.Message}"
 
 // =============================================================================
 // SWARM ADAPTATION - Handle drone departures and rejoins
@@ -627,8 +629,7 @@ module SwarmState =
     /// Create swarm state. If fewer profiles than drones, uses DroneProfile.standard for missing ones.
     let create (droneCount: int) (profiles: DroneProfile list) =
         let profileMap =
-            [ 0 .. droneCount - 1 ]
-            |> List.map (fun i ->
+            List.init (FSharp.Core.Operators.max 0 droneCount) (fun i ->
                 let profile =
                     profiles |> List.tryItem i |> Option.defaultValue DroneProfile.standard
 
@@ -636,7 +637,9 @@ module SwarmState =
             |> Map.ofList
 
         {
-            DroneStates = [ 0 .. droneCount - 1 ] |> List.map (fun i -> i, Active) |> Map.ofList
+            DroneStates =
+                List.init (FSharp.Core.Operators.max 0 droneCount) (fun i -> i, Active)
+                |> Map.ofList
             DronePositions = Map.empty
             DroneProfiles = profileMap
             CurrentFormation = None
@@ -953,7 +956,7 @@ module SwarmAdaptation =
                 // Count measurement outcomes
                 let counts =
                     measurements
-                    |> Array.map (fun bits -> bits |> Array.map string |> String.concat "")
+                    |> Array.map (Array.map string >> String.concat "")
                     |> Array.countBy id
                     |> Array.sortByDescending snd
 
@@ -1019,7 +1022,7 @@ module SwarmAdaptation =
                     | Ok(assign, wasQuantum) ->
                         let methodStr =
                             if wasQuantum then
-                                sprintf "QAOA (p=%d, %d qubits, %d shots)" QaoaDepth numQubits shots
+                                $"QAOA (p=%d{QaoaDepth}, %d{numQubits} qubits, %d{shots} shots)"
                             else
                                 "Greedy (QAOA fallback - no valid quantum solution)"
 
@@ -1028,11 +1031,11 @@ module SwarmAdaptation =
                 else
                     let reason =
                         if numQubits > MaxQaoaQubits then
-                            sprintf "problem too large (%d qubits > %d max)" numQubits MaxQaoaQubits
+                            $"problem too large (%d{numQubits} qubits > %d{MaxQaoaQubits} max)"
                         else
-                            sprintf "time budget too small (%dms)" maxComputeTimeMs
+                            $"time budget too small (%d{maxComputeTimeMs}ms)"
 
-                    (greedyAssignment distanceMatrix activeDroneIds, false, sprintf "Greedy (%s)" reason)
+                    (greedyAssignment distanceMatrix activeDroneIds, false, $"Greedy (%s{reason})")
 
             // Map local position indices back to original formation indices
             let assignments =
@@ -1058,6 +1061,7 @@ module SwarmAdaptation =
 // =============================================================================
 
 /// Configuration for event handling
+[<Struct>]
 type EventHandlerConfig =
     {
         /// Max time to wait for short events before continuing

@@ -34,6 +34,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 open FSharp.Azure.Quantum.Examples.Drones.FireAirBridge.AirBridge
 
+[<Struct>]
 type QaoaSettings =
     {
         Layers: int

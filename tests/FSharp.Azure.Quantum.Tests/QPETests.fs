@@ -361,7 +361,7 @@ module QPETests =
             let scaled = result.EstimatedPhase * 4.0
 
             Assert.True(
-                abs (scaled - System.Math.Round scaled) < 1e-9,
+                abs (scaled - Math.Round scaled) < 1e-9,
                 $"phase {result.EstimatedPhase} is not a multiple of 1/4; the whole-circuit lowering is wrong"
             )
         | Error err -> Assert.Fail($"Cloud-style modular-exponentiation QPE failed: {err}")

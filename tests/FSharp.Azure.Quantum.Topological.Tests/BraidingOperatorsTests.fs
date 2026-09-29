@@ -676,10 +676,7 @@ module BraidingOperatorsTests =
         | Error err, _
         | _, Error err -> Assert.Fail($"{label}: braiding failed: {err.Message}")
 
-    [<Theory>]
-    [<InlineData(2)>]
-    [<InlineData(3)>]
-    [<InlineData(4)>]
+    [<Theory; InlineData(2); InlineData(3); InlineData(4)>]
     let ``Yang-Baxter holds across pair boundaries on the comb encoding`` (qubits: int) =
         // σ_i σ_{i+1} σ_i = σ_{i+1} σ_i σ_{i+1} for every i on every basis state. Every
         // triple containing an odd i exercises a cross-pair braid, and every i does for
@@ -690,9 +687,7 @@ module BraidingOperatorsTests =
             for i in 0 .. anyons - 3 do
                 assertBraidWordsAgree $"{qubits} pairs, i={i}" [ i; i + 1; i ] [ i + 1; i; i + 1 ] start
 
-    [<Theory>]
-    [<InlineData(3)>]
-    [<InlineData(4)>]
+    [<Theory; InlineData(3); InlineData(4)>]
     let ``distant generators commute across pair boundaries`` (qubits: int) =
         // σ_i σ_j = σ_j σ_i for |i − j| >= 2, including two cross-pair generators at once.
         let anyons = 2 * qubits
@@ -702,9 +697,7 @@ module BraidingOperatorsTests =
                 for j in i + 2 .. anyons - 2 do
                     assertBraidWordsAgree $"{qubits} pairs, i={i}, j={j}" [ i; j ] [ j; i ] start
 
-    [<Theory>]
-    [<InlineData(2)>]
-    [<InlineData(3)>]
+    [<Theory; InlineData(2); InlineData(3)>]
     let ``a cross-pair braid followed by its inverse is the identity`` (qubits: int) =
         for start in combBasis qubits do
             for i in 1..2 .. 2 * qubits - 3 do // odd indices are the cross-pair ones

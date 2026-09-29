@@ -30,6 +30,7 @@ open FSharp.Azure.Quantum.Core.QaoaCircuit
 // =============================================================================
 
 /// 3D position in meters relative to ground origin
+[<Struct>]
 type Position3D = { X: float; Y: float; Z: float }
 
 /// Waypoint with timing for a single drone
@@ -54,6 +55,7 @@ type CollisionRisk =
     | MultipleCollisions of CollisionRisk list
 
 /// Planning constraints
+[<Struct>]
 type PlanningConstraints =
     {
         MinSeparationMeters: float
@@ -721,7 +723,8 @@ let planTransition
             let isSafe =
                 match finalRisk with
                 | Safe _ -> true
-                | _ -> false
+                | PotentialCollision _
+                | MultipleCollisions _ -> false
 
             let minSep = worstSeparation finalRisk
 
@@ -767,15 +770,15 @@ let fromAssignments
         |}[])
     : (int * int) list =
     assignments
+    |> Array.map (fun a -> (a.DroneId, a.TargetPositionIndex))
     |> Array.toList
-    |> List.map (fun a -> (a.DroneId, a.TargetPositionIndex))
 
 /// Pretty print collision risk for diagnostics
 let describeRisk (risk: CollisionRisk) : string =
     match risk with
-    | Safe sep -> sprintf "Safe: minimum separation %.2fm" sep
+    | Safe sep -> $"Safe: minimum separation %.2f{sep}m"
     | PotentialCollision(dA, dB, time, dist) ->
-        sprintf "Collision risk: Drone %d and Drone %d at t=%.2f (distance: %.2fm)" dA dB time dist
+        $"Collision risk: Drone %d{dA} and Drone %d{dB} at t=%.2f{time} (distance: %.2f{dist}m)"
     | MultipleCollisions risks ->
         let count = List.length risks
-        sprintf "Multiple collision risks (%d detected)" count
+        $"Multiple collision risks (%d{count} detected)"

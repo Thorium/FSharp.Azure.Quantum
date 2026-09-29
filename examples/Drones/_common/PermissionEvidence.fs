@@ -85,6 +85,7 @@ type OffNominal =
     }
 
 /// Working allowance for one pilot decision (assess, decide, command).
+[<Literal>]
 let decisionTimeS = 60.0
 
 type Pack =
@@ -148,6 +149,7 @@ let private pass ok = if ok then Pass else Fail
 // =============================================================================
 
 /// Local position in metres (X east, Y north, Z up above ground level).
+[<Struct>]
 type P3 = { X: float; Y: float; Z: float }
 
 let dist3 (a: P3) (b: P3) =
@@ -186,6 +188,48 @@ let positionAt (track: Track) (t: float) : P3 option =
                     Y = p0.Y + f * (p1.Y - p0.Y)
                     Z = p0.Z + f * (p1.Z - p0.Z)
                 }
+
+/// `track` flown only as far as `metres` along it, then a vertical landing
+/// at `descentMs` where the aircraft is; the whole track when it is shorter.
+/// An aircraft out of range still flies the RTL its failsafes command and
+/// lands where its critical-battery failsafe finds it.
+let flownThenLanding (id: string) (descentMs: float) (metres: float) (track: Track) : Track =
+    let s = track.Samples
+    let budget = max 0.0 metres
+
+    let cut =
+        s
+        |> Array.pairwise
+        |> Array.scan (fun (along, _) ((ta, a), (tb, b)) -> (along + dist3 a b, Some((ta, a), (tb, b)))) (0.0, None)
+        |> Array.pairwise
+        |> Array.tryPick (fun ((before, _), (after, leg)) ->
+            match leg with
+            | Some((ta, a), (tb, b)) when after >= budget ->
+                let d = after - before
+                let f = if d > 0.0 then (budget - before) / d else 0.0
+
+                Some(
+                    ta + f * (tb - ta),
+                    {
+                        X = a.X + f * (b.X - a.X)
+                        Y = a.Y + f * (b.Y - a.Y)
+                        Z = a.Z + f * (b.Z - a.Z)
+                    }
+                )
+            | _ -> None)
+
+    match cut with
+    | None -> { track with AircraftId = id }
+    | Some(t, p) ->
+        {
+            AircraftId = id
+            Samples =
+                Array.concat
+                    [
+                        s |> Array.filter (fun (ti, _) -> ti < t)
+                        [| (t, p); (t + p.Z / descentMs, { p with Z = 0.0 }) |]
+                    ]
+        }
 
 type Closest =
     {
@@ -347,7 +391,7 @@ module Checks =
                 Claim = "No two aircraft are ever closer than the minimum separation"
                 Method = method
                 Measured = "fewer than two aircraft airborne together"
-                Limit = sprintf ">= %.1f m" minSepM
+                Limit = $">= %.1f{minSepM} m"
                 Status = Pass
                 Details = []
             }
@@ -356,13 +400,10 @@ module Checks =
                 Area = Deconfliction
                 Claim = "No two aircraft are ever closer than the minimum separation"
                 Method = method
-                Measured = sprintf "closest approach %.1f m (%s / %s at t=%.0f s)" c.Distance c.A c.B c.TimeS
-                Limit = sprintf ">= %.1f m" minSepM
+                Measured = $"closest approach %.1f{c.Distance} m (%s{c.A} / %s{c.B} at t=%.0f{c.TimeS} s)"
+                Limit = $">= %.1f{minSepM} m"
                 Status = pass (c.Distance >= minSepM)
-                Details =
-                    [
-                        sprintf "at local position (%.0f, %.0f, %.0f) m" c.Where.X c.Where.Y c.Where.Z
-                    ]
+                Details = [ $"at local position (%.0f{c.Where.X}, %.0f{c.Where.Y}, %.0f{c.Where.Z}) m" ]
             }
 
     /// `altitudes`: (what, metres AGL) for every planned point.
@@ -379,15 +420,15 @@ module Checks =
         {
             Area = AltitudeCeiling
             Claim = "Every planned point is at or below the altitude ceiling"
-            Method = sprintf "maximum over %d planned points" altitudes.Length
+            Method = $"maximum over %d{altitudes.Length} planned points"
             Measured =
                 if altitudes.IsEmpty then
                     "no points"
                 else
-                    sprintf "highest %.1f m AGL" highest
-            Limit = sprintf "<= %.1f m AGL" ceiling
+                    $"highest %.1f{highest} m AGL"
+            Limit = $"<= %.1f{ceiling} m AGL"
             Status = pass over.IsEmpty
-            Details = over |> List.truncate 10 |> List.map (fun (w, a) -> sprintf "%s at %.1f m" w a)
+            Details = over |> List.truncate 10 |> List.map (fun (w, a) -> $"%s{w} at %.1f{a} m")
         }
 
     /// `altitudes`: (what, metres AGL) against the regulatory ceiling.
@@ -401,21 +442,21 @@ module Checks =
 
         {
             Area = C2Link
-            Claim = sprintf "Every planned point is within C2 link range of %s" stationName
+            Claim = $"Every planned point is within C2 link range of %s{stationName}"
             Method =
                 "horizontal distance to the station vs. "
                 + C2.describe frequencyMhz fadeMarginDb
             Measured =
                 match worst with
-                | (w, d) :: _ -> sprintf "farthest %.2f km (%s)" d w
+                | (w, d) :: _ -> $"farthest %.2f{d} km (%s{w})"
                 | [] -> "no points"
-            Limit = sprintf "<= %.2f km" range
+            Limit = $"<= %.2f{range} km"
             Status = pass (worst |> List.forall (fun (_, d) -> d <= range))
             Details =
                 worst
                 |> List.filter (fun (_, d) -> d > range)
                 |> List.truncate 10
-                |> List.map (fun (w, d) -> sprintf "%s at %.2f km" w d)
+                |> List.map (fun (w, d) -> $"%s{w} at %.2f{d} km")
         }
 
     /// `legs`: (aircraft, needed, available) in the same unit, where
@@ -436,13 +477,13 @@ module Checks =
             Method = method
             Measured =
                 match tightest with
-                | (a, need, have) :: _ -> sprintf "tightest %s: needs %.1f of %.1f %s usable" a need have unit
+                | (a, need, have) :: _ -> $"tightest %s{a}: needs %.1f{need} of %.1f{have} %s{unit} usable"
                 | [] -> "no flights"
             Limit = "needed <= usable (usable excludes reserve)"
             Status = pass short.IsEmpty
             Details =
                 short
-                |> List.map (fun (a, need, have) -> sprintf "%s needs %.1f %s, has %.1f" a need unit have)
+                |> List.map (fun (a, need, have) -> $"%s{a} needs %.1f{need} %s{unit}, has %.1f{have}")
         }
 
     let pilotRatio (pilots: int) (aircraft: int) (peakAirborne: int) =
@@ -459,7 +500,7 @@ module Checks =
             Status = Declared
             Details =
                 [
-                    sprintf "%d pilot(s), %d aircraft, peak %d airborne" pilots aircraft peakAirborne
+                    $"%d{pilots} pilot(s), %d{aircraft} aircraft, peak %d{peakAirborne} airborne"
                 ]
         }
 
@@ -512,11 +553,11 @@ module Checks =
                         (if d = 0 then
                              "no pilot decisions needed"
                          else
-                             sprintf "up to %d decision(s) at once (%s)" d nd)
+                             $"up to %d{d} decision(s) at once (%s{nd})")
                         handsOff
                         assessed.Length
                 | _ -> "no contingency scenarios"
-            Limit = sprintf "decisions at once <= %d pilot(s)" pilots
+            Limit = $"decisions at once <= %d{pilots} pilot(s)"
             Status =
                 if assessed |> List.forall (fun (_, _, _, d) -> d <= pilots) then
                     Pass
@@ -555,7 +596,7 @@ module Checks =
                         |> List.truncate 3
                         |> String.concat "; "
 
-                    sprintf "%s: %d aircraft, %d decision(s) at once — %s" name a d how)
+                    $"%s{name}: %d{a} aircraft, %d{d} decision(s) at once — %s{how}")
         }
 
     let contingency (claim: string) (method: string) (measured: string) (status: Status) (details: string list) =
@@ -598,14 +639,12 @@ let private toMarkdown (pack: Pack) =
     let sb = Text.StringBuilder()
     let line (s: string) = sb.AppendLine s |> ignore
 
-    line (sprintf "# One-pilot-to-many permission evidence — %s" pack.Example)
+    line $"# One-pilot-to-many permission evidence — %s{pack.Example}"
     line ""
-    line (sprintf "**Operation:** %s  " pack.Operation)
+    line $"**Operation:** %s{pack.Operation}  "
     line (sprintf "**Overall:** %s  " (verdict pack))
 
-    line (
-        sprintf "**Pilots:** %d · **Aircraft:** %d · **Peak airborne:** %d" pack.Pilots pack.Aircraft pack.PeakAirborne
-    )
+    line $"**Pilots:** %d{pack.Pilots} · **Aircraft:** %d{pack.Aircraft} · **Peak airborne:** %d{pack.PeakAirborne}"
 
     line ""
     line "| Area | Status | Claim | Measured | Limit |"
@@ -627,19 +666,19 @@ let private toMarkdown (pack: Pack) =
             line ""
             line (sprintf "**%s** — %s" (statusName c.Status) c.Claim)
             line ""
-            line (sprintf "- Method: %s" c.Method)
-            line (sprintf "- Measured: %s" c.Measured)
-            line (sprintf "- Limit: %s" c.Limit)
+            line $"- Method: %s{c.Method}"
+            line $"- Measured: %s{c.Measured}"
+            line $"- Limit: %s{c.Limit}"
 
             for d in c.Details do
-                line (sprintf "  - %s" d)
+                line $"  - %s{d}"
 
     line ""
     line "## Assumptions"
     line ""
 
     for a in pack.Assumptions do
-        line (sprintf "- %s" a)
+        line $"- %s{a}"
 
     line ""
     line "Limits are this example's working values from DroneDomain.fs, not any authority's rule."

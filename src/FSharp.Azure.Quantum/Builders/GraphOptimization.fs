@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum
 
 open System
+open System.Collections.Generic
 
 /// TKT-90: Generic Graph Optimization Framework
 ///
@@ -852,8 +853,8 @@ module GraphOptimization =
         | [] -> true
         | start :: _ ->
             let neighbours = Graph.buildAdjacency false edges
-            let visited = System.Collections.Generic.HashSet<string>()
-            let pending = System.Collections.Generic.Stack<string>()
+            let visited = HashSet<string>()
+            let pending = Stack<string>()
             pending.Push start
             visited.Add start |> ignore
 
@@ -873,7 +874,7 @@ module GraphOptimization =
         if directed || (not edges.IsEmpty && edges |> List.forall (fun e -> e.Directed)) then
             let nodes = edges |> List.collect (fun e -> [ e.Source; e.Target ]) |> List.distinct
             let successors = Graph.buildAdjacency true edges
-            let inDegree = System.Collections.Generic.Dictionary<string, int>()
+            let inDegree = Dictionary<string, int>()
 
             for n in nodes do
                 inDegree[n] <- 0
@@ -881,8 +882,7 @@ module GraphOptimization =
             for e in edges do
                 inDegree[e.Target] <- inDegree[e.Target] + 1
 
-            let ready =
-                System.Collections.Generic.Queue<string>(nodes |> List.filter (fun n -> inDegree[n] = 0))
+            let ready = Queue<string>(nodes |> List.filter (fun n -> inDegree[n] = 0))
 
             let mutable removed = 0
 
@@ -899,7 +899,7 @@ module GraphOptimization =
             // Nodes on (or downstream of) a cycle never reach in-degree 0.
             removed < nodes.Length
         else
-            let parent = System.Collections.Generic.Dictionary<string, string>()
+            let parent = Dictionary<string, string>()
 
             let rec find (x: string) =
                 match parent.TryGetValue x with

@@ -197,8 +197,8 @@ The `--mavlink` flag generates mission files compatible with ArduPilot and PX4 f
 - **Arms on its own ground slot** (around the show origin), which the files declare as that drone's home (`plannedHomePosition`, `.waypoints` row 0). ArduPilot sets home where the vehicle arms, so RTL brings each drone back to its own slot, not to one point shared by the swarm.
 - **Takes off** vertically to 2 m, then flies only the **airborne** formations (Diamond, Square, Vertical Line). The ground formations are where the drones stand. They are never flown to at 0 m mid-show.
 - **Flies every transition in step with the others.** Before each leg a `DO_CHANGE_SPEED` sets the drone's horizontal speed so its leg takes as long as the slowest drone's leg at 3 m/s.
-  - The leg time counts the climb and descent limits (`WPNAV_SPEED_UP` 2.5 m/s, `WPNAV_SPEED_DN` 1.5 m/s).
-  - It also counts **ArduPilot's S-curve acceleration**: every leg starts and ends at rest, jerk- and acceleration-limited by `WPNAV_ACCEL` 2.5 m/s², `WPNAV_ACCEL_Z` 1 m/s², `WPNAV_JERK` 1 m/s³ and `PSC_JERK_Z` 5 m/s³. These are pinned in the `.parm` files, and the model is a symmetric approximation of ArduPilot's SCurve.
+  - The leg time counts the climb and descent limits (`WP_SPD_UP` 2.5 m/s, `WP_SPD_DN` 1.5 m/s).
+  - It also counts **ArduPilot's S-curve acceleration**: every leg starts and ends at rest, jerk- and acceleration-limited by `WP_ACC` 2.5 m/s², `WP_ACC_Z` 1 m/s², `WP_JERK` 1 m/s³ and `PSC_D_JERK` 5 m/s³. These are pinned in the `.parm` files, and the model is a symmetric approximation of ArduPilot's SCurve.
   - A leg too short to fly that slowly is flown at 0.5 m/s and the drone holds longer, so all drones leave each formation together.
   - **Holds are exported as whole seconds** because ArduPilot keeps a waypoint's `param1` as an integer (`AP_Mission`, `cmd.p1` is a `uint16`). The fraction follows as a **`NAV_DELAY`**, whose seconds are a float. A fractional hold used to be silently truncated.
 - **Lands on its own slot** (`NAV_LAND` with a position: it flies there at its current height, then descends).
@@ -244,16 +244,16 @@ QGC WPL 110
 
 #### 3. `<DroneName>.parm` - ArduPilot Parameters (load before flight)
 
-One `NAME VALUE` line per parameter (MAVProxy `param load` format). The mission and its failsafes only behave as planned with these values, and the evidence pack reads them back from disk:
+One `NAME VALUE` line per parameter (MAVProxy `param load` format), with ArduCopter 4.7's names and units: metres and m/s. Earlier versions name several of them differently, and the launcher refuses a vehicle that lacks one. The mission and its failsafes only behave as planned with these values, and the evidence pack reads them back from disk:
 
-- `RTL_ALT`: **staggered per drone**, all above the show's top point and 6 m apart (e.g. 61 / 67 / 73 / 79 m), so drones returning at once cross at different heights. A drone that is ever stacked under another gets the lower RTL altitude, because RTL first climbs vertically.
-- `RTL_CONE_SLOPE 0`, `RTL_ALT_FINAL 0`, `RTL_SPEED`, and `RTL_LOIT_TIME`. The loiter is long enough that no drone starts its descent before every drone has finished its RTL climb and transit (31 s here).
-- `WPNAV_SPEED_UP/DN`, `LAND_SPEED`, `LAND_ALT_LOW`: the climb, descent and landing speeds the timing assumes. `WPNAV_ACCEL`, `WPNAV_ACCEL_Z`, `WPNAV_JERK` and `PSC_JERK_Z` are the S-curve limits it assumes.
+- `RTL_ALT_M`: **staggered per drone**, all above the show's top point and 6 m apart (e.g. 61 / 67 / 73 / 79 m), so drones returning at once cross at different heights. A drone that is ever stacked under another gets the lower RTL altitude, because RTL first climbs vertically.
+- `RTL_CONE_SLOPE 0`, `RTL_ALT_FINAL_M 0`, `RTL_SPEED_MS`, and `RTL_LOIT_TIME`. The loiter is long enough that no drone starts its descent before every drone has finished its RTL climb and transit (31 s here).
+- `WP_SPD_UP/DN`, `LAND_SPD_MS`, `LAND_ALT_LOW_M`: the climb, descent and landing speeds the timing assumes. `WP_ACC`, `WP_ACC_Z`, `WP_JERK` and `PSC_D_JERK` are the S-curve limits it assumes. `AUTO_OPTIONS 2` lets AUTO take off with no pilot on the throttle.
 - `FS_OPTIONS 11`: a lost RC or ground-station link in AUTO **continues the mission**, which is the deconflicted show, instead of starting a lone RTL. `BATT_FS_LOW_ACT 0`: low battery only warns, and the pilot runs the drop-out procedure (below).
 
 #### 4. `mavlink_show.fsx` - F# Show Script
 
-An F# script that flies the exported show over MAVLink 2. It uses the NuGet
+An F# script that flies the exported show over MAVLink 2. It is the launcher shared by all four drone examples. It uses the NuGet
 package [`MAVLink`](https://www.nuget.org/packages/MAVLink) 1.0.8, which is
 ArduPilot Mission Planner's generated C# MAVLink
 ([source](https://github.com/ArduPilot/MissionPlanner/tree/master/ExtLibs/Mavlink)).
@@ -263,7 +263,7 @@ the top of the script:
 - `udpin:PORT`: a vehicle or MAVProxy `--out` sending to that port.
 
 For each drone it:
-1. Waits for the heartbeat.
+1. Waits for the heartbeat and checks the vehicle is a copter.
 2. Sets every parameter from `<Drone>.parm` and reads each one back.
 3. Uploads `<Drone>_mission.plan` (home at seq 0, the items from seq 1) and reads the whole mission back.
 4. Checks the vehicle stands within 2 m of its declared home, its own slot.
@@ -272,7 +272,7 @@ For each drone it:
 the evidence pack checked. Then it:
 - sets GUIDED and arms every drone;
 - sends `MISSION_START` to all at the same moment;
-- streams position and mission progress.
+- streams position and mission progress to the console and `telemetry.csv`, and exits when every drone has landed and disarmed.
 
 Ctrl+C sends every drone RTL (the modelled abort).
 
@@ -285,8 +285,23 @@ dotnet fsi mavlink_show.fsx             # connects and flies
 The dry run also prints a `sim_vehicle.py --custom-location` line per drone,
 which starts SITL on that drone's home.
 
-**It has been dry-run only.** Run it against ArduPilot SITL (four instances,
-each started on its drone's home) before any real aircraft.
+#### Flown in ArduPilot SITL
+
+The outdoor show was flown on four ArduCopter 4.7.1 vehicles in ArduPilot's own
+software-in-the-loop simulator, with the generated launcher, on 29 September
+2026. [SITL.md](../SITL.md) shows how to repeat it.
+
+![The show flown in ArduPilot SITL: the plan as a wide pale band and the flight as a thin line, from the south, height over time, and in 3-D](../_images/swarm-choreography-sitl.svg)
+
+| Measure | Result |
+|---|---|
+| Start | all four together at T0 |
+| Show, from MISSION_START to every drone down and disarmed | 117 s |
+| Closest approach between airborne drones | 6.10 m, limit 5 m; the evidence predicts 6.1 m |
+| Distance from the planned tracks | at most 8.3 m, 95% of fixes within 6.3 m |
+
+The picture is animated: the drones move through the show in 20 s, looping.
+The show is flown in a vertical plane, so its first view is from the south.
 
 ### MAVLink Hardware Requirements
 

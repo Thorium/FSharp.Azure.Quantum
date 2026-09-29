@@ -175,6 +175,7 @@ let ``Molecule.fromDefaultProvider returns error for invalid molecule`` () =
 [<Fact>]
 let ``Molecule.fromProvider with custom provider works`` () =
     let provider = ChemistryDataProviders.defaultDatasetProvider
+
     match Molecule.fromProvider provider "LiH" with
     | Ok mol -> Assert.Equal("LiH", mol.Name)
     | Error e -> Assert.Fail($"Expected Ok but got: {e}")

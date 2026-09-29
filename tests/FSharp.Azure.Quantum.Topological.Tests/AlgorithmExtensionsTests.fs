@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Topological
 open System.Numerics
 
@@ -92,8 +93,7 @@ module AlgorithmExtensionsTests =
         // route B (the Beauregard circuit). Same period or one of them is wrong.
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         match Shor.findPeriodQuantum 7 15 3 topoBackend, Shor.findPeriodQuantum 7 15 3 localBackend with
         | Ok native, Ok circuit ->
@@ -568,8 +568,7 @@ module AlgorithmExtensionsTests =
                 (backend.InitializeState numQubits)
             |> Result.bind (backend.ApplyOperation qftIntent)
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
 
@@ -620,8 +619,7 @@ module AlgorithmExtensionsTests =
             )
             |> Result.bind (backend.ApplyOperation qftIntent)
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
 
@@ -638,9 +636,7 @@ module AlgorithmExtensionsTests =
         | Error err, _ -> failwith $"Gate simulator failed: {err}"
         | _, Error err -> failwith $"Topological backend failed: {err}"
 
-    [<Theory>]
-    [<InlineData(true)>]
-    [<InlineData(false)>]
+    [<Theory; InlineData(true); InlineData(false)>]
     let ``QFT intent round-trips on the gate simulator`` (applySwaps: bool) =
         // Forward then inverse must be the identity on any backend, for either swap setting.
         // If this fails the canonical lowering itself is inconsistent, which would make it a
@@ -657,8 +653,7 @@ module AlgorithmExtensionsTests =
                     }
             )
 
-        let backend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         // |001>, NOT |111>: a bit-reversal-symmetric input hides a permutation error,
         // because reversing its bits gives the same state back.
@@ -723,8 +718,7 @@ module AlgorithmExtensionsTests =
                 (backend.InitializeState stateQubits)
             |> Result.bind (backend.ApplyOperation qftIntent)
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -796,15 +790,15 @@ module AlgorithmExtensionsTests =
         // planning. The handler now accepts the wider state and leaves the surplus in |0>.
         let backend = TopologicalUnifiedBackendFactory.createIsing 32
 
-        let config: FSharp.Azure.Quantum.Algorithms.QPE.QPEConfig =
+        let config: QPE.QPEConfig =
             {
                 CountingQubits = 3
                 TargetQubits = 4 // ceil(log2 15)
-                UnitaryOperator = FSharp.Azure.Quantum.Algorithms.QPE.UnitaryOperator.ModularExponentiation(7, 15)
+                UnitaryOperator = QPE.UnitaryOperator.ModularExponentiation(7, 15)
                 EigenVector = None
             }
 
-        match FSharp.Azure.Quantum.Algorithms.QPE.execute config backend with
+        match QPE.execute config backend with
         | Error err -> failwith $"QPE.execute with ModularExponentiation failed on a topological backend: {err}"
         | Ok result ->
             // ord(7 mod 15) = 4, so the phase must land on a multiple of 1/4.
@@ -868,8 +862,7 @@ module AlgorithmExtensionsTests =
             backend.InitializeState(countingQubits + 1)
             |> Result.bind (backend.ApplyOperation qpeOp)
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -919,8 +912,7 @@ module AlgorithmExtensionsTests =
             )
             |> Result.bind (backend.ApplyOperation qpeOp)
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -1057,8 +1049,7 @@ module AlgorithmExtensionsTests =
                 (backend.InitializeState totalQubits)
             |> Result.bind (backend.ApplyOperation hhlOp)
 
-        let localBackend =
-            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
         let topoBackend = TopologicalUnifiedBackendFactory.createIsing (2 * totalQubits + 2)
 

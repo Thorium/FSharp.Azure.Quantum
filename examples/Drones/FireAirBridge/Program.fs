@@ -254,7 +254,9 @@ module Planning =
     /// refuses conflicting lanes, and a lane that is emptying is still a lane.
     let traffic (s: SimState) (tick: int) =
         (s.LastLanes |> List.map (fun l -> l.Corridor))
-        @ (s.Draining |> List.filter (fun (_, until) -> until > tick) |> List.map (fun (l, _) -> l.Corridor))
+        @ (s.Draining
+           |> List.filter (fun (_, until) -> until > tick)
+           |> List.map (fun (l, _) -> l.Corridor))
 
     let clearOfTraffic (sc: Scenario) (s: SimState) (tick: int) (c: Corridor) =
         s.Plan.Contains c.Id
@@ -387,7 +389,7 @@ module Planning =
                 (s',
                  [
                      { row adopted plan with
-                         Reason = reason + " (QAOA failed: " + e.Message + ")"
+                         Reason = $"{reason} (QAOA failed: {e.Message})"
                      }
                  ])
 
@@ -439,7 +441,7 @@ module Planning =
                  {
                      Policy = Policy.name policy
                      At = tick
-                     Reason = sprintf "QAOA answer asked at t=%d arrives" askedAt
+                     Reason = $"QAOA answer asked at t=%d{askedAt} arrives"
                      Candidates = corridors.Length
                      IncumbentScore = current
                      GreedyScore = None
@@ -463,39 +465,27 @@ module Simulation =
 
     let private describeEvent (st: Settings) =
         function
-        | WindDirection deg -> sprintf "wind now blowing toward %.0f deg" deg
-        | WindSpeed ms -> sprintf "wind %.0f m/s" ms
-        | CloseSource id -> sprintf "smoke closes %s" id
-        | OpenSource id -> sprintf "%s usable again" id
+        | WindDirection deg -> $"wind now blowing toward %.0f{deg} deg"
+        | WindSpeed ms -> $"wind %.0f{ms} m/s"
+        | CloseSource id -> $"smoke closes %s{id}"
+        | OpenSource id -> $"%s{id} usable again"
         | SpotFire(id, v) ->
             match st.Demand with
-            | Fire _ -> sprintf "spot fire in %s (%.2f)" id v
-            | Touches _ -> sprintf "%s needs %.0f more touch(es)" id v
-        | LoseDrones n -> sprintf "%d drones lost" n
+            | Fire _ -> $"spot fire in %s{id} (%.2f{v})"
+            | Touches _ -> $"%s{id} needs %.0f{v} more touch(es)"
+        | LoseDrones n -> $"%d{n} drones lost"
 
     let private apply (sc: Scenario) (st: Settings) (s: SimState) (event: ScenarioEvent) =
         match event with
-        | WindDirection deg ->
-            { s with
-                Cond = { s.Cond with WindToDeg = deg }
-            }
-        | WindSpeed ms ->
-            { s with
-                Cond = { s.Cond with WindSpeedMs = ms }
-            }
+        | WindDirection deg -> { s with Cond.WindToDeg = deg }
+        | WindSpeed ms -> { s with Cond.WindSpeedMs = ms }
         | CloseSource id ->
             { s with
-                Cond =
-                    { s.Cond with
-                        ClosedSources = s.Cond.ClosedSources.Add id
-                    }
+                Cond.ClosedSources = s.Cond.ClosedSources.Add id
             }
         | OpenSource id ->
             { s with
-                Cond =
-                    { s.Cond with
-                        ClosedSources = s.Cond.ClosedSources.Remove id
-                    }
+                Cond.ClosedSources = s.Cond.ClosedSources.Remove id
             }
         | SpotFire(id, v) ->
             match sc.SectorIndex.TryFind id with
@@ -506,23 +496,14 @@ module Simulation =
             | None -> s
         | LoseDrones n ->
             { s with
-                Cond =
-                    { s.Cond with
-                        FleetSize = max 0 (s.Cond.FleetSize - n)
-                    }
+                Cond.FleetSize = max 0 (s.Cond.FleetSize - n)
             }
 
     /// Fast loop: spread the fleet over the flyable open corridors and land
     /// the drops on each target (a newly flying corridor delivers after warm-up).
     /// With a dispatcher, whole aircraft fly the allocation and only the drops
     /// they land count.
-    let private fly
-        (sc: Scenario)
-        (st: Settings)
-        (dispatcher: Dispatch.Dispatcher option)
-        (tick: int)
-        (s: SimState)
-        =
+    let private fly (sc: Scenario) (st: Settings) (dispatcher: Dispatch.Dispatcher option) (tick: int) (s: SimState) =
         let tickS = Tick.seconds st.Tick
         let unitsPerDrop = Demand.unitsPerDrop st.Demand sc.Fleet
         let needs = Planning.needsNow sc st s
@@ -620,8 +601,7 @@ module Simulation =
             (s.Draining |> List.filter (fun (_, until) -> until > tick))
             @ (gone
                |> List.filter (fun l -> not (s.Plan.Contains l.Corridor.Id))
-               |> List.map (fun l ->
-                   ({ l with Draining = true }, tick + int (Math.Ceiling(l.Corridor.CycleS / tickS)))))
+               |> List.map (fun l -> ({ l with Draining = true }, tick + int (Math.Ceiling(l.Corridor.CycleS / tickS)))))
 
         let record =
             {
@@ -692,7 +672,13 @@ module Simulation =
                     let i = Array.findIndex (fun (o: Corridor) -> o.Id = c.Id) all
                     max 0.0 (Evaluate.score ctx (Array.init all.Length ((=) i)))
 
-                Dispatch.Dispatcher(sc.Fleet, sc.Sources, sc.Sectors, opts, Dispatch.home sc.Fleet sc.Sources worth all))
+                Dispatch.Dispatcher(
+                    sc.Fleet,
+                    sc.Sources,
+                    sc.Sectors,
+                    opts,
+                    Dispatch.home sc.Fleet sc.Sources worth all
+                ))
 
         let initialState =
             {
@@ -833,8 +819,8 @@ module Report =
             quantum_adopted = r.Decisions |> List.filter (fun d -> d.Adopted = "quantum") |> List.length
         }
 
-    let private f1 (x: float) = sprintf "%.1f" x
-    let private f3 (x: float) = sprintf "%.3f" x
+    let private f1 (x: float) = $"%.1f{x}"
+    let private f3 (x: float) = $"%.3f{x}"
 
     let private optF (x: float option) =
         x |> Option.map f1 |> Option.defaultValue ""
@@ -842,7 +828,7 @@ module Report =
     /// A distance for people: km in a geodetic scenario, metres in a room.
     let distance (frame: Frame) (km: float) =
         match frame with
-        | Geodetic -> sprintf "%.2f km" km
+        | Geodetic -> $"%.2f{km} km"
         | LocalMetres -> sprintf "%.1f m" (km * 1000.0)
 
     /// Little's law per source at the initial conditions: the ceiling on what
@@ -891,7 +877,7 @@ module Report =
         if Double.IsNegativeInfinity x then
             "infeasible"
         else
-            sprintf "%.0f" x
+            $"%.0f{x}"
 
     let printDecision (d: Decision) =
         let q =
@@ -932,7 +918,7 @@ module Report =
             "policy"
             (sprintf "%s delivered" (Demand.unitName st.Demand))
             (sprintf "%s*%s" metric (Tick.unit st.Tick))
-            (sprintf "peak %s" metric)
+            $"peak %s{metric}"
             "final"
             "idle drns"
             "replans"
@@ -1082,13 +1068,15 @@ module Evidence =
 
     module Ev = FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence
 
+    [<Literal>]
     let private c2BandMhz = 900.0
+
+    [<Literal>]
     let private c2FadeMarginDb = 10.0
 
     /// Ticks during which each source was closed by the scenario's events.
     let private closedTicks (sc: Scenario) (ticks: int) =
-        [ 0 .. ticks - 1 ]
-        |> List.map (fun t ->
+        List.init (FSharp.Core.Operators.max 0 ticks) (fun t ->
             let closed =
                 sc.Events
                 |> List.filter (fun e -> e.At <= t)
@@ -1152,9 +1140,12 @@ module Evidence =
                         tickUnit
                         (Tick.name st.Tick)
                 Measured = sprintf "spacing %.1f m, peak lane load %.0f%%" sc.Fleet.LaneSpacingM (peakLoad * 100.0)
-                Limit = sprintf "spacing >= %.1f m, load <= 100%%" sc.Fleet.MinSeparationM
+                Limit = $"spacing >= %.1f{sc.Fleet.MinSeparationM} m, load <= 100%%"
                 Status =
-                    if sc.Fleet.LaneSpacingM >= sc.Fleet.MinSeparationM - 1e-9 && peakLoad <= 1.0 + 1e-9 then
+                    if
+                        sc.Fleet.LaneSpacingM >= sc.Fleet.MinSeparationM - 1e-9
+                        && peakLoad <= 1.0 + 1e-9
+                    then
                         Ev.Pass
                     else
                         Ev.Fail
@@ -1217,8 +1208,8 @@ module Evidence =
                             m
                             ownLaneGap
                     | [] when allLanes.IsEmpty -> "no lanes flown"
-                    | [] -> sprintf "no conflicting lanes; own-lane gap %.1f m" ownLaneGap
-                Limit = sprintf ">= %.1f m vertical" sc.Fleet.MinVerticalM
+                    | [] -> $"no conflicting lanes; own-lane gap %.1f{ownLaneGap} m"
+                Limit = $">= %.1f{sc.Fleet.MinVerticalM} m vertical"
                 Status =
                     if minGap >= sc.Fleet.MinVerticalM - 1e-9 then
                         Ev.Pass
@@ -1287,7 +1278,7 @@ module Evidence =
                                 | xs -> xs |> List.maxBy (fun (r, len) -> r / len)
 
                         {|
-                            Name = sprintf "%s %s" label id
+                            Name = $"%s{label} %s{id}"
                             At = m.At
                             Lanes = ls.Length
                             Load = merged / capacity
@@ -1317,7 +1308,7 @@ module Evidence =
             if Double.IsInfinity x then
                 "never (collinear lanes)"
             else
-                sprintf "%.1f m" x
+                $"%.1f{x} m"
 
         let convergence =
             let worstPerTerminal =
@@ -1358,7 +1349,11 @@ module Evidence =
                             if t.Lanes = 1 then
                                 "single lane"
                             else
-                                sprintf "%d lanes merge at %s (shorter lane %.1f m)" t.Lanes (metres t.Merge) t.Shortest
+                                sprintf
+                                    "%d lanes merge at %s (shorter lane %.1f m)"
+                                    t.Lanes
+                                    (metres t.Merge)
+                                    t.Shortest
 
                         sprintf
                             "%s: %s, %.0f%% of one sequence, slot ring radius %.1f m%s"
@@ -1380,7 +1375,7 @@ module Evidence =
             |> List.groupBy (fun (id, _, _) -> id)
             |> List.map (fun (id, xs) ->
                 let _, need, m = xs |> List.maxBy (fun (_, n, _) -> n)
-                (sprintf "%s (worst wind, t=%d)" id m, need / 60.0, usableS / 60.0))
+                ($"%s{id} (worst wind, t=%d{m})", need / 60.0, usableS / 60.0))
             |> Ev.Checks.endurance
                 "min"
                 "per corridor, cycles flown per battery x cycle time (fill, loaded outbound, drop, empty return, with the wind at the time) vs. endurance minus reserve; batteries swap at the source"
@@ -1441,7 +1436,7 @@ module Evidence =
                 (stranded
                  |> List.truncate 10
                  |> List.map (fun (m, id, n) ->
-                     sprintf "t=%d %s: %.0f drone(s) on a lane that can no longer be flown" m id n))
+                     $"t=%d{m} %s{id}: %.0f{n} drone(s) on a lane that can no longer be flown"))
             |> fun c -> { c with Area = Ev.EnduranceRange }
 
         // A lane that changes altitude while drones are on it would move them
@@ -1459,14 +1454,15 @@ module Evidence =
                             sprintf
                                 "%s flew at %s"
                                 id
-                                (alts |> List.map (fun (o, r) -> sprintf "%.1f/%.1f m" o r) |> String.concat ", ")
+                                (alts |> List.map (fun (o, r) -> $"%.1f{o}/%.1f{r} m") |> String.concat ", ")
                         ))
 
             {
                 Area = Ev.Deconfliction
                 Claim = "A lane keeps its altitude layer for as long as it flies"
-                Method = sprintf "outbound/return altitudes of every corridor across all the %ss it flew" (Tick.name st.Tick)
-                Measured = sprintf "%d lane(s) changed layer" moves.Length
+                Method =
+                    sprintf "outbound/return altitudes of every corridor across all the %ss it flew" (Tick.name st.Tick)
+                Measured = $"%d{moves.Length} lane(s) changed layer"
                 Limit = "none"
                 Status = if moves.IsEmpty then Ev.Pass else Ev.Fail
                 Details = moves
@@ -1549,7 +1545,7 @@ module Evidence =
                 (if flewClosed.IsEmpty then Ev.Pass else Ev.Fail)
                 (flewClosed
                  |> List.truncate 5
-                 |> List.map (fun (m, l) -> sprintf "t=%d %s" m l.Corridor.Id))
+                 |> List.map (fun (m, l) -> $"t=%d{m} %s{l.Corridor.Id}"))
 
         // Lost link and low battery. The deconflicted way home is to finish the
         // current cycle along the lanes to the source's recovery slot: those
@@ -1575,12 +1571,12 @@ module Evidence =
                         "operator configuration baseline %s, setting '%s', vs. the procedure the evidence models"
                         (Path.GetFileName file)
                         key)
-                    (sprintf "%s = %s" key actual)
+                    $"%s{key} = %s{actual}"
                     (if actual = expected then Ev.Pass else Ev.Fail)
                     [
                         match wrong.TryFind actual with
                         | Some why -> why
-                        | None when actual <> expected -> sprintf "expected '%s'" expected
+                        | None when actual <> expected -> $"expected '%s{expected}'"
                         | None -> "matches the modelled procedure; the loaded parameters are verified at preflight"
                     ]
 
@@ -1605,13 +1601,13 @@ module Evidence =
                 Ev.Checks.contingency
                     "The lost-link action starts before the aircraft drifts out of its lane"
                     "operator configuration baseline, setting 'lost_link_timeout_s'"
-                    (sprintf "lost_link_timeout_s = %s" v)
+                    $"lost_link_timeout_s = %s{v}"
                     (if ok && s >= 0.0 && s <= Safety.signalLossRthTriggerSec then
                          Ev.Pass
                      else
                          Ev.Fail)
                     [
-                        sprintf "limit %.0f s (Safety.signalLossRthTriggerSec)" Safety.signalLossRthTriggerSec
+                        $"limit %.0f{Safety.signalLossRthTriggerSec} s (Safety.signalLossRthTriggerSec)"
                     ]
             | None ->
                 Ev.Checks.notEvidenced
@@ -1649,7 +1645,7 @@ module Evidence =
                 Ev.Checks.contingency
                     "An aircraft failing in a lane descends without passing through another lane"
                     "operator configuration baseline, setting 'lane_failure_action'"
-                    (sprintf "lane_failure_action = %s" action)
+                    $"lane_failure_action = %s{action}"
                     Ev.Fail
                     [ "the evidence models a controlled descent straight down (descend_in_place)" ]
             | Some _ when descentPoints.IsEmpty ->
@@ -1663,11 +1659,11 @@ module Evidence =
                 Ev.Checks.contingency
                     "An aircraft failing in a lane descends without passing through another lane"
                     "controlled descent straight down from its lane vs. every lane pair flown in conflict (the planner refuses conflicting lanes; draining lanes during a plan change can still meet new ones)"
-                    (sprintf "%d conflicting lane pair(s) flown" descentPoints.Length)
+                    $"%d{descentPoints.Length} conflicting lane pair(s) flown"
                     Ev.Fail
                     (descentPoints
                      |> List.map (fun (a, b) ->
-                         sprintf "%s x %s: a failure in the upper lane descends through the lower one" a b))
+                         $"%s{a} x %s{b}: a failure in the upper lane descends through the lower one"))
 
         // --- Supervisor workload ---------------------------------------------
         let worstCycleS =
@@ -1695,7 +1691,7 @@ module Evidence =
 
                 let one name aircraft response =
                     Some(
-                        sprintf "%s (t=%d %s)" name e.At tickUnit,
+                        $"%s{name} (t=%d{e.At} %s{tickUnit})",
                         [
                             {
                                 Ev.Event = name
@@ -1711,12 +1707,12 @@ module Evidence =
                 match e.Event with
                 | LoseDrones n ->
                     one
-                        (sprintf "%d aircraft lost at once" n)
+                        $"%d{n} aircraft lost at once"
                         n
                         (sprintf "fast loop re-spreads the rest over the open lanes the same %s" (Tick.name st.Tick))
                 | CloseSource source ->
                     one
-                        (sprintf "smoke closes %s" source)
+                        $"smoke closes %s{source}"
                         (dronesOnSource source e.At)
                         (sprintf
                             "its lanes leave the plan; re-plan the same %s (the ground crew relocates, not the pilot)"
@@ -1725,8 +1721,8 @@ module Evidence =
                 | WindSpeed _ -> one "wind shift" 0 "re-plan; lanes and cycle times recomputed"
                 | SpotFire(id, _) ->
                     match st.Demand with
-                    | Fire _ -> one (sprintf "spot fire in %s" id) 0 "re-plan"
-                    | Touches _ -> one (sprintf "%s needs touching again" id) 0 "re-plan"
+                    | Fire _ -> one $"spot fire in %s{id}" 0 "re-plan"
+                    | Touches _ -> one $"%s{id} needs touching again" 0 "re-plan"
                 | OpenSource _ -> None)
             // Direction and speed of one wind shift are two rows of one event.
             |> List.distinctBy fst
@@ -1840,8 +1836,7 @@ module Evidence =
                          sprintf
                              "Pilot station at the incident command post, taken as the scenario centroid; C2 over %.0f MHz."
                              c2BandMhz
-                     | LocalMetres ->
-                         sprintf "Pilot station at the origin of the local frame; C2 over %.0f MHz." c2BandMhz)
+                     | LocalMetres -> $"Pilot station at the origin of the local frame; C2 over %.0f{c2BandMhz} MHz.")
                     sprintf
                         "Separation minima %.1f m in trail and %.1f m vertical, and the altitude ceiling %.1f m, are the fleet's and the operation's declared values, not an authority's."
                         sc.Fleet.MinSeparationM
@@ -1863,7 +1858,10 @@ module Program =
         printfn "AIR BRIDGE — drones shuttle from sources to moving targets: a forest fire, or a demo in a room"
         printfn ""
         printfn "OPTIONS:"
-        printfn "  --sources <path>       water sources / pads CSV (default examples/Drones/_data/fire_water_sources.csv)"
+
+        printfn
+            "  --sources <path>       water sources / pads CSV (default examples/Drones/_data/fire_water_sources.csv)"
+
         printfn "  --sectors <path>       targets CSV             (default examples/Drones/_data/fire_sectors.csv)"
         printfn "  --fleet <path>         drone class CSV         (default examples/Drones/_data/fire_fleet.csv)"
         printfn "  --events <path>        scenario events CSV     (default examples/Drones/_data/fire_events.csv)"
@@ -1936,7 +1934,7 @@ module Program =
                 | Some s ->
                     match Tick.tryParse s with
                     | Some t -> Ok t
-                    | None -> Error(sprintf "unknown tick '%s' (minute | second)" s)
+                    | None -> Error $"unknown tick '%s{s}' (minute | second)"
 
             let demand =
                 match Cli.getOr "demand" "fire" args |> Demand.tryParse with
@@ -1978,7 +1976,15 @@ module Program =
                         match Cli.tryInt n args with
                         | Error e -> e
                         | Ok _ -> ()
-                    for n in [ "touch-target-s"; "ceiling-m"; "home-lat"; "home-lon"; "home-alt"; "stagger-margin" ] do
+                    for n in
+                        [
+                            "touch-target-s"
+                            "ceiling-m"
+                            "home-lat"
+                            "home-lon"
+                            "home-alt"
+                            "stagger-margin"
+                        ] do
                         match Cli.tryFloat n args with
                         | Error e -> e
                         | Ok _ -> ()
@@ -1990,7 +1996,7 @@ module Program =
                 | p ->
                     match Policy.tryParse p with
                     | Some policy -> Ok [ policy ]
-                    | None -> Error(sprintf "unknown policy '%s'" p)
+                    | None -> Error $"unknown policy '%s{p}'"
 
             let rawSources, e1 = Parse.readSources sourcesPath
             let rawSectors, e2 = Parse.readSectors sectorsPath
@@ -2040,7 +2046,8 @@ module Program =
                             printfn "⚠ --minutes with --tick second counts ticks, i.e. seconds; use --ticks"
 
                         if Parse.eventTimeColumn eventsPath = Some "minute" then
-                            printfn "⚠ the events file has a 'minute' column but the tick is one second: its times are read as seconds"
+                            printfn
+                                "⚠ the events file has a 'minute' column but the tick is one second: its times are read as seconds"
 
                     let settings =
                         {
@@ -2131,8 +2138,7 @@ module Program =
                     // is ever worth opening and the run flies nothing.
                     let deliverable =
                         Corridors.buildAll fleet tick cond0 sources sectors
-                        |> Array.filter (fun c ->
-                            c.WarmupTicks + settings.Limits.CrewMoveTicks < settings.HorizonTicks)
+                        |> Array.filter (fun c -> c.WarmupTicks + settings.Limits.CrewMoveTicks < settings.HorizonTicks)
 
                     if deliverable.Length = 0 then
                         printfn
@@ -2158,7 +2164,8 @@ module Program =
 
                     let hybrid = results |> List.tryFind (fun r -> r.Policy = AdaptiveHybrid)
 
-                    hybrid |> Option.iter (fun h -> Report.printLanes scenario settings h.LastBridge)
+                    hybrid
+                    |> Option.iter (fun h -> Report.printLanes scenario settings h.LastBridge)
 
                     // How the QAOA answers compare with the oracle at the same rounds.
                     let rounds =
@@ -2228,7 +2235,10 @@ module Program =
                                 "── DISPATCH (%s): %d sorties by %d aircraft, %d drops, peak %d airborne ──"
                                 (Policy.name evidenced.Policy)
                                 dispatched.Sorties.Length
-                                (dispatched.Sorties |> List.map (fun s -> s.Drone) |> List.distinct |> List.length)
+                                (dispatched.Sorties
+                                 |> List.map (fun s -> s.Drone)
+                                 |> List.distinct
+                                 |> List.length)
                                 (Array.sum dispatched.DropsPerTarget)
                                 (Dispatch.peakAirborne opts dispatched)
 
@@ -2261,7 +2271,10 @@ module Program =
                                             }
                                             dispatched
 
-                                    printfn "  %d ArduPilot missions and the launcher written to %s" n (Path.Combine(outDir, "mavlink"))
+                                    printfn
+                                        "  %d ArduPilot missions and the launcher written to %s"
+                                        n
+                                        (Path.Combine(outDir, "mavlink"))
 
                             { evidence with
                                 Checks = evidence.Checks @ extra

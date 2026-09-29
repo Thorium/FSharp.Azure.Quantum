@@ -95,43 +95,45 @@ module VisualizationTests =
     [<Fact>]
     let ``Graph coloring solution should generate mermaid diagram`` () =
         // Arrange
-        let solution : GraphColoring.ColoringSolution = {
-            Assignments = Map.ofList [("A", "red"); ("B", "blue")]
-            ColorsUsed = 2
-            ConflictCount = 0
-            IsValid = true
-            ColorDistribution = Map.ofList [("red", 1); ("blue", 1)]
-            Cost = 0.0
-            BackendName = "Test"
-            IsQuantum = false
-        }
-        
+        let solution: GraphColoring.ColoringSolution =
+            {
+                Assignments = Map.ofList [ ("A", "red"); ("B", "blue") ]
+                ColorsUsed = 2
+                ConflictCount = 0
+                IsValid = true
+                ColorDistribution = Map.ofList [ ("red", 1); ("blue", 1) ]
+                Cost = 0.0
+                BackendName = "Test"
+                IsQuantum = false
+            }
+
         // Act
         let result = solution.ToMermaid()
-        
+
         // Assert
         Assert.Contains("```mermaid", result)
         Assert.Contains("graph TD", result)
         Assert.Contains("A[", result)
         Assert.Contains("B[", result)
-    
+
     [<Fact>]
     let ``Graph coloring solution should generate ASCII representation`` () =
         // Arrange
-        let solution : GraphColoring.ColoringSolution = {
-            Assignments = Map.ofList [("A", "red"); ("B", "blue")]
-            ColorsUsed = 2
-            ConflictCount = 0
-            IsValid = true
-            ColorDistribution = Map.ofList [("red", 1); ("blue", 1)]
-            Cost = 0.0
-            BackendName = "Test"
-            IsQuantum = false
-        }
-        
+        let solution: GraphColoring.ColoringSolution =
+            {
+                Assignments = Map.ofList [ ("A", "red"); ("B", "blue") ]
+                ColorsUsed = 2
+                ConflictCount = 0
+                IsValid = true
+                ColorDistribution = Map.ofList [ ("red", 1); ("blue", 1) ]
+                Cost = 0.0
+                BackendName = "Test"
+                IsQuantum = false
+            }
+
         // Act
         let result = solution.ToASCII()
-        
+
         // Assert
         Assert.Contains("Graph Coloring Solution", result)
         Assert.Contains("Colors Used: 2", result)

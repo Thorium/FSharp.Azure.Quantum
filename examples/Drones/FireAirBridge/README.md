@@ -50,7 +50,7 @@ the drones:
 | **Drop coordinators** (`--coordinators`, default 5) | Every open corridor needs one at the targets. |
 | **Concentration floor** (`MinSalvoLpm`, 100 L/min, fire only) | Below this rate, water on a burning sector mostly evaporates. Drones must be massed on a few hotspots, so two corridors into one sector can be worth far more than twice one. Pre-wetting unburnt fuel has no floor. |
 | **Warm-up** | A new corridor delivers only after its pipe fills and its crew arrives. That makes every plan change cost something real. |
-| **Terminal legs** | A cycle is more than the lane: the climb off the pad, the radial leg from the pad ring to the source centre, the legs to and from the drop slot, the climb to the return altitude and the descent onto the pad. The corridor model counts them, sized for the whole fleet on one pad ring, so a plan never assumes a shorter cycle than a real aircraft flies. For the fire fleet this is about 90 s of a 7-minute cycle, and it is what makes the longest corridors one cycle per battery. |
+| **Terminal legs** | A cycle is more than the lane: the climb off the pad, the radial leg from the pad ring to the source centre, the legs to and from the drop slot, the climb to the return altitude and the descent onto the pad. The corridor model counts them, sized for the whole fleet on one pad ring, and times every leg as ArduCopter flies it: from rest to rest, with a spool-up at launch (see "From flow to flights"). A plan never assumes a shorter cycle than a real aircraft flies. For the fire fleet a cycle is about 8.5 minutes, and the longest corridors do not fit a 10-minute battery at all. |
 | **Wind** | A tailwind on the way out is a headwind on the way back. It changes cycle times, endurance margins and lane capacity. |
 | **Traffic** | A lane that leaves the plan drains for one more cycle. A new corridor may not be opened across a lane that is flying or draining, so a target behind a finished one waits until the airspace is clear. |
 
@@ -110,22 +110,27 @@ better; it is burning area weighted by intensity, summed over minutes.
 
 | Policy | Fire ha·min | Peak ha | Water (L) |
 |---|---|---|---|
-| static | 168.9 | 3.58 | 3260 |
-| adaptive-greedy | 171.7 | 3.87 | 3074 |
-| adaptive-exact | 171.7 | 3.87 | 3074 |
-| adaptive-hybrid | 171.7 | 3.87 | 3074 |
+| static | 227.3 | 5.40 | 0 |
+| adaptive-greedy | 226.2 | 5.21 | 771 |
+| adaptive-exact | 226.2 | 5.21 | 771 |
+| adaptive-hybrid | 226.2 | 5.21 | 771 |
 
 What the numbers say:
 
-- **With this fleet, adapting does not pay.** A 10-minute battery gives one
-  cycle per sortie on the longer corridors once the terminal legs are
-  counted, so a new corridor delivers nothing for about three minutes and
-  every plan change costs a large share of the 20-minute horizon. The static
-  plan keeps flying; the adaptive policies switch lakes on the wind shift and
-  the smoke closure and lose more warm-up than they gain. Before the terminal
-  legs were counted the same scenario read the other way (static 165.7,
-  adaptive 145.2 ha·min): that result was flying cycles no aircraft can fly.
-  A longer-endurance fleet, or fewer plan changes, would change it back.
+- **This fleet cannot run this air bridge.** Flown as ArduCopter flies it, a
+  cycle stops at eight waypoints, and each stop costs the S-curve ramps plus
+  about 2.2 s to reach the waypoint and settle. At t=0 no corridor fits one
+  cycle into a 10-minute battery with 20% reserve. The static plan never
+  opens a corridor and delivers nothing. The adaptive policies find a few
+  short corridors after the wind shifts and deliver 771 L.
+- **Each step towards what really flies made the numbers worse.** Counting
+  the terminal legs turned static 165.7 against adaptive 145.2 ha·min into
+  168.9 against 171.7 and about 3000 L of water. Timing every leg and stop
+  as ArduCopter flies it, checked against SITL, leaves 771 L. The corridors
+  sat at the edge of one cycle per battery, so the extra seconds per cycle
+  took them out. The earlier results were flying cycles no aircraft can fly.
+  A longer-endurance fleet or fewer waypoints per cycle would change the
+  picture; that is a change to the scenario, not to the model.
 - **At this size the combinatorics are shallow.** With 7–13 qubits, greedy
   and QAOA (p=1) both matched the oracle in every round of the default run.
   QAOA's measurement sampling is random, so it misses in some runs. At
@@ -162,7 +167,7 @@ dotnet run --project examples/Drones/FireAirBridge -- \
   --sectors examples/Drones/_data/cans_targets.csv \
   --fleet examples/Drones/_data/cans_fleet.csv \
   --events examples/Drones/_data/cans_events.csv \
-  --tick second --ticks 240 --demand touches --horizon 60 --replan-every 15 \
+  --tick second --ticks 360 --demand touches --horizon 60 --replan-every 15 \
   --crews 1 --coordinators 3 --crew-move 0 --ceiling-m 2 \
   --mavlink --home-lat 60.1699 --home-lon 24.9384 \
   --out runs/drone/cans-air-bridge
@@ -188,11 +193,15 @@ What the model says about the demo:
   is opened only when that lane is clear, which the run reports as
   `PAD>C3 clear`.
 - **All ten cans, and the retouched one, are touched by whole aircraft by
-  t=185 s**: 14 sorties of one cycle each, 15 s on the ground between an
-  aircraft's sorties, one aircraft lost mid-sortie at t=60 s and written off
-  where it was. The closest any two come is 0.5 m (the limit), stacked one
-  vertical minimum apart over a drop slot. The static plan touches the three
-  cans it opened and stops. The evidence pack PASSes.
+  t=334 s**: 11 sorties of one cycle each, one per touch owed, about 60 s
+  per sortie, 15 s on the ground between an aircraft's sorties, one aircraft
+  lost mid-sortie at t=60 s and written off where it was. A target's drops
+  already on their way count against what it still needs, so no aircraft is
+  sent to a can another is about to touch. The closest any two come is
+  0.5 m (the limit). A 300 s run is too short now that the sorties take as
+  long as ArduCopter flies them: the evidence fails it with 9 of 10 cans
+  touched. The static plan touches the two cans it opened and stops. The
+  evidence pack PASSes.
 - **The physical caveats stand**: touching a can at 10 m needs indoor
   positioning, and "touch" means hovering just above it. The missions are
   ArduPilot's; a Crazyflie would need a cflib export of the same sorties,
@@ -220,18 +229,28 @@ flies 1.3 aircraft, and a plan nobody can follow is worth nothing. With
   sits in the approach, and the ring is wide enough that the radial into one
   slot clears an aircraft hovering in the next. Every leg is vertical at the
   pad, radial to a centre, or a lane, so legs meet only at the centres.
-- **Time on the ground and in the air.** The landing is ArduPilot's: the
-  descent speed down to 10 m, then `LAND_SPEED` onto the pad. Between two
-  sorties an aircraft sits 15 s on its pad: the 5 s disarm delay the
-  parameter file sets, then the launcher's upload, read-back, arm and start.
+- **Time on the ground and in the air.** Every leg is timed and sampled as
+  ArduCopter 4.7 flies it. Every waypoint holds at least 1 s, so a copter
+  comes to rest there instead of carrying its speed through the corner, and
+  each leg is an S-curve from rest to rest under the autopilot's acceleration
+  and jerk limits, not constant speed. A launch
+  starts with 4 s of spool-up. The landing is ArduPilot's: the descent speed
+  down to 10 m, then `LAND_SPD_MS` onto the pad. Between two sorties an
+  aircraft sits 15 s on its pad: touchdown to disarm, then the launcher's
+  upload, read-back, arm and start. These were measured against ArduPilot
+  SITL (below).
   A lost aircraft's sortie ends where it is: its track stops, its later drops
   never land, and its bookings stay so nobody else takes them.
 - **Booking.** Before a sortie launches, every passage of every cycle through
   the source and target centres, every fill and every drop-slot occupancy is
-  booked against what is already booked: a headway apart on the same lane,
-  the merge geometry apart for lanes meeting at an angle, the drop slot held
-  until the aircraft has climbed clear, with `--stagger-margin` (1.5) over
-  all of it for the autopilot's acceleration. A cycle that cannot be booked
+  booked against what is already booked. Aircraft stop at a centre and leave
+  it from rest, so the gaps are S-curve times: a spacing apart on the same
+  lane, a faster follower's catch-up along a merged stretch, the merge
+  geometry for lanes meeting at an angle, and the drop slot held until the
+  aircraft has climbed clear. `--stagger-margin` (1.5) goes over all of it.
+  Every booking is then widened by how far open-loop timing may drift. That
+  is the launcher's 2 s start tolerance plus 0.3 s per leg and 2% of the
+  time flown, which covers what SITL showed. A cycle that cannot be booked
   ends the sortie before it; a launch that cannot be booked waits a second.
 - **Two checks join the pack.** The exact closest approach between every pair
   of aircraft over the whole run, heights scaled so that the fleet's vertical
@@ -245,37 +264,64 @@ flies 1.3 aircraft, and a plan nobody can follow is worth nothing. With
   altitude, above the pad, repeated with `DO_JUMP`, then land on the pad. The
   lane legs command the ground speed the tracks were checked at, wind
   included, since a copter's `DO_CHANGE_SPEED` is a ground speed. Each comes
-  as a QGroundControl `.plan`, a `.waypoints` file and a `.parm` file (speeds,
-  `WPNAV_RADIUS`, `DISARM_DELAY`, `FS_OPTIONS` = continue the mission on lost
-  link, as the failsafe procedure models; one parameter set per vehicle).
-  `mavlink_show.fsx` is the launcher shared with SwarmChoreography: it sets
+  as a QGroundControl `.plan`, a `.waypoints` file and a `.parm` file with
+  ArduPilot 4.7's parameter names: speeds, `WP_RADIUS_M`, `DISARM_DELAY`,
+  `FS_OPTIONS` = continue the mission on lost link, as the failsafe procedure
+  models, one parameter set per vehicle. A sortie that an events file cuts
+  short by losing its aircraft is not exported: no mission can end in a
+  loss, and the full one would fly on where the checks saw nothing. The run
+  names each one it leaves out. `mavlink_show.fsx` is the launcher
+  shared by all four drone examples: it checks each vehicle is a copter, sets
   and reads back every parameter, uploads and reads back every first sortie,
   checks each vehicle stands on its pad, refuses to start on any difference,
-  starts everything due at T0 together, and flies each later sortie at its
-  planned time once the vehicle has landed and disarmed. A sortie that would
-  start more than 5 s late is not flown: its slots were booked for its time.
+  and starts everything due at T0 together. It uploads and verifies each
+  later sortie as soon as the vehicle has landed and disarmed, and starts it
+  at its planned time if the vehicle is back on its own pad. A sortie that
+  would start more than 2 s late is not flown: its slots were booked for its
+  time. "On its pad" means within 2 m, and closer than half the distance to
+  the next pad: 0.3 m in the can demo. `plan_tracks.csv` holds every
+  sortie's planned track and the launcher writes `telemetry.csv`, so the two
+  can be compared.
   `dotnet fsi mavlink_show.fsx --dry-run` prints every message without a
   network. A local frame needs `--home-lat` and `--home-lon` for the pads'
   geodetic position; a geodetic scenario uses its own centroid.
 
 What dispatching the fire scenario shows (`--dispatch --policy adaptive-hybrid`):
 
-- 150 sorties, 142 drops, 5680 L, 48 aircraft airborne at the peak; the
+- 36 sorties, 31 drops, 1240 L, 13 aircraft airborne at the peak; the
   closest approach is 10.2 m, on the pad ring.
-- **Whole aircraft flew 62% of the plan's aircraft-seconds**, and the
-  follow-through check FAILs. The plan asks for 39 aircraft on one corridor
-  from the first minute; a lake with 3 fill slots and a 30 s fill launches one
-  aircraft every 10 s, so the ramp alone takes six minutes, and every plan
-  change starts another ramp. The flow model's Little's-law allocation is a
-  steady state; it has no ramp. That is the operator's decision to make (more
-  fill slots, fewer plan changes, a longer horizon), and the number that
-  makes it.
+- **Whole aircraft flew 29% of the plan's aircraft-seconds**, and the
+  follow-through check FAILs. At 45 minutes the plan asks for 31 aircraft on
+  one corridor. A lake with 3 fill slots and a 30 s fill launches one
+  aircraft every 10 s at best. Aircraft that stop at the lake's centre
+  and leave it from rest, with the drift slack on every booking, launch
+  slower still. Every plan change starts another ramp. The flow model's
+  Little's-law allocation is a steady state; it has no ramp. That is the
+  operator's decision to make (more fill slots, fewer plan changes, a longer
+  horizon, fewer waypoints per cycle), and the number that makes it.
 - An aircraft is homed at one source for the run. A plan that moves the fleet
   to another lake shows up as a shortfall, not as a ferry flight.
 
-The launcher has never met a vehicle or ArduPilot SITL; the mission timing is
-constant speed per leg, with the margin standing in for the autopilot's
-acceleration. Try it against SITL before any aircraft.
+### The can demo flown in ArduPilot SITL
+
+The can demo was flown on four ArduCopter 4.7.1 vehicles in ArduPilot's own
+software-in-the-loop simulator, with the generated launcher, on 29 September
+2026. SITL cannot lose an aircraft or move a can on cue, so the run used an
+empty events file. With no events the dispatcher plans 10 sorties, one per
+can, and the evidence PASSes. [SITL.md](../SITL.md) shows how to repeat it.
+
+![The can demo flown in ArduPilot SITL: the plan as a wide pale band and the flight as a thin line, from above, height over time, and in 3-D](../_images/fire-air-bridge-sitl.svg)
+
+| Measure | Result |
+|---|---|
+| Sorties started on time | 10 of 10, each within 0.2 s of its planned time |
+| Every aircraft down and disarmed | T0+261 s, planned 259 s |
+| Closest approach between airborne aircraft | 0.59 m, limit 0.5 m; the evidence predicts 0.5 m |
+| Distance from the planned tracks | at most 2.0 m, 95% of fixes within 1.9 m |
+
+The closest approach is a landing drone descending past the outbound lane,
+0.6 m to the side of a drone leaving on it. The plan has the same geometry.
+The picture is animated: the four minutes play in 20 s, looping.
 
 ## One-pilot-to-many permission evidence
 

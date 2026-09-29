@@ -15,6 +15,7 @@ open FSharp.Azure.Quantum.Examples.Drones.FireAirBridge.AirBridge
 
 /// Touch demand: every target owes `Touches` drops, and wants them within
 /// `TargetS` seconds of a corridor opening to it.
+[<Struct>]
 type TouchRules =
     {
         /// Seconds within which an open target should get its touches. It sets
@@ -80,7 +81,12 @@ module Demand =
     /// Why this scenario cannot be run under this demand, if it cannot. A run
     /// in which nothing ever wants anything flies nothing, and an evidence
     /// pack over no flights would pass vacuously.
-    let validate (demand: Demand) (fleet: DroneClass) (sectors: FireSector[]) (events: TimedEvent list) : string option =
+    let validate
+        (demand: Demand)
+        (fleet: DroneClass)
+        (sectors: FireSector[])
+        (events: TimedEvent list)
+        : string option =
         let ignitions =
             events
             |> List.exists (fun e ->
@@ -90,7 +96,10 @@ module Demand =
 
         match demand with
         | Fire _ when fleet.PayloadL <= 0.0 -> Some "a fire demand needs a fleet with payload_l > 0"
-        | Fire _ when not (sectors |> Array.exists (fun s -> s.InitialIntensity > 0.0)) && not ignitions ->
+        | Fire _ when
+            not (sectors |> Array.exists (fun s -> s.InitialIntensity > 0.0))
+            && not ignitions
+            ->
             Some "a fire demand needs a sector with initial_intensity > 0 or a spot_fire event; nothing would burn"
         | Fire _ when
             events
@@ -100,7 +109,7 @@ module Demand =
                 | _ -> false)
             ->
             Some "a spot_fire intensity must be in (0, 1]"
-        | Touches _ when not (sectors |> Array.exists (fun s -> s.Touches > 0)) && not ignitions ->
+        | Touches _ when not (sectors |> Array.exists (fun s -> s.Touches > 0) || ignitions) ->
             Some "a touch demand needs a target with touches > 0 or a retouch event"
         | _ -> None
 
@@ -113,8 +122,8 @@ module Demand =
         |> List.choose (fun e ->
             match e.Event with
             | CloseSource id
-            | OpenSource id when not (sourceIds.Contains id) -> Some(sprintf "t=%d: no source '%s'" e.At id)
-            | SpotFire(id, _) when not (sectorIds.Contains id) -> Some(sprintf "t=%d: no target '%s'" e.At id)
+            | OpenSource id when not (sourceIds.Contains id) -> Some $"t=%d{e.At}: no source '%s{id}'"
+            | SpotFire(id, _) when not (sectorIds.Contains id) -> Some $"t=%d{e.At}: no target '%s{id}'"
             | _ -> None)
 
     let initial (demand: Demand) (sectors: FireSector[]) : TargetState =
@@ -178,7 +187,8 @@ module Demand =
     let disturb (demand: Demand) (state: TargetState) (j: int) (value: float) : TargetState =
         match demand, state with
         | Fire _, FireState fire -> FireState(FireSim.spotFire fire j value)
-        | Touches _, TouchState left -> TouchState(left |> Array.mapi (fun i l -> if i = j then l + max 0.0 value else l))
+        | Touches _, TouchState left ->
+            TouchState(left |> Array.mapi (fun i l -> if i = j then l + max 0.0 value else l))
         | _ -> mismatch ()
 
     /// The headline metric now: burning ha, or touches still owed.
@@ -226,7 +236,10 @@ module Demand =
         | Fire _, FireState fire ->
             Array.map2
                 (fun (s: FireSector) (f: FireSim.SectorState) ->
-                    if f.EverIgnited && s.InitialIntensity = 0.0 then Some s.Id else None)
+                    if f.EverIgnited && s.InitialIntensity = 0.0 then
+                        Some s.Id
+                    else
+                        None)
                 sectors
                 fire
             |> Array.choose id

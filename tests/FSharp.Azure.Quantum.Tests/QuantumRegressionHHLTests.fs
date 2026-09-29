@@ -348,7 +348,9 @@ module QuantumRegressionHHLTests =
 
                 match train config with
                 | Ok result -> Some(qubits, result.SuccessProbability)
-                | Error e -> Assert.Fail($"training with {qubits} eigenvalue qubits failed: {e}"); None)
+                | Error e ->
+                    Assert.Fail($"training with {qubits} eigenvalue qubits failed: {e}")
+                    None)
 
         results |> List.iter (fun (q, p) -> printfn $"Qubits: {q}, Success: {p:F4}")
 

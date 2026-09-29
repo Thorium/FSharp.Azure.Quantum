@@ -327,7 +327,11 @@ module SolovayKitaevTests =
         let half (z: Complex) = z / Complex(2.0, 0.0)
 
         let expected =
-            createSU2 (half (Complex.One + omega)) (half (Complex.One - omega)) (half (Complex.One - omega)) (half (Complex.One + omega))
+            createSU2
+                (half (Complex.One + omega))
+                (half (Complex.One - omega))
+                (half (Complex.One - omega))
+                (half (Complex.One + omega))
 
         assertMatrixEqual expected matrix
 

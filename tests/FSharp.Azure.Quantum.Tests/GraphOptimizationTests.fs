@@ -901,7 +901,7 @@ module GraphOptimizationTests =
 
         Assert.True(
             qubo.Q.Count < 300,
-            sprintf "QUBO should be sparse for linear chain (got %d terms, expected < 300)" qubo.Q.Count
+            $"QUBO should be sparse for linear chain (got %d{qubo.Q.Count} terms, expected < 300)"
         )
 
     [<Fact>]

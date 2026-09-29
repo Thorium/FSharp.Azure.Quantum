@@ -28,6 +28,8 @@ open System
 open FSharp.Azure.Quantum.Examples.Drones.Domain
 open FSharp.Azure.Quantum.Examples.Drones.FireAirBridge.FireDomain
 
+module Mav = FSharp.Azure.Quantum.Examples.Drones.MavlinkMission
+
 // =============================================================================
 // CONDITIONS AND CORRIDORS
 // =============================================================================
@@ -42,6 +44,7 @@ type Conditions =
     }
 
 /// What a target needs from the air bridge right now (set by the demand model).
+[<Struct>]
 type SectorNeed =
     {
         /// Units per tick that would satisfy the target: litres to knock a
@@ -87,6 +90,7 @@ module Corridors =
 
     /// A head- or tailwind may not take more than this share of the still-air
     /// speed, or the lane's timing and headway no longer hold.
+    [<Literal>]
     let private minGroundSpeedShare = 0.25
 
     /// Build one corridor, or None when the wind or endurance makes it unflyable.
@@ -122,12 +126,19 @@ module Corridors =
             // The whole fleet could be homed at this source: size its pad
             // ring for that, so the plan never assumes a shorter cycle than
             // the aircraft can fly.
-            let padRadius = fst (Terminal.padRing fleet.Count fleet.MinSeparationM fleet.LaneSpacingM)
+            let padRadius =
+                fst (Terminal.padRing fleet.Count fleet.MinSeparationM fleet.LaneSpacingM)
+
             let dropRadius = fst (Terminal.dropRing sector.DropSlots fleet.LaneSpacingM)
             let terminalOut, terminalBack = Terminal.overheadS fleet padRadius dropRadius
 
             let cycleS =
-                source.FillTimeS + outboundS + fleet.DropTimeS + returnS + terminalOut + terminalBack
+                source.FillTimeS
+                + outboundS
+                + fleet.DropTimeS
+                + returnS
+                + terminalOut
+                + terminalBack
 
             let usableS =
                 fleet.EnduranceMin * 60.0 * (1.0 - Battery.reserveBatteryPercent / 100.0)
@@ -143,7 +154,7 @@ module Corridors =
 
                 Some
                     {
-                        Id = sprintf "%s>%s" source.Id sector.Id
+                        Id = $"%s{source.Id}>%s{sector.Id}"
                         SourceIdx = sourceIdx
                         SectorIdx = sectorIdx
                         Source = source
@@ -156,18 +167,14 @@ module Corridors =
                         CyclesPerBattery = cycles
                         Availability = availability
                         WarmupTicks = (terminalOut + source.FillTimeS + outboundS + fleet.DropTimeS) / tickS
-                        LaneCapPerTick = tickS * outboundGs / fleet.LaneSpacingM
+                        // Aircraft leave the source centre from rest (an
+                        // S-curve), one spacing apart at the earliest.
+                        LaneCapPerTick = tickS / Mav.Flight.clearS outboundGs fleet.LaneSpacingM
                         RatePerDrone = availability * tickS / cycleS
                     }
 
     /// Every flyable corridor from an open source to any target.
-    let buildAll
-        (fleet: DroneClass)
-        (tick: Tick)
-        (cond: Conditions)
-        (sources: WaterSource[])
-        (sectors: FireSector[])
-        =
+    let buildAll (fleet: DroneClass) (tick: Tick) (cond: Conditions) (sources: WaterSource[]) (sectors: FireSector[]) =
         [|
             for si, s in Array.indexed sources do
                 if not (cond.ClosedSources.Contains s.Id) then
@@ -197,7 +204,8 @@ module Corridors =
         | false, true -> nearLane a.Source.Pos b || nearLane b.Source.Pos a
         | false, false ->
             let gapM =
-                Geometry.segmentDistanceKm a.Source.Pos a.Sector.Pos b.Source.Pos b.Sector.Pos * 1000.0
+                Geometry.segmentDistanceKm a.Source.Pos a.Sector.Pos b.Source.Pos b.Sector.Pos
+                * 1000.0
 
             gapM < spacingM
 
@@ -208,6 +216,7 @@ module Corridors =
 /// Scarce people on the ground. They, not the drones, bound how many
 /// corridors can fly, and they are what makes corridor choice combinatorial:
 /// without them "open every useful corridor" would always be optimal.
+[<Struct>]
 type Limits =
     {
         /// Ground crews; every source in use needs one (fills and battery swaps).

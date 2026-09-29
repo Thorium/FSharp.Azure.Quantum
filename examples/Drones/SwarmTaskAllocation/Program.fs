@@ -46,6 +46,8 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.TaskScheduling.Types
 
 open FSharp.Azure.Quantum.Examples.Common
+
+module Mav = FSharp.Azure.Quantum.Examples.Drones.MavlinkMission
 open FSharp.Azure.Quantum.Examples.Drones.Domain
 
 // =============================================================================
@@ -175,8 +177,8 @@ module Parse =
                                 PayloadKg = payload
                                 DependsOn = deps
                             }
-                    | None -> Error(sprintf "row=%d invalid task type '%s'" rowNum typeStr)
-                | _ -> Error(sprintf "row=%d missing or invalid task fields" rowNum))
+                    | None -> Error $"row=%d{rowNum} invalid task type '%s{typeStr}'"
+                | _ -> Error $"row=%d{rowNum} missing or invalid task fields")
             |> List.mapi (fun i r -> (i + 2, r))
             // A task id names one task: dependencies and the schedule refer to
             // it, so a second row with the same id is rejected, not merged.
@@ -187,7 +189,7 @@ module Parse =
                         match seen.TryFind v.Id with
                         | Some first ->
                             (oks,
-                             sprintf "row=%d duplicate task_id '%s' (first on row %d); row ignored" rowNum v.Id first
+                             $"row=%d{rowNum} duplicate task_id '%s{v.Id}' (first on row %d{first}); row ignored"
                              :: errs,
                              seen)
                         | None -> (v :: oks, errs, seen.Add(v.Id, rowNum))
@@ -222,7 +224,7 @@ module Parse =
                             BatteryCapacityWh = battery
                             CruiseSpeedMs = tryFloat (tryGet "cruise_speed_ms" row)
                         }
-                | _ -> Error(sprintf "row=%d missing or invalid drone fields" rowNum))
+                | _ -> Error $"row=%d{rowNum} missing or invalid drone fields")
             |> List.fold
                 (fun (oks, errs) r ->
                     match r with
@@ -234,7 +236,7 @@ module Parse =
 
     let readWaypoints (path: string) : Waypoint list * string list =
         if not (File.Exists path) then
-            ([], [ sprintf "waypoints file not found: %s" path ])
+            ([], [ $"waypoints file not found: %s{path}" ])
         else
             let rows, structuralErrors = Data.readCsvWithHeaderWithErrors path
 
@@ -288,7 +290,7 @@ module Scheduler =
         {
             Id = task.Id
             Value = Some task.TaskType
-            Duration = System.TimeSpan.FromMinutes effectiveDuration
+            Duration = TimeSpan.FromMinutes effectiveDuration
             // NOTE: this demo does not model hard time windows or deadlines, so
             // EarliestStart/Deadline are None and the objective is MinimizeMakespan
             // (see buildProblem). Consequently task PRIORITY influences only the
@@ -331,7 +333,7 @@ module Scheduler =
 
     /// Create dependency from task reference (using FinishToStart DU)
     let toDependency (fromTaskId: string) (toTaskId: string) : Dependency =
-        FinishToStart(fromTaskId, toTaskId, System.TimeSpan.Zero) // lag = 0 means tasks can start immediately after predecessor
+        FinishToStart(fromTaskId, toTaskId, TimeSpan.Zero) // lag = 0 means tasks can start immediately after predecessor
 
     /// Build scheduling problem from drone tasks and resources
     let buildProblem (tasks: DroneTask list) (drones: DroneResource list) : SchedulingProblem<DroneTaskType, string> =
@@ -345,7 +347,7 @@ module Scheduler =
 
         // Calculate time horizon based on total task duration + buffer
         let totalDuration = tasks |> List.sumBy (fun t -> t.DurationMinutes)
-        let timeHorizon = System.TimeSpan.FromMinutes(totalDuration * 2.0) // 2x buffer for scheduling flexibility
+        let timeHorizon = TimeSpan.FromMinutes(totalDuration * 2.0) // 2x buffer for scheduling flexibility
 
         {
             Tasks = scheduledTasks
@@ -374,13 +376,13 @@ module Visualization =
 
         sb.AppendLine("") |> ignore
 
-        sb.AppendLine("╔════════════════════════════════════════════════════════════════════════════╗")
+        sb.AppendLine "╔════════════════════════════════════════════════════════════════════════════╗"
         |> ignore
 
-        sb.AppendLine("║  TASK SCHEDULE GANTT CHART                                                 ║")
+        sb.AppendLine "║  TASK SCHEDULE GANTT CHART                                                 ║"
         |> ignore
 
-        sb.AppendLine("╠════════════════════════════════════════════════════════════════════════════╣")
+        sb.AppendLine "╠════════════════════════════════════════════════════════════════════════════╣"
         |> ignore
 
         // Time axis
@@ -412,9 +414,9 @@ module Visualization =
                 if assignment.TaskId.Length > 12 then
                     assignment.TaskId.Substring(0, 12)
                 else
-                    assignment.TaskId.PadRight(12)
+                    assignment.TaskId.PadRight 12
 
-            sb.Append(sprintf "║ %s |" taskName) |> ignore
+            sb.Append($"║ %s{taskName} |") |> ignore
 
             for i in 0..numTicks do
                 if i >= startPos && i < startPos + barLength then
@@ -424,7 +426,7 @@ module Visualization =
 
             sb.AppendLine("") |> ignore
 
-        sb.AppendLine("╚════════════════════════════════════════════════════════════════════════════╝")
+        sb.AppendLine "╚════════════════════════════════════════════════════════════════════════════╝"
         |> ignore
 
         sb.ToString()
@@ -473,9 +475,15 @@ module Evidence =
     module Ev = FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence
     module Dom = FSharp.Azure.Quantum.Examples.Drones.Domain
 
+    [<Literal>]
     let private c2FadeMarginDb = 10.0
+
+    [<Literal>]
     let private sampleStepS = 1.0
+
+    [<Literal>]
     let private groundZ = 0.5
+
     let private usableFraction = 1.0 - Battery.reserveBatteryPercent / 100.0
 
     /// One scheduled task placed on the map.
@@ -519,6 +527,8 @@ module Evidence =
             EnergyWh: float
             /// (task, seconds) where the aircraft reaches the task after its start.
             Late: (string * float) list
+            /// (arrival, departure) at each visit, in visit order.
+            Stays: (float * float) list
         }
 
     /// One way of flying the schedule with a given fleet.
@@ -582,7 +592,97 @@ module Evidence =
                     }
             })
 
-    let private travelS (a: Aircraft) (p: Ev.P3) (q: Ev.P3) = Ev.dist3 p q / a.SpeedMs
+    /// The autopilot the aircraft flies with: fixed-wing models are QuadPlanes
+    /// (vertical take-off and landing on their pads), the rest copters.
+    let vehicleOf (a: Aircraft) =
+        if a.FixedWing then Mav.ArduQuadPlane else Mav.ArduCopter
+
+    let private horizontalM (p: Ev.P3) (q: Ev.P3) =
+        Math.Sqrt((q.X - p.X) ** 2.0 + (q.Y - p.Y) ** 2.0)
+
+    /// Straight above the pad at `p`'s altitude: aircraft climb and land
+    /// vertically on their own pads.
+    let private overPad (a: Aircraft) (p: Ev.P3) = { a.Pad with Z = p.Z }
+
+    /// Seconds of a straight leg as the aircraft flies it (Mav.Flight.legS: a
+    /// copter from rest to rest, a fixed-wing at cruise).
+    let private flyS (a: Aircraft) (p: Ev.P3) (q: Ev.P3) =
+        Mav.Flight.legS (vehicleOf a) a.SpeedMs (horizontalM p q) (q.Z - p.Z)
+
+    /// A copter settles at every waypoint it flies to (Mav.stopS: reaching it, then the hold), as the
+    /// exported waypoints make it.
+    let private settleS (a: Aircraft) = if a.FixedWing then 0.0 else Mav.stopS
+
+    /// Seconds from leaving `p` to having come to rest at the waypoint `q`.
+    let private travelS (a: Aircraft) (p: Ev.P3) (q: Ev.P3) = flyS a p q + settleS a
+
+    /// From MISSION_START on the pad to arriving at `p`: spool-up, the
+    /// vertical climb over the pad to p's altitude, the leg to p.
+    let private outS (a: Aircraft) (p: Ev.P3) =
+        Mav.Flight.spoolUpS + flyS a a.Pad (overPad a p) + travelS a (overPad a p) p
+
+    /// From leaving `p` to being over the pad at p's altitude, ready to land: a
+    /// fixed-wing slows on its way into the VTOL landing.
+    let private homeS (a: Aircraft) (p: Ev.P3) =
+        travelS a p (overPad a p)
+        + (if a.FixedWing then Mav.Flight.vtolApproachS else 0.0)
+
+    /// From leaving `p` to touching down on the pad: the leg back over the pad
+    /// at p's altitude, then the landing.
+    let private backS (a: Aircraft) (p: Ev.P3) =
+        homeS a p + Mav.Flight.landingS (vehicleOf a) p.Z
+
+    /// Samples of the leg from `p` to `q` starting at `t`, arrival included:
+    /// through a copter's (or a vertical leg's) S-curve ramps; a fixed-wing
+    /// cruise leg is straight at constant speed.
+    let private legSamples (a: Aircraft) (t: float) (p: Ev.P3) (q: Ev.P3) =
+        let h = horizontalM p q
+        let dz = q.Z - p.Z
+        let v = Mav.Flight.vertical (vehicleOf a)
+
+        let lerp (f: float) : Ev.P3 =
+            {
+                X = p.X + f * (q.X - p.X)
+                Y = p.Y + f * (q.Y - p.Y)
+                Z = p.Z + f * (q.Z - p.Z)
+            }
+
+        let ramps =
+            if a.FixedWing && h >= 1.0 then
+                []
+            else
+                Mav.Flight.copterLeg a.SpeedMs v.ClimbMs v.DescentMs h dz
+                |> Mav.Flight.legFractions
+                |> List.map (fun (dt, f) -> (t + dt, lerp f))
+
+        let arrive = t + flyS a p q
+        ramps @ [ (arrive, q); (arrive + settleS a, q) ]
+
+    /// A fixed-wing cannot hover: over a task it circles the point at its
+    /// turn radius (WP_LOITER_RAD in the exported parameters), sixteen samples
+    /// a turn. A copter holds still.
+    let private holdSamples (a: Aircraft) (fromS: float) (toS: float) (p: Ev.P3) =
+        if toS <= fromS then
+            []
+        elif a.FixedWing then
+            let r = Mav.Flight.turnRadiusM a.SpeedMs
+            let stepS = 2.0 * Math.PI * r / a.SpeedMs / 16.0
+            let n = max 1 (int (Math.Ceiling((toS - fromS) / stepS)))
+
+            [
+                for k in 1..n ->
+                    let t = min toS (fromS + float k * stepS)
+                    // Clockwise, entering the circle from its centre's south.
+                    let angle = -Math.PI / 2.0 - a.SpeedMs * (t - fromS) / r
+
+                    (t,
+                     { p with
+                         X = p.X + r * Math.Cos angle
+                         Y = p.Y + r * Math.Sin angle
+                     })
+            ]
+        else
+            [ (toS, p) ]
 
     /// Energy of one straight segment between two samples, from DroneDomain's
     /// power model (hover power per kg, forward-flight and climb factors).
@@ -603,17 +703,27 @@ module Evidence =
             let climb = if moving then (p1.Z - p0.Z) / dt else 0.0
             estimatePowerConsumption (a.MassKg + payloadKg) speed climb * dt / 3600.0
 
-    /// Fly one sortie: launch from the base so as to reach the first task at its
-    /// start, hover over each task's interval, fly straight on to the next task
-    /// (waiting there if early, recording it if late), and land at the base.
+    /// Fly one sortie as the exported mission does: launch (MISSION_START) on
+    /// the aircraft's pad so as to reach the first task at its start, spool up
+    /// and climb vertically, hover over each task's interval (a fixed-wing
+    /// circles), fly straight on to the next task (waiting there if early,
+    /// recording it if late), and back over the pad and down onto it.
     let private sortie (a: Aircraft) (number: int) (visits: Visit list) : Sortie =
         let first = List.head visits
-        let launch = first.StartS - travelS a a.Pad first.Pos
+        let launch = first.StartS - outS a first.Pos
+        let climbFrom = launch + Mav.Flight.spoolUpS
+        let top = overPad a first.Pos
+        // NAV_TAKEOFF: the climb ends without a hold, so no settle sample.
+        let atTop = climbFrom + flyS a a.Pad top
+        let climb = legSamples a climbFrom a.Pad top
+        let climb = List.truncate (climb.Length - 1) climb
 
-        let samples, clock, pos, late =
+        // `path`: the waypoints and hold ends (distance and energy);
+        // `track`: with the S-curve ramps and orbits (separation).
+        let path, track, clock, pos, late =
             visits
             |> List.fold
-                (fun (samples, clock, pos, late) (v: Visit) ->
+                (fun (path, track, clock, pos, late) (v: Visit) ->
                     let arrive = clock + travelS a pos v.Pos
                     let leave = max arrive v.EndS
 
@@ -623,20 +733,40 @@ module Evidence =
                         else
                             late
 
-                    ((leave, v.Pos) :: (arrive, v.Pos) :: samples, leave, v.Pos, late))
-                ([ (launch, a.Pad) ], launch, a.Pad, [])
+                    (path @ [ (arrive, v.Pos); (leave, v.Pos) ],
+                     track @ legSamples a clock pos v.Pos @ holdSamples a arrive leave v.Pos,
+                     leave,
+                     v.Pos,
+                     late))
+                ([ (launch, a.Pad); (climbFrom, a.Pad); (atTop, top) ],
+                 [ (launch, a.Pad); (climbFrom, a.Pad) ] @ climb,
+                 atTop,
+                 top,
+                 [])
 
-        let samples =
-            (clock + travelS a pos a.Pad, a.Pad) :: samples |> List.rev |> Array.ofList
+        let above = overPad a pos
+        let overAt = clock + homeS a pos
+        let down = overAt + Mav.Flight.landingS (vehicleOf a) pos.Z
+        let path = path @ [ (overAt, above); (down, a.Pad) ] |> Array.ofList
+
+        // A fixed-wing's leg home is one straight line, flown slower for the
+        // approach; a copter's goes through its S-curve ramps.
+        let home =
+            if a.FixedWing then
+                [ (overAt, above) ]
+            else
+                legSamples a clock pos above
+
+        let track = track @ home @ [ (down, a.Pad) ] |> Array.ofList
 
         let payload = visits |> List.sumBy (fun v -> v.PayloadKg)
-        let pairs = samples |> Array.pairwise
+        let pairs = path |> Array.pairwise
 
         {
             Aircraft = a
             Number = number
             Visits = visits
-            Samples = samples
+            Samples = track
             PayloadKg = payload
             DistanceKm =
                 pairs
@@ -644,22 +774,28 @@ module Evidence =
                 |> fun m -> m / 1000.0
             EnergyWh = pairs |> Array.sumBy (fun (s0, s1) -> segmentWh a payload s0 s1)
             Late = List.rev late
+            Stays =
+                path
+                |> Array.toList
+                |> List.skip 3
+                |> List.truncate (2 * visits.Length)
+                |> List.chunkBySize 2
+                |> List.map (fun xs -> (fst xs.[0], fst xs.[1]))
         }
 
-    /// Split one aircraft's tasks into sorties: it lands at the base between two
-    /// tasks (fresh battery, minimum ground time) whenever the gap allows the
-    /// round trip, and otherwise flies straight on.
+    /// Split one aircraft's tasks into sorties: it lands on its pad between two
+    /// tasks (fresh battery, minimum ground time, at least the launcher's
+    /// turnaround) whenever the gap allows the round trip, and otherwise flies
+    /// straight on.
     let private sorties (a: Aircraft) (visits: Visit list) : Sortie list =
-        let groundS = Scheduling.minGroundTimeMin * 60.0
+        let groundS = max (Scheduling.minGroundTimeMin * 60.0) Mav.Flight.turnaroundS
 
         visits
         |> List.sortBy (fun v -> v.StartS)
         |> List.fold
             (fun groups (v: Visit) ->
                 match groups with
-                | (last :: _ as current) :: rest when
-                    last.EndS + travelS a last.Pos a.Pad + groundS + travelS a a.Pad v.Pos > v.StartS
-                    ->
+                | (last :: _ as current) :: rest when last.EndS + backS a last.Pos + groundS + outS a v.Pos > v.StartS ->
                     (v :: current) :: rest
                 | _ -> [ v ] :: groups)
             []
@@ -667,7 +803,54 @@ module Evidence =
         |> List.mapi (fun i vs -> sortie a (i + 1) (List.rev vs))
 
     let label (s: Sortie) =
-        sprintf "%s #%d" s.Aircraft.Drone.Id s.Number
+        $"%s{s.Aircraft.Drone.Id} #%d{s.Number}"
+
+    /// The circles fixed-wings fly over their tasks: (who, centre, radius, from,
+    /// until). Where on its circle a fixed-wing is cannot be planned (it joins
+    /// the circle wherever it arrives), so the whole circle counts as flown.
+    let circles (ss: Sortie list) =
+        [
+            for s in ss do
+                if s.Aircraft.FixedWing then
+                    let radius = Mav.Flight.turnRadiusM s.Aircraft.SpeedMs
+
+                    for v, (arrive, leave) in List.zip s.Visits s.Stays do
+                        if leave > arrive then
+                            yield (label s, v.Pos, radius, arrive, leave)
+        ]
+
+    /// The closest `track` comes, while airborne, to any of `circles` while it is
+    /// flown: the horizontal gap to the circle's rim and the height difference.
+    let private circleClearanceAt (circles: (string * Ev.P3 * float * float * float) list) (track: Ev.Track) =
+        let first =
+            if track.Samples.Length = 0 then
+                0.0
+            else
+                fst track.Samples.[0]
+
+        let last =
+            if track.Samples.Length = 0 then
+                -1.0
+            else
+                fst track.Samples.[track.Samples.Length - 1]
+
+        [
+            for who, centre, radius, arrive, leave in circles do
+                if who <> track.AircraftId && arrive <= last && leave >= first then
+                    for t in max arrive first .. sampleStepS .. min leave last do
+                        match Ev.positionAt track t with
+                        | Some p when p.Z > groundZ ->
+                            let rim = Math.Sqrt((p.X - centre.X) ** 2.0 + (p.Y - centre.Y) ** 2.0) - radius
+                            yield (Math.Sqrt(rim * rim + (p.Z - centre.Z) ** 2.0), t, who)
+                        | _ -> ()
+        ]
+        |> List.sortBy (fun (d, _, _) -> d)
+        |> List.tryHead
+
+    let private circleClearance circles (track: Ev.Track) =
+        circleClearanceAt circles track
+        |> Option.map (fun (d, _, _) -> d)
+        |> Option.defaultValue Double.PositiveInfinity
 
     let private describe (s: Sortie) =
         sprintf "%s (%s)" (label s) (s.Visits |> List.map (fun v -> v.TaskId) |> String.concat ", ")
@@ -796,14 +979,15 @@ module Evidence =
     /// do this part: it books amounts of named resources, and has no notion of
     /// "one of these drones" or of the flight between two tasks.
     ///
-    /// Tasks go in dependency order, most important first (tasks.csv uses the
-    /// scheduler convention: higher = more important). Each goes to the capable
+    /// Tasks go in dependency order; among the tasks ready to place, the one
+    /// with the smallest `readyKey` goes first. Each goes to the capable
     /// aircraft that can start it earliest while every one of that aircraft's
     /// sorties stays flyable (reached on time, within payload, range and
     /// battery) and clear of every other aircraft's tracks, waiting in steps of
     /// `waitStepS` when it must. `fixedPlan` and `doneAt` let the same function
     /// re-dispatch the leftovers of an aircraft that dropped out.
-    let dispatch
+    let dispatchBy
+        (readyKey: DroneTask -> float * float * string)
         (fleet: Aircraft list)
         (work: (DroneTask * Visit) list)
         (fixedPlan: Map<string, Visit list>)
@@ -835,28 +1019,30 @@ module Evidence =
             fleet
             |> List.filter (fun a -> a.Drone.Id <> except)
             |> List.collect (fun a -> plan.TryFind a.Drone.Id |> Option.map (sorties a) |> Option.defaultValue [])
-            |> List.map (fun s ->
-                ({
-                    AircraftId = label s
-                    Samples = s.Samples
-                }
-                : Ev.Track))
 
-        let clear (ss: Sortie list) (others: Ev.Track list) =
-            ss
-            |> List.forall (fun s ->
-                let mine =
-                    ({
-                        AircraftId = label s
-                        Samples = s.Samples
-                    }
-                    : Ev.Track)
+        let trackOf (s: Sortie) : Ev.Track =
+            {
+                AircraftId = label s
+                Samples = s.Samples
+            }
 
-                others
+        // Clear of every other flight, and of every circle a fixed-wing flies
+        // over a task, anywhere on that circle (see `circles`).
+        let clear (ss: Sortie list) (others: Sortie list) =
+            let otherTracks = others |> List.map trackOf
+            let mine = ss |> List.map trackOf
+
+            mine
+            |> List.forall (fun m ->
+                otherTracks
                 |> List.forall (fun o ->
-                    match Ev.closestApproach sampleStepS groundZ [ mine; o ] with
+                    match Ev.closestApproach sampleStepS groundZ [ m; o ] with
                     | Some c -> c.Distance >= Safety.minSwarmSeparationMeters
                     | None -> true))
+            && mine
+               |> List.forall (fun m -> circleClearance (circles others) m >= Safety.minSwarmSeparationMeters)
+            && otherTracks
+               |> List.forall (fun o -> circleClearance (circles ss) o >= Safety.minSwarmSeparationMeters)
 
         /// Place one visit: at the earliest workable start (waiting in steps),
         /// or, for a relief shift, exactly at `exact` or not at all.
@@ -877,7 +1063,7 @@ module Evidence =
                 let others = tracksOf plan a.Drone.Id
                 let mine = plan.TryFind a.Drone.Id |> Option.defaultValue []
                 // Never launch before `notBefore`.
-                let earliest = max depsEnd (notBefore + travelS a a.Pad v.Pos)
+                let earliest = max depsEnd (notBefore + outS a v.Pos)
 
                 let starts =
                     match exact with
@@ -907,9 +1093,10 @@ module Evidence =
         /// shifts. Each shift is as long as the arriving aircraft can hold
         /// (a heavy lifter takes a long one, a small quad a short one); the next
         /// aircraft arrives exactly as the previous one leaves, on a station two
-        /// minimum separations to the side of the line from the base, so a
-        /// handover never puts two aircraft on one point and the watch is never
-        /// left empty.
+        /// minimum separations to the side of the line from the base and as
+        /// much higher (lower under the ceiling), so a handover never puts two
+        /// aircraft on one point, a copter arriving never crosses a fixed-wing
+        /// still circling, and the watch is never left empty.
         let placeShifts (plan: Map<string, Visit list>) (doneAt: Map<string, float>) (t: DroneTask, v: Visit) =
             let relief = 2.0 * Safety.minSwarmSeparationMeters
             let minShiftS = 120.0
@@ -923,9 +1110,16 @@ module Evidence =
                     let r = Math.Sqrt(v.Pos.X * v.Pos.X + v.Pos.Y * v.Pos.Y)
                     let nx, ny = if r > 1e-6 then (-v.Pos.Y / r, v.Pos.X / r) else (1.0, 0.0)
 
+                    let z =
+                        if v.Pos.Z + relief <= Regulations.maxAltitudeAglMeters then
+                            v.Pos.Z + relief
+                        else
+                            v.Pos.Z - relief
+
                     { v.Pos with
                         X = v.Pos.X + relief * nx
                         Y = v.Pos.Y + relief * ny
+                        Z = z
                     }
                 else
                     v.Pos
@@ -950,7 +1144,7 @@ module Evidence =
 
                     ok && clear ss others
 
-                if start + 1e-6 < max depsEnd (notBefore + travelS a a.Pad shift.Pos) then
+                if start + 1e-6 < max depsEnd (notBefore + outS a shift.Pos) then
                     None
                 elif fits upTo then
                     Some upTo
@@ -1047,19 +1241,19 @@ module Evidence =
             let unassigned =
                 unassigned
                 @ (blocked
-                   |> List.map (fun (t, _) -> (t.Id, sprintf "%s: depends on a task nobody can fly" t.Id)))
+                   |> List.map (fun (t, _) -> (t.Id, $"%s{t.Id}: depends on a task nobody can fly")))
 
             let ready =
                 rest
                 |> List.filter (fun (t: DroneTask, _) -> t.DependsOn |> List.forall doneAt.ContainsKey)
-                |> List.sortBy (fun (t, _) -> (-t.Priority, t.Id))
+                |> List.sortBy (fun (t, _) -> readyKey t)
 
             match ready with
             | [] ->
                 (plan,
                  unassigned
                  @ (rest
-                    |> List.map (fun (t, _) -> (t.Id, sprintf "%s: its dependencies never complete" t.Id))))
+                    |> List.map (fun (t, _) -> (t.Id, $"%s{t.Id}: its dependencies never complete"))))
             | (t, v) :: _ ->
                 let rest = rest |> List.filter (fun (x, _) -> x.Id <> t.Id)
 
@@ -1095,6 +1289,130 @@ module Evidence =
             |> Map.filter (fun k _ -> not (pendingIds.Contains k))
 
         loop fixedPlan doneAt work []
+
+    /// Most important first (tasks.csv uses the scheduler convention: higher =
+    /// more important).
+    let byPriority (t: DroneTask) = (-float t.Priority, 0.0, t.Id)
+
+    /// The dispatch the re-plans after a dropout use: most important first.
+    let dispatch = dispatchBy byPriority
+
+    /// When a dispatch is done: the last visit's end.
+    let makespanOf (plan: Map<string, Visit list>) =
+        plan
+        |> Map.toList
+        |> List.collect snd
+        |> List.map (fun v -> v.EndS)
+        |> List.fold max 0.0
+
+    /// The mission's dispatch. One greedy pass places the ready tasks in a
+    /// given order, and a single order is a heuristic: most important first
+    /// can make a long chain of dependent tasks wait behind a short one. So
+    /// passes start from three orders (most important first; longest remaining
+    /// chain first, a task's own time and the longest chain of tasks waiting
+    /// on it; most important first, longest chain next), then the best of them
+    /// is improved by swapping neighbouring tasks while a swap helps, within
+    /// `maxPasses`. A plan is better when it leaves fewer tasks unflown, then
+    /// finishes sooner, then finishes the important tasks earlier.
+    let dispatchBest
+        (fleet: Aircraft list)
+        (work: (DroneTask * Visit) list)
+        (fixedPlan: Map<string, Visit list>)
+        (doneAt: Map<string, float>)
+        (notBefore: float)
+        =
+        let maxPasses = 40
+        let tasks = work |> List.map fst |> List.distinctBy (fun t -> t.Id)
+        let byId = tasks |> List.map (fun t -> (t.Id, t)) |> Map.ofList
+
+        let rec chainMin (t: DroneTask) : float =
+            let waiting = tasks |> List.filter (fun x -> x.DependsOn |> List.contains t.Id)
+
+            Scheduler.effectiveDurationMin t
+            + (waiting |> List.map chainMin |> List.fold max 0.0)
+
+        let chain = tasks |> List.map (fun t -> (t.Id, chainMin t)) |> Map.ofList
+
+        // Whether `a` must finish before `b` can start, directly or through
+        // other tasks: swapping such a pair changes nothing.
+        let rec before (a: string) (b: string) =
+            match byId.TryFind b with
+            | Some t -> t.DependsOn |> List.exists (fun d -> d = a || before a d)
+            | None -> false
+
+        let priority =
+            tasks |> List.map (fun t -> (t.Id, float t.Priority + 1.0)) |> Map.ofList
+
+        let score (plan: Map<string, Visit list>, unassigned: (string * string) list) =
+            let weightedFinish =
+                plan
+                |> Map.toList
+                |> List.collect snd
+                |> List.sumBy (fun v -> (priority.TryFind(taskOf v.TaskId) |> Option.defaultValue 1.0) * v.EndS)
+
+            (unassigned.Length, makespanOf plan, weightedFinish)
+
+        let tried =
+            Collections.Generic.Dictionary<string, (Map<string, Visit list> * (string * string) list)>()
+
+        let run (sequence: string list) =
+            let k = String.Join(",", sequence)
+
+            match tried.TryGetValue k with
+            | true, r -> Some r
+            | _ when tried.Count >= maxPasses -> None
+            | _ ->
+                let rank = sequence |> List.mapi (fun i id -> (id, float i)) |> Map.ofList
+
+                let r =
+                    dispatchBy (fun t -> (rank.[t.Id], 0.0, t.Id)) fleet work fixedPlan doneAt notBefore
+
+                tried.[k] <- r
+                Some r
+
+        let orderBy key =
+            tasks |> List.sortBy key |> List.map (fun t -> t.Id)
+
+        let starts =
+            [
+                orderBy byPriority
+                orderBy (fun t -> (-chain.[t.Id], -float t.Priority, t.Id))
+                orderBy (fun t -> (-float t.Priority, -chain.[t.Id], t.Id))
+            ]
+            |> List.distinct
+            |> List.choose (fun s -> run s |> Option.map (fun r -> (s, r)))
+
+        let rec climb (sequence: string list) (best: Map<string, Visit list> * (string * string) list) =
+            let items = Array.ofList sequence
+
+            let swapped =
+                seq {
+                    for i in 0 .. items.Length - 2 do
+                        if not (before items.[i] items.[i + 1]) then
+                            let s = Array.copy items
+                            s.[i] <- items.[i + 1]
+                            s.[i + 1] <- items.[i]
+                            yield List.ofArray s
+                }
+
+            let better =
+                swapped
+                |> Seq.map (fun s -> (s, run s))
+                |> Seq.takeWhile (fun (_, r) -> r.IsSome)
+                |> Seq.tryPick (fun (s, r) ->
+                    match r with
+                    | Some r when score r < score best -> Some(s, r)
+                    | _ -> None)
+
+            match better with
+            | Some(s, r) -> climb s r
+            | None -> best
+
+        match starts with
+        | [] -> dispatch fleet work fixedPlan doneAt notBefore
+        | _ ->
+            let s, r = starts |> List.minBy (fun (_, r) -> score r)
+            climb s r
 
     /// A dispatch as the library's Solution type, so the schedule output,
     /// Gantt chart and metrics stay as they are; each assignment names its
@@ -1149,16 +1467,80 @@ module Evidence =
                      DependsOn = t.DependsOn
                  })))
 
+    /// Every aircraft's own RTL layer, so no two fallbacks share a level:
+    /// copters from this high for the first copter in drones.csv, one step
+    /// higher for each next; fixed-wings from the ceiling down. A QuadPlane
+    /// flies its RTL as a fixed-wing, so it crosses the base at its layer while
+    /// copters climb vertically over their pads: at the ceiling it stays above
+    /// every copter climb.
+    [<Literal>]
+    let rtlBaseM = 60.0
+
+    [<Literal>]
+    let rtlStepM = 10.0
+
+    let rtlAltitude (fleet: Aircraft list) (a: Aircraft) =
+        let k =
+            fleet
+            |> List.filter (fun x -> x.FixedWing = a.FixedWing)
+            |> List.findIndex (fun x -> x.Drone.Id = a.Drone.Id)
+
+        if a.FixedWing then
+            // Whole metres: ArduPlane stores Q_RTL_ALT as an integer.
+            Math.Floor Regulations.maxAltitudeAglMeters - float k * rtlStepM
+        else
+            rtlBaseM + float k * rtlStepM
+
     let private separationMethod =
         sprintf
-            "every flight's 3-D track (straight legs at cruise speed, hover over each task) sampled every %.0f s; pairs both below %.1f m (on the ground at the base) ignored"
+            "every flight's 3-D track (straight legs as flown, a hover or a fixed-wing's circle over each task) sampled every %.0f s; pairs both below %.1f m (on the ground on their pads) ignored"
             sampleStepS
             groundZ
+
+    /// Where on its circle a circling fixed-wing is cannot be planned (it joins
+    /// the circle wherever it arrives), so while it circles, the closest another
+    /// aircraft comes to it is the closest that aircraft comes to the circle:
+    /// the horizontal gap to the circle's rim and the height difference.
+    let private loiterClearance (o: Outcome) =
+        let all = circles o.Sorties
+
+        o.Tracks
+        |> List.choose (fun track ->
+            circleClearanceAt all track
+            |> Option.map (fun (d, t, who) ->
+                let _, _, radius, _, _ = all |> List.find (fun (w, _, _, _, _) -> w = who)
+                (d, t, who, track.AircraftId, radius)))
+        |> List.sortBy (fun (d, _, _, _, _) -> d)
+        |> List.tryHead
 
     let private separation (o: Outcome) =
         let check =
             Ev.closestApproach sampleStepS groundZ o.Tracks
             |> Ev.Checks.separation Safety.minSwarmSeparationMeters separationMethod
+
+        let check =
+            match loiterClearance o with
+            | Some(d, t, circling, other, radius) ->
+                let detail =
+                    sprintf
+                        "%s circling (radius %.0f m, anywhere on its circle) and %s: %.1f m at t=%.0f s"
+                        circling
+                        radius
+                        other
+                        d
+                        t
+
+                if d < Safety.minSwarmSeparationMeters then
+                    { check with
+                        Status = Ev.Fail
+                        Measured = check.Measured + $"; %.1f{d} m to a circling fixed-wing's circle"
+                        Details = detail :: check.Details
+                    }
+                else
+                    { check with
+                        Details = check.Details @ [ detail ]
+                    }
+            | None -> check
 
         let pairs = closePairs o.Tracks
 
@@ -1198,6 +1580,7 @@ module Evidence =
         | [] -> []
         | xs -> xs |> List.maxBy List.length
 
+    [<Literal>]
     let private planClaim =
         "The plan gives every task a start time, a place and an aircraft"
 
@@ -1278,17 +1661,18 @@ module Evidence =
         (c2BandMhz: float)
         (dispatched: Map<string, Visit list> option)
         (solution: Solution)
-        : Ev.Pack =
+        : Ev.Pack * Outcome option =
         match waypoints |> List.tryFind (fun w -> w.Id = baseId) with
         | None ->
-            blocked
+            (blocked
                 "Drone swarm task allocation"
-                (sprintf "base waypoint %s not found" baseId)
+                $"base waypoint %s{baseId} not found"
                 [
-                    sprintf "%d waypoints loaded; pass --base <waypoint id> and --waypoints <path>" waypoints.Length
+                    $"%d{waypoints.Length} waypoints loaded; pass --base <waypoint id> and --waypoints <path>"
                 ]
                 pilots
-                drones.Length
+                drones.Length,
+             None)
         | Some origin ->
             let place = waypoints |> List.map (fun w -> (w.Id, w)) |> Map.ofList
             let taskById = tasks |> List.map (fun t -> (t.Id, t)) |> Map.ofList
@@ -1299,10 +1683,10 @@ module Evidence =
                 solution.Assignments
                 |> List.map (fun a ->
                     match taskById.TryFind a.TaskId with
-                    | None -> Error(sprintf "%s: not in tasks.csv" a.TaskId)
+                    | None -> Error $"%s{a.TaskId}: not in tasks.csv"
                     | Some t ->
                         match place.TryFind t.WaypointId with
-                        | None -> Error(sprintf "%s: waypoint %s not in waypoints.csv" t.Id t.WaypointId)
+                        | None -> Error $"%s{t.Id}: waypoint %s{t.WaypointId} not in waypoints.csv"
                         | Some w ->
                             Ok
                                 {
@@ -1333,7 +1717,7 @@ module Evidence =
             let unscheduled =
                 tasks
                 |> List.filter (fun t -> visits |> List.forall (fun v -> taskOf v.TaskId <> t.Id))
-                |> List.map (fun t -> sprintf "%s: not in the schedule" t.Id)
+                |> List.map (fun t -> $"%s{t.Id}: not in the schedule")
 
             // Aircraft the schedule itself names (a resource key that is a drone id).
             let named =
@@ -1367,7 +1751,7 @@ module Evidence =
                 drones
                 |> List.filter (fun d -> fleet |> List.forall (fun a -> a.Drone.Id <> d.Id))
                 |> List.map (fun d ->
-                    sprintf "%s: no usable cruise_speed_ms / max_range_km / battery_capacity_wh; not flown" d.Id)
+                    $"%s{d.Id}: no usable cruise_speed_ms / max_range_km / battery_capacity_wh; not flown")
 
             let flown = fly fleet named visits
 
@@ -1382,7 +1766,7 @@ module Evidence =
                     |> List.countBy (fun t -> t.Id)
                     |> List.filter (fun (_, n) -> n > 1)
                     |> List.map (fun (id, n) ->
-                        sprintf "%s: %d tasks share this id, one schedule entry cannot cover them" id n)
+                        $"%s{id}: %d{n} tasks share this id, one schedule entry cannot cover them")
 
                 {
                     Area = Ev.Deconfliction
@@ -1490,7 +1874,7 @@ module Evidence =
                 |> List.distinct
                 |> List.map (fun id -> place.[id])
 
-            let pointName (w: Waypoint) = sprintf "%s %s" w.Id w.Name
+            let pointName (w: Waypoint) = $"%s{w.Id} %s{w.Name}"
 
             let c2 =
                 used
@@ -1509,7 +1893,7 @@ module Evidence =
                     (o.Sorties |> List.map rangeLeg |> short).Length
                     (o.Sorties |> List.map timeLeg |> short).Length
                     (Ev.closestApproach sampleStepS groundZ o.Tracks
-                     |> Option.map (fun c -> sprintf "%.1f m" c.Distance)
+                     |> Option.map (fun c -> $"%.1f{c.Distance} m")
                      |> Option.defaultValue "-")
 
             let allWork = work origin place tasks
@@ -1530,7 +1914,7 @@ module Evidence =
                 fleet
                 |> List.map (fun lost ->
                     let rest = fleet |> List.filter (fun a -> a.Drone.Id <> lost.Drone.Id)
-                    (lost.Drone.Id, (rest, dispatch rest allWork Map.empty Map.empty 0.0)))
+                    (lost.Drone.Id, (rest, dispatchBest rest allWork Map.empty Map.empty 0.0)))
                 |> Map.ofList
 
             let dropOut (lost: Aircraft) =
@@ -1586,12 +1970,12 @@ module Evidence =
                      @ (lates
                         |> List.map (fun (s, t, dt) -> sprintf "%s reaches %s %.0f s late" (label s) t dt))
                      @ (overRange
-                        |> List.map (fun (w, need, have) -> sprintf "%s needs %.1f km, has %.1f" w need have))
+                        |> List.map (fun (w, need, have) -> $"%s{w} needs %.1f{need} km, has %.1f{have}"))
                      @ (overTime
-                        |> List.map (fun (w, need, have) -> sprintf "%s needs %.1f min, has %.1f" w need have))
+                        |> List.map (fun (w, need, have) -> $"%s{w} needs %.1f{need} min, has %.1f{have}"))
                      @ (if tooClose then
                             closest
-                            |> Option.map (fun c -> [ sprintf "%s / %s %.1f m at t=%.0f s" c.A c.B c.Distance c.TimeS ])
+                            |> Option.map (fun c -> [ $"%s{c.A} / %s{c.B} %.1f{c.Distance} m at t=%.0f{c.TimeS} s" ])
                             |> Option.defaultValue []
                         else
                             []))
@@ -1602,27 +1986,35 @@ module Evidence =
             // flying (else they would have to react: a cascade), and the tasks it
             // leaves are re-dispatched to the others without a person deciding.
             let dropoutStepS = 10.0
-            let rtlBaseM = 60.0
-            let rtlStepM = 10.0
 
-            let fallbackTrack (id: string) (pad: Ev.P3) (speed: float) (rtlAltM: float) (t: float) (p: Ev.P3) =
-                let points = [| p; { p with Z = rtlAltM }; { pad with Z = rtlAltM }; pad |]
+            // RTL: to the aircraft's layer, home at that height, down onto the pad.
+            // A copter's RTL climbs to the layer but never descends to it; a
+            // QuadPlane's goes to the layer either way.
+            // A copter climbs in place first; a QuadPlane flies its RTL as a
+            // fixed-wing (Q_RTL_MODE 1), changing height on the way home.
+            let fallbackTrack (id: string) (a: Aircraft) (rtlAltM: float) (t: float) (p: Ev.P3) =
+                let layer = if a.FixedWing then rtlAltM else max p.Z rtlAltM
+                let over = { a.Pad with Z = layer }
+
+                let toOver =
+                    if a.FixedWing then
+                        [| (t + travelS a p over + Mav.Flight.vtolApproachS, over) |]
+                    else
+                        let up = { p with Z = layer }
+                        let t1 = t + travelS a p up
+                        [| (t1, up); (t1 + travelS a up over, over) |]
+
+                let t2 = fst (Array.last toOver)
 
                 ({
                     AircraftId = id
                     Samples =
-                        Array.zip
-                            (points
-                             |> Array.pairwise
-                             |> Array.scan (fun acc (a, b) -> acc + Ev.dist3 a b / speed) t)
-                            points
-                }
-                : Ev.Track)
-
-            let descentTrack (id: string) (t: float) (p: Ev.P3) =
-                ({
-                    AircraftId = id
-                    Samples = [| (t, p); (t + p.Z / Safety.imuFailureDescentRateMs, { p with Z = 0.0 }) |]
+                        Array.concat
+                            [
+                                [| (t, p) |]
+                                toOver
+                                [| (t2 + Mav.Flight.landingS (vehicleOf a) layer, a.Pad) |]
+                            ]
                 }
                 : Ev.Track)
 
@@ -1658,9 +2050,7 @@ module Evidence =
                     let launch = fst s.Samples.[0]
                     let landing = fst (Array.last s.Samples)
                     // One layer per aircraft: its own sorties never overlap in time.
-                    let rtlAlt =
-                        rtlBaseM
-                        + float (fleet |> List.findIndex (fun x -> x.Drone.Id = a.Drone.Id)) * rtlStepM
+                    let rtlAlt = rtlAltitude fleet a
 
                     [ launch + dropoutStepS .. dropoutStepS .. landing - 1.0 ]
                     |> List.choose (fun t ->
@@ -1671,20 +2061,36 @@ module Evidence =
                                     Array.append (s.Samples |> Array.filter (fun (ti, _) -> ti <= t)) [| (t, p) |]
                                 )
 
-                            let home = fallbackTrack (label s + " fallback") a.Pad a.SpeedMs rtlAlt t p
+                            let home = fallbackTrack (label s + " fallback") a rtlAlt t p
 
-                            let goesHome =
-                                flownKm + trackLengthKm home.Samples <= a.Drone.MaxRangeKm * usableFraction
+                            let usableKm = a.Drone.MaxRangeKm * usableFraction
+                            let goesHome = flownKm + trackLengthKm home.Samples <= usableKm
 
-                            let fb =
+                            // Out of range to get home, the aircraft still flies
+                            // the RTL its failsafes command and lands where the
+                            // critical-battery failsafe finds it. Where that is
+                            // depends on the battery, so both ends are checked.
+                            let fallbacks =
                                 if goesHome then
-                                    home
+                                    [ home ]
                                 else
-                                    descentTrack (label s + " descent") t p
+                                    [
+                                        home
+                                        home
+                                        |> Ev.flownThenLanding
+                                            (label s + " landing")
+                                            Safety.imuFailureDescentRateMs
+                                            ((usableKm - flownKm) * 1000.0)
+                                    ]
 
                             let closest =
-                                others
-                                |> List.choose (fun o -> Ev.closestApproach sampleStepS groundZ [ fb; o ])
+                                [
+                                    for fb in fallbacks do
+                                        for o in others do
+                                            match Ev.closestApproach sampleStepS groundZ [ fb; o ] with
+                                            | Some c -> c
+                                            | None -> ()
+                                ]
                                 |> List.sortBy (fun c -> c.Distance)
                                 |> List.tryHead
 
@@ -1742,8 +2148,13 @@ module Evidence =
                                 AircraftId = a.Drone.Id
                                 TimeS = t
                                 GoesHome = goesHome
-                                FallbackEndS = fst (Array.last fb.Samples)
-                                FallbackTopM = fb.Samples |> Array.map (fun (_, q) -> q.Z) |> Array.max
+                                FallbackEndS =
+                                    fallbacks |> List.map (fun fb -> fst (Array.last fb.Samples)) |> List.max
+                                FallbackTopM =
+                                    fallbacks
+                                    |> List.collect (fun fb ->
+                                        fb.Samples |> Array.map (fun (_, q) -> q.Z) |> List.ofArray)
+                                    |> List.max
                                 Closest = closest
                                 Leftovers = leftWork.Length
                                 AbsorbedBy = absorbedBy
@@ -1757,7 +2168,7 @@ module Evidence =
                     |> List.concat
                     |> List.groupBy (fun x -> x.AircraftId)
                     |> List.map (fun (id, xs) ->
-                        (sprintf "%s fallback (RTL layer)" id, xs |> List.map (fun x -> x.FallbackTopM) |> List.max))
+                        ($"%s{id} fallback (RTL layer)", xs |> List.map (fun x -> x.FallbackTopM) |> List.max))
 
                 (used |> List.map (fun w -> (pointName w, w.AltitudeM))) @ fallbacks
                 |> Ev.Checks.altitude
@@ -1782,16 +2193,17 @@ module Evidence =
                 Ev.Checks.contingency
                     "Any aircraft can drop out at any moment and the swarm absorbs it: no knock-on conflict, its unfinished tasks re-dispatched where the rest can fly them and named for the pilot where they cannot"
                     (sprintf
-                        "every %.0f s along every sortie: the aircraft leaves the plan and flies its fallback (up or down to its own RTL layer, %.0f m + %.0f m per aircraft in drones.csv order, straight home, down; or a controlled descent in place when its range cannot get it home) while the others fly on; closest approach of the fallback to every other flight, and the classical dispatcher re-plans its unfinished tasks onto the others from that moment"
+                        "every %.0f s along every sortie: the aircraft leaves the plan and flies its fallback (a copter up to its own RTL layer, %.0f m + %.0f m per copter in drones.csv order, or on at its height if higher; a fixed-wing to its layer on the way, the ceiling less %.0f m per fixed-wing before it; straight home, down; or, when its range cannot get it home, the same RTL until the range runs out and a landing there, both checked) while the others fly on; closest approach of the fallback to every other flight, and the classical dispatcher re-plans its unfinished tasks onto the others from that moment"
                         dropoutStepS
                         rtlBaseM
+                        rtlStepM
                         rtlStepM)
                     (sprintf
                         "%d dropout moments; closest fallback approach %s; %d knock-on conflict(s); %d leave tasks only the pilot can drop"
                         all.Length
                         (match worst with
                          | Some(x, c) ->
-                             sprintf "%.1f m (%s dropping at t=%.0f s, vs %s)" c.Distance x.Aircraft x.TimeS c.B
+                             $"%.1f{c.Distance} m (%s{x.Aircraft} dropping at t=%.0f{x.TimeS} s, vs %s{c.B})"
                          | None -> "n/a (no other aircraft airborne)")
                         conflicts.Length
                         unabsorbed.Length)
@@ -1831,7 +2243,7 @@ module Evidence =
                     dropouts
                     |> List.concat
                     |> List.map (fun x ->
-                        let name = sprintf "%s drops out at t=%.0f s" x.Aircraft x.TimeS
+                        let name = $"%s{x.Aircraft} drops out at t=%.0f{x.TimeS} s"
 
                         (name,
                          [
@@ -1844,22 +2256,22 @@ module Evidence =
                                  (if x.GoesHome then
                                       "fallback: own RTL layer, straight home"
                                   else
-                                      "controlled descent in place")
+                                      "fallback: RTL toward its own pad, landing where the range runs out")
                              match x.Closest with
                              | Some c when c.Distance < Safety.minSwarmSeparationMeters ->
                                  event
-                                     (sprintf "passes %.1f m from %s" c.Distance c.B)
+                                     $"passes %.1f{c.Distance} m from %s{c.B}"
                                      1
                                      x.TimeS
                                      Ev.decisionTimeS
                                      Ev.PilotDecision
-                                     (sprintf "divert %s" c.B)
+                                     $"divert %s{c.B}"
                              | _ -> ()
                              if x.Leftovers > 0 then
                                  match x.AbsorbedBy with
                                  | Some by ->
                                      event
-                                         (sprintf "%d task(s) left" x.Leftovers)
+                                         $"%d{x.Leftovers} task(s) left"
                                          (List.length by)
                                          x.TimeS
                                          60.0
@@ -1867,7 +2279,7 @@ module Evidence =
                                          (sprintf "dispatcher re-plans them onto %s" (String.Join(", ", by)))
                                  | None ->
                                      event
-                                         (sprintf "%d task(s) left" x.Leftovers)
+                                         $"%d{x.Leftovers} task(s) left"
                                          0
                                          x.TimeS
                                          Ev.decisionTimeS
@@ -1879,7 +2291,7 @@ module Evidence =
                     fleet
                     |> List.map (fun lost ->
                         let _, (_, left) = preLaunchReplans.[lost.Drone.Id]
-                        let name = sprintf "%s fails before launch" lost.Drone.Id
+                        let name = $"%s{lost.Drone.Id} fails before launch"
 
                         (name,
                          [
@@ -1902,7 +2314,7 @@ module Evidence =
             // --- Ratio -------------------------------------------------------------
             let peak = Ev.peakAirborne sampleStepS flown.Tracks
 
-            {
+            ({
                 Example = "SwarmTaskAllocation"
                 Operation =
                     sprintf
@@ -1923,13 +2335,13 @@ module Evidence =
                     [
                         "Aircraft: with the classical method, the dispatcher's own plan (it decides when and who, checked against this same flight model); with the quantum method, the library schedule's times and a first-fit dispatch, since its assignments name no aircraft."
                         sprintf
-                            "A watch no single aircraft can hold is flown in relief shifts, the next arriving as the previous leaves, on a station %.0f m away."
+                            "A watch no single aircraft can hold is flown in relief shifts, the next arriving as the previous leaves, on a station %.0f m to the side and as much higher (lower under the ceiling), so an arriving copter stays clear of a fixed-wing still circling."
                             (2.0 * Safety.minSwarmSeparationMeters)
                         sprintf
-                            "Waypoints: altitude_m is metres above ground at the waypoint; positions are projected equirectangularly around the base %s. Aircraft launch from and land at the base at ground level."
+                            "Waypoints: altitude_m is metres above ground at the waypoint; positions are projected equirectangularly around the base %s. Every aircraft launches from and lands on its own pad on a ring around the base, climbing and descending vertically."
                             (pointName origin)
-                        "Legs are straight 3-D lines at the aircraft's cruise_speed_ms; an aircraft launches so it reaches its first task exactly at the task's scheduled start."
-                        "Every task is flown as a hover (fixed-wing: a loiter at cruise power, orbit radius not modelled) at its waypoint for its whole scheduled interval, including takeoff and return tasks whose scheduled time includes ground overheads: this over-states airborne time."
+                        "Legs are straight 3-D lines flown as the exported ArduPilot missions fly them: a copter from rest to rest on every leg, holding 1 s at every waypoint so that it does come to rest (ArduCopter 4.7's S-curve, checked against SITL), a QuadPlane at cruise speed; climbs at 2.5 m/s, descents at 1.5 m/s and the last metres of a landing at 0.5 m/s, and 4 s of spool-up at launch. An aircraft launches so it reaches its first task exactly at the task's scheduled start."
+                        "Every task is flown as a hover (fixed-wing: circling it clockwise at its turn radius, at cruise power) at its waypoint for its whole scheduled interval, including takeoff and return tasks whose scheduled time includes ground overheads: this over-states airborne time."
                         sprintf
                             "Between two tasks an aircraft lands at the base (fresh battery, at least %.0f min on the ground) whenever the gap allows the round trip; otherwise it flies straight on and waits at the next waypoint."
                             Scheduling.minGroundTimeMin
@@ -1946,7 +2358,172 @@ module Evidence =
                         "Times are the scheduler's own. Its quantum sampler is stochastic: a re-run can produce a different schedule and so a different pack."
                         "No traffic other than this fleet."
                     ]
-            }
+             },
+             Some flown)
+
+// =============================================================================
+// MAVLINK EXPORT
+// =============================================================================
+
+/// ArduPilot 4.7 missions that fly the evidence's tracks: every sortie from
+/// its aircraft's own pad, started at its launch time by the generated
+/// launcher (mavlink_show.fsx). Copters hover over a task; QuadPlanes circle it.
+module Export =
+
+    module Ev = FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence
+
+    /// Local metres around the base back to latitude and longitude (the inverse
+    /// of Evidence.project); `z` is metres above the base.
+    let private toGeo (origin: Waypoint) (p: Ev.P3) : Mav.GeoCoordinate =
+        let r =
+            FSharp.Azure.Quantum.Examples.Drones.Domain.Environment.earthRadiusKm * 1000.0
+
+        let rad (deg: float) = deg * Math.PI / 180.0
+
+        {
+            Latitude = origin.Latitude + p.Y / r * 180.0 / Math.PI
+            Longitude = origin.Longitude + p.X / (r * Math.Cos(rad origin.Latitude)) * 180.0 / Math.PI
+            Altitude = p.Z
+        }
+
+    let private items (origin: Waypoint) (s: Evidence.Sortie) =
+        let a = s.Aircraft
+        let vehicle = Evidence.vehicleOf a
+        let geo = toGeo origin
+        let pad = geo { a.Pad with Z = 0.0 }
+        let first = (List.head s.Visits).Pos
+        let last = (List.last s.Visits).Pos
+
+        let acceptM =
+            match vehicle with
+            | Mav.ArduCopter -> 2.0
+            | Mav.ArduQuadPlane -> Mav.Flight.turnRadiusM a.SpeedMs
+
+        let items = ResizeArray<Mav.MissionItem>()
+
+        match vehicle with
+        | Mav.ArduCopter ->
+            items.Add(Mav.takeoff first.Z pad items.Count)
+            items.Add(Mav.setSpeed a.SpeedMs items.Count)
+        | Mav.ArduQuadPlane -> items.Add(Mav.vtolTakeoff first.Z pad items.Count)
+
+        for v, (arrive, leave) in List.zip s.Visits s.Stays do
+            let pos = geo v.Pos
+
+            match vehicle with
+            // Arrival counts reaching the waypoint and the settle; the
+            // waypoint holds the settle and the rest.
+            | Mav.ArduCopter -> Mav.holdAt acceptM pos (leave - arrive + Mav.settleS) items
+            | Mav.ArduQuadPlane when leave - arrive >= 0.5 ->
+                // Whole seconds on board; rounded down, the orbit never
+                // outlasts the endurance the evidence checked.
+                items.Add(Mav.orbit (Math.Floor(leave - arrive)) pos items.Count)
+            | Mav.ArduQuadPlane -> items.Add(Mav.waypoint 0.0 acceptM pos items.Count)
+
+        match vehicle with
+        | Mav.ArduCopter ->
+            Mav.stopAt acceptM { pad with Altitude = last.Z } 0.0 items
+            items.Add(Mav.landAt pad items.Count)
+        | Mav.ArduQuadPlane -> items.Add(Mav.vtolLand pad items.Count)
+
+        (acceptM, List.ofSeq items)
+
+    /// Write the missions, parameter files and launcher to <outDir>/mavlink.
+    /// `homeAltM` is the ground at the base above mean sea level. Returns the
+    /// number of missions.
+    let write
+        (outDir: string)
+        (origin: Waypoint)
+        (fleet: Evidence.Aircraft list)
+        (o: Evidence.Outcome)
+        (homeAltM: float)
+        =
+        let index (a: Evidence.Aircraft) =
+            fleet |> List.findIndex (fun x -> x.Drone.Id = a.Drone.Id)
+
+        let missions =
+            o.Sorties
+            |> List.map (fun s ->
+                let a = s.Aircraft
+                let vehicle = Evidence.vehicleOf a
+                let v = Mav.Flight.vertical vehicle
+                let k = index a
+                let acceptM, items = items origin s
+
+                ({
+                    Mission =
+                        {
+                            Drone =
+                                {
+                                    SystemId = k + 1
+                                    ComponentId = 1
+                                    Name = $"%s{a.Drone.Id}_s%d{s.Number}"
+                                    ConnectionString = sprintf "tcp:127.0.0.1:%d" (5760 + 10 * k)
+                                }
+                            Vehicle = vehicle
+                            HomePosition =
+                                { toGeo origin { a.Pad with Z = 0.0 } with
+                                    Altitude = homeAltM
+                                }
+                            Items = items
+                            Parameters =
+                                Mav.Params.forProfile
+                                    {
+                                        Vehicle = vehicle
+                                        CruiseMs = a.SpeedMs
+                                        ClimbMs = v.ClimbMs
+                                        DescentMs = v.DescentMs
+                                        RtlAltM = Evidence.rtlAltitude fleet a
+                                        WaypointRadiusM = acceptM
+                                        // Lost link: the modelled fallback is RTL.
+                                        LostLink = Mav.ReturnHome
+                                    }
+                        }
+                    LaunchS = fst s.Samples.[0]
+                }
+                : Mav.ScheduledMission))
+
+        let dir = Path.Combine(outDir, "mavlink")
+        Directory.CreateDirectory dir |> ignore
+        let plain = missions |> List.map (fun m -> m.Mission)
+        Mav.QGroundControl.writeAll dir plain
+        Mav.WaypointFile.writeAll dir plain
+        Mav.ParamFile.writeAll dir plain
+        Mav.FsxScript.writeFile (Path.Combine(dir, "mavlink_show.fsx")) missions
+
+        // When each mission is planned to start and land, to compare with the
+        // launcher's telemetry.csv.
+        Reporting.writeCsv
+            (Path.Combine(dir, "plan.csv"))
+            [ "mission"; "launch_s"; "end_s" ]
+            [
+                for s in o.Sorties ->
+                    [
+                        $"%s{s.Aircraft.Drone.Id}_s%d{s.Number}"
+                        sprintf "%.1f" (fst s.Samples.[0])
+                        sprintf "%.1f" (fst (Array.last s.Samples))
+                    ]
+            ]
+
+        // Where each mission is planned to be, when: the tracks the evidence checked.
+        Reporting.writeCsv
+            (Path.Combine(dir, "plan_tracks.csv"))
+            [ "mission"; "t_s"; "lat"; "lon"; "rel_alt_m" ]
+            [
+                for s in o.Sorties do
+                    for t, p in s.Samples do
+                        let g = toGeo origin p
+
+                        [
+                            $"%s{s.Aircraft.Drone.Id}_s%d{s.Number}"
+                            $"%.2f{t}"
+                            $"%.7f{g.Latitude}"
+                            $"%.7f{g.Longitude}"
+                            $"%.2f{p.Z}"
+                        ]
+            ]
+
+        missions.Length
 
 // =============================================================================
 // MAIN PROGRAM
@@ -1975,6 +2552,8 @@ module Program =
             printfn "║    --out <dir>       Output directory for results          ║"
             printfn "║    --method <m>      classical | quantum (default: class.) ║"
             printfn "║    --c2-band <MHz>   C2 radio band: 900 (default) | 2400   ║"
+            printfn "║    --mavlink         Write ArduPilot missions + launcher   ║"
+            printfn "║    --home-alt <m>    Base ground above MSL (default 0)     ║"
             printfn "║    --help            Show this help                        ║"
             printfn "╚════════════════════════════════════════════════════════════╝"
             0
@@ -2068,19 +2647,19 @@ module Program =
                              Error(
                                  QuantumError.ValidationError(
                                      "base",
-                                     sprintf "base waypoint %s not in %s" baseId waypointsPath
+                                     $"base waypoint %s{baseId} not in %s{waypointsPath}"
                                  )
                              ))
                         | Some origin ->
                             let place = waypoints |> List.map (fun w -> (w.Id, w)) |> Map.ofList
                             let fleet = Evidence.fleetOf drones
                             let work = Evidence.work origin place tasks
-                            let plan, unassigned = Evidence.dispatch fleet work Map.empty Map.empty 0.0
+                            let plan, unassigned = Evidence.dispatchBest fleet work Map.empty Map.empty 0.0
 
                             for _, why in unassigned do
                                 printfn "⚠ %s" why
 
-                            ("Classical dispatch (dependency order, flight-model checked)",
+                            ("Classical dispatch (dependency order, task order searched, flight-model checked)",
                              Ok(Evidence.toSolution plan unassigned, Some plan))
 
                 // Helper to get primary resource from AssignedResources map
@@ -2175,8 +2754,8 @@ module Program =
                         |> List.map (fun a ->
                             [
                                 a.TaskId
-                                sprintf "%.1f" a.StartTime.TotalMinutes
-                                sprintf "%.1f" a.EndTime.TotalMinutes
+                                $"%.1f{a.StartTime.TotalMinutes}"
+                                $"%.1f{a.EndTime.TotalMinutes}"
                                 sprintf "%.1f" (a.EndTime - a.StartTime).TotalMinutes
                                 getPrimaryResource a.AssignedResources
                             ])
@@ -2190,11 +2769,24 @@ module Program =
                     Reporting.writeTextFile (Path.Combine(outDir, "gantt.txt")) gantt
 
                     // Evidence for flying this schedule under a 1:N permission.
-                    let evidence =
+                    let evidence, flown =
                         Evidence.build tasks drones waypoints baseId pilots methodUsed c2BandMhz dispatched solution
 
                     FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.print evidence
                     FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.write outDir evidence
+
+                    // The flights as ArduPilot missions, flying exactly the checked tracks.
+                    if Cli.hasFlag "mavlink" args then
+                        match flown, waypoints |> List.tryFind (fun w -> w.Id = baseId) with
+                        | Some o, Some origin ->
+                            let homeAltM = Cli.getFloatOr "home-alt" 0.0 args
+                            let n = Export.write outDir origin (Evidence.fleetOf drones) o homeAltM
+
+                            printfn
+                                "  %d ArduPilot mission(s) and the launcher written to %s"
+                                n
+                                (Path.Combine(outDir, "mavlink"))
+                        | _ -> printfn "  No flights to export."
 
                     let evidenceVerdict =
                         FSharp.Azure.Quantum.Examples.Drones.PermissionEvidence.verdict evidence

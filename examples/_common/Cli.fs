@@ -71,7 +71,7 @@ module Cli =
         | Some s ->
             match parseInt s with
             | Some v -> Ok(Some v)
-            | None -> Error(sprintf "--%s: '%s' is not a whole number" name s)
+            | None -> Error $"--%s{name}: '%s{s}' is not a whole number"
 
     /// The option as a float: Ok None when absent, Error when it is not a number.
     let tryFloat (name: string) (args: ParsedArgs) : Result<float option, string> =
@@ -80,7 +80,7 @@ module Cli =
         | Some s ->
             match parseFloat s with
             | Some v -> Ok(Some v)
-            | None -> Error(sprintf "--%s: '%s' is not a number" name s)
+            | None -> Error $"--%s{name}: '%s{s}' is not a number"
 
     /// The option as an int, or the fallback when absent or not a number.
     /// Callers for whom a bad value must not pass silently use `tryInt`.

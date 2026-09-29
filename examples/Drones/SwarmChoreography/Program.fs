@@ -35,6 +35,7 @@ open FSharp.Azure.Quantum.Examples.Drones.Domain
 // =============================================================================
 
 /// 3D position in meters relative to ground origin
+[<Struct>]
 type Position3D =
     {
         X: float // meters, positive = right
@@ -43,6 +44,7 @@ type Position3D =
     }
 
 /// Assignment of drones to formation positions
+[<Struct>]
 type Assignment =
     {
         DroneId: int
@@ -350,6 +352,7 @@ module IndoorLayout =
     /// in motion are good to roughly 0.1 m each (Lighthouse better, Loco
     /// worse), so two drones can drift 0.2 m towards each other: 0.13 + 0.2 is
     /// 0.33 m, rounded up to 0.5 m.
+    [<Literal>]
     let limitM = 0.5
 
     /// Vertical distances count half: 1.0 m straight below another drone is as
@@ -363,11 +366,13 @@ module IndoorLayout =
     let margin = 1.2
 
     /// crazyflie_show.py's take-off height; the ground formations are flown here.
+    [<Literal>]
     let hoverM = 0.5
 
     /// The height of every airborne formation: 0.2 m under the 2.0 m MAX_HEIGHT,
     /// and 1.3 m above take-off height (0.65 m weighted), so a drone left
     /// hovering at take-off height is clear of the show above it.
+    [<Literal>]
     let showHeightM = 1.8
 
     /// The weighted space in which indoor distances are measured.
@@ -733,15 +738,21 @@ module Evidence =
         | Indoor _ -> 7.0
 
     /// Sampling step for counting drones airborne together (closestApproach is exact and ignores it).
+    [<Literal>]
     let private stepS = 0.1
 
     /// Below this height an aircraft counts as parked on the ground.
+    [<Literal>]
     let private groundZ = 0.1
 
+    [<Literal>]
     let private c2BandMhz = 2400.0
+
+    [<Literal>]
     let private c2FadeMarginDb = 10.0
 
     /// "Everyone reacts at once" contingencies are triggered this often.
+    [<Literal>]
     let private triggerEveryS = 1.0
 
     /// How far a drone dropping out of the outdoor show steps out of the
@@ -749,16 +760,27 @@ module Evidence =
     let private stepOutM = Safety.minSwarmSeparationMeters * 1.2
 
     // Constants written into crazyflie_show.py by CrazyflieExport.toPythonScript.
+    [<Literal>]
     let private cfTakeoffHeightM = 0.5
+
+    [<Literal>]
     let private cfTakeoffS = 2.0
+
+    [<Literal>]
     let private cfLandingS = 2.0
+
+    [<Literal>]
     let private cfPauseS = 0.5
+
+    [<Literal>]
     let private cfMinHeightM = 0.2
+
+    [<Literal>]
     let private cfMaxHeightM = 2.0
 
     let private p3 x y z : Ev.P3 = { X = x; Y = y; Z = z }
 
-    let private name (drone: int) = sprintf "Drone%d" drone
+    let private name (drone: int) = $"Drone%d{drone}"
 
     type private Step =
         /// An ArduPilot leg to a point at this horizontal speed (m/s), flown with
@@ -826,10 +848,7 @@ module Evidence =
             }
 
         Ev.closestApproach stepS (groundZ * zWeight) (parked tracks |> List.map weigh)
-        |> Option.map (fun c ->
-            { c with
-                Where = { c.Where with Z = c.Where.Z / zWeight }
-            })
+        |> Option.map (fun c -> { c with Where.Z = c.Where.Z / zWeight })
 
     /// The same tracks from `t0` on, so a contingency is judged on what it
     /// adds, not on a conflict the normal show already had before it began.
@@ -881,8 +900,9 @@ module Evidence =
             Within(p3 at.X at.Y 0.0, low / MAVLinkExport.Autopilot.landSpeedMs)
         ]
 
-    /// One drone's RTL as its parameters set it (RTL_ALT, RTL_SPEED,
+    /// One drone's RTL as its parameters set it (RTL_ALT_M, RTL_SPEED_MS,
     /// RTL_LOIT_TIME; RTL_CONE_SLOPE 0).
+    [<Struct>]
     type private RtlConfig =
         {
             AltM: float
@@ -943,7 +963,8 @@ module Evidence =
     let private showTrack (f: Flight) (drone: int) =
         fly (name drone) f.Parking.[drone] (f.Segments.[drone] |> List.concat)
 
-    /// ArduPilot's own RTL_ALT default, used when a drone has no parameter file.
+    /// ArduPilot's own RTL_ALT_M default, used when a drone has no parameter file.
+    [<Literal>]
     let private ardupilotDefaultRtlAltM = 15.0
 
     /// A drone's RTL as its exported parameter file sets it; ArduPilot's
@@ -953,8 +974,8 @@ module Evidence =
             parms |> Option.bind (Map.tryFind name) |> Option.defaultValue fallback
 
         {
-            AltM = get "RTL_ALT" (ardupilotDefaultRtlAltM * 100.0) / 100.0
-            SpeedMs = get "RTL_SPEED" (cruise * 100.0) / 100.0
+            AltM = get "RTL_ALT_M" ardupilotDefaultRtlAltM
+            SpeedMs = get "RTL_SPEED_MS" cruise
             LoiterS = get "RTL_LOIT_TIME" (MAVLinkExport.Autopilot.rtlLoiterS * 1000.0) / 1000.0
         }
 
@@ -1223,7 +1244,7 @@ module Evidence =
             (if below.IsEmpty then Ev.Pass else Ev.Fail)
             [
                 if not below.IsEmpty then
-                    sprintf "%d of %d triggers bring two aircraft below %.1f m" below.Length scenarios.Length limit
+                    $"%d{below.Length} of %d{scenarios.Length} triggers bring two aircraft below %.1f{limit} m"
                 for t0, c, _ in worst |> List.truncate 5 do
                     sprintf "trigger t=%.0f s: %s" t0 (describe c)
             ]
@@ -1410,6 +1431,26 @@ module Evidence =
 
                 let origin = swarm.Metadata.ShowOrigin
 
+                // The tracks checked here, for the launcher's --check against
+                // a flight's telemetry: T0 is MISSION_START, so every track
+                // begins with the spool-up before the climb.
+                Reporting.writeCsv
+                    (Path.Combine(dir, "plan_tracks.csv"))
+                    [ "mission"; "t_s"; "lat"; "lon"; "rel_alt_m" ]
+                    [
+                        for d, m in List.indexed swarm.Missions do
+                            for t, p in (showTrack f d).Samples do
+                                let g = MavlinkMission.localToGeo origin { North = p.Y; East = p.X; Down = 0.0 }
+
+                                [
+                                    m.Drone.Name
+                                    sprintf "%.2f" (t + MavlinkMission.Flight.spoolUpS)
+                                    $"%.7f{g.Latitude}"
+                                    $"%.7f{g.Longitude}"
+                                    $"%.2f{p.Z}"
+                                ]
+                    ]
+
                 let showTop =
                     f.Points |> Array.collect id |> Array.map (fun p -> p.Z) |> Array.fold max 0.0
 
@@ -1475,7 +1516,7 @@ module Evidence =
                                 "%d of %d parameter files read back; RTL_ALT %s m"
                                 (parms |> Array.filter Option.isSome |> Array.length)
                                 parms.Length
-                                (rtlOf |> Array.map (fun r -> sprintf "%.0f" r.AltM) |> String.concat " / ")
+                                (rtlOf |> Array.map (fun r -> $"%.0f{r.AltM}") |> String.concat " / ")
                         Limit =
                             sprintf
                                 "values as modelled; RTL altitudes >= %.0f m apart, above the show"
@@ -1652,12 +1693,12 @@ module Evidence =
             {
                 Area = Ev.Deconfliction
                 Claim = "Every drone is sent to its own formation slot"
-                Method = sprintf "per formation, the waypoints of every pair of drones in %s compared" source
+                Method = $"per formation, the waypoints of every pair of drones in %s{source} compared"
                 Measured =
                     if shared.IsEmpty then
                         "no shared slots"
                     else
-                        sprintf "%d drone pair(s) sent to the same slot" shared.Length
+                        $"%d{shared.Length} drone pair(s) sent to the same slot"
                 Limit = "no two drones share a slot"
                 Status = if shared.IsEmpty then Ev.Pass else Ev.Fail
                 Details = shared
@@ -1686,7 +1727,7 @@ module Evidence =
                             layout.SlotMin
                             layout.TransitMin
                             (layout.Scales |> Array.map (sprintf "%.3f") |> String.concat " / ")
-                    Limit = sprintf ">= %.2f (%.1f x the %.1f m limit)" need IndoorLayout.margin IndoorLayout.limitM
+                    Limit = $">= %.2f{need} (%.1f{IndoorLayout.margin} x the %.1f{IndoorLayout.limitM} m limit)"
                     Status =
                         if min layout.SlotMin layout.TransitMin >= need - 1e-9 then
                             Ev.Pass
@@ -1922,7 +1963,7 @@ module Evidence =
             tracks
             |> List.map (fun tr -> (tr.AircraftId, tr.Samples |> Array.map (snd >> measure) |> Array.max))
             |> List.groupBy fst
-            |> List.map (fun (id, xs) -> (sprintf "%s %s" id what, xs |> List.map snd |> List.max))
+            |> List.map (fun (id, xs) -> ($"%s{id} %s{what}", xs |> List.map snd |> List.max))
 
         // Outdoors the altitude ceiling; indoors the room (walls and ceiling):
         // tracks are straight lines, so their breakpoints bound them.
@@ -1966,12 +2007,12 @@ module Evidence =
                             (farthest (fun p -> abs p.X))
                             (farthest (fun p -> abs p.Y))
                             (farthest (fun p -> p.Z))
-                    Limit = sprintf "|x| <= %.2f m, |y| <= %.2f m, z <= %.1f m" maxX maxY cfMaxHeightM
+                    Limit = $"|x| <= %.2f{maxX} m, |y| <= %.2f{maxY} m, z <= %.1f{cfMaxHeightM} m"
                     Status = if outside.IsEmpty then Ev.Pass else Ev.Fail
                     Details =
                         outside
                         |> List.distinctBy fst
-                        |> List.map (fun (id, p) -> sprintf "%s at (%.2f, %.2f, %.2f) m" id p.X p.Y p.Z)
+                        |> List.map (fun (id, p) -> $"%s{id} at (%.2f{p.X}, %.2f{p.Y}, %.2f{p.Z}) m")
                 }
 
         let horizontalKm (p: Ev.P3) =
@@ -2132,7 +2173,7 @@ module Program =
             printfn "  MAVLink generates:"
             printfn "    - DroneN_mission.plan  (QGroundControl plans)"
             printfn "    - DroneN.waypoints     (MAVLink waypoint files)"
-            printfn "    - mavlink_swarm.py     (pymavlink/dronekit script)"
+            printfn "    - mavlink_show.fsx     (launcher: checks, flies and draws the show)"
             printfn ""
             printfn "  Every run writes permission-evidence.md/.json: 1:N permission"
             printfn "  evidence for the MAVLink missions (with --mavlink) or else the"
@@ -2266,7 +2307,7 @@ module Program =
                         Method = methodUsed
                     }
 
-                transitions.Add(result)
+                transitions.Add result
                 Visualization.printTransition result
 
                 // Update current positions (ensure valid assignments)
@@ -2298,7 +2339,7 @@ module Program =
             let totalShowDistance = transitions |> Seq.sumBy (fun t -> t.TotalDistance)
 
             let quantumSolved =
-                transitions |> Seq.filter (fun t -> t.Method.Contains("Quantum")) |> Seq.length
+                transitions |> Seq.filter (fun t -> t.Method.Contains "Quantum") |> Seq.length
 
             let fallbackUsed = transitions.Count - quantumSolved
 
@@ -2643,10 +2684,9 @@ This example is **RULE 1 compliant**:
                         printfn "    2. Load DroneN_mission.plan files"
                         printfn "    3. Upload to each drone"
                         printfn ""
-                        printfn "  Option 2 - Python Script:"
-                        printfn "    1. Install: pip install dronekit pymavlink"
-                        printfn "    2. Update DRONE_CONNECTIONS in mavlink_swarm.py"
-                        printfn "    3. Run: python mavlink_swarm.py [--parallel]"
+                        printfn "  Option 2 - the launcher (see examples/Drones/SITL.md):"
+                        printfn "    1. Check without a network: dotnet fsi mavlink_show.fsx --dry-run"
+                        printfn "    2. Fly: dotnet fsi mavlink_show.fsx"
                         Some swarm
 
             // 1:N permission evidence, on exactly what was exported: the MAVLink

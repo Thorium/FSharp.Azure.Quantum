@@ -236,88 +236,101 @@ module IntegrationTests =
     [<Fact>]
     let ``HybridSolver - Small TSP should route to classical automatically`` () =
         // Arrange: Small 5-city problem
-        let distances = Array2D.init 5 5 (fun i j -> 
-            if i = j then 0.0 else float (abs (i - j)))
-        
+        let distances =
+            Array2D.init 5 5 (fun i j -> if i = j then 0.0 else float (abs (i - j)))
+
         // Act: Let HybridSolver decide
         let result = HybridSolver.solveTsp distances None None None
-        
+
         // Assert: Should choose classical method
         match result with
         | Ok solution ->
             Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
             Assert.Contains("classical", solution.Reasoning.ToLower())
             Assert.Equal(5, solution.Result.Tour.Length)
-            
+
             // Should have recommendation explaining why classical
             Assert.True(solution.Recommendation.IsSome)
+
             match solution.Recommendation with
-            | Some recommendation -> 
+            | Some recommendation ->
                 Assert.Equal(5, recommendation.ProblemSize)
                 Assert.True(recommendation.Confidence > 0.5)
             | None -> ()
-        | Error msg -> 
-            Assert.Fail($"Expected successful solution, got error: {msg}")
+        | Error msg -> Assert.Fail($"Expected successful solution, got error: {msg}")
 
     [<Fact>]
     let ``HybridSolver - Small Portfolio should route to classical automatically`` () =
         // Arrange: Small 3-asset portfolio
-        let assets: PortfolioSolver.Asset list = [
-            { Symbol = "A"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 }
-            { Symbol = "B"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
-            { Symbol = "C"; ExpectedReturn = 0.08; Risk = 0.12; Price = 80.0 }
-        ]
-        
-        let constraints: PortfolioSolver.Constraints = {
-            Budget = 1000.0
-            MinHolding = 0.0
-            MaxHolding = 1000.0
-        }
-        
+        let assets: PortfolioSolver.Asset list =
+            [
+                {
+                    Symbol = "A"
+                    ExpectedReturn = 0.10
+                    Risk = 0.15
+                    Price = 100.0
+                }
+                {
+                    Symbol = "B"
+                    ExpectedReturn = 0.12
+                    Risk = 0.18
+                    Price = 150.0
+                }
+                {
+                    Symbol = "C"
+                    ExpectedReturn = 0.08
+                    Risk = 0.12
+                    Price = 80.0
+                }
+            ]
+
+        let constraints: PortfolioSolver.Constraints =
+            {
+                Budget = 1000.0
+                MinHolding = 0.0
+                MaxHolding = 1000.0
+            }
+
         // Act: Let HybridSolver decide
         let result = HybridSolver.solvePortfolio assets constraints None None None
-        
+
         // Assert: Should choose classical method
         match result with
         | Ok solution ->
             Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
             Assert.Contains("classical", solution.Reasoning.ToLower())
-        | Error msg -> 
-            Assert.Fail($"Expected successful solution, got error: {msg}")
+        | Error msg -> Assert.Fail($"Expected successful solution, got error: {msg}")
 
     // ===========================================
     // Test Scenario 6: HybridSolver Large Problem
     // ===========================================
-    
+
     [<Fact>]
     let ``HybridSolver - Large TSP should consider quantum recommendation`` () =
         // Arrange: Larger 30-city problem where quantum might be beneficial
-        let distances = Array2D.init 30 30 (fun i j -> 
-            if i = j then 0.0 
-            else 1.0 + float (abs (i - j)) * 0.5)
-        
+        let distances =
+            Array2D.init 30 30 (fun i j -> if i = j then 0.0 else 1.0 + float (abs (i - j)) * 0.5)
+
         // Act: Get recommendation (will still solve with classical for now)
         let result = HybridSolver.solveTsp distances None None None
-        
+
         // Assert: Should have recommendation considering quantum
         match result with
         | Ok solution ->
             // Should provide recommendation
             Assert.True(solution.Recommendation.IsSome)
-            
+
             match solution.Recommendation with
             | Some recommendation ->
                 Assert.Equal(30, recommendation.ProblemSize)
                 // Reasoning should mention problem size
-                Assert.True(solution.Reasoning.Length > 20, 
-                    "Should provide detailed reasoning for larger problems")
+                Assert.True(solution.Reasoning.Length > 20, "Should provide detailed reasoning for larger problems")
             | None -> ()
-            
+
             // Solution should still be valid regardless of method
             Assert.Equal(30, solution.Result.Tour.Length)
             Assert.True(solution.Result.TourLength > 0.0)
-        | Error msg -> 
-            Assert.Fail($"Expected successful solution, got error: {msg}")
+        | Error msg -> Assert.Fail($"Expected successful solution, got error: {msg}")
 
     // ===========================================
     // Test Scenario 7: Budget Enforcement
@@ -371,16 +384,16 @@ module IntegrationTests =
     let ``Error Handling - HybridSolver with invalid input returns error`` () =
         // Arrange: Empty distance matrix
         let emptyMatrix = Array2D.create 0 0 0.0
-        
+
         // Act
         let result = HybridSolver.solveTsp emptyMatrix None None None
-        
+
         // Assert: Should handle gracefully
         match result with
-        | Ok solution -> 
+        | Ok solution ->
             // If it succeeds, tour should be empty or minimal
             Assert.True(solution.Result.Tour.Length <= 1)
-        | Error msg -> 
+        | Error msg ->
             // If it errors, message should be informative
             Assert.False(String.IsNullOrWhiteSpace(msg.Message))
             Assert.True(msg.Message.Length > 5, "Error message should be descriptive")

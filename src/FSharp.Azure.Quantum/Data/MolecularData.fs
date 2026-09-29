@@ -270,14 +270,18 @@ module MolecularData =
     let private dRegex = Regex(@"^%?\d+")
     let private compiledRegex = Regex(@"^\[[^\]]+\]")
 
+    let private tokenizeSmilesRegex = Regex(@"^[-=#:$]")
+    let private tokenizeSmilesRegex2 = Regex(@"^[()]")
+    let private tokenizeSmilesRegex3 = Regex(@"^\.")
+
     /// Simple SMILES tokenizer
     let private tokenizeSmiles (smiles: string) : string list =
-        let organic = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
+        let organic = clBrBCNOPSFIRegex
         let bracket = compiledRegex
-        let bond = Regex(@"^[-=#:$]")
+        let bond = tokenizeSmilesRegex
         let ring = dRegex
-        let branch = Regex(@"^[()]")
-        let dot = Regex(@"^\.")
+        let branch = tokenizeSmilesRegex2
+        let dot = tokenizeSmilesRegex3
 
         let rec tokenize (remaining: string) (acc: string list) =
             if String.IsNullOrEmpty(remaining) then
@@ -310,6 +314,8 @@ module MolecularData =
                                         tokenize (remaining.Substring 1) acc
 
         tokenize smiles []
+
+    let private parseSmilesRegex = Regex @"^%?\d+$"
 
     /// Parse SMILES string into a Molecule
     let parseSmiles (smiles: string) : QuantumResult<Molecule> =
@@ -359,7 +365,7 @@ module MolecularData =
                     | "." -> { state with LastAtomIndex = -1 }
 
                     // Ring closure
-                    | _ when Regex.IsMatch(token, @"^%?\d+$") ->
+                    | _ when parseSmilesRegex.IsMatch token ->
                         if state.LastAtomIndex < 0 then
                             // A ring-closure digit before any atom (e.g. "1CC1" or a digit
                             // right after a '.' fragment separator) has no atom to bond to.
