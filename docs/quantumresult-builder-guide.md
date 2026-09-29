@@ -2,373 +2,386 @@
 
 ## Overview
 
-The `quantumResult` computation expression builder eliminates nested `match` clauses when working with `QuantumResult<T>`, making error handling code cleaner and more maintainable.
+Most library functions that can fail return `QuantumResult<'T>`, which is `Result<'T, QuantumError>`. The `quantumResult` computation expression removes the nested `match` expressions you otherwise write to pass errors along: each `let!` continues with the `Ok` value and stops at the first `Error`.
 
-## Before: Nested Match Clauses 
+`quantumResult` is defined in `FSharp.Azure.Quantum.Core` and is available after `open FSharp.Azure.Quantum.Core`. The same namespace also has a general `result` builder for `Result<'T, 'E>` with any error type.
+
+## Setup for the Examples
+
+The examples on this page use a few small steps built on the library: validate some rotation angles, build a circuit, run it on a backend, and read a probability from the measurements. Each step returns a `QuantumResult`.
 
 ```fsharp
-let processQuantumWorkflow (input: float array) (backend: IQuantumBackend) : QuantumResult<Solution> =
- match validateInput input with
- | Error err -> Error err
- | Ok validatedData ->
- match encodeToQubo validatedData with
- | Error err -> Error err
- | Ok quboMatrix ->
- match executeQuantum quboMatrix backend with
- | Error err -> Error err
- | Ok quantumResult ->
- match decodeResult quantumResult with
- | Error err -> Error err
- | Ok solution ->
- Ok solution
+open System
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Backends
+
+let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+/// Angles must be present, and one qubit per angle must stay small.
+let validateInput (angles: float array) : QuantumResult<float array> =
+    if angles.Length = 0 then
+        Error(QuantumError.ValidationError("angles", "must not be empty"))
+    elif angles.Length > 8 then
+        Error(QuantumError.ValidationError("angles", "at most 8 angles (one qubit each)"))
+    else
+        Ok angles
+
+/// One RY rotation per qubit.
+let buildCircuit (angles: float array) : QuantumResult<ICircuit> =
+    let circuit =
+        angles
+        |> Array.indexed
+        |> Array.fold
+            (fun c (qubit, angle) -> c |> CircuitBuilder.addGate (CircuitBuilder.RY(qubit, angle)))
+            (CircuitBuilder.empty angles.Length)
+
+    Ok(CircuitWrapper(circuit) :> ICircuit)
+
+/// Run the circuit and return the final state.
+let execute (backend: IQuantumBackend) (circuit: ICircuit) : QuantumResult<QuantumState> =
+    backend.ExecuteToState circuit
+
+/// Fraction of the shots in which qubit 0 was measured as 1.
+let probabilityOfOne (shots: int) (state: QuantumState) : QuantumResult<float> =
+    let samples = QuantumState.measure state shots
+    Ok(samples |> Array.averageBy (fun bits -> float bits.[0]))
+```
+
+## Before: Nested Match Expressions
+
+```fsharp
+let processNested (angles: float array) (backend: IQuantumBackend) : QuantumResult<float> =
+    match validateInput angles with
+    | Error err -> Error err
+    | Ok validAngles ->
+        match buildCircuit validAngles with
+        | Error err -> Error err
+        | Ok circuit ->
+            match execute backend circuit with
+            | Error err -> Error err
+            | Ok state ->
+                match probabilityOfOne 1000 state with
+                | Error err -> Error err
+                | Ok probability -> Ok probability
 ```
 
 **Problems:**
-- levels of nesting
-- Repetitive error propagation (`| Error err -> Error err`)
-- Hard to read and maintain
-- Easy to make mistakes
+- One level of nesting per step
+- The same `| Error err -> Error err` line repeated for every step
+- Hard to read, and easy to get wrong when steps are added or reordered
 
-## After: Computation Expression 
+## After: Computation Expression
 
 ```fsharp
-let processQuantumWorkflow (input: float array) (backend: IQuantumBackend) : QuantumResult<Solution> =
- quantumResult {
- let! validatedData = validateInput input
- let! quboMatrix = encodeToQubo validatedData
- let! quantumResult = executeQuantum quboMatrix backend
- let! solution = decodeResult quantumResult
- return solution
- }
+let processWorkflow (angles: float array) (backend: IQuantumBackend) : QuantumResult<float> =
+    quantumResult {
+        let! validAngles = validateInput angles
+        let! circuit = buildCircuit validAngles
+        let! state = execute backend circuit
+        let! probability = probabilityOfOne 1000 state
+        return probability
+    }
 ```
 
 **Benefits:**
 - Flat, linear structure
-- Automatic error propagation
-- Reads like imperative code
-- Much easier to maintain
+- Errors propagate automatically: the first `Error` ends the computation and is the result
+- The steps read in the order they run
 
-## Real-World Examples
+## Examples with Library Builders
 
-### Example : TSP Solver with Validation
+### Example 1: Period Finding
 
-**Before:**
+`periodFinder` returns `Result<PeriodFinderProblem, QuantumError>` and `QuantumPeriodFinder.solve` returns a `QuantumResult`, so both can be bound with `let!`:
+
 ```fsharp
-let solveTsp (cities: City list) (backend: IQuantumBackend) : QuantumResult<Tour> =
- match validateCities cities with
- | Error err -> Error err
- | Ok validCities ->
- match buildDistanceMatrix validCities with
- | Error err -> Error err
- | Ok distances ->
- match QuantumTspSolver.solve backend distances defaultConfig with
- | Error err -> Error err
- | Ok quantumResult ->
- match validateTour quantumResult.Tour cities.Length with
- | Error err -> Error err
- | Ok validTour ->
- Ok { Cities = getCityNames validCities validTour
- TotalDistance = quantumResult.TourLength
- IsValid = true }
+open FSharp.Azure.Quantum.QuantumPeriodFinder
+
+let factor (n: int) : QuantumResult<int * int> =
+    quantumResult {
+        let! problem = periodFinder {
+            number n
+            precision 8
+        }
+
+        let! result = QuantumPeriodFinder.solve problem
+
+        match result.Factors with
+        | Some factors -> return factors
+        | None -> return! Error(QuantumError.OperationError("PeriodFinder", $"no factors found for {n}"))
+    }
 ```
 
-**After:**
+### Example 2: Training and Prediction
+
+The ML builders train when they are evaluated and return a `QuantumResult`, as do the prediction functions:
+
 ```fsharp
-let solveTsp (cities: City list) (backend: IQuantumBackend) : QuantumResult<Tour> =
- quantumResult {
- let! validCities = validateCities cities
- let! distances = buildDistanceMatrix validCities
- let! quantumResult = QuantumTspSolver.solve backend distances defaultConfig
- let! validTour = validateTour quantumResult.Tour cities.Length
- 
- return { 
- Cities = getCityNames validCities validTour
- TotalDistance = quantumResult.TourLength
- IsValid = true 
- }
- }
+open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Business.BinaryClassifier
+
+let trainAndPredict (features: float[][]) (labels: int[]) (sample: float[]) : QuantumResult<int> =
+    quantumResult {
+        let! model = binaryClassification {
+            trainWith features labels
+            maxEpochs 50
+        }
+
+        let! prediction = BinaryClassifier.predict sample model
+        return prediction.Label
+    }
 ```
 
-### Example : ML Training Pipeline
+### Example 3: Intermediate Values
 
-**Before:**
-```fsharp
-let trainQuantumModel (data: TrainingData) (backend: IQuantumBackend) : QuantumResult<Model> =
- match validateTrainingData data with
- | Error err -> Error err
- | Ok validData ->
- match preprocessFeatures validData.Features with
- | Error err -> Error err
- | Ok processedFeatures ->
- match encodeToQuantumCircuit processedFeatures with
- | Error err -> Error err
- | Ok circuit ->
- match trainVQC circuit validData.Labels backend with
- | Error err -> Error err
- | Ok trainedParams ->
- match serializeModel trainedParams with
- | Error err -> Error err
- | Ok model ->
- Ok model
-```
-
-**After:**
-```fsharp
-let trainQuantumModel (data: TrainingData) (backend: IQuantumBackend) : QuantumResult<Model> =
- quantumResult {
- let! validData = validateTrainingData data
- let! processedFeatures = preprocessFeatures validData.Features
- let! circuit = encodeToQuantumCircuit processedFeatures
- let! trainedParams = trainVQC circuit validData.Labels backend
- let! model = serializeModel trainedParams
- return model
- }
-```
-
-### Example : Sequential Processing with Intermediate Values
+Plain `let` bindings can sit between the `let!` steps, and every earlier value stays in scope:
 
 ```fsharp
-let optimizePortfolio (stocks: Stock list) (budget: float) : QuantumResult<PortfolioAllocation> =
- quantumResult {
- // Validate inputs
- let! validStocks = validateStocks stocks
- let! validBudget = validateBudget budget
- 
- // Analyze risk
- let! riskProfile = calculateRiskProfile validStocks
- 
- // Encode as QUBO
- let! quboMatrix = encodePortfolioQubo validStocks validBudget riskProfile
- 
- // Solve with quantum backend
- let backend = LocalBackendFactory.createUnified()
- let! solution = solveQubo quboMatrix backend
- 
- // Decode and validate
- let! allocation = decodeSolution solution validStocks
- let! validatedAllocation = validateAllocation allocation budget
- 
- return validatedAllocation
- }
+let compareRotations (angle: float) (backend: IQuantumBackend) : QuantumResult<float> =
+    quantumResult {
+        let! single = validateInput [| angle |]
+        let doubled = single |> Array.map (fun a -> 2.0 * a)
+
+        let! circuitA = buildCircuit single
+        let! circuitB = buildCircuit doubled
+
+        let! stateA = execute backend circuitA
+        let! stateB = execute backend circuitB
+
+        let! pA = probabilityOfOne 1000 stateA
+        let! pB = probabilityOfOne 1000 stateB
+        return pB - pA
+    }
 ```
 
 ## Advanced Features
 
 ### Exception Handling with try-with
 
+`try ... with` inside the builder turns an exception into an `Error`:
+
 ```fsharp
-let safeQuantumExecution (circuit: ICircuit) (backend: IQuantumBackend) : QuantumResult<ExecutionResult> =
- quantumResult {
- try
- let! validated = validateCircuit circuit
- let! result = backend.ExecuteAsync validated |> Async.RunSynchronously
- return result
- with
- | :? TimeoutException as ex ->
- return! Error (QuantumError.OperationError ("Execution", $"Timeout: {ex.Message}"))
- | ex ->
- return! Error (QuantumError.OperationError ("Execution", $"Failed: {ex.Message}"))
- }
+let safeExecute (backend: IQuantumBackend) (circuit: ICircuit) : QuantumResult<QuantumState> =
+    quantumResult {
+        try
+            let! state = backend.ExecuteToState circuit
+            return state
+        with
+        | :? TimeoutException as ex ->
+            return! Error(QuantumError.OperationError("Execution", $"Timeout: {ex.Message}"))
+        | ex ->
+            return! Error(QuantumError.OperationError("Execution", $"Failed: {ex.Message}"))
+    }
 ```
 
-> **Async alternative:** Use `backend.ExecuteToStateAsync circuit ct` with `task { }` for non-blocking execution. The async variant accepts a `CancellationToken` for timeout control instead of relying on `Async.RunSynchronously`.
+> **Async alternative:** `backend.ExecuteToStateAsync circuit cancellationToken` returns `Task<QuantumResult<QuantumState>>`. Use it inside `task { }` to execute without blocking and to cancel through the token.
 
 ### Loops and Iteration
 
+A `for` loop runs its body for each item and stops at the first `Error`:
+
 ```fsharp
-let validateMultipleCircuits (circuits: ICircuit list) : QuantumResult<unit> =
- quantumResult {
- for circuit in circuits do
- let! _ = validateCircuit circuit
- ()
- return ()
- }
+let validateAll (inputs: float array list) : QuantumResult<unit> =
+    quantumResult {
+        for input in inputs do
+            let! _ = validateInput input
+            ()
+    }
 ```
 
-### Combining Results
+### Collecting Results
 
 ```fsharp
-let processMultipleInputs (inputs: float array list) : QuantumResult<float list> =
- quantumResult {
- let results = ResizeArray<float>()
- 
- for input in inputs do
- let! validated = validateInput input
- let! processed = processData validated
- results.Add(processed)
- 
- return List.ofSeq results
- }
+let probabilities (inputs: float array list) (backend: IQuantumBackend) : QuantumResult<float list> =
+    quantumResult {
+        let results = ResizeArray<float>()
+
+        for input in inputs do
+            let! validAngles = validateInput input
+            let! circuit = buildCircuit validAngles
+            let! state = execute backend circuit
+            let! probability = probabilityOfOne 1000 state
+            results.Add probability
+
+        return List.ofSeq results
+    }
 ```
 
 ## Migration Guide
 
-### Step : Identify Nested Matches
+### Step 1: Identify Nested Matches
 
-Look for patterns like:
+Look for code where every step is followed by `| Error err -> Error err`, as in [Before: Nested Match Expressions](#before-nested-match-expressions).
+
+### Step 2: Convert to a Computation Expression
+
+Wrap the steps in `quantumResult { }`, replace each `match step with | Error err -> Error err | Ok x ->` by `let! x = step`, and finish with `return` (see [After: Computation Expression](#after-computation-expression)).
+
+### Step 3: Handle Special Cases
+
+**Early return on error:** an `if` without `else` can end the computation with `return! Error ...`; when the condition is false, the computation continues.
+
 ```fsharp
-match expr with
-| Error err -> Error err
-| Ok val ->
- match expr with
- | Error err -> Error err
- | Ok val ->
- ...
+let checkedProbability (angles: float array) (backend: IQuantumBackend) : QuantumResult<float> =
+    quantumResult {
+        let! validAngles = validateInput angles
+
+        if validAngles |> Array.exists Double.IsNaN then
+            return! Error(QuantumError.ValidationError("angles", "must not contain NaN"))
+
+        let! circuit = buildCircuit validAngles
+        let! state = execute backend circuit
+        return! probabilityOfOne 1000 state
+    }
 ```
 
-### Step : Convert to Computation Expression
+**Conditional logic:** both branches of an `if` must have the same `QuantumResult` type.
 
-Replace with:
 ```fsharp
-quantumResult {
- let! val = expr
- let! val = expr
- ...
-}
-```
+let probabilityOnBestBackend (angles: float array) (cloudBackend: IQuantumBackend option) : QuantumResult<float> =
+    quantumResult {
+        let! validAngles = validateInput angles
+        let! circuit = buildCircuit validAngles
 
-### Step : Handle Special Cases
+        let! state =
+            match cloudBackend with
+            | Some backend when validAngles.Length > 4 -> execute backend circuit
+            | _ -> execute localBackend circuit
 
-**Early return on error:**
-```fsharp
-quantumResult {
- let! data = getData()
- 
- // Early validation
- if data.Length = then
- return! Error (QuantumError.ValidationError ("Data", "Cannot be empty"))
- 
- let! result = processData data
- return result
-}
-```
-
-**Conditional logic:**
-```fsharp
-quantumResult {
- let! analysis = analyzeData data
- 
- let! solution = 
- if analysis.RecommendQuantum then
- solveWithQuantum data backend
- else
- solveClassically data
- 
- return solution
-}
+        return! probabilityOfOne 1000 state
+    }
 ```
 
 ## Best Practices
 
 ### DO
 
-. **Use for sequential operations with error handling**
- ```fsharp
- quantumResult {
- let! a = stepA()
- let! b = stepB a
- let! c = stepC b
- return c
- }
- ```
+**Use it for sequential operations that can fail:**
 
-. **Combine with regular let bindings**
- ```fsharp
- quantumResult {
- let! validated = validate input
- let transformed = transform validated // No error possible
- let! result = executeQuantum transformed
- return result
- }
- ```
+```fsharp
+let pipeline (angles: float array) =
+    quantumResult {
+        let! validAngles = validateInput angles
+        let! circuit = buildCircuit validAngles
+        let! state = execute localBackend circuit
+        return state
+    }
+```
 
-. **Use return! for returning QuantumResult directly**
- ```fsharp
- quantumResult {
- let! data = getData()
- return! processAndReturn data // processAndReturn returns QuantumResult
- }
- ```
+**Mix in plain `let` bindings for steps that cannot fail:**
+
+```fsharp
+let scaledPipeline (angles: float array) =
+    quantumResult {
+        let! validAngles = validateInput angles
+        let scaled = validAngles |> Array.map (fun a -> a / 2.0) // cannot fail
+        let! circuit = buildCircuit scaled
+        return circuit
+    }
+```
+
+**Use `return!` to return a `QuantumResult` directly:**
+
+```fsharp
+let lastStep (state: QuantumState) =
+    quantumResult {
+        let shots = 2000
+        return! probabilityOfOne shots state
+    }
+```
 
 ### DON'T
 
-. **Use for simple single operations**
- ```fsharp
- // Bad - unnecessary
- quantumResult {
- return! validate input
- }
- 
- // Good - direct call
- validate input
- ```
+**Wrap a single call:**
 
-. **Nest computation expressions**
- ```fsharp
- // Bad - defeats the purpose
- quantumResult {
- let! outer = quantumResult {
- let! inner = getInner()
- return inner
- }
- return outer
- }
- 
- // Good - flatten
- quantumResult {
- let! inner = getInner()
- return inner
- }
- ```
+```fsharp
+// Unnecessary
+let wrapped (angles: float array) =
+    quantumResult {
+        return! validateInput angles
+    }
+
+// Better: call it directly
+let direct (angles: float array) = validateInput angles
+```
+
+**Nest computation expressions without need:**
+
+```fsharp
+// Harder to read
+let nested (angles: float array) =
+    quantumResult {
+        let! circuit =
+            quantumResult {
+                let! validAngles = validateInput angles
+                return! buildCircuit validAngles
+            }
+
+        return circuit
+    }
+
+// Flatter
+let flat (angles: float array) =
+    quantumResult {
+        let! validAngles = validateInput angles
+        let! circuit = buildCircuit validAngles
+        return circuit
+    }
+```
 
 ## Comparison with Other Patterns
 
 ### vs Result.bind
 
 **Result.bind chain:**
+
 ```fsharp
-validateInput input
-|> Result.bind encodeToQubo
-|> Result.bind (fun qubo -> executeQuantum qubo backend)
-|> Result.bind decodeResult
+let viaBind (angles: float array) (backend: IQuantumBackend) : QuantumResult<float> =
+    validateInput angles
+    |> Result.bind buildCircuit
+    |> Result.bind (execute backend)
+    |> Result.bind (probabilityOfOne 1000)
 ```
 
 **Computation expression:**
+
 ```fsharp
-quantumResult {
- let! validated = validateInput input
- let! qubo = encodeToQubo validated
- let! result = executeQuantum qubo backend
- let! decoded = decodeResult result
- return decoded
-}
+let viaBuilder (angles: float array) (backend: IQuantumBackend) : QuantumResult<float> =
+    quantumResult {
+        let! validAngles = validateInput angles
+        let! circuit = buildCircuit validAngles
+        let! state = execute backend circuit
+        return! probabilityOfOne 1000 state
+    }
 ```
 
 **When to use each:**
-- Use `Result.bind` for simple linear chains
-- Use `quantumResult` when you need intermediate values or branching logic
+- `Result.bind` suits a short linear chain where each step only needs the previous value
+- `quantumResult` suits code that needs earlier values later on, branching, loops or `try ... with`
 
 ### vs Railway-Oriented Programming
 
-The `quantumResult` builder IS railway-oriented programming, just with nicer syntax!
+The `quantumResult` builder is railway-oriented programming written with computation expression syntax:
 
 ```
- validate ──→ encode ──→ execute ──→ decode ──→ Success
- │ │ │ │
- ↓ Error ↓ Error ↓ Error ↓ Error
+ validate ──→ build ──→ execute ──→ measure ──→ Ok
+    │           │          │           │
+    ↓ Error     ↓ Error    ↓ Error     ↓ Error
 ```
 
-The computation expression automatically handles the "switch to error track" logic.
+The builder switches to the error track at the first `Error`.
 
 ## Summary
 
-The `quantumResult` computation expression builder:
+The `quantumResult` computation expression:
 
- **Eliminates** nested match clauses 
- **Simplifies** error handling 
- **Improves** code readability 
- **Reduces** boilerplate 
- **Maintains** type safety 
- **Supports** advanced features (loops, try-with, etc.) 
+- Removes nested `match` expressions
+- Propagates the first error automatically
+- Keeps the steps in the order they run
+- Keeps full type safety: every step returns `QuantumResult<'T>`
+- Supports `for` and `while` loops, `try ... with`, `try ... finally` and `use`
 
-Use it whenever you have + sequential operations that return `QuantumResult<T>`!
+Use it whenever two or more operations that return `QuantumResult<'T>` run in sequence.

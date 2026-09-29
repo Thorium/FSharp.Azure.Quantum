@@ -23,12 +23,21 @@ To achieve universality, we add **non-Clifford gates** (specifically T-gates) vi
 
 **Gate Set**: Clifford + T = Universal quantum computation ✓
 
+### What the library models
+
+`MagicStateDistillation` is a **fidelity and resource model** of this protocol, not a circuit-level simulation of it:
+
+- `distill15to1` computes the output fidelity from the standard formula p_out ≈ 35p³, draws 14 random syndrome bits for illustration, and returns the first input state's qubit with the improved fidelity. When a syndrome bit is set it reports `AcceptanceProbability = 0.0`, but it still returns the purified state.
+- `applyTGate` returns the data qubit **unchanged** as `OutputState`, a random correction flag, and the magic state's fidelity as `GateFidelity`. It does not rotate the state.
+
+To actually apply T in a simulation, use `TopologicalOperations.tGate` on a superposition, or send a T gate to the topological backend. Both apply the T phase directly to the amplitudes; the backend does not compile T into braids, because no Ising braid is a T gate.
+
 ## Quick Start Example
 
 ```fsharp
 open FSharp.Azure.Quantum.Topological
 
-// 1. Prepare noisy magic states (15 needed for one distillation round)
+// 1. Prepare noisy magic states (exactly 15 needed for one distillation round)
 let random = System.Random()
 let noisyErrorRate = 0.05  // 5% error
 
@@ -49,7 +58,7 @@ let purifiedState = distillResult.PurifiedState
 printfn "Input fidelity:  %.4f" (noisyStates |> List.averageBy (fun s -> s.Fidelity))
 printfn "Output fidelity: %.6f" purifiedState.Fidelity
 printfn "Error suppression: %.1fx" 
-    ((1.0 - (List.averageBy (fun s -> s.Fidelity) noisyStates)) / (1.0 - purifiedState.Fidelity))
+    ((1.0 - (noisyStates |> List.averageBy (fun s -> s.Fidelity))) / (1.0 - purifiedState.Fidelity))
 
 // 3. Create a topological qubit (|0⟩ state)
 let sigma = AnyonSpecies.Particle.Sigma
@@ -61,26 +70,28 @@ let dataQubit =
     let tree = FusionTree.fuse left right vacuum
     FusionTree.create tree AnyonSpecies.AnyonType.Ising
 
-// 4. Apply T-gate using magic state injection
+// 4. Model a T-gate by magic state injection (reports fidelity; the state is not rotated)
 let tGateResult = 
     MagicStateDistillation.applyTGate random dataQubit purifiedState
     |> Result.defaultWith (fun err -> failwith err.Message)
 
-printfn "\nT-gate applied!"
+printfn "\nT-gate injection modelled"
 printfn "Gate fidelity: %.6f" tGateResult.GateFidelity
-printfn "Output: T|0⟩"
+printfn "S correction needed: %b" tGateResult.CorrectionApplied
 ```
 
-**Output:**
+**Output** (the correction flag is random):
 ```
 Input fidelity:  0.9500
 Output fidelity: 0.995625
 Error suppression: 11.4x
 
-T-gate applied!
+T-gate injection modelled
 Gate fidelity: 0.995625
-Output: T|0⟩
+S correction needed: false
 ```
+
+`applyTGate` refuses magic states below 99% fidelity, so undistilled 95% states are rejected with an error.
 
 ## How Magic State Distillation Works
 
@@ -91,18 +102,21 @@ Output: T|0⟩
 
 **Key property:** **Cubic error suppression**
 - 10% error → 3.5% error (2.9× improvement)
-- 5% error → 0.4% error (11.4× improvement)  
+- 5% error → 0.44% error (11.4× improvement)  
 - 1% error → 0.0035% error (286× improvement)
+
+The formula is only meaningful for small p: at p ≈ 17% it reaches p_out = p, and above that a round makes things worse.
 
 ### Iterative Distillation
 
-Apply 15-to-1 multiple times for exponential error suppression:
+Apply 15-to-1 multiple times for doubly exponential error suppression (the exponent triples each round):
 
 ```fsharp
 // Prepare 15^2 = 225 noisy states
-let round1States = [1..225] |> List.map (fun _ -> 
-    MagicStateDistillation.prepareNoisyMagicState 0.10 AnyonSpecies.AnyonType.Ising
-) |> List.choose Result.toOption
+let round1States =
+    [1..225]
+    |> List.map (fun _ -> MagicStateDistillation.prepareNoisyMagicState 0.10 AnyonSpecies.AnyonType.Ising)
+    |> List.choose Result.toOption
 
 // 2 rounds of distillation: p → 35p³ → 35(35p³)³ = 35⁴p⁹
 let finalState = 
@@ -110,16 +124,18 @@ let finalState =
     |> Result.defaultWith (fun err -> failwith err.Message)
 
 printfn "Input error:  %.4f" 0.10
-printfn "Output error: %.8f" (1.0 - finalState.Fidelity)
+printfn "Output error: %.7f" (1.0 - finalState.Fidelity)
 printfn "Suppression:  %.1fx" (0.10 / (1.0 - finalState.Fidelity))
 ```
 
 **Output:**
 ```
 Input error:  0.1000
-Output error: 0.00000043
-Suppression:  232558.1x
+Output error: 0.0015006
+Suppression:  66.6x
 ```
+
+`distillIterative` accepts 1 to 5 rounds and needs at least 15^rounds input states.
 
 ## Resource Estimation
 
@@ -140,25 +156,21 @@ printfn "%s" (MagicStateDistillation.displayResourceEstimate estimate)
 Resource Estimate for 99.99% fidelity:
   Distillation Rounds: 2
   Noisy States Required: 225
-  Output Fidelity: 99.9956%
+  Output Fidelity: 99.9997%
   Overhead Factor: 225x
 ```
 
+`estimateResources` stops at 5 rounds even if the target is not reached; check `OutputFidelity` against your target.
+
 ## Example: Implementing Toffoli Gate
 
-The **Toffoli gate** (CCNOT) can be decomposed into Clifford + T gates:
-
-```
-Toffoli = H·CNOT·T†·CNOT·T·CNOT·T†·CNOT·T·H
-```
-
-This requires:
-- **6 Clifford operations** (native via braiding)
-- **4 T-gates** (via magic state injection)
+The **Toffoli gate** (CCNOT) can be decomposed into Clifford + T gates. The standard decomposition (Nielsen & Chuang, Fig. 4.9) uses:
+- **Clifford operations**: 6 CNOTs, 2 H and 1 S (native via braiding)
+- **7 T or T† gates** (via magic state injection); 7 is the minimum T-count for Toffoli
 
 ```fsharp
 // For 99.99% fidelity Toffoli gate
-let tGatesNeeded = 4
+let tGatesNeeded = 7
 let estimate = MagicStateDistillation.estimateResources 0.9999 0.95
 
 let totalNoisyStates = tGatesNeeded * estimate.NoisyStatesRequired
@@ -174,16 +186,18 @@ printfn "  Gate fidelity: %.4f%%" (estimate.OutputFidelity * 100.0)
 **Output:**
 ```
 Toffoli Gate Resource Requirements:
-  T-gates needed: 4
+  T-gates needed: 7
   Rounds per T-gate: 2
   Noisy states per T-gate: 225
-  Total noisy states: 900
-  Gate fidelity: 99.9956%
+  Total noisy states: 1575
+  Gate fidelity: 99.9997%
 ```
+
+(The "gate fidelity" printed here is the fidelity of each distilled magic state; the Toffoli's overall fidelity is lower, since its seven T gates compound.)
 
 ## Complete Algorithm Workflow
 
-Here's a complete example implementing a simple quantum algorithm:
+Here's a complete example: plan and model the magic states for one T gate, then run H·T·H on one qubit in the fusion-tree simulator:
 
 ```fsharp
 open FSharp.Azure.Quantum.Topological
@@ -199,7 +213,7 @@ let runQuantumAlgorithm () =
     let estimate = 
         MagicStateDistillation.estimateResources targetFidelity (1.0 - noisyErrorRate)
     
-    printfn "Algorithm requires: %d noisy magic states" estimate.NoisyStatesRequired
+    printfn "One T gate requires: %d noisy magic states (%d rounds)" estimate.NoisyStatesRequired estimate.DistillationRounds
     
     // Step 2: Prepare and distill magic states
     printfn "\n=== Step 2: Magic State Preparation ==="
@@ -216,39 +230,25 @@ let runQuantumAlgorithm () =
     
     printfn "Distilled magic state fidelity: %.6f" purifiedState.Fidelity
     
-    // Step 3: Build quantum circuit
-    printfn "\n=== Step 3: Build Quantum Circuit ==="
+    // Step 3: Run H · T · H on one qubit (|0> = 4 sigma anyons: qubit pair + parity pair)
+    printfn "\n=== Step 3: Run the Circuit ==="
+    let circuitResult =
+        topologicalResult {
+            let! tree = FusionTree.fromComputationalBasis [ 0 ] AnyonSpecies.AnyonType.Ising
+            let initial = TopologicalOperations.pureState (FusionTree.create tree AnyonSpecies.AnyonType.Ising)
+            let! afterH = TopologicalOperations.hadamard 0 initial   // Clifford
+            let! afterT = TopologicalOperations.tGate 0 afterH       // T phase, applied to the amplitudes
+            return! TopologicalOperations.hadamard 0 afterT
+        }
     
-    // Initialize qubit to |0⟩
-    let sigma = AnyonSpecies.Particle.Sigma
-    let vacuum = AnyonSpecies.Particle.Vacuum
-    let qubit = 
-        let tree = FusionTree.fuse (FusionTree.leaf sigma) (FusionTree.leaf sigma) vacuum
-        FusionTree.create tree AnyonSpecies.AnyonType.Ising
-    
-    printfn "Initial state: |0⟩"
-    
-    // Apply Hadamard (Clifford - native via braiding)
-    printfn "Apply H (Hadamard) → |+⟩"
-    
-    // Apply T-gate (non-Clifford - via magic state)
-    let afterT = 
-        MagicStateDistillation.applyTGate random qubit purifiedState
-        |> Result.defaultWith (fun err -> failwith err.Message)
-    
-    printfn "Apply T (via magic state) → T|+⟩"
-    printfn "T-gate fidelity: %.6f" afterT.GateFidelity
-    
-    // Apply another Hadamard
-    printfn "Apply H (Hadamard)"
-    
-    // Step 4: Measure
+    // Step 4: Measurement probabilities
     printfn "\n=== Step 4: Measurement ==="
-    printfn "Circuit complete with fidelity: %.4f%%" (afterT.GateFidelity * 100.0)
-    
-    printfn "\n✓ Universal quantum computation achieved!"
-    printfn "✓ Combined Clifford (braiding) + T-gates (magic states)"
-    printfn "✓ Can implement any quantum algorithm"
+    match circuitResult with
+    | Ok finalState ->
+        let p1 = TopologicalOperations.probabilityOfBitstring [| 1 |] finalState
+        printfn "P(1) after H·T·H: %.4f (ideal sin²(π/8) = 0.1464)" p1
+        printfn "A hardware T gate from these magic states would have fidelity ≈ %.6f" purifiedState.Fidelity
+    | Error err -> printfn "Error: %s" err.Message
 
 // Run it!
 runQuantumAlgorithm()
@@ -273,7 +273,9 @@ runQuantumAlgorithm()
 | 99.99% | 2 | 225 | 225× |
 | 99.999% | 2-3 | 225-3,375 | 225-3,375× |
 
-**Rule of thumb:** Each additional "9" in fidelity requires ~15× more resources.
+(Ranges depend on the input fidelity; from 95% input, one round gives 99.56% and two give 99.9997%.)
+
+**Rule of thumb:** Each extra round multiplies the cost by 15 and roughly cubes the error, so a round buys several "9"s once the input error is small.
 
 ## Integration with Topological Error Correction
 
@@ -281,7 +283,7 @@ Magic state distillation works synergistically with topological protection:
 
 1. **Topological protection** (from braiding):
    - Protects against local perturbations
-   - Exponentially suppressed errors with system size
+   - In theory, errors are suppressed exponentially with anyon separation
    - Handles Clifford operations
 
 2. **Magic state distillation** (for T-gates):
@@ -289,11 +291,13 @@ Magic state distillation works synergistically with topological protection:
    - Polynomial (cubic) error suppression per round
    - Handles non-Clifford operations
 
-**Combined**: Full fault-tolerant universal quantum computation!
+**Combined**: the standard route to fault-tolerant universal quantum computation with Ising anyons. This library models both parts on a classical computer; it does not demonstrate them on hardware.
 
 ## API Reference
 
 ### Core Functions
+
+All of these live in the `MagicStateDistillation` module:
 
 ```fsharp
 // Prepare noisy magic state
@@ -322,11 +326,19 @@ val applyTGate :
     magicState:MagicState -> 
     TopologicalResult<TGateResult>
 
-// Estimate resources for target fidelity
+// Estimate resources for target fidelity (at most 5 rounds)
 val estimateResources : 
     targetFidelity:float -> 
     noisyStateFidelity:float -> 
     ResourceEstimate
+
+// Output fidelity of one 15-to-1 round: 1 - 35 (1 - f)^3
+val calculateDistilledFidelity : inputFidelity:float -> float
+
+// Text summaries
+val displayMagicState : state:MagicState -> string
+val displayDistillationResult : result:DistillationResult -> string
+val displayResourceEstimate : estimate:ResourceEstimate -> string
 ```
 
 ### Types

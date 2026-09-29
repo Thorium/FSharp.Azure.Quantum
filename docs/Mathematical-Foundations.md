@@ -325,7 +325,8 @@ CNOT = |0⟩⟨0| ⊗ I + |1⟩⟨1| ⊗ X = [1 0 0 0]
 ```fsharp
 // Create Bell state: (|00⟩ + |11⟩)/√2
 let state = StateVector.init 2  // |00⟩
-let afterH = Gates.applyH 0 state  // (|00⟩ + |10⟩)/√2
+let afterH = Gates.applyH 0 state  // (|00⟩ + |10⟩)/√2, writing qubit 0 first
+                                   // (basis indices 0 and 1: the library stores qubit 0 in bit 0)
 let bellState = Gates.applyCNOT 0 1 afterH  // (|00⟩ + |11⟩)/√2
 ```
 
@@ -561,7 +562,7 @@ let state = StateVector.init 2  // 2-qubit state |00⟩
 let afterH = Gates.applyH 0 state  // Apply Hadamard
 
 // Inner products (measurement probabilities)
-let prob0 = Measurement.getProbability state 0 false  // P(qubit 0 = |0⟩)
+let (prob0, prob1) = Measurement.getQubitProbabilities 0 afterH  // P(qubit 0 = |0⟩), P(qubit 0 = |1⟩)
 
 // Tensor products (multi-qubit operations)
 let entangled = Gates.applyCNOT 0 1 afterH  // Create entanglement
@@ -570,7 +571,9 @@ let entangled = Gates.applyCNOT 0 1 afterH  // Create entanglement
 // Gates are automatically unitary in this library
 
 // Hermitian operators (observables)
-// Use QaoaCircuit.ProblemHamiltonian for energy measurements
+// A Pauli-sum Hamiltonian (Algorithms.TrotterSuzuki.PauliHamiltonian) gives
+// expectation values via Primitives.expectation (on a state) or Primitives.observe
+// (runs a circuit on a backend)
 ```
 
 **Happy quantum coding! 🚀**

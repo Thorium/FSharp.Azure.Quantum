@@ -1,52 +1,78 @@
 # Computation Expressions (CE) Reference
 
-This document provides a complete reference for all computation expressions (CEs) available in FSharp.Azure.Quantum. Use this as a quick lookup when F# IntelliSense is not showing CE operations.
+This page lists every computation expression (CE) in FSharp.Azure.Quantum with its custom operations. Use it as a quick lookup when IntelliSense does not show the operations of a CE.
 
 ## Overview
 
-Computation expressions provide a declarative, F#-idiomatic way to construct quantum problems, circuits, and schedules. Each CE supports custom operations that are context-specific to its domain.
+Computation expressions give a declarative way to describe quantum problems, circuits and schedules. Each CE has its own custom operations. What a CE returns differs between builders, so each section below states the result type:
+
+- **Problem builders** (`constraintSolver`, `patternMatcher`, `quantumTreeSearch`, `graphColoring`, `circuit`) return the problem or circuit and throw an exception if validation fails.
+- **Validated problem builders** (`periodFinder`, `phaseEstimator`, `quantumArithmetic`, `linearSystemSolver`) return `Result<Problem, QuantumError>`; pass the `Ok` value to the module's solve function.
+- **Run-on-evaluation builders** (the ML builders, `coverageOptimizer`, `resourcePairing`, `packingOptimizer`, `constraintScheduler`, `socialNetwork`, `quantumRiskEngine`, `drugDiscovery`) do the work when the CE is evaluated and return a `QuantumResult<_>` (that is, `Result<_, QuantumError>`).
+- **Configuration builders** (`coloredNode`, `resource`, `scheduledTask`, `scheduling`) return the record they build. `quantumChemistry` returns a `ChemistryProblem` and throws if a required operation is missing.
+- `optionPricing` returns `Async<QuantumResult<OptionPrice>>`; `topological` returns a program to pass to `TopologicalBuilder.execute`.
 
 ## Quick Reference Table
 
 | CE Name | Description | Custom Operations |
 |---------|-------------|-------------------|
 | **anomalyDetection** | Detect outliers and anomalies in data | `trainOnNormalData`, `sensitivity`, `contaminationRate`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
-| **autoML** | Automated ML - finds best model automatically | `trainWith`, `tryBinaryClassification`, `tryMultiClass`, `tryAnomalyDetection`, `tryRegression`, `trySimilaritySearch`, `tryArchitectures`, `maxTrials`, `maxTimeMinutes`, `validationSplit`, `backend`, `verbose`, `saveModelTo`, `randomSeed`, `progressReporter`, `cancellationToken` |
+| **autoML** | Automated ML - tries several model types and returns the best | `trainWith`, `tryBinaryClassification`, `tryMultiClass`, `tryAnomalyDetection`, `tryRegression`, `trySimilaritySearch`, `tryArchitectures`, `maxTrials`, `maxTimeMinutes`, `validationSplit`, `backend`, `verbose`, `saveModelTo`, `randomSeed`, `progressReporter`, `cancellationToken` |
 | **binaryClassification** | Classify items into two categories | `trainWith`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
-| **circuit** | Build quantum circuits with gates and loops | `qubits`, `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`, `RX`, `RY`, `RZ`, `CNOT`, `CZ`, `CP`, `SWAP`, `CCX` |
-| **coloredNode** | Define a node in graph coloring problem | `nodeId`, `conflictsWith`, `fixedColor`, `priority`, `avoidColors`, `property` |
-| **constraintSolver<'T>** | Define constraint satisfaction problems (CSP) | `searchSpace`, `domain`, `satisfies`, `backend`, `maxIterations`, `shots` |
-| **drugDiscovery** | Virtual screening for drug discovery | `load_candidates_from_file`, `load_candidates_from_provider`, `load_candidates_from_provider_async`, `target_protein_from_pdb`, `use_method`, `use_feature_map`, `set_batch_size`, `shots`, `backend`, `vqc_layers`, `vqc_max_epochs`, `selection_budget`, `diversity_weight` |
-| **graphColoring** | Define graph coloring optimization problems | `node`, `nodes`, `colors`, `maxColors`, `objective`, `conflictPenalty` |
-| **patternMatcher<'T>** | Define quantum pattern matching problems | `searchSpace`, `searchSpaceSize`, `matchPattern`, `findTop`, `backend`, `maxIterations`, `shots` |
-| **periodFinder** | Define period finding (Shor's algorithm) | `number`, `chosenBase`, `precision`, `maxAttempts`, `backend`, `shots` |
-| **phaseEstimator** | Define quantum phase estimation (QPE) | `unitary`, `precision`, `targetQubits`, `eigenstate`, `backend`, `shots` |
+| **circuit** | Build quantum circuits gate by gate | `qubits`, `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`, `RX`, `RY`, `RZ`, `CNOT`, `CZ`, `CP`, `SWAP`, `RXX`, `RYY`, `RZZ`, `CCX`, `gate`, `Measure`, `Reset`, `Barrier` |
+| **coloredNode** | Define a node in a graph coloring problem | `nodeId`, `conflictsWith`, `fixedColor`, `priority`, `avoidColors`, `property` |
+| **constraintScheduler** | Task-to-resource scheduling with hard and soft constraints | `task`, `tasks`, `resource`, `resourceWithCapacity`, `conflict`, `require`, `precedence`, `prefer`, `optimizeFor`, `maxBudget`, `backend`, `shots`, `useGrover`, `useQaoa` |
+| **constraintSolver<'T>** | Constraint satisfaction problems (CSP) with Grover search | `searchSpace`, `domain`, `satisfies`, `backend`, `maxIterations`, `shots`, `onProgress` |
+| **coverageOptimizer** | Set coverage (minimum-cost covering) | `element`, `universeSize`, `option`, `backend`, `shots` |
+| **drugDiscovery** | Virtual screening of drug candidates | `load_candidates_from_file`, `load_candidates_from_provider`, `load_candidates_from_provider_async`, `target_protein_from_pdb`, `use_method`, `use_feature_map`, `set_batch_size`, `shots`, `backend`, `vqc_layers`, `vqc_max_epochs`, `selection_budget`, `diversity_weight` |
+| **graphColoring** | Graph coloring problems | `node`, `nodes`, `colors`, `maxColors`, `objective`, `conflictPenalty` |
+| **linearSystemSolver** | Linear systems Ax = b with the HHL algorithm | `matrix`, `diagonalMatrix`, `vector`, `eigenvalueQubits`, `precision`, `inversionMethod`, `minEigenvalue`, `postSelection`, `backend`, `shots` |
+| **optionPricing** | Price options with quantum Monte Carlo (amplitude estimation) | `spotPrice`, `strikePrice`, `riskFreeRate`, `volatility`, `expiry`, `optionType`, `qubits`, `iterations`, `shots`, `backend`, `cancellation_token` |
+| **packingOptimizer** | Bin packing (minimize containers) | `item`, `containerCapacity`, `backend`, `shots` |
+| **patternMatcher<'T>** | Find items matching a predicate with Grover search | `searchSpace`, `searchSpaceSize`, `matchPattern`, `findTop`, `backend`, `maxIterations`, `shots` |
+| **periodFinder** | Period finding (Shor's algorithm) | `number`, `chosenBase`, `precision`, `exactness`, `maxAttempts`, `backend`, `shots` |
+| **phaseEstimator** | Quantum phase estimation (QPE) | `unitary`, `precision`, `targetQubits`, `eigenstate`, `applySwaps`, `swaps`, `exactness`, `backend`, `shots` |
 | **predictiveModel** | Predict continuous values or categories | `trainWith`, `problemType`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
-| **quantumArithmetic** | Define quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
-| **quantumTreeSearch<'T>** | Define quantum tree search (game AI, decision trees) | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations` |
-| **resource<'T>** | Define scheduling resources | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
-| **scheduledTask<'T>** | Define tasks for scheduling | `taskId`, `duration`, `after`, `afterMultiple`, `requires`, `priority`, `deadline`, `earliestStart` |
-| **schedulingProblem<'T>** | Define complete scheduling problems | `tasks`, `resources`, `objective`, `timeHorizon` |
-| **similaritySearch** | Find similar items using quantum kernels | `indexItems`, `similarityMetric`, `threshold`, `backend`, `shots`, `verbose`, `saveIndexTo`, `note`, `progressReporter`, `cancellationToken` |
-| **optionPricing** | Price financial options using quantum Monte Carlo | `spotPrice`, `strikePrice`, `riskFreeRate`, `volatility`, `expiry`, `optionType`, `qubits`, `iterations`, `shots`, `backend`, `cancellation_token` |
-| **topological** | Topological quantum computing with anyons | `let!`/`do!` syntax with `initialize`, `braid`, `measure`, `braidSequence`, `getState`, `getResults`, `getLog` |
-| **quantumChemistry** | Quantum chemistry ground state calculations | `molecule`, `basis`, `ansatz`, `optimizer`, `maxIterations`, `initialParameters`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
-| **coverageOptimizer** | Set coverage optimization (minimum cost covering) | `element`, `universeSize`, `option`, `backend`, `shots` |
-| **resourcePairing** | Resource pairing/matching optimization | `participant`, `participants`, `compatibility`, `backend`, `shots` |
-| **packingOptimizer** | Bin packing optimization (minimize containers) | `item`, `containerCapacity`, `backend`, `shots` |
+| **quantumArithmetic** | Quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
+| **quantumChemistry** | Ground state energy with VQE | `molecule`, `basis`, `ansatz`, `optimizer`, `maxIterations`, `initialParameters`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
+| **quantumRiskEngine** | Portfolio risk metrics (VaR, CVaR) | `load_market_data`, `set_confidence_level`, `set_simulation_paths`, `use_amplitude_estimation`, `use_error_mitigation`, `calculate_metric`, `cancellation_token`, `qubits`, `iterations`, `shots`, `backend` |
+| **quantumTreeSearch<'T>** | Game-tree and decision-tree search with Grover search | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations`, `onProgress` |
+| **resource<'T>** | A resource for task scheduling | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
+| **resourcePairing** | 1:1 pairing that maximizes total compatibility | `participant`, `participants`, `compatibility`, `backend`, `shots` |
+| **scheduledTask<'T>** | A task for task scheduling | `taskId`, `duration`, `after`, `afterMultiple`, `requires`, `priority`, `deadline`, `earliestStart` |
+| **scheduling<'TTask, 'TResource>** | A complete task scheduling problem | `tasks`, `resources`, `objective`, `timeHorizon` |
+| **similaritySearch<'T>** | Find similar items (cosine, Euclidean or quantum kernel) | `indexItems`, `similarityMetric`, `threshold`, `backend`, `shots`, `verbose`, `saveIndexTo`, `note`, `progressReporter`, `cancellationToken` |
+| **socialNetwork** | Communities, monitor sets and pairings in a network | `person`, `people`, `connection`, `connections`, `findCommunities`, `findLargestCommunity`, `findMonitorSet`, `findPairings`, `backend`, `useGrover`, `useQaoa`, `shots` |
+| **topological** | Topological programs with anyon braiding | No custom operations: `let!`/`do!` with `TopologicalBuilder.initialize`, `braid`, `measure`, `braidSequence`, `getState`, `getResults`, `getLog`, `getContext` |
 
 ---
 
 ## Detailed Documentation
 
+The examples on this page share these opens and a local simulator backend:
+
+```fsharp
+open System
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+
+let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+```
+
+The local simulator's qubit limit is derived from available memory and capped at 30 qubits. Most builders below apply tighter limits of their own, stated in each section.
+
 ### 1. circuit
 
 **Module**: `FSharp.Azure.Quantum.CircuitBuilder`
 
-**Purpose**: Declaratively construct quantum circuits with automatic validation
+**Purpose**: Build quantum circuits declaratively. The result is a `CircuitBuilder.Circuit`; the builder validates the circuit when the CE finishes and throws an exception if it is invalid (for example a gate on a qubit index outside `qubits`).
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.CircuitBuilder
+
 let bellState = circuit {
     qubits 2
     H 0
@@ -55,16 +81,18 @@ let bellState = circuit {
 ```
 
 **Custom Operations**:
-- `qubits` - Set number of qubits (required first)
-- **Single-Qubit Gates**: `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`
-- **Rotation Gates**: `RX`, `RY`, `RZ`
-- **Two-Qubit Gates**: `CNOT`, `CZ`, `CP`, `SWAP`
-- **Three-Qubit Gates**: `CCX` (Toffoli)
+- `qubits n` - Number of qubits (set it before the gates)
+- **Single-qubit gates**: `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG` take a qubit index; `P` takes a qubit and an angle
+- **Rotation gates**: `RX`, `RY`, `RZ` take a qubit and an angle
+- **Two-qubit gates**: `CNOT`, `CZ`, `SWAP` take two qubits; `CP` takes two qubits and an angle
+- **Ising interaction gates**: `RXX`, `RYY`, `RZZ` take two qubits and an angle
+- **Three-qubit gate**: `CCX` (Toffoli) takes two controls and a target
+- `gate g` - Add any `CircuitBuilder.Gate` value (for gates without their own operation, such as `U3`, `CRX` or `MCZ`)
+- `Measure q`, `Reset q`, `Barrier [qubits]`
 
-**Features**:
-- ✅ Supports `for` loops for applying gates to multiple qubits
-- ✅ Automatic circuit validation on construction
-- ✅ Composable subcircuits with `Combine`
+Multi-argument gates accept either a tuple (`CNOT (0, 1)`) or separate arguments (`CNOT 0 1`).
+
+**Loops**: custom operations cannot use a `for` loop variable. Inside a loop, use `yield!` with the `singleGate` or `multiGate` helpers (see [For Loops in CEs](#for-loops-in-ces) and [Computation Expression Composition](computation-expression-composition.md)).
 
 ---
 
@@ -72,10 +100,12 @@ let bellState = circuit {
 
 **Module**: `FSharp.Azure.Quantum.GraphColoring`
 
-**Purpose**: Define individual nodes in a graph coloring problem
+**Purpose**: Define one node of a graph coloring problem. Returns a `ColoredNode`.
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.GraphColoring
+
 let node1 = coloredNode {
     nodeId "R1"
     conflictsWith ["R2"; "R3"]
@@ -85,68 +115,83 @@ let node1 = coloredNode {
 
 **Custom Operations**:
 - `nodeId` - Unique identifier for the node
-- `conflictsWith` - List of node IDs that conflict (cannot have same color)
-- `fixedColor` - Pre-assign a specific color
-- `priority` - Priority for tie-breaking (higher = assign first)
+- `conflictsWith` - Node IDs that must not get the same color
+- `fixedColor` - Pre-assign a color
+- `priority` - Priority for tie-breaking (higher = assigned first; default 0.0)
 - `avoidColors` - Colors to avoid if possible (soft constraint)
-- `property` - Add metadata key-value pair
+- `property key value` - Add a metadata entry (`value` is `obj`)
 
 ---
 
-### 3. constraintSolver<'T>
+### 3. graphColoring
 
-**Module**: `FSharp.Azure.Quantum.QuantumConstraintSolver`
+**Module**: `FSharp.Azure.Quantum.GraphColoring`
 
-**Purpose**: Solve constraint satisfaction problems (CSP) using Grover's algorithm
+**Purpose**: Define a complete graph coloring problem. Returns a `GraphColoringProblem` (validated; invalid problems throw). Solve it with `GraphColoring.solve problem numColors backendOption`.
 
 **Example**:
 ```fsharp
-let sudokuRow = constraintSolver<int> {
+let coloring = graphColoring {
+    node "R1" ["R2"]
+    node "R2" ["R1"; "R3"]
+    nodes [ coloredNode { nodeId "R3"; conflictsWith ["R2"] } ]
+    colors ["EAX"; "EBX"; "ECX"]
+    objective MinimizeColors
+}
+
+match GraphColoring.solve coloring 3 None with
+| Ok solution -> printfn "Colors used: %d, valid: %b" solution.ColorsUsed solution.IsValid
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**Custom Operations**:
+- `node id conflicts` - Add a node from its ID and the IDs it conflicts with
+- `nodes` - Add a list of `ColoredNode` values (built with `coloredNode`)
+- `colors` - Available colors
+- `maxColors` - Maximum number of colors to use
+- `objective` - `MinimizeColors` (default) | `MinimizeConflicts` | `BalanceColors`
+- `conflictPenalty` - Penalty weight for conflicts (default 1.0)
+
+---
+
+### 4. constraintSolver<'T>
+
+**Module**: `FSharp.Azure.Quantum.QuantumConstraintSolver`
+
+**Purpose**: Find an assignment of values to variables that satisfies all constraints, using Grover search. Returns a `ConstraintProblem<'T>` (validated; invalid problems throw). Solve it with `QuantumConstraintSolver.solve`.
+
+**Example**:
+```fsharp
+open FSharp.Azure.Quantum.QuantumConstraintSolver
+
+let allDifferent (assignment: Map<int, int>) =
+    let values = assignment |> Map.toList |> List.map snd
+    List.length (List.distinct values) = List.length values
+
+let rowProblem = constraintSolver<int> {
     searchSpace 4   // 4 variables (4 × log2(4) = 8 qubits)
     domain [1..4]
-    satisfies (fun vars -> allDifferent vars)
+    satisfies allDifferent
     shots 1000
 }
+
+match QuantumConstraintSolver.solve rowProblem with
+| Ok solution -> printfn "Assignment: %A" solution.Assignment
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
 - `searchSpace` - Number of variables; each takes one value from `domain`. numVariables × log2(domainSize) must be ≤ 16 qubits
-- `domain` - Domain of values for each variable
-- `satisfies` - Add constraint predicate (all must be satisfied)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `maxIterations` - Maximum Grover iterations for amplitude amplification
-- `shots` - Number of measurement shots (None = auto-scale: 1000 for Local, 2000 for Cloud)
+- `domain` - Values each variable can take
+- `satisfies` - Add a constraint `Map<int, 'T> -> bool` (keys are variable indices 0..n-1); use it several times to add several constraints, all must hold
+- `backend` - Quantum backend (default: LocalBackend)
+- `maxIterations` - Grover iterations (default: calculated from the search space)
+- `shots` - Measurement shots (default: 1000)
+- `onProgress` - Progress reporter (`Progress.IProgressReporter`)
 
-**Features**:
-- ✅ Supports `for` loops to add multiple constraints
-- ✅ Uses Grover's algorithm for O(√N) speedup
-- ✅ Generic over variable domain type
-
----
-
-### 4. graphColoring
-
-**Module**: `FSharp.Azure.Quantum.GraphColoring`
-
-**Purpose**: Define complete graph coloring optimization problems
-
-**Example**:
-```fsharp
-let problem = graphColoring {
-    node (coloredNode { nodeId "R1"; conflictsWith ["R2"] })
-    node (coloredNode { nodeId "R2"; conflictsWith ["R1"; "R3"] })
-    colors ["EAX"; "EBX"; "ECX"]
-    objective MinimizeColors
-}
-```
-
-**Custom Operations**:
-- `node` - Add a single node
-- `nodes` - Add multiple nodes at once
-- `colors` - Available colors to assign
-- `maxColors` - Maximum colors to use (for chromatic number constraint)
-- `objective` - Optimization objective (MinimizeColors | MinimizeConflicts | BalanceColors)
-- `conflictPenalty` - Penalty weight for conflicts
+**Notes**:
+- At least one `satisfies` is required.
+- The oracle evaluates your predicates; on the local simulator every candidate assignment is evaluated, so there is no speedup over classical enumeration there.
 
 ---
 
@@ -154,31 +199,39 @@ let problem = graphColoring {
 
 **Module**: `FSharp.Azure.Quantum.QuantumPatternMatcher`
 
-**Purpose**: Search for items matching complex patterns using Grover's algorithm
+**Purpose**: Find items that match a predicate, using Grover search. Returns a `PatternProblem<'T>` (validated; invalid problems throw). Solve it with `QuantumPatternMatcher.solve`.
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.QuantumPatternMatcher
+
+type Config = { Name: string; Performance: float; Cost: float }
+
+let allConfigs =
+    [ for i in 0 .. 15 -> { Name = $"cfg{i}"; Performance = float i / 16.0; Cost = float (i * 10) } ]
+
 let search = patternMatcher<Config> {
     searchSpace allConfigs
-    matchPattern (fun cfg -> cfg.Performance > 0.8 && cfg.Cost < 100.0)
-    findTop 5
+    matchPattern (fun cfg -> cfg.Performance > 0.8 && cfg.Cost < 150.0)
+    findTop 2
     shots 500
 }
+
+match QuantumPatternMatcher.solve search with
+| Ok solution -> printfn "Matches: %A" solution.Matches
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `searchSpace` - List of items to search through
-- `searchSpaceSize` - Alternative: specify search space size as integer
-- `matchPattern` - Pattern predicate (returns true if item matches)
-- `findTop` - Number of top matches to return
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `maxIterations` - Maximum Grover iterations
-- `shots` - Number of measurement shots (None = auto-scale)
+- `searchSpace` - A `'T list` of items to search, or an `int` search space size
+- `searchSpaceSize` - Search space size as an integer (items are then the indices)
+- `matchPattern` - Predicate `'T -> bool`; a later `matchPattern` replaces an earlier one, so combine conditions in one predicate
+- `findTop` - Number of matches to return (default: 1)
+- `backend` - Quantum backend (default: LocalBackend)
+- `maxIterations` - Grover iterations (default: calculated)
+- `shots` - Measurement shots (default: 1000)
 
-**Features**:
-- ✅ Supports `for` loops to combine multiple patterns with AND logic
-- ✅ Uses Grover's algorithm for O(√N) speedup
-- ✅ Generic over item type
+**Notes**: the search space may hold at most 2^16 items.
 
 ---
 
@@ -186,61 +239,74 @@ let search = patternMatcher<Config> {
 
 **Module**: `FSharp.Azure.Quantum.QuantumPeriodFinder`
 
-**Purpose**: Find periods in modular exponentiation (Shor's factorization algorithm)
+**Purpose**: Period finding for integer factorization (Shor's algorithm). Returns `Result<PeriodFinderProblem, QuantumError>`; solve the `Ok` value with `QuantumPeriodFinder.solve`.
 
 **Example**:
 ```fsharp
-let problem = periodFinder {
+open FSharp.Azure.Quantum.QuantumPeriodFinder
+
+let shorProblem = periodFinder {
     number 15
-    precision 12
+    precision 8
     maxAttempts 10
-    shots 2048
 }
+
+match shorProblem |> Result.bind QuantumPeriodFinder.solve with
+| Ok result -> printfn "Period: %d, factors: %A" result.Period result.Factors
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `number` - Number to factor (N > 3, composite)
-- `chosenBase` - Random base a < N (coprime to N). If not specified, auto-selects
-- `precision` - QPE precision qubits (recommended: 2*log₂(N) + 3)
-- `maxAttempts` - Maximum retry attempts if period finding fails
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of QPE measurement shots (None = auto-scale: 1024 for Local, 2048 for Cloud)
+- `number` - Number to factor (4 to 10000; default 15)
+- `chosenBase` - Base a with 2 ≤ a < N. If not set, a base is chosen automatically
+- `precision` - QPE precision qubits (1 to 20; default 8; recommended 2·log₂(N) + 3)
+- `exactness` - `QPE.Exact` (default) or `QPE.Approximate epsilon`
+- `maxAttempts` - Maximum attempts (1 to 100; default 10)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Accepted but **not used**: each attempt reads one measurement and turns it into a period candidate; raise `maxAttempts` for more samples
 
 **Notes**:
-- Uses Quantum Phase Estimation (QPE) internally
-- Higher `precision` = better success rate but more qubits required
-- Higher `shots` = better phase estimate accuracy
+- Uses quantum phase estimation internally.
+- Higher `precision` gives a better phase estimate but needs more qubits.
 
 ---
 
 ### 7. phaseEstimator
 
-**Module**: `FSharp.Azure.Quantum.QuantumPhaseEstimator`
+**Module**: `FSharp.Azure.Quantum.QuantumPhaseEstimator` (unitaries such as `TGate` are in `FSharp.Azure.Quantum.Algorithms.QPE`)
 
-**Purpose**: Estimate eigenvalues of unitary operators using Quantum Phase Estimation (QPE)
+**Purpose**: Estimate the phase φ in U|ψ⟩ = e^(2πiφ)|ψ⟩ with quantum phase estimation. Returns `Result<PhaseEstimatorProblem, QuantumError>`; run the `Ok` value with `QuantumPhaseEstimator.estimate`.
 
 **Example**:
 ```fsharp
-let problem = phaseEstimator {
+open FSharp.Azure.Quantum.Algorithms.QPE
+open FSharp.Azure.Quantum.QuantumPhaseEstimator
+
+let qpeProblem = phaseEstimator {
     unitary TGate
     precision 8
     targetQubits 1
     shots 1024
 }
+
+match qpeProblem |> Result.bind estimate with
+| Ok result -> printfn "Phase: %.6f (expected 0.125)" result.Phase
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `unitary` - Unitary operator U to estimate phase of
-- `precision` - Number of counting qubits (n bits precision for φ)
-- `targetQubits` - Number of target qubits for eigenvector |ψ⟩ (default: 1)
-- `eigenstate` - Initial eigenvector |ψ⟩ (None = use |0⟩)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurement shots (None = auto-scale: 1024 for Local, 2048 for Cloud)
+- `unitary` - Unitary operator: `TGate`, `SGate`, `PhaseGate theta`, `RotationZ theta` (default: `TGate`)
+- `precision` - Counting qubits, i.e. bits of φ (1 to 20; default 8)
+- `targetQubits` - Qubits for the eigenvector |ψ⟩ (1 to 10; default 1). Precision + target qubits must not exceed 25
+- `eigenstate` - Initial eigenvector |ψ⟩ as a `StateVector`. When it is not set, the target qubit is prepared in |1⟩ for the single-qubit gates `TGate`, `SGate`, `PhaseGate` and `RotationZ` (so `TGate` gives φ = 1/8, `PhaseGate θ` gives θ/2π and `RotationZ θ` gives θ/4π)
+- `applySwaps` / `swaps` - Apply the final bit-reversal SWAPs in the circuit (default: false, the bit order is fixed classically)
+- `exactness` - `Exact` (default) or `Approximate epsilon`
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots; the estimate is the most frequent outcome. Default: 1024 on LocalBackend, 2048 on any other backend
 
 **Notes**:
-- Higher `precision` = more accurate phase estimate
-- Higher `shots` = better statistical accuracy
-- Used internally by period finding and many quantum algorithms
+- Higher `precision` gives a finer phase estimate; more `shots` makes the most frequent outcome more reliable.
+- QPE is also used inside period finding and HHL.
 
 ---
 
@@ -248,32 +314,36 @@ let problem = phaseEstimator {
 
 **Module**: `FSharp.Azure.Quantum.QuantumArithmeticOps`
 
-**Purpose**: Perform quantum arithmetic operations (addition, multiplication, exponentiation)
+**Purpose**: Run arithmetic (addition, multiplication, modular operations) as quantum circuits. Returns `Result<ArithmeticOperation, QuantumError>`; run the `Ok` value with `QuantumArithmeticOps.execute`.
 
 **Example**:
 ```fsharp
-let operation = quantumArithmetic {
+open FSharp.Azure.Quantum.QuantumArithmeticOps
+
+let addition = quantumArithmetic {
     operands 42 17
     operation Add
     qubits 8
     shots 100
 }
+
+match addition |> Result.bind execute with
+| Ok result -> printfn "42 + 17 = %d" result.Value
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `operands` - Set both operands (a, b)
-- `operandA` - Set first operand
-- `operandB` - Set second operand (or exponent for exponentiation)
-- `operation` - Operation type (Add | Multiply | ModularAdd | ModularMultiply | ModularExponentiate)
-- `modulus` - Modulus for modular operations (required for modular ops)
-- `qubits` - Number of qubits for computation
-- `exponent` - Alias for operandB in exponentiation context
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurement shots (None = auto-scale: 100 for Local, 500 for Cloud)
+- `operands a b` - Set both operands
+- `operandA` - Set the first operand
+- `operandB` - Set the second operand (the exponent for `ModularExponentiate`)
+- `operation` - `Add` (default) | `Multiply` | `ModularAdd` | `ModularMultiply` | `ModularExponentiate`
+- `modulus` - Modulus (required for the modular operations; operands must be smaller than it for `ModularAdd` and `ModularMultiply`)
+- `qubits` - Register size in qubits (default 8, minimum 2); modular operations use extra ancilla qubits (`ModularAdd` n + 2, `ModularMultiply` 2n + 3, `ModularExponentiate` 2n + 5), and the total must stay within the simulator's practical circuit width (20 qubits by default; the `FSAQ_MAX_CIRCUIT_QUBITS` environment variable raises it, up to the memory-based limit)
+- `exponent` - Same as `operandB`
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots used to read the result register (default: 100)
 
-**Notes**:
-- Arithmetic operations are deterministic
-- `shots` used for statistical verification on noisy hardware
+**Notes**: the result is deterministic on a noiseless simulator; standalone quantum arithmetic is slower than CPU arithmetic and is mainly a building block (for example for Shor's algorithm).
 
 ---
 
@@ -281,233 +351,339 @@ let operation = quantumArithmetic {
 
 **Module**: `FSharp.Azure.Quantum.QuantumTreeSearch`
 
-**Purpose**: Search game trees and decision trees using Grover's algorithm
+**Purpose**: Search game trees and decision trees with Grover search. Returns a `TreeSearchProblem<'T>` (validated; invalid problems throw). Solve it with `QuantumTreeSearch.solve`.
 
 **Example**:
 ```fsharp
-let search = quantumTreeSearch<Board> {
-    initialState gameBoard
-    maxDepth 3
-    branchingFactor 9
-    evaluateWith (fun board -> evaluatePosition board)
-    generateMovesWith (fun board -> getLegalMoves board)
+open FSharp.Azure.Quantum.QuantumTreeSearch
+
+// Toy game: the state is a running total, each move adds 1..4
+let evaluateTotal (total: int) = float (total % 7)
+let legalMoves (total: int) = [ for step in 1 .. 4 -> total + step ]
+
+let treeSearch = quantumTreeSearch<int> {
+    initialState 0
+    maxDepth 2
+    branchingFactor 4
+    evaluateWith evaluateTotal
+    generateMovesWith legalMoves
     topPercentile 0.2
     shots 100
-    maxIterations 5
 }
+
+match QuantumTreeSearch.solve treeSearch with
+| Ok solution -> printfn "Best move: %d (score %.3f)" solution.BestMove solution.Score
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `initialState` - Starting game/decision state
-- `maxDepth` - Maximum depth to explore in tree
-- `branchingFactor` - Expected branching factor (moves per position)
-- `evaluateWith` - Heuristic evaluation function (higher score = better)
-- `generateMovesWith` - Move generation function (returns list of next states)
-- `topPercentile` - Fraction of best moves to amplify (0.0 < x ≤ 1.0)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurements (None = auto-scale: 100 for Local, 500 for Cloud)
-- `solutionThreshold` - Min fraction of shots to consider as solution (None = auto-scale: 1% for Local, 2% for Cloud)
-- `successThreshold` - Min total probability for search success (None = auto-scale: 10% for Local, 20% for Cloud)
-- `maxPaths` - Maximum paths to search (None = use full tree)
-- `limitSearchSpace` - Auto-recommend maxPaths limit based on tree size
-- `maxIterations` - Maximum Grover iterations (None = auto-calculate optimal)
+- `initialState` - Starting state (required)
+- `maxDepth` - Depth to explore (1 to 8; default 3)
+- `branchingFactor` - Moves per position (2 to 256; default 16). The tree needs maxDepth × ⌈log₂(branchingFactor)⌉ qubits, at most 16
+- `evaluateWith` - Evaluation function `'T -> float` (higher = better)
+- `generateMovesWith` - Move generator `'T -> 'T list`
+- `topPercentile` - Fraction of best paths to amplify, in (0.0, 1.0] (default 0.2)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurements (default: 50 on LocalBackend, 250 on other backends)
+- `solutionThreshold` - Minimum fraction of shots for a state to count as a solution (default: 5%)
+- `successThreshold` - Minimum total probability for the search to succeed (default: 50% on LocalBackend, 60% on other backends)
+- `maxPaths` - Limit on the number of paths searched (default: full tree)
+- `limitSearchSpace` - `true` sets `maxPaths` to a recommended limit for the current `maxDepth` and `branchingFactor`, so put it after those two
+- `maxIterations` - Stored, but the current solver does not pass it on: Grover iterations are always calculated from the search space size
+- `onProgress` - Progress reporter
 
-**Features**:
-- ✅ Generic over state type
-- ✅ O(√N) quantum speedup over classical minimax
-- ✅ Auto-scaling for different backends
+**Notes**: the oracle evaluates your evaluation function; on the local simulator every path is evaluated, so the local run gives no speedup over classical search.
 
 ---
 
-### 10. resource<'T>
+### 10. linearSystemSolver
 
-**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders`
+**Module**: `FSharp.Azure.Quantum.QuantumLinearSystemSolver`
 
-**Purpose**: Define resources for task scheduling problems
+**Purpose**: Solve Ax = b with the HHL algorithm. Returns `Result<LinearSystemProblem, QuantumError>`; solve the `Ok` value with `QuantumLinearSystemSolver.solve`.
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.QuantumLinearSystemSolver
+
+let linearProblem = linearSystemSolver {
+    matrix [ [ 2.0; 0.0 ]; [ 0.0; 1.0 ] ]
+    vector [ 1.0; 1.0 ]
+    eigenvalueQubits 4
+}
+
+match linearProblem |> Result.bind QuantumLinearSystemSolver.solve with
+| Ok solution -> printfn "Success probability: %.4f" solution.SuccessProbability
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**Custom Operations**:
+- `matrix` - Hermitian matrix A as rows (`float list list`); throws if it is not square or not Hermitian
+- `diagonalMatrix` - A diagonal matrix from its eigenvalues
+- `vector` - Right-hand side b (normalized internally)
+- `eigenvalueQubits` / `precision` - Qubits for eigenvalue estimation (default 4)
+- `inversionMethod` - `ExactRotation c` (default `ExactRotation 1.0`), `LinearApproximation c` or `PiecewiseLinear segments`
+- `minEigenvalue` - Eigenvalues below this are treated as zero (default 1e-6)
+- `postSelection` - Post-select on the ancilla qubit (default true)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Accepted but **not used**: the solver reads the solution and its success probability from the state vector exactly
+
+---
+
+### 11. resource<'T>
+
+**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders` (also re-exported from `FSharp.Azure.Quantum`)
+
+**Purpose**: Define a resource for task scheduling. Returns a `Resource<'T>`.
+
+**Example**:
+```fsharp
+open FSharp.Azure.Quantum.TaskScheduling
+
 let cpu = resource<string> {
     resourceId "CPU"
     capacity 4.0
     costPerUnit 10.0
-    availableWindow (0.0, 100.0)
+    availableWindow 0.0 100.0
 }
 ```
 
 **Custom Operations**:
-- `resourceId` - Unique identifier for resource
-- `capacity` - Maximum capacity available
-- `costPerUnit` - Cost per unit of resource usage
-- `availableWindow` - Time window when resource is available (start, end)
+- `resourceId` - Unique identifier (required)
+- `capacity` - Capacity available (required)
+- `costPerUnit` - Cost per unit per time unit
+- `availableWindow start finish` - Time window when the resource is available
+
+The `crew id capacity costPerUnit` function is a shortcut for a `Resource<string>`.
 
 ---
 
-### 11. scheduledTask<'T>
+### 12. scheduledTask<'T>
 
-**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders`
+**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders` (also re-exported from `FSharp.Azure.Quantum`)
 
-**Purpose**: Define tasks for scheduling optimization
+**Purpose**: Define a task for scheduling. Returns a `ScheduledTask<'T>`. Durations and times are `TimeSpan` values; build them with `minutes`, `hours` or `days`.
 
 **Example**:
 ```fsharp
 let task1 = scheduledTask<string> {
     taskId "Task1"
-    duration (Duration 5.0)
+    duration (hours 2.0)
     requires "CPU" 2.0
     priority 1.0
-    deadline 50.0
+    deadline (hours 8.0)
+}
+
+let task2 = scheduledTask<string> {
+    taskId "Task2"
+    duration (minutes 30.0)
+    after "Task1"
 }
 ```
 
 **Custom Operations**:
-- `taskId` - Unique identifier for task
-- `duration` - Task duration (use `Duration` wrapper)
-- `after` - Single dependency (task must start after specified task)
-- `afterMultiple` - Multiple dependencies
-- `requires` - Resource requirement (resourceId, quantity)
-- `priority` - Priority for tie-breaking (higher = schedule first)
-- `deadline` - Latest completion time
-- `earliestStart` - Earliest start time
+- `taskId` - Unique identifier
+- `duration` - Task duration (`TimeSpan`)
+- `after` - Must start after the named task finishes
+- `afterMultiple` - Must start after all the named tasks finish
+- `requires resourceId quantity` - Resource requirement
+- `priority` - Priority for tie-breaking (higher = scheduled first)
+- `deadline` - Latest completion time (`TimeSpan` from schedule start)
+- `earliestStart` - Earliest start time (`TimeSpan` from schedule start)
 
 ---
 
-### 12. schedulingProblem<'T>
+### 13. scheduling<'TTask, 'TResource>
 
-**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders`
+**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders` (also re-exported from `FSharp.Azure.Quantum`)
 
-**Purpose**: Define complete task scheduling optimization problems
+**Purpose**: Define a complete scheduling problem. Returns a `SchedulingProblem<'TTask, 'TResource>`; solve it with `solveQuantum backend problem` (returns `Async<QuantumResult<Solution>>`).
 
 **Example**:
 ```fsharp
-let problem = schedulingProblem<string> {
-    tasks [task1; task2; task3]
-    resources [cpu; memory]
+let schedulingProblem = scheduling<string, string> {
+    tasks [task1; task2]
+    resources [cpu]
     objective MinimizeMakespan
-    timeHorizon 100.0
+    timeHorizon (hours 12.0)
 }
+
+match solveQuantum localBackend schedulingProblem |> Async.RunSynchronously with
+| Ok solution -> printfn "Makespan: %O" solution.Makespan
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `tasks` - List of tasks to schedule
+- `tasks` - Tasks to schedule (dependencies declared with `after` are picked up here)
 - `resources` - Available resources
-- `objective` - Optimization objective (MinimizeMakespan | MinimizeCost | BalanceLoad)
-- `timeHorizon` - Total time available for scheduling
+- `objective` - `MinimizeMakespan` (default) | `MinimizeCost` | `MaximizeResourceUtilization` | `MinimizeLateness`
+- `timeHorizon` - Total time available (`TimeSpan`; default 1000 minutes)
 
 ---
 
-### 13. anomalyDetection
+### 14. constraintScheduler
 
-**Module**: `FSharp.Azure.Quantum.Business`
+**Module**: `FSharp.Azure.Quantum.Business.ConstraintScheduler`
 
-**Purpose**: Detect outliers and anomalies in data using quantum one-class classification
+**Purpose**: Assign tasks to resources under hard constraints (conflicts, required resources, precedence) and weighted preferences. Solves when evaluated and returns `QuantumResult<SchedulingResult>`.
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.Business.ConstraintScheduler
+
+let shiftPlan = constraintScheduler {
+    tasks ["Morning"; "Evening"]
+    resource "Alice" 20.0
+    resource "Bob" 25.0
+    conflict "Morning" "Evening"
+    prefer "Morning" "Alice" 1.0
+    optimizeFor MinimizeCost
+}
+
+match shiftPlan with
+| Ok result -> printfn "%s" result.Message
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**Custom Operations**:
+- `task` / `tasks` - Add one task / several tasks by ID
+- `resource id cost` - Add a resource with a cost
+- `resourceWithCapacity id cost capacity` - Add a resource with a limit on concurrent tasks
+- `conflict task1 task2` - The two tasks must not share a resource
+- `require task resource` - The task must use the resource
+- `precedence before after` - Ordering constraint
+- `prefer task resource weight` - Soft preference
+- `optimizeFor` - `MinimizeCost` | `MaximizeSatisfaction` | `Balanced` (default)
+- `maxBudget` - Budget limit
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
+- `useGrover` / `useQaoa` - Force the algorithm (default: chosen automatically)
+
+---
+
+### 15. anomalyDetection
+
+**Module**: `FSharp.Azure.Quantum.Business.AnomalyDetector`
+
+**Purpose**: Detect outliers with a quantum-kernel detector trained on normal examples only. Trains when evaluated and returns `QuantumResult<Detector>`.
+
+**Example**:
+```fsharp
+open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Business.AnomalyDetector
+
+let normalTransactions : float[][] =
+    [| [| 0.10; 0.20 |]; [| 0.15; 0.22 |]; [| 0.12; 0.18 |]; [| 0.11; 0.21 |] |]
+
+let suspiciousTransaction = [| 0.90; 0.95 |]
+
 let detector = anomalyDetection {
-    trainOnNormalData normalTransactions  // Only normal examples needed
-    sensitivity High                       // High sensitivity to detect subtle anomalies
-    contaminationRate 0.1                  // Expect ~10% anomalies
+    trainOnNormalData normalTransactions
+    sensitivity High
+    contaminationRate 0.1
     shots 1000
 }
 
 match detector with
 | Ok model ->
-    let result = AnomalyDetector.detect suspiciousTransaction model
-    if result.IsAnomaly then
-        printfn "⚠️ Anomaly detected! Score: %.2f" result.AnomalyScore
-| Error e -> printfn "Training failed: %s" e
+    match AnomalyDetector.check suspiciousTransaction model with
+    | Ok result when result.IsAnomaly -> printfn "Anomaly detected. Score: %.2f" result.AnomalyScore
+    | Ok _ -> printfn "Looks normal"
+    | Error err -> printfn "Check failed: %s" err.Message
+| Error err -> printfn "Training failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `trainOnNormalData` - Training data (normal examples only)
-- `sensitivity` - Detection sensitivity (Low | Medium | High)
-- `contaminationRate` - Expected percentage of anomalies (default: 0.1)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurement shots (default: 1000)
-- `verbose` - Enable verbose logging (default: false)
-- `saveModelTo` - Path to save trained model
-- `note` - Optional note about the model
-- `progressReporter` - Progress reporter for real-time training updates (default: None)
-- `cancellationToken` - Cancellation token for early termination (default: None)
+- `trainOnNormalData` - Training data (`float[][]`, normal examples only)
+- `sensitivity` - `Low` | `Medium` (default) | `High` | `VeryHigh`
+- `contaminationRate` - Expected fraction of anomalies in the training data, 0.0 to 0.5 (default: 0.05)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
+- `verbose` - Verbose logging (default: false)
+- `saveModelTo` - Path to save the trained detector
+- `note` - Note stored with the model
+- `progressReporter` - Progress reporter (default: none)
+- `cancellationToken` - Cancellation token (default: none)
 
-**Use Cases**:
-- Security threat detection
-- Fraud detection
-- Quality control
-- System monitoring
-- Network intrusion detection
+Other functions: `AnomalyDetector.checkBatch`, `explain`, `save`, `load`.
+
+**Use Cases**: fraud detection, security monitoring, quality control, system monitoring.
 
 ---
 
-### 14. autoML
+### 16. autoML
 
-**Module**: `FSharp.Azure.Quantum.Business`
+**Module**: `FSharp.Azure.Quantum.Business.AutoML`
 
-**Purpose**: Automated machine learning - tries multiple approaches and returns the best model automatically
+**Purpose**: Try several model types, architectures and hyperparameters and return the best model. Runs the search when evaluated and returns `QuantumResult<AutoMLResult>`.
 
 **Example**:
 ```fsharp
-let result = autoML {
+open FSharp.Azure.Quantum.Business.AutoML
+
+let features : float[][] =
+    [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.2; 0.1 |]; [| 0.8; 0.9 |]; [| 0.15; 0.25 |]; [| 0.85; 0.75 |] |]
+
+let labels = [| 0.0; 1.0; 0.0; 1.0; 0.0; 1.0 |]
+
+let autoMLResult = autoML {
     trainWith features labels
-    
-    // Optional: Control search space
+
+    // Search space
     tryBinaryClassification true
-    tryMultiClass 4
-    tryRegression true
+    tryRegression false
     tryAnomalyDetection false
-    
-    // Architectures to test
-    tryArchitectures [Quantum; Hybrid; Classical]
-    
+    tryArchitectures [Quantum; Hybrid]
+
     // Search budget
-    maxTrials 20
+    maxTrials 10
     maxTimeMinutes 10
-    
+
     verbose true
 }
 
-match result with
-| Ok model ->
-    printfn "Best model: %s (%.2f%%)" model.BestModelType (model.Score * 100.0)
-    let prediction = AutoML.predict newSample model
-| Error e -> printfn "AutoML failed: %s" e
+match autoMLResult with
+| Ok best ->
+    printfn "Best model: %s (score %.2f)" best.BestModelType best.Score
+    match AutoML.predict [| 0.2; 0.2 |] best with
+    | Ok prediction -> printfn "Prediction: %A" prediction
+    | Error err -> printfn "Prediction failed: %s" err.Message
+| Error err -> printfn "AutoML failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `trainWith` - Training features and labels
-- `tryBinaryClassification` - Enable binary classification trials (default: true)
-- `tryMultiClass` - Enable multi-class with N classes (default: auto-detect)
-- `tryAnomalyDetection` - Enable anomaly detection trials (default: true)
-- `tryRegression` - Enable regression trials (default: true)
-- `trySimilaritySearch` - Enable similarity search trials (default: false)
-- `tryArchitectures` - List of architectures to test (default: [Quantum; Hybrid; Classical])
+- `trainWith features labels` - Features (`float[][]`) and labels (`float[]`)
+- `tryBinaryClassification` - Include binary classification (default: true)
+- `tryMultiClass n` - Include multi-class classification with n classes (default: detected from the labels)
+- `tryAnomalyDetection` - Include anomaly detection (default: true)
+- `tryRegression` - Include regression (default: true)
+- `trySimilaritySearch` - Include similarity search (default: false)
+- `tryArchitectures` - Architectures to try (default: `[Quantum; Hybrid]`)
 - `maxTrials` - Maximum number of trials (default: 20)
-- `maxTimeMinutes` - Maximum search time in minutes (default: None)
-- `validationSplit` - Train/validation split ratio (default: 0.2)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `verbose` - Enable verbose logging (default: false)
-- `saveModelTo` - Path to save best model
-- `randomSeed` - Random seed for reproducibility (default: None)
-- `progressReporter` - Progress reporter for real-time trial updates (default: None)
-- `cancellationToken` - Cancellation token to stop search early (default: None)
-
-**Use Cases**:
-- Quick prototyping
-- Model selection
-- Baseline comparison
-- Non-expert users
+- `maxTimeMinutes` - Time limit in minutes (default: none)
+- `validationSplit` - Fraction held out for validation (default: 0.2)
+- `backend` - Quantum backend (default: LocalBackend)
+- `verbose` - Verbose logging (default: false)
+- `saveModelTo` - Path to save the best model
+- `randomSeed` - Random seed for reproducibility (default: none)
+- `progressReporter` - Progress reporter (default: none)
+- `cancellationToken` - Cancellation token (default: none)
 
 ---
 
-### 15. binaryClassification
+### 17. binaryClassification
 
-**Module**: `FSharp.Azure.Quantum.Business`
+**Module**: `FSharp.Azure.Quantum.Business.BinaryClassifier`
 
-**Purpose**: Classify items into two categories (yes/no, fraud/legitimate, spam/ham)
+**Purpose**: Classify items into two categories. Trains when evaluated and returns `QuantumResult<Classifier>`.
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.Business.BinaryClassifier
+
+let trainFeatures = features
+let trainLabels = [| 0; 1; 0; 1; 0; 1 |]
+
 let classifier = binaryClassification {
     trainWith trainFeatures trainLabels
     architecture Quantum
@@ -518,45 +694,48 @@ let classifier = binaryClassification {
 
 match classifier with
 | Ok model ->
-    let prediction = BinaryClassifier.predict newTransaction model
-    if prediction.IsFraud then
-        blockTransaction()
-| Error e -> printfn "Training failed: %s" e
+    match BinaryClassifier.predict [| 0.9; 0.9 |] model with
+    | Ok prediction when prediction.IsPositive -> printfn "Positive (confidence %.2f)" prediction.Confidence
+    | Ok _ -> printfn "Negative"
+    | Error err -> printfn "Prediction failed: %s" err.Message
+| Error err -> printfn "Training failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `trainWith` - Training features (float[][]) and labels (int[]: 0 or 1)
-- `architecture` - Architecture choice (Quantum | Hybrid | Classical)
-- `learningRate` - Learning rate for training (default: 0.01)
+- `trainWith features labels` - Features (`float[][]`) and labels (`int[]`, 0 or 1)
+- `architecture` - `Quantum` (default) | `Hybrid` | `Classical`
+- `learningRate` - Learning rate (default: 0.01)
 - `maxEpochs` - Maximum training epochs (default: 100)
 - `convergenceThreshold` - Convergence threshold (default: 0.001)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurement shots (default: 1000)
-- `verbose` - Enable verbose logging (default: false)
-- `saveModelTo` - Path to save trained model
-- `note` - Optional note about the model
-- `progressReporter` - Progress reporter for real-time training updates (default: None)
-- `cancellationToken` - Cancellation token for early termination (default: None)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
+- `verbose` - Verbose logging (default: false)
+- `saveModelTo` - Path to save the trained model
+- `note` - Note stored with the model
+- `progressReporter` - Progress reporter (default: none)
+- `cancellationToken` - Cancellation token (default: none)
 
-**Use Cases**:
-- Fraud detection
-- Spam filtering
-- Churn prediction (yes/no)
-- Credit risk (approve/reject)
-- Quality control (pass/fail)
-- Medical diagnosis (disease/healthy)
+Other functions: `BinaryClassifier.evaluate`, `save`, `load`.
+
+**Use Cases**: fraud detection, spam filtering, churn prediction (yes/no), credit approval, pass/fail quality control.
 
 ---
 
-### 16. predictiveModel
+### 18. predictiveModel
 
-**Module**: `FSharp.Azure.Quantum.Business`
+**Module**: `FSharp.Azure.Quantum.Business.PredictiveModel`
 
-**Purpose**: Predict continuous values (regression) or categories (multi-class classification)
+**Purpose**: Predict continuous values (regression) or categories (multi-class classification). Trains when evaluated and returns `QuantumResult<Model>`.
 
 **Example**:
 ```fsharp
-// Regression: Predict revenue
+open FSharp.Azure.Quantum.Business.PredictiveModel
+
+let customerFeatures = features
+let revenueTargets = [| 10.0; 42.0; 12.0; 40.0; 11.0; 39.0 |]
+let churnLabels = [| 0.0; 1.0; 0.0; 2.0; 0.0; 3.0 |] // 0=Stay, 1=Churn30, 2=Churn60, 3=Churn90
+
+// Regression: predict revenue
 let revenueModel = predictiveModel {
     trainWith customerFeatures revenueTargets
     problemType Regression
@@ -564,9 +743,9 @@ let revenueModel = predictiveModel {
     maxEpochs 100
 }
 
-// Multi-class: Predict churn timing
+// Multi-class: predict churn timing
 let churnModel = predictiveModel {
-    trainWith customerFeatures churnLabels  // 0=Stay, 1=Churn30, 2=Churn60, 3=Churn90
+    trainWith customerFeatures churnLabels
     problemType (MultiClass 4)
     architecture Quantum
     shots 1000
@@ -574,91 +753,99 @@ let churnModel = predictiveModel {
 
 match churnModel with
 | Ok model ->
-    let prediction = PredictiveModel.predictCategory customer model
-    match prediction.Category with
-    | 0 -> printfn "Customer will stay"
-    | 1 -> printfn "⚠️ Churn risk in 30 days!"
-    | _ -> ()
-| Error e -> printfn "Training failed: %s" e
+    match PredictiveModel.predictCategory [| 0.8; 0.9 |] model None None with
+    | Ok prediction when prediction.Category = 0 -> printfn "Customer will stay"
+    | Ok prediction -> printfn "Churn risk, category %d" prediction.Category
+    | Error err -> printfn "Prediction failed: %s" err.Message
+| Error err -> printfn "Training failed: %s" err.Message
 ```
 
+`PredictiveModel.predict features model backend shots` returns a regression prediction; `predictCategory` returns a category. Pass `None` for the backend and shots to use the model's own settings.
+
 **Custom Operations**:
-- `trainWith` - Training features (float[][]) and targets (float[])
-- `problemType` - Problem type (Regression | MultiClass n)
-- `architecture` - Architecture choice (Quantum | Hybrid | Classical)
-- `learningRate` - Learning rate for training (default: 0.01)
+- `trainWith features targets` - Features (`float[][]`) and targets (`float[]`; class indices for multi-class)
+- `problemType` - `Regression` (default) | `MultiClass n`
+- `architecture` - `Quantum` (default) | `Hybrid` | `Classical`
+- `learningRate` - Learning rate (default: 0.01)
 - `maxEpochs` - Maximum training epochs (default: 100)
 - `convergenceThreshold` - Convergence threshold (default: 0.001)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurement shots (default: 1000)
-- `verbose` - Enable verbose logging (default: false)
-- `saveModelTo` - Path to save trained model
-- `note` - Optional note about the model
-- `progressReporter` - Progress reporter for real-time training updates (default: None)
-- `cancellationToken` - Cancellation token for early termination (default: None)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
+- `verbose` - Verbose logging (default: false)
+- `saveModelTo` - Path to save the trained model
+- `note` - Note stored with the model
+- `progressReporter` - Progress reporter (default: none)
+- `cancellationToken` - Cancellation token (default: none)
 
 **Use Cases**:
-- **Regression**: Revenue forecasting, demand prediction, customer LTV, risk scoring
-- **Multi-Class**: Churn timing prediction, customer segmentation, risk levels, lead scoring
+- **Regression**: revenue forecasting, demand prediction, customer lifetime value
+- **Multi-class**: churn timing, customer segmentation, risk levels
 
 ---
 
-### 17. similaritySearch
+### 19. similaritySearch<'T>
 
-**Module**: `FSharp.Azure.Quantum.Business`
+**Module**: `FSharp.Azure.Quantum.Business.SimilaritySearch`
 
-**Purpose**: Find similar items using quantum kernels
+**Purpose**: Index items by feature vectors and find similar items. Builds the index when evaluated and returns `QuantumResult<SearchIndex<'T>>`.
 
 **Example**:
 ```fsharp
+open FSharp.Azure.Quantum.Business.SimilaritySearch
+
+type Product = { Sku: string }
+
+let productCatalog : (Product * float[])[] =
+    [| { Sku = "A" }, [| 0.9; 0.1 |]
+       { Sku = "B" }, [| 0.8; 0.2 |]
+       { Sku = "C" }, [| 0.1; 0.9 |] |]
+
 let finder = similaritySearch<Product> {
-    indexItems productCatalog  // Array of (item, features)
-    similarityMetric CosineSimilarity
-    threshold 0.7              // Minimum similarity threshold
+    indexItems productCatalog
+    similarityMetric Cosine
+    threshold 0.7
     shots 1000
 }
 
 match finder with
 | Ok index ->
-    let similar = SimilarityFinder.findSimilar queryProduct 5 index
-    printfn "Top 5 similar products:"
-    similar |> Array.iter (fun (item, score) ->
-        printfn "  %A: %.2f%% similar" item (score * 100.0)
-    )
-| Error e -> printfn "Indexing failed: %s" e
+    match SimilaritySearch.findSimilar { Sku = "query" } [| 0.85; 0.15 |] 2 index with
+    | Ok results ->
+        for m in results.Matches do
+            printfn "  %s: %.2f similar" m.Item.Sku m.Similarity
+    | Error err -> printfn "Search failed: %s" err.Message
+| Error err -> printfn "Indexing failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `indexItems` - Items to index (('T * float array)[])
-- `similarityMetric` - Metric to use (CosineSimilarity | EuclideanDistance | QuantumKernel)
-- `threshold` - Minimum similarity threshold (default: 0.0)
-- `backend` - Quantum backend to use (None = LocalBackend)
-- `shots` - Number of measurement shots (default: 1000)
-- `verbose` - Enable verbose logging (default: false)
-- `saveIndexTo` - Path to save search index
-- `note` - Optional note about the index
-- `progressReporter` - Progress reporter for real-time indexing updates (default: None)
-- `cancellationToken` - Cancellation token for early termination (default: None)
+- `indexItems` - Items to index (`('T * float[])[]`)
+- `similarityMetric` - `Cosine` (default) | `Euclidean` | `QuantumKernel`
+- `threshold` - Minimum similarity (default: 0.7)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
+- `verbose` - Verbose logging (default: false)
+- `saveIndexTo` - Path to save the index
+- `note` - Note stored with the index
+- `progressReporter` - Progress reporter (default: none)
+- `cancellationToken` - Cancellation token (default: none)
 
-**Use Cases**:
-- Product recommendations
-- Duplicate detection
-- Content similarity
-- Clustering
-- Image similarity
-- Document matching
+Other functions: `SimilaritySearch.findAllSimilar`, `findDuplicates`, `cluster`, `save`, `load`.
+
+**Use Cases**: product recommendations, duplicate detection, content similarity, clustering.
 
 ---
 
-### 18. optionPricing
+### 20. optionPricing
 
 **Module**: `FSharp.Azure.Quantum.Business.OptionPricing`
 
-**Purpose**: Price financial options (European, Asian) using quantum Monte Carlo with quadratic speedup
+**Purpose**: Price European and Asian options with quantum Monte Carlo (amplitude estimation). Returns `Async<QuantumResult<OptionPrice>>`.
 
 **Example**:
 ```fsharp
-let result = optionPricing {
+open FSharp.Azure.Quantum.Business.OptionPricing
+
+let pricing = optionPricing {
     spotPrice 100.0
     strikePrice 105.0
     riskFreeRate 0.05
@@ -668,293 +855,332 @@ let result = optionPricing {
     qubits 6
     iterations 5
     shots 1000
-    backend (LocalBackend())
+    backend localBackend
 }
 
-match result |> Async.RunSynchronously with
-| Ok price -> printfn "Option price: $%.4f (±%.4f)" price.Price price.ConfidenceInterval
-| Error e -> printfn "Error: %A" e
+match pricing |> Async.RunSynchronously with
+| Ok price -> printfn "Option price: %.4f (±%.4f)" price.Price price.ConfidenceInterval
+| Error err -> printfn "Error: %s" err.Message
 ```
 
-> **Async alternative:** If the builder returns a `Task<_>`, use `task { let! r = result in ... }` instead of `Async.RunSynchronously`. See [Backend Switching](backend-switching.md) for async patterns.
-
 **Custom Operations**:
-- `spotPrice` - Current spot price of underlying asset (S₀)
-- `strikePrice` - Strike price of the option (K)
-- `riskFreeRate` - Risk-free interest rate (annualized, r)
-- `volatility` - Volatility of underlying asset (annualized, σ)
-- `expiry` - Time to expiry in years (T)
-- `optionType` - Option type: `EuropeanCall`, `EuropeanPut`, `AsianCall n`, `AsianPut n`
-- `qubits` - Number of qubits for price discretization (2-10)
-- `iterations` - Number of Grover iterations for amplitude estimation
-- `shots` - Number of measurement shots
-- `backend` - Quantum backend (REQUIRED - no default)
-- `cancellation_token` - Optional cancellation token for async operations
+- `spotPrice` - Spot price of the underlying (S₀; default 100.0)
+- `strikePrice` - Strike price (K; default 100.0)
+- `riskFreeRate` - Annual risk-free rate (r; default 0.05)
+- `volatility` - Annual volatility (σ; default 0.2)
+- `expiry` - Time to expiry in years (T; default 1.0)
+- `optionType` - `EuropeanCall` (default), `EuropeanPut`, `AsianCall n`, `AsianPut n`
+- `qubits` - Qubits for price discretization (2 to 10; default 6)
+- `iterations` - Grover iterations for amplitude estimation (0 to 100; default 5)
+- `shots` - Measurement shots (default 1000)
+- `backend` - Quantum backend (**required**; without it the result is a validation error)
+- `cancellation_token` - Cancellation token
 
 **Option Types**:
 - `EuropeanCall` - max(S_T - K, 0)
 - `EuropeanPut` - max(K - S_T, 0)
-- `AsianCall n` - max(Avg(S_t) - K, 0) with n time steps
-- `AsianPut n` - max(K - Avg(S_t), 0) with n time steps
+- `AsianCall n` - average-price call with n monitoring dates (priced with the geometric-average approximation)
+- `AsianPut n` - average-price put with n monitoring dates (geometric-average approximation)
 
-**Quantum Advantage**:
-- Uses Möttönen state preparation for exact amplitude encoding
-- Achieves O(1/ε) complexity vs classical O(1/ε²)
-- Quadratic speedup: ~100x for 1% accuracy target
+**Notes**:
+- Uses Möttönen state preparation to encode the price distribution.
+- In theory amplitude estimation needs O(1/ε) oracle queries for accuracy ε, where classical Monte Carlo needs O(1/ε²) samples. The local simulator does not show that advantage; the `Speedup` field of the result is the theoretical factor, not a measured one.
 
 **Greeks Calculation**:
 ```fsharp
-// Calculate option sensitivities (Delta, Gamma, Vega, Theta, Rho)
-let! greeks = OptionPricing.greeksEuropeanCall 100.0 105.0 0.05 0.2 1.0 backend
+// Option sensitivities (Delta, Gamma, Vega, Theta, Rho)
+match OptionPricing.greeksEuropeanCall 100.0 105.0 0.05 0.2 1.0 localBackend |> Async.RunSynchronously with
+| Ok greeks -> printfn "Delta %.4f, Gamma %.4f, Vega %.4f" greeks.Delta greeks.Gamma greeks.Vega
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ---
 
-### 19. topological
+### 21. quantumRiskEngine
 
-**Module**: `FSharp.Azure.Quantum.Topological.TopologicalBuilder`
+**Module**: `FSharp.Azure.Quantum.Business` (the builder is auto-opened)
 
-**Purpose**: Compose topological quantum programs with anyon braiding and fusion
+**Purpose**: Portfolio risk metrics. Runs synchronously when evaluated and returns `QuantumResult<RiskReport>`.
 
 **Example**:
 ```fsharp
-let program = topological backend {
-    let! ctx = TopologicalBuilder.initialize Ising 4
-    let! ctx = TopologicalBuilder.braid 0 ctx
-    let! ctx = TopologicalBuilder.braid 2 ctx
-    let! (outcome, ctx) = TopologicalBuilder.measure 0 ctx
-    return outcome
+let riskReport = quantumRiskEngine {
+    load_market_data "returns.csv"
+    set_confidence_level 0.99
+    calculate_metric ValueAtRisk
+    calculate_metric ConditionalVaR
+    use_amplitude_estimation true
+    backend localBackend
 }
 
-// Execute the program
-let! result = TopologicalBuilder.execute backend program
-match result with
-| Ok particle -> printfn "Measured: %A" particle
-| Error e -> printfn "Error: %A" e
+match riskReport with
+| Ok report -> printfn "VaR: %A, CVaR: %A" report.VaR report.CVaR
+| Error err -> printfn "Error: %s" err.Message
 ```
 
-**Builder Functions** (used with `let!` and `do!`):
-- `TopologicalBuilder.initialize anyonType count` - Initialize anyons of given type and count
-- `TopologicalBuilder.braid index context` - Braid anyons at given index
-- `TopologicalBuilder.measure index context` - Measure fusion outcome at given index
-- `TopologicalBuilder.braidSequence indices context` - Apply sequence of braiding operations
-- `TopologicalBuilder.getState context` - Get current quantum state
-- `TopologicalBuilder.getResults context` - Get accumulated measurement results
-- `TopologicalBuilder.getLog context` - Get execution log for debugging
-- `TopologicalBuilder.getContext context` - Get full context for visualization
-
-**Anyon Types**:
-- `Ising` - Ising anyons (Majorana fermions)
-- `Fibonacci` - Fibonacci anyons (universal quantum computation)
-
-**Execution Functions**:
-- `TopologicalBuilder.execute backend program` - Execute and return just the result
-- `TopologicalBuilder.executeWithContext backend program` - Execute and return result with full context
-
-**Features**:
-- Natural F# syntax with `let!` and `do!`
-- Automatic state threading through context
-- Backend-agnostic (works with any IQuantumBackend)
-- Composable operations with error handling
-- Execution log for debugging/visualization
+**Custom Operations**:
+- `load_market_data` - Path to a file of returns. Without it the engine uses generated sample returns
+- `set_confidence_level` - Confidence level (default 0.95)
+- `set_simulation_paths` - Number of simulation paths (default 10000)
+- `use_amplitude_estimation` - Use quantum amplitude estimation (default false)
+- `use_error_mitigation` - Enable error mitigation (default false)
+- `calculate_metric` - Add a metric: `ValueAtRisk` | `ConditionalVaR` | `ExpectedShortfall` | `Volatility`
+- `cancellation_token` - Cancellation token
+- `qubits` - Qubits for amplitude estimation (default 5)
+- `iterations` - Grover iterations (default 2)
+- `shots` - Measurement shots (default 100)
+- `backend` - Quantum backend (default: LocalBackend)
 
 ---
 
-### 20. quantumChemistry
+### 22. drugDiscovery
+
+**Module**: `FSharp.Azure.Quantum.Business` (the builder is auto-opened)
+
+**Purpose**: Virtual screening of candidate molecules. Runs when evaluated and returns `QuantumResult<ScreeningResult>`.
+
+**Example**:
+```fsharp
+let screening = drugDiscovery {
+    load_candidates_from_file "candidates.sdf"
+    use_method QuantumKernelSVM
+    use_feature_map ZZFeatureMap
+    set_batch_size 10
+    shots 100
+}
+
+match screening with
+| Ok result -> printfn "%s (%d molecules)" result.Message result.MoleculesProcessed
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**Custom Operations**:
+- `target_protein_from_pdb` - Target protein from a PDB file
+- `load_candidates_from_file` - Candidate molecules from a file
+- `load_candidates_from_provider` / `load_candidates_from_provider_async` - Candidates from a dataset provider
+- `use_method` - `QuantumKernelSVM` (default) | `VQCClassifier` | `QAOADiverseSelection`
+- `use_feature_map` - `ZZFeatureMap` (default) | `PauliFeatureMap` | `ZFeatureMap`
+- `set_batch_size` - Batch size (default 10)
+- `shots` - Measurement shots (default 100)
+- `backend` - Quantum backend (default: LocalBackend)
+- `vqc_layers` - Layers for `VQCClassifier` (default 2)
+- `vqc_max_epochs` - Epochs for `VQCClassifier` (default 50)
+- `selection_budget` - Budget for `QAOADiverseSelection` (default 10.0)
+- `diversity_weight` - Diversity weight for `QAOADiverseSelection` (default 0.5)
+
+---
+
+### 23. topological
+
+**Module**: `FSharp.Azure.Quantum.Topological` (`topological` is auto-opened; the operations are in `TopologicalBuilder`)
+
+**Purpose**: Compose topological programs from anyon operations. `topological backend { ... }` builds a program; `TopologicalBuilder.execute backend program` runs it and returns `Task<Result<_, QuantumError>>`.
+
+**Example**:
+```fsharp
+open FSharp.Azure.Quantum.Topological
+
+let isingBackend = TopologicalUnifiedBackendFactory.createIsing 10
+
+let program = topological isingBackend {
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    do! TopologicalBuilder.braid 0
+    do! TopologicalBuilder.braid 2
+    let! outcome = TopologicalBuilder.measure 0
+    return outcome
+}
+
+match (TopologicalBuilder.execute isingBackend program).Result with
+| Ok particle -> printfn "Measured: %A" particle
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**Builder functions** (use with `do!` for operations and `let!` for values):
+- `TopologicalBuilder.initialize anyonType count` - Initialize anyons
+- `TopologicalBuilder.braid index` - Braid the anyons at `index` and `index + 1`
+- `TopologicalBuilder.measure index` - Measure the fusion outcome at `index` (use with `let!`)
+- `TopologicalBuilder.braidSequence indices` - Apply several braids
+- `TopologicalBuilder.getState` - Current quantum state (use with `let!`)
+- `TopologicalBuilder.getResults` - Measurement results so far (use with `let!`)
+- `TopologicalBuilder.getLog` - Execution log (use with `let!`)
+- `TopologicalBuilder.getContext` - Full context, for visualization (use with `let!`)
+
+**Anyon types**: `AnyonSpecies.AnyonType.Ising` (Majorana-based; braiding alone gives Clifford gates only) and `AnyonSpecies.AnyonType.Fibonacci` (braiding is universal).
+
+**Execution functions**:
+- `TopologicalBuilder.execute backend program` - Run and return the result
+- `TopologicalBuilder.executeWithContext backend program` - Run and return the result with the final context
+
+---
+
+### 24. quantumChemistry
 
 **Module**: `FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder`
 
-**Purpose**: Quantum chemistry ground state calculations with VQE (Variational Quantum Eigensolver)
+**Purpose**: Ground state energy calculations with VQE. The CE returns a `ChemistryProblem` and throws if `molecule` (or a `molecule_from_*` operation), `basis` or `ansatz` is missing. `solve problem` returns `Async<Result<ChemistryResult, QuantumError>>`.
 
 **Example**:
 ```fsharp
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 
-// Simple H2 molecule
-let problem = quantumChemistry {
-    molecule (h2 0.74)     // H2 at 0.74 Angstrom bond length
-    basis "sto-3g"         // Minimal basis set
-    ansatz UCCSD           // Most accurate ansatz
+// H2 at 0.74 Å bond length
+let h2Problem = quantumChemistry {
+    molecule (h2 0.74)
+    basis "sto-3g"
+    ansatz UCCSD
 }
 
-let! result = solve problem
-printfn "Ground state energy: %.6f Ha" result.GroundStateEnergy
+match solve h2Problem |> Async.RunSynchronously with
+| Ok result -> printfn "Ground state energy: %.6f Ha" result.GroundStateEnergy
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Custom Operations**:
-- `molecule mol` - Set molecule for calculation (direct instance)
-- `molecule_from_xyz path` - Load molecule from XYZ file
-- `molecule_from_fcidump path` - Load molecule from FCIDump file
-- `molecule_from_provider provider name` - Load molecule from dataset provider
-- `molecule_from_name name` - Load molecule by name from default library
-- `basis basisSet` - Set basis set (e.g., "sto-3g", "6-31g", "cc-pvdz")
-- `ansatz ansatzType` - Set ansatz type: `UCCSD`, `HEA`, `ADAPT`
-- `optimizer name` - Set optimizer method (e.g., "COBYLA", "SLSQP", "Powell")
-- `maxIterations n` - Set maximum VQE iterations (default: 100)
-- `initialParameters params` - Set initial parameters for warm start
+- `molecule mol` - Molecule instance
+- `molecule_from_xyz path` - Load the molecule from an XYZ file (read in `solve`)
+- `molecule_from_fcidump path` - Load the molecule from an FCIDump file (read in `solve`)
+- `molecule_from_provider provider name` - Load the molecule from a dataset provider
+- `molecule_from_name name` - Load the molecule from the built-in molecule library
+- `basis basisSet` - Basis set name (required)
+- `ansatz ansatzType` - `UCCSD`, `HEA` or `ADAPT` (required)
+- `optimizer name` - Optimizer name (default "COBYLA")
+- `maxIterations n` - Maximum VQE iterations (default: 100)
+- `initialParameters params` - Initial parameters for a warm start
 
-**Pre-built Molecules**:
+**Current behaviour of `solve`**: it runs VQE on the local simulator with the library's default integrals. The `basis` and `ansatz` values and the optimizer name are stored in the problem (`basis` and `ansatz` are required), but `solve` does not use them yet; `maxIterations` and `initialParameters` are used. `optimizer` copies the iteration count at the point where it appears, so put `maxIterations` before `optimizer`.
+
+**Pre-built molecules**:
 ```fsharp
-// Hydrogen molecule
-let hydrogen = h2 0.74          // H2 at bond length 0.74 Å
-
-// Water molecule
-let water = h2o 0.96 104.5      // H2O with O-H 0.96 Å, angle 104.5°
-
-// Lithium hydride
-let lithiumHydride = lih 1.6    // LiH at bond length 1.6 Å
+let hydrogen = h2 0.74             // H2, bond length 0.74 Å
+let water = h2o 0.96 104.5         // H2O, O-H 0.96 Å, angle 104.5°
+let lithiumHydride = lih 1.6       // LiH, bond length 1.6 Å
 ```
 
-**Ansatz Types**:
-- `UCCSD` - Unitary Coupled Cluster Singles Doubles (most accurate, most expensive)
-- `HEA` - Hardware-Efficient Ansatz (faster, less accurate)
-- `ADAPT` - Adaptive ansatz (dynamic construction based on gradients)
-
-**Basis Sets**:
-- `"sto-3g"` - Minimal basis (fast, less accurate)
-- `"6-31g"` - Split-valence basis (balanced)
-- `"cc-pvdz"` - Correlation-consistent polarized double-zeta (accurate)
-
-**Loading from Files**:
+**Loading from files and the library**:
 ```fsharp
-// From XYZ file (geometry format)
-let problem1 = quantumChemistry {
+let fromXyz = quantumChemistry {
     molecule_from_xyz "caffeine.xyz"
     basis "sto-3g"
     ansatz UCCSD
 }
 
-// From FCIDump file (molecular integrals)
-let problem2 = quantumChemistry {
+let fromFciDump = quantumChemistry {
     molecule_from_fcidump "h2o.fcidump"
     basis "6-31g"
     ansatz HEA
 }
 
-// From molecule library
-let problem3 = quantumChemistry {
+let fromLibrary = quantumChemistry {
     molecule_from_name "benzene"
     basis "sto-3g"
     ansatz UCCSD
 }
 ```
 
-**Result Fields**:
+**Result fields**:
 - `GroundStateEnergy` - Ground state energy in Hartrees
 - `OptimalParameters` - Optimal VQE parameters found
 - `Iterations` - Number of VQE iterations performed
 - `Convergence` - Whether VQE converged within tolerance
-- `BondLengths` - Map of bond lengths (e.g., "H-H" -> 0.74)
-- `DipoleMoment` - Dipole moment if computed
+- `BondLengths` - Bond lengths (e.g. "H-H" -> 0.74)
+- `DipoleMoment` - Dipole moment, if computed
 
 ---
 
-### 21. coverageOptimizer
+### 25. coverageOptimizer
 
 **Module**: `FSharp.Azure.Quantum.Business.CoverageOptimizer`
 
-**Purpose**: Optimize set coverage — select minimum-cost options that cover all required elements (shifts, facilities, service packages, etc.)
+**Purpose**: Set coverage: select the cheapest options that together cover every required element (shifts, facilities, service packages). Solves when evaluated and returns `QuantumResult<CoverageResult>`.
 
 **Example**:
 ```fsharp
-let result = coverageOptimizer {
+open FSharp.Azure.Quantum.Business.CoverageOptimizer
+
+let coverage = coverageOptimizer {
     universeSize 3
 
-    option "MorningShift" [0; 1] 25.0    // Covers slots 0,1 at cost $25
-    option "AfternoonShift" [1; 2] 20.0  // Covers slots 1,2 at cost $20
-    option "FullDay" [0; 1; 2] 40.0      // Covers all at cost $40
+    option "MorningShift" [0; 1] 25.0    // Covers slots 0,1 at cost 25
+    option "AfternoonShift" [1; 2] 20.0  // Covers slots 1,2 at cost 20
+    option "FullDay" [0; 1; 2] 40.0      // Covers all at cost 40
 
-    backend myBackend
+    backend localBackend
 }
 
-match result with
+match coverage with
 | Ok r ->
-    printfn "Selected %d options, total cost: $%.2f" r.SelectedOptions.Length r.TotalCost
+    printfn "Selected %d options, total cost: %.2f" r.SelectedOptions.Length r.TotalCost
     printfn "Coverage: %d/%d elements" r.ElementsCovered r.TotalElements
-| Error e -> printfn "Coverage optimization failed: %A" e
+| Error err -> printfn "Coverage optimization failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `element` - Add an element to the universe (auto-expands universe size if needed)
-- `universeSize` - Set the universe size directly (total number of elements to cover)
-- `option` - Add a coverage option (id: string, coveredElements: int list, cost: float)
-- `backend` - Quantum backend to use (required)
-- `shots` - Number of measurement shots (default: 1000)
+- `element` - Add an element index (grows the universe size if needed)
+- `universeSize` - Set the number of elements directly
+- `option id coveredElements cost` - Add an option (`string`, `int list`, `float`)
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
 
 **Notes**:
-- Uses QAOA-based set cover optimization via QUBO formulation
-- Either use `element` to incrementally define the universe, or `universeSize` to set it directly
-- Element indices are 0-based and must be in range [0, UniverseSize)
-- Option costs must be non-negative
-
-**Use Cases**:
-- Shift coverage: Select minimum shifts to cover all time slots
-- Facility location: Place minimum facilities to serve all demand zones
-- Service coverage: Select service packages covering all customer needs
-- Network coverage: Place minimum sensors to monitor all segments
-- Test coverage: Select minimum test suites covering all code paths
+- Uses QAOA on a QUBO formulation of set cover.
+- Element indices are 0-based and must be in [0, universeSize); costs must be non-negative.
 
 ---
 
-### 22. resourcePairing
+### 26. resourcePairing
 
 **Module**: `FSharp.Azure.Quantum.Business.ResourcePairing`
 
-**Purpose**: Optimal 1:1 pairing/matching of participants maximizing total compatibility
+**Purpose**: 1:1 pairing of participants that maximizes total compatibility. Solves when evaluated and returns `QuantumResult<PairingResult>`.
 
 **Example**:
 ```fsharp
-let result = resourcePairing {
+open FSharp.Azure.Quantum.Business.ResourcePairing
+
+let pairing = resourcePairing {
     participant "Alice"
     participant "Bob"
     participant "Carol"
 
-    compatibility "Alice" "Bob" 0.9    // High compatibility
-    compatibility "Alice" "Carol" 0.5  // Medium compatibility
-    compatibility "Bob" "Carol" 0.7    // Good compatibility
+    compatibility "Alice" "Bob" 0.9
+    compatibility "Alice" "Carol" 0.5
+    compatibility "Bob" "Carol" 0.7
 
-    backend myBackend
+    backend localBackend
 }
 
-match result with
+match pairing with
 | Ok r ->
     printfn "Found %d pairings, total score: %.2f" r.Pairings.Length r.TotalScore
-    r.Pairings |> List.iter (fun p ->
-        printfn "  %s <-> %s (%.2f)" p.Participant1 p.Participant2 p.Weight)
-| Error e -> printfn "Resource pairing failed: %A" e
+    for p in r.Pairings do
+        printfn "  %s <-> %s (%.2f)" p.Participant1 p.Participant2 p.Weight
+| Error err -> printfn "Resource pairing failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `participant` - Add a single participant by ID
-- `participants` - Add multiple participants at once (string list)
-- `compatibility` - Add a compatibility score between two participants (p1: string, p2: string, weight: float)
-- `backend` - Quantum backend to use (required)
-- `shots` - Number of measurement shots (default: 1000)
+- `participant` - Add a participant by ID
+- `participants` - Add several participants (`string list`)
+- `compatibility p1 p2 weight` - Compatibility score between two participants
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
 
 **Notes**:
-- Uses QAOA-based maximum weight matching via QUBO formulation
-- Requires at least 2 participants
-- Compatibility weights must be non-negative (higher = better match)
-- All participants referenced in compatibilities must be declared
-
-**Use Cases**:
-- Recruiting: Match job candidates to open positions
-- Mentoring: Pair mentors with mentees based on compatibility
-- Trading: Match buyers with sellers for optimal deals
-- Healthcare: Assign patients to specialists by expertise fit
-- Ride-sharing: Match drivers with passengers by proximity/preference
+- Uses QAOA on a QUBO formulation of maximum weight matching.
+- Needs at least 2 participants; weights must be non-negative; every participant in a compatibility must be declared.
 
 ---
 
-### 23. packingOptimizer
+### 27. packingOptimizer
 
 **Module**: `FSharp.Azure.Quantum.Business.PackingOptimizer`
 
-**Purpose**: Bin packing optimization — assign items to bins minimizing the number of bins used
+**Purpose**: Bin packing: assign items to bins so that as few bins as possible are used. Solves when evaluated and returns `QuantumResult<PackingResult>`.
 
 **Example**:
 ```fsharp
-let result = packingOptimizer {
+open FSharp.Azure.Quantum.Business.PackingOptimizer
+
+let packing = packingOptimizer {
     containerCapacity 100.0
 
     item "Crate-A" 45.0
@@ -962,35 +1188,60 @@ let result = packingOptimizer {
     item "Crate-C" 25.0
     item "Crate-D" 50.0
 
-    backend myBackend
+    backend localBackend
 }
 
-match result with
+match packing with
 | Ok r ->
     printfn "Packed %d items into %d bins" r.ItemsAssigned r.BinsUsed
-    r.Assignments |> List.iter (fun a ->
-        printfn "  %s (size %.1f) -> Bin %d" a.Item.Id a.Item.Size a.BinIndex)
-| Error e -> printfn "Packing optimization failed: %A" e
+    for a in r.Assignments do
+        printfn "  %s (size %.1f) -> Bin %d" a.Item.Id a.Item.Size a.BinIndex
+| Error err -> printfn "Packing optimization failed: %s" err.Message
 ```
 
 **Custom Operations**:
-- `item` - Add an item to pack (id: string, size: float)
-- `containerCapacity` - Set the capacity of each bin/container (all bins have the same capacity)
-- `backend` - Quantum backend to use (required)
-- `shots` - Number of measurement shots (default: 1000)
+- `item id size` - Add an item
+- `containerCapacity` - Capacity of every bin
+- `backend` - Quantum backend (default: LocalBackend)
+- `shots` - Measurement shots (default: 1000)
 
 **Notes**:
-- Uses QAOA-based bin packing optimization via QUBO formulation
-- All item sizes must be positive and not exceed bin capacity
-- Bin capacity must be positive
-- Requires at least one item
+- Uses QAOA on a QUBO formulation of bin packing.
+- Item sizes must be positive and no larger than the bin capacity; at least one item is required.
 
-**Use Cases**:
-- Container loading: Pack cargo into containers minimizing container count
-- VM placement: Place virtual machines onto servers respecting memory/CPU limits
-- Warehouse: Assign products to storage bins by size constraints
-- Cloud computing: Schedule batch jobs into time windows with capacity limits
-- Manufacturing: Cut stock into pieces minimizing waste
+---
+
+### 28. socialNetwork
+
+**Module**: `FSharp.Azure.Quantum.Business.SocialNetworkAnalyzer`
+
+**Purpose**: Find communities, a minimum monitor set, or pairings in a network of people. Solves when evaluated and returns `QuantumResult<SocialNetworkResult>`.
+
+**Example**:
+```fsharp
+open FSharp.Azure.Quantum.Business.SocialNetworkAnalyzer
+
+let analysis = socialNetwork {
+    people ["Alice"; "Bob"; "Carol"; "Dave"]
+    connections [ "Alice", "Bob"; "Bob", "Carol"; "Alice", "Carol"; "Carol", "Dave" ]
+    findLargestCommunity
+}
+
+match analysis with
+| Ok result -> printfn "%s" result.Message
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**Custom Operations**:
+- `person` / `people` - Add one person / several people
+- `connection p1 p2` / `connections pairs` - Add connections
+- `findCommunities size` - Find communities of the given size
+- `findLargestCommunity` - Find the largest community
+- `findMonitorSet` - Smallest set of people covering all connections
+- `findPairings` - Pair people along connections
+- `backend` - Quantum backend (default: LocalBackend)
+- `useGrover` / `useQaoa` - Force the algorithm
+- `shots` - Measurement shots
 
 ---
 
@@ -998,89 +1249,80 @@ match result with
 
 ### For Loops in CEs
 
-Many CEs support `for` loops for adding multiple similar items:
+Custom operations cannot see a `for` loop variable, so a loop body must produce a value of the builder's state type with `yield!`. Custom operations must also come before the first `yield!`, `for` or `if` in the expression (otherwise error FS3086). The circuit and graph coloring builders support this:
 
 ```fsharp
-// Circuit: Apply Hadamard to all qubits
+// Circuit: Hadamard on every qubit
 let superposition = circuit {
     qubits 5
     for q in [0..4] do
-        H q
+        yield! singleGate (Gate.H q)
 }
 
-// Constraint Solver: Add row constraints for a 4×4 Sudoku
-let sudoku = constraintSolver<int> {
-    searchSpace 6   // one variable per empty cell (6 × log2(4) = 12 qubits)
-    domain [1..4]
-    for row in [0..3] do
-        satisfies (checkRow row)
-}
-
-// Pattern Matcher: Combine multiple patterns with AND logic
-let search = patternMatcher<Config> {
-    searchSpace allConfigs
-    for pattern in [perfPattern; costPattern; securityPattern] do
-        matchPattern pattern  // All must match
+// Graph coloring: add nodes from data
+let fromData = graphColoring {
+    colors ["Red"; "Green"; "Blue"]
+    for (id, conflicts) in [ "A", ["B"]; "B", ["A"; "C"]; "C", ["B"] ] do
+        yield! singleNode (coloredNode { nodeId id; conflictsWith conflicts })
 }
 ```
+
+The other builders take lists instead of loops: `satisfies` can be used several times in `constraintSolver`, and list-valued operations such as `nodes`, `tasks`, `participants` or `people` add many items at once.
 
 ### Backend Configuration
 
-Most quantum CEs support backend specification:
+Every quantum builder defaults to the local simulator when `backend` is not set (except `optionPricing`, which requires it):
 
 ```fsharp
 // Default: LocalBackend (simulation)
-let problem1 = periodFinder {
+let onSimulator = periodFinder {
     number 15
-    precision 12
+    precision 8
 }
 
-// Explicit backend
-let ionqBackend = // Cloud backend requires Azure Quantum workspace
-// createIonQBackend(...)
-let problem2 = periodFinder {
+// Explicit backend: any IQuantumBackend, for example a cloud backend
+// created with CloudBackends.CloudBackendFactory (see Backend Switching)
+let onBackend (qpu: IQuantumBackend) = periodFinder {
     number 15
-    precision 12
-    backend ionqBackend
+    precision 8
+    backend qpu
 }
 ```
 
-### Auto-Scaling Parameters
+### Default Shots and Thresholds
 
-Many CEs have auto-scaling parameters that adapt to backend type:
-
-| Parameter | LocalBackend | Cloud Backend |
-|-----------|--------------|---------------|
-| `shots` | 100-1000 | 500-2048 |
-| `maxIterations` | Auto-calculate | Auto-calculate |
-| `solutionThreshold` | 1% | 2% |
-| `successThreshold` | 10% | 20% |
-
-Use `None` for auto-scaling (recommended), or specify explicit values for fine-tuning.
+| Builder | `shots` default | Other defaults |
+|---------|-----------------|----------------|
+| `constraintSolver`, `patternMatcher` | 1000 | Grover iterations calculated |
+| `phaseEstimator` | 1024 on LocalBackend, 2048 on other backends | |
+| `quantumTreeSearch` | 50 on LocalBackend, 250 on other backends | `solutionThreshold` 5%; `successThreshold` 50% local, 60% other |
+| `quantumArithmetic` | 100 | |
+| `periodFinder`, `linearSystemSolver` | not used | |
+| ML builders, `optionPricing`, `coverageOptimizer`, `resourcePairing`, `packingOptimizer`, `constraintScheduler` | 1000 | |
+| `quantumRiskEngine`, `drugDiscovery` | 100 | |
 
 ### Progress Reporting and Cancellation
 
-All ML builders (`autoML`, `binaryClassification`, `predictiveModel`, `anomalyDetection`, `similaritySearch`) support progress reporting and cancellation for long-running operations:
+The ML builders (`autoML`, `binaryClassification`, `predictiveModel`, `anomalyDetection`, `similaritySearch`) accept a progress reporter and a cancellation token. `constraintSolver` and `quantumTreeSearch` accept a reporter through `onProgress`.
 
 ```fsharp
 open System.Threading
 open FSharp.Azure.Quantum.Core.Progress
 
 // Example 1: Console progress reporter
-let consoleReporter = createConsoleReporter(verbose = true)
+let consoleReporter = createConsoleReporter (Some true) None
 
 let result1 = autoML {
     trainWith features labels
     maxTrials 20
-    progressReporter consoleReporter  // Real-time console updates
+    progressReporter consoleReporter
 }
 
 // Example 2: Event-based progress with cancellation
 let cts = new CancellationTokenSource()
-let reporter = createEventReporter()
+let reporter = createEventReporter ()
 reporter.SetCancellationToken(cts.Token)
 
-// Subscribe to progress events
 reporter.ProgressChanged.Add(fun event ->
     match event with
     | TrialCompleted(id, score, elapsed) ->
@@ -1097,35 +1339,31 @@ let result2 = autoML {
 
 // Example 3: Timeout-based cancellation
 let ctsTimeout = new CancellationTokenSource()
-ctsTimeout.CancelAfter(TimeSpan.FromMinutes(5.0))
+ctsTimeout.CancelAfter(TimeSpan.FromMinutes 5.0)
 
 let result3 = binaryClassification {
-    trainWith features labels
+    trainWith trainFeatures trainLabels
     maxEpochs 1000
-    cancellationToken ctsTimeout.Token  // Auto-cancel after 5 minutes
+    cancellationToken ctsTimeout.Token
 }
 ```
 
 **Progress Event Types**:
 - `TrialStarted(trialId, totalTrials, modelType)` - AutoML trial starting
-- `TrialCompleted(trialId, score, elapsedSeconds)` - AutoML trial completed successfully
+- `TrialCompleted(trialId, score, elapsedSeconds)` - AutoML trial completed
 - `TrialFailed(trialId, error)` - AutoML trial failed
 - `ProgressUpdate(percentComplete, message)` - General progress update
-- `PhaseChanged(phaseName, message)` - Algorithm phase changed
-- `IterationUpdate(current, total, currentBest)` - Iteration progress
+- `PhaseChanged(phaseName, message)` - Algorithm phase changed (`message` is a `string option`)
+- `IterationUpdate(current, total, currentBest)` - Iteration progress (`currentBest` is a `float option`)
+- `BackendExecutionStarted(backendName, numShots)` / `BackendExecutionCompleted(backendName, elapsedSeconds)` - Backend calls
 
 **Built-in Reporters**:
-- `createConsoleReporter()` - Console output with formatting
-- `createEventReporter()` - Event-based for UI integration
-- `createNullReporter()` - No-op reporter
-- `createAggregatingReporter(reporters)` - Combine multiple reporters
+- `createConsoleReporter verbose cancellationToken` - Console output (both arguments are options)
+- `createEventReporter ()` - Raises `ProgressChanged` events, for UI integration
+- `createNullReporter ()` - Does nothing
+- `createAggregatingReporter reporters` - Forwards to several reporters
 
-**Use Cases**:
-- **Long-running searches**: Monitor AutoML with 20+ trials
-- **UI integration**: Real-time progress bars in WPF/Blazor/Avalonia
-- **Production monitoring**: Log progress to monitoring systems
-- **Resource constraints**: Timeout protection with automatic cancellation
-- **Early exit**: Cancel when good-enough results found
+**Use Cases**: monitoring long AutoML searches, progress bars in a UI, logging, timeouts, stopping early once a result is good enough.
 
 ---
 
@@ -1133,25 +1371,30 @@ let result3 = binaryClassification {
 
 ### If IntelliSense Doesn't Show Operations
 
-1. **Type the CE name explicitly**:
-   ```fsharp
-   let problem = periodFinder {
-       // Now press Ctrl+Space to see operations
-   }
-   ```
+**1. Type the CE name and open the braces first:**
 
-2. **Check you're using the correct CE instance name** (not the builder type):
-   - ✅ `periodFinder { }` - Correct
-   - ❌ `PeriodFinderBuilder { }` - Wrong
+```fsharp
+let problem = periodFinder {
+    // Now press Ctrl+Space to see operations
+    number 21
+}
+```
 
-3. **For generic CEs, specify the type parameter**:
-   ```fsharp
-   let search = patternMatcher<Config> {
-       // Type parameter helps IntelliSense
-   }
-   ```
+**2. Use the CE instance name, not the builder type:**
+- ✅ `periodFinder { }` - Correct
+- ❌ `PeriodFinderBuilder { }` - Wrong
 
-4. **Use this reference table** when IntelliSense fails
+**3. For generic CEs, give the type parameter:**
+
+```fsharp
+let search = patternMatcher<Config> {
+    // The type parameter helps IntelliSense
+    searchSpace allConfigs
+    matchPattern (fun cfg -> cfg.Cost < 50.0)
+}
+```
+
+**4. Use this reference table** when IntelliSense fails.
 
 ---
 
@@ -1160,3 +1403,4 @@ let result3 = binaryClassification {
 - [Getting Started Guide](getting-started.md)
 - [API Reference](api-reference.md)
 - [Architecture Overview](architecture-overview.md)
+- [Computation Expression Composition](computation-expression-composition.md)

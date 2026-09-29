@@ -2,7 +2,9 @@
 
 **Choosing the Right Quantum Backend for Your Application**
 
-This guide helps you select the appropriate quantum backend (LocalBackend, IonQ, Rigetti, D-Wave) for your specific use case in FSharp.Azure.Quantum.
+This guide helps you select the appropriate quantum backend (LocalBackend, IonQ, Rigetti, D-Wave) for your specific use case in FSharp.Azure.Quantum. The library also has cloud backends for Quantinuum, Atom Computing and IQM (see [Backend Switching](backend-switching.md)); they follow the same pattern as IonQ and Rigetti below.
+
+> **About the hardware figures:** qubit counts, fidelities and prices below are approximate and describe the device generations named in each profile (IonQ Harmony, Rigetti Aspen-M). Providers retire and replace devices often, and current systems are larger; check the [Azure Quantum target list](https://learn.microsoft.com/azure/quantum/qc-target-list) before choosing. The library's own pre-flight checks (`CircuitValidator.KnownTargets`) use similar figures: 11 qubits for IonQ hardware and 79 for Rigetti Aspen-M-3.
 
 ---
 
@@ -12,13 +14,13 @@ This guide helps you select the appropriate quantum backend (LocalBackend, IonQ,
 START: What are you trying to do?
 │
 ├─ Learning / Development / Testing
-│  └─→ LocalBackend (memory-derived width, ≤30)
+│  └─→ LocalBackend (memory-derived width, ≤30; solvers run up to 20 by default)
 │
 ├─ Small problem (≤11 qubits) + Need HIGH accuracy
-│  └─→ IonQ Harmony (trapped ion, 99.5% fidelity)
+│  └─→ IonQ (trapped ion, high gate fidelity)
 │
 ├─ Medium problem (12-80 qubits) + Can tolerate some noise
-│  └─→ Rigetti Aspen-M (superconducting, fast gates)
+│  └─→ Rigetti (superconducting, fast gates)
 │
 ├─ Large optimization problem (100-5000 variables)
 │  └─→ D-Wave Advantage (quantum annealer, QUBO/Ising only)
@@ -34,15 +36,15 @@ START: What are you trying to do?
 | Feature | LocalBackend | IonQ Harmony | Rigetti Aspen-M | D-Wave Advantage |
 |---------|--------------|--------------|-----------------|------------------|
 | **Type** | Simulator | Trapped Ion | Superconducting | Quantum Annealer |
-| **Qubit Count** | ≤20 practical | 11 | ~80 | 5000+ |
+| **Qubit Count** | ≤20 practical, ≤30 in memory | 11 | ~80 | 5000+ |
 | **Connectivity** | Full | All-to-all | Limited (grid) | Chimera/Pegasus graph |
 | **Gate Fidelity** | Perfect | 99.5%+ | 97-99% | N/A (annealing) |
 | **Coherence Time** | Infinite | ~1 second | ~50 μs | N/A |
-| **Gate Time** | Instant | ~200 μs | ~50 ns | N/A |
+| **Gate Time** | N/A (simulated) | ~200 μs | ~50 ns | N/A |
 | **Circuit Depth** | Unlimited | ~100 gates | ~50 gates | N/A (fixed schedule) |
 | **Cost** | Free | $$$ per shot | $$ per shot | $$ per second |
 | **Best For** | Development | High-precision | Medium-scale NISQ | Large-scale opt. |
-| **Algorithms** | All | Gate-based | Gate-based | QAOA, VQE, Opt. only |
+| **Algorithms** | All | Gate-based | Gate-based | QUBO/Ising optimization only |
 
 ---
 
@@ -57,8 +59,8 @@ START: What are you trying to do?
   A state vector holds 2ⁿ amplitudes × 16 bytes, and applying a gate holds two
   of them, so the library picks the widest n whose working set fits half of
   available memory — reported as `StateVector.maxQubits` and through
-  `LocalBackend`'s `MaxQubits`. Override with the `FSAQ_MAX_QUBITS`
-  environment variable.
+  `LocalBackend`'s `MaxQubits`. It never reports fewer than 20. Override with the
+  `FSAQ_MAX_QUBITS` environment variable.
   - 10 qubits: 16 KB
   - 20 qubits: 16 MB
   - 26 qubits: 1 GB (needs ~4 GB machine)
@@ -68,7 +70,11 @@ START: What are you trying to do?
   caps a single array at `Array.MaxLength` (2,147,483,591 elements), so 2³¹
   amplitudes cannot be allocated at any memory size. Going wider needs a
   chunked state representation, not more RAM.
-- **Fidelity:** Perfect (no noise, unless added deliberately)
+- **Runnable width:** time doubles with every qubit too, so solvers refuse problems
+  wider than `StateVector.practicalCircuitQubits` (20 by default; override with
+  `FSAQ_MAX_CIRCUIT_QUBITS`).
+- **Fidelity:** Perfect (no noise). `NoisyLocalBackend` adds a depolarizing noise
+  model for circuits of up to 8 qubits.
 - **Speed:** Instant for small circuits, exponentially slower with qubits
 
 **✅ Best For:**
@@ -80,12 +86,13 @@ START: What are you trying to do?
 
 **❌ NOT Good For:**
 - **Large problems** (beyond the simulator width) - exponentially slow
-- **Noise studies** - too perfect unless noise model added
+- **Noise studies** - only the simple depolarizing model of `NoisyLocalBackend`
 - **Performance benchmarking** - simulation doesn't reflect real hardware
 
 **Code Example:**
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 // No configuration needed - always available
 let problem = graphColoring {
@@ -95,9 +102,9 @@ let problem = graphColoring {
     colors ["Red"; "Blue"]
 }
 
-// Automatically uses LocalBackend when the circuit fits its width
+// Backend None = the local simulator (3 nodes × 2 colors = 6 qubits)
 match GraphColoring.solve problem 2 None with
-| Ok solution -> printfn "Solution: %A" solution
+| Ok solution -> printfn "Solution: %A" solution.Assignments
 | Error err -> printfn "Error: %s" err.Message
 ```
 
@@ -105,12 +112,12 @@ match GraphColoring.solve problem 2 None with
 
 ---
 
-### 2. IonQ Harmony (Trapped Ion)
+### 2. IonQ (Trapped Ion)
 
 **Technology:** Individual trapped ytterbium ions manipulated by lasers
 
-**Specifications:**
-- **Qubits:** 11 physical qubits
+**Specifications** (IonQ Harmony):
+- **Qubits:** 11 physical qubits (newer IonQ systems have more)
 - **Connectivity:** All-to-all (any qubit can interact with any other)
 - **Gate Fidelity:**
   - Single-qubit gates: 99.7%
@@ -127,7 +134,7 @@ match GraphColoring.solve problem 2 None with
 - **Research requiring high fidelity** results
 
 **❌ NOT Good For:**
-- **Large problems** (>11 qubits) - qubit count limit
+- **Large problems** (more qubits than the device has)
 - **Very deep circuits** (>100 gates) - accumulates errors
 - **Cost-sensitive applications** - most expensive per shot
 
@@ -135,57 +142,47 @@ match GraphColoring.solve problem 2 None with
 ```fsharp
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-// Configure IonQ backend
-let workspace = AzureQuantumWorkspace.create 
-    "your-subscription-id"
-    "your-resource-group"
-    "your-workspace-name"
-    "eastus"
+// Authenticate (DefaultAzureCredential: `az login`, environment variables or managed identity)
+let workspaceUrl =
+    "https://<location>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
 
-let ionqBackend = IonQBackend.create workspace "ionq.simulator"  // or "ionq.qpu"
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
 
-// Run VQE on IonQ
-open FSharp.Azure.Quantum.QuantumChemistry
+// "ionq.simulator" for the free simulator, or a QPU target such as "ionq.qpu.aria-1"
+let ionqBackend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 
-let h2 = Molecule.createH2 0.74  // H2 molecule
-let config = {
-    Method = GroundStateMethod.VQE
-    MaxIterations = 100
-    Tolerance = 1e-6
-    InitialParameters = None
-    Backend = Some ionqBackend
-    ProgressReporter = None
-    ErrorMitigation = None
-    IntegralProvider = None
-}
+// Run a 3-qubit GHZ circuit on IonQ
+let ghz =
+    CircuitBuilder.empty 3
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(1, 2))
 
-async {
-    let! result = GroundStateEnergy.estimateEnergy h2 config
-    match result with
-    | Ok vqeResult -> 
-        printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
-    | Error err -> 
-        printfn "Error: %A" err
-}
-|> Async.RunSynchronously
+match Primitives.sample ionqBackend ghz 1000 with
+| Ok counts -> printfn "Counts: %A" counts  // mostly "000" and "111"
+| Error err -> printfn "Error: %s" err.Message
 ```
 
-> **Async alternative:** Cloud backends now support `task { }` with `CancellationToken`. Use `backend.ExecuteToStateAsync circuit ct` for non-blocking execution. See [Backend Switching](backend-switching.md).
+Chemistry solvers take the same backend through `SolverConfig.Backend`. Note that with `Method = GroundStateMethod.VQE`, `GroundStateEnergy.estimateEnergy` currently returns tabulated reference energies for molecules it recognises as H₂, H₂O or LiH without running circuits, so use a different molecule (or your own Hamiltonian, see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md)) when the goal is to exercise the hardware.
+
+> **Async alternative:** Cloud backends support `task { }` with `CancellationToken`. Use `backend.ExecuteToStateAsync circuit ct` or `Primitives.sampleAsync` for non-blocking execution. See [Backend Switching](backend-switching.md).
 
 **Cost:** ~$0.30 per circuit execution (varies by shot count)
 
-**When to Choose IonQ:** You need the **highest quality** results and your problem fits in 11 qubits.
+**When to Choose IonQ:** You need the **highest quality** results and your problem fits on the device.
 
 ---
 
-### 3. Rigetti Aspen-M (Superconducting)
+### 3. Rigetti (Superconducting)
 
 **Technology:** Superconducting transmon qubits at ~15 mK temperature
 
 > *Physics: Superconducting qubits exploit Josephson junctions—two superconductors separated by a thin insulator. Quantum tunneling of Cooper pairs creates discrete energy levels that encode |0⟩ and |1⟩. First described by Josephson (1962), this earned the Nobel Prize and enabled Google, IBM, and Rigetti hardware.*
 
-**Specifications:**
+**Specifications** (Rigetti Aspen-M):
 - **Qubits:** ~80 qubits (varies by generation)
 - **Connectivity:** Limited (grid/lattice topology)
   - Nearest-neighbor interactions only
@@ -200,9 +197,8 @@ async {
 
 **✅ Best For:**
 - **Medium-scale NISQ algorithms** (QAOA, VQE with 20-80 qubits)
-- **Optimization problems** (MaxCut, Graph Coloring, TSP with 20-80 variables)
+- **Optimization problems** (MaxCut, Graph Coloring with 20-80 variables)
 - **Fast execution** required (gates are 1000x faster than IonQ)
-- **Larger molecular systems** (if you can tolerate lower fidelity)
 - **Variational algorithms** that are noise-resilient
 
 **❌ NOT Good For:**
@@ -213,16 +209,8 @@ async {
 
 **Code Example:**
 ```fsharp
-open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.Core
-
-let workspace = AzureQuantumWorkspace.create 
-    "your-subscription-id"
-    "your-resource-group"
-    "your-workspace-name"
-    "eastus"
-
-let rigettiBackend = RigettiBackend.create workspace "rigetti.sim.qvm"  // or "rigetti.qpu.aspen-m-3"
+// "rigetti.sim.qvm" for the simulator, or a QPU target such as "rigetti.qpu.ankaa-3"
+let rigettiBackend = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.sim.qvm" 1000
 
 // Run QAOA MaxCut on Rigetti
 let vertices = ["A"; "B"; "C"; "D"; "E"; "F"]  // 6 vertices = 6 qubits
@@ -232,15 +220,17 @@ let edges = [
     ("E", "F", 1.0); ("F", "A", 1.0)
 ]
 
-let problem = MaxCut.createProblem vertices edges
+let maxCutProblem = MaxCut.createProblem vertices edges
 
-match MaxCut.solve problem (Some rigettiBackend) with
+match MaxCut.solve maxCutProblem (Some rigettiBackend) with
 | Ok solution ->
     printfn "Max cut value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
 | Error err ->
     printfn "Error: %s" err.Message
 ```
+
+For QPUs with limited connectivity, `CloudBackendFactory.createRigettiRouted` takes the device coupling map and inserts the SWAP gates for you.
 
 **Cost:** ~$0.10-0.20 per circuit execution (cheaper than IonQ)
 
@@ -264,15 +254,14 @@ match MaxCut.solve problem (Some rigettiBackend) with
 
 **✅ Best For:**
 - **Large-scale optimization** (100-5000 variables)
-  - Traveling Salesperson Problem (TSP)
   - Portfolio optimization
-  - Vehicle routing
   - Job shop scheduling
   - MaxCut on large graphs
+  - Small routing problems (TSP needs N² binary variables, so even 50 cities is 2,500 variables before embedding)
 - **QUBO problems** (Quadratic Unconstrained Binary Optimization)
 - **Ising model simulations**
 - **Combinatorial optimization** at scale
-- **When you need results NOW** (milliseconds vs minutes for gate-based)
+- **Fast sampling** once the problem is embedded
 
 **❌ NOT Good For:**
 - **General quantum algorithms** (Shor's, Grover, QFT, QPE) - annealer can't run these
@@ -281,42 +270,29 @@ match MaxCut.solve problem (Some rigettiBackend) with
 - **Problems not expressible as QUBO/Ising** - fundamental limitation
 
 **Code Example:**
+
+The D-Wave backend implements `IQuantumBackend`, so QUBO-based solvers such as `MaxCut.solve` accept it: the solver's QAOA circuit is converted back to a QUBO and annealed.
+
 ```fsharp
-open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.DWave
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Configure D-Wave backend
-let dwaveConfig = {
-    Solver = "Advantage_system6.4"  // Latest D-Wave hardware
-    Chain Strength = 1.0
-    NumReads = 1000
-    AnnealingTime = 20  // microseconds
-}
+// Reads DWAVE_API_TOKEN (required), DWAVE_ENDPOINT and DWAVE_SOLVER (default "Advantage_system6.1")
+match RealDWaveBackend.createFromEnv () with
+| Error err -> printfn "D-Wave not configured: %s" err.Message
+| Ok dwave ->
+    use dwave = dwave
+    let ring =
+        MaxCut.createProblem
+            [ for i in 1 .. 20 -> $"N{i}" ]
+            [ for i in 1 .. 20 -> ($"N{i}", $"N{i % 20 + 1}", 1.0) ]
 
-let dwaveBackend = RealDWaveBackend.create 
-    "your-dwave-api-token"
-    "your-dwave-endpoint"
-    dwaveConfig
+    match MaxCut.solve ring (Some(dwave :> IQuantumBackend)) with
+    | Ok solution -> printfn "Cut value: %.1f" solution.CutValue
+    | Error err -> printfn "Error: %s" err.Message
 
-// Solve large TSP on D-Wave (100 cities)
-let cities = [1..100] |> List.map (fun i -> sprintf "City%d" i)
-let distances = // ... 100x100 distance matrix
-
-let problem = tsp {
-    for city in cities do
-        addCity city
-    for i in 0..99 do
-        for j in i+1..99 do
-            addDistance cities.[i] cities.[j] distances.[i].[j]
-}
-
-// D-Wave can handle 100 cities (gate-based limited to ~10)
-match Tsp.solve problem (Some dwaveBackend) with
-| Ok solution ->
-    printfn "Tour length: %.2f" solution.TotalDistance
-    printfn "Route: %A" solution.Tour
-| Error err ->
-    printfn "Error: %s" err.Message
+// Offline testing: a mock annealer with the same interface
+let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 ```
 
 **Cost:** ~$2 per minute of QPU time (cost-effective for large problems)
@@ -335,7 +311,7 @@ match Tsp.solve problem (Some dwaveBackend) with
 | **Shor's Factoring** | IonQ | 5-11 | QPE requires high precision |
 | **QFT** | IonQ | 3-11 | Deep circuit, needs fidelity |
 | **QPE** | IonQ | 5-11 | High precision critical |
-| **VQE (chemistry)** | IonQ (<4 atoms), Rigetti (4-8 atoms) | 4-20 | Shallow circuits, noise-resilient |
+| **VQE (chemistry)** | IonQ (<4 atoms), Rigetti (4-8 atoms) | 4-20 | Shallow circuits, noise-resilient; the library's chemistry path caps molecules at 20 qubits |
 | **QAOA** | Rigetti (medium), D-Wave (large) | 10-5000 | Optimization-focused |
 
 ### Optimization Problems
@@ -348,9 +324,9 @@ match Tsp.solve problem (Some dwaveBackend) with
 | **MaxCut** | <10 | LocalBackend or IonQ | Small, test locally |
 | | 10-80 | Rigetti | Gate-based QAOA |
 | | 80+ | D-Wave | Annealer optimal |
-| **TSP** | <8 cities | LocalBackend/IonQ | Proof of concept |
-| | 8-20 cities | Rigetti | Medium scale |
-| | 20+ cities | D-Wave | Only option at scale |
+| **TSP** (N² qubits) | ≤4 cities | LocalBackend | Proof of concept; 3 cities also fit an 11-qubit device |
+| | 5-8 cities | Rigetti | 25-64 qubits |
+| | 9+ cities | D-Wave or classical | 81+ variables; annealer or HybridSolver |
 | **Portfolio Opt.** | <10 assets | LocalBackend | Test first |
 | | 10-50 assets | Rigetti | Medium portfolios |
 | | 50+ assets | D-Wave | Large institutional |
@@ -376,7 +352,7 @@ match Tsp.solve problem (Some dwaveBackend) with
 - Perfect for debugging
 
 **Only move to cloud when:**
-- Problem >20 qubits
+- Problem >20 qubits (the simulator's default runnable width)
 - Need real hardware noise characteristics
 - Ready for production testing
 
@@ -409,11 +385,11 @@ match Tsp.solve problem (Some dwaveBackend) with
 | 5 | <1 ms | ~500 ms | ~100 ms | ~50 ms |
 | 10 | ~10 ms | ~1 sec | ~200 ms | ~50 ms |
 | 20 | ~1 sec | N/A (>11) | ~500 ms | ~50 ms |
-| 50 | Hours | N/A | ~2 sec | ~50 ms |
-| 100 | Impossible | N/A | N/A (>80) | ~50 ms |
-| 1000 | Impossible | N/A | N/A | ~100 ms |
+| 50 | Not possible (>30) | N/A | ~2 sec | ~50 ms |
+| 100 | Not possible | N/A | N/A (>80) | ~50 ms |
+| 1000 | Not possible | N/A | N/A | ~100 ms |
 
-**Key Takeaway:** D-Wave annealer is consistently fast regardless of problem size (for QUBO problems only).
+Cloud times exclude queueing, which usually dominates. **Key Takeaway:** once a QUBO problem is embedded, D-Wave's annealing time hardly depends on problem size (for QUBO problems only).
 
 ---
 
@@ -445,7 +421,7 @@ Problem must map to Pegasus graph → May need "minor embedding"
 Embedding efficiency varies by problem structure
 ```
 
-**Example:** 100-variable TSP might use 500-1000 physical qubits after embedding
+**Example:** a 100-variable dense QUBO might use 500-1000 physical qubits after embedding
 
 ---
 
@@ -461,19 +437,23 @@ Different backends benefit from different error mitigation strategies:
 | **D-Wave** | Majority voting, spin-reversal | Annealer-specific techniques |
 
 **Code Example:**
+
+`ErrorMitigationStrategy.selectStrategy` recommends techniques from the circuit size, backend, budget and accuracy target:
+
 ```fsharp
-open FSharp.Azure.Quantum.ErrorMitigation
+let rigettiCriteria : ErrorMitigationStrategy.SelectionCriteria =
+    { CircuitDepth = 30
+      QubitCount = 6
+      Backend = { Id = "rigetti.sim.qvm"; Provider = "Rigetti"; Name = "Rigetti QVM"; Status = "Available" }
+      MaxCostUSD = Some 50.0
+      RequiredAccuracy = None
+      Calibration = None } // supply a ReadoutErrorMitigation calibration to enable REM correction
 
-// Configure error mitigation for Rigetti
-let mitigationStrategy = {
-    ZNE = None  // Not as effective on noisy Rigetti
-    PEC = None  // Too expensive for Rigetti noise level
-    REM = Some { CalibrationShots = 1000 }  // ✅ Best for readout errors
-}
-
-// Apply mitigation to backend
-let mitigatedBackend = ErrorMitigationStrategy.apply mitigationStrategy rigettiBackend
+let mitigationStrategy = ErrorMitigationStrategy.selectStrategy rigettiCriteria
+printfn "%s" mitigationStrategy.Reasoning  // medium circuit with budget: ZNE + readout
 ```
+
+Mitigation is applied to results, not to a backend: ZNE and PEC run your circuit through an executor (`ZeroNoiseExtrapolation.mitigate`, `ProbabilisticErrorCancellation.mitigate`), and REM corrects measured histograms (`ReadoutErrorMitigation.correctReadoutErrors`). The chemistry solvers accept a strategy in `SolverConfig.ErrorMitigation` and apply its readout part to their measurement counts. See [Error Mitigation](error-mitigation.md) for complete examples.
 
 ---
 
@@ -485,9 +465,9 @@ let mitigatedBackend = ErrorMitigationStrategy.apply mitigationStrategy rigettiB
 |------|----------------|
 | Learn quantum computing | LocalBackend |
 | Develop/debug algorithm | LocalBackend |
-| Test small problem (<20 qubits) | LocalBackend (free) |
-| Solve high-precision chemistry (H2, LiH) | IonQ Harmony |
-| Solve medium NISQ problem (20-80 qubits) | Rigetti Aspen-M |
+| Test small problem (≤20 qubits) | LocalBackend (free) |
+| Solve high-precision chemistry (H2, LiH) | IonQ |
+| Solve medium NISQ problem (20-80 qubits) | Rigetti |
 | Solve large optimization (100-5000 vars) | D-Wave Advantage |
 | Minimize cost | LocalBackend → Rigetti → IonQ |
 | Maximize accuracy | IonQ → Rigetti → D-Wave |
@@ -500,7 +480,7 @@ let mitigatedBackend = ErrorMitigationStrategy.apply mitigationStrategy rigettiB
 
 - [Azure Quantum Documentation](https://docs.microsoft.com/en-us/azure/quantum/)
 - [IonQ Hardware Specifications](https://ionq.com/quantum-systems)
-- [Rigetti Aspen-M Specifications](https://www.rigetti.com/systems)
+- [Rigetti Systems](https://www.rigetti.com/systems)
 - [D-Wave Advantage System](https://www.dwavesys.com/solutions-and-products/systems/)
 - [Quantum Computing: An Applied Approach (Hidary, Ch 5)](https://link.springer.com/chapter/10.1007/978-3-030-83274-2_5) - Building Quantum Computers
 

@@ -508,6 +508,7 @@ The FSharp.Azure.Quantum library provides idiomatic F# abstractions:
 ```fsharp
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.CircuitBuilder
+open FSharp.Azure.Quantum.Backends
 
 // Low-level circuit construction (functional pipeline)
 let bellStateCircuit = 
@@ -520,14 +521,16 @@ match validate bellStateCircuit with
 | result when result.IsValid -> 
     printfn "Circuit has %d gates" (gateCount bellStateCircuit)
 | result -> 
-    printfn "Errors: %A" result.Errors
+    printfn "Errors: %A" result.Messages
 
 // Execute on local simulator
 let backend = LocalBackendFactory.createUnified()
 let shots = 1000
 
 // Circuit executes and returns measurement counts
-// e.g., {"00": 498, "11": 502} for entangled Bell state
+match Primitives.sample backend bellStateCircuit shots with
+| Ok counts -> printfn "%A" counts  // e.g. map [("00", 498); ("11", 502)] for the entangled Bell state
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 This functional pipeline style leverages F#'s composition and type safety. Circuits are immutable values that can be composed, optimized, and validated before execution.
@@ -536,15 +539,18 @@ This functional pipeline style leverages F#'s composition and type safety. Circu
 
 While understanding qubits, gates, and circuits provides valuable intuition, **FSharp.Azure.Quantum prioritizes practical problem-solving over low-level quantum mechanics**. The library's design philosophy centers on **quantum-empowered business solutions** rather than quantum circuit manipulation.
 
-**The library's focus**: Enterprise developers and AI agents shouldn't need Ph.D.-level quantum physics knowledge to leverage quantum advantages. Instead, they should express business problems naturally and let the library handle quantum complexity.
+**The library's focus**: Enterprise developers and AI agents shouldn't need Ph.D.-level quantum physics knowledge to use quantum algorithms. Instead, they should express business problems naturally and let the library handle quantum complexity.
 
 **Real-world example - compare approaches**:
 
+<!-- fragment -->
 ```fsharp
 // ❌ Low-level approach (100+ lines of QAOA circuit construction)
+// problemHamiltonianGates, mixingHamiltonianGates, graph and params stand for
+// the code you would have to write yourself
 let circuit = 
-    empty 20
-    |> addGates (List.init 20 (fun i -> H i))  // Initial superposition
+    empty 12
+    |> addGates (List.init 12 (fun i -> H i))  // Initial superposition
     |> addGates (problemHamiltonianGates graph params.[0])  // Problem encoding
     |> addGates (mixingHamiltonianGates params.[1])  // Mixing layer
     // ... repeat for multiple layers
@@ -552,8 +558,12 @@ let circuit =
     // ... classical optimization loop
     // ... decode bitstrings to graph coloring
     // ... validate solution
+```
 
-// ✅ Business-focused approach (5 lines)
+```fsharp
+open FSharp.Azure.Quantum.GraphColoring
+
+// ✅ Business-focused approach (4 nodes × 3 colors = 12 qubits)
 let problem = graphColoring {
     node "RegisterA" ["RegisterB"; "RegisterC"]
     node "RegisterB" ["RegisterA"; "RegisterD"]
@@ -573,7 +583,7 @@ match GraphColoring.solve problem 3 None with
 - Expresses domain intent directly (register allocation, not qubits)
 - Hides quantum complexity (QAOA, QUBO encoding, parameter optimization)
 - Provides validated, actionable results (color assignments, not bitstrings)
-- Enables non-quantum-experts to leverage quantum advantage
+- Lets non-quantum-experts use quantum optimization
 - Suitable for AI agents reasoning about business logic, not quantum gates
 
 **Target users**:
@@ -589,7 +599,8 @@ The low-level circuit API exists for **educational purposes** and **algorithm re
 **Advanced builders**: The library provides specialized computation expressions for common patterns:
 
 ```fsharp
-// Phase estimation for quantum chemistry
+// Phase estimation (the T gate has eigenphase 1/8)
+open FSharp.Azure.Quantum.Algorithms.QPE  // unitary operators: TGate, PhaseGate, RotationZ, ...
 open QuantumPhaseEstimator
 
 // The builder validates the problem and returns a Result,
@@ -619,18 +630,21 @@ match sum with
 | Ok result -> printfn "Sum: %d" result.Value
 | Error err -> printfn "Error: %s" err.Message
 
-// Tree search with quantum speedup (e.g. game AI move selection)
+// Tree search (e.g. game AI move selection), shown on a toy game:
+// a position is a number, a move adds 1-4, higher numbers are better
 open QuantumTreeSearch
 
-let problem = quantumTreeSearch {
-    initialState myGameBoard
-    maxDepth 3
-    branchingFactor 16
-    evaluateWith evaluatePosition
-    generateMovesWith getLegalMoves
+// Unlike the two builders above, this one throws on an invalid problem;
+// solve returns a Result
+let searchProblem = quantumTreeSearch {
+    initialState 0
+    maxDepth 2
+    branchingFactor 4
+    evaluateWith (fun (position: int) -> float position)
+    generateMovesWith (fun position -> [ for step in 1 .. 4 -> position + step ])
 }
 
-match QuantumTreeSearch.solve problem with
+match QuantumTreeSearch.solve searchProblem with
 | Ok solution -> printfn "Best move: %d (score %.2f)" solution.BestMove solution.Score
 | Error err -> printfn "Error: %s" err.Message
 ```
@@ -683,15 +697,15 @@ let ghzState n =
 
 **Functional Pipeline:**
 
-```fsharp
+```
 CircuitBuilder.empty    : int → Circuit
 CircuitBuilder.addGate  : Gate → Circuit → Circuit
 CircuitBuilder.optimize : Circuit → Circuit
-CircuitBuilder.validate : Circuit → ValidationResult
-Backend.execute         : Circuit → int → Result<Map<string,int>>
+CircuitBuilder.validate : Circuit → Validation.ValidationResult
+Primitives.sample       : IQuantumBackend → Circuit → int → QuantumResult<Map<string, int>>
 ```
 
-Each function is pure, composable, and type-safe—leveraging F#'s strengths for quantum algorithm development.
+The circuit functions are pure, composable, and type-safe; running the circuit on a backend (`Primitives.sample`) is the only step with side effects—leveraging F#'s strengths for quantum algorithm development.
 
 ## Further Reading
 
@@ -727,7 +741,7 @@ Each function is pure, composable, and type-safe—leveraging F#'s strengths for
 - **Qiskit** (Python/IBM): Mature ecosystem, extensive tutorials
 - **Cirq** (Python/Google): NISQ-focused, integration with Google's quantum processors
 - **Q#** (Microsoft): Full-featured quantum language integrated with Azure Quantum
-- **FSharp.Azure.Quantum** (F#): Functional abstractions over Azure Quantum and Q#
+- **FSharp.Azure.Quantum** (F#): Functional abstractions over Azure Quantum; circuits are submitted in each provider's native format, no Q# required
 
 **Other great F# applications**
 - This page is featured in F# Advent Calendar 2025: https://sergeytihon.com/2025/11/03/f-advent-calendar-in-english-2025/
@@ -762,7 +776,7 @@ As hardware matures from NISQ devices to error-corrected machines, quantum-class
 FSharp.Azure.Quantum brings these abstractions to a practical cloud platform, enabling:
 - **Immediate value**: Solve optimization problems today with local simulation (memory-derived width) or cloud QPUs (100+ qubits)
 - **Future-proofing**: Same code scales from NISQ hardware to error-corrected systems as backends improve
-- **Accessibility**: Enterprise developers leverage quantum advantage without quantum physics expertise
+- **Accessibility**: Enterprise developers use quantum algorithms without quantum physics expertise
 - **Automation readiness**: APIs designed for both human developers and autonomous AI agents
 
 **The quantum future is pragmatic**: Like GPU computing transformed machine learning and cryptographic accelerators enabled secure communications, quantum computing will become a specialized tool in the computational toolkit—powerful for specific tasks, integrated transparently into hybrid systems. F# developers understanding both functional programming and quantum principles will be well-positioned to build these integration layers. More importantly, F# developers who understand **business domains** and **problem abstraction** will drive quantum adoption by making quantum advantage accessible to everyone—from enterprise developers to autonomous AI systems.

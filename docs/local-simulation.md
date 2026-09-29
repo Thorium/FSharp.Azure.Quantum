@@ -11,18 +11,20 @@ The local quantum simulation module enables rapid development, unit testing, and
 
 ## Overview
 
-FSharp.Azure.Quantum includes a lightweight, pure F# quantum simulator that supports:
+FSharp.Azure.Quantum includes a pure F# quantum simulator that supports:
 
 - **State vector simulation** up to `StateVector.maxQubits`, derived from available memory (2^n amplitudes x 16 bytes; hard ceiling 30)
-- **QAOA circuits** with mixer and cost Hamiltonians
-- **Single-qubit gates**: X, Y, Z, H, Rx, Ry, Rz
-- **Two-qubit gates**: CNOT, CZ
+- **Any `CircuitBuilder` circuit** through `LocalBackend`, including QAOA circuits
+- **Single-qubit gates**: X, Y, Z, H, S, S†, T, T†, P, Rx, Ry, Rz, U
+- **Multi-qubit gates**: CNOT, CZ, SWAP, controlled phase and rotations (CP, CRX, CRY, CRZ), Rxx, Ryy, Rzz, CCX, multi-controlled Z
 - **Measurement** with shot sampling
-- **Zero external dependencies** - uses only System.Numerics.Complex from BCL
+- **A noisy density-matrix variant** (`NoisyLocalBackend`) for small circuits
+- **No native dependencies** - the simulator core uses only `System.Numerics.Complex` from the BCL
 
 ## Quick Start
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 open FSharp.Azure.Quantum.Backends
 
@@ -37,7 +39,12 @@ let distances = array2D [
 let backend = LocalBackendFactory.createUnified()
 
 // Solve with default configuration (QAOA with parameter optimization)
-match solve backend distances defaultConfig with
+let result =
+    solveAsync backend distances defaultConfig CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
+match result with
 | Ok solution ->
     printfn "Backend: %s" solution.BackendName
     printfn "Time: %.2f ms" solution.ElapsedMs
@@ -49,49 +56,51 @@ match solve backend distances defaultConfig with
     eprintfn "Simulation failed: %s" err.Message
 ```
 
-**Output:**
+**Example output** (timings and parameters vary from run to run):
 ```
-Backend: Local QAOA Simulator
+Backend: Local Simulator
 Time: 125.45 ms
 Best tour: [|0; 1; 2|]
 Tour length: 4.50
-Optimized parameters (γ, β): (1.23, 0.87)
+Optimized parameters (γ, β): Some (1.23, 0.87)
 Optimization converged: true
 ```
+
+A 3-city TSP uses 9 qubits (N² for N cities). The solver refuses problems wider than the backend can run in reasonable time, so on the local simulator TSP is practical up to 4 cities (16 qubits).
 
 ## When to Use Local Simulation
 
 ### ✅ Use Local Simulation For:
 
-- **Unit testing** - Fast, deterministic tests without network I/O
+- **Unit testing** - Fast tests without network I/O
 - **Algorithm development** - Rapid iteration during development
 - **Educational purposes** - Learning quantum concepts interactively
-- **Small problems** - Up to 20 qubits (2^20 = ~1M state dimensions)
+- **Small problems** - Up to about 20 qubits comfortably (2^20 ≈ 1M amplitudes, 16 MB)
 - **Offline work** - No internet connection required
 - **Cost-free exploration** - Zero cloud execution costs
 
 ### ⚠️ Use Azure Quantum For:
 
-- **Large problems** - More than 20 qubits
+- **Large problems** - Wider than the simulator can hold (`StateVector.maxQubits`) or finish in reasonable time
 - **Production workloads** - Scalable cloud execution
-- **Hardware access** - Real quantum hardware (IonQ, Rigetti, etc.)
-- **Performance** - Parallel execution across multiple circuits
+- **Hardware access** - Real quantum hardware (IonQ, Rigetti, Quantinuum, etc.)
+- **Real noise** - Results that reflect a specific device
 
 ## Unified Backend API (Recommended)
 
-The `BackendAbstraction` module provides a **single consistent API** for local simulation, IonQ, and Rigetti backends. This is the recommended approach for quantum algorithm development.
+The `IQuantumBackend` interface (in `FSharp.Azure.Quantum.Core.BackendAbstraction`) is the **single consistent API** for local simulation and cloud backends (IonQ, Rigetti, Quantinuum, Atom Computing, IQM). Solvers and algorithms take an `IQuantumBackend`, so the same code runs on any of them.
 
 ### Creating Backends
 
 ```fsharp
 open FSharp.Azure.Quantum.Backends
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Option 1: Local backend (no configuration needed)
+// Local backend (no configuration needed)
 let localBackend = LocalBackendFactory.createUnified()
 
-// Note: Cloud backends (IonQ, Rigetti) require Azure Quantum workspace configuration
-// and are created using workspace-specific factory methods (see Azure Quantum documentation)
+// Cloud backends need an authenticated HttpClient and an Azure Quantum workspace URL;
+// they are created with CloudBackends.CloudBackendFactory (see Backend Switching).
 ```
 
 ### Backend Switching
@@ -107,9 +116,14 @@ let distances_backend_demo = array2D [
 
 // Same code, different backends - just pass different backend instance
 let runWithBackend (backend: IQuantumBackend) =
-    match solve backend distances_backend_demo defaultConfig with
+    let result =
+        solveAsync backend distances_backend_demo defaultConfig CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    match result with
     | Ok solution ->
-        printfn "%s: Tour length = %.2f (%.2f ms)" 
+        printfn "%s: Tour length = %.2f (%.2f ms)"
             solution.BackendName solution.TourLength solution.ElapsedMs
     | Error err -> printfn "Error: %s" err.Message
 
@@ -123,73 +137,65 @@ runWithBackend localBackend
 // runWithBackend rigettiBackend
 ```
 
-**No algorithm changes needed** - same `solve` function, same distance matrix input!
+**No algorithm changes needed** - same `solveAsync` function, same distance matrix input!
 
-### Using Backend Interface
+### Running Your Own Circuits
 
-For dependency injection or testing, use the `IQuantumBackend` interface:
+For your own circuits, `Primitives` runs a `CircuitBuilder` circuit on any `IQuantumBackend`. This also makes testing easy: pass a different backend instance.
 
 ```fsharp
-// Mock circuit for demonstration purposes
-let quboMatrix = array2D [[1.0; -1.0]; [-1.0; 1.0]]
-let problemHam = ProblemHamiltonian.fromQubo quboMatrix
-let mixerHam = MixerHamiltonian.create 2
-let qaoaCircuit = QaoaCircuit.build problemHam mixerHam [|(0.5, 0.3)|]
-let circuit = wrapQaoaCircuit qaoaCircuit
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.CircuitBuilder
 
-let executeWithBackend (backend: IQuantumBackend) circuit shots =
-    match backend.Execute circuit shots with
-        | Ok result ->
-            printfn "Backend: %s, Shots: %d" result.BackendName result.NumShots
-            result.Measurements
-        | Error err ->
-            eprintfn "Execution failed: %s" err.Message
-            [||]
+// Bell state circuit
+let bell =
+    circuit {
+        qubits 2
+        H 0
+        CNOT 0 1
+    }
+
+let executeWithBackend (backend: IQuantumBackend) (c: Circuit) (shots: int) =
+    match Primitives.sample backend c shots with
+    | Ok counts ->
+        printfn "Backend: %s, Shots: %d" backend.Name shots
+        counts
+    | Error err ->
+        eprintfn "Execution failed: %s" err.Message
+        Map.empty
 
 // Use local backend
-let localBackend2 = LocalBackendFactory.createUnified()
-let measurements_demo = executeWithBackend localBackend2 circuit 1000
-
-// Easy to swap for testing or different backends
-// let testBackend = MyTestBackend() :> IQuantumBackend  // Your test implementation
-// let testMeasurements = executeWithBackend testBackend circuit 100
+let measurements_demo = executeWithBackend localBackend bell 1000
+// e.g. map [("00", 507); ("11", 493)]
 ```
 
-### Execution Result Format
+### Execution Results
 
-All backends return the same `ExecutionResult` type:
+There is no single result record shared by every call; each level returns what it naturally produces:
 
-```fsharp
-type ExecutionResult = {
-    /// Measurement counts (bitstring -> frequency)
-    Counts: Map<string, int>
-    
-    /// Number of shots executed
-    Shots: int
-    
-    /// Backend identifier ("Local", "Azure", etc.)
-    Backend: string
-    
-    /// Execution time in milliseconds
-    ExecutionTimeMs: float
-    
-    /// Job ID (Azure only, None for local)
-    JobId: string option
-}
-```
+| Call | Returns |
+|------|---------|
+| `backend.ExecuteToState (CircuitAbstraction.wrapCircuit c)` | `Result<QuantumState, QuantumError>` - the final state (amplitudes on the local simulator) |
+| `Primitives.getState backend c` | the same, for a `CircuitBuilder.Circuit` |
+| `Primitives.sample backend c shots` | `Result<Map<string, int>, QuantumError>` - bitstring → count |
+| `Primitives.run backend c shots` | `Result<int[][], QuantumError>` - one bit array per shot |
+| `Primitives.observe backend c hamiltonian` | `Result<float, QuantumError>` - expectation value of a Pauli Hamiltonian |
+| Solvers (TSP, MaxCut, ...) | their own solution records, including `BackendName` |
 
-This uniform format makes it easy to:
+Bitstrings from `Primitives.sample` list **qubit 0 first**: `"10"` means qubit 0 measured 1 and qubit 1 measured 0. `QaoaSimulator.simulate` (below) writes the **highest qubit first**, like `Convert.ToString(index, 2)`.
+
+Because every backend returns the same shapes, it is easy to:
 - Compare results between backends
 - Log execution metrics consistently
 - Build visualizations that work with any backend
 
 ## Advanced: Low-Level Modules
 
-**Note:** The following low-level modules are available for advanced use cases, but most users should use the unified `QuantumBackend` API shown above.
+**Note:** The following low-level modules are available for advanced use cases, but most users should use `IQuantumBackend` and the solvers shown above.
 
 These modules provide direct access to quantum operations for:
 - Educational purposes (learning how quantum simulation works)
-- Custom circuit types beyond QAOA
+- Custom simulation code
 - Performance optimization for specific use cases
 
 ### 1. StateVector - Quantum State Representation
@@ -197,15 +203,14 @@ These modules provide direct access to quantum operations for:
 The `StateVector` module manages quantum state as a complex-valued vector.
 
 ```fsharp
-open FSharp.Azure.Quantum.LocalSimulator.StateVector
-open FSharp.Azure.Quantum.LocalSimulator.Gates
+open FSharp.Azure.Quantum.LocalSimulator
 
 // Initialize 3 qubits to |000⟩ state
 let state = StateVector.init 3
 
 // Get state properties
 let dimension = StateVector.dimension state        // 8 (2^3)
-let amplitudes = 
+let amplitudes =
     [| 0 .. dimension - 1 |]
     |> Array.map (fun i -> StateVector.getAmplitude i state)  // Get each amplitude
 
@@ -214,7 +219,7 @@ let norm = StateVector.norm state  // 1.0
 
 // Create uniform superposition |+⟩^⊗n (all basis states equally likely)
 // Apply Hadamard to all qubits
-let superposition = 
+let superposition =
     let s = StateVector.init 2  // Start with |00⟩
     s |> Gates.applyH 0 |> Gates.applyH 1  // Apply H to each qubit
 ```
@@ -246,8 +251,7 @@ Single-qubit and two-qubit gate operations.
 #### Single-Qubit Gates
 
 ```fsharp
-open FSharp.Azure.Quantum.LocalSimulator.StateVector
-open FSharp.Azure.Quantum.LocalSimulator.Gates
+open FSharp.Azure.Quantum.LocalSimulator
 
 let state = StateVector.init 2
 
@@ -314,24 +318,24 @@ let stateCZ = Gates.applyCZ 0 1 state  // Qubit 0 and 1
 **Gate Behavior:**
 
 - **CNOT(control, target)**: Flips target qubit if control is |1⟩
-  - |00⟩ → |00⟩, |01⟩ → |01⟩, |10⟩ → |11⟩, |11⟩ → |10⟩
+  - Written as |control target⟩: |00⟩ → |00⟩, |01⟩ → |01⟩, |10⟩ → |11⟩, |11⟩ → |10⟩
 - **CZ(qubit1, qubit2)**: Adds -1 phase if both qubits are |1⟩
   - |11⟩ → -|11⟩, all other states unchanged
 
 ### 3. QaoaSimulator - QAOA Circuit Execution
 
-**Note:** For application development, use `QuantumBackend.Local.simulate` instead (see Unified Backend API section above). This low-level module is for educational purposes.
+**Note:** For application development, use a solver or run a QAOA circuit on an `IQuantumBackend` (see [Integration with Backends](#integration-with-backends)). This low-level module is for educational purposes.
 
 The `QaoaSimulator` module provides direct QAOA simulation operations:
 
 ```fsharp
-open FSharp.Azure.Quantum.LocalSimulator.QaoaSimulator
+open FSharp.Azure.Quantum.LocalSimulator
 
 // Initialize uniform superposition manually
 let state = QaoaSimulator.initializeUniformSuperposition 3
 
-// Apply cost interaction (ZZ term)
-let stateAfterCost = QaoaSimulator.applyCostInteraction 0.5 0 1 -1.0 state
+// Apply cost interaction (ZZ term): gamma, qubit1, qubit2, coefficient
+let stateAfterCost = QaoaSimulator.applyCostInteraction 0.5 0 1 (-1.0) state
 
 // Apply mixer layer (RX gates on all qubits)
 let stateAfterMixer = QaoaSimulator.applyMixerLayer 0.3 stateAfterCost
@@ -339,21 +343,21 @@ let stateAfterMixer = QaoaSimulator.applyMixerLayer 0.3 stateAfterCost
 
 **QAOA Circuit Structure:**
 
-For depth p, QAOA applies p layers of:
+The circuit starts from the uniform superposition (H on every qubit). For depth p, QAOA then applies p layers of:
 1. **Cost Hamiltonian**: Encodes problem structure
-   - Applies Rz rotations based on edge weights
-   - Applies CZ gates between connected nodes
+   - Rz rotations for single-qubit (diagonal) terms
+   - ZZ rotations (CNOT - Rz - CNOT) for two-qubit terms, with angle 2·γ·weight
 2. **Mixer Hamiltonian**: Enables exploration
-   - Applies Rx rotations to all qubits
+   - Rx rotations on all qubits
 
 **QAOA Circuit Formula:**
 
 <div style="display:block; margin-left: 1em;">
-  <span style="color:#666666; font-weight:bold">|0⟩^⊗n</span> → [<span style="color:#CC0066; font-weight:bold">Cost(γ₁)</span> → <span style="color:#0066CC; font-weight:bold">Mix(β₁)</span>] → ... → [<span style="color:#CC0066; font-weight:bold">Cost(γₚ)</span> → <span style="color:#0066CC; font-weight:bold">Mix(βₚ)</span>] → Measure
+  <span style="color:#666666; font-weight:bold">H<sup>⊗n</sup>|0⟩^⊗n</span> → [<span style="color:#CC0066; font-weight:bold">Cost(γ₁)</span> → <span style="color:#0066CC; font-weight:bold">Mix(β₁)</span>] → ... → [<span style="color:#CC0066; font-weight:bold">Cost(γₚ)</span> → <span style="color:#0066CC; font-weight:bold">Mix(βₚ)</span>] → Measure
 </div>
 
 **Where:**
-- <span style="color:#666666; font-weight:bold">|0⟩^⊗n</span> = Initial state (n qubits, all in |0⟩)
+- <span style="color:#666666; font-weight:bold">H<sup>⊗n</sup>|0⟩^⊗n</span> = Initial uniform superposition (n qubits)
 - <span style="color:#CC0066; font-weight:bold">Cost(γₖ)</span> = Cost Hamiltonian layer with parameter γₖ
 - <span style="color:#0066CC; font-weight:bold">Mix(βₖ)</span> = Mixer Hamiltonian layer with parameter βₖ
 - <span style="color:#009966; font-weight:bold">p</span> = Circuit depth (number of layer repetitions)
@@ -364,45 +368,43 @@ For depth p, QAOA applies p layers of:
 Measure quantum states and sample outcomes.
 
 ```fsharp
-open FSharp.Azure.Quantum.LocalSimulator.Measurement
-open FSharp.Azure.Quantum.LocalSimulator.StateVector
-open FSharp.Azure.Quantum.LocalSimulator.Gates
 open System
+open FSharp.Azure.Quantum.LocalSimulator
 
 // Create a superposition state
-let state = 
+let state =
     StateVector.init 2
     |> Gates.applyH 0  // |0⟩ → (|0⟩+|1⟩)/√2 on qubit 0
 
-// Get probability distribution
+// Get probability distribution (index i = basis state i, qubit 0 = bit 0)
 let probabilities = Measurement.getProbabilityDistribution state
-// probabilities = [| 0.5; 0.0; 0.5; 0.0 |]
-//                    |00⟩  |01⟩  |10⟩  |11⟩
+// probabilities = [| 0.5; 0.5; 0.0; 0.0 |]
+//              index   0     1     2     3
 
-// Verify Born rule: P(|ψ⟩) = |⟨ψ|α⟩|²
-let prob00 = Measurement.getBasisStateProbability 0 state  // 0.5
-let prob10 = Measurement.getBasisStateProbability 2 state  // 0.5
+// Born rule: P(i) = |αᵢ|²
+let prob0 = Measurement.getBasisStateProbability 0 state  // 0.5
+let prob1 = Measurement.getBasisStateProbability 1 state  // 0.5 (qubit 0 = 1)
 
-// Sample outcomes with shots
+// Sample outcomes with shots (non-destructive: each shot samples the same state)
 let rng = Random()
 let samples = Measurement.sampleAndCount rng 1000 state  // 1000 measurements
 // Returns: Map<int, int> of basis_index → count
-// Example: Map [(0, 503); (2, 497)]
+// Example: Map [(0, 503); (1, 497)]
 
-// Perform single measurement (collapses state)
-let outcome = Measurement.measureComputationalBasis rng state
+// Measure one qubit, then collapse the state to match the outcome
+let outcome = Measurement.measureSingleQubit rng 0 state  // 0 or 1 (50% chance each)
 let collapsedState = Measurement.collapseAfterMeasurement 0 outcome state
-printfn "Measured basis state: %d" outcome  // 0 or 2 (50% chance each)
+printfn "Qubit 0 measured: %d" outcome
 
-// Sample bitstrings (convert int outcomes to binary strings)
+// Sample bitstrings (convert int outcomes to binary strings, highest qubit first)
 let rawSamples = Measurement.sampleMeasurements rng 100 state
-let bitstrings = 
-    rawSamples 
-    |> Array.groupBy id 
-    |> Array.map (fun (outcome, arr) -> 
-        (Convert.ToString(outcome, 2).PadLeft(2, '0'), arr.Length))
+let bitstrings =
+    rawSamples
+    |> Array.countBy id
+    |> Array.map (fun (outcome, count) ->
+        (Convert.ToString(outcome, 2).PadLeft(2, '0'), count))
     |> Map.ofArray
-// Returns: Map<string, int> of "00" → 52, "10" → 48
+// Returns: Map<string, int>, e.g. "00" → 52, "01" → 48
 
 // Get expectation value (using computeExpectedValue)
 let pauliZ qubitIdx basisState =
@@ -428,7 +430,7 @@ let expectation = Measurement.computeExpectedValue (pauliZ 0) state
 - <span style="color:#0066CC; font-weight:bold">αᵢ</span> = Complex amplitude for state |i⟩
 - <span style="color:#009966; font-weight:bold">|αᵢ|²</span> = Squared magnitude (amplitude × conjugate)
 
-- **Collapse**: After measurement, state becomes the measured basis state
+- **Collapse**: After measurement, state becomes consistent with the measured outcome (`collapseAfterMeasurement`)
 - **Shots**: Multiple measurements to estimate probability distribution
 - **Bitstrings**: Classical outcome representation (e.g., "101" for |101⟩)
 - **Expectation Value:**
@@ -447,11 +449,11 @@ let expectation = Measurement.computeExpectedValue (pauliZ 0) state
 ```fsharp
 // Run many shots and analyze statistics
 let numShots = 10000
-let rng = Random()
-let samples = Measurement.sampleAndCount rng numShots state
+let statsRng = Random()
+let counts = Measurement.sampleAndCount statsRng numShots state
 
-let statistics = 
-    samples
+let statistics =
+    counts
     |> Map.toList
     |> List.map (fun (basisIndex, count) ->
         let bitstring = Convert.ToString(basisIndex, 2).PadLeft(2, '0')
@@ -488,24 +490,22 @@ statistics
 | 5 | 32 complex numbers | 512 bytes |
 | 8 | 256 complex numbers | 4 KB |
 | 10 | 1024 complex numbers | 16 KB |
+| 20 | about 1 million complex numbers | 16 MB |
+| 30 | about 1 billion complex numbers | 16 GB |
 
-**Note:** Each complex number uses 16 bytes (2 × 8-byte doubles)
+**Note:** Each complex number uses 16 bytes (2 × 8-byte doubles). Applying a gate keeps two state vectors alive (source and result), and the simulator allows itself half of available memory, so an n-qubit simulation needs about 2^n × 64 bytes of total memory.
 
 ### Practical Limits
 
-```fsharp
-// ✅ Fast: 5 qubits, 100 shots
-QaoaSimulator.simulate circuit5 100  // ~10ms
+The simulator has three separate limits:
 
-// ✅ Reasonable: 8 qubits, 1000 shots
-QaoaSimulator.simulate circuit8 1000  // ~100ms
+| Limit | Value | What it controls |
+|-------|-------|------------------|
+| `StateVector.maxQubits` | Derived from available memory, at least 20 and at most 30; override with `FSAQ_MAX_QUBITS` | Widest state `LocalBackend` can hold (reported as its `MaxQubits`) |
+| `StateVector.practicalCircuitQubits` | 20 by default; override with `FSAQ_MAX_CIRCUIT_QUBITS` (clamped to `maxQubits`) | Widest circuit worth running; solvers refuse wider problems via `UnifiedBackend.getRunnableQubits` |
+| `QaoaSimulator.simulate` | 16 qubits | The standalone QAOA simulator returns an `Error` above 16 qubits |
 
-// ⚠️ Slow: 16 qubits, 10000 shots
-QaoaSimulator.simulate circuit16 10000  // ~several seconds
-
-// ❌ Too large: 17+ qubits
-QaoaSimulator.simulate circuit17 1000  // Error: exceeds 16-qubit limit
-```
+Each extra qubit doubles both memory and time per gate. Circuits of a few qubits run in milliseconds; around 16-20 qubits, iterative algorithms that run a circuit many times (VQE, QAOA optimization) become slow.
 
 ## Complete Example: MaxCut Problem
 
@@ -513,28 +513,28 @@ Let's solve a MaxCut problem using local simulation:
 
 ```fsharp
 open FSharp.Azure.Quantum.LocalSimulator
-open FSharp.Azure.Quantum.Quantum
-open System
 
 // Define a 4-node graph MaxCut problem
 //     0 --- 1
-//     |  X  |
+//     |  \  |
 //     3 --- 2
 // Goal: Partition nodes into two sets to maximize cut edges
 
-let buildMaxCutCircuit numQubits edges beta gamma =
+let buildMaxCutCircuit numQubits edges gamma beta : QaoaSimulator.QaoaCircuit =
     {
         NumQubits = numQubits
-        Parameters = [| beta; gamma |]
-        CostTerms = 
-            edges 
+        Parameters = [| gamma; beta |]  // [γ₁; β₁] for depth 1
+        CostTerms =
+            edges
             |> List.map (fun (i, j) -> (i, j, -1.0))  // Weight -1 for MaxCut
             |> Array.ofList
         Depth = 1
     }
 
-let evaluateMaxCut edges bitstring =
-    let isSet i = bitstring.[i] = '1'
+// Bitstrings from QaoaSimulator list the highest qubit first,
+// so qubit i is character (length - 1 - i)
+let evaluateMaxCut edges (bitstring: string) =
+    let isSet i = bitstring.[bitstring.Length - 1 - i] = '1'
     edges
     |> List.filter (fun (i, j) -> isSet i <> isSet j)  // Count cut edges
     |> List.length
@@ -542,33 +542,33 @@ let evaluateMaxCut edges bitstring =
 let edges = [(0, 1); (1, 2); (2, 3); (3, 0); (0, 2)]  // 5 edges
 
 // Grid search over QAOA parameters
-let betaRange = [0.0 .. 0.2 .. 1.0]
 let gammaRange = [0.0 .. 0.2 .. 1.0]
+let betaRange = [0.0 .. 0.2 .. 1.0]
 
 let bestResult =
-    [ for beta in betaRange do
-        for gamma in gammaRange do
-            let circuit = buildMaxCutCircuit 4 edges beta gamma
+    [ for gamma in gammaRange do
+        for beta in betaRange do
+            let circuit = buildMaxCutCircuit 4 edges gamma beta
             match QaoaSimulator.simulate circuit 1000 with
             | Ok result ->
                 // Find best bitstring from this simulation
-                let best = 
+                let best =
                     result.Counts
                     |> Map.toList
-                    |> List.map (fun (bs, count) -> 
+                    |> List.map (fun (bs, count) ->
                         (bs, count, evaluateMaxCut edges bs))
                     |> List.maxBy (fun (_, _, cut) -> cut)
-                Some (beta, gamma, best)
+                Some (gamma, beta, best)
             | Error _ -> None
     ]
     |> List.choose id
     |> List.maxBy (fun (_, _, (_, _, cut)) -> cut)
 
-let (optBeta, optGamma, (optBitstring, optCount, optCut)) = bestResult
+let (optGamma, optBeta, (optBitstring, optCount, optCut)) = bestResult
 
 printfn "Best QAOA Parameters:"
-printfn "  β = %.2f" optBeta
 printfn "  γ = %.2f" optGamma
+printfn "  β = %.2f" optBeta
 printfn ""
 printfn "Best Solution:"
 printfn "  Partition: %s" optBitstring
@@ -576,220 +576,201 @@ printfn "  Cut edges: %d / %d" optCut edges.Length
 printfn "  Frequency: %d / 1000 shots" optCount
 
 // Verify solution
-let partition0 = [for i in 0..3 do if optBitstring.[i] = '0' then yield i]
-let partition1 = [for i in 0..3 do if optBitstring.[i] = '1' then yield i]
+let inSet1 i = optBitstring.[optBitstring.Length - 1 - i] = '1'
+let partition0 = [for i in 0..3 do if not (inSet1 i) then yield i]
+let partition1 = [for i in 0..3 do if inSet1 i then yield i]
 printfn ""
 printfn "Partitions:"
 printfn "  Set 0: %A" partition0
 printfn "  Set 1: %A" partition1
 ```
 
-**Output:**
+**Example output** (parameters and frequencies vary from run to run; the maximum cut of this graph is 4):
 ```
 Best QAOA Parameters:
-  β = 0.40
-  γ = 0.60
+  γ = 0.00
+  β = 0.00
 
 Best Solution:
-  Partition: 0110
+  Partition: 0101
   Cut edges: 4 / 5
-  Frequency: 387 / 1000 shots
+  Frequency: 61 / 1000 shots
 
 Partitions:
-  Set 0: [0; 3]
-  Set 1: [1; 2]
+  Set 0: [1; 3]
+  Set 1: [0; 2]
 ```
 
-## Integration with Existing Code
+The grid search keeps the best bitstring seen in any run, so with 16 possible bitstrings and 1000 shots it finds the optimum even at γ = β = 0 (a uniform superposition). To judge the parameters themselves, compare the average cut over all shots instead.
 
-The local simulator uses the same `QaoaCircuit` type as the Azure Quantum integration:
+## Integration with Backends
+
+`QaoaSimulator` is standalone: its `QaoaSimulator.QaoaCircuit` record is only understood by `QaoaSimulator.simulate`. To run QAOA on any `IQuantumBackend` (local or cloud), build a `Core.QaoaCircuit` from a QUBO and wrap it:
 
 ```fsharp
-open FSharp.Azure.Quantum.Quantum
-open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.QaoaCircuit
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
 
-let circuit = {
-    NumQubits = 5
-    Parameters = [| 0.5; 0.3 |]
-    CostTerms = [| (0, 1, -1.0); (1, 2, -1.0) |]
-    Depth = 1
-}
+let qubo = array2D [ [ 1.0; -1.0 ]; [ -1.0; 1.0 ] ]
+let problemHam = ProblemHamiltonian.fromQubo qubo
+let mixerHam = MixerHamiltonian.create problemHam.NumQubits
+let qaoa = QaoaCircuit.build problemHam mixerHam [| (0.5, 0.3) |]  // one (γ, β) layer
 
 // Option 1: Local simulation (fast, free)
-let localResult = QaoaSimulator.simulate circuit 1000
+match localBackend.ExecuteToState (wrapQaoaCircuit qaoa) with
+| Ok state ->
+    let shots = UnifiedBackend.measureState state 1000  // one bit array per shot
+    printfn "First shot: %A" shots.[0]
+| Error err -> eprintfn "Execution failed: %s" err.Message
 
-// Option 2: Azure Quantum (scalable, requires credentials)
-// let azureResult = AzureQuantum.execute circuit workspace
-
-// Same circuit type, different backends!
+// Option 2: Azure Quantum - pass a cloud IQuantumBackend instead of localBackend
 ```
 
 **Hybrid Development Workflow:**
 
+1. Develop and test locally with the simulator (fast, free).
+2. Choose parameters locally, for example by comparing the average cut of a few candidates:
+
 ```fsharp
-// Mock variables for demonstration
-let numQubits = 4
-let edges = [(0, 1); (1, 2); (2, 3)]  // Example graph edges
-let circuit_demo = circuit  // Re-use circuit defined earlier
+let candidates = [ (0.2, 0.4); (0.6, 0.4); (1.0, 0.2) ]
 
-// Mock helper functions for demonstration
-let generateCircuits numQubits edges = [circuit_demo]  // Mock: generate test circuits
-let validateResult result = ()  // Mock: validate simulation result
-let parameterGrid = [(1.0, 0.5); (1.5, 0.7); (2.0, 1.0)]  // Mock: parameter combinations to test
-let buildCircuit params = circuit_demo  // Mock: build circuit with given parameters
-let evaluateQuality result = match result with | Ok _ -> 0.85 | Error _ -> 0.0  // Mock: evaluate solution quality
+let averageCut (gamma, beta) =
+    match QaoaSimulator.simulate (buildMaxCutCircuit 4 edges gamma beta) 1000 with
+    | Ok result ->
+        let total = result.Counts |> Map.fold (fun acc bs count -> acc + count * evaluateMaxCut edges bs) 0
+        float total / float result.Shots
+    | Error _ -> 0.0
 
-// 1. Develop and test locally
-let testCircuits = generateCircuits numQubits edges
-for circuit in testCircuits do
-    match QaoaSimulator.simulate circuit 100 with
-    | Ok result -> validateResult result
-    | Error err -> eprintfn "Test failed: %s" err.Message
-
-// 2. Optimize parameters locally
-let optimizedParams = 
-    parameterGrid
-    |> List.map (fun params ->
-        let circuit = buildCircuit params
-        let result = QaoaSimulator.simulate circuit 1000
-        (params, evaluateQuality result))
-    |> List.maxBy snd
-    |> fst
-
-// 3. Deploy to Azure for production scale
-let productionCircuit = buildCircuit optimizedParams
-// let azureResult = AzureQuantum.execute productionCircuit workspace
+let (bestGamma, bestBeta) = candidates |> List.maxBy averageCut
 ```
+
+3. Run the production problem on a cloud backend through the same solver or `IQuantumBackend` code, starting from the chosen parameters.
 
 ## Unit Testing with Local Simulation
 
-The local simulator is ideal for unit testing quantum algorithms:
+The local simulator is ideal for unit testing quantum algorithms. The library's own tests use xUnit; add the `xunit` package to your test project:
 
+<!-- fragment -->
 ```fsharp
 module QaoaTests =
-    open NUnit.Framework
+    open System
+    open Xunit
     open FSharp.Azure.Quantum.LocalSimulator
-    
-    [<Test>]
+
+    [<Fact>]
     let ``QAOA creates superposition`` () =
-        // Setup: 2-qubit circuit with no cost terms
-        let circuit = {
+        // Setup: 2-qubit circuit with no cost terms (γ = 0, β = 0.5)
+        let circuit : QaoaSimulator.QaoaCircuit = {
             NumQubits = 2
-            Parameters = [| 0.5; 0.0 |]  // Only mixer, no cost
+            Parameters = [| 0.0; 0.5 |]
             CostTerms = [||]
             Depth = 1
         }
-        
+
         // Act: Simulate
         let result = QaoaSimulator.simulate circuit 1000
-        
+
         // Assert: Should see multiple outcomes (superposition)
         match result with
         | Ok r ->
-            Assert.Greater(r.Counts.Count, 1, "Should have multiple outcomes")
-            Assert.AreEqual(1000, r.Shots, "All shots recorded")
-        | Error err ->
+            Assert.True(r.Counts.Count > 1, "Should have multiple outcomes")
+            Assert.Equal(1000, r.Shots)
+        | Error msg ->
             Assert.Fail($"Simulation failed: {msg}")
-    
-    [<Test>]
+
+    [<Fact>]
     let ``Single-qubit gates preserve normalization`` () =
         // Setup: Create initial state
         let state = StateVector.init 3
-        
+
         // Act: Apply various gates
-        let state' = 
+        let state' =
             state
             |> Gates.applyH 0
             |> Gates.applyX 1
             |> Gates.applyRz 2 (Math.PI / 4.0)
-        
-        // Assert: State should remain normalized
+
+        // Assert: State should remain normalized (10 decimal places)
         let norm = StateVector.norm state'
-        Assert.AreEqual(1.0, norm, 1e-10, "State must remain normalized")
-    
-    [<Test>]
+        Assert.Equal(1.0, norm, 10)
+
+    [<Fact>]
     let ``Measurement probabilities sum to 1`` () =
         // Setup: Create superposition
-        let state = 
+        let state =
             StateVector.init 2
             |> Gates.applyH 0
             |> Gates.applyH 1
-        
+
         // Act: Get probabilities
-        let probs = getProbabilityDistribution state
-        
+        let probs = Measurement.getProbabilityDistribution state
+
         // Assert: Born rule - probabilities sum to 1
         let total = Array.sum probs
-        Assert.AreEqual(1.0, total, 1e-10, "Probabilities must sum to 1")
+        Assert.Equal(1.0, total, 10)
 ```
 
 ## Error Handling
 
-The simulator provides detailed error messages for common mistakes:
+`QaoaSimulator.simulate` returns an `Error` for invalid input instead of throwing:
 
 ```fsharp
-// ❌ Too many qubits (example - incomplete record syntax)
-// let hugeCircuit = { NumQubits = 15; ... }
-// match QaoaSimulator.simulate hugeCircuit 1000 with
-// | Error err -> 
-//     // "Number of qubits (15) must be at most 16"
-//     ()
+let baseCircuit : QaoaSimulator.QaoaCircuit =
+    { NumQubits = 3; Parameters = [| 0.5; 0.3 |]; CostTerms = [| (0, 1, -1.0) |]; Depth = 1 }
 
-// ❌ Invalid qubit index
-// let state = StateVector.init 3
-// let invalid = Gates.applyX 5 state  // Exception: qubit 5 out of range [0..2]
+let report (circuit: QaoaSimulator.QaoaCircuit) =
+    match QaoaSimulator.simulate circuit 1000 with
+    | Ok _ -> printfn "OK"
+    | Error msg -> printfn "Error: %s" msg
 
-// ❌ Mismatched parameters (example - incomplete record syntax)
-// let badCircuit = { NumQubits = 4; Parameters = [|0.5|]; Depth = 2; ... }
-// match QaoaSimulator.simulate badCircuit 1000 with
-// | Error err ->
-//     // "Expected 4 parameters for depth 2, got 1"
-//     ()
+// ❌ Too many qubits
+report { baseCircuit with NumQubits = 17 }
+// "Number of qubits must be between 1 and 16, got 17"
 
-// ❌ Invalid edge indices (example - incomplete record syntax)
-// let invalidCircuit = { 
-//     NumQubits = 3
-//     CostTerms = [| (0, 5, -1.0) |]  // Qubit 5 doesn't exist!
-//     ...
-// }
-// match QaoaSimulator.simulate invalidCircuit 1000 with
-// | Error err ->
-//     // "Cost term edge (0,5) references qubit 5, but only 3 qubits available"
-//     ()
+// ❌ Mismatched parameters (depth 2 needs 4 parameters)
+report { baseCircuit with Depth = 2 }
+// "Parameters array length (2) must equal Depth * 2 (4)"
+
+// ❌ Invalid edge indices (qubit 5 doesn't exist)
+report { baseCircuit with CostTerms = [| (0, 5, -1.0) |] }
+// "QAOA simulation failed: Qubit indices (0, 5) out of range for 3-qubit state"
 ```
+
+The low-level `Gates` functions throw instead: `Gates.applyX 5 (StateVector.init 3)` raises "Qubit index 5 out of range for 3-qubit state".
 
 ## Next Steps
 
 - **[API Reference](api-reference.md)** - Complete API documentation
 - **[Getting Started Guide](getting-started.md)** - Installation and first steps
+- **[Error Mitigation](error-mitigation.md)** - Uses the noisy density-matrix simulator
 
 ## FAQ
 
-**Q: Why is simulation limited to 20 qubits?**  
-A: State vector simulation requires 2^n complex numbers. For 20 qubits, that's ~1 million complex numbers (16 MB). For 30 qubits it would be 16 GB. The 20-qubit limit balances functionality with practical memory and performance constraints.
+**Q: How many qubits can I simulate?**  
+A: A state vector holds 2^n complex numbers of 16 bytes: 16 MB at 20 qubits, 16 GB at 30. `StateVector.maxQubits` picks the widest n that fits half of available memory (for example 24 qubits with 1 GB, 28 with 16 GB, 30 with 64 GB or more), never less than 20 and never more than 30, because .NET cannot allocate a single array of 2^31 amplitudes. Separately, `StateVector.practicalCircuitQubits` (20 by default) limits how wide a circuit solvers will run, because time also doubles with every qubit.
 
 **Q: How accurate is the simulator?**  
 A: The simulator implements exact state vector evolution with floating-point arithmetic. Expect ~1e-14 numerical precision (double precision). This is sufficient for algorithm development and unit testing.
 
 **Q: Can I simulate noise?**  
-A: Not yet. The current implementation is a noiseless (ideal) simulator. Noise models may be added in future versions.
+A: Yes, for small circuits. `Backends.DensityMatrixSimulator.NoisyLocalBackend` evolves a density matrix with a depolarizing channel after each gate and implements `IQuantumBackend`, so `Primitives.sample` and `Primitives.observe` work with it. It is limited to 8 qubits. `LocalBackend` itself is noiseless.
 
 **Q: How do I compare local vs Azure results?**  
-A: Both return shot counts (bitstring → frequency). The formats are compatible:
+A: Run the same circuit with `Primitives.sample` on both backends; both return `Map<string, int>` (bitstring → count):
 ```fsharp
 // Local simulator
-let localCounts: Map<string, int> = result.Counts
+let localCounts: Map<string, int> = measurements_demo
 
-// Azure Quantum (hypothetical)
-// let azureCounts: Map<string, int> = azureResult.Counts
+// Azure Quantum (with a configured cloud backend)
+// let azureCounts = Primitives.sample azureBackend bell 1000
 
 // Can directly compare distributions
 ```
 
 **Q: Can I use this for algorithms other than QAOA?**  
-A: Currently, the high-level API is QAOA-specific. However, the `StateVector`, `Gates`, and `Measurement` modules are general-purpose and can be used to build arbitrary quantum circuits. Support for other algorithms may be added based on demand.
+A: Yes. `LocalBackend` runs any `CircuitBuilder` circuit, and the library's algorithms (Grover, QFT, QPE, VQE and others) take an `IQuantumBackend`. The `StateVector`, `Gates` and `Measurement` modules are also general-purpose.
 
 ---
 
-**Last Updated**: 2025-11-24  
-**Module Version**: v0.1.0-alpha
+**Last Updated**: 2026-09-29

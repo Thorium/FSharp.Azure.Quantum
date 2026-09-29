@@ -9,7 +9,7 @@ title: Quantum Machine Learning
 
 ## Overview
 
-Quantum Machine Learning (QML) leverages quantum computing to enhance classical machine learning algorithms. The FSharp.Azure.Quantum library provides production-ready implementations of key QML algorithms:
+Quantum Machine Learning (QML) leverages quantum computing to enhance classical machine learning algorithms. The FSharp.Azure.Quantum library provides implementations of these QML algorithms:
 
 - **Variational Quantum Classifier (VQC)** - Supervised learning with parameterized quantum circuits
 - **Quantum Kernel SVM** - Support vector machines using quantum feature spaces
@@ -79,43 +79,51 @@ VQC is a supervised learning algorithm that uses parameterized quantum circuits 
 ### API Reference
 
 ```fsharp
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.MachineLearning
 
-// Training configuration
+let backend = LocalBackend() :> IQuantumBackend
+
+// Small two-feature dataset (binary labels 0/1)
+let trainFeatures = [| [| 0.1; 0.1 |]; [| 0.9; 0.9 |]; [| 0.1; 0.9 |]; [| 0.9; 0.1 |] |]
+let trainLabels = [| 0; 0; 1; 1 |]
+let testPoint = [| 0.15; 0.85 |]
+
+// Training configuration (start from a default and override what you need)
 let config : VQC.TrainingConfig = {
-    LearningRate = 0.1
-    MaxEpochs = 50
-    ConvergenceThreshold = 0.001
-    Shots = 1000
-    Verbose = true
-    Optimizer = VQC.Adam { 
-        LearningRate = 0.1
-        Beta1 = 0.9
-        Beta2 = 0.999
-        Epsilon = 1e-8 
-    }
-    ProgressReporter = None
+    VQC.defaultConfig with
+        MaxEpochs = 50
+        ConvergenceThreshold = 0.001
+        Shots = 1000
+        Optimizer = VQC.Adam { LearningRate = 0.1; Beta1 = 0.9; Beta2 = 0.999; Epsilon = 1e-8 }
 }
 
 // Define architecture
 let featureMap = AngleEncoding           // Feature encoding strategy
 let variationalForm = RealAmplitudes 2   // Ansatz with depth=2
 
+// One qubit per feature; the ansatz decides how many parameters it needs
+let numQubits = trainFeatures.[0].Length
+let initialParams = VariationalForms.randomParameters variationalForm numQubits (Some 42)
+
 // Train classifier
 match VQC.train backend featureMap variationalForm initialParams trainFeatures trainLabels config with
 | Ok trainedModel ->
-    printfn "Training complete!"
-    printfn "Final loss: %.4f" trainedModel.FinalLoss
-    printfn "Accuracy: %.2f%%" (trainedModel.Metrics.Accuracy * 100.0)
-    
+    printfn "Training complete after %d epochs (converged: %b)" trainedModel.Epochs trainedModel.Converged
+    printfn "Final loss: %.4f" (List.last trainedModel.LossHistory)
+    printfn "Train accuracy: %.2f%%" (trainedModel.TrainAccuracy * 100.0)
+
     // Make predictions
     match VQC.predict backend featureMap variationalForm trainedModel.Parameters testPoint 1000 with
     | Ok prediction ->
-        printfn "Predicted class: %d (confidence: %.2f%%)" prediction.Label (prediction.Confidence * 100.0)
+        printfn "Predicted class: %d (P(class 1) = %.2f)" prediction.Label prediction.Probability
     | Error err -> eprintfn "Prediction error: %s" err.Message
-    
+
 | Error err -> eprintfn "Training error: %s" err.Message
 ```
+
+`VQC.train` returns a `VQC.TrainingResult` with `Parameters`, `LossHistory` (oldest first), `Epochs`, `TrainAccuracy` and `Converged`. `VQC.predict` returns a `VQC.Prediction` with the `Label` (0 or 1) and `Probability`, the measured probability of class 1. `VQC.evaluate` returns the accuracy on a labelled dataset as a `float`. VQC is a binary classifier; `VQC.trainMultiClass` and `VQC.predictMultiClass` wrap it one-vs-rest for more classes.
 
 ### VQC Training Process
 
@@ -133,38 +141,54 @@ match VQC.train backend featureMap variationalForm initialParams trainFeatures t
 
 ### Available Optimizers
 
-**Adam (Adaptive Moment Estimation)** - Recommended
+**Adam (Adaptive Moment Estimation)** - usually converges in fewer epochs
 ```fsharp
-Optimizer = VQC.Adam {
-    LearningRate = 0.1
-    Beta1 = 0.9          // Momentum decay rate
-    Beta2 = 0.999        // Variance decay rate
-    Epsilon = 1e-8       // Numerical stability
+let adamConfig = {
+    VQC.defaultConfig with
+        Optimizer = VQC.Adam {
+            LearningRate = 0.1   // Adam uses this rate, not TrainingConfig.LearningRate
+            Beta1 = 0.9          // Momentum decay rate
+            Beta2 = 0.999        // Variance decay rate
+            Epsilon = 1e-8       // Numerical stability
+        }
 }
+
+// Or use the preset (Adam with AdamOptimizer.defaultConfig, learning rate 0.001)
+let adamPreset = VQC.defaultConfigWithAdam
 ```
 
 **SGD (Stochastic Gradient Descent)** - Simple baseline
 ```fsharp
-Optimizer = VQC.SGD
-LearningRate = 0.01
+// VQC.defaultConfig uses SGD with LearningRate = 0.1
+let sgdConfig = { VQC.defaultConfig with Optimizer = VQC.SGD; LearningRate = 0.01 }
 ```
 
 ### Model Serialization
 
-Save and load trained models:
+Save and load trained models with the `ModelSerialization` module (JSON files):
 
 ```fsharp
-// Save trained model
-VQC.saveModel trainedModel "fraud_classifier.model"
+// Save a training result together with the architecture it was trained with
+let saveResult (trainedModel: VQC.TrainingResult) =
+    ModelSerialization.saveVQCTrainingResult
+        "fraud_classifier.json"
+        trainedModel
+        numQubits
+        "AngleEncoding" 0          // feature map name and depth
+        "RealAmplitudes" 2         // variational form name and depth
+        (Some "fraud classifier")  // optional note
 
 // Load model for inference
-match VQC.loadModel "fraud_classifier.model" with
+match ModelSerialization.loadVQCModel "fraud_classifier.json" with
 | Ok model ->
-    let predictions = testData |> Array.map (fun x -> 
-        VQC.predict backend featureMap variationalForm model.Parameters x 1000
-    )
+    let predictions =
+        [| testPoint |]
+        |> Array.map (fun x -> VQC.predict backend featureMap variationalForm model.Parameters x 1000)
+    ()
 | Error err -> eprintfn "Load error: %s" err.Message
 ```
+
+`ModelSerialization.featureMapFromModel` and `ModelSerialization.variationalFormFromModel` rebuild the `FeatureMapType` and `VariationalForm` from a loaded model.
 
 ## Quantum Kernel SVM
 
@@ -189,31 +213,33 @@ open FSharp.Azure.Quantum.MachineLearning
 // Setup quantum feature map
 let featureMap = ZZFeatureMap 2  // Depth-2 entangling feature map
 
-// Training configuration
-let config : QuantumKernelSVM.TrainingConfig = {
-    C = 1.0                      // Regularization parameter
-    Kernel = QuantumKernel       // Use quantum kernel
-    MaxIterations = 1000
-    Tolerance = 0.001
-    Verbose = true
+let trainData = [| [| 0.1; 0.2 |]; [| 0.2; 0.1 |]; [| 0.8; 0.9 |]; [| 0.9; 0.8 |] |]
+let trainLabels = [| 0; 0; 1; 1 |]
+let testData = [| [| 0.15; 0.15 |]; [| 0.85; 0.85 |] |]
+let testLabels = [| 0; 1 |]
+
+// Training configuration (defaults: C = 1.0, Tolerance = 1e-3, MaxIterations = 100)
+let config : QuantumKernelSVM.SVMConfig = {
+    QuantumKernelSVM.defaultConfig with
+        C = 1.0                  // Regularization parameter
+        MaxIterations = 1000
 }
 
-// Train SVM with quantum kernel
+// Train SVM with quantum kernel (last argument: shots per kernel evaluation)
 match QuantumKernelSVM.train backend featureMap trainData trainLabels config 1000 with
 | Ok model ->
     printfn "SVM trained successfully"
-    printfn "Support vectors: %d" model.SupportVectors.Length
-    
-    // Evaluate on test set
+    printfn "Support vectors: %d" model.SupportVectorIndices.Length
+
+    // Evaluate on test set: returns the accuracy
     match QuantumKernelSVM.evaluate backend model testData testLabels 1000 with
-    | Ok metrics ->
-        printfn "Test Accuracy: %.2f%%" (metrics.Accuracy * 100.0)
-        printfn "Precision: %.2f%%" (metrics.Precision * 100.0)
-        printfn "Recall: %.2f%%" (metrics.Recall * 100.0)
+    | Ok accuracy -> printfn "Test Accuracy: %.2f%%" (accuracy * 100.0)
     | Error err -> eprintfn "Evaluation error: %s" err.Message
-    
+
 | Error err -> eprintfn "Training error: %s" err.Message
 ```
+
+The SVM is trained with sequential minimal optimisation (SMO) on the quantum kernel matrix. Labels must be 0 or 1; `MultiClassSVM` handles more classes one-vs-rest. `QuantumKernelSVM.predict` returns a `Prediction` with the `Label` and the `DecisionValue` (signed distance from the separating hyperplane).
 
 ### How Quantum Kernels Work
 
@@ -266,8 +292,8 @@ let featureMap = ZZFeatureMap 2  // depth = 2 layers
 
 // Circuit structure (per layer):
 // 1. H on all qubits (superposition)
-// 2. Rz(2π * x_i) on each qubit
-// 3. CNOT + Rz(2π * x_i * x_j) for pairs (entanglement)
+// 2. Rz(2 * x_i) on each qubit
+// 3. CNOT(i, i+1) + Rz(2 * x_i * x_(i+1)) + CNOT(i, i+1) on neighbouring pairs
 // 4. Repeat for depth layers
 
 // - High entanglement
@@ -282,19 +308,19 @@ let featureMap = ZZFeatureMap 2  // depth = 2 layers
 
 #### 3. Pauli Feature Map
 
-**Strategy:** Custom Pauli string rotations
+**Strategy:** Hadamard layer followed by one rotation per Pauli string
 
 ```fsharp
 let pauliStrings = [
-    [| X; X; I |]  // XX rotation on qubits 0,1
-    [| Z; Z; I |]  // ZZ rotation on qubits 0,1
-    [| Y; I; Y |]  // YY rotation on qubits 0,2
+    "XX"  // XX rotation on qubits 0,1
+    "ZZ"  // ZZ rotation on qubits 0,1
+    "Z"   // Z rotation on qubit 0
 ]
-let featureMap = PauliFeatureMap pauliStrings
+let featureMap = PauliFeatureMap(pauliStrings, 2)  // Pauli strings, depth = 2 layers
 
-// - Maximum flexibility
-// - Domain-specific encodings
-// - Advanced use cases
+// String k uses feature x_(k mod n) as its angle (2 * x).
+// "ZZ" and "XX" act on qubits 0 and 1, "Z" on qubit 0;
+// any other string falls back to an Rz on qubit (k mod n).
 ```
 
 **Use When:**
@@ -308,7 +334,10 @@ let featureMap = PauliFeatureMap pauliStrings
 |-------------|--------|--------------|-------|----------|
 | **AngleEncoding** | n (one per feature) | None | 1 | Baselines, small data |
 | **ZZFeatureMap** | n | High (pairwise) | Configurable | General classification |
-| **PauliFeatureMap** | n | Custom | Custom | Domain-specific tasks |
+| **PauliFeatureMap** | n | On qubits 0,1 ("ZZ", "XX") | Configurable | Experiments with specific Pauli terms |
+| **AmplitudeEncoding** | ⌈log₂ n⌉ | Via state preparation | Grows with n | Quantum kernels on longer vectors |
+
+`VQC` builds one qubit per feature, so it works with the first three maps; `AmplitudeEncoding` uses fewer qubits than features and does not combine with `VQC.train`.
 
 ## Variational Forms (Ansatz Circuits)
 
@@ -323,14 +352,14 @@ Variational forms are parameterized quantum circuits used in VQC. They define:
 
 #### 1. RealAmplitudes
 
-**Structure:** Ry rotations + CNOT entanglement
+**Structure:** Ry rotations + CZ entanglement
 
 ```fsharp
 let variationalForm = RealAmplitudes 3  // depth = 3 layers
 
 // Circuit structure (per layer):
 // - Ry(θ_i) on each qubit
-// - CNOT ladder (linear entanglement)
+// - CZ ladder (linear entanglement)
 // - Total parameters = n_qubits * depth
 
 // - Simple, efficient
@@ -353,13 +382,15 @@ let variationalForm = EfficientSU2 2  // depth = 2 layers
 // Circuit structure (per layer):
 // - Ry(θ_i) on each qubit
 // - Rz(φ_i) on each qubit
-// - CNOT circular entanglement
+// - CNOT ladder (linear entanglement)
 // - Total parameters = 2 * n_qubits * depth
 
 // - More expressive than RealAmplitudes
 // - Full SU(2) rotations
 // - Better approximation capability
 ```
+
+A third form, `TwoLocal(rotation, entanglement, depth)`, takes the rotation gate name (`"RY"`, `"RX"`, `"RZ"`) and the entangling gate name (`"CZ"` or `"CNOT"`); it has `n_qubits * depth` parameters. `VariationalForms.randomParameters`, `zeroParameters` and `constantParameters` create a parameter array of the right length for any form.
 
 **Use When:**
 - Complex classification tasks
@@ -370,13 +401,15 @@ let variationalForm = EfficientSU2 2  // depth = 2 layers
 
 | Variational Form | Rotations | Entanglement | Parameters | Expressiveness |
 |------------------|-----------|--------------|------------|----------------|
-| **RealAmplitudes** | Ry | Linear | n×d | Medium |
-| **EfficientSU2** | Ry, Rz | Circular | 2n×d | High |
+| **RealAmplitudes** | Ry | Linear (CZ) | n×d | Medium |
+| **EfficientSU2** | Ry, Rz | Linear (CNOT) | 2n×d | High |
+| **TwoLocal** | Configurable | Linear (CZ or CNOT) | n×d | Medium |
 
 ## Complete Example: Binary Classification
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
@@ -395,39 +428,40 @@ let featureMap = ZZFeatureMap 2
 let variationalForm = RealAmplitudes 2
 
 // Training configuration
-let config = {
+let config : VQC.TrainingConfig = {
     LearningRate = 0.1
     MaxEpochs = 50
     ConvergenceThreshold = 0.001
     Shots = 1000
     Verbose = true
-    Optimizer = VQC.Adam { 
+    Optimizer = VQC.Adam {
         LearningRate = 0.1
         Beta1 = 0.9
         Beta2 = 0.999
-        Epsilon = 1e-8 
+        Epsilon = 1e-8
     }
     ProgressReporter = None
+    Logger = None       // Verbose output goes to this ILogger when set
 }
 
-// Initialize parameters (random)
-let initialParams = VQC.initializeParameters variationalForm trainData.[0].Length
+// Initialize parameters (random, seeded for reproducibility)
+let initialParams = VariationalForms.randomParameters variationalForm trainData.[0].Length (Some 42)
 
 // Train VQC
 match VQC.train backend featureMap variationalForm initialParams trainData trainLabels config with
 | Ok model ->
     printfn "Training complete!"
-    printfn "Accuracy: %.2f%%" (model.Metrics.Accuracy * 100.0)
-    
+    printfn "Train accuracy: %.2f%%" (model.TrainAccuracy * 100.0)
+
     // Test on new data
     let testPoint = [| 0.15; 0.85 |]  // Should be class 1
     match VQC.predict backend featureMap variationalForm model.Parameters testPoint 1000 with
     | Ok prediction ->
-        printfn "Prediction: Class %d (%.2f%% confidence)" 
-            prediction.Label 
-            (prediction.Confidence * 100.0)
+        printfn "Prediction: Class %d (P(class 1) = %.2f)"
+            prediction.Label
+            prediction.Probability
     | Error err -> eprintfn "Error: %s" err.Message
-    
+
 | Error err -> eprintfn "Training failed: %s" err.Message
 ```
 
@@ -442,10 +476,7 @@ match VQC.train backend featureMap variationalForm initialParams trainData train
 - **Optimizer**: Adam typically converges faster than SGD
 - **Depth**: Deeper circuits → more gate operations
 
-**Typical Training Times (LocalBackend):**
-- Small dataset (10 samples, 2 qubits): ~30 seconds
-- Medium dataset (100 samples, 4 qubits): ~5 minutes
-- Large dataset (1000 samples, 8 qubits): ~30 minutes
+**Cost per epoch:** the loss needs one circuit run per training sample, and the parameter-shift gradient needs two more per sample for every parameter. With N samples and P parameters an epoch is about N × (2P + 1) circuit executions, each with `Shots` measurements. Wall-clock time depends on your machine and backend; time a few epochs on a small dataset before scaling up.
 
 ### Hyperparameter Tuning
 
@@ -492,7 +523,7 @@ match VQC.train backend featureMap variationalForm initialParams trainData train
 **Solutions:**
 - Reduce model complexity (lower depth)
 - Increase training data
-- Add regularization (higher C in SVM)
+- Add regularization (lower C in SVM)
 - Use simpler feature map (AngleEncoding)
 
 #### 3. Poor Accuracy on Both Train and Test
@@ -510,8 +541,8 @@ match VQC.train backend featureMap variationalForm initialParams trainData train
 **Symptoms:** Backend error on circuit execution
 
 **Solutions:**
-- LocalBackend's width is derived from available memory
-- Reduce feature dimensionality (PCA, feature selection)
+- LocalBackend's width is derived from available memory and capped at 30 qubits
+- VQC uses one qubit per feature, so reduce feature dimensionality (PCA, feature selection)
 - Use cloud backend for larger circuits
 - Batch features (train multiple smaller classifiers)
 
@@ -539,4 +570,4 @@ See complete, runnable examples in the `examples/QML/` directory:
 
 ---
 
-**Last Updated**: December 2025
+**Last Updated**: September 2026

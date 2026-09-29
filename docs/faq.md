@@ -14,12 +14,14 @@ Common questions about FSharp.Azure.Quantum.
 | Symptom | Quick Fix |
 |---------|-----------|
 | "Distance matrix must be square" | Ensure rows = columns = number of cities |
-| "Budget insufficient" | Budget must be ≥ cheapest asset price |
-| Compiler error on `solution.Result` | Use `match` on Result type (see [Error Handling](#complete-error-handling)) |
+| "Budget ... is insufficient to purchase any asset" | Budget must be ≥ cheapest asset price |
+| Compiler error on `solution.Result` | Use `match` on the `Result` first (see [Getting Started](getting-started#complete-error-handling-examples)) |
+| Error has no `.Contains` / `%s` rejects it | Errors are `QuantumError` values, not strings: use `err.Message` |
 | Very slow first run | Normal - .NET JIT compilation. Second run will be fast. |
-| Suboptimal solutions | Increase `MaxIterations` to 50000+ or run multiple times |
+| Suboptimal solutions | Raise the QAOA shot counts in the solver config, or run several times and keep the best (see [below](#solutions-seem-suboptimal)) |
+| "needs N qubits ... supports at most M" | The encoding is too wide for the backend; shrink the problem or use a larger backend (see [problem sizes](#what-problem-sizes-can-i-solve)) |
 | Type inference error | Add explicit type annotations: `list<string * float * float>` |
-| "MinHolding cannot exceed MaxHolding" | Check constraint values: `MinHolding ≤ MaxHolding ≤ Budget` |
+| "MinHolding ... cannot exceed MaxHolding" | Check constraint values: `MinHolding ≤ MaxHolding ≤ Budget` |
 
 **Still stuck?** See detailed [Errors and Troubleshooting](#errors-and-troubleshooting) below.
 
@@ -31,23 +33,23 @@ FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial
 - Quantum optimization algorithms (QAOA for graph problems, VQE for quantum chemistry)
 - QFT-based algorithms (Shor's factorization, Phase Estimation)
 - LocalBackend for free quantum simulation (width derived from available memory)
-- Optional HybridSolver with classical fallback for very small problems
-- Integration with Azure Quantum cloud backends (IonQ, Rigetti)
+- Optional HybridSolver that picks a classical solver for small problems
+- Integration with Azure Quantum cloud backends (IonQ, Rigetti, Quantinuum, Atom Computing, IQM) and D-Wave annealers
 - High-level computation expression APIs for intuitive problem specification
 
 ### Do I need an Azure account to use this library?
 
-**No!** The LocalBackend (default) provides quantum simulation entirely offline without Azure credentials. You only need Azure access if you want to use cloud quantum backends (IonQ, Rigetti) for larger problems or real quantum hardware.
+**No!** The LocalBackend (default) provides quantum simulation entirely offline without Azure credentials. You only need Azure access if you want to use cloud quantum backends for real quantum hardware or provider simulators.
 
-###Is this production-ready?
+### Is this production-ready?
 
-Currently **1.1.0** - suitable for:
-- ✅ Production use (quantum algorithms via LocalBackend or cloud backends)
+The current package version is **1.4.12**. It is suitable for:
 - ✅ Development and prototyping
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
+- ✅ Applications whose problems fit the simulator or the cloud backends' qubit limits
 
-**LocalBackend** provides fast, free quantum simulation; its width is derived from available memory (hard ceiling 30 qubits). For larger problems, cloud backends (IonQ, Rigetti) are available via Azure Quantum.
+**LocalBackend** provides free quantum simulation; its width is derived from available memory (hard ceiling 30 qubits), and iterative algorithms such as QAOA are practical up to about 20 qubits. For more, cloud backends are available via Azure Quantum.
 
 ## Technical Questions
 
@@ -57,53 +59,62 @@ Currently **1.1.0** - suitable for:
 
 | Aspect | Direct Quantum API | HybridSolver (with classical fallback) |
 |--------|-------------------|----------------------------------------|
-| **Approach** | QAOA/VQE quantum algorithms | Auto-routes: Quantum (≥20 vars) or Classical (< 20 vars) |
-| **Speed** | LocalBackend: 1-10s, Cloud: 30-120s | Very small: <100ms, Others: same as quantum |
-| **Cost** | LocalBackend: Free, Cloud: $10-100/run | Optimizes cost for very small problems |
-| **Problem Size** | 5-200 variables (LocalBackend: memory-derived width) | 5-500 variables |
-| **Best For** | Consistent quantum API, learning, fixed-size problems | Variable-size production workloads |
-| **Availability** | ✅ Now (LocalBackend + Cloud) | ✅ Now |
-| **Backend** | LocalBackend (default) or Cloud (IonQ/Rigetti) | Same, but optimizes very small problems |
-| **Reproducible** | ⚠️ Probabilistic (quantum nature) | Classical fallback: ✅ Deterministic |
+| **Approach** | QAOA/VQE quantum algorithms | `QuantumAdvisor` picks classical or quantum per problem |
+| **When quantum runs** | Always | Only when the advisor strongly recommends it (≥ 50 variables by default) *and* you pass a backend, or when you force `Some HybridSolver.Quantum` |
+| **Cost** | LocalBackend: free; Cloud: provider pricing | Classical runs are free; optional budget guard for quantum |
+| **Problem Size** | Limited by the backend's qubit count (LocalBackend: memory-derived, QAOA practical to ~20 qubits) | Classical path has no qubit limit |
+| **Best For** | Learning, consistent quantum API | Variable-size workloads where small cases should stay classical |
+| **Backend** | LocalBackend (default) or a cloud backend | Same, passed to the `solve*WithBackend` functions |
+| **Reproducible** | ⚠️ Probabilistic (quantum nature) | Classical path: ✅ Deterministic |
 
 #### Decision Criteria
 
 **Use Direct Quantum API when:**
 - ✅ Learning quantum algorithms (QAOA, VQE, QFT)
-- ✅ Problem size is consistent (e.g., always 50-100 variables)
-- ✅ Want consistent quantum experience
-- ✅ LocalBackend simulation is sufficient (fits its width)
+- ✅ Want every run to go through a quantum backend
+- ✅ The problem fits the backend (LocalBackend: memory-derived width)
 - ✅ Developing/testing quantum algorithms
 
 **Use HybridSolver when:**
-- ⚡ Problem size varies significantly (5 to 500 variables)
-- ⚡ Want automatic classical fallback for very small problems (< 20 variables)
-- ⚡ Performance optimization matters for variable-sized input
-- ⚡ Production deployment with unpredictable problem sizes
+- ⚡ Problem size varies significantly
+- ⚡ Small problems should be solved classically, with the reasoning recorded
+- ⚡ You want a budget guard on quantum cost
 
 **Example:**
 ```fsharp
-// Direct Quantum API (Recommended for most cases)
-match GraphColoring.solve problem 4 None with  // Uses QAOA on LocalBackend
-| Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+open FSharp.Azure.Quantum
+// QuantumMaxCutSolver lives in the Quantum namespace
+open FSharp.Azure.Quantum.Quantum
+
+let problem =
+    MaxCut.createProblem ["A"; "B"; "C"; "D"]
+        [ ("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0); ("D", "A", 1.0) ]
+
+// Direct Quantum API: QAOA on the local simulator
+match MaxCut.solve problem None with
+| Ok solution -> printfn "Cut value: %.1f" solution.CutValue
 | Error err -> eprintfn "Error: %s" err.Message
 
-// HybridSolver (Optimizes very small problems automatically)
-match HybridSolver.solveGraphColoring problem 4 None None None with
+// HybridSolver takes the solver-level problem type
+let hybridProblem: QuantumMaxCutSolver.MaxCutProblem =
+    { Vertices = problem.Vertices; Edges = problem.Edges }
+
+match HybridSolver.solveMaxCut hybridProblem None None None with
 | Ok solution -> 
     printfn "Method: %A" solution.Method  // Classical or Quantum
     printfn "Reasoning: %s" solution.Reasoning
+    printfn "Cut value: %.1f" solution.Result.CutValue
 | Error err -> eprintfn "Error: %s" err.Message
 ```
 
-**Crossover Point:** HybridSolver routes to classical for < 20 variables, quantum for ≥ 20 variables. For most use cases, direct quantum API is simpler and sufficient.
+**Crossover Point:** With `QuantumAdvisor.defaultThresholds`, HybridSolver routes to classical below 50 variables. From 50 up it uses quantum if you supplied a backend (and the estimated cost is within any budget you set); otherwise it still runs classically and says so in `Reasoning`.
 
 ### How accurate are the solutions?
 
 **Quantum algorithms (QAOA/VQE)** provide:
 - Approximate solutions (QAOA = Quantum Approximate Optimization Algorithm)
 - Solution quality depends on circuit depth (p), shot count, and problem structure
-- Typically finds good solutions (often within 5-15% of optimal for graph problems)
+- No optimality guarantee; compare against a classical solver on your own instances
 - Probabilistic nature means running multiple times may yield better results
 
 **Solution quality improves with:**
@@ -112,41 +123,49 @@ match HybridSolver.solveGraphColoring problem 4 None None None with
 - Parameter optimization (variational loop)
 - Error mitigation techniques (ZNE, PEC, REM)
 
-**Classical fallback (via HybridSolver)** provides:
-- Heuristic solutions for very small problems (< 20 variables)
+**Classical path (via HybridSolver)** provides:
+- Heuristic solutions (TSP: nearest neighbour + 2-opt; Portfolio: greedy by return/risk ratio)
 - Deterministic results
-- Fast execution (< 100ms)
-- Problem-specific tuning
+- Fast execution for small and medium problems
 
 ### What problem sizes can I solve?
 
-**TSP (Traveling Salesman):**
-- ✅ Practical: 5-100 cities (classical)
-- ⚠️ Possible: 100-500 cities (slower)
-- ❌ Not recommended: >500 cities (use approximations)
+**With a quantum backend** the limit is the number of qubits the encoding needs:
 
-**Portfolio Optimization:**
-- ✅ Practical: 5-50 assets
-- ⚠️ Possible: 50-200 assets
-- ❌ Not recommended: >200 assets
+| Problem | Qubits needed |
+|---------|---------------|
+| TSP | cities² (4 cities = 16 qubits) |
+| Graph Coloring | nodes × colors |
+| MaxCut, Knapsack, Portfolio | one per vertex / item / asset |
+| Network Flow | one per route |
+| Task Scheduling | tasks × time slots |
 
-**Performance scales approximately O(n²) for most problems.**
+The local simulator holds up to `StateVector.maxQubits` (derived from memory, at most 30), and QAOA is practical up to about 20 qubits. Solvers return an error that names the qubit count when a problem is too wide for the backend.
+
+**With the classical path of HybridSolver** there is no qubit limit: the classical TSP heuristic accepts up to 10,000 cities (`TspSolver.maxCities`).
 
 ### Can I use my own distance calculations?
 
-Yes! Just build a distance matrix:
+Yes! Build the distance matrix yourself and pass it to `HybridSolver.solveTsp`:
 
 ```fsharp
-// Custom distance function
-let myDistance (city1, city2) = 
-    // Your calculation here
-    calculateCustomDistance city1 city2
+open FSharp.Azure.Quantum
+
+let cities = [| (0.0, 0.0); (1.0, 0.5); (2.0, 1.5); (3.0, 3.0) |]
+
+// Custom distance function (Manhattan distance here)
+let myDistance (x1, y1) (x2, y2) = abs (x1 - x2) + abs (y1 - y2)
 
 // Build matrix
+let n = cities.Length
 let distances = 
     Array2D.init n n (fun i j ->
         if i = j then 0.0
-        else myDistance (cities.[i], cities.[j]))
+        else myDistance cities.[i] cities.[j])
+
+match HybridSolver.solveTsp distances None None None with
+| Ok solution -> printfn "Tour length: %.2f (%A)" solution.Result.TourLength solution.Method
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## Errors and Troubleshooting
@@ -184,26 +203,39 @@ let normalized =
 
 **Try these improvements:**
 
-1. **Increase iterations:**
+1. **Give QAOA more shots and iterations** (quantum TSP; 4 cities = 16 qubits):
 ```fsharp
-let config = { TspSolver.defaultConfig with MaxIterations = 50000 }
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+
+let config =
+    { QuantumTspSolver.defaultConfig with
+        OptimizationShots = 500
+        FinalShots = 4000
+        MaxOptimizationIterations = 2000 }
+
+let backend = LocalBackend() :> IQuantumBackend
+
+match HybridSolver.solveTspWithBackendAndConfig distances None None (Some HybridSolver.Quantum) (Some backend) config with
+| Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
+| Error err -> printfn "Error: %s" err.Message
 ```
 
-2. **Adjust max iterations:**
+2. **Compare with the classical heuristic:**
 ```fsharp
 match HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classical) with
 | Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
 | Error err -> printfn "Error: %s" err.Message
 ```
 
-3. **Run multiple times with quantum optimization:**
+3. **Run the quantum solver several times and keep the best:**
 ```fsharp
 [1..10]
-|> List.map (fun _ -> 
-    match HybridSolver.solveTsp distances None None None with
+|> List.choose (fun _ -> 
+    match HybridSolver.solveTspWithBackend distances None None (Some HybridSolver.Quantum) (Some backend) with
     | Ok solution -> Some solution
     | Error _ -> None)
-|> List.choose id
 |> List.minBy (fun sol -> sol.Result.TourLength)
 ```
 
@@ -221,24 +253,24 @@ match HybridSolver.solveTsp distances None None None with
     printfn "Size: %d cities" (distances.GetLength(0))
     printfn "Time: %d ms" sw.ElapsedMilliseconds
     printfn "Method: %A" solution.Method
+    printfn "Solver time: %.1f ms" solution.ElapsedMs
+    printfn "2-opt iterations: %d" solution.Result.Iterations
 | Error err -> printfn "Error: %s" err.Message
-```
-printfn "Time per iteration: %.2f ms" (float sw.ElapsedMilliseconds / float solution.Iterations)
 ```
 
 ## Feature Questions
 
 ### Is quantum backend available yet?
 
-**Status:** ✅ Quantum algorithms are fully implemented and available via LocalBackend (default) and Azure Quantum cloud backends (IonQ, Rigetti).
+**Status:** ✅ Quantum algorithms are implemented and available via LocalBackend (default) and Azure Quantum cloud backends (IonQ, Rigetti, Quantinuum, Atom Computing, IQM).
 
 **Direct Quantum API:**
-- QAOA for optimization problems (GraphColoring, MaxCut, Knapsack, TSP, Portfolio, NetworkFlow)
+- QAOA for optimization problems (GraphColoring, MaxCut, Knapsack, TSP, Portfolio, NetworkFlow, Task Scheduling)
 - VQE for quantum chemistry
 - QFT-based algorithms (Shor's, Phase Estimation, Quantum Arithmetic)
 - Runs on LocalBackend (free, memory-derived width) or cloud backends
 
-**HybridSolver:** Adds classical fallback optimization for very small problems (< 20 variables) where quantum circuit overhead isn't beneficial yet.
+**HybridSolver:** Chooses a classical solver for problems below the advisor's thresholds (50 variables by default), where quantum circuit overhead isn't beneficial.
 
 ### What quantum algorithms are used?
 
@@ -268,18 +300,15 @@ printfn "Time per iteration: %.2f ms" (float sw.ElapsedMilliseconds / float solu
 
 Yes! The library is designed to be extensible:
 
-1. Define your problem types
-2. Implement solver logic
-3. Integrate with HybridSolver
-4. Use QuantumAdvisor for recommendations
+1. Encode your problem as a QUBO (see [QUBO Encoding Strategies](qubo-encoding-strategies))
+2. Run it with QAOA on any `IQuantumBackend` (see the `QaoaCircuit` / `QaoaOptimizer` modules and the existing solvers under `Solvers/Quantum`)
+3. Use `QuantumAdvisor.getRecommendation` if you want a quantum-vs-classical recommendation
 
-See [API Reference](api-reference.md) for extensibility patterns.
+See [API Reference](api-reference) for the building blocks.
 
 ### Does it support GPU acceleration?
 
-**Currently:** No GPU support.
-
-**Future:** May add GPU-accelerated solvers for larger problems.
+**Not in the local simulator**, which runs on the CPU. `CudaQBridge` can hand circuits to NVIDIA CUDA-Q as an external tool.
 
 ## Integration Questions
 
@@ -290,10 +319,10 @@ See [API Reference](api-reference.md) for extensibility patterns.
 // dotnet add package FSharp.Azure.Quantum
 
 // Open namespace
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum
 
 // Use in your code
-let optimizeTour cities distances =
+let optimizeTour (distances: float[,]) =
     match HybridSolver.solveTsp distances None None None with
     | Ok solution -> Some solution.Result
     | Error _ -> None
@@ -301,10 +330,10 @@ let optimizeTour cities distances =
 
 ### Can I use this from C#?
 
-Yes! F# libraries are fully interoperable:
+Yes! F# libraries are interoperable; F# `option` parameters take `null` for `None`:
 
 ```csharp
-using FSharp.Azure.Quantum.Classical;
+using FSharp.Azure.Quantum;
 
 var distances = new double[,] {
     {0.0, 2.0, 9.0},
@@ -312,18 +341,17 @@ var distances = new double[,] {
     {15.0, 7.0, 0.0}
 };
 
-var result = HybridSolver.solveTsp(
-    distances, 
-    FSharpOption<double>.None, 
-    FSharpOption<double>.None, 
-    FSharpOption<HybridSolver.SolverMethod>.None
-);
+var result = HybridSolver.solveTsp(distances, null, null, null);
 
-if (FSharpResult<Solution, string>.get_IsOk(result)) {
+if (result.IsOk) {
     var solution = result.ResultValue;
     Console.WriteLine($"Tour length: {solution.Result.TourLength}");
+} else {
+    Console.WriteLine($"Error: {result.ErrorValue.Message}");
 }
 ```
+
+The `CSharpBuilders` class and the C# extension methods offer a more idiomatic surface for the problem builders; see [API Reference](api-reference#c-interop).
 
 ### Does it work with .NET 8/9/10?
 
@@ -331,7 +359,7 @@ if (FSharpResult<Solution, string>.get_IsOk(result)) {
 
 **Compatible with:** .NET 10.0 or later
 
-**Not compatible:** .NET Framework, .NET Core 3.1, .NET 5/6/7
+**Not compatible:** .NET Framework, .NET Core 3.1, .NET 5–9
 
 ## Cost and Licensing
 
@@ -342,10 +370,9 @@ if (FSharpResult<Solution, string>.get_IsOk(result)) {
 **LocalBackend (Quantum Simulation):** Free - runs entirely local; width derived from available memory
 
 **Cloud Quantum Backends:** Azure Quantum pricing applies
-- Free tier available (limited shots)
-- Pay-per-use for production ($10-100 per run depending on circuit complexity)
-- IonQ: ~11 qubits QPU, 29+ qubits simulator
-- Rigetti: ~80 qubits QPU, 40+ qubits simulator
+- Pay-per-use; cost depends on provider, circuit size and shot count
+- Qubit limits the library enforces: IonQ Aria 25 / Forte 36, Rigetti 84, Quantinuum H1 32 / H2 56, Atom Computing 100, IQM 20; provider simulators 20
+- `CostEstimation` gives rough per-provider estimates before you submit
 - See [Azure Quantum Pricing](https://azure.microsoft.com/en-us/pricing/details/azure-quantum/)
 
 ### What license is it under?
@@ -361,8 +388,8 @@ if (FSharpResult<Solution, string>.get_IsOk(result)) {
 ### Where can I get help?
 
 - **GitHub Issues:** [Report bugs/request features](https://github.com/thorium/FSharp.Azure.Quantum/issues)
-- **Documentation:** [Complete docs](../README.md)
-- **Examples:** [See examples/](examples/)
+- **Documentation:** [Documentation home](index)
+- **Examples:** [See examples/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples)
 
 ### How do I report a bug?
 
@@ -395,38 +422,41 @@ See `CONTRIBUTING.md` (if available) or open an issue to discuss.
 
 **Solution:** Warm up with a small problem first:
 ```fsharp
-// Warm up JIT
-let _ = TspSolver.solveWithDistances (array2D [[0.0]]) TspSolver.defaultConfig
+// Warm up JIT with a tiny problem
+let _ = MaxCut.solve (MaxCut.createProblem ["A"; "B"] [ ("A", "B", 1.0) ]) None
 
-// Now solve real problem
-let solution = TspSolver.solveWithDistances largeDistances config
+// Now solve the real problem
+let solution = MaxCut.solve problem None
 ```
 
 ### How do I parallelize multiple solves?
 
-Use F# async or parallel collections:
+Use F# async; give each run its own backend instance:
 
 ```fsharp
-// Parallel solves with different seeds
-let solutions = 
+// Ten independent QAOA runs; keep the best cut
+let best = 
     [1..10]
-    |> List.map (fun seed -> 
+    |> List.map (fun _ -> 
         async {
-            let config = { TspSolver.defaultConfig with RandomSeed = Some seed }
-            return TspSolver.solveWithDistances distances config
+            let runBackend = LocalBackend() :> IQuantumBackend
+            return MaxCut.solve problem (Some runBackend)
         })
     |> Async.Parallel
     |> Async.RunSynchronously
-    |> Array.minBy (fun sol -> sol.TourLength)
+    |> Array.choose (function Ok s -> Some s | Error _ -> None)
+    |> Array.maxBy (fun s -> s.CutValue)
 ```
 
-> **Async alternative:** For Task-based parallelism with cancellation support, use `Task.WhenAll` with the async QAOA helpers. See [Backend Switching](backend-switching.md) for `task { }` patterns.
+Each run holds its own state vector, so memory grows with the number of parallel runs.
+
+> **Async alternative:** The quantum solvers also have `solveAsync` variants (for example `QuantumMaxCutSolver.solveAsync`). See [Backend Switching](backend-switching) for more patterns.
 
 ---
 
 ## Still have questions?
 
-- Check [Getting Started Guide](getting-started.md)
-- Browse [Examples](examples/)
-- Review [API Reference](api-reference.md)
+- Check [Getting Started Guide](getting-started)
+- Browse [Examples](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples)
+- Review [API Reference](api-reference)
 - Open a [GitHub Issue](https://github.com/thorium/FSharp.Azure.Quantum/issues)

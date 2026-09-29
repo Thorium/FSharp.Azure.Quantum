@@ -9,20 +9,21 @@ The Quantum Random Number Generator (QRNG) models random number generation via q
 **Key Features:**
 - Quantum-measurement model of randomness (local simulation is CSPRNG-backed, not quantum)
 - Multiple output formats (bits, integers, floats, bytes)
-- Backend integration for real quantum hardware
+- Backend integration: run the H-superposition circuit through any gate-based `IQuantumBackend`
 - Statistical quality testing
 
 **When to Use:**
-- ✅ Cryptographic key generation
+- ✅ Cryptographic key generation (unseeded local path is CSPRNG-backed)
 - ✅ Secure token generation
-- ✅ Monte Carlo simulations requiring true randomness
+- ✅ Monte Carlo sampling
 - ✅ Scientific simulations
 
 **When NOT to Use (use System.Random instead):**
 - ❌ Local quantum circuit simulation
 - ❌ Test data generation
-- ❌ Reproducible experiments (requires seeding)
 - ❌ Classical algorithm randomization
+
+For reproducible experiments, pass a seed to `generateBits` (see below); the seeded path uses `System.Random(seed)` and is not suitable for cryptographic use.
 
 ---
 
@@ -66,16 +67,16 @@ printfn "Sample: %.6f" randomSample
 val generate : numBits:int -> QRNGResult
 ```
 
-Generates random bits using quantum measurement (Hadamard + measurement).
+Generates random bits from the simulated Hadamard + measurement model. Same as `generateBits numBits None`, so the bits come from the OS CSPRNG.
 
 **Parameters:**
-- `numBits` - Number of random bits to generate (1 to 1,000,000)
+- `numBits` - Number of random bits to generate (1 to 1,000,000; other values throw)
 
 **Returns:** `QRNGResult` containing:
 - `Bits: bool[]` - Array of random bits
 - `AsInteger: uint64 option` - Integer representation (if ≤64 bits)
 - `AsBytes: byte[]` - Byte array representation
-- `Entropy: float` - Shannon entropy (0.0-1.0, should be ~1.0)
+- `Entropy: float` - Shannon entropy of this sample's 0/1 frequencies (0.0-1.0, should be ~1.0); a bias measure, not a certification of randomness
 
 **Example:**
 ```fsharp
@@ -83,6 +84,26 @@ let result = QRNG.generate 8
 printfn "Bits: %A" result.Bits
 printfn "As byte: %d" result.AsBytes.[0]
 printfn "Entropy: %.3f" result.Entropy
+```
+
+---
+
+### `generateBits`
+```fsharp
+val generateBits : numBits:int -> seed:int option -> QRNGResult
+```
+
+Like `generate`, with a choice of randomness source.
+
+**Parameters:**
+- `numBits` - Number of random bits to generate (1 to 1,000,000; other values throw)
+- `seed` - `None` draws from the OS CSPRNG; `Some s` simulates each measurement with `System.Random(s)`, so the same seed gives the same bits (for tests, not for key material)
+
+**Example:**
+```fsharp
+let a = QRNG.generateBits 16 (Some 42)
+let b = QRNG.generateBits 16 (Some 42)
+printfn "Reproducible: %b" (a.Bits = b.Bits)  // true
 ```
 
 ---
@@ -95,7 +116,7 @@ val generateInt : maxValue:int -> int
 Generates random integer in range `[0, maxValue)` using rejection sampling.
 
 **Parameters:**
-- `maxValue` - Upper bound (exclusive), must be positive
+- `maxValue` - Upper bound (exclusive), must be positive (otherwise throws)
 
 **Returns:** Random integer `n` where `0 ≤ n < maxValue`
 
@@ -129,7 +150,7 @@ let estimatePi samples =
     |> List.map (fun _ ->
         let x = QRNG.generateFloat()
         let y = QRNG.generateFloat()
-        if x*x + y*y <= 1.0 then 1 else 0)
+        if x*x + y*y <= 1.0 then 1.0 else 0.0)
     |> List.average
     |> (*) 4.0
 
@@ -147,7 +168,7 @@ val generateBytes : numBytes:int -> byte[]
 Generates random byte array (8 bits per byte).
 
 **Parameters:**
-- `numBytes` - Number of bytes to generate (must be positive)
+- `numBytes` - Number of bytes to generate (must be positive, at most 125,000; otherwise throws)
 
 **Returns:** `byte[]` with random values
 
@@ -169,20 +190,20 @@ let salt = QRNG.generateBytes 16
 val generateWithBackend : 
     numBits:int -> 
     backend:IQuantumBackend -> 
-    Async<Result<QRNGResult, string>>
+    Async<QuantumResult<QRNGResult>>
 ```
 
-Generates random bits by executing the H-superposition circuit through the specified backend.
+Generates random bits by executing a `numBits`-qubit H-superposition circuit through the specified backend.
 
-**⚠️ Randomness source:** this path obtains a quantum *state* from the backend (`ExecuteToState`) and then samples it once locally with a classical PRNG. With `LocalBackend` — and any backend that returns a simulated state vector — the resulting bits are classical pseudo-randomness, not hardware quantum randomness. For cryptographic key material prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
+**⚠️ Randomness source:** this path obtains a quantum *state* from the backend (`ExecuteToState`) and then samples it once locally with a classical PRNG (`System.Random`). With `LocalBackend` — and any backend that returns a simulated state vector — the resulting bits are classical pseudo-randomness, not hardware quantum randomness. Cloud backends return a state rebuilt from their measurement histogram, which is then also sampled locally. For cryptographic key material prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
 
-**⚠️ Cost Warning:** Most real quantum backends charge per circuit execution. For production QRNG, `LocalBackend` is recommended unless you specifically need hardware-generated randomness for cryptographic certification.
+**⚠️ Cost Warning:** Most real quantum backends charge per circuit execution.
 
 **Parameters:**
-- `numBits` - Number of bits (max 1000 for single execution)
-- `backend` - Quantum backend instance
+- `numBits` - Number of bits, 1 to 1000. The whole circuit is one `numBits`-qubit register, so the backend must also hold that many qubits: on `LocalBackend` the limit is `StateVector.maxQubits` (derived from available memory, at most 30).
+- `backend` - Quantum backend instance. Annealing backends and backends without an H gate are rejected with an `Error`.
 
-**Returns:** `Async<Result<QRNGResult, string>>`
+**Returns:** `Async<QuantumResult<QRNGResult>>` (`QuantumResult<'T>` is `Result<'T, QuantumError>`). Invalid `numBits` and backend failures come back as `Error`, not exceptions.
 
 > **Note:** This API currently uses F# `Async<_>`. For Task-based async patterns with `CancellationToken`, see `IQuantumBackend.ExecuteToStateAsync` in the [API Reference](api-reference.md).
 
@@ -194,11 +215,11 @@ async {
     // Use local simulator (free, fast)
     let backend = LocalBackendFactory.createUnified()
     
-    let! result = QRNG.generateWithBackend 32 backend
+    let! result = QRNG.generateWithBackend 16 backend
     
     match result with
     | Ok qrng -> 
-        printfn "Generated 32 bits with entropy: %.3f" qrng.Entropy
+        printfn "Generated 16 bits with entropy: %.3f" qrng.Entropy
     | Error err -> 
         printfn "Error: %s" err.Message
 }
@@ -250,14 +271,14 @@ Quality: EXCELLENT
 
 ### Algorithm
 
-QRNG uses the simplest quantum circuit for true randomness:
+QRNG models the simplest quantum circuit for randomness:
 
 1. **Initialize** qubits to |0⟩ state
 2. **Apply Hadamard gate** to each qubit → Creates uniform superposition: |ψ⟩ = (|0⟩ + |1⟩)/√2
 3. **Measure** in computational basis → Each qubit collapses to 0 or 1 with exactly 50% probability
 4. **Extract bits** from measurement outcomes
 
-**Quantum Advantage:** Unlike pseudo-random number generators (PRNGs) which are deterministic and periodic, quantum measurements provide **genuine randomness** due to the fundamental indeterminism of quantum mechanics.
+On quantum hardware the measurement outcome is physically non-deterministic, unlike a pseudo-random number generator (PRNG), which is deterministic given its seed. The functions in this module do not run on hardware, though: `generate`, `generateBits`, `generateInt`, `generateFloat` and `generateBytes` simulate the measurement locally, and `generateWithBackend` samples the returned state locally (see above).
 
 ### Entropy Calculation
 
@@ -273,16 +294,16 @@ Where:
 
 Perfect randomness: `H = 1.0` (maximum entropy for binary)
 
-### Batch Processing
+### Memory Use
 
-To avoid excessive memory usage, QRNG processes bits in batches of 20 qubits at a time (state vector size = 2²⁰ = 1M complex numbers). This allows generating up to 1 million random bits efficiently.
+The local functions never build a multi-qubit state vector. Qubits in this circuit are independent, so the seeded path simulates one single-qubit measurement per bit, and the unseeded path draws one CSPRNG bit per measurement. Memory grows linearly with `numBits`, which is why up to 1,000,000 bits per call is practical. `generateWithBackend` is different: it runs one `numBits`-qubit circuit, so its cost depends on the backend.
 
 ---
 
 ## References
 
 - **Hidary, J.D.** (2021). *Quantum Computing: An Applied Approach*, 2nd ed., Chapter 9.7: Quantum Random Number Generator
-- **Lloyd, S.** (1993). "Ultimate physical limits to computation." *Nature*, 406(6799), 1047-1054.
+- **Lloyd, S.** (2000). "Ultimate physical limits to computation." *Nature*, 406(6799), 1047-1054.
 - **NIST SP 800-90B** (2018). Recommendation for the Entropy Sources Used for Random Bit Generation
 
 ---

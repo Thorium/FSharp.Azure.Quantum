@@ -2,13 +2,15 @@
 
 ## Overview
 
-The Graph Coloring Domain Builder provides an idiomatic F# computation expression API for solving graph coloring problems. Built on top of the Generic Graph Optimization Framework (TKT-90), it offers progressive disclosure - starting simple for common cases and scaling to advanced features when needed.
+The Graph Coloring domain builder is an F# computation expression API for graph coloring problems: assign a color to every node so that no two conflicting nodes share one. It offers progressive disclosure - inline nodes for simple cases, a `coloredNode { }` builder when a node needs more detail.
+
+`GraphColoring.solve` is quantum-first: it encodes the problem as a QUBO (one binary variable per node-color pair, with one-hot and conflict penalties) and samples it with a single-layer QAOA circuit on the backend you pass, or on `LocalBackend` when you pass `None`. See [Problem Size and Performance](#problem-size-and-performance) for what that means for problem size.
 
 **Key Use Cases:**
 - **Compiler Register Allocation** - Assign variables to CPU registers
 - **Wireless Frequency Assignment** - Avoid interference between cell towers
 - **Exam Scheduling** - Prevent student schedule conflicts
-- **Meeting Room Assignment** - Optimize room/time slot allocation
+- **Meeting Room Assignment** - Room/time slot allocation
 
 ---
 
@@ -17,10 +19,11 @@ The Graph Coloring Domain Builder provides an idiomatic F# computation expressio
 1. [Quick Start](#quick-start)
 2. [Progressive Disclosure API](#progressive-disclosure-api)
 3. [F# API Reference](#f-api-reference)
-4. [C# FluentAPI Equivalent](#c-fluentapi-equivalent)
+4. [C# Usage](#c-usage)
 5. [Real-World Examples](#real-world-examples)
-6. [F# Computation Expressions vs C# Fluent APIs](#f-computation-expressions-vs-c-fluent-apis)
-7. [Performance Characteristics](#performance-characteristics)
+6. [Composing Problems](#composing-problems)
+7. [Problem Size and Performance](#problem-size-and-performance)
+8. [Best Practices](#best-practices)
 
 ---
 
@@ -45,14 +48,15 @@ let problem = graphColoring {
     colors ["Red"; "Green"; "Blue"]
 }
 
+// 3 colors, default backend (LocalBackend): 3 nodes x 3 colors = 9 qubits
 match solve problem 3 None with
 | Ok solution ->
-    printfn "Used %d colors" solution.ColorsUsed  // Output: Used 3 colors
-    printfn "Valid: %b" solution.IsValid          // Output: Valid: true
-    
+    printfn "Used %d colors" solution.ColorsUsed
+    printfn "Valid: %b" solution.IsValid
+
     for (nodeId, color) in Map.toList solution.Assignments do
         printfn "%s → %s" nodeId color
-    // Output:
+    // One possible output:
     // A → Red
     // B → Green
     // C → Blue
@@ -60,13 +64,15 @@ match solve problem 3 None with
     eprintfn "Coloring failed: %s" err.Message
 ```
 
+The solver returns the best sample it measured (valid colorings first, then fewest colors). The result is sampled, so always check `IsValid`.
+
 ---
 
 ## Progressive Disclosure API
 
 The API supports **three levels** of complexity, allowing you to start simple and add features as needed.
 
-### Level 1: Inline Nodes (80% Use Case)
+### Level 1: Inline Nodes
 
 **For simple problems** - just node IDs and conflicts:
 
@@ -79,6 +85,7 @@ let problem = graphColoring {
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
 }
 
+// Try 3 of the 4 colors: 4 nodes x 3 colors = 12 qubits
 match solve problem 3 None with
 | Ok solution -> printfn "Solution found with %d colors" solution.ColorsUsed
 | Error err -> eprintfn "Error: %s" err.Message
@@ -86,13 +93,11 @@ match solve problem 3 None with
 
 **Characteristics:**
 - ✅ Minimal syntax
-- ✅ Perfect for quick prototyping
 - ✅ Reads like a specification
-- ✅ No ceremony
 
-### Level 2: Data-Driven with Logic (15% Use Case)
+### Level 2: Data-Driven
 
-**For problems with patterns** - use loops and conditionals:
+**For problems loaded from data** - build the node list with ordinary F# and pass it in:
 
 ```fsharp
 // Create nodes from data
@@ -105,8 +110,8 @@ let towers = [
     ("Tower6", ["Tower4"; "Tower5"])
 ]
 
-let nodesList = 
-    towers 
+let nodesList =
+    towers
     |> List.map (fun (id, conflicts) -> node id conflicts)
 
 let problem = graphColoring {
@@ -119,21 +124,19 @@ let problem = graphColoring {
 **Characteristics:**
 - ✅ Load from database/file
 - ✅ Generate programmatically
-- ✅ Apply business logic
-- ✅ Conditional node creation
 
-### Level 3: Advanced Builder (5% Use Case)
+### Level 3: Advanced Node Builder
 
-**For complex requirements** - full control with `coloredNode { }`:
+**For nodes that need more than an ID and conflicts** - use `coloredNode { }`:
 
 ```fsharp
-// High-priority variable with metadata
+// Variable pinned to a register, with metadata
 let criticalVar = coloredNode {
     nodeId "R1"
     conflictsWith ["R2"; "R3"]
-    fixedColor "EAX"        // Pre-assign to specific register
-    priority 100.0          // High priority for allocation
-    avoidColors ["EDX"]     // Soft constraint
+    fixedColor "EAX"        // Pre-assign to a specific register
+    priority 100.0          // Stored on the node (see note below)
+    avoidColors ["EDX"]     // Stored on the node (see note below)
     property "spill_cost" 1000.0
     property "live_range_start" 0
     property "live_range_end" 500
@@ -147,53 +150,53 @@ let normalVar = coloredNode {
 
 let problem = graphColoring {
     nodes [criticalVar; normalVar]
+    node "R3" ["R1"]
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
-    maxColors 3             // Hard constraint
+    maxColors 3             // Must be between 1 and the number of colors
     objective MinimizeColors
 }
 ```
 
-**Characteristics:**
-- ✅ Fixed color assignments
-- ✅ Priority-based allocation
-- ✅ Soft constraints (avoid colors)
-- ✅ Custom metadata
-- ✅ MaxColors hard constraint
+**What the current solver uses:** `solve` reads node IDs, conflicts and `fixedColor` (a fixed node is pinned to that color). `priority`, `avoidColors`, `property`, `objective` and `conflictPenalty` are stored on the problem for your own use but do not change the result, and `maxColors` is only validated (1 ≤ `maxColors` ≤ number of colors). The number of colors the solver uses is the `numColors` argument of `solve`.
 
 ---
 
 ## F# API Reference
 
+Everything below lives in the `FSharp.Azure.Quantum.GraphColoring` module (`open FSharp.Azure.Quantum.GraphColoring`).
+
 ### Core Types
 
 #### `ColoredNode`
 
-```fsharp
+These listings mirror the library's type definitions for reference.
+
+```text
 type ColoredNode = {
     Id: string                      // Unique identifier
     ConflictsWith: string list      // Nodes that cannot have same color
     FixedColor: string option       // Pre-assigned color (optional)
-    Priority: float                 // Tie-breaker (higher = assign first)
-    AvoidColors: string list        // Soft constraint
+    Priority: float                 // Metadata (default 0.0)
+    AvoidColors: string list        // Metadata
     Properties: Map<string, obj>    // Custom metadata
 }
 ```
 
 #### `GraphColoringProblem`
 
-```fsharp
+```text
 type GraphColoringProblem = {
     Nodes: ColoredNode list         // All nodes in graph
     AvailableColors: string list    // Colors to assign
-    Objective: ColoringObjective    // Optimization goal
-    MaxColors: int option           // Maximum colors to use
-    ConflictPenalty: float          // Penalty for conflicts (default 1.0)
+    Objective: ColoringObjective    // Stored; not used by solve
+    MaxColors: int option           // Validated only
+    ConflictPenalty: float          // Stored; not used by solve (default 1.0)
 }
 ```
 
 #### `ColoringObjective`
 
-```fsharp
+```text
 type ColoringObjective =
     | MinimizeColors              // Minimize total colors used (default)
     | MinimizeConflicts           // Allow invalid, minimize conflicts
@@ -202,14 +205,16 @@ type ColoringObjective =
 
 #### `ColoringSolution`
 
-```fsharp
+```text
 type ColoringSolution = {
-    Assignments: Map<string, string>   // Node → Color mapping
-    ColorsUsed: int                    // Distinct colors used
-    ConflictCount: int                 // Number of conflicts (0 = valid)
-    IsValid: bool                      // No conflicts
+    Assignments: Map<string, string>    // Node → Color mapping
+    ColorsUsed: int                     // Distinct colors used
+    ConflictCount: int                  // Number of conflicts (0 = valid)
+    IsValid: bool                       // No conflicts
     ColorDistribution: Map<string, int> // Color usage counts
-    Cost: float                        // Objective value
+    Cost: float                         // QUBO energy of the chosen sample
+    BackendName: string                 // Backend that ran the circuit
+    IsQuantum: bool                     // true for solve
 }
 ```
 
@@ -224,9 +229,11 @@ type ColoringSolution = {
 | `node "A" ["B"; "C"]` | Inline node with conflicts | `node "R1" ["R2"; "R3"]` |
 | `nodes [n1; n2; n3]` | Add pre-built nodes | `nodes [criticalVar; normalVar]` |
 | `colors ["A"; "B"]` | Set available colors (required) | `colors ["Red"; "Green"; "Blue"]` |
-| `objective MinimizeColors` | Set optimization goal | `objective MinimizeColors` |
-| `maxColors 3` | Maximum colors constraint | `maxColors 3` |
-| `conflictPenalty 100.0` | Penalty weight | `conflictPenalty 100.0` |
+| `objective MinimizeColors` | Store an objective (not used by `solve`) | `objective MinimizeColors` |
+| `maxColors 3` | Upper bound, validated against `colors` | `maxColors 3` |
+| `conflictPenalty 100.0` | Store a penalty weight (not used by `solve`) | `conflictPenalty 100.0` |
+
+The builder validates the problem when the expression is evaluated and **throws** (`failwith`) if it is invalid: no nodes, no colors, empty or duplicate node IDs, a conflict naming an unknown node, a fixed color not in `colors`, or `maxColors` outside 1..number of colors.
 
 #### `coloredNode { }` - Advanced Node Builder
 
@@ -235,146 +242,132 @@ type ColoringSolution = {
 | Operation | Description | Example |
 |-----------|-------------|---------|
 | `nodeId "R1"` | Set node ID (required) | `nodeId "Variable1"` |
-| `conflictsWith ["R2"]` | Set conflicts (required) | `conflictsWith ["R2"; "R3"]` |
+| `conflictsWith ["R2"]` | Set conflicts | `conflictsWith ["R2"; "R3"]` |
 | `fixedColor "Red"` | Pre-assign color | `fixedColor "EAX"` |
-| `priority 10.0` | Set priority (default 0.0) | `priority 100.0` |
-| `avoidColors ["Blue"]` | Soft constraint | `avoidColors ["EDX"]` |
+| `priority 10.0` | Metadata (default 0.0) | `priority 100.0` |
+| `avoidColors ["Blue"]` | Metadata | `avoidColors ["EDX"]` |
 | `property "key" value` | Add metadata | `property "spill_cost" 500.0` |
 
-### Helper Functions
+### Functions
 
 ```text
 val node : id:string -> conflicts:string list -> ColoredNode
-val solve : problem:GraphColoringProblem -> ColoringSolution
+val singleNode : coloredNode:ColoredNode -> GraphColoringProblem
+val solve : problem:GraphColoringProblem -> numColors:int -> backend:IQuantumBackend option -> QuantumResult<ColoringSolution>
 val validate : problem:GraphColoringProblem -> QuantumResult<unit>
-val exportToDot : problem:GraphColoringProblem -> solution:ColoringSolution -> string
+val isValidSolution : problem:GraphColoringProblem -> solution:ColoringSolution -> bool
+val approximateChromaticNumber : problem:GraphColoringProblem -> int
 val describeSolution : solution:ColoringSolution -> string
+val registerAllocation : variables:string list -> conflicts:(string * string) list -> registers:string list -> GraphColoringProblem
+val frequencyAssignment : towers:string list -> interferences:(string * string) list -> frequencies:string list -> GraphColoringProblem
+val examScheduling : exams:string list -> studentConflicts:(string * string) list -> timeSlots:string list -> GraphColoringProblem
+```
+
+- `solve problem numColors backend` uses `min numColors (number of colors)` colors. `None` for the backend means `LocalBackend`. Errors (validation, a graph with no conflicts at all, backend failures) come back as `Error`.
+- `approximateChromaticNumber` runs a classical greedy coloring and returns the number of colors it used (an upper bound, not the exact chromatic number); it falls back to the number of available colors if greedy fails.
+- `registerAllocation`, `frequencyAssignment` and `examScheduling` build a problem from a list of IDs and a list of conflicting pairs, without going through the builder's validation. `registerAllocation` also sets `MaxColors` to the number of registers.
+- `describeSolution` formats a solution as readable text.
+
+```fsharp
+let exams =
+    examScheduling
+        ["Math"; "Physics"; "Chemistry"]
+        [("Math", "Physics"); ("Math", "Chemistry")]
+        ["Mon"; "Tue"; "Wed"]
+
+match solve exams 3 None with
+| Ok solution -> printfn "%s" (describeSolution solution)
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
 ---
 
 ## C# Usage
 
-C# developers should use the **GraphOptimization module (TKT-90)** for graph coloring problems. This provides an idiomatic FluentAPI builder pattern designed for C#:
+There is no separate C# builder for graph coloring; C# calls the same functions. F# lists are built with `ListModule.OfSeq`, and the optional backend is an `FSharpOption`:
 
 ```csharp
+using System;
+using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Core;
 using FSharp.Azure.Quantum;
-using static FSharp.Azure.Quantum.GraphOptimization;
+using FSharp.Azure.Quantum.Core;
 
-// Graph coloring in C# using GraphOptimization
-var problem = new GraphOptimizationBuilder<int, Unit>()
-    .Nodes(new[] {
-        node("A", 0),  // Node "A" with value 0
-        node("B", 0),  // Node "B" with value 0
-        node("C", 0)   // Node "C" with value 0
-    })
-    .Edges(new[] {
-        edge("A", "B", 1.0),  // A conflicts with B
-        edge("A", "C", 1.0)   // A conflicts with C
-    })
-    .AddConstraint(GraphConstraint.NoAdjacentEqual)  // No adjacent nodes same color
-    .Objective(GraphObjective.MinimizeColors)        // Minimize colors used
-    .NumColors(2)                                     // 2 colors available
-    .Build();
+var problem = GraphColoring.examScheduling(
+    ListModule.OfSeq(new[] { "Math", "Physics", "Chemistry" }),
+    ListModule.OfSeq(new[] { Tuple.Create("Math", "Physics"), Tuple.Create("Math", "Chemistry") }),
+    ListModule.OfSeq(new[] { "Mon", "Tue", "Wed" }));
 
-var solution = solveClassical(problem);
+var result = GraphColoring.solve(problem, 3, FSharpOption<BackendAbstraction.IQuantumBackend>.None);
 
-// Access results
-Console.WriteLine($"Feasible: {solution.IsFeasible}");
-if (solution.NodeAssignments.HasValue)
+if (result.IsOk)
 {
-    var assignments = solution.NodeAssignments.Value;
-    foreach (var kvp in assignments)
-    {
-        Console.WriteLine($"{kvp.Key} → Color {kvp.Value}");
-    }
+    foreach (var kvp in result.ResultValue.Assignments)
+        Console.WriteLine($"{kvp.Key} → {kvp.Value}");
+}
+else
+{
+    Console.WriteLine($"Failed: {result.ErrorValue.Message}");
 }
 ```
 
-### Mapping Graph Coloring Concepts to GraphOptimization
-
-| Graph Coloring Concept (F#) | GraphOptimization Concept (C#) |
-|------------------------------|-------------------------------|
-| `node "A" ["B"; "C"]` (conflicts) | `node("A", 0)` + `edge("A", "B")` + `edge("A", "C")` |
-| `colors ["Red"; "Green"]` (string names) | `NumColors(2)` (count only, values are indices 0, 1) |
-| `conflictsWith` (domain language) | `Edges` (generic graph edges) |
-| `objective MinimizeColors` | `Objective(GraphObjective.MinimizeColors)` |
-| `solve problem` | `solveClassical(problem)` |
-
-**Note:** GraphOptimization uses integer indices for colors (0, 1, 2...) instead of string names ("Red", "Green", "Blue"). You can map indices to color names in your application code.
-
-### Language-Specific APIs
-
-| | F# | C# |
-|---|----|----|
-| **Module** | `GraphColoring` (TKT-80) | `GraphOptimization` (TKT-90) |
-| **API Style** | Computation expression | FluentAPI builder |
-| **Colors** | String names | Integer indices |
-| **Conflicts** | `conflictsWith` list | `Edges` with `NoAdjacentEqual` |
-
-Both provide excellent graph coloring capabilities tailored to each language's idioms.
+The generic `GraphOptimization` module (`GraphOptimizationBuilder`) describes graph problems and encodes them as QUBO matrices (`toQubo`, `decodeSolution`), but it does not solve them; use `GraphColoring.solve` to get a coloring.
 
 ---
 
 ## Real-World Examples
 
+The qubit count of each example is nodes × colors used; all of these stay well within the local simulator.
+
 ### Example 1: Compiler Register Allocation
 
-**Problem:** Assign 8 live variables to 4 CPU registers.
+**Problem:** Assign 5 live variables to 3 CPU registers (5 × 3 = 15 qubits).
 
 ```fsharp
 open FSharp.Azure.Quantum.GraphColoring
 
 // Variable interference graph (from liveness analysis)
 let problem = graphColoring {
-    node "v1" ["v2"; "v3"; "v4"]      // v1 live simultaneously with v2, v3, v4
-    node "v2" ["v1"; "v5"]
-    node "v3" ["v1"; "v6"]
-    node "v4" ["v1"; "v7"]
-    node "v5" ["v2"; "v8"]
-    node "v6" ["v3"]
-    node "v7" ["v4"]
-    node "v8" ["v5"]
-    
+    node "v1" ["v2"; "v3"]            // v1 live simultaneously with v2, v3
+    node "v2" ["v1"; "v3"; "v4"]
+    node "v3" ["v1"; "v2"; "v5"]
+    node "v4" ["v2"; "v5"]
+    node "v5" ["v3"; "v4"]
+
     // x86-64 general-purpose registers
-    colors ["RAX"; "RBX"; "RCX"; "RDX"]
+    colors ["RAX"; "RBX"; "RCX"]
     objective MinimizeColors
 }
 
-match solve problem 8 None with
+match solve problem 3 None with
 | Ok solution ->
     if solution.IsValid then
         printfn "Register allocation successful!"
         printfn "Registers used: %d" solution.ColorsUsed
-        
+
         for (var, reg) in Map.toList solution.Assignments do
             printfn "  %s → %s" var reg
-        
+
         // Output assembly with register assignments
         printfn "\nGenerated Assembly:"
         printfn "  MOV %s, 42     ; v1 = 42" (solution.Assignments.["v1"])
-        printfn "  ADD %s, %s     ; v2 = v1 + ..." 
-            (solution.Assignments.["v2"]) 
+        printfn "  ADD %s, %s     ; v2 = v1 + ..."
+            (solution.Assignments.["v2"])
             (solution.Assignments.["v1"])
     else
-        printfn "Spilling required - not enough registers!"
+        printfn "No conflict-free assignment in the samples - spill or add registers"
 | Error err ->
     eprintfn "Register allocation failed: %s" err.Message
 ```
-
-**ROI:**
-- ✅ Minimize register spills (memory access)
-- ✅ Faster code execution
-- ✅ Automatic allocation (no manual tuning)
 
 ---
 
 ### Example 2: Wireless Frequency Assignment
 
-**Problem:** Assign frequencies to cell towers to avoid interference.
+**Problem:** Assign frequencies to cell towers to avoid interference (6 towers × 3 frequencies = 18 qubits).
 
 ```fsharp
-// Load tower interference data from database
+// Tower interference data, e.g. loaded from a database
 type Tower = { Id: string; InterferesWithin: string list }
 
 let towers = [
@@ -386,38 +379,33 @@ let towers = [
     { Id = "Tower6"; InterferesWithin = ["Tower4"; "Tower5"] }
 ]
 
-let nodesList = 
-    towers 
+let nodesList =
+    towers
     |> List.map (fun t -> node t.Id t.InterferesWithin)
 
 let problem = graphColoring {
     nodes nodesList
-    colors ["2.4GHz"; "5GHz"; "6GHz"; "10GHz"]
+    colors ["2.4GHz"; "5GHz"; "6GHz"]
     objective MinimizeColors
 }
 
-match solve problem 4 None with
+match solve problem 3 None with
 | Ok solution ->
     printfn "Frequency Plan:"
     for tower in towers do
         let freq = solution.Assignments.[tower.Id]
         printfn "  %s: %s" tower.Id freq
-    
+
     printfn "\nFrequencies needed: %d" solution.ColorsUsed
 | Error err ->
     eprintfn "Frequency allocation failed: %s" err.Message
 ```
 
-**ROI:**
-- ✅ Minimize frequency spectrum usage
-- ✅ Avoid costly interference
-- ✅ Scale to thousands of towers
-
 ---
 
 ### Example 3: Exam Scheduling
 
-**Problem:** Schedule exams to avoid student conflicts.
+**Problem:** Schedule exams to avoid student conflicts (5 exams × 3 slots = 15 qubits).
 
 ```fsharp
 type Exam = {
@@ -433,43 +421,33 @@ let exams = [
     { Course = "Biology 101"; StudentOverlapWith = ["Chemistry 101"] }
 ]
 
-let nodesList = 
-    exams 
+let nodesList =
+    exams
     |> List.map (fun e -> node e.Course e.StudentOverlapWith)
 
 let problem = graphColoring {
     nodes nodesList
-    colors ["Monday 9am"; "Monday 2pm"; "Tuesday 9am"; "Tuesday 2pm"; "Wednesday 9am"]
+    colors ["Monday 9am"; "Monday 2pm"; "Tuesday 9am"]
     objective MinimizeColors
 }
 
-match solve problem 5 None with
+match solve problem 3 None with
 | Ok solution ->
     printfn "Exam Schedule:"
     for exam in exams do
         let timeSlot = solution.Assignments.[exam.Course]
         printfn "  %s: %s" exam.Course timeSlot
-    
+
     printfn "\nTime slots needed: %d" solution.ColorsUsed
 | Error err -> eprintfn "Error: %s" err.Message
 ```
 
-**ROI:**
-- ✅ No student schedule conflicts
-- ✅ Minimize exam days
-- ✅ Automatic scheduling (no manual spreadsheets)
-
 ---
 
-## F# Computation Expressions vs C# Fluent APIs
+## Composing Problems
 
-### Language-Specific Strengths
+### Control Flow Outside the Builder
 
-Both F# computation expressions and C# fluent APIs are excellent patterns for building domain-specific APIs. The choice depends on your language preference and project context.
-
-#### 1. **Control Flow Integration**
-
-**F# Computation Expression:**
 ```fsharp
 let highPriority = true
 let criticalNodes = if highPriority then [node "Critical" []] else []
@@ -482,33 +460,13 @@ let problem = graphColoring {
 }
 ```
 
-**C# with Generic Graph API:**
-```csharp
-using static FSharp.Azure.Quantum.GraphOptimization;
+### Generating Nodes
 
-var builder = new GraphOptimizationBuilder<int, Unit>();
-if (highPriority) {
-    builder = builder.Nodes(new[] { node("Critical", 0) });
-}
-
-var problem = builder
-    .Nodes(new[] { node("A", 0), node("B", 0) })
-    .Edges(new[] { edge("A", "B", 1.0) })
-    .AddConstraint(GraphConstraint.NoAdjacentEqual)
-    .NumColors(2)
-    .Build();
-```
-
-*Both approaches work well - F# integrates control flow into the computation expression, C# uses standard imperative conditionals with the generic graph framework.*
-
-#### 2. **Iteration Support**
-
-**F# Approach:**
 ```fsharp
 let neighbors i = [sprintf "Node%d" ((i % 100) + 1)]
 let availableColors = ["Red"; "Green"; "Blue"]
 
-let nodesList = 
+let nodesList =
     [1..100]
     |> List.map (fun i -> node $"Node{i}" (neighbors i))
 
@@ -518,123 +476,12 @@ let problem = graphColoring {
 }
 ```
 
-**C# with Generic Graph API:**
-```csharp
-using static FSharp.Azure.Quantum.GraphOptimization;
+A 100-node problem builds fine, but it is far too large for `solve` on a simulator (100 × 3 = 300 qubits); see [Problem Size and Performance](#problem-size-and-performance).
 
-var nodes = Enumerable.Range(1, 100)
-    .Select(i => node($"Node{i}", 0))
-    .ToArray();
+### Mixing Inline and Builder Nodes
 
-var edges = Enumerable.Range(1, 100)
-    .SelectMany(i => neighbors(i).Select(n => edge($"Node{i}", n, 1.0)))
-    .ToArray();
+Inline `node` operations and `nodes` lists can be combined; nodes are appended in order.
 
-var problem = new GraphOptimizationBuilder<int, Unit>()
-    .Nodes(nodes)
-    .Edges(edges)
-    .AddConstraint(GraphConstraint.NoAdjacentEqual)
-    .NumColors(availableColors.Length)
-    .Build();
-```
-
-*Both use LINQ/pipeline operators effectively. F# uses domain language (conflicts), C# uses graph theory concepts (edges).*
-
-#### 3. **Domain-Specific vs Generic APIs**
-
-**F# Domain-Specific:**
-```fsharp
-let problem = graphColoring {
-    node "Tower1" ["Tower2"; "Tower3"]  // Business language
-    colors ["2.4GHz"; "5GHz"]
-}
-```
-
-**C# Generic Framework:**
-```csharp
-var problem = new GraphOptimizationBuilder<int, Unit>()
-    .Nodes(...)
-    .Edges(...)  // Generic graph operations
-    .AddConstraint(NoAdjacentEqual)
-    .Build();
-```
-
-*F# API is optimized for graph coloring domains, C# API is flexible for any graph algorithm.*
-
-#### 4. **Builder Finalization**
-
-**F# Automatic:**
-```fsharp
-let problem = graphColoring {
-    node "A" ["B"]
-    colors ["Red"; "Green"]
-}  // Run() called automatically by compiler
-```
-
-**C# Explicit:**
-```csharp
-using static FSharp.Azure.Quantum.GraphOptimization;
-
-var problem = new GraphOptimizationBuilder<int, Unit>()
-    .Nodes(new[] { node("A", 0), node("B", 0) })
-    .Edges(new[] { edge("A", "B", 1.0) })
-    .AddConstraint(GraphConstraint.NoAdjacentEqual)
-    .NumColors(2)
-    .Build();  // Explicit finalization required
-```
-
-*F# computation expression automates finalization via `Run()`, C# FluentAPI requires explicit `.Build()` call.*
-
-#### 5. **Progressive Disclosure in F#**
-
-```fsharp
-// Mock function for example
-let loadFromDatabase() = [node "DBNode1" []; node "DBNode2" []]
-
-// Level 1: Simple inline
-let _ = node "A" ["B"; "C"]
-
-// Level 2: Data-driven
-let nodesList2 = loadFromDatabase()
-
-// Level 3: Full builder
-let _ = coloredNode {
-    nodeId "A"
-    conflictsWith ["B"]
-    fixedColor "Red"
-    priority 100.0
-}
-```
-
-*F# computation expressions naturally support progressive API design.*
-
-#### 6. **Type Inference**
-
-**F# Inference:**
-```fsharp
-let problem = graphColoring {
-    node "A" ["B"]  // Types inferred automatically
-    colors ["Red"; "Green"]
-}
-```
-
-**C# with var:**
-```csharp
-using static FSharp.Azure.Quantum.GraphOptimization;
-
-var problem = new GraphOptimizationBuilder<int, Unit>()
-    .Nodes(new[] { node("A", 0), node("B", 0) })
-    .Edges(new[] { edge("A", "B", 1.0) })
-    .AddConstraint(GraphConstraint.NoAdjacentEqual)
-    .NumColors(2)
-    .Build();
-```
-
-*F# has extensive type inference throughout. C# uses `var` for local variable type inference but requires explicit type parameters for generics.*
-
-#### 7. **Composition and Reuse**
-
-**F# Fragments:**
 ```fsharp
 let baseNodes = [
     node "A" ["B"]
@@ -651,150 +498,74 @@ let problem2 = graphColoring {
     node "C" ["A"]  // Add more nodes
     colors ["Red"; "Green"; "Blue"]
 }
+
+let pinned = graphColoring {
+    nodes [coloredNode { nodeId "A"; conflictsWith ["B"]; fixedColor "Red" }]
+    node "B" ["A"]
+    colors ["Red"; "Green"]
+}
 ```
 
-**C# Builder Reuse:**
-```csharp
-using static FSharp.Azure.Quantum.GraphOptimization;
+### Loops Inside the Builder
 
-var baseNodes = new[] { node("A", 0), node("B", 0) };
-var baseEdges = new[] { edge("A", "B", 1.0) };
+Custom operations such as `node` cannot appear inside a `for` loop in the builder. Either generate the nodes outside and pass them with `nodes`, or `yield!` a one-node problem made with `singleNode`. Inside the builder the name `node` means the custom operation, not the helper function, so build the node with `coloredNode { }`:
 
-var baseBuilder = new GraphOptimizationBuilder<int, Unit>()
-    .Nodes(baseNodes)
-    .Edges(baseEdges)
-    .AddConstraint(GraphConstraint.NoAdjacentEqual);
+```fsharp
+let problem = graphColoring {
+    colors ["Red"; "Green"; "Blue"]
 
-var problem1 = baseBuilder
-    .NumColors(2)
-    .Build();
-
-var problem2 = baseBuilder
-    .Nodes(baseNodes.Append(node("C", 0)).ToArray())
-    .Edges(baseEdges.Append(edge("A", "C", 1.0)).ToArray())
-    .NumColors(3)
-    .Build();
+    for i in [1..10] do
+        yield! singleNode (coloredNode {
+            nodeId $"N{i}"
+            conflictsWith (if i < 10 then [$"N{i+1}"] else [])
+        })
+}
 ```
-
-*Both support composition - F# with list concatenation in the computation expression, C# with builder chaining and LINQ.*
-
-### Summary
-
-| Aspect | F# Computation Expression | C# Fluent API |
-|--------|---------------------------|---------------|
-| **Syntax** | Domain-specific, declarative | Method chaining, imperative |
-| **Control Flow** | Integrated (`if`, `for`) | Standard language constructs |
-| **Type Safety** | Inference + strong typing | Explicit types + generics |
-| **Finalization** | Automatic (`Run()`) | Explicit (`.Build()`) |
-| **Best For** | Domain problems, F# projects | Generic algorithms, C# projects |
-
-**Choose based on your language and problem domain** - both are production-ready, well-designed APIs.
 
 ---
 
-## Performance Characteristics
+## Problem Size and Performance
 
-### Solver Performance
+**Algorithm:** `solve` builds a QUBO with one variable per (node, color) pair and runs a single QAOA layer with fixed angles (γ = β = 0.5) and 1000 shots. It decodes every shot and returns the best one: valid colorings first (fewest colors), otherwise the fewest conflicts. There is no angle optimisation, so small, sparse graphs give the best results.
 
-| Problem Size | Nodes | Edges | Time | Memory |
-|--------------|-------|-------|------|--------|
-| **Small** | 10 | 20 | <10ms | <1MB |
-| **Medium** | 100 | 500 | <100ms | ~5MB |
-| **Large** | 1000 | 5000 | <1s | ~50MB |
-| **Very Large** | 10000 | 50000 | ~10s | ~500MB |
+**Qubits:** nodes × `min numColors (number of colors)`. On `LocalBackend` this must fit `StateVector.maxQubits`, which is derived from available memory and capped at 30; the state vector needs 16 bytes × 2^qubits. In practice keep problems around 20 qubits or fewer (for example 6 nodes × 3 colors, or 5 nodes × 4 colors). Larger problems need a cloud backend or a classical method.
 
-**Algorithm:** Greedy graph coloring (classical solver)
+**Other limits:** a graph must have at least one conflict edge, otherwise `solve` returns an `Error`.
 
-**Complexity:**
-- Time: O(V + E) where V = nodes, E = edges
-- Space: O(V + E)
+**Classical alternative:** for graphs too large to simulate, `HybridSolver.solveGraphColoring` with a forced `Classical` method runs a greedy coloring. It takes the lower-level `QuantumGraphColoringSolver.GraphColoringProblem` (color indices instead of names):
 
-### Validation Overhead
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Quantum
 
-- **Parse-time validation**: <1ms for typical problems
-- **Run() method**: Validates structure (IDs, conflicts, colors)
-- **Early failure**: Catches errors before solving
+let bigProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
+    Vertices = [ for i in 1..100 -> $"Node{i}" ]
+    Edges = [ for i in 1..100 -> GraphOptimization.edge $"Node{i}" $"Node{(i % 100) + 1}" 1.0 ]
+    NumColors = 3
+    FixedColors = Map.empty
+}
+
+match HybridSolver.solveGraphColoring bigProblem 3 None None (Some HybridSolver.Classical) with
+| Ok solution -> printfn "Greedy used %d colors" solution.Result.ColorsUsed
+| Error err -> eprintfn "Error: %s" err.Message
+```
 
 ---
 
 ## Best Practices
 
-### ✅ DO
-
-1. **Use inline syntax for simple problems** (80% case)
-   ```fsharp
-   node "A" ["B"; "C"]
-   ```
-
-2. **Load from data for dynamic problems**
-   ```fsharp
-   nodes (loadTowersFromDatabase())
-   ```
-
-3. **Use `coloredNode { }` for complex requirements**
-   ```fsharp
-   coloredNode { fixedColor "Red"; priority 100.0 }
-   ```
-
-4. **Validate early** - `Run()` validates at build time
-
-5. **Use business domain language** - "conflicts", "colors", not "edges"
-
-### Common Patterns
-
-1. **Using loops with the builder**
-   
-   **Option A:** Generate nodes outside and pass them in (recommended for complex logic):
-   ```fsharp
-   // Generate nodes first
-   let nodesList = [1..10] |> List.map (fun i -> node $"N{i}" [])
-   
-   // Then use in builder
-   graphColoring { nodes nodesList }
-   ```
-   
-   **Option B:** Use `for` loops with `yield!` inside the builder:
-   ```fsharp
-   // Use yield! with singleNode helper for loops
-   let problem = graphColoring {
-       colors ["Red"; "Green"; "Blue"]
-       
-       for i in [1..10] do
-           yield! singleNode (node $"N{i}" [$"N{i+1}"])
-   }
-   ```
-   
-   *Note: Custom operations like `node` don't work directly in `for` loops (F# limitation). Use `yield! singleNode(...)` instead.*
-
-2. **Always specify colors** - Required for all problems
-   ```fsharp
-   graphColoring {
-       node "A" ["B"]
-       colors ["Red"; "Green"]  // Required
-   }
-   ```
-
-3. **Choose one node creation style per problem** - Either inline or builder, not mixed
-   ```fsharp
-   // Inline style
-   graphColoring {
-       node "A" ["B"]
-       node "B" ["A"]
-   }
-   
-   // OR builder style
-   let nodes = [
-       coloredNode { id "A"; conflictsWith ["B"] }
-       coloredNode { id "B"; conflictsWith ["A"] }
-   ]
-   graphColoring { nodes nodes }
-   ```
+1. **Use inline syntax for simple problems** - `node "A" ["B"; "C"]`.
+2. **Load from data for dynamic problems** - build the list outside the builder and pass it with `nodes`.
+3. **Use `coloredNode { }` when a node is pinned** - `fixedColor` is the builder option the solver honours.
+4. **Expect build-time exceptions** - the `graphColoring { }` builder throws on an invalid problem. Build the `GraphColoringProblem` record yourself and call `validate` if you need a `Result` instead.
+5. **Always specify colors** - a problem without `colors` fails validation.
+6. **Keep the qubit count small** - nodes × colors; check `IsValid` on every result.
 
 ---
 
 ## Related Documentation
 
-- [Task Scheduling (TKT-81)](./TaskScheduling-API.md) - Similar computation expression pattern
+- [Task Scheduling](./TaskScheduling-API.md) - Similar computation expression pattern
 
 ---
 

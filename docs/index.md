@@ -16,6 +16,7 @@ title: FSharp.Azure.Quantum
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 // Graph Coloring: Register Allocation
 let problem = graphColoring {
@@ -26,14 +27,14 @@ let problem = graphColoring {
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
 }
 
-// Solve using quantum optimization (QAOA)
+// Solve using quantum optimization (QAOA) on the local simulator
 match GraphColoring.solve problem 4 None with
 | Ok solution ->
     printfn "Colors used: %d" solution.ColorsUsed
     solution.Assignments 
     |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 ### C# Fluent API
@@ -72,7 +73,7 @@ dotnet add package FSharp.Azure.Quantum
 
 ### 🎯 7 Quantum Optimization Builders
 
-**Production-ready quantum algorithms for common combinatorial problems:**
+**QAOA-based builders for common combinatorial problems:**
 
 1. **Graph Coloring** - Register allocation, frequency assignment, scheduling
 2. **MaxCut** - Circuit partitioning, community detection, load balancing
@@ -109,15 +110,14 @@ dotnet add package FSharp.Azure.Quantum
 
 ### 🤖 HybridSolver - Optional Smart Routing
 
-**Optional optimization layer for variable-sized problems:**
+**Optional routing layer for variable-sized problems (TSP, Portfolio, MaxCut, Knapsack, Graph Coloring):**
 
-- ✅ **Analyzes problem size** - Routes small problems (< 20 variables) to classical fallback
-- ✅ **Quantum-first** - Uses QAOA on LocalBackend/Cloud for >= 20 variables
-- ✅ **Cost guards** - Budget limits prevent runaway quantum costs
-- ✅ **Transparent reasoning** - Explains routing decision
-- ✅ **Production-ready** - Useful when problem sizes vary significantly
+- ✅ **Analyzes problem size** - `QuantumAdvisor` recommends classical below 20 variables and only strongly recommends quantum from 50 variables up (`QuantumAdvisor.defaultThresholds`)
+- ✅ **Quantum only when asked for** - Routes to QAOA when the advisor strongly recommends quantum *and* you pass a backend (the `solve*WithBackend` functions), or when you force it with `Some HybridSolver.Quantum`; otherwise it runs the classical solver
+- ✅ **Cost guards** - An optional budget (USD) sends the problem to the classical solver when the estimated quantum cost exceeds it
+- ✅ **Transparent reasoning** - Every `HybridSolver.Solution` carries `Method` and a `Reasoning` string
 
-**Recommendation:** Use direct quantum API (`GraphColoring.solve`, `MaxCut.solve`, etc.) for most cases. HybridSolver adds classical fallback optimization for very small problems.
+**Recommendation:** Use the direct quantum API (`GraphColoring.solve`, `MaxCut.solve`, etc.) when you want QAOA. Use HybridSolver when you want a classical answer for small problems and quantum only for large ones.
 
 **See:** [Getting Started Guide](getting-started) for detailed examples and decision criteria
 
@@ -125,31 +125,35 @@ dotnet add package FSharp.Azure.Quantum
 
 Quantum Approximate Optimization Algorithm with:
 - ✅ Automatic QUBO encoding
-- ✅ Advanced parameter optimization (COBYLA, SPSA, gradient-free)
+- ✅ Gradient-free parameter optimization (Nelder–Mead) with multi-start, layer-by-layer and adaptive strategies (`QaoaParameterOptimizer`)
 - ✅ Configurable circuit depth and shot counts
 - ✅ Solution validation and quality metrics
 - ✅ Integer variable support
 
-**Example:** `examples/QaoaParameterOptimizationExample.fsx`
+**Example:** `examples/Optimization/QaoaParameterOptimizationExample.fsx`
 
 ### 🖥️ Multiple Execution Backends
 
-## 🧭 Intent-First Algorithms (Why Some Algorithms Behave Differently Per Backend)
+- **LocalBackend** - State-vector simulation (width derived from available memory, hard ceiling 30 qubits; free)
+- **IonQ** (`CloudBackends.IonQCloudBackend`) - Azure Quantum, trapped-ion (library limits: Aria 25, Forte 36 qubits)
+- **Rigetti** (`CloudBackends.RigettiCloudBackend`) - Azure Quantum, superconducting (QPU 84 qubits)
+- **Atom Computing** (`CloudBackends.AtomComputingCloudBackend`) - Azure Quantum, neutral atoms (QPU 100 qubits)
+- **Quantinuum** (`CloudBackends.QuantinuumCloudBackend`) - Azure Quantum, trapped-ion (H1 32, H2 56 qubits)
+- **IQM** (`CloudBackends.IqmCloudBackend`) - Azure Quantum, superconducting
+- **D-Wave** (`DWaveBackend`, `RealDWaveBackend`) - Quantum annealer for QUBO problems (a mock annealer is included for local runs)
+- **AWS Braket** - Separate `FSharp.Azure.Quantum.Braket` package (gate QPUs and simulators via OpenQASM 3.0, QuEra Aquila via AHS)
+- **Topological** - Separate `FSharp.Azure.Quantum.Topological` package (anyon braiding simulator)
 
-Some algorithms in this library are implemented as **intent → plan → execute** rather than as a fixed “gate circuit”. This allows the same algorithm to run correctly on:
+The provider simulators are capped at a conservative 20 qubits by the library.
+
+### 🧭 Intent-First Algorithms
+
+Some algorithms in this library are implemented as **intent → plan → execute** rather than as a fixed gate circuit. This allows the same algorithm to run on:
 
 - gate-native backends (state-vector simulation, common providers), and
 - non-gate-native backends (e.g., topological / Majorana-style models).
 
 This is mostly transparent to users: you call the same API, but the backend may choose a different execution strategy. See the [Intent-First Algorithms ADR](adr-intent-first-algorithms).
-
-
-- **LocalBackend** - Fast simulation (memory-derived width, free)
-- **IonQBackend** - Azure Quantum (29+ qubits simulator, 36 qubits QPU - Forte)
-- **RigettiBackend** - Azure Quantum (40+ qubits simulator, 84 qubits QPU - Ankaa-3)
-- **AtomComputingBackend** - Azure Quantum (100+ qubits, neutral atoms, all-to-all connectivity)
-- **QuantinuumBackend** - Azure Quantum (56 qubits - H2, 99.9%+ fidelity, trapped-ion)
-- **DWaveBackend** - D-Wave quantum annealer (2000+ qubits, production hardware)
 
 ### 💻 Cross-Language Support
 
@@ -163,8 +167,9 @@ This is mostly transparent to users: you call the same API, but the backend may 
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
-// Register allocation for compiler optimization
+// Time-slot assignment: tasks that conflict cannot share a slot
 let problem = graphColoring {
     node "Task1" ["Task2"; "Task3"]
     node "Task2" ["Task1"; "Task4"]
@@ -179,7 +184,7 @@ match GraphColoring.solve problem 3 None with
     printfn "Valid coloring: %b" solution.IsValid
     printfn "Colors used: %d/%d" solution.ColorsUsed 3
     printfn "Conflicts: %d" solution.ConflictCount
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### MaxCut
@@ -200,7 +205,7 @@ match MaxCut.solve problem None with
     printfn "Partition S: %A" solution.PartitionS
     printfn "Partition T: %A" solution.PartitionT
     printfn "Cut value: %.2f" solution.CutValue
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Knapsack
@@ -220,7 +225,7 @@ match Knapsack.solve problem None with
     printfn "Total value: $%.2f" solution.TotalValue
     printfn "Total weight: %.2f/%.2f" solution.TotalWeight problem.Capacity
     printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### TSP
@@ -239,7 +244,7 @@ match TSP.solve problem None with
 | Ok tour ->
     printfn "Optimal route: %s" (String.concat " → " tour.Cities)
     printfn "Total distance: %.2f" tour.TotalDistance
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Portfolio
@@ -262,55 +267,58 @@ match Portfolio.solve problem None with
     allocation.Allocations 
     |> List.iter (fun (symbol, shares, value) ->
         printfn "  %s: %.2f shares ($%.2f)" symbol shares value)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Network Flow
 
 ```fsharp
 let nodes = [
-    NetworkFlow.SourceNode("Factory", 100)
-    NetworkFlow.IntermediateNode("Warehouse", 80)
-    NetworkFlow.SinkNode("Store1", 40)
-    NetworkFlow.SinkNode("Store2", 60)
+    NetworkFlow.createSource "Factory" 100 100      // id, supply, capacity
+    NetworkFlow.createIntermediate "Warehouse" 80   // id, capacity
+    NetworkFlow.createSink "Store1" 40              // id, demand
+    NetworkFlow.createSink "Store2" 60
 ]
 
 let routes = [
-    NetworkFlow.Route("Factory", "Warehouse", 5.0)
-    NetworkFlow.Route("Warehouse", "Store1", 3.0)
-    NetworkFlow.Route("Warehouse", "Store2", 4.0)
+    NetworkFlow.createRoute "Factory" "Warehouse" 5.0   // from, to, cost
+    NetworkFlow.createRoute "Warehouse" "Store1" 3.0
+    NetworkFlow.createRoute "Warehouse" "Store2" 4.0
 ]
 
-let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
+let problem = NetworkFlow.createProblem nodes routes
 
 match NetworkFlow.solve problem None with
 | Ok flow ->
     printfn "Total cost: $%.2f" flow.TotalCost
     printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Task Scheduling
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
-// Define tasks with dependencies
-let taskA = scheduledTask {
+// Define tasks with dependencies (the type parameter is an optional payload; unit = none)
+let taskA: ScheduledTask<unit> = scheduledTask {
     taskId "TaskA"
     duration (hours 2.0)
     priority 10.0
 }
 
-let taskB = scheduledTask {
+let taskB: ScheduledTask<unit> = scheduledTask {
     taskId "TaskB"
     duration (hours 1.5)
     after "TaskA"  // Dependency
     requires "Worker" 2.0
-    deadline 180.0
+    deadline (hours 5.0)
 }
 
-let taskC = scheduledTask {
+let taskC: ScheduledTask<unit> = scheduledTask {
     taskId "TaskC"
     duration (minutes 30.0)
     after "TaskA"
@@ -318,12 +326,12 @@ let taskC = scheduledTask {
 }
 
 // Define resources
-let worker = resource {
+let worker: Resource<unit> = resource {
     resourceId "Worker"
     capacity 3.0
 }
 
-let machine = resource {
+let machine: Resource<unit> = resource {
     resourceId "Machine"
     capacity 2.0
 }
@@ -333,30 +341,30 @@ let problem = scheduling {
     tasks [taskA; taskB; taskC]
     resources [worker; machine]
     objective MinimizeMakespan
-    timeHorizon 500.0
+    timeHorizon (hours 8.0)
 }
 
-// Solve with quantum backend for resource constraints
-let backend = BackendAbstraction.createLocalBackend()
-match solveQuantum backend problem with
+// Solve with a quantum backend (solveQuantum returns Async)
+let backend = LocalBackend() :> IQuantumBackend
+match solveQuantum backend problem |> Async.RunSynchronously with
 | Ok solution ->
-    printfn "Makespan: %.2f hours" solution.Makespan
-    solution.Schedule 
+    printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
+    solution.Assignments 
     |> List.iter (fun assignment ->
-        printfn "%s: starts %.2f, ends %.2f" 
-            assignment.TaskId assignment.StartTime assignment.EndTime)
-| Error msg -> printfn "Error: %s" msg
+        printfn "%s: starts %.2f h, ends %.2f h" 
+            assignment.TaskId assignment.StartTime.TotalHours assignment.EndTime.TotalHours)
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## 🏗️ Architecture
 
-**3-Layer Quantum-Only Design:**
+**3-Layer Quantum-First Design:**
 
 ![3-Layer Quantum Architecture](images/3-layer-architecture.svg)
 
 **Design Philosophy:**
-- ✅ **Quantum-Only**: No classical algorithms (pure quantum optimization library)
-- ✅ **Clear Layers**: No leaky abstractions between layers
+- ✅ **Quantum-First**: The problem builders (`GraphColoring.solve`, `MaxCut.solve`, ...) run QAOA on a quantum backend and never fall back to a classical solver silently. Classical solvers exist only where you ask for them: `HybridSolver` routing and the `Classical` solvers (`TspSolver`, `PortfolioSolver`)
+- ✅ **Clear Layers**: Business builders → quantum solvers → `IQuantumBackend`
 - ✅ **Type-Safe**: F# type system prevents invalid problem specifications
 - ✅ **Extensible**: Easy to add new problem types following existing patterns
 
@@ -452,77 +460,82 @@ match solveQuantum backend problem with
 
 **Best Practice**: 
 - **Use direct quantum API** (`GraphColoring.solve`, `MaxCut.solve`, etc.) for consistent quantum experience across all problem sizes
-- **Use HybridSolver** only if you need automatic classical fallback for very small problems (< 20 variables)
-- **LocalBackend (default)** provides free, fast quantum simulation at a width derived from available memory - ideal for development, testing, and many production use cases
-- **Cloud backends** (IonQ, Rigetti) for larger problems or real quantum hardware experimentation
+- **Use HybridSolver** if you want a classical answer for small problems and quantum only when the advisor strongly recommends it (50+ variables by default) and you supply a backend
+- **LocalBackend (default)** provides free quantum simulation at a width derived from available memory (hard ceiling 30 qubits) - suited to development, testing and small problems
+- **Cloud backends** (IonQ, Rigetti, Quantinuum, Atom Computing, IQM) for real quantum hardware experimentation
 
 ## 🔧 Backend Selection Guide
 
 ### LocalBackend (Default)
 
 ```fsharp
+let maxCutProblem = MaxCut.createProblem vertices edges   // from the MaxCut example above
+
 // Automatic: No backend parameter needed
-match MaxCut.solve problem None with
+match MaxCut.solve maxCutProblem None with
 | Ok solution -> printfn "Max cut value: %.2f" solution.CutValue
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Characteristics:**
 - ✅ Free (local simulation)
-- ✅ Fast (milliseconds)
-- ✅ Up to `StateVector.maxQubits` (derived from available memory; hard ceiling 30)
-- ✅ Perfect for development and testing
+- ✅ Fast for small circuits (milliseconds per gate up to about 20 qubits)
+- ✅ Up to `StateVector.maxQubits` (derived from available memory; hard ceiling 30; override with `FSAQ_MAX_QUBITS`)
+- ✅ Suited to development and testing
 
 ### Azure Quantum (Cloud)
 
+Cloud backends talk to an Azure Quantum workspace over HTTP. Authenticate with an Azure credential (e.g. after `az login`) and pass the workspace URL:
+
 ```fsharp
-open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-// Create workspace
-let workspace = createDefault "subscription-id" "resource-group" "workspace-name" "eastus"
+// https://<location>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>
+let workspaceUrl = "https://eastus.quantum.azure.com/subscriptions/..."
 
-// IonQ Backend (trapped-ion)
-let backend_ionq = BackendAbstraction.createFromWorkspace workspace "ionq.simulator"
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
 
-// Rigetti Backend (superconducting)
-let backend_rigetti = BackendAbstraction.createFromWorkspace workspace "rigetti.sim.qvm"
-
-// Atom Computing Backend (neutral atoms, 100+ qubits, all-to-all connectivity)
-let backend_atom = BackendAbstraction.createFromWorkspace workspace "atom-computing.sim"
-
-// Quantinuum Backend (trapped-ion, highest fidelity)
-let backend_quantinuum = BackendAbstraction.createFromWorkspace workspace "quantinuum.sim.h1-1sc"
+// httpClient, workspace URL, target, shots
+let backend_ionq = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+let backend_rigetti = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.sim.qvm" 1000
+let backend_atom = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atom-computing.sim" 1000
+let backend_quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.sim.h1-1sc" 1000
 
 // Pass to solver
-match MaxCut.solve problem (Some backend_atom) with
+match MaxCut.solve maxCutProblem (Some backend_ionq) with
 | Ok solution -> printfn "Max cut value: %.2f" solution.CutValue
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
-**Backend Characteristics:**
+`FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace` (`createDefault`, `createFromEnvironment`) is for workspace management such as quota and provider queries; it does not create execution backends.
 
-| Backend | Qubits | Technology | Best For |
-|---------|--------|------------|----------|
-| **IonQ** | 29+ (sim), 11 (QPU) | Trapped-ion | General gate-based algorithms |
-| **Rigetti** | 40+ (sim), 80 (QPU) | Superconducting | Fast gate operations |
-| **Atom Computing** | 100+ (sim/QPU) | Neutral atoms | Large-scale problems, all-to-all connectivity |
-| **Quantinuum** | 20-32 (sim/QPU) | Trapped-ion | High-precision (99.9%+ fidelity) |
+**Backend Characteristics** (the qubit limits the library enforces):
+
+| Backend | Qubits | Technology |
+|---------|--------|------------|
+| **IonQ** | Aria 25, Forte 36 | Trapped-ion |
+| **Rigetti** | QPU 84 | Superconducting |
+| **Atom Computing** | QPU 100 | Neutral atoms |
+| **Quantinuum** | H1 32, H2 56 | Trapped-ion |
+| **IQM** | QPU 20 | Superconducting |
+
+Provider simulator targets are capped at a conservative 20 qubits.
 
 **Cost & Performance:**
-- ⚡ Scalable (11-100+ qubits depending on backend)
 - ⚡ Real quantum hardware available
-- 💰 Paid service (~$10-100 per run, varies by provider)
-- ⏱️ Slower (job queue, 10-60 seconds)
+- 💰 Paid service; cost varies by provider and shot count
+- ⏱️ Slower (job queue and polling; seconds to minutes per job)
 
 ## 🤝 Contributing
 
 Contributions welcome! See [GitHub Repository](https://github.com/thorium/FSharp.Azure.Quantum) for contribution guidelines.
 
 **Areas we'd love help with:**
-- New problem builders (SAT, Job Shop Scheduling, Vehicle Routing)
+- New problem builders (Job Shop Scheduling, Vehicle Routing)
 - QAOA warm-start strategies
-- Alternative quantum algorithms (VQE, QASM)
-- Additional cloud backend support (AWS Braket, IBM Quantum)
+- Additional cloud backend support (e.g. IBM Quantum)
 - Performance optimizations
 
 ## 🔗 Links
@@ -534,17 +547,19 @@ Contributions welcome! See [GitHub Repository](https://github.com/thorium/FSharp
 
 ## 📊 Performance Guidelines
 
-| Problem Type | LocalBackend | Cloud Required |
-|--------------|--------------|----------------|
-| Graph Coloring | ≤20 nodes | 25+ nodes |
-| MaxCut | ≤20 vertices | 25+ vertices |
-| Knapsack | ≤20 items | 25+ items |
-| TSP | ≤8 cities | 10+ cities |
-| Portfolio | ≤20 assets | 25+ assets |
-| Network Flow | ≤15 nodes | 20+ nodes |
-| Task Scheduling | ≤15 tasks | 20+ tasks |
+The number of qubits a QAOA run needs depends on the encoding:
 
-**Note:** LocalBackend's width is derived from available memory (hard ceiling 30 qubits); see `StateVector.maxQubits`. Larger problems require cloud backends.
+| Problem Type | Qubits needed | About 20 qubits means |
+|--------------|---------------|-----------------------|
+| Graph Coloring | nodes × colors | 6 nodes with 3 colors |
+| MaxCut | one per vertex | 20 vertices |
+| Knapsack | one per item | 20 items |
+| TSP | cities² | 4 cities |
+| Portfolio | one per asset | 20 assets |
+| Network Flow | one per route | 20 routes |
+| Task Scheduling | tasks × time slots | 4 tasks × 5 slots |
+
+**Note:** LocalBackend's width is derived from available memory (hard ceiling 30 qubits); see `StateVector.maxQubits`. Each extra qubit doubles the time per gate, so iterative algorithms such as QAOA are practical up to about 20 qubits (`StateVector.practicalCircuitQubits`). Larger problems need cloud backends or a smaller encoding.
 
 ## 📄 License
 
@@ -552,6 +567,6 @@ This project is licensed under the [Unlicense](https://unlicense.org/) - dedicat
 
 ---
 
-**Status**: Production Ready - Quantum-only architecture with 7 problem builders
+**Status**: Quantum-first architecture with 7 optimization problem builders (package version 1.4.12)
 
-**Last Updated**: 2025-12-03
+**Last Updated**: 2026-09-29

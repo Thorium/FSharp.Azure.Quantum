@@ -58,7 +58,7 @@ Short definitions of the terms used across this documentation. Written for F# de
 
 **Shor's algorithm** — Factors large integers in polynomial time by finding the period of a^x mod N. Breaks RSA once large error-corrected machines exist. In this library: the `periodFinder` builder.
 
-**HHL** — A quantum algorithm for solving linear systems of equations. Exponentially faster than classical methods, but only under specific conditions on the matrix and the output.
+**HHL** — A quantum algorithm for solving linear systems of equations. In theory it can be exponentially faster than classical methods, but only under specific conditions on the matrix (sparse, well-conditioned) and only when you need a property of the solution rather than the whole vector. In this library: the `linearSystemSolver` builder and the `HHL` module; small systems run on the local simulator.
 
 **VQE (Variational Quantum Eigensolver)** — A hybrid loop: a quantum circuit with tunable parameters prepares a state, a classical optimizer adjusts the parameters to minimize energy. Used for chemistry on NISQ hardware.
 

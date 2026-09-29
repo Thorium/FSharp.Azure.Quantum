@@ -92,6 +92,8 @@ type QftStep =
 A DU expressing how we will execute the intent on a specific backend.
 
 ```fsharp
+open FSharp.Azure.Quantum.Core
+
 type Exactness =
     | Exact
     | Approximate of epsilon: float
@@ -158,7 +160,7 @@ Tests should be written to reflect this:
 The intent-first pattern described here is already implemented in several core algorithms.
 
 - **Grover** (`src/FSharp.Azure.Quantum/Algorithms/Grover.fs`)
-  - Implements explicit **intent  plan  execute** (`GroverSearchIntent`, `GroverPlan`).
+  - Implements explicit **intent → plan → execute** (`GroverSearchIntent`, `GroverPlan`).
   - Chooses between native semantic ops (`QuantumOperation.Algorithm (Grover*)`) and explicit lowering.
 
 - **Amplitude Amplification** (`src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`)

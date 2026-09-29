@@ -23,7 +23,7 @@ Guide to problem-specific QUBO (Quadratic Unconstrained Binary Optimization) tra
 
 ## Overview
 
-QUBO is the mathematical formulation that quantum annealers and QAOA algorithms solve. Different problem domains benefit from different variable encoding schemes. Research shows domain-specific transformations can improve solution quality by **20-40%**.
+QUBO is the mathematical formulation that quantum annealers and QAOA algorithms solve. Different problem domains benefit from different variable encoding schemes, and the choice affects both the number of variables and how directly the objective appears in the matrix.
 
 ### What is QUBO?
 
@@ -36,12 +36,17 @@ where:
 
 ### Encoding Strategy Types
 
+`EncodingStrategy` (namespace `FSharp.Azure.Quantum`) has four cases:
+
 ```fsharp
-type EncodingStrategy =
-    | NodeBased          // Time-based encoding (TSP: visit city i at time t)
-    | EdgeBased          // Edge-based encoding (TSP: travel from city i to j)
-    | CorrelationBased   // Correlation matrix (Portfolio: risk modeling)
-    | Custom             // User-defined transformations
+open FSharp.Azure.Quantum
+
+let strategies : EncodingStrategy list = [
+    NodeBased                  // Time-based encoding (TSP: visit city i at time t)
+    EdgeBased                  // Edge-based encoding (TSP: travel from city i to j)
+    CorrelationBased           // Correlation matrix (Portfolio: risk modeling)
+    Custom(fun n -> n * n)     // User-defined: maps problem size to QUBO size
+]
 ```
 
 ---
@@ -58,6 +63,8 @@ type EncodingStrategy =
 - Pros: Scalable, well-understood
 - Cons: Indirect distance encoding
 
+`ProblemTransformer` has no node-based encoder of its own; the node-based TSP QUBO is built by `GraphOptimization.toQubo` for a problem with the `MinimizeTotalWeight` objective.
+
 **Recommended for**: TSP with 20+ cities
 
 ---
@@ -69,7 +76,7 @@ type EncodingStrategy =
 **TSP Example**:
 - Variables: `x[i][j]` = "travel from city i to city j"
 - QUBO size: n² variables (n²-n edges + penalties)
-- Pros: Direct distance encoding, 20-30% better solutions
+- Pros: Direct distance encoding (one coefficient per edge)
 - Cons: More complex constraints
 
 ```fsharp
@@ -86,10 +93,12 @@ let distances =
 let constraintPenalty = 200.0  // Must exceed max distance
 
 let qubo = ProblemTransformer.encodeTspEdgeBased distances constraintPenalty
+// qubo.Size = 25, qubo.VariableNames = ["edge_0_0"; "edge_0_1"; ...]
 
 // QUBO structure:
-// - Diagonal: -distance[i,j] (minimize travel distance)
-// - Off-diagonal: constraint penalties (ensure valid tour)
+// - Diagonal: -distance[i,j] for edge i->j, constraintPenalty on self-loops i->i
+// - Off-diagonal: +constraintPenalty for each pair of edges entering the same
+//   city or leaving the same city
 ```
 
 **Recommended for**: TSP with 5-15 cities, when solution quality matters
@@ -141,7 +150,6 @@ let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance risk
 | Criterion | EdgeBased | NodeBased |
 |-----------|-----------|-----------|
 | **Problem Size** | n < 20 cities | n ≥ 20 cities |
-| **Solution Quality** | 20-30% better | Good |
 | **QUBO Size** | n² variables | n² variables |
 | **Distance Encoding** | Direct (diagonal) | Indirect (constraints) |
 | **Constraint Complexity** | Higher | Lower |
@@ -163,17 +171,19 @@ Edge-based encoding requires two constraint types:
      Σ(over all j) x[i][j] = 1
    ```
 
-These are encoded as penalty terms in the QUBO matrix using:
+The textbook penalty for "exactly once" is:
 ```
 Penalty = (Σ x - 1)²
 ```
+
+`encodeTspEdgeBased` adds only the pairwise part of that penalty: `+constraintPenalty` for every pair of edges that enter the same city, or leave the same city. That discourages two entries or two exits, but the matrix has no linear term that rewards choosing exactly one edge.
 
 ### Choosing Constraint Penalty
 
 **Lucas Rule** (from literature): `λ ≥ max(|H_objective|) + 1`
 
 ```fsharp
-// Example: TSP with max distance 500km
+// Example: TSP with max distance 500km (distances as defined above)
 let maxDistance = 500.0
 let constraintPenalty = maxDistance + 1.0  // 501.0
 
@@ -262,10 +272,10 @@ let graphColoringTransform (problemData: obj) =
         VariableNames = varNames
     }
 
-// Register custom problem
+// Register custom problem (the registry is process-wide; re-registering replaces it)
 ProblemTransformer.registerProblem "GraphColoring" graphColoringTransform
 
-// Use registered transformation
+// Use registered transformation (throws if the name was never registered)
 let edges = [(0, 1); (1, 2); (2, 3); (0, 3)]
 let qubo = ProblemTransformer.applyTransformation "GraphColoring" (box edges)
 
@@ -288,15 +298,17 @@ else
 open FSharp.Azure.Quantum
 
 // Automatic strategy selection based on problem type and size
-let strategy = ProblemTransformer.recommendStrategy "TSP" 10
+let smallTsp = ProblemTransformer.recommendStrategy "TSP" 10
 // Returns: EdgeBased (n < 20)
 
-let strategy = ProblemTransformer.recommendStrategy "TSP" 50
+let largeTsp = ProblemTransformer.recommendStrategy "TSP" 50
 // Returns: NodeBased (n ≥ 20)
 
-let strategy = ProblemTransformer.recommendStrategy "Portfolio" 10
+let portfolio = ProblemTransformer.recommendStrategy "Portfolio" 10
 // Returns: CorrelationBased (always for portfolio)
 ```
+
+The problem type is matched case-insensitively: `"tsp"` or `"traveling-salesman"`, and `"portfolio"` or `"portfolio-optimization"`. Any other type returns `NodeBased`.
 
 ### Manual Strategy Selection
 
@@ -344,10 +356,11 @@ match validation.IsValid with
 
 ### What Validation Checks
 
-1. **Size Consistency**: Matrix dimensions match declared size
-2. **Symmetry**: Q[i,j] = Q[j,i] for all i,j (required for QUBO)
-3. **Bounds**: No NaN or Infinity values
-4. **Feasibility**: Coefficients are finite real numbers
+1. **Size Consistency**: Matrix dimensions match the declared `Size` (if not, the other checks are skipped)
+2. **Symmetry**: Q[i,j] = Q[j,i] for all i,j, within 1e-10
+3. **Finite values**: No NaN or Infinity coefficients
+
+Validation does not check that the constraint penalties are large enough; that is up to the encoding.
 
 ---
 
@@ -363,7 +376,7 @@ let distances_100_cities = Array2D.create 100 100 1.0
 // ✓ GOOD: EdgeBased for small TSP
 let small_tsp = ProblemTransformer.encodeTspEdgeBased distances_10_cities 200.0
 
-// ✗ BAD: EdgeBased for large TSP (too many constraints)
+// ✗ BAD: EdgeBased for large TSP (10,000 variables: an 800 MB dense matrix, and far too many qubits)
 let large_tsp = ProblemTransformer.encodeTspEdgeBased distances_100_cities 200.0
 
 // ✓ GOOD: Use automatic recommendation
@@ -379,10 +392,10 @@ let n = 20
 let penalty = (maxDistance + 1.0) * sqrt(float n)
 
 // ✗ BAD: Penalty too small (constraints violated)
-let penalty = 10.0  // < maxDistance!
+let tooSmallPenalty = 10.0  // < maxDistance!
 
 // ✗ BAD: Penalty too large (numerical instability)
-let penalty = 1000000.0
+let tooLargePenalty = 1000000.0
 ```
 
 ### 3. Validate Before Execution
@@ -451,6 +464,10 @@ For large, sparse QUBO problems, the library provides a memory-efficient pipelin
 
 **Rule of thumb**: If your QUBO matrix is mostly zeros, use the sparse pipeline.
 
+The sparse pipeline saves the memory of the QUBO matrix only. Running QAOA still needs one qubit per variable, and simulating it on `LocalBackend` needs a 2ⁿ-amplitude state vector, so local runs are limited by memory (at most 30 qubits). Larger problems need a hardware backend.
+
+The execution helpers live in `FSharp.Azure.Quantum.Core.QaoaExecutionHelpers`. The synchronous ones shown here are marked `[<Obsolete>]` in favour of their `...Async` variants (`executeFromQuboAsync`, `executeQaoaCircuitSparseAsync`, `executeQaoaWithGridSearchSparseAsync`), which take a `CancellationToken` and return a `Task`; they still work and keep the examples short.
+
 ### Building a ProblemHamiltonian from Sparse QUBO
 
 `QaoaCircuit.ProblemHamiltonian.fromQuboSparse` converts a sparse QUBO map to a `ProblemHamiltonian` using the same Ising mapping as `fromQubo`, but without allocating a dense matrix.
@@ -461,22 +478,27 @@ QaoaCircuit.ProblemHamiltonian.fromQuboSparse
     : numQubits:int -> quboMap:Map<int * int, float> -> ProblemHamiltonian
 ```
 
-**Ising mapping** (identical to `fromQubo`):
+**Ising mapping** (`fromQubo` delegates to it, x_i = (1 − Z_i)/2, constant offset dropped):
 - Diagonal Q_ii => `-Q_ii/2 * Z_i`
-- Off-diagonal (i < j) => `(Q_ij + Q_ji)/4 * Z_i Z_j`
+- Off-diagonal (i < j) => `(Q_ij + Q_ji)/4 * Z_i Z_j`, and `-(Q_ij + Q_ji)/4` added to both `Z_i` and `Z_j`
 
-The map may contain entries in upper-triangle, lower-triangle, or both — symmetric entries are merged automatically.
+The map may contain entries in upper-triangle, lower-triangle, or both — symmetric entries are merged automatically. Keys are used as qubit indices without a range check, so keep them in `[0, numQubits)`.
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
-// Build sparse QUBO for a 4-variable problem (Max-Cut on a small graph)
+let backend = LocalBackend() :> IQuantumBackend
+
+// Sparse Max-Cut QUBO for a 4-cycle: each edge (i,j) adds -x_i - x_j + 2 x_i x_j
 let quboMap =
     Map.ofList [
-        (0, 1), -1.0   // Edge 0-1
-        (1, 2), -1.0   // Edge 1-2
-        (2, 3), -1.0   // Edge 2-3
-        (0, 3), -1.0   // Edge 0-3
+        (0, 0), -2.0; (1, 1), -2.0; (2, 2), -2.0; (3, 3), -2.0
+        (0, 1), 2.0   // Edge 0-1
+        (1, 2), 2.0   // Edge 1-2
+        (2, 3), 2.0   // Edge 2-3
+        (0, 3), 2.0   // Edge 0-3
     ]
 
 // Convert to ProblemHamiltonian without allocating a 4×4 dense matrix
@@ -484,13 +506,13 @@ let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse 4 quboMap
 let mixerHam = QaoaCircuit.MixerHamiltonian.create 4
 
 // Use with any existing QAOA execution function
-let parameters = [| (0.5, 0.3) |]  // 1 layer
+let parameters = [| (0.5, 0.3) |]  // 1 layer: (gamma, beta)
 let result = QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam parameters 100
 ```
 
 ### Dense Migration Helper: `executeFromQubo`
 
-`QaoaExecutionHelpers.executeFromQubo` is a convenience entry point for solvers that already have a dense `float[,]` QUBO matrix. It builds the circuit and returns measurements in one call — used by existing solvers (TSP, Knapsack, Portfolio, etc.) during migration to the consolidated pipeline.
+`QaoaExecutionHelpers.executeFromQubo` is a convenience entry point for solvers that already have a dense `float[,]` QUBO matrix. It builds the circuit and returns measurements in one call; the quantum solvers (TSP, Knapsack, Portfolio, etc.) call it or its async twin `executeFromQuboAsync`.
 
 **Signature**:
 ```fsharp
@@ -503,7 +525,7 @@ QaoaExecutionHelpers.executeFromQubo
 ```
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 
 // Dense 3×3 QUBO matrix (fully connected)
 let qubo =
@@ -564,7 +586,7 @@ QaoaExecutionHelpers.executeQaoaCircuitSparse
 ```
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 
 // Sparse QUBO for a 5-qubit problem (only 6 non-zero entries)
 let quboMap =
@@ -589,7 +611,9 @@ match QaoaExecutionHelpers.executeQaoaCircuitSparse backend 5 quboMap parameters
 
 #### `executeQaoaWithOptimizationSparse`
 
-Runs QAOA with Nelder-Mead parameter optimization over a sparse QUBO. Returns the best bitstring, optimized parameters, and a convergence flag.
+Runs QAOA with bounded Nelder-Mead parameter optimization over a sparse QUBO (at most `MaxOptimizationIterations` iterations, `OptimizationShots` per evaluation), then samples `FinalShots` with the optimized parameters. Returns the lowest-energy bitstring seen, the optimized parameters, and a convergence flag.
+
+`QaoaSolverConfig` is shared by all QAOA solvers. These two sparse helpers use `NumLayers`, `OptimizationShots`, `FinalShots` and `MaxOptimizationIterations` (all must be positive); `EnableOptimization` and `EnableConstraintRepair` are read by the higher-level solvers, not here, since the function you call already chooses the method. `QaoaExecutionHelpers.defaultConfig`, `fastConfig` and `highQualityConfig` are ready-made presets.
 
 **Signature**:
 ```fsharp
@@ -602,7 +626,7 @@ QaoaExecutionHelpers.executeQaoaWithOptimizationSparse
 ```
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 
 let quboMap =
     Map.ofList [
@@ -610,7 +634,7 @@ let quboMap =
         (0, 1),  1.0
     ]
 
-let config = {
+let config : QaoaExecutionHelpers.QaoaSolverConfig = {
     NumLayers = 2
     OptimizationShots = 50
     FinalShots = 200
@@ -630,7 +654,7 @@ match QaoaExecutionHelpers.executeQaoaWithOptimizationSparse backend 2 quboMap c
 
 #### `executeQaoaWithGridSearchSparse`
 
-Runs QAOA with grid search over gamma/beta values using a sparse QUBO. Useful when Nelder-Mead convergence is unreliable or for quick exploration.
+Runs QAOA with a fixed grid search over gamma/beta values (7 gammas × 5 betas, the same pair repeated for every layer) using a sparse QUBO, then samples `FinalShots` with the best pair. Useful when Nelder-Mead convergence is unreliable or for quick exploration.
 
 **Signature**:
 ```fsharp
@@ -643,26 +667,20 @@ QaoaExecutionHelpers.executeQaoaWithGridSearchSparse
 ```
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 
-// Large sparse QUBO (e.g., 100-variable graph problem with ~300 edges)
+// Sparse QUBO over 12 variables with only a few couplings
+// (12 qubits keeps a local state-vector simulation small)
 let quboMap =
     // In practice, built from graph edges
     Map.ofList [
-        (0, 5), -1.0; (3, 12), -1.0; (7, 42), -1.0
-        // ... hundreds of entries, but far fewer than 10,000 dense elements
+        (0, 5), -1.0; (3, 11), -1.0; (7, 9), -1.0
+        (2, 2), -0.5; (8, 8), -0.5
     ]
 
-let config = {
-    NumLayers = 1
-    OptimizationShots = 30
-    FinalShots = 200
-    EnableOptimization = false
-    EnableConstraintRepair = true
-    MaxOptimizationIterations = 50
-}
+let config = { QaoaExecutionHelpers.fastConfig with OptimizationShots = 30; FinalShots = 200 }
 
-match QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 100 quboMap config with
+match QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 12 quboMap config with
 | Ok (bestBits, bestParams) ->
     let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
     printfn "Grid search best energy: %.4f" energy
@@ -674,7 +692,9 @@ match QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 100 quboMap c
 ### Sparse vs Dense: Complete Comparison
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+
+let config = QaoaExecutionHelpers.fastConfig
 
 // === Dense path (existing solvers) ===
 let denseQubo =
@@ -696,22 +716,6 @@ let optimResult = QaoaExecutionHelpers.executeQaoaWithOptimizationSparse backend
 // With grid search
 let gridResult = QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 2 sparseQubo config
 ```
-
----
-
-## Performance Benchmarks
-
-### TSP: EdgeBased vs NodeBased
-
-| Cities | EdgeBased Quality | NodeBased Quality | Improvement |
-|--------|------------------|-------------------|-------------|
-| 5      | Optimal          | Good              | +20%        |
-| 10     | Near-optimal     | Good              | +25%        |
-| 15     | Near-optimal     | Fair              | +30%        |
-| 20     | Good             | Good              | +15%        |
-| 50+    | N/A (too large)  | Good              | -           |
-
-**Conclusion**: EdgeBased excels for n < 20, NodeBased scales better for large problems.
 
 ---
 

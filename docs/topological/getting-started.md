@@ -22,7 +22,7 @@ cd FSharp.Azure.Quantum
 # Build the topological library
 dotnet build src/FSharp.Azure.Quantum.Topological/FSharp.Azure.Quantum.Topological.fsproj
 
-# Run the test suite (~807 tests)
+# Run the test suite (about a thousand tests)
 dotnet test tests/FSharp.Azure.Quantum.Topological.Tests/FSharp.Azure.Quantum.Topological.Tests.fsproj
 ```
 
@@ -38,21 +38,24 @@ Create a file `MyFirstTopological.fsx`:
 
 open FSharp.Azure.Quantum.Topological
 
-// Create a backend -- this is a classical simulator for Ising anyons
+// Create a backend -- a classical simulator for Ising anyons, allowing up to 10 anyons
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Write a topological program using the computation expression
 let bellProgram = topological backend {
-    // Initialize 4 sigma anyons (encodes 2 topological qubits)
-    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    // Initialize 2 logical qubits: 6 sigma anyons (one pair per qubit plus a parity pair)
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 2
 
-    // Braid anyons 0 and 1 (geometric operation, not matrix multiplication)
+    // Braid anyons 0 and 1 (inside qubit 0's pair: adds a phase)
     do! TopologicalBuilder.braid 0
 
-    // Braid anyons 2 and 3
+    // Braid anyons 2 and 3 (inside qubit 1's pair: adds a phase)
     do! TopologicalBuilder.braid 2
 
-    // Measure fusion of the first pair
+    // Braid anyons 1 and 2 (across the two pairs: entangles the qubits)
+    do! TopologicalBuilder.braid 1
+
+    // Measure fusion of the first pair: Vacuum (qubit 0 = 0) or Psi (qubit 0 = 1)
     let! outcome = TopologicalBuilder.measure 0
     return outcome
 }
@@ -88,25 +91,27 @@ dotnet fsi MyFirstTopological.fsx
 #r "src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Topological
 
 // Create a unified backend (implements IQuantumBackend)
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
-// Use the synchronous IQuantumBackend API
-match backend.InitializeState 4 with
+// Use the synchronous IQuantumBackend API: 2 logical qubits
+match backend.InitializeState 2 with
 | Ok initialState ->
-    // Apply braid operation (gate-to-braid compilation happens automatically)
-    match backend.ApplyOperation (QuantumOperation.Braid 0) initialState with
+    // Apply a native braid operation (no gate compilation involved)
+    match backend.ApplyOperation (QuantumOperation.Braid 1) initialState with
     | Ok braidedState ->
-        // Measure
-        match backend.Measure braidedState 1 with
-        | Ok measurements ->
-            printfn "Measurement results: %A" measurements
-        | Error e -> printfn "Measurement error: %A" e
-    | Error e -> printfn "Braid error: %A" e
-| Error e -> printfn "Init error: %A" e
+        // Sample 100 shots in the computational basis
+        let measurements = QuantumState.measure braidedState 100
+        printfn "First shots: %A" (Array.truncate 5 measurements)
+    | Error e -> printfn "Braid error: %s" e.Message
+| Error e -> printfn "Init error: %s" e.Message
 ```
+
+Gates work too: `backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.H 0)) state` compiles the gate to braids on the fly.
 
 ### Option C: Pure mathematical exploration (no backend needed)
 
@@ -131,7 +136,7 @@ printfn "d_sigma = %.4f" d
 // What phase does braiding add?
 let R = BraidingOperators.element sigma sigma AnyonSpecies.Particle.Vacuum ising
 printfn "R^{sigma,sigma}_vacuum = %A" R
-// Output: Ok (e^(i*pi/8))
+// Output: Ok (0.9238..., -0.3826...) -- the complex number e^(-i*pi/8)
 ```
 
 ## Key Concepts in 60 Seconds
@@ -144,7 +149,7 @@ printfn "R^{sigma,sigma}_vacuum = %A" R
 | **Fusion tree** | The data structure representing the quantum state | `FusionTree` |
 | **Backend** | Executes topological operations (unified: `TopologicalUnifiedBackend` via `IQuantumBackend`) | `TopologicalUnifiedBackendFactory` |
 
-**Why topological?** Information is stored in the topology of anyon worldlines, not in fragile quantum amplitudes. Local noise cannot change global topology, giving exponential error suppression.
+**Why topological?** Information is stored in the topology of anyon worldlines rather than in local degrees of freedom. In theory, local noise cannot change global topology, so errors are suppressed exponentially in the anyon separation. This library is a classical simulator of that model; it does not demonstrate the protection on hardware.
 
 ## Run the Built-in Examples
 
@@ -170,19 +175,23 @@ dotnet fsi examples/Topological/BasicFusion.fsx -- --help
 
 ## Error Handling
 
-The library uses railway-oriented programming -- all public APIs return `Result<'T, TopologicalError>`:
+The library uses railway-oriented programming. The mathematical modules (`FusionRules`, `BraidingOperators`, `FusionTree`, `TopologicalOperations`, ...) return `TopologicalResult<'T>`, which is `Result<'T, TopologicalError>`:
 
 ```fsharp
-// Errors are explicit, composable, and never thrown as exceptions
-type TopologicalError =
-    | ValidationError of message: string
-    | LogicError of message: string
-    | ComputationError of message: string
-    | BackendError of message: string
-    | NotImplemented of message: string
+open FSharp.Azure.Quantum.Topological
+
+// The cases of TopologicalError (each has a .Message and a .Category)
+let describe (err: TopologicalError) =
+    match err with
+    | TopologicalError.ValidationError(field, reason) -> $"bad input {field}: {reason}"
+    | TopologicalError.NotImplemented(feature, hint) -> $"not implemented: {feature}"
+    | TopologicalError.LogicError(operation, reason) -> $"impossible {operation}: {reason}"
+    | TopologicalError.BackendError(backend, reason) -> $"backend {backend}: {reason}"
+    | TopologicalError.ComputationError(operation, context) -> $"{operation} failed: {context}"
+    | TopologicalError.Other message -> message
 ```
 
-Use `Result.bind` / `Result.map` for composition, or the `taskResult { }` computation expression for sequential error propagation.
+The backend (`IQuantumBackend`) and the `topological { }` builder report the core library's `QuantumError` instead. Use `Result.bind` / `Result.map` for composition, or the `topologicalResult { }` computation expression for sequential error propagation over `TopologicalResult` values.
 
 ## What to Read Next
 
@@ -197,9 +206,9 @@ If you already know Qiskit, Q#, or Cirq, here is the mapping:
 
 | Gate-Based | Topological Equivalent | Library API |
 |------------|----------------------|-------------|
-| Qubit | Pair of sigma anyons | `backend.InitializeState 4` (4 anyons = 2 qubits) |
+| Qubit | Pair of sigma anyons | `backend.InitializeState 2` (2 qubits = 6 Ising anyons, including a parity pair) |
 | Gate (H, CNOT) | Braid operation | `backend.ApplyOperation (QuantumOperation.Braid index) state` |
-| Measurement | Fusion measurement | `backend.Measure state shots` |
+| Measurement | Fusion measurement | `QuantumState.measure state shots` |
 | Circuit | Braid sequence | `topological backend { ... }` |
 | State vector | Fusion tree superposition | `FusionTree` + `TopologicalOperations.Superposition` |
 | Algorithm | Algorithm extension | `AlgorithmExtensions.searchSingleWithTopology` etc. |

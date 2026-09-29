@@ -2,9 +2,9 @@
 
 **Target Audience**: Researchers, algorithm developers, quantum computing enthusiasts
 
-This guide covers advanced quantum computation builders designed for specialized research and educational applications. These tools demonstrate cutting-edge quantum algorithms that provide theoretical advantages but require fault-tolerant quantum hardware for practical use.
+This guide covers builders for well-known quantum algorithms: Grover search (tree search, constraint solving, pattern matching), quantum arithmetic, Shor's period finding and quantum phase estimation. They are meant for research and teaching. The algorithms have theoretical advantages that need large, fault-tolerant quantum hardware; on today's hardware and on a simulator they only run toy-sized problems.
 
-**⚠️ Current Limitations**: Most features require 100-4000+ qubits with low error rates. Current NISQ (Noisy Intermediate-Scale Quantum) hardware is limited to ~100 qubits with high error rates, so only toy examples work on real quantum computers today.
+**⚠️ Current Limitations**: The builders run on the local simulator by default. Its qubit limit is derived from available memory and capped at 30, and most builders here set tighter limits of their own (16 qubits for the Grover-based builders, 20 for phase estimation precision). A simulator evaluates your predicates and evaluation functions classically for every basis state, so it shows how the algorithms work but gives no speedup. Real RSA-size problems need thousands of error-corrected qubits.
 
 ---
 
@@ -12,12 +12,24 @@ This guide covers advanced quantum computation builders designed for specialized
 
 1. [Quantum Tree Search](#quantum-tree-search) - Game AI with Grover's algorithm
 2. [Quantum Constraint Solver](#quantum-constraint-solver) - CSP solving (Sudoku, N-Queens)
-3. [Quantum Pattern Matcher](#quantum-pattern-matcher) - Configuration optimization, hyperparameter tuning
+3. [Quantum Pattern Matcher](#quantum-pattern-matcher) - Configuration search, hyperparameter tuning
 4. [Quantum Arithmetic](#quantum-arithmetic) - Modular arithmetic for cryptography
-5. [Period Finder (Shor's Algorithm)](#period-finder-shors-algorithm) - RSA factorization
-6. [Phase Estimator](#phase-estimator) - Eigenvalue extraction for quantum chemistry
+5. [Period Finder (Shor's Algorithm)](#period-finder-shors-algorithm) - Integer factorization
+6. [Phase Estimator](#phase-estimator) - Eigenvalue extraction
 7. [When to Use These Builders](#when-to-use-these-builders)
-8. [Performance & Cost Comparison](#performance--cost-comparison)
+8. [Query Counts in Theory](#query-counts-in-theory)
+9. [Troubleshooting](#troubleshooting)
+
+All examples on this page use these opens:
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+
+let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+```
 
 ---
 
@@ -25,46 +37,46 @@ This guide covers advanced quantum computation builders designed for specialized
 
 ### What is Quantum Tree Search?
 
-**Quantum Tree Search** uses Grover's algorithm to explore game trees and decision trees quadratically faster than classical minimax search. It's ideal for scenarios where position evaluation is expensive (e.g., neural network evaluation in chess engines).
+**Quantum Tree Search** uses Grover's algorithm to search a game tree or decision tree for paths whose evaluation is in the top fraction of all paths. In theory Grover search needs about √N oracle queries for N paths, where exhaustive classical search needs N. That matters most when evaluating a position is expensive.
 
 ### When to Use
 
 ✅ **Good Fits**:
-- Game AI (chess, go, gomoku, strategy games)
-- Decision trees with expensive evaluation (100ms+ per position)
-- Monte Carlo Tree Search (MCTS) acceleration
-- Path planning with complex heuristics
-- Branching factor: 8-64 moves per position
-- Search depth: 2-5 moves ahead
+- Game AI and decision trees, for research and teaching
+- Evaluation functions that are expensive to compute
+- Trees that fit the qubit limit: maxDepth × ⌈log₂(branchingFactor)⌉ ≤ 16
 
 ❌ **Not Suitable For**:
-- Simple games already solved classically (tic-tac-toe)
-- Very deep search (>6 moves ahead on NISQ hardware)
-- Fast evaluation functions (<1ms per position)
-- Problems with strong alpha-beta pruning
+- Games already solved classically (tic-tac-toe)
+- Deep trees (the builder allows at most depth 8, and the qubit limit usually binds first)
+- Cheap evaluation functions, or trees where alpha-beta pruning already works well
 
 ### API Reference
 
 **Basic Usage**:
 ```fsharp
-open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumTreeSearch
 
-let problem = quantumTreeSearch {
-    initialState startingGameState
-    maxDepth 4                    // Search 4 moves ahead
-    branchingFactor 16            // Average moves per position
+// Toy game: the state is a running total, each move adds 1..4
+let startingTotal = 0
+let evaluatePosition (total: int) = float (total % 7)
+let generateMoves (total: int) = [ for step in 1 .. 4 -> total + step ]
+
+let treeProblem = quantumTreeSearch<int> {
+    initialState startingTotal
+    maxDepth 3                    // Search 3 moves ahead
+    branchingFactor 4             // Moves per position (3 × 2 = 6 qubits)
     evaluateWith evaluatePosition // Evaluation function
     generateMovesWith generateMoves
-    topPercentile 0.2             // Consider top 20% of moves
+    topPercentile 0.2             // Amplify the top 20% of paths
     backend localBackend
     shots 100
 }
 
-match solve problem with
+match QuantumTreeSearch.solve treeProblem with
 | Ok result ->
     printfn "Best move: %d" result.BestMove
-    printfn "Evaluation score: %.4f" result.Score
+    printfn "Score: %.4f" result.Score
     printfn "Paths explored: %d" result.PathsExplored
 | Error err ->
     printfn "Error: %s" err.Message
@@ -74,59 +86,63 @@ match solve problem with
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `initialState` | `'State` | Starting game/decision state | *Required* |
-| `maxDepth` | `int` | Maximum search depth (plies) | *Required* |
-| `branchingFactor` | `int` | Average moves per position | *Required* |
-| `evaluateWith` | `'State -> float` | Position evaluation function | *Required* |
-| `generateMovesWith` | `'State -> 'State list` | Generate successor states | *Required* |
-| `topPercentile` | `float` | Consider top X% of moves (0.0-1.0) | 0.2 |
+| `initialState` | `'T` | Starting game/decision state | *Required* |
+| `maxDepth` | `int` | Search depth (1-8) | 3 |
+| `branchingFactor` | `int` | Moves per position (2-256) | 16 |
+| `evaluateWith` | `'T -> float` | Position evaluation (higher = better) | Constant 0.0 |
+| `generateMovesWith` | `'T -> 'T list` | Successor states | No moves |
+| `topPercentile` | `float` | Fraction of best paths to amplify, in (0.0, 1.0] | 0.2 |
 | `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
-| `shots` | `int` | Number of measurements | 100 |
+| `shots` | `int` | Number of measurements | 50 (LocalBackend), 250 (other) |
+| `solutionThreshold` | `float` | Minimum fraction of shots for a solution | 0.05 |
+| `successThreshold` | `float` | Minimum total probability for success | 0.5 (LocalBackend), 0.6 (other) |
+| `maxPaths` | `int` | Limit on paths searched | Full tree |
+| `limitSearchSpace` | `bool` | Set `maxPaths` to a recommended limit | Off |
+
+`maxIterations` is accepted, but the current solver always calculates the Grover iteration count from the search space size.
 
 **Result Type**:
 ```fsharp
-type TreeSearchResult = {
-    BestMove: int              // Index of best move
-    Score: float               // Evaluation score
+type TreeSearchSolution = {
+    BestMove: int              // Index of the best first move
+    Score: float               // Score of the best move
     PathsExplored: int         // Number of paths searched
+    QuantumAdvantage: bool     // Reported by the search algorithm
+    BackendName: string        // Backend used
     QubitsRequired: int        // Qubits needed
-    QuantumAdvantage: bool     // Whether quantum provided speedup
+    AllSolutions: int list     // All solution paths found (for debugging)
 }
 ```
 
 ### Use Cases
 
-#### Chess Engine with Neural Network Evaluation
+#### Game Engine with an Expensive Evaluation Function
 
-**Problem**: Chess engines evaluate millions of positions per second. Deep learning models provide better evaluation but take 100ms+ per position, making deep search impractical.
+**Problem**: A learned evaluation function is slow, so a deep classical search calls it too often.
 
-**Solution**: Quantum tree search reduces evaluations from 16^4 = 65,536 to √65,536 = 256.
+**Idea**: Grover search needs fewer oracle queries in theory. On a simulator (and on today's hardware) the evaluation function still runs for every path, so this is a way to study the approach, not to speed up an engine.
 
-**ROI**: 256× speedup enables real-time play with ML evaluation.
-
+<!-- fragment -->
 ```fsharp
 let evaluateChessPosition (state: ChessState) : float =
-    // Neural network evaluation (expensive: 100ms+)
-    neuralNet.Evaluate(state.Board)
+    // Your learned evaluation (expensive)
+    evaluationModel.Evaluate state.Board
 
-let problem = quantumTreeSearch {
+let chessProblem = quantumTreeSearch<ChessState> {
     initialState chessInitial
-    maxDepth 4
-    branchingFactor 35  // Chess average
+    maxDepth 2
+    branchingFactor 32    // 2 × 5 = 10 qubits; depth 4 would need 20 and is rejected
     evaluateWith evaluateChessPosition
     generateMovesWith generateChessMoves
-    backend azureQuantum
+    backend localBackend
 }
 ```
 
 #### Business Decision Trees
 
-**Problem**: Business decisions require market simulations (5-10 minutes each). Exploring all paths is prohibitively expensive.
+**Problem**: Each path through a multi-stage decision (marketing, pricing, launch) is scored by a slow simulation.
 
-**Solution**: Quantum search: √512 = 22 simulations vs 512 classical.
-
-**ROI**: 23× speedup: 40 minutes vs 15 hours.
-
+<!-- fragment -->
 ```fsharp
 type BusinessState = {
     Marketing: MarketingDecision option
@@ -135,32 +151,31 @@ type BusinessState = {
 }
 
 let simulateMarketImpact (state: BusinessState) : float =
-    // Monte Carlo market simulation (5-10 minutes)
+    // Your market simulation
     runMarketSimulation state
 
-let problem = quantumTreeSearch {
+let decisionProblem = quantumTreeSearch<BusinessState> {
     initialState initialDecision
-    maxDepth 3  // 3-stage decision process
-    branchingFactor 4
+    maxDepth 3        // 3-stage decision process
+    branchingFactor 4 // 3 × 2 = 6 qubits
     evaluateWith simulateMarketImpact
     generateMovesWith generateDecisions
 }
 ```
 
-### Quantum Advantage
+### Query Counts
 
-**Classical Complexity**: O(b^d) where b = branching factor, d = depth
+**Classical exhaustive search**: b^d evaluations for branching factor b and depth d
 - Example: 16^4 = 65,536 evaluations
 
-**Quantum Complexity**: O(b^d/2) using Grover's algorithm
-- Example: √65,536 = 256 evaluations
-- **256× speedup**
+**Grover search**: about √(b^d) oracle queries
+- Example: √65,536 = 256 queries
 
-**Break-even Point**: Evaluation time > 1ms (quantum overhead justified)
+These are query counts for an ideal quantum computer with an efficient oracle. The local simulator evaluates every path.
 
 ### See Working Examples
 
-- [`examples/TreeSearch/GameAI.fsx`](../examples/TreeSearch/GameAI.fsx) - Tic-tac-toe, chess, decision trees
+- [`examples/TreeSearch/GameAI.fsx`](../examples/TreeSearch/GameAI.fsx) - Tic-tac-toe, chess and decision-tree toys
 
 ---
 
@@ -168,37 +183,39 @@ let problem = quantumTreeSearch {
 
 ### What is Quantum Constraint Solver?
 
-**Quantum Constraint Solver** uses Grover's algorithm to find solutions to Constraint Satisfaction Problems (CSPs) quadratically faster than classical backtracking search.
+**Quantum Constraint Solver** uses Grover's algorithm to find an assignment of values to variables that satisfies all constraints of a Constraint Satisfaction Problem (CSP).
 
 ### When to Use
 
 ✅ **Good Fits**:
-- Constraint satisfaction problems (Sudoku, N-Queens)
-- Small-to-medium search spaces (10³-10⁶ states)
-- Expensive constraint evaluation
+- Small constraint satisfaction problems (Sudoku-style puzzles, N-Queens, assignments)
+- Search spaces up to 2^16 candidate assignments
 - Finding **any** valid solution (not necessarily optimal)
 
 ❌ **Not Suitable For**:
 - Optimization problems (use QAOA/VQE instead)
-- Very large search spaces (>10⁶ states)
+- Larger search spaces (the builder rejects more than 16 qubits)
 - Problems with efficient classical algorithms (e.g., 2-SAT)
 
 ### API Reference
 
 **Basic Usage**:
 ```fsharp
-open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumConstraintSolver
 
-let problem = constraintSolver {
-    searchSpace 8            // 8 variables (8 × log2(4) = 16 qubits, the maximum)
+// 3 variables over 1..4, all different, in increasing order
+let checkAllConstraints (assignment: Map<int, int>) =
+    assignment.[0] < assignment.[1] && assignment.[1] < assignment.[2]
+
+let csp = constraintSolver<int> {
+    searchSpace 3            // 3 variables (3 × log2(4) = 6 qubits)
     domain [1..4]            // Each variable in range 1-4
     satisfies checkAllConstraints
     backend localBackend
     shots 1000
 }
 
-match solve problem with
+match QuantumConstraintSolver.solve csp with
 | Ok solution ->
     printfn "Solution: %A" solution.Assignment
     printfn "Constraints satisfied: %b" solution.AllConstraintsSatisfied
@@ -211,10 +228,13 @@ match solve problem with
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
 | `searchSpace` | `int` | Number of variables (numVariables × log2(domainSize) must be ≤ 16 qubits) | *Required* |
-| `domain` | `int list` | Possible values for each variable | *Required* |
-| `satisfies` | `Map<int,int> -> bool` | Constraint checking function | *Required* |
+| `domain` | `'T list` | Possible values for each variable | *Required* |
+| `satisfies` | `Map<int,'T> -> bool` | Constraint; use it several times for several constraints | *At least one* |
 | `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
+| `maxIterations` | `int` | Grover iterations | Calculated |
 | `shots` | `int` | Number of measurements | 1000 |
+
+The builder validates the problem when the CE ends and throws an exception if it is invalid.
 
 **Result Type**:
 ```fsharp
@@ -234,16 +254,37 @@ type ConstraintSolution<'T> = {
 
 **Problem**: Fill the empty cells of a 4×4 grid with numbers 1-4 satisfying row, column, and box constraints.
 
-**Note**: `searchSpace` is the number of variables, and the local simulator caps the register at 16 qubits — a full 9×9 grid (81 variables over 1..9 ≈ 257 qubits) is correctly rejected. Use one variable per *empty* cell of a small grid instead. Classical sudoku solvers are highly optimized (constraint propagation); quantum advantage only for expensive constraint checking.
+**Note**: `searchSpace` is the number of variables, and the builder caps the register at 16 qubits — a full 9×9 grid (81 variables over 1..9 ≈ 257 qubits) is rejected. Use one variable per *empty* cell of a small grid instead. Classical Sudoku solvers with constraint propagation are much faster; this is a demonstration.
 
 ```fsharp
-let checkSudoku (assignment: Map<int, int>) =
-    // Merge assignment into the puzzle's empty cells, then check rows/columns/boxes
-    let grid = buildGrid assignment
-    rowsValid grid && colsValid grid && boxesValid grid
+// 0 marks an empty cell
+let puzzle =
+    array2D [ [ 1; 0; 3; 0 ]
+              [ 0; 4; 0; 2 ]
+              [ 2; 0; 4; 0 ]
+              [ 4; 3; 2; 1 ] ]
 
-let problem = constraintSolver {
-    searchSpace 6   // one variable per empty cell (6 × log2(4) = 12 qubits)
+let emptyCells =
+    [ for r in 0 .. 3 do
+          for c in 0 .. 3 do
+              if puzzle.[r, c] = 0 then yield (r, c) ]
+
+let rows = [ for r in 0 .. 3 -> [ for c in 0 .. 3 -> (r, c) ] ]
+let cols = [ for c in 0 .. 3 -> [ for r in 0 .. 3 -> (r, c) ] ]
+let boxes =
+    [ for br in [ 0; 2 ] do
+          for bc in [ 0; 2 ] -> [ for r in br .. br + 1 do for c in bc .. bc + 1 -> (r, c) ] ]
+
+let checkSudoku (assignment: Map<int, int>) =
+    // Merge the assignment into the empty cells, then check rows, columns and boxes
+    let grid = Array2D.copy puzzle
+    emptyCells |> List.iteri (fun i (r, c) -> grid.[r, c] <- assignment.[i])
+
+    (rows @ cols @ boxes)
+    |> List.forall (fun group -> group |> List.map (fun (r, c) -> grid.[r, c]) |> List.distinct |> List.length = 4)
+
+let sudoku = constraintSolver<int> {
+    searchSpace emptyCells.Length   // one variable per empty cell (6 × log2(4) = 12 qubits)
     domain [1..4]
     satisfies checkSudoku
     backend localBackend
@@ -254,16 +295,16 @@ let problem = constraintSolver {
 
 **Problem**: Place N queens on an N×N chessboard with no attacks.
 
-**Solution**: Classical: O(N!) backtracking. Quantum: O(√N!) using Grover's algorithm.
-
 ```fsharp
 let checkQueens (assignment: Map<int, int>) =
-    // assignment: row → column
-    let positions = Map.toList assignment
-    // Check no two queens share column or diagonal
-    noDiagonalConflicts positions && uniqueColumns positions
+    // assignment: row -> column
+    let queens = Map.toList assignment
+    // No two queens share a column or a diagonal
+    queens
+    |> List.forall (fun (r1, c1) ->
+        queens |> List.forall (fun (r2, c2) -> r1 = r2 || (c1 <> c2 && abs (r1 - r2) <> abs (c1 - c2))))
 
-let problem = constraintSolver {
+let queens = constraintSolver<int> {
     searchSpace 4  // 4 queens, one variable per row (4 × log2(4) = 8 qubits;
                    // 8-queens over 0..7 would need 24 qubits — over the 16-qubit limit)
     domain [0..3]  // Columns 0-3
@@ -273,32 +314,34 @@ let problem = constraintSolver {
 
 #### Job Scheduling with Constraints
 
-**Problem**: Assign workers to shifts respecting skills, availability, and no overlaps.
-
-**Solution**: Quantum search through valid assignments.
+**Problem**: Assign workers to shifts respecting who may work each shift, with no worker on two shifts.
 
 ```fsharp
-let checkSchedule (assignment: Map<int, int>) =
-    // assignment: shift → worker
-    skillsMatch assignment &&
-    availabilityMatch assignment &&
-    noDuplicateWorkers assignment
+// shift -> workers allowed on it (skills and availability)
+let allowedWorkers = Map [ 0, set [ 0; 1 ]; 1, set [ 1; 2 ]; 2, set [ 2; 3 ] ]
 
-let problem = constraintSolver {
-    searchSpace 5  // 5 shifts
-    domain [0..4]  // 5 workers
+let checkSchedule (assignment: Map<int, int>) =
+    // assignment: shift -> worker
+    let workers = assignment |> Map.toList |> List.map snd
+    (assignment |> Map.forall (fun shift worker -> allowedWorkers.[shift].Contains worker))
+    && List.distinct workers = workers
+
+let shifts = constraintSolver<int> {
+    searchSpace 3  // 3 shifts
+    domain [0..3]  // 4 workers (3 × 2 = 6 qubits)
     satisfies checkSchedule
 }
 ```
 
-### Quantum Advantage
+### Query Counts
 
-**Classical Complexity**: O(N) unstructured search
-- Example: 3,125 states → 3,125 evaluations
+**Classical exhaustive search**: N evaluations for N candidate assignments
+- Example: 5 variables over 5 values = 3,125 states → up to 3,125 evaluations
 
-**Quantum Complexity**: O(√N) using Grover's algorithm
-- Example: √3,125 = 56 evaluations
-- **56× speedup**
+**Grover search**: about √N oracle queries
+- Example: √3,125 ≈ 56 queries
+
+On the local simulator the predicate is evaluated for every basis state, so the local run is not faster than classical enumeration.
 
 ### See Working Examples
 
@@ -310,51 +353,51 @@ let problem = constraintSolver {
 
 ### What is Quantum Pattern Matcher?
 
-**Quantum Pattern Matcher** uses Grover's algorithm to find items in a search space that match a pattern predicate. Ideal for configuration optimization and hyperparameter tuning where evaluation is expensive.
+**Quantum Pattern Matcher** uses Grover's algorithm to find items in a search space that match a predicate. It suits searches where checking one item is expensive, such as configuration or hyperparameter searches.
 
 ### When to Use
 
 ✅ **Good Fits**:
-- System configuration optimization (database tuning, compiler flags)
-- Hyperparameter tuning for ML models
-- Feature selection from large feature sets
-- A/B testing at scale
-- Expensive pattern evaluation (>1 second per check)
+- Configuration searches (database tuning, compiler flags)
+- Hyperparameter and feature-subset searches
+- Expensive checks per item
 
 ❌ **Not Suitable For**:
-- Fast pattern matching (<10ms per check)
-- Problems with structured search (use constraint solver)
-- Very large search spaces (>2^16 items)
+- Cheap checks (a classical scan is faster)
+- Problems with structure (use the constraint solver)
+- Search spaces over 2^16 items (rejected)
 
 ### API Reference
 
 **Basic Usage**:
 ```fsharp
-open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumPatternMatcher
 
-// Option 1: Search over explicit list
-let problem = patternMatcher {
+type ServerConfig = { CacheMb: int; Workers: int }
+
+let allConfigurations =
+    [ for cache in [ 64; 128; 256; 512 ] do
+          for workers in [ 1; 2; 4; 8 ] -> { CacheMb = cache; Workers = workers } ]
+
+// Stand-in for a benchmark run
+let meetsTarget (config: ServerConfig) = config.CacheMb >= 256 && config.Workers >= 4
+
+// Option 1: Search over an explicit list
+let configSearch = patternMatcher<ServerConfig> {
     searchSpace allConfigurations
-    matchPattern (fun config ->
-        let perf = runBenchmark config  // Expensive!
-        perf.Throughput > 1000.0 && perf.Latency < 50.0
-    )
-    findTop 10
+    matchPattern meetsTarget
+    findTop 2
     backend localBackend
 }
 
-// Option 2: Search over indexed space
-let problem = patternMatcher {
-    searchSpace 256  // 256 combinations
-    matchPattern (fun idx ->
-        let params = decodeHyperparameters idx
-        trainModel params  // Expensive ML training
-    )
-    findTop 5
+// Option 2: Search over an index space 0..255
+let indexSearch = patternMatcher<int> {
+    searchSpace 256
+    matchPattern (fun idx -> idx % 64 = 0)
+    findTop 2
 }
 
-match solve problem with
+match QuantumPatternMatcher.solve configSearch with
 | Ok solution ->
     printfn "Matches: %A" solution.Matches
     printfn "Success probability: %.2f" solution.SuccessProbability
@@ -366,16 +409,18 @@ match solve problem with
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `searchSpace` | `'T list` or `int` | Items to search or size | *Required* |
-| `matchPattern` | `'T -> bool` | Pattern matching predicate | *Required* |
+| `searchSpace` | `'T list` or `int` | Items to search, or the size of an index space | *Required* |
+| `searchSpaceSize` | `int` | Size of an index space | — |
+| `matchPattern` | `'T -> bool` | Pattern predicate (a later one replaces an earlier one) | *Required* |
 | `findTop` | `int` | Number of matches to return | 1 |
 | `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
+| `maxIterations` | `int` | Grover iterations | Calculated |
 | `shots` | `int` | Number of measurements | 1000 |
 
 **Result Type**:
 ```fsharp
 type PatternSolution<'T> = {
-    Matches: 'T list           // Items matching pattern
+    Matches: 'T list           // Items matching the pattern
     SuccessProbability: float  // Search success probability
     BackendName: string
     QubitsRequired: int
@@ -388,27 +433,23 @@ type PatternSolution<'T> = {
 
 #### Database Configuration Tuning
 
-**Problem**: 1000+ database configuration options. Testing each takes 10 minutes (full benchmark suite).
+**Problem**: Many configuration combinations, and each check is a long benchmark run.
 
-**Solution**: Quantum search: √1000 ≈ 32 tests vs 1000 classical.
-
-**ROI**: 31× speedup: 5 hours vs 1 week.
-
+<!-- fragment -->
 ```fsharp
 type DbConfig = {
     CacheSize: int
     MaxConnections: int
     QueryTimeout: int
-    // ... 20+ more parameters
 }
 
 let testConfig (config: DbConfig) : bool =
-    let results = runBenchmarkSuite config  // 10 minutes
-    results.Throughput > 10000 &&
+    let results = runBenchmarkSuite config  // Your benchmark
+    results.Throughput > 10000.0 &&
     results.P99Latency < 100.0
 
-let problem = patternMatcher {
-    searchSpace allDbConfigurations  // 1024 configs
+let dbSearch = patternMatcher<DbConfig> {
+    searchSpace allDbConfigurations  // e.g. 1024 configs
     matchPattern testConfig
     findTop 5  // Top 5 configurations
 }
@@ -416,22 +457,19 @@ let problem = patternMatcher {
 
 #### ML Hyperparameter Tuning
 
-**Problem**: Train model with 256 hyperparameter combinations. Each training run: 1 hour.
+**Problem**: 256 hyperparameter combinations, each needing a training run.
 
-**Solution**: Quantum search: √256 = 16 training runs vs 256 classical.
-
-**ROI**: 16× speedup: 16 hours vs 10 days.
-
+<!-- fragment -->
 ```fsharp
-let searchSpace = 256  // 8 hyperparameters, 2 values each
+let configCount = 256  // 8 hyperparameters, 2 values each
 
 let evaluateHyperparameters (idx: int) : bool =
-    let params = decodeHyperparameters idx
-    let accuracy = trainModel params  // 1 hour!
+    let hyperparameters = decodeHyperparameters idx
+    let accuracy = trainModel hyperparameters  // Your training run
     accuracy > 0.95
 
-let problem = patternMatcher {
-    searchSpace searchSpace
+let tuning = patternMatcher<int> {
+    searchSpace configCount
     matchPattern evaluateHyperparameters
     findTop 3
 }
@@ -439,39 +477,37 @@ let problem = patternMatcher {
 
 #### Feature Selection
 
-**Problem**: Select best subset from 100 features. Each feature set requires full model training (30 minutes).
+**Problem**: Choose a feature subset where each candidate needs a full training run.
 
-**Solution**: Test √combinations instead of all combinations.
-
+<!-- fragment -->
 ```fsharp
 let featureSets = generateFeatureSubsets allFeatures
 
 let testFeatureSet (features: string list) : bool =
-    let model = trainModel features  // 30 minutes
+    let model = trainModel features  // Your training run
     model.Accuracy > 0.90 && features.Length < 20
 
-let problem = patternMatcher {
+let featureSearch = patternMatcher<string list> {
     searchSpace featureSets
     matchPattern testFeatureSet
     findTop 10
 }
 ```
 
-### Quantum Advantage
+### Query Counts
 
-**Classical Complexity**: O(N) for N configurations
-- Example: 1024 configs → 1024 evaluations
+**Classical scan**: N checks for N items
+- Example: 1024 configs → up to 1024 checks
 
-**Quantum Complexity**: O(√N) using Grover's algorithm
-- Example: √1024 = 32 evaluations
-- **32× speedup**
+**Grover search**: about √N oracle queries
+- Example: √1024 = 32 queries
 
-**Break-even Point**: Evaluation time > 1 second (quantum overhead justified)
+This saving assumes the check runs inside a quantum oracle on fault-tolerant hardware. With a classical check (a benchmark, a training run), the simulator runs it for every item.
 
 ### See Working Examples
 
-- Pattern matcher examples integrated into various use cases throughout the examples directory
-- Check source: `src/FSharp.Azure.Quantum/Solvers/Quantum/QuantumPatternMatcherBuilder.fs`
+- [`examples/PatternMatcher/ConfigurationOptimizer.fsx`](../examples/PatternMatcher/ConfigurationOptimizer.fsx) - Configuration search
+- Source: `src/FSharp.Azure.Quantum/Solvers/Quantum/QuantumPatternMatcherBuilder.fs`
 
 ---
 
@@ -479,37 +515,40 @@ let problem = patternMatcher {
 
 ### What is Quantum Arithmetic?
 
-**Quantum Arithmetic** provides quantum circuit implementations of arithmetic operations (addition, multiplication, modular exponentiation) using the Quantum Fourier Transform (QFT). Used as building blocks for cryptographic algorithms like RSA encryption.
+**Quantum Arithmetic** runs arithmetic (addition, multiplication, modular operations) as quantum circuits built on the Quantum Fourier Transform (QFT), following Draper and Beauregard. Modular exponentiation is the core of Shor's algorithm.
 
 ### When to Use
 
 ✅ **Good Fits**:
-- Building blocks for Shor's algorithm (RSA factorization)
-- Cryptographic demonstrations (RSA encryption/decryption)
-- Educational quantum circuit examples
-- Research into quantum arithmetic algorithms
+- Building blocks for Shor's algorithm
+- Cryptographic demonstrations (toy RSA)
+- Teaching quantum circuits
+- Research into quantum arithmetic circuits
 
 ❌ **Not Suitable For**:
-- General-purpose arithmetic (use classical CPU!)
+- General-purpose arithmetic (use the CPU)
 - Production cryptography (use classical libraries)
-- Large numbers (>32 bits on NISQ hardware)
+- Large numbers: the register size is limited by the simulator's practical circuit width (20 qubits by default, including ancillas)
 
 ### API Reference
 
 **Basic Usage**:
 ```fsharp
-open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumArithmeticOps
 
+let message = 5
+let e = 3
+let n = 33
+
 // Modular exponentiation: m^e mod n (RSA encryption)
-let problem = quantumArithmetic {
-    operands message e      // base, exponent
+let modExp = quantumArithmetic {
+    operands message e     // base, exponent
     operation ModularExponentiate
     modulus n              // RSA modulus
-    qubits 8               // Sufficient for small numbers
+    qubits 6               // 6-bit registers; 2 × 6 + 5 = 17 qubits in total
 }
 
-match problem with
+match modExp with
 | Ok op ->
     match execute op with
     | Ok result ->
@@ -524,28 +563,36 @@ match problem with
 
 **Supported Operations**:
 
-| Operation | Description | Use Case |
-|-----------|-------------|----------|
-| `ModularExponentiate` | Compute a^b mod n | RSA encryption |
-| `ModularMultiply` | Compute (a × b) mod n | Modular arithmetic |
-| `ModularAdd` | Compute (a + b) mod n | Basic arithmetic |
+| Operation | Description | Total qubits for register size n |
+|-----------|-------------|----------------------------------|
+| `Add` | a + b | n |
+| `Multiply` | a × b | n |
+| `ModularAdd` | (a + b) mod N | n + 2 |
+| `ModularMultiply` | (a × b) mod N | 2n + 3 |
+| `ModularExponentiate` | a^b mod N | 2n + 5 |
 
 **Configuration Options**:
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `operands` | `int * int` | Input values (a, b) | *Required* |
-| `operation` | `ArithmeticOp` | Arithmetic operation | *Required* |
-| `modulus` | `int` | Modulus for operations | *Required* |
-| `qubits` | `int` | Number of qubits | *Required* |
+| `operands` | `int int` | Operands a and b (for exponentiation: base and exponent) | 0, 0 |
+| `operandA` / `operandB` / `exponent` | `int` | Set one operand | 0 |
+| `operation` | `OperationType` | Arithmetic operation | `Add` |
+| `modulus` | `int` | Modulus | *Required for modular operations* |
+| `qubits` | `int` | Register size (minimum 2) | 8 |
+| `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
+| `shots` | `int` | Shots used to read the result register | 100 |
 
 **Result Type**:
 ```fsharp
 type ArithmeticResult = {
-    Value: int            // Computed result
-    QubitsUsed: int       // Qubits required
-    GateCount: int        // Total quantum gates
-    CircuitDepth: int     // Circuit depth
+    Value: int                     // Computed result
+    QubitsUsed: int                // Qubits required
+    GateCount: int                 // Total quantum gates
+    CircuitDepth: int              // Circuit depth
+    OperationType: OperationType   // Operation performed
+    BackendName: string            // Backend used
+    IsModular: bool                // Whether modular arithmetic was used
 }
 ```
 
@@ -561,17 +608,17 @@ type ArithmeticResult = {
 // RSA key setup (toy example)
 let p = 3   // Prime 1
 let q = 11  // Prime 2
-let n = p * q  // Modulus n = 33
-let e = 3   // Public exponent
+let rsaModulus = p * q  // n = 33
+let publicExponent = 3
 
-let message = 5  // Plaintext
+let plaintext = 5
 
 // Encrypt: c = m^e mod n
 let encryptOp = quantumArithmetic {
-    operands message e
+    operands plaintext publicExponent
     operation ModularExponentiate
-    modulus n
-    qubits 8
+    modulus rsaModulus
+    qubits 6
 }
 
 match encryptOp with
@@ -579,26 +626,26 @@ match encryptOp with
     match execute op with
     | Ok result ->
         let ciphertext = result.Value
-        printfn "Encrypted: %d^%d mod %d = %d" message e n ciphertext
+        printfn "Encrypted: %d^%d mod %d = %d" plaintext publicExponent rsaModulus ciphertext
     | Error err ->
         printfn "Execution Error: %s" err.Message
 | Error err ->
     printfn "Builder Error: %s" err.Message
 ```
 
-#### Research: Quantum Circuit Optimization
+#### Research: Circuit Size
 
-**Problem**: Optimize quantum arithmetic circuits for gate count and depth.
+**Problem**: Compare gate count and depth of quantum arithmetic circuits.
 
 ```fsharp
-let testArithmeticCircuit (a: int) (b: int) (n: int) =
-    let problem = quantumArithmetic {
+let testArithmeticCircuit (a: int) (b: int) (m: int) =
+    let multiply = quantumArithmetic {
         operands a b
         operation ModularMultiply
-        modulus n
-        qubits 16
+        modulus m
+        qubits 6   // 2 × 6 + 3 = 15 qubits in total
     }
-    match problem with
+    match multiply with
     | Ok op ->
         match execute op with
         | Ok result ->
@@ -609,9 +656,9 @@ let testArithmeticCircuit (a: int) (b: int) (n: int) =
 
 ### Quantum Advantage
 
-**None for standalone arithmetic** - quantum arithmetic is slower than classical CPU arithmetic.
+**None for standalone arithmetic** - quantum arithmetic is slower than CPU arithmetic.
 
-**Advantage as subroutine** - enables exponential speedup in Shor's algorithm for integer factorization.
+**As a subroutine** - modular exponentiation is the expensive part of Shor's algorithm.
 
 ### See Working Examples
 
@@ -623,42 +670,38 @@ let testArithmeticCircuit (a: int) (b: int) (n: int) =
 
 ### What is Period Finder?
 
-**Period Finder** implements **Shor's algorithm** for integer factorization, which can break RSA encryption by finding the period of modular exponentiation. This is the most famous quantum algorithm demonstrating exponential speedup over classical methods.
+**Period Finder** implements **Shor's algorithm** for integer factorization: it finds the period of modular exponentiation with quantum phase estimation, and derives factors from the period. On a fault-tolerant quantum computer Shor's algorithm runs in polynomial time, where the best known classical algorithms are super-polynomial.
 
 ### When to Use
 
 ✅ **Good Fits**:
 - **Research**: Understanding Shor's algorithm
-- **Education**: Demonstrating quantum threat to RSA
-- **Security Analysis**: Assessing post-quantum cryptography needs
+- **Education**: Demonstrating the quantum threat to RSA
+- **Security Analysis**: Motivating post-quantum cryptography
 
 ❌ **Not Suitable For**:
-- **Production cryptanalysis** (requires fault-tolerant quantum computer)
-- **Current hardware** (limited to toy examples, n < 1000)
-- **Classical factorization** (use GNFS algorithm instead)
+- **Production cryptanalysis** (requires a fault-tolerant quantum computer)
+- **Anything beyond toy numbers**: the builder accepts N up to 10000
+- **Classical factorization** (use GNFS or other classical algorithms)
 
-**⚠️ Quantum Threat Timeline**:
-- **Today (2024-2025)**: Cannot factor RSA-2048 (need ~4096 qubits, have ~100)
-- **2025-2030**: NISQ era, still insufficient for real RSA keys
-- **2030+**: Fault-tolerant quantum computers may break RSA-2048
+**⚠️ Hardware Reality**: Estimates for factoring RSA-2048 are in the thousands of error-corrected (logical) qubits, and many more physical qubits. Today's devices are far from that.
 
 ### API Reference
 
 **Basic Usage**:
 ```fsharp
-open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumPeriodFinder
 
 // Factor integer n
-let problem = periodFinder {
+let shor = periodFinder {
     number 15           // Number to factor
     precision 8         // QPE precision (qubits)
     maxAttempts 10      // Probabilistic algorithm
 }
 
-match problem with
+match shor with
 | Ok prob ->
-    match solve prob with
+    match QuantumPeriodFinder.solve prob with
     | Ok result ->
         printfn "Base: %d" result.Base
         printfn "Period: %d" result.Period
@@ -672,56 +715,65 @@ match problem with
 | Error err ->
     printfn "Builder Error: %s" err.Message
 
-// Or use convenience function
-let problem2 = factorInteger 143 8  // n=143, precision=8
+// Or use the convenience function (returns the same Result<PeriodFinderProblem, _>)
+let shor143 = factorInteger 143 8  // n=143, precision=8
 ```
 
 **Configuration Options**:
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `number` | `int` | Integer to factor | *Required* |
-| `precision` | `int` | QPE precision (qubits) | *Required* |
-| `maxAttempts` | `int` | Maximum retry attempts | 10 |
+| `number` | `int` | Integer to factor (4-10000) | 15 |
+| `precision` | `int` | QPE precision qubits (1-20) | 8 |
+| `chosenBase` | `int` | Base a with 2 ≤ a < N | Chosen automatically |
+| `maxAttempts` | `int` | Maximum attempts (1-100) | 10 |
+| `exactness` | `QPE.Exactness` | `Exact` or `Approximate epsilon` | `Exact` |
+| `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
+| `shots` | `int` | Accepted but not used; raise `maxAttempts` instead | — |
 
 **Result Type**:
 ```fsharp
-type PeriodResult = {
-    Base: int                  // Base used (random)
-    Period: int                // Period found
-    Factors: (int * int) option  // Prime factors (if found)
-    QubitsUsed: int           // Qubits required
-    Attempts: int             // Attempts taken
+type PeriodFinderResult = {
+    Number: int                  // Number analyzed
+    Period: int                  // Period found
+    Base: int                    // Base used
+    Factors: (int * int) option  // Factors (if found)
+    PhaseEstimate: float         // QPE phase estimate
+    QubitsUsed: int              // Qubits used
+    Attempts: int                // QPE shots used by the successful run
+    Success: bool                // Whether factorization succeeded
+    BackendName: string
+    Message: string
 }
 ```
 
 ### Use Cases
 
-#### Security Assessment: RSA Key Strength
+#### Security Assessment: Toy RSA Modulus
 
-**Problem**: Assess how long current RSA keys remain secure against quantum attacks.
+**Problem**: Show how factoring the modulus breaks RSA.
 
 ```fsharp
 // Small RSA modulus (educational)
 let smallRSA = 15  // 3 × 5
 
-let problem = periodFinder {
+let attack = periodFinder {
     number smallRSA
     precision 4  // Reduced for local simulation
     maxAttempts 10
 }
 
-match problem with
+match attack with
 | Ok prob ->
-    match solve prob with
+    match QuantumPeriodFinder.solve prob with
     | Ok result ->
         match result.Factors with
         | Some (p, q) ->
             printfn "RSA BROKEN: %d = %d × %d" smallRSA p q
             printfn "Attacker can now:"
             printfn "  1. Calculate φ(n) = (p-1)(q-1)"
-            printfn "  2. Derive private key from public key"
-            printfn "  3. Decrypt all encrypted messages"
+            printfn "  2. Derive the private key from the public key"
+            printfn "  3. Decrypt messages"
         | None ->
             printfn "Period found but no factors (try again)"
     | Error err ->
@@ -732,76 +784,44 @@ match problem with
 
 #### Educational: Understanding Shor's Algorithm
 
-**Problem**: Teach students how quantum computers threaten public-key cryptography.
-
 ```fsharp
 let demonstrateShor (n: int) (precision: int) =
     printfn "Factoring %d using Shor's Algorithm" n
-    printfn "Classical difficulty: Exponential (GNFS)"
-    printfn "Quantum complexity: Polynomial time"
+    printfn "Best known classical algorithms: super-polynomial (GNFS)"
+    printfn "Shor's algorithm: polynomial time on a fault-tolerant quantum computer"
     printfn ""
-    
-    let problem = factorInteger n precision
-    match problem with
+
+    match factorInteger n precision with
     | Ok prob ->
-        match solve prob with
+        match QuantumPeriodFinder.solve prob with
         | Ok result ->
-            printfn "✅ Quantum computer found factors!"
-            printfn "Period: %d" result.Period
-            printfn "Factors: %A" result.Factors
-        | Error _ ->
-            printfn "❌ Failed to find factors"
-    | Error _ ->
-        printfn "❌ Failed (NISQ hardware too limited)"
+            printfn "✅ Found period %d, factors %A" result.Period result.Factors
+        | Error err ->
+            printfn "❌ Failed: %s" err.Message
+    | Error err ->
+        printfn "❌ Invalid problem: %s" err.Message
 
 // Test with small numbers
 demonstrateShor 15 4   // 3 × 5
-demonstrateShor 143 8  // 11 × 13
+demonstrateShor 21 6   // 3 × 7
 ```
 
-#### Research: Post-Quantum Cryptography
+### Complexity
 
-**Problem**: Motivate transition to quantum-resistant algorithms (NIST standards).
+**Classical**: the General Number Field Sieve runs in exp(O((log N)^(1/3) (log log N)^(2/3))) time.
 
-```fsharp
-let assessQuantumThreat (rsaKeyBits: int) =
-    let qubitsNeeded = rsaKeyBits * 2  // Rough estimate
-    let currentQubits = 100  // IBM Quantum, Google Sycamore
-    
-    printfn "RSA Key Size: %d bits" rsaKeyBits
-    printfn "Qubits Required: ~%d" qubitsNeeded
-    printfn "Current Hardware: ~%d qubits" currentQubits
-    
-    if qubitsNeeded > currentQubits then
-        printfn "Status: ✅ SAFE (for now)"
-        let yearsUntilThreat = (qubitsNeeded - currentQubits) / 20  // ~20 qubits/year
-        printfn "Estimated threat: ~%d years" yearsUntilThreat
-    else
-        printfn "Status: ⚠️ VULNERABLE"
-        printfn "Recommendation: Migrate to post-quantum crypto NOW"
+**Quantum**: Shor's algorithm uses O((log N)^3) gates with schoolbook arithmetic.
 
-assessQuantumThreat 2048  // Standard RSA key
-assessQuantumThreat 4096  // High-security RSA key
-```
-
-### Quantum Advantage
-
-**Classical Complexity**: O(e^(∛(log N))) using General Number Field Sieve (GNFS)
-- RSA-2048: ~2^112 operations (~10^33 years on modern CPU)
-
-**Quantum Complexity**: O((log N)^2 × log log N) using Shor's algorithm
-- RSA-2048: ~10^9 operations (~hours on fault-tolerant quantum computer)
-
-**Exponential speedup**: From intractable to practical.
+The quantum advantage is exponential in theory, but it needs a fault-tolerant quantum computer.
 
 ### Hardware Requirements
 
-| RSA Key Size | Qubits Required | Error Rate Required | Available Today? |
-|--------------|-----------------|---------------------|------------------|
-| 15-bit (toy) | ~10 qubits | 10^-2 | ✅ Yes (LocalBackend) |
-| 100-bit | ~200 qubits | 10^-3 | ❌ No |
-| 2048-bit (standard) | ~4,096 qubits | 10^-6 | ❌ No (need fault tolerance) |
-| 4096-bit (high-security) | ~8,192 qubits | 10^-6 | ❌ No |
+| Key Size | Logical qubits (2n+3, Beauregard circuit) | Available Today? |
+|----------|-------------------------------------------|------------------|
+| 4-bit (N = 15) | ~11, plus precision qubits | ✅ Yes (LocalBackend) |
+| 100-bit | ~200 | ❌ No |
+| 2048-bit (standard) | ~4,100 logical, many more physical | ❌ No (needs fault tolerance) |
+| 4096-bit (high-security) | ~8,200 logical | ❌ No |
 
 ### See Working Examples
 
@@ -817,42 +837,41 @@ assessQuantumThreat 4096  // High-security RSA key
 
 ### What is Phase Estimator?
 
-**Quantum Phase Estimation (QPE)** extracts eigenvalues from unitary operators exponentially faster than classical methods. It's a core subroutine in quantum chemistry (VQE), Shor's algorithm, and HHL linear system solver.
+**Quantum Phase Estimation (QPE)** estimates the phase φ in U|ψ⟩ = e^(2πiφ)|ψ⟩ for a unitary U and an eigenvector |ψ⟩. It is a core subroutine in Shor's algorithm, the HHL linear system solver and quantum chemistry energy estimation.
 
 ### When to Use
 
 ✅ **Good Fits**:
-- **Quantum Chemistry**: Molecular energy calculations (drug discovery)
-- **Materials Science**: Electronic band structure (semiconductors, batteries)
-- **Algorithm Research**: Building block for other quantum algorithms
+- **Algorithm research**: QPE as a building block
 - **Education**: Understanding eigenvalue problems
+- **Small single-qubit phases**: the built-in unitaries (`TGate`, `SGate`, `PhaseGate`, `RotationZ`)
 
 ❌ **Not Suitable For**:
 - **Classical eigenvalue problems** (use LAPACK/Eigen libraries)
-- **Large molecules** (>50 atoms requires fault-tolerant hardware)
-- **High precision** (>16 bits needs low-error qubits)
+- **Molecular Hamiltonians**: this builder takes the built-in gate unitaries; see `quantumChemistry` in the [Computation Expressions Reference](computation-expressions-reference.md) for energies
+- **High precision**: precision is limited to 20 counting qubits
 
 ### API Reference
 
 **Basic Usage**:
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Algorithms.QPE
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
 
-// Estimate phase of a quantum gate
-let problem = phaseEstimator {
+// Estimate the phase of the T gate
+let qpe = phaseEstimator {
     unitary TGate           // Quantum gate/operator
     precision 10            // 10-bit precision
     targetQubits 1          // Number of target qubits
 }
 
-match problem with
+match qpe with
 | Ok prob ->
     match estimate prob with
     | Ok result ->
         printfn "Phase: %.6f" result.Phase
-        printfn "Eigenvalue: %.4f + %.4fi" 
-            result.Eigenvalue.Real 
+        printfn "Eigenvalue: %.4f + %.4fi"
+            result.Eigenvalue.Real
             result.Eigenvalue.Imaginary
         printfn "Qubits: %d" result.TotalQubits
     | Error err ->
@@ -861,107 +880,96 @@ match problem with
     printfn "Builder Error: %s" err.Message
 ```
 
-**Supported Unitaries**:
+**Supported Unitaries** (with the default eigenstate |1⟩):
 
-| Unitary Type | Description | Use Case |
-|--------------|-------------|----------|
-| `TGate` | T-gate (π/4 phase) | Educational |
-| `SGate` | S-gate (π/2 phase) | Educational |
-| `RotationZ θ` | Rz(θ) rotation | Molecular Hamiltonian |
-| `PhaseGate θ` | Phase shift | Material science |
+| Unitary | Description | Phase φ |
+|---------|-------------|---------|
+| `TGate` | T gate | 1/8 |
+| `SGate` | S gate | 1/4 |
+| `PhaseGate θ` | Phase gate P(θ) | θ / 2π |
+| `RotationZ θ` | Rz(θ) rotation | θ / 4π |
+
+`ModularExponentiation` also exists in `UnitaryOperator`; it is used by period finding.
 
 **Configuration Options**:
 
 | Option | Type | Description | Default |
 |--------|------|-------------|---------|
-| `unitary` | `UnitaryType` | Operator to analyze | *Required* |
-| `precision` | `int` | Precision in bits (qubits) | *Required* |
-| `targetQubits` | `int` | Number of target qubits | 1 |
+| `unitary` | `UnitaryOperator` | Operator to analyze | `TGate` |
+| `precision` | `int` | Counting qubits, i.e. bits of φ (1-20) | 8 |
+| `targetQubits` | `int` | Target qubits (1-10; precision + target ≤ 25) | 1 |
+| `eigenstate` | `StateVector` | Eigenvector to prepare | \|1⟩ for the single-qubit gates |
+| `applySwaps` / `swaps` | `bool` | Apply bit-reversal SWAPs in the circuit | false |
+| `exactness` | `Exactness` | `Exact` or `Approximate epsilon` | `Exact` |
+| `backend` | `IQuantumBackend` | Quantum backend | LocalBackend |
+| `shots` | `int` | Measurement shots; the estimate is the most frequent outcome | 1024 (LocalBackend), 2048 (other) |
 
 **Result Type**:
 ```fsharp
-type PhaseResult = {
-    Phase: float              // Estimated phase φ
-    Eigenvalue: Complex       // λ = e^(2πiφ)
-    TotalQubits: int          // Qubits used
-    GateCount: int            // Total gates
-    Precision: int            // Precision bits
+type PhaseEstimatorResult = {
+    Phase: float                          // Estimated phase φ in [0, 1)
+    Eigenvalue: System.Numerics.Complex   // λ = e^(2πiφ)
+    MeasurementOutcome: int               // Most frequent counting-register outcome
+    Precision: int                        // Counting qubits
+    TargetQubits: int
+    TotalQubits: int                      // Precision + target
+    GateCount: int
+    Unitary: string
+    Success: bool
+    Message: string
 }
 ```
 
 ### Use Cases
 
-#### Drug Discovery: Molecular Energy Calculation
+#### Reading a Rotation Angle
 
-**Problem**: Calculate ground state energy of drug molecule to predict binding affinity.
-
-**Classical Method**: Density Functional Theory (DFT) - hours to days for large molecules.
-
-**Quantum Method**: QPE extracts eigenvalues in polynomial time.
+**Problem**: Recover the angle of an Rz rotation from its phase. This is the kind of one-qubit stand-in used in the chemistry examples; a real molecular energy needs a Hamiltonian simulation, not a single rotation.
 
 ```fsharp
-let theta = System.Math.PI / 3.0  // Simplified Hamiltonian
+let theta = System.Math.PI / 3.0
 
-let molecularProblem = phaseEstimator {
-    unitary (RotationZ theta)  // Molecular Hamiltonian
-    precision 12               // High precision for accuracy
+let rotationProblem = phaseEstimator {
+    unitary (RotationZ theta)
+    precision 12
     targetQubits 1
 }
 
-match molecularProblem with
+match rotationProblem with
 | Ok prob ->
     match estimate prob with
     | Ok result ->
-        // Convert phase to energy (in atomic units)
-        let energy = result.Phase * 2.0 * System.Math.PI
-        
-        printfn "Ground State Energy: %.6f a.u." energy
-        printfn "Binding Affinity: %s" 
-            (if energy < 0.5 then "STRONG" else "WEAK")
-        printfn ""
-        printfn "Pharmaceutical Impact:"
-        printfn "  • Lower energy = More stable configuration"
-        printfn "  • Predicts drug-protein binding"
-        printfn "  • Guides molecular design"
+        // With the |1⟩ eigenstate, φ = θ / 4π
+        let recovered = result.Phase * 4.0 * System.Math.PI
+        printfn "Estimated θ: %.6f (actual %.6f)" recovered theta
     | Error err ->
         printfn "Execution Error: %s" err.Message
 | Error err ->
     printfn "Builder Error: %s" err.Message
 ```
 
-#### Materials Science: Electronic Band Structure
-
-**Problem**: Predict semiconductor band gaps for solar cells and transistors.
-
-**Application**: Battery materials, superconductors, photovoltaics.
+#### Phase Gate
 
 ```fsharp
-let phaseAngle = System.Math.PI / 4.0  // Crystal lattice phase
+let phaseAngle = System.Math.PI / 4.0
 
-let materialProblem = phaseEstimator {
+let phaseProblem = phaseEstimator {
     unitary (PhaseGate phaseAngle)
     precision 12
 }
 
-match materialProblem with
+match phaseProblem with
 | Ok prob ->
     match estimate prob with
     | Ok result ->
-        let blochPhase = result.Phase
-        printfn "Bloch Phase: %.6f" blochPhase
-        printfn ""
-        printfn "Industrial Applications:"
-        printfn "  • Semiconductor design (optimize band gaps)"
-        printfn "  • Solar cell efficiency prediction"
-        printfn "  • Superconductor discovery"
-        printfn "  • Battery material optimization"
+        printfn "Phase: %.6f (expected %.6f)" result.Phase (phaseAngle / (2.0 * System.Math.PI))
     | Error _ -> ()
 | Error _ -> ()
 ```
 
 #### Algorithm Research: Building Blocks
 
-**Problem**: QPE is a subroutine in Shor's algorithm and HHL linear solver.
+**Problem**: QPE is a subroutine in Shor's algorithm and the HHL linear solver.
 
 ```fsharp
 // Educational: Understand QPE fundamentals
@@ -982,26 +990,20 @@ match tGateProblem with
 | Error _ -> ()
 ```
 
-### Quantum Advantage
+### Complexity
 
-**Classical Complexity**: O(2^n) for n-qubit systems (exponential)
-- 50-qubit system: 2^50 ≈ 10^15 states (intractable)
-
-**Quantum Complexity**: O(log(1/ε) × poly(n)) where ε = precision
-- 50-qubit system: Polynomial time (practical)
-
-**Exponential speedup** for quantum chemistry and materials science.
+QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) applications and an inverse QFT. Its advantage comes when U is a Hamiltonian evolution that a quantum computer can apply efficiently but a classical computer cannot simulate; the single-qubit gates here are for learning how QPE works.
 
 ### Precision vs. Qubits
 
-| Precision (bits) | Accuracy | Qubits Required | Use Case |
-|------------------|----------|-----------------|----------|
-| 8 bits | ±0.4% | 8 + target | Educational |
-| 10 bits | ±0.1% | 10 + target | Research |
-| 12 bits | ±0.02% | 12 + target | Drug discovery |
-| 16 bits | ±0.001% | 16 + target | High-precision chemistry |
+| Precision (bits) | Resolution (1/2^n) | Qubits Required |
+|------------------|--------------------|-----------------|
+| 8 bits | ≈ 0.0039 | 8 + target |
+| 10 bits | ≈ 0.00098 | 10 + target |
+| 12 bits | ≈ 0.00024 | 12 + target |
+| 16 bits | ≈ 0.000015 | 16 + target |
 
-**Accuracy Formula**: Error ≤ 1/2^n where n = precision bits
+**Resolution**: the estimate is a multiple of 1/2^n. A phase that is an exact multiple (T gate: 1/8) is found exactly; other phases are rounded to a nearby multiple.
 
 ### See Working Examples
 
@@ -1013,174 +1015,121 @@ match tGateProblem with
 
 ### Decision Matrix
 
-| Builder | Best For | Speedup | Qubit Requirement | NISQ-Ready? |
-|---------|----------|---------|-------------------|-------------|
-| **Tree Search** | Game AI, decision trees | O(√N) | log(b^d) ≈ d log b | ✅ Yes (depth ≤ 5) |
-| **Constraint Solver** | CSP (Sudoku, scheduling) | O(√N) | log(N) | ✅ Yes (N < 10^6) |
-| **Pattern Matcher** | Config optimization, hyperparameter tuning | O(√N) | log(N) | ✅ Yes (N < 10^5) |
-| **Quantum Arithmetic** | Crypto demos, research | None (slower!) | O(log n) | ⚠️ Toy examples only |
-| **Period Finder** | RSA factorization, education | Exponential | 2n (n = bit length) | ❌ No (toy only) |
-| **Phase Estimator** | Quantum chemistry, materials | Exponential | precision + target | ⚠️ Limited precision |
+| Builder | Best For | Theoretical speedup | Qubits | Runs locally? |
+|---------|----------|---------------------|--------|---------------|
+| **Tree Search** | Game AI, decision trees | Quadratic (query count) | depth × ⌈log₂ b⌉ ≤ 16 | ✅ Toy trees |
+| **Constraint Solver** | CSP (Sudoku, scheduling) | Quadratic (query count) | log₂(states) ≤ 16 | ✅ Toy problems |
+| **Pattern Matcher** | Config and hyperparameter search | Quadratic (query count) | log₂(items) ≤ 16 | ✅ Up to 2^16 items |
+| **Quantum Arithmetic** | Crypto demos, research | None (slower than CPU) | up to 2n + 5 | ✅ Small registers |
+| **Period Finder** | Factorization, education | Exponential | precision + register | ✅ N ≤ 10000 |
+| **Phase Estimator** | QPE research, education | Depends on U | precision + target | ✅ Up to 20 bits |
 
 ### Selection Criteria
 
 **Use Tree Search if**:
-- Exploring game trees or decision trees
-- Evaluation function is expensive (>10ms)
-- Moderate branching factor (8-64)
-- Search depth: 2-5 moves
+- You are exploring game trees or decision trees
+- The tree fits in 16 qubits
 
 **Use Constraint Solver if**:
-- Need to satisfy multiple constraints
-- Search space: 10^3 - 10^6 states
-- Constraint checking is expensive
-- Any valid solution is acceptable (not optimal)
+- You need any assignment that satisfies all constraints
+- The search space has at most 2^16 states
 
 **Use Pattern Matcher if**:
-- Testing configurations or hyperparameters
-- Evaluation is very expensive (>1 second)
-- Search space: < 2^16 items
-- Need top-k matches
+- You are searching configurations or hyperparameters
+- The search space has at most 2^16 items
+- You want the top-k matches
 
 **Use Quantum Arithmetic if**:
-- Educational/research only
-- Building blocks for other algorithms (Shor's)
-- DO NOT use for production arithmetic!
+- You are teaching or researching quantum circuits
+- You need building blocks for other algorithms (Shor's)
+- Never for production arithmetic
 
 **Use Period Finder if**:
-- Educational demos of quantum threat to RSA
-- Security research (assessing quantum timeline)
-- NOT for production factorization (use classical methods)
+- You are demonstrating the quantum threat to RSA
+- You are doing security research
+- Never for production factorization
 
 **Use Phase Estimator if**:
-- Quantum chemistry eigenvalue problems
-- Materials science band structure
-- Research into quantum algorithms
-- Educational eigenvalue extraction
+- You are studying QPE or algorithms built on it
+- You are teaching eigenvalue extraction
 
 ---
 
-## Performance & Cost Comparison
+## Query Counts in Theory
 
-### Tree Search: Chess Position Analysis
+The Grover-based builders reduce the number of oracle queries from about N to about √N. The table shows query counts only; it says nothing about wall-clock time or cost. On the local simulator the oracle is evaluated for every state, and on current hardware noise limits circuit depth, so neither shows this saving in practice.
 
-| Method | Evaluations | Time (100ms/eval) | Cost (Cloud) |
-|--------|-------------|-------------------|--------------|
-| Classical Minimax | 16^4 = 65,536 | 109 minutes | N/A |
-| Alpha-Beta Pruning | ~6,000 | 10 minutes | N/A |
-| **Quantum Tree Search** | √65,536 = 256 | **26 seconds** | $2-5 per search |
+| Problem | Search space N | Classical checks (worst case) | Grover queries (≈ √N) |
+|---------|----------------|-------------------------------|-----------------------|
+| Tree search, b = 16, d = 4 | 65,536 | 65,536 | 256 |
+| Constraint solver, 5 variables over 5 values | 3,125 | 3,125 | 56 |
+| Pattern matcher, 1024 configurations | 1,024 | 1,024 | 32 |
+| Pattern matcher, 256 hyperparameter sets | 256 | 256 | 16 |
 
-**ROI**: 250× speedup over minimax, 23× over alpha-beta.
+Classical methods often do much better than the worst case: alpha-beta pruning for game trees, constraint propagation for Sudoku, random or Bayesian search for hyperparameters. Compare against those, not against exhaustive search.
 
-**Break-even**: Evaluation time > 1ms (quantum overhead justified).
-
-### Constraint Solver: Sudoku 9×9
-
-| Method | States Explored | Time | Notes |
-|--------|-----------------|------|-------|
-| Classical Backtracking | ~10^9 | Seconds | With constraint propagation |
-| **Quantum Grover** | ~10^4 | Milliseconds (in theory) | No advantage (classical is optimized) |
-
-**Verdict**: ❌ No practical advantage - classical sudoku solvers are highly optimized.
-
-**When quantum wins**: Expensive constraint checking (not sudoku).
-
-### Pattern Matcher: Hyperparameter Tuning
-
-| Method | Trials | Time (1hr/trial) | Cost |
-|--------|--------|------------------|------|
-| Grid Search | 256 | 10.5 days | $0 (local compute) |
-| Random Search | 50 | 2 days | $0 |
-| Bayesian Optimization | 30 | 1.25 days | $0 |
-| **Quantum Pattern Match** | √256 = 16 | **16 hours** | $50-100 (cloud qubits) |
-
-**ROI**: 16× speedup over grid search, 3× over random search, 2× over Bayesian.
-
-**Break-even**: Evaluation time > 30 minutes (justify quantum cost).
-
-### Period Finder: RSA Factorization
-
-| RSA Key Size | Classical Time (GNFS) | Quantum Time (Shor's) | Qubits Needed | Available? |
-|--------------|----------------------|----------------------|---------------|------------|
-| 15-bit (toy) | Microseconds | Milliseconds | 10 | ✅ LocalBackend |
-| 100-bit | Minutes | Seconds | 200 | ❌ No |
-| 768-bit | Years | Hours | 1,536 | ❌ No |
-| **2048-bit** (standard) | **Billions of years** | **Hours** | **4,096** | ❌ No (2030+?) |
-
-**Verdict**: Exponential advantage BUT requires fault-tolerant quantum computer (not available yet).
-
-### Phase Estimator: Molecular Energy
-
-| System Size | Classical (DFT) | Quantum (QPE) | Qubits Needed | Available? |
-|-------------|-----------------|---------------|---------------|------------|
-| H2 (2 atoms) | Seconds | Milliseconds | 10 | ✅ Yes |
-| H2O (3 atoms) | Minutes | Seconds | 20 | ⚠️ Limited |
-| Aspirin (21 atoms) | Hours | Minutes | 50 | ❌ No |
-| Protein (1000+ atoms) | Impossible | Tractable | 2000+ | ❌ No (future) |
-
-**Verdict**: Exponential advantage for large molecules - awaiting fault-tolerant hardware.
+For Shor's algorithm the advantage is exponential in theory, but it needs a fault-tolerant quantum computer with thousands of logical qubits for real key sizes.
 
 ---
 
 ## Troubleshooting
 
-### Tree Search: No Quantum Advantage
+### Tree Search: Problem Rejected
 
-**Symptom**: `QuantumAdvantage = false` in results.
+**Symptom**: The builder throws `requires N qubits (depth=..., branching=...). Max: 16`.
 
-**Causes**:
-1. **Branching factor too low** (< 8 moves)
-   - *Fix*: Quantum search needs moderate-to-large branching (8-64)
+**Cause**: maxDepth × ⌈log₂(branchingFactor)⌉ is over 16.
 
-2. **Search depth too shallow** (depth < 2)
-   - *Fix*: Increase `maxDepth` to 3-5
+**Fix**: Reduce `maxDepth` or `branchingFactor`, or use `maxPaths`/`limitSearchSpace` to cap the number of paths searched.
 
-3. **Evaluation too fast** (< 1ms)
-   - *Fix*: Quantum overhead not justified for fast evaluation
-
-**Example Fix**:
 ```fsharp
-// ❌ No advantage
-let problem = quantumTreeSearch {
-    maxDepth 1           // Too shallow!
-    branchingFactor 4    // Too low!
-    // ...
+// ❌ Rejected: 4 × 6 = 24 qubits
+let tooBig () = quantumTreeSearch<int> {
+    initialState 0
+    maxDepth 4
+    branchingFactor 35
+    evaluateWith evaluatePosition
+    generateMovesWith generateMoves
 }
 
-// ✅ Quantum advantage
-let problem = quantumTreeSearch {
-    maxDepth 4           // Deeper search
-    branchingFactor 16   // Moderate branching
-    // ...
+// ✅ Accepted: 2 × 6 = 12 qubits
+let fits = quantumTreeSearch<int> {
+    initialState 0
+    maxDepth 2
+    branchingFactor 35
+    evaluateWith evaluatePosition
+    generateMovesWith generateMoves
 }
 ```
 
 ### Constraint Solver: No Solution Found
 
-**Symptom**: `Error: No solution found after 1000 shots`
+**Symptom**: `Error: Operation 'GroverSearch' failed: No solution found by quantum search`
 
 **Causes**:
 1. **Impossible constraints** (no valid solution exists)
-   - *Fix*: Verify constraints are satisfiable
-
-2. **Too few shots** (probabilistic algorithm)
-   - *Fix*: Increase `shots` to 5000-10000
-
-3. **Search space too large** (>10^6 states)
-   - *Fix*: Reduce search space or use classical solver
+   - *Fix*: Verify the constraints are satisfiable
+2. **Too few shots** (the search is probabilistic)
+   - *Fix*: Increase `shots`
+3. **Search space too large** (over 16 qubits)
+   - *Fix*: Reduce the number of variables or the domain size
 
 **Example Fix**:
 ```fsharp
-// ❌ Too few shots
-let problem = constraintSolver {
-    shots 100  // Too low!
-    // ...
+// ❌ Few shots
+let fewShots = constraintSolver<int> {
+    searchSpace 3
+    domain [1..4]
+    satisfies checkAllConstraints
+    shots 100
 }
 
 // ✅ More shots
-let problem = constraintSolver {
-    shots 5000  // Better success rate
-    // ...
+let moreShots = constraintSolver<int> {
+    searchSpace 3
+    domain [1..4]
+    satisfies checkAllConstraints
+    shots 5000
 }
 ```
 
@@ -1190,15 +1139,14 @@ let problem = constraintSolver {
 
 **Causes**:
 1. **Pattern too restrictive** (very few matches)
-   - *Fix*: Relax pattern or increase search space
-
-2. **Search space too large** (>2^16)
-   - *Fix*: Reduce search space size
+   - *Fix*: Relax the pattern
+2. **Search space too large** (over 2^16 items is rejected)
+   - *Fix*: Reduce the search space
 
 **Example Fix**:
 ```fsharp
 // Check success probability
-match solve problem with
+match QuantumPatternMatcher.solve configSearch with
 | Ok solution when solution.SuccessProbability < 0.1 ->
     printfn "⚠️ Low success probability: %.2f" solution.SuccessProbability
     printfn "Consider: Reduce search space or relax pattern"
@@ -1212,61 +1160,61 @@ match solve problem with
 
 **Symptom**: `Period = 6, Factors = None`
 
-**Cause**: Shor's algorithm is **probabilistic** - period may not yield factors.
+**Cause**: Shor's algorithm is **probabilistic**; some periods do not yield factors (for example an odd period).
 
-**Fix**: Retry with `maxAttempts` increased.
+**Fix**: Allow more attempts with `maxAttempts` (at most 100).
 
 ```fsharp
-let problem = periodFinder {
+let moreAttempts = periodFinder {
     number 15
     precision 8
     maxAttempts 20  // Increase from default 10
 }
 ```
 
-**Success Rate**: Typically 50-75% chance per attempt. With 20 attempts: >99.9% success.
-
 ### Phase Estimator: Large Precision Error
 
-**Symptom**: `Error = 0.05` (expected < 0.001)
+**Symptom**: The estimated phase is far from the expected value.
 
 **Causes**:
-1. **Precision too low** (< 10 bits)
-   - *Fix*: Increase `precision` to 12-16 bits
-
-2. **NISQ hardware noise** (gate errors)
-   - *Fix*: Use error mitigation or LocalBackend
+1. **Precision too low**
+   - *Fix*: Increase `precision` (at most 20)
+2. **Hardware noise** (gate errors on a real device)
+   - *Fix*: Use error mitigation, or compare against LocalBackend
+3. **Wrong eigenstate** for a custom `eigenstate`
+   - *Fix*: The state must be an eigenvector of U
 
 **Example Fix**:
 ```fsharp
 // ❌ Low precision
-let problem = phaseEstimator {
-    precision 6  // Only 6 bits!
-    // ...
+let lowPrecision = phaseEstimator {
+    unitary (PhaseGate 1.0)
+    precision 6  // Only 6 bits
 }
 
-// ✅ High precision
-let problem = phaseEstimator {
-    precision 12  // 12 bits (±0.02% accuracy)
-    // ...
+// ✅ Higher precision
+let highPrecision = phaseEstimator {
+    unitary (PhaseGate 1.0)
+    precision 12  // Resolution 1/4096
 }
 ```
 
-**Accuracy Table**:
+**Resolution Table**:
 
-| Precision | Accuracy | Recommended For |
-|-----------|----------|-----------------|
-| 6 bits | ±1.6% | Educational demos |
-| 8 bits | ±0.4% | Basic research |
-| 10 bits | ±0.1% | Standard use |
-| 12 bits | ±0.02% | Drug discovery |
-| 16 bits | ±0.001% | High-precision chemistry |
+| Precision | Resolution (1/2^n) | Recommended For |
+|-----------|--------------------|-----------------|
+| 6 bits | ≈ 0.016 | Quick demos |
+| 8 bits | ≈ 0.0039 | Basic research |
+| 10 bits | ≈ 0.00098 | Standard use |
+| 12 bits | ≈ 0.00024 | Finer estimates |
+| 16 bits | ≈ 0.000015 | High precision (slow on the simulator) |
 
 ---
 
 ## Related Documentation
 
 - [Getting Started](getting-started.md) - Installation and first quantum circuit
+- [Computation Expressions Reference](computation-expressions-reference.md) - All builders and their operations
 - [Quantum Machine Learning](quantum-machine-learning.md) - VQC, kernel SVM, feature maps
 - [Business Problem Builders](business-problem-builders.md) - AutoML, fraud detection
 - [Error Mitigation](error-mitigation.md) - ZNE, PEC, REM strategies
@@ -1297,8 +1245,8 @@ let problem = phaseEstimator {
 
 ---
 
-**Next Steps**: Explore [working examples](../examples/) to see these builders in action, or jump to [Quantum Machine Learning](quantum-machine-learning.md) for practical ML applications.
+**Next Steps**: Explore the [working examples](../examples/) to see these builders in action, or jump to [Quantum Machine Learning](quantum-machine-learning.md) for ML applications.
 
 ---
 
-**Last Updated**: December 2025
+**Last Updated**: September 2026

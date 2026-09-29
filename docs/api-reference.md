@@ -17,6 +17,8 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 - [TSP Builder](#tsp-builder) - Route optimization, delivery planning
 - [Portfolio Builder](#portfolio-builder) - Investment allocation, asset selection
 - [Network Flow Builder](#network-flow-builder) - Supply chain optimization
+- [HybridSolver](#hybridsolver) - Classical/quantum routing by problem size
+- [Task Scheduling API](TaskScheduling-API) and [Graph Coloring API](GraphColoring-API) - Separate detailed pages
 
 **Quantum Algorithm APIs (Research & Education):**
 - [Quantum Linear System Solver](#quantum-linear-system-solver-hhl-algorithm) - HHL algorithm for Ax = b
@@ -35,20 +37,29 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 
 ## Error Handling
 
-**All FSharp.Azure.Quantum APIs use `QuantumResult<T>` with structured `QuantumError` types:**
+**The solver APIs use `QuantumResult<'T>` with structured `QuantumError` values** (namespace `FSharp.Azure.Quantum.Core`):
 
-```fsharp
-// Type alias for clarity
+```text
 type QuantumResult<'T> = Result<'T, QuantumError>
 ```
 
+(A few classical helpers return `Result<'T, string>` instead; their signatures below say so.)
+
 ### Basic Error Handling
 
-All solver APIs return `QuantumResult<T>` for consistent, type-safe error handling:
+The problem builders return `QuantumResult<'T>` for consistent, type-safe error handling:
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphColoring
+
+let problem = graphColoring {
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"]
+    node "R3" ["R1"]
+    colors ["Red"; "Blue"; "Green"]
+}
 
 match GraphColoring.solve problem 3 None with
 | Ok solution -> 
@@ -59,16 +70,20 @@ match GraphColoring.solve problem 3 None with
 
 ### QuantumError Types
 
-Errors are categorized for precise handling:
+Errors are categorized for precise handling (`[<RequireQualifiedAccess>]`, so write `QuantumError.ValidationError`):
 
-```fsharp
+```text
 type QuantumError =
     | ValidationError of field: string * reason: string
+    | NotImplemented of feature: string * hint: string option
     | OperationError of operation: string * context: string
     | BackendError of backend: string * reason: string
+    | AzureError of AzureQuantumError
     | IOError of operation: string * path: string * reason: string
-    | NotImplemented of feature: string * hint: string option
     | Other of message: string
+
+    member Message : string    // human-readable text
+    member Category : string   // "Validation", "Operation", "Backend", ...
 ```
 
 ### Advanced Error Handling
@@ -76,8 +91,10 @@ type QuantumError =
 Pattern match on error types for custom handling:
 
 ```fsharp
+let cities = TSP.createProblem [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.5, 1.0) ]
+
 match TSP.solve cities None with
-| Ok tour -> processTour tour
+| Ok tour -> printfn "Tour: %A" tour.Cities
 | Error (QuantumError.ValidationError (field, reason)) ->
     printfn "Invalid %s: %s" field reason
 | Error (QuantumError.BackendError (backend, reason)) ->
@@ -89,14 +106,16 @@ match TSP.solve cities None with
 
 ### Computation Expression (Recommended)
 
-Use the `quantumResult` builder to avoid nested match clauses:
+Use the `quantumResult` builder (from `FSharp.Azure.Quantum.Core`) to avoid nested match clauses:
 
 ```fsharp
-let processWorkflow input backend = quantumResult {
-    do! validateInput input
-    let! encoded = encodeToQubo input
-    let! result = executeQuantum encoded backend
-    return result
+let colorsNeeded (problem: GraphColoringProblem) = quantumResult {
+    do! GraphColoring.validate problem
+    let! solution = GraphColoring.solve problem 3 None
+    if solution.IsValid then
+        return solution.ColorsUsed
+    else
+        return! Error (QuantumError.OperationError ("coloring", "solution has conflicts"))
 }
 ```
 
@@ -128,18 +147,20 @@ match GraphColoring.solve problem 3 None with
     printfn "Error: %s" err.Message
 ```
 
-### Pattern 2: Cloud Backend (Large Problems)
+### Pattern 2: Cloud Backend
 
 ```fsharp
-// Create Azure Quantum backend
-let backend = // Cloud backend - requires Azure Quantum workspace
-// BackendAbstraction.createIonQBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "ionq.simulator"
-)
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-// Solve on cloud quantum hardware
-match GraphColoring.solve problem 3 (Some backend) with
+// Create an Azure Quantum backend (authenticated HttpClient + workspace URL)
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
+let workspaceUrl = "https://eastus.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+
+let cloudBackend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+
+// Solve on the cloud backend
+match GraphColoring.solve problem 3 (Some cloudBackend) with
 | Ok solution -> 
     printfn "Colors used: %d" solution.ColorsUsed
     printfn "Valid: %b" solution.IsValid
@@ -198,7 +219,7 @@ let problem_scheduling = graphColoring {
 
 ### Types
 
-```fsharp
+```text
 type ColoredNode = {
     Id: string
     ConflictsWith: string list
@@ -212,6 +233,14 @@ type ColoringObjective =
     | MinimizeColors      // Minimize chromatic number
     | MinimizeConflicts   // Allow invalid colorings, minimize violations
     | BalanceColors       // Load balancing
+
+type GraphColoringProblem = {
+    Nodes: ColoredNode list
+    AvailableColors: string list
+    Objective: ColoringObjective
+    MaxColors: int option
+    ConflictPenalty: float
+}
 
 type ColoringSolution = {
     Assignments: Map<string, string>   // Node → Color mapping
@@ -230,12 +259,17 @@ type ColoringSolution = {
 ```text
 val validate : GraphColoringProblem → QuantumResult<unit>
 val solve : GraphColoringProblem → int → IQuantumBackend option → QuantumResult<ColoringSolution>
+val node : string → string list → ColoredNode
 ```
 
-**Parameters:**
+**Parameters of `solve`:**
 - `problem` - Graph coloring problem specification
-- `maxColors` - Maximum colors allowed (None = unlimited)
-- `backend` - Quantum backend (None = auto LocalBackend)
+- `numColors` - Number of colors the QAOA encoding uses (capped at the number of available colors); qubits needed = nodes × numColors
+- `backend` - Quantum backend (None = new LocalBackend)
+
+**Computation expression operations:** `node id conflicts`, `nodes [ColoredNode list]`, `colors [...]` (required), `objective`, `maxColors`, `conflictPenalty`. The builder validates the problem when it finishes and throws if it is invalid (no nodes, no colors, unknown conflict references, ...).
+
+> **Note:** `solve` currently encodes only the nodes, their conflicts, the available colors and any `FixedColor`. `Objective`, `ConflictPenalty`, `Priority` and `AvoidColors` are stored on the problem but not used by the QAOA encoding, and `MaxColors` is only validated.
 
 ### Example
 
@@ -281,12 +315,18 @@ match GraphColoring.solve registers 4 None with
 val createProblem : string list → (string * string * float) list → MaxCutProblem
 val completeGraph : string list → float → MaxCutProblem
 val cycleGraph : string list → float → MaxCutProblem
+val pathGraph : string list → float → MaxCutProblem
+val gridGraph : int → int → float → MaxCutProblem
+val starGraph : string → string list → float → MaxCutProblem
 val solve : MaxCutProblem → IQuantumBackend option → QuantumResult<Solution>
+val calculateCutValue : MaxCutProblem → string list → float
 ```
+
+`solveWithAdaptQaoa` runs the adaptive (ADAPT-QAOA) variant. Qubits needed: one per vertex.
 
 ### Types
 
-```fsharp
+```text
 type MaxCutProblem = {
     Vertices: string list
     Edges: Edge<float> list
@@ -351,14 +391,12 @@ val solve : Problem → IQuantumBackend option → QuantumResult<Solution>
 - `items` - (id, weight, value) tuples
 - `capacity` - Maximum total weight
 
+Qubits needed: one per item. Ready-made problems: `budgetAllocation`, `cargoLoading`, `taskScheduling`, `randomInstance`.
+
 ### Types
 
-```fsharp
-type Item = {
-    Id: string
-    Weight: float
-    Value: float
-}
+```text
+type Item = QuantumKnapsackSolver.KnapsackItem   // { Id: string; Weight: float; Value: float }
 
 type Problem = {
     Items: Item list
@@ -427,11 +465,15 @@ val solve : TspProblem → IQuantumBackend option → QuantumResult<Tour>
 ```
 
 **Parameters:**
-- `cities` - (name, x, y) coordinate tuples
+- `cities` - (name, x, y) coordinate tuples; distances are Euclidean
+
+Qubits needed: cities² (4 cities = 16 qubits), so QAOA on the local simulator is limited to a handful of cities. For larger instances use `HybridSolver.solveTsp`, whose classical path has no qubit limit.
 
 ### Types
 
-```fsharp
+```text
+type City = TspTypes.City   // { Name: string option; X: float; Y: float }
+
 type TspProblem = {
     Cities: City array
     CityCount: int
@@ -448,16 +490,15 @@ type Tour = {
 ### Example
 
 ```fsharp
-// Delivery route optimization
-let cities = [
+// Delivery route optimization (4 stops = 16 qubits)
+let stops = [
     ("Warehouse", 0.0, 0.0)
     ("Customer A", 5.0, 3.0)
     ("Customer B", 2.0, 7.0)
     ("Customer C", 8.0, 4.0)
-    ("Customer D", 3.0, 6.0)
 ]
 
-let problem_tsp = TSP.createProblem cities
+let problem_tsp = TSP.createProblem stops
 
 match TSP.solve problem_tsp None with
 | Ok tour ->
@@ -490,14 +531,18 @@ val solve : PortfolioProblem → IQuantumBackend option → QuantumResult<Portfo
 - `assets` - (symbol, expectedReturn, risk, price) tuples
 - `budget` - Total available capital
 
+Qubits needed: one per asset.
+
 ### Types
 
-```fsharp
+```text
+type Asset = PortfolioTypes.Asset   // { Symbol: string; ExpectedReturn: float; Risk: float; Price: float }
+
 type PortfolioProblem = {
     Assets: Asset array
     AssetCount: int
     Budget: float
-    Constraints: Constraints option
+    Constraints: PortfolioSolver.Constraints option   // { Budget; MinHolding; MaxHolding }
 }
 
 type PortfolioAllocation = {
@@ -549,7 +594,7 @@ match Portfolio.solve problem_portfolio None with
 
 ### Types
 
-```fsharp
+```text
 type NodeType =
     | Source        // Supplier, factory
     | Sink          // Customer, demand point
@@ -569,6 +614,8 @@ type Route = {
     Cost: float
 }
 
+type NetworkFlowProblem = { Nodes: Node list; Routes: Route list }
+
 type FlowSolution = {
     SelectedRoutes: (string * string * float) list
     TotalCost: float
@@ -583,37 +630,41 @@ type FlowSolution = {
 ### Helper Functions
 
 ```text
-val SourceNode : string → int → Node
-val SinkNode : string → int → Node
-val IntermediateNode : string → int → Node
-val Route : string → string → float → Route
+val createSource : id:string → supply:int → capacity:int → Node
+val createSink : id:string → demand:int → Node
+val createIntermediate : id:string → capacity:int → Node
+val createRoute : from:string → to_:string → cost:float → Route
+val createProblem : Node list → Route list → NetworkFlowProblem
 val solve : NetworkFlowProblem → IQuantumBackend option → QuantumResult<FlowSolution>
+val solveDirectly : Node list → Route list → IQuantumBackend option → QuantumResult<FlowSolution>
 ```
+
+Qubits needed: one per route.
 
 ### Example
 
 ```fsharp
 // Supply chain optimization
 let nodes = [
-    NetworkFlow.SourceNode("Factory A", 1000)
-    NetworkFlow.SourceNode("Factory B", 800)
-    NetworkFlow.IntermediateNode("Warehouse", 1500)
-    NetworkFlow.SinkNode("Store 1", 400)
-    NetworkFlow.SinkNode("Store 2", 600)
-    NetworkFlow.SinkNode("Store 3", 300)
+    NetworkFlow.createSource "Factory A" 1000 1000
+    NetworkFlow.createSource "Factory B" 800 800
+    NetworkFlow.createIntermediate "Warehouse" 1500
+    NetworkFlow.createSink "Store 1" 400
+    NetworkFlow.createSink "Store 2" 600
+    NetworkFlow.createSink "Store 3" 300
 ]
 
 let routes = [
-    NetworkFlow.Route("Factory A", "Warehouse", 5.0)
-    NetworkFlow.Route("Factory B", "Warehouse", 4.0)
-    NetworkFlow.Route("Warehouse", "Store 1", 3.0)
-    NetworkFlow.Route("Warehouse", "Store 2", 2.5)
-    NetworkFlow.Route("Warehouse", "Store 3", 4.5)
+    NetworkFlow.createRoute "Factory A" "Warehouse" 5.0
+    NetworkFlow.createRoute "Factory B" "Warehouse" 4.0
+    NetworkFlow.createRoute "Warehouse" "Store 1" 3.0
+    NetworkFlow.createRoute "Warehouse" "Store 2" 2.5
+    NetworkFlow.createRoute "Warehouse" "Store 3" 4.5
 ]
 
-let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
+let flowProblem = NetworkFlow.createProblem nodes routes
 
-match NetworkFlow.solve problem None with
+match NetworkFlow.solve flowProblem None with
 | Ok flow ->
     printfn "Total cost: $%.2f" flow.TotalCost
     printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
@@ -627,111 +678,139 @@ match NetworkFlow.solve problem None with
 
 ---
 
+## HybridSolver
+
+**Module:** `FSharp.Azure.Quantum.HybridSolver`
+
+Routes a problem to a classical heuristic or to a quantum solver. `QuantumAdvisor` recommends by problem size (`QuantumAdvisor.defaultThresholds`: classical below 20, "consider quantum" from 20, "strongly quantum" from 50). HybridSolver runs quantum only when the advisor strongly recommends it **and** a backend was passed (the `...WithBackend` functions), unless you force a method.
+
+```text
+val solveTsp          : distances:float[,] → budget:float option → timeout:float option → forceMethod:SolverMethod option
+                        → QuantumResult<Solution<TspSolver.TspSolution>>
+val solvePortfolio    : assets:PortfolioSolver.Asset list → constraints:PortfolioSolver.Constraints
+                        → budget → timeout → forceMethod → QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>
+val solveMaxCut       : QuantumMaxCutSolver.MaxCutProblem → budget → timeout → forceMethod
+                        → QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>>
+val solveKnapsack     : QuantumKnapsackSolver.KnapsackProblem → budget → timeout → forceMethod
+                        → QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>>
+val solveGraphColoring : QuantumGraphColoringSolver.GraphColoringProblem → numColors:int → budget → timeout → forceMethod
+                        → QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>>
+
+// Each has a ...WithBackend variant taking a final IQuantumBackend option;
+// solveTspWithBackendAndConfig also takes a QuantumTspSolver.QuantumTspConfig.
+
+type SolverMethod = Classical | Quantum
+
+type Solution<'TResult> = {
+    Method: SolverMethod
+    Result: 'TResult
+    Reasoning: string
+    ElapsedMs: float
+    Recommendation: QuantumAdvisor.Recommendation option
+}
+```
+
+- `budget` (USD): if the estimated quantum cost exceeds it, the classical solver runs instead.
+- `timeout`: accepted but not currently used.
+- `forceMethod`: `Some HybridSolver.Classical` or `Some HybridSolver.Quantum` bypasses the advisor (forced quantum uses the given backend or a new LocalBackend).
+
+The MaxCut, Knapsack and Graph Coloring variants take the solver-level problem types from `FSharp.Azure.Quantum.Quantum`, not the builder types above; see the [FAQ](faq#when-should-i-use-quantum-vs-hybridsolver) for a conversion.
+
+---
+
 ## Quantum Backends
 
-**Module:** `FSharp.Azure.Quantum.Core.BackendAbstraction`
+**Modules:** `FSharp.Azure.Quantum.Core.BackendAbstraction` (the `IQuantumBackend` interface), `FSharp.Azure.Quantum.Backends` (implementations)
 
 ### LocalBackend
 
 **Characteristics:**
-- ✅ Free (local simulation)
-- ✅ Fast (milliseconds)
-- ✅ Up to `StateVector.maxQubits` (derived from available memory; hard ceiling 30)
-- ✅ Perfect for development/testing
+- ✅ Free (local state-vector simulation)
+- ✅ Fast for small circuits (milliseconds per gate up to about 20 qubits)
+- ✅ Up to `StateVector.maxQubits` (derived from available memory; hard ceiling 30; override with the `FSAQ_MAX_QUBITS` environment variable)
+- ✅ Iterative algorithms budget against `StateVector.practicalCircuitQubits` (default 20; `FSAQ_MAX_CIRCUIT_QUBITS`)
 
 ```fsharp
-let backend = LocalBackendFactory.createUnified()
+open FSharp.Azure.Quantum.Backends
+
+let backend = LocalBackendFactory.createUnified()   // or: LocalBackend.LocalBackend() :> IQuantumBackend
 
 // Use with any solver
 match GraphColoring.solve problem 3 (Some backend) with
 | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
-```
-
-### IonQBackend (Azure Quantum)
-
-**Characteristics:**
-- ⚡ 29+ qubits (simulator)
-- ⚡ 11 qubits (QPU hardware)
-- 💰 Paid service
-- ⏱️ Job queue (10-60 seconds)
-
-```fsharp
-let backend = // Cloud backend - requires Azure Quantum workspace
-// BackendAbstraction.createIonQBackend(
-    connectionString = "Endpoint=https://...",
-    targetId = "ionq.simulator"  // or "ionq.qpu"
-)
-
-match GraphColoring.solve problem 3 (Some backend) with
-| Ok solution -> 
-    printfn "Executed on: %s" solution.BackendName
-```
-
-### RigettiBackend (Azure Quantum)
-
-```fsharp
-let backend = // Cloud backend - requires Azure Quantum workspace
-// BackendAbstraction.createRigettiBackend(
-    connectionString = "Endpoint=https://...",
-    targetId = "rigetti.sim.qvm"  // or QPU target
-)
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Cloud Backends (via CloudBackendFactory)
 
 **Module:** `FSharp.Azure.Quantum.Backends.CloudBackends`
 
-Create cloud backends for different quantum hardware providers. All cloud backends implement `IQuantumBackend` (both sync and async).
+Create cloud backends for different quantum hardware providers. All cloud backends implement `IQuantumBackend` (both sync and async) and `IQubitLimitedBackend`. They need an `HttpClient` that authenticates to Azure Quantum and the workspace URL.
 
 ```fsharp
-open System.Net.Http
-open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-let httpClient = new HttpClient()
-let workspaceUrl = "https://your-workspace.quantum.azure.com"
-
-// Factory functions
-let rigetti    = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.qvm" 1000
+// Reuses httpClient and workspaceUrl from Pattern 2 above
+let rigetti    = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.sim.qvm" 1000
 let ionq       = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
-let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.h1-1" 1000
-let atom       = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atomcomputing.phoenix" 1000
+let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.sim.h1-1sc" 1000
+let atom       = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atom-computing.sim" 1000
+let iqm        = CloudBackendFactory.createIqm httpClient workspaceUrl "iqm.sim" 1000
+
+match GraphColoring.solve problem 3 (Some ionq) with
+| Ok solution -> printfn "Executed on: %s" solution.BackendName
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ```text
 val CloudBackendFactory.createRigetti       : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
+val CloudBackendFactory.createRigettiRouted : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> couplingMap:QubitRouting.CouplingMap -> IQuantumBackend
 val CloudBackendFactory.createIonQ          : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
 val CloudBackendFactory.createQuantinuum    : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
 val CloudBackendFactory.createAtomComputing : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
+val CloudBackendFactory.createIqm           : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
 ```
+
+Qubit limits the cloud backends report (`MaxQubits`, from the target name): IonQ Aria 25 / Forte 36, Rigetti QPU 84, Quantinuum H1 32 / H2 56, Atom Computing QPU 100, IQM 20; provider simulator targets 20.
 
 **Async usage with cloud backends:**
 
 ```fsharp
+open System
 open System.Threading
+open FSharp.Azure.Quantum.Core
 
-let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+let bell =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT(0, 1))
+    |> CircuitAbstraction.wrapCircuit
+
 let cts = new CancellationTokenSource(TimeSpan.FromSeconds(60.0))
 
 // Async execution (recommended for cloud - avoids blocking during network I/O)
-task {
-    let! result = backend.ExecuteToStateAsync circuit cts.Token
-    match result with
-    | Ok state -> printfn "Executed on: %s" backend.Name
-    | Error err -> printfn "Error: %s" err.Message
-}
+let run =
+    task {
+        let! result = ionq.ExecuteToStateAsync bell cts.Token
+        match result with
+        | Ok state -> printfn "Executed on: %s" ionq.Name
+        | Error err -> printfn "Error: %s" err.Message
+    }
 ```
 
 > **Note:** Cloud backends' `ApplyOperationAsync` always returns `Error` because cloud providers do not support incremental state operations. Use `ExecuteToStateAsync` for full circuit execution.
 
-> **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to `StateVector.maxQubits`, a `SparseState` (observed outcomes only) for 21–31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
+> **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to `StateVector.maxQubits`, a `SparseState` (observed outcomes only) from there through 31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
+
+For D-Wave annealers see `FSharp.Azure.Quantum.Backends.DWaveBackend` (a local mock) and `RealDWaveBackend`, and the [Backend Switching](backend-switching) guide.
 
 ### Backend Selection Guide
 
 | Problem Size | Recommended Backend | Rationale |
 |--------------|---------------------|-----------|
-| Within simulator width | LocalBackend | Free, fast, sufficient |
-| 17-29 qubits | IonQ/Rigetti/Quantinuum Simulator | Scalable, still affordable |
-| 30+ qubits | IonQ/Rigetti/Quantinuum/AtomComputing QPU | Real quantum hardware needed |
+| Up to ~20 qubits | LocalBackend | Free, fast enough for iterative algorithms |
+| Up to `StateVector.maxQubits` | LocalBackend (single circuits) | Fits in memory, but each extra qubit doubles the time per gate |
+| Beyond the local limit | IonQ/Rigetti/Quantinuum/Atom Computing/IQM QPU | Provider simulators are capped at 20 qubits by the library |
 
 ### IQubitLimitedBackend Interface
 
@@ -739,7 +818,7 @@ task {
 
 Optional interface for backends that report qubit capacity limits. Solvers can test for this interface to query capacity without requiring all backends to implement it.
 
-```fsharp
+```text
 /// Inherits IQuantumBackend, adds qubit limit reporting.
 type IQubitLimitedBackend =
     inherit IQuantumBackend
@@ -777,9 +856,9 @@ match backend with
 
 ## C# Interop
 
-**Module:** `FSharp.Azure.Quantum.CSharpBuilders`
+**Class:** `FSharp.Azure.Quantum.CSharpBuilders` (static methods taking arrays of value tuples)
 
-All problem builders have C#-friendly static methods:
+The main problem builders have C#-friendly static methods. F# `option` parameters take `null` for `None`, and results are `FSharpResult` values with `IsOk`, `ResultValue` and `ErrorValue`:
 
 ```csharp
 using FSharp.Azure.Quantum;
@@ -791,29 +870,31 @@ var edges = new[] {
     (source: "A", target: "B", weight: 1.0),
     (source: "B", target: "C", weight: 2.0)
 };
-var problem = MaxCutProblem(vertices, edges);
-var result = MaxCut.solve(problem, null);
+var maxCutProblem = MaxCutProblem(vertices, edges);
+var result = MaxCut.solve(maxCutProblem, null);
+if (result.IsOk) Console.WriteLine(result.ResultValue.CutValue);
+else Console.WriteLine(result.ErrorValue.Message);
 
 // Knapsack
 var items = new[] {
     (id: "laptop", weight: 3.0, value: 1000.0)
 };
-var problem = KnapsackProblem(items, capacity: 5.0);
+var knapsackProblem = KnapsackProblem(items, capacity: 5.0);
 
 // TSP
 var cities = new[] {
     (name: "Seattle", x: 0.0, y: 0.0)
 };
-var problem = TspProblem(cities);
+var tspProblem = TspProblem(cities);
 
 // Portfolio
 var assets = new[] {
     (symbol: "AAPL", expectedReturn: 0.12, risk: 0.15, price: 150.0)
 };
-var problem = PortfolioProblem(assets, budget: 10000.0);
+var portfolioProblem = PortfolioProblem(assets, budget: 10000.0);
 ```
 
-**See:** C# interoperability examples above for complete usage
+`CSharpBuilders` also has entry points for the business and advanced builders (`CoverageProblem`, `PairingProblem`, `PackingProblem`, `FactorInteger`, `SolveTreeSearch`, `PriceEuropeanCall`, ...), and `QuantumBackendCSharpExtensions` adds Task-returning helpers such as `backend.ExecuteToStateTask(circuit)`. All live in `Builders/BuildersCSharpExtensions.fs`. See `examples/CSharpConsumer` for a complete C# project.
 
 ---
 
@@ -821,23 +902,23 @@ var problem = PortfolioProblem(assets, budget: 10000.0);
 
 ### Result Type
 
-All solvers return `QuantumResult<'T>`:
+The solvers return `QuantumResult<'T>` (= `Result<'T, QuantumError>`; see [Error Handling](#error-handling)):
 
 ```fsharp
-match solver.solve problem with
+match MaxCut.solve problem_maxcut None with
 | Ok solution -> 
     // Success case
     printfn "Solution: %A" solution
-| Error errorMessage -> 
-    // Failure case
-    printfn "Error: %s" errorMessage
+| Error err -> 
+    // Failure case: a QuantumError, not a string
+    printfn "Error: %s" err.Message
 ```
 
 ### IQuantumBackend Interface
 
 **Module:** `FSharp.Azure.Quantum.Core.BackendAbstraction`
 
-```fsharp
+```text
 type IQuantumBackend =
     /// Execute circuit and return quantum state
     abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
@@ -861,8 +942,8 @@ type IQuantumBackend =
 
 > **Note:** Async methods use `System.Threading.Tasks.Task<T>` (not F# `Async<T>`), with `CancellationToken` as the last parameter. Use the `task { }` computation expression when calling these methods.
 
-See also `IQubitLimitedBackend` (inherits `IQuantumBackend`, adds `MaxQubits: int option`)
-in the [Backend Selection Guide](#backend-selection-guide) section below.
+See also `IQubitLimitedBackend` (inherits `IQuantumBackend`, adds `MaxQubits: int option`) and
+`IWallClockLimitedBackend` (adds `PracticalQubits: int`) in the [IQubitLimitedBackend Interface](#iqubitlimitedbackend-interface) section above.
 
 ### UnifiedBackend Module
 
@@ -872,7 +953,9 @@ Higher-level helpers for applying operations through any `IQuantumBackend`.
 
 ```text
 // Sync
+val UnifiedBackend.getCapabilities : backend:IQuantumBackend -> BackendCapabilities
 val UnifiedBackend.getMaxQubits : backend:IQuantumBackend -> int option
+val UnifiedBackend.getRunnableQubits : backend:IQuantumBackend -> int option   // min of capacity and wall-clock limit
 val UnifiedBackend.applyWithConversion : backend:IQuantumBackend -> operation:QuantumOperation -> state:QuantumState -> Result<QuantumState, QuantumError>
 val UnifiedBackend.applySequence : backend:IQuantumBackend -> operations:QuantumOperation list -> initialState:QuantumState -> Result<QuantumState, QuantumError>
 
@@ -883,26 +966,50 @@ val UnifiedBackend.applySequenceAsync : backend:IQuantumBackend -> operations:Qu
 
 ### Circuit Types
 
-```fsharp
+General circuits (`FSharp.Azure.Quantum.CircuitBuilder`):
+
+```text
+type Circuit = { QubitCount: int; Gates: Gate list }
+
 type Gate =
-    | H of int                       // Hadamard
-    | RX of int * float              // Rotation-X
-    | RY of int * float              // Rotation-Y
-    | RZ of int * float              // Rotation-Z
-    | CNOT of int * int              // Controlled-NOT
-    | RZZ of int * int * float       // Two-qubit rotation
+    | X of int | Y of int | Z of int | H of int
+    | S of int | SDG of int | T of int | TDG of int
+    | P of int * float | RX of int * float | RY of int * float | RZ of int * float
+    | U3 of int * float * float * float
+    | CNOT of int * int | CZ of int * int | CP of int * int * float
+    | CRX of int * int * float | CRY of int * int * float | CRZ of int * int * float
+    | SWAP of int * int | RXX of int * int * float | RYY of int * int * float | RZZ of int * int * float
+    | CCX of int * int * int | MCZ of controls: int list * target: int
+    | Measure of int | Reset of int | Barrier of int list
+    | Conditional of measuredQubit: int * gate: Gate
+```
+
+Build with `CircuitBuilder.empty n |> CircuitBuilder.addGate ...` or the `circuit { ... }` computation expression, and pass to a backend as `CircuitAbstraction.wrapCircuit c` (an `ICircuit`).
+
+QAOA circuits (`FSharp.Azure.Quantum.Core.QaoaCircuit`):
+
+```text
+type QuantumGate =
+    | H of qubit: int
+    | RX of qubit: int * angle: float
+    | RY of qubit: int * angle: float
+    | RZ of qubit: int * angle: float
+    | RZZ of qubit1: int * qubit2: int * angle: float
+    | CNOT of control: int * target: int
 
 type QaoaLayer = {
-    CostGates: Gate array
-    MixerGates: Gate array
+    CostGates: QuantumGate[]
+    MixerGates: QuantumGate[]
     Gamma: float
     Beta: float
 }
 
-type Circuit = {
+type QaoaCircuit = {
     NumQubits: int
-    InitialStateGates: Gate array
-    Layers: QaoaLayer array
+    InitialStateGates: QuantumGate[]
+    Layers: QaoaLayer[]
+    ProblemHamiltonian: ProblemHamiltonian
+    MixerHamiltonian: MixerHamiltonian
 }
 ```
 
@@ -912,41 +1019,35 @@ type Circuit = {
 
 **Module:** `FSharp.Azure.Quantum.QuantumLinearSystemSolver`
 
-**Use Cases (Scientific & Engineering):**
-- Machine learning: quantum SVM, least squares regression, PCA
-- Engineering: solving PDEs/ODEs, finite element analysis, circuit simulation
-- Finance: portfolio optimization with covariance matrices, risk modeling
-- Chemistry: molecular dynamics, quantum chemistry simulations
-- Data science: large-scale optimization, data fitting
+**Use Cases:** learning and experimenting with HHL on small systems (2×2 to 16×16), e.g. the linear-algebra step of least-squares regression.
 
-**Algorithm:** HHL (Harrow-Hassidim-Lloyd) - solves Ax = b exponentially faster than classical methods
+**Algorithm:** HHL (Harrow-Hassidim-Lloyd) - prepares a quantum state proportional to the solution of Ax = b
 
 ### What is HHL?
 
 HHL solves linear systems **Ax = b** where:
 - **Input**: Hermitian matrix A (N×N), vector |b⟩
-- **Output**: Quantum state |x⟩ encoding solution
-- **Speedup**: O(log N) vs O(N) classical - exponential for large sparse systems!
+- **Output**: Quantum state |x⟩ encoding the solution (not a classical vector)
+- **Theory**: O(log(N) × poly(κ, 1/ε)) for sparse, well-conditioned A, versus O(N³) for Gaussian elimination. The advantage only holds when A can be loaded efficiently and you need a property of |x⟩ rather than all of its entries.
 
-**Quantum Advantage:**
-- Classical Gaussian elimination: O(N³) operations
-- Quantum HHL: O(log(N) × poly(κ, 1/ε)) operations
-- For N=1000, κ=10: ~10⁹ vs ~10³ operations (million-fold speedup!)
+This library simulates HHL on small matrices; it does not run faster than a classical solver at these sizes.
 
 ### Computation Expression API
+
+The builder validates the problem and returns `QuantumResult<LinearSystemProblem>`, so bind it before solving:
 
 ```fsharp
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumLinearSystemSolver
 
 // Simple 2×2 system: [[3,1],[1,3]] * x = [1,0]
-let problem = linearSystemSolver {
-    matrix [[3.0, 1.0]; [1.0, 3.0]]
+let hhlProblem = linearSystemSolver {
+    matrix [[3.0; 1.0]; [1.0; 3.0]]
     vector [1.0; 0.0]
     precision 4  // 4 eigenvalue qubits = 16 bins
 }
 
-match solve problem with
+match hhlProblem |> Result.bind solve with
 | Ok solution ->
     printfn "Success probability: %.4f" solution.SuccessProbability
     printfn "Condition number: %A" solution.ConditionNumber
@@ -958,23 +1059,30 @@ match solve problem with
 ### Advanced Configuration
 
 ```fsharp
+// ExactRotation, LinearApproximation and PiecewiseLinear live in HHLTypes
+open FSharp.Azure.Quantum.Algorithms.HHLTypes
+
 // Diagonal system (faster, more accurate)
-let problem = linearSystemSolver {
+let diagonalProblem = linearSystemSolver {
     diagonalMatrix [2.0; 4.0; 8.0; 16.0]  // Eigenvalues
     vector [1.0; 1.0; 1.0; 1.0]
-    precision 8
-    eigenvalueQubits 6                     // Override precision
+    eigenvalueQubits 6                     // Same as precision
     inversionMethod (ExactRotation 1.0)   // Exact vs linear approximation
     minEigenvalue 0.001                    // Stability threshold
     postSelection true                     // Higher accuracy, lower success rate
-    backend ionQBackend                    // Cloud quantum hardware
-    shots 2000                             // Measurement samples
+    backend (LocalBackendFactory.createUnified())   // Any IQuantumBackend (default: LocalBackend)
 }
 ```
 
+The `shots` operation is accepted but not used: the solver reads the solution and success probability from the state vector exactly.
+
+**Limits** (checked when the builder finishes): matrix dimension 2–16 and a power of 2; `eigenvalueQubits` 2–12; eigenvalue + solution + ancilla qubits ≤ 20.
+
 ### Types
 
-```fsharp
+```text
+// HermitianMatrix, QuantumVector and EigenvalueInversionMethod come from
+// FSharp.Azure.Quantum.Algorithms.HHLTypes
 type LinearSystemProblem = {
     Matrix: HermitianMatrix
     InputVector: QuantumVector
@@ -1008,10 +1116,13 @@ type LinearSystemSolution = {
 ### Functions
 
 ```text
+val linearSystemSolver : LinearSystemSolverBuilder   // Run returns QuantumResult<LinearSystemProblem>
 val solve : LinearSystemProblem → QuantumResult<LinearSystemSolution>
-val solve2x2 : float → float → float → float → float → float → QuantumResult<LinearSystemSolution>
-val solveDiagonal : float list → float list → QuantumResult<LinearSystemSolution>
+val solve2x2 : a11:float → a12:float → a21:float → a22:float → b1:float → b2:float → QuantumResult<LinearSystemSolution>
+val solveDiagonal : eigenvalues:float list → inputVector:float list → QuantumResult<LinearSystemSolution>
 ```
+
+Builder operations: `matrix`, `diagonalMatrix`, `vector`, `eigenvalueQubits` (alias `precision`), `inversionMethod`, `minEigenvalue`, `postSelection`, `backend`, `shots` (ignored).
 
 ### Example: Engineering Simulation
 
@@ -1022,19 +1133,19 @@ val solveDiagonal : float list → float list → QuantumResult<LinearSystemSolu
 
 let heatDiffusion = linearSystemSolver {
     matrix [
-        [2.0, -1.0,  0.0,  0.0]
-        [-1.0, 2.0, -1.0,  0.0]
-        [0.0, -1.0,  2.0, -1.0]
-        [0.0,  0.0, -1.0,  2.0]
+        [ 2.0; -1.0;  0.0;  0.0]
+        [-1.0;  2.0; -1.0;  0.0]
+        [ 0.0; -1.0;  2.0; -1.0]
+        [ 0.0;  0.0; -1.0;  2.0]
     ]
-    vector [100.0; 0.0; 0.0; 50.0]  // Boundary temps
+    vector [100.0; 0.0; 0.0; 50.0]  // Boundary temps (normalized to |b⟩)
     precision 6
     minEigenvalue 0.01  // Avoid small eigenvalues
 }
 
-match solve heatDiffusion with
+match heatDiffusion |> Result.bind solve with
 | Ok solution ->
-    printfn "Temperature distribution computed!"
+    printfn "Temperature distribution computed (up to normalization)"
     printfn "Condition number: %.2f" (defaultArg solution.ConditionNumber 0.0)
     
     match solution.SolutionAmplitudes with
@@ -1043,7 +1154,7 @@ match solve heatDiffusion with
         |> Map.iter (fun idx amp -> 
             printfn "  Point %d: %.4f" idx amp.Magnitude)
     | None ->
-        printfn "Use measurement statistics for cloud backends"
+        printfn "No amplitudes available from this backend"
 | Error err ->
     printfn "Simulation failed: %s" err.Message
 ```
@@ -1055,43 +1166,43 @@ match solve heatDiffusion with
 // For linear regression: find weights w
 
 let leastSquares = linearSystemSolver {
-    // Covariance matrix X^T X (must be symmetric positive definite)
+    // X^T X for two features (symmetric positive definite; dimension must be a power of 2)
     matrix [
-        [10.0,  5.0,  2.0]
-        [ 5.0, 12.0,  3.0]
-        [ 2.0,  3.0,  8.0]
+        [10.0;  5.0]
+        [ 5.0; 12.0]
     ]
     // Right-hand side X^T y
-    vector [15.0; 20.0; 10.0]
+    vector [15.0; 20.0]
     precision 8
-    postSelection true  // Higher accuracy for ML
+    postSelection true
 }
 
-match solve leastSquares with
+match leastSquares |> Result.bind solve with
 | Ok solution ->
-    printfn "Model weights found!"
+    printfn "Weights found (as a normalized quantum state)"
     printfn "Success rate: %.2f%%" (solution.SuccessProbability * 100.0)
 | Error err ->
     printfn "Training failed: %s" err.Message
 ```
 
-For a higher-level regression workflow (training config, intercept fitting, and metrics), see `FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL` and `examples/MachineLearning/QuantumRegressionHHLExample.fsx`.
+For a higher-level regression workflow (training config, intercept fitting, and metrics), see `FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL` and `examples/LinearSystemSolver/QuantumRegressionHHLExample.fsx`.
 
 ```fsharp
 open FSharp.Azure.Quantum.MachineLearning
 
-let config : QuantumRegressionHHL.RegressionConfig = {
+let regressionConfig : QuantumRegressionHHL.RegressionConfig = {
     TrainX = [| [| 1.0 |]; [| 2.0 |]; [| 3.0 |] |]
     TrainY = [| 3.0; 5.0; 7.0 |]
     EigenvalueQubits = 4
     MinEigenvalue = 0.01
-    Backend = backend
+    Backend = LocalBackendFactory.createUnified()
     Shots = 2000
     FitIntercept = true
     Verbose = false
+    Logger = None
 }
 
-match QuantumRegressionHHL.train config with
+match QuantumRegressionHHL.train regressionConfig with
 | Ok result -> printfn "Weights: %A" result.Weights
 | Error err -> printfn "Training failed: %s" err.Message
 ```
@@ -1108,25 +1219,18 @@ match QuantumRegressionHHL.train config with
 - Dimension must be power of 2 (2×2, 4×4, 8×8, 16×16)
 
 **Solution Format:**
-- Output is **quantum state |x⟩**, not classical vector
-- Local simulation: get amplitude distribution
-- Cloud backend: get measurement statistics (probabilities)
-- Full state tomography needed for exact amplitudes (exponential cost!)
+- Output is a **quantum state |x⟩** (normalized), not a classical vector
+- Local simulation: `SolutionAmplitudes` holds the amplitude distribution
+- On real hardware you would only get measurement statistics; reading out every amplitude needs state tomography, whose cost grows exponentially
 
 **Performance Considerations:**
-- **Best for**: Large (N > 1000), sparse, well-conditioned systems
 - **Condition number κ**: Lower is better (κ < 100 recommended)
 - **Success probability**: ∝ 1/κ² (ill-conditioned = low success rate)
-- **Practical speedup**: Requires large N with low condition number
+- **Size**: the library accepts matrices up to 16×16, which classical solvers handle instantly
 
 ### When to Use HHL vs Classical
 
-| Problem Size | Condition Number | Sparsity | Recommendation |
-|--------------|------------------|----------|----------------|
-| N ≤ 100 | Any | Any | **Classical** (Gaussian elimination faster) |
-| 100 < N ≤ 1000 | κ < 10 | Sparse | **HHL** (modest speedup) |
-| N > 1000 | κ < 100 | Sparse | **HHL** (exponential speedup!) |
-| Any N | κ > 1000 | Any | **Classical** (HHL success rate too low) |
+For solving linear systems in production, use a classical solver: at the sizes this library can simulate, Gaussian elimination is faster and exact. Use the HHL builder to learn and experiment with the algorithm, to study success probability versus condition number, or as a building block (`QuantumRegressionHHL`).
 
 ---
 
@@ -1138,7 +1242,7 @@ Shared QAOA execution infrastructure for all quantum solvers. Consolidates QAOA 
 
 ### Configuration Types
 
-```fsharp
+```text
 /// Unified QAOA execution configuration.
 type QaoaSolverConfig = {
     NumLayers: int                   // QAOA layers (p parameter)
@@ -1153,12 +1257,14 @@ type QaoaSolverConfig = {
 ### Preset Configurations
 
 ```text
-val defaultConfig     : QaoaSolverConfig   // Balanced (2 layers, 100/1000 shots, optimization on)
+val defaultConfig     : QaoaSolverConfig   // Balanced (2 layers, 100/1000 shots, optimization on, 1000 iterations)
 val fastConfig        : QaoaSolverConfig   // Quick prototyping (1 layer, 50/500 shots, grid search)
-val highQualityConfig : QaoaSolverConfig   // Production (3 layers, 200/2000 shots, optimization on)
+val highQualityConfig : QaoaSolverConfig   // Larger budget (3 layers, 200/2000 shots, optimization on, 1000 iterations)
 ```
 
 ### Dense QUBO Functions
+
+The synchronous `executeQaoaCircuit`, `executeQaoaWithGridSearch`, `executeFromQubo` and `executeWithBudget` (and their sparse counterparts `executeQaoaCircuitSparse`, `executeQaoaWithGridSearchSparse`) are marked `[<Obsolete>]` in favour of the `...Async` variants below; `executeQaoaWithOptimization` and `executeQaoaWithOptimizationSparse` are not.
 
 ```text
 val evaluateQubo :
@@ -1202,7 +1308,7 @@ val executeFromQuboAsync :
 **Parameters:**
 - `qubo` — Dense QUBO matrix (`float[,]`)
 - `config` — QAOA solver configuration
-- `backend` — Quantum backend (explicit; RULE 1 compliance)
+- `backend` — Quantum backend (always passed explicitly)
 
 ### Sparse QUBO Functions
 
@@ -1245,7 +1351,7 @@ val executeQaoaWithGridSearchSparseAsync :
 
 ### Budget Execution Types
 
-```fsharp
+```text
 /// Capacity-check strategy for budget-constrained execution.
 type BudgetDecompositionStrategy =
     | NoBudgetDecomposition             // No capacity check
@@ -1295,9 +1401,7 @@ let quboMap =
         (0, 1),  2.0
     ]
 
-let config = defaultConfig
-
-match executeQaoaWithOptimizationSparse backend 2 quboMap config with
+match executeQaoaWithOptimizationSparse backend 2 quboMap defaultConfig with
 | Ok (bestBits, parameters, converged) ->
     let energy = evaluateQuboSparse quboMap bestBits
     printfn "Best bitstring: %A" bestBits
@@ -1310,9 +1414,9 @@ match executeQaoaWithOptimizationSparse backend 2 quboMap config with
 ### Example: Budget-Constrained Execution
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
 
-let backend = LocalBackendFactory.createUnified()
 let qubo = Array2D.init 4 4 (fun i j -> if i = j then -1.0 elif abs (i - j) = 1 then 0.5 else 0.0)
 
 let budget = {
@@ -1321,8 +1425,14 @@ let budget = {
     Decomposition = AdaptiveToBudgetBackend
 }
 
-match executeWithBudget backend qubo defaultConfig budget with
-| Ok (bits, params, converged) ->
+let budgetResult =
+    // maxConcurrency = 1
+    executeWithBudgetAsync backend qubo defaultConfig budget 1 CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
+match budgetResult with
+| Ok (bits, parameters, converged) ->
     printfn "Solution: %A (converged=%b)" bits converged
 | Error err ->
     printfn "Budget execution failed: %s" err.Message
@@ -1336,9 +1446,11 @@ match executeWithBudget backend qubo defaultConfig budget with
 
 Generic problem decomposition orchestrator for QAOA solvers. When a problem requires more qubits than the backend supports (`IQubitLimitedBackend.MaxQubits`), automatically splits the problem into sub-problems, solves them independently, and recombines the results. Fully generic over problem and solution types — solvers supply decompose/recombine/solve functions.
 
+It is used by the vertex cover, clique, set cover, SAT, matching, bin packing and binary ILP solvers (and so by the business builders on top of them). The MaxCut, Knapsack, TSP, Portfolio, Graph Coloring and Network Flow solvers do not decompose: they return an error when the problem is too wide for the backend.
+
 ### Strategy Types
 
-```fsharp
+```text
 /// Strategy for decomposing a problem when it exceeds backend capacity.
 type DecompositionStrategy =
     | NoDecomposition                              // Run as-is
@@ -1405,19 +1517,24 @@ val canDecomposeWithinLimit :
 ```fsharp
 open FSharp.Azure.Quantum.Core.ProblemDecomposition
 
-let backend = LocalBackendFactory.createUnified()
+// A graph problem: vertex count + edges (0-based indices)
+type GraphProblem = { NumVertices: int; GraphEdges: (int * int) list }
 
 // Solver-supplied functions
-let estimateQubits problem = problem.VertexCount
-let decompose problem =
-    partitionByComponents problem.VertexCount problem.Edges
-    |> List.map (fun (verts, edges) -> { VertexCount = verts.Length; Edges = edges })
-let recombine solutions = solutions |> List.reduce mergeSolutions
-let solveOne problem = solveSmallProblem backend problem
+let estimateQubits (p: GraphProblem) = p.NumVertices   // one qubit per vertex
+let decompose (p: GraphProblem) =
+    partitionByComponents p.NumVertices p.GraphEdges
+    |> List.map (fun (verts, localEdges) -> { NumVertices = verts.Length; GraphEdges = localEdges })
 
-// Automatically decomposes if problem exceeds backend capacity
+// Per-part solver: a stand-in that counts edges; a real solver runs QAOA on the part
+let solveOne (p: GraphProblem) : QuantumResult<int> = Ok p.GraphEdges.Length
+let recombine (parts: int list) = List.sum parts
+
+let largeProblem = { NumVertices = 5; GraphEdges = [ (0, 1); (1, 2); (3, 4) ] }
+
+// Decomposes only if the problem exceeds the backend's MaxQubits
 match solveWithDecomposition backend largeProblem estimateQubits decompose recombine solveOne with
-| Ok solution -> printfn "Solution: %A" solution
+| Ok total -> printfn "Edges handled: %d" total
 | Error err -> printfn "Error: %s" err.Message
 ```
 
@@ -1446,45 +1563,56 @@ let parts = partitionByComponents 5 edges
 
 ### Custom QAOA Parameters
 
+The high-level builders use default QAOA settings. To choose them yourself, call the solver in `FSharp.Azure.Quantum.Quantum` directly:
+
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Quantum
 
 // Configure MaxCut QAOA behavior
-let config : QuantumMaxCutSolver.QaoaConfig = {
+let maxCutConfig : QuantumMaxCutSolver.QaoaConfig = {
     NumShots = 500                   // Number of measurement shots
     InitialParameters = (0.5, 0.5)   // Starting (gamma, beta)
 }
 
-// Use with quantum solver directly
-let backend = LocalBackendFactory.createUnified()
-match QuantumMaxCutSolver.solve backend problem config with
+// The solver-level problem has only vertices and edges
+let solverProblem : QuantumMaxCutSolver.MaxCutProblem =
+    { Vertices = problem_maxcut.Vertices; Edges = problem_maxcut.Edges }
+
+// solveAsync returns a Task (the synchronous solve is marked [<Obsolete>])
+let maxCutResult =
+    QuantumMaxCutSolver.solveAsync backend solverProblem maxCutConfig CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
+match maxCutResult with
 | Ok result -> 
-    printfn "Cut value: %d" result.CutValue
-    printfn "Partition: %A" result.Partition
+    printfn "Cut value: %.2f" result.CutValue
+    printfn "Partition: %A | %A" result.PartitionS result.PartitionT
 | Error err ->
-    printfn "Error: %A" err
+    printfn "Error: %s" err.Message
 ```
 
 ### Error Handling Patterns
 
 ```fsharp
 // Pattern 1: Match on Result
-match solver.solve problem with
-| Ok solution -> processSuccess solution
-| Error err -> handleError msg
+match GraphColoring.solve problem 3 None with
+| Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+| Error err -> eprintfn "Failed: %s" err.Message
 
 // Pattern 2: Result.map
 problem
-|> solver.solve
+|> fun p -> GraphColoring.solve p 3 None
 |> Result.map (fun solution -> solution.Cost)
 |> Result.defaultValue infinity
 
 // Pattern 3: Railway-oriented programming
-let workflow problem =
-    problem
-    |> validate
-    |> Result.bind solve
-    |> Result.map postProcess
+let workflow p =
+    p
+    |> GraphColoring.validate
+    |> Result.bind (fun () -> GraphColoring.solve p 3 None)
+    |> Result.map (fun solution -> solution.Assignments)
 ```
 
 ---
@@ -1494,34 +1622,39 @@ let workflow problem =
 ### 1. Start Small
 
 ```fsharp
-// Test with LocalBackend first
-let testProblem = MaxCut.createProblem ["A"; "B"; "C"] []
+// Test with a small instance on LocalBackend first (MaxCut needs at least one edge)
+let testProblem = MaxCut.createProblem ["A"; "B"; "C"] [ ("A", "B", 1.0); ("B", "C", 1.0) ]
 match MaxCut.solve testProblem None with
 | Ok _ -> 
-    // Works! Now scale up
-    let largeProblem = MaxCut.createProblem largeVertices largeEdges
-    printfn "Created large problem with %d vertices" largeVertices.Length
+    // Works! Now scale up: one qubit per vertex
+    let ringVertices = [ for i in 1 .. 12 -> $"V{i}" ]
+    let largeProblem = MaxCut.cycleGraph ringVertices 1.0
+    printfn "Created larger problem with %d vertices" largeProblem.VertexCount
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### 2. Use Problem Validation
 
 ```fsharp
 // Validate before solving
-match GraphColoring.validate problem with
-| Ok () -> 
-    GraphColoring.solve problem 3 None
-| Error err -> 
-    Error (sprintf "Invalid problem: %s" err.Message)
+let validated =
+    match GraphColoring.validate problem with
+    | Ok () -> 
+        GraphColoring.solve problem 3 None
+    | Error err -> 
+        Error err
 ```
 
-### 3. Cache Backends
+### 3. Reuse a Backend
 
 ```fsharp
-// Create once, reuse many times
-let backend = LocalBackendFactory.createUnified()
+// Create once, reuse for many problems
+let sharedBackend = LocalBackendFactory.createUnified()
+
+let problems = [ problem; problem_scheduling ]
 
 problems 
-|> List.map (fun p -> GraphColoring.solve p 3 (Some backend))
+|> List.map (fun p -> GraphColoring.solve p 3 (Some sharedBackend))
 |> List.choose Result.toOption
 ```
 
@@ -1529,11 +1662,15 @@ problems
 
 ## OpenQASM Export
 
-**Module:** `FSharp.Azure.Quantum.Builders.OpenQasmExport`
+**Module:** `FSharp.Azure.Quantum.OpenQasmExport` (also re-exported as `OpenQasm`)
 
-Export quantum circuits to OpenQASM format for interoperability with other quantum frameworks.
+Export `CircuitBuilder.Circuit` values to OpenQASM (2.0 by default; 3.0 via `OpenQasm.exportV3` or a `QasmConfig` from `OpenQasmVersion.configFor V3_0`) for interoperability with other quantum frameworks. `OpenQasmImport.parse` / `parseFromFile` read OpenQASM back into a circuit.
 
 ```text
+val export                 : circuit:Circuit -> string
+val exportWithConfig       : config:QasmConfig -> circuit:Circuit -> string
+val validate               : circuit:Circuit -> Result<unit, string>
+
 // Sync
 val exportToFile           : circuit:Circuit -> filePath:string -> unit
 val exportToFileWithConfig : config:QasmConfig -> circuit:Circuit -> filePath:string -> unit
@@ -1559,4 +1696,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-09-29 (package version 1.4.12)

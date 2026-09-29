@@ -26,12 +26,13 @@
 In gate-based quantum computing (Qiskit, Q#, Cirq), computation is a sequence of unitary matrix operations applied to quantum state vectors:
 
 ```fsharp
-// Gate-based QC (conceptual - not this library)
+// Gate-based QC (the core FSharp.Azure.Quantum library's CircuitBuilder)
+open FSharp.Azure.Quantum
+
 let circuit =
-    Quantum.empty 3
-    |> Quantum.H 0           // Hadamard: 2x2 unitary matrix on qubit 0
-    |> Quantum.CNOT (0, 1)   // CNOT: 4x4 controlled-NOT on qubits 0,1
-    |> Quantum.measure [0; 1; 2]
+    CircuitBuilder.empty 3
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)          // Hadamard: 2x2 unitary matrix on qubit 0
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))   // CNOT: 4x4 controlled-NOT on qubits 0,1
 ```
 
 Each gate applies a **precise unitary transformation** to the state vector. The fundamental challenge is that this state is **exponentially fragile**:
@@ -46,22 +47,24 @@ Each gate applies a **precise unitary transformation** to the state vector. The 
 
 ```fsharp
 // Topological QC (actual library code)
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Topological
 
 let runTopologicalComputation () =
     let backend = TopologicalUnifiedBackendFactory.createIsing 10
-    
-    match backend.InitializeState 4 with
+
+    // 2 logical qubits = 6 sigma anyons (a pair per qubit plus a parity pair)
+    match backend.InitializeState 2 with
     | Ok initialState ->
         match backend.ApplyOperation (QuantumOperation.Braid 0) initialState with
         | Ok state1 ->
             match backend.ApplyOperation (QuantumOperation.Braid 2) state1 with
             | Ok state2 ->
-                // Measure via computation expression or direct measurement
+                // Measure via computation expression or QuantumState.measure
                 $"Computation succeeded on topological backend"
-            | Error e -> $"Error: {e}"
-        | Error e -> $"Error: {e}"
-    | Error e -> $"Error: {e}"
+            | Error e -> $"Error: {e.Message}"
+        | Error e -> $"Error: {e.Message}"
+    | Error e -> $"Error: {e.Message}"
 ```
 
 **Critical Difference**:
@@ -214,9 +217,11 @@ type TopologicalError =
 type TopologicalResult<'T> = Result<'T, TopologicalError>
 ```
 
+This listing mirrors `AnyonSpecies.fs` and `TopologicalError.fs`; the real `AnyonSpecies` module is `[<RequireQualifiedAccess>]`, so code writes `AnyonSpecies.Particle.Sigma`.
+
 **Design Philosophy**:
-- **Railway-oriented programming**: All public functions return `Result<'T, TopologicalError>`
-- **No exceptions** in production code
+- **Railway-oriented programming**: The mathematical modules return `TopologicalResult<'T>`; the backend and the `topological { }` builder return the core library's `Result<'T, QuantumError>`
+- **No exceptions** in the public API (invalid input comes back as `Error`)
 - **Composable** via `Result.bind`, `Result.map`, `Result.mapError`
 - **Explicit errors**: Discriminated union encodes all failure modes
 
@@ -227,11 +232,13 @@ The library provides a unified backend interface:
 **Unified Backend:** Implements `IQuantumBackend` from the gate-based library, enabling standard algorithms to run on topological backends via automatic gate-to-braid compilation.
 
 ```fsharp
-// TopologicalUnifiedBackend implements IQuantumBackend
-let backend = TopologicalUnifiedBackendFactory.createIsing 10
+open FSharp.Azure.Quantum.GroverSearch
+
+// TopologicalUnifiedBackend implements IQuantumBackend (8 qubits = 18 Ising anyons)
+let backend = TopologicalUnifiedBackendFactory.createIsing 20
 
 // Standard algorithm integration
-let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend Grover.defaultConfig
 ```
 
 The unified backend uses a 3-layer internal architecture:
@@ -241,19 +248,21 @@ The unified backend uses a 3-layer internal architecture:
 **Layer 2 (Backend Interface)**: Public API contract with `Result` types for safety.
 
 ```fsharp
-// IQuantumBackend interface (shared with gate-based library, abridged)
-type IQuantumBackend =
-    abstract member InitializeState : numQubits:int -> Result<QuantumState, QuantumError>
-    abstract member ApplyOperation : QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
-    abstract member ExecuteToState : ICircuit -> Result<QuantumState, QuantumError>
-    abstract member SupportsOperation : QuantumOperation -> bool
-    abstract member NativeStateType : QuantumStateType
-    abstract member MaxQubits : int option
-    abstract member Name : string
-    // + async variants: ExecuteToStateAsync, ApplyOperationAsync
+// IQuantumBackend (FSharp.Azure.Quantum.Core.BackendAbstraction, shared with the gate-based library):
+//
+//   abstract InitializeState   : int -> Result<QuantumState, QuantumError>        // logical qubits
+//   abstract ApplyOperation    : QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
+//   abstract ExecuteToState    : ICircuit -> Result<QuantumState, QuantumError>
+//   abstract SupportsOperation : QuantumOperation -> bool
+//   abstract NativeStateType   : QuantumStateType
+//   abstract Name              : string
+//   + async variants: ExecuteToStateAsync, ApplyOperationAsync
+//
+// Qubit limits are a separate, optional interface: IQubitLimitedBackend.MaxQubits.
+let describeBackend (b: IQuantumBackend) = $"{b.Name} ({b.NativeStateType})"
 ```
 
-Note that the interface has no `Measure` member — measurement outcomes are extracted client-side (e.g. by `TopologicalBuilder.measure`, which inspects the returned state).
+Note that the interface has no `Measure` member. `QuantumOperation.Measure` keeps every fusion outcome as a branch of the state; outcomes are sampled client-side, by `TopologicalBuilder.measure` or by `QuantumState.measure state shots`.
 
 **Layer 3 (Backend Implementation)**: Converts exceptions from Layer 1 into typed `Result` values. The `TopologicalUnifiedBackend` handles gate-to-braid compilation transparently.
 
@@ -268,8 +277,9 @@ let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // TopologicalBuilder is [<RequireQualifiedAccess>], so qualify the operations.
 // initialize/braid return no value (do!); measure returns the outcome (let!).
+// initialize takes logical qubits: 2 qubits = 6 Ising anyons.
 let program = topological backend {
-    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 2
     do! TopologicalBuilder.braid 0
     do! TopologicalBuilder.braid 2
     let! outcome = TopologicalBuilder.measure 0
@@ -287,34 +297,46 @@ let result =
 **Pattern 2: Algorithm Extensions** (run standard algorithms on topological backends)
 
 ```fsharp
-let backend = TopologicalUnifiedBackendFactory.createIsing 20
+open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.GroverSearch
+
+let backend20 = TopologicalUnifiedBackendFactory.createIsing 20
 
 // Grover search - gate-to-braid compilation happens automatically
-let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend20 Grover.defaultConfig
 
 // QFT on topological backend
-let qftResult = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
+let qftResult = AlgorithmExtensions.qftWithTopology 4 backend20 QFT.defaultConfig
 
-// Shor's factoring on topological backend
-let shorResult = AlgorithmExtensions.factor15WithTopology backend
+// Shor's factoring on topological backend (15 qubits, so a larger anyon budget)
+let shorResult = AlgorithmExtensions.factor15WithTopology (TopologicalUnifiedBackendFactory.createIsing 40)
 ```
+
+These run the standard algorithm implementations on the topological simulator. They model braiding; they are not faster than the gate-based simulator.
 
 ### Fusion Trees: The Core Data Structure
 
 ```fsharp
-// Immutable recursive data structure (module FusionTree)
-type Tree =
-    | Leaf of particle: Particle
-    | Fusion of left: Tree * right: Tree * channel: Particle
+// Immutable recursive data structure (module FusionTree):
+//   type Tree =
+//       | Leaf of particle: AnyonSpecies.Particle
+//       | Fusion of left: Tree * right: Tree * channel: AnyonSpecies.Particle
+//   type State = { Tree: Tree; AnyonType: AnyonSpecies.AnyonType }
 
-// Example: 4 sigma anyons create a 4-dimensional Hilbert space (2 qubits)
-// Each pair can fuse to Vacuum (1) or Psi (psi), giving 2 x 2 = 4 basis states
+// Example: 4 sigma anyons. Each pair can fuse to Vacuum (1) or Psi (psi),
+// giving 2 x 2 = 4 basis states if the total charge may be either 1 or psi
+let sigma = AnyonSpecies.Particle.Sigma
+
 let example2QubitState =
-    Fusion(
-        Fusion(Leaf Sigma, Leaf Sigma, Psi),      // Left pair: sigma x sigma -> psi
-        Fusion(Leaf Sigma, Leaf Sigma, Vacuum),   // Right pair: sigma x sigma -> 1
-        Psi                                       // Total topological charge: psi
+    FusionTree.Fusion(
+        FusionTree.Fusion(FusionTree.Leaf sigma, FusionTree.Leaf sigma, AnyonSpecies.Particle.Psi),    // Left pair: sigma x sigma -> psi
+        FusionTree.Fusion(FusionTree.Leaf sigma, FusionTree.Leaf sigma, AnyonSpecies.Particle.Vacuum), // Right pair: sigma x sigma -> 1
+        AnyonSpecies.Particle.Psi                                                                      // Total topological charge: psi
     )
+
+// The library's qubit encoding fixes the total charge to vacuum by adding a
+// parity pair, so n qubits use 2n + 2 sigma anyons: |10> below uses 6.
+let basisState = FusionTree.fromComputationalBasis [ 1; 0 ] AnyonSpecies.AnyonType.Ising
 ```
 
 Fusion trees are like F# binary trees -- immutable and recursive. Fusion channels act as type tags that enforce structural invariants. Basis changes (F-moves) are like tree rotations: the structure changes, the information is preserved.
@@ -323,31 +345,26 @@ Fusion trees are like F# binary trees -- immutable and recursive. Fusion channel
 
 **Scalability Limits** (simulator on classical hardware):
 
-| Anyon Type | Max Practical Count | Hilbert Space Dimension | Bottleneck |
-|------------|---------------------|-------------------------|------------|
-| **Ising** | ~12 anyons | 2^6 = 64 (6 qubits) | Fusion tree branching |
-| **Fibonacci** | ~8 anyons | F(9) = 34 | Exponential state growth |
-| **SU(2)_3** | ~10 anyons | ~40-50 | F-matrix computations |
+The simulator stores a state as a superposition: a list of (amplitude, fusion tree) terms. A general n-qubit state has up to 2ⁿ terms, so the cost grows exponentially with the number of logical qubits, as in any classical simulation; running on anyons adds overhead rather than removing it.
+
+| Anyon Type | Anyons per logical qubit | Example: 8 qubits |
+|------------|--------------------------|-------------------|
+| **Ising** | 2, plus one parity pair in total | 18 anyons |
+| **Fibonacci** | 2 | 16 anyons |
+| **SU(2)_k** (k ≥ 2) | 2 | 16 anyons |
+
+The `maxAnyons` argument of `TopologicalUnifiedBackendFactory.create*` caps the anyon count; `InitializeState` returns an `Error` when a request needs more.
 
 **Optimization strategies**:
 
 ```fsharp
-// Cache expensive computations (F-matrices don't change)
-let fMatrixCache = 
-    let cache = Dictionary<_, _>()
-    fun a b c d anyonType ->
-        let key = (a, b, c, d, anyonType)
-        match cache.TryGetValue(key) with
-        | true, value -> value
-        | false, _ ->
-            let value = computeFMatrix a b c d anyonType
-            cache.[key] <- value
-            value
+// Compute an anyon theory's F-symbol table once and reuse it for every lookup
+let isingFData = FMatrix.computeFMatrix AnyonSpecies.AnyonType.Ising
 
-// Use Array for hot paths (better cache locality)
-let braidingMatrix = Array2D.init n n (fun i j ->
-    if i = j then computeRMatrixElement i else Complex.Zero
-)
+// Build a braid word once as a function and apply it to many states
+let braidWord (superposition: TopologicalOperations.Superposition) =
+    [ 0; 2; 1 ]
+    |> List.fold (fun acc index -> acc |> Result.bind (TopologicalOperations.braidSuperposition index)) (Ok superposition)
 ```
 
 ---
@@ -375,29 +392,32 @@ This topological protection of the phase is the foundation of fault tolerance.
 
 **Physical realization**: Majorana zero modes -- emergent quasiparticles at ends of 1D topological superconductor nanowires (InAs + Al superconductor + magnetic field).
 
-**Particle Types**:
+**Particle Types** (`AnyonSpecies.Particle`, listed in full [above](#type-system-railway-oriented-programming-for-physics)):
 
 ```fsharp
-type Particle =
-    | Vacuum    // 1 (identity, topological charge = 0)
-    | Sigma     // sigma (non-abelian Ising anyon; hosts a Majorana zero mode)
-    | Psi       // psi (abelian fermion)
-    | Tau       // tau (Fibonacci anyon, different theory)
-    | SpinJ of j_doubled: int * level: int  // General SU(2)_k
+// Vacuum = 1 (identity), Sigma = non-abelian Ising anyon (hosts a Majorana zero mode),
+// Psi = abelian fermion, Tau = Fibonacci anyon, SpinJ = general SU(2)_k
+let isingParticles = AnyonSpecies.particles AnyonSpecies.AnyonType.Ising
+// Ok [Vacuum; Sigma; Psi]
 ```
 
 **Fusion Rules** (composition of topological charges):
 
 ```fsharp
-match anyonType, a, b with
+let vacuum = AnyonSpecies.Particle.Vacuum
+let psi = AnyonSpecies.Particle.Psi
+let tau = AnyonSpecies.Particle.Tau
+let ising = AnyonSpecies.AnyonType.Ising
+let fibonacci = AnyonSpecies.AnyonType.Fibonacci
+
 // Ising fusion rules
-| Ising, Sigma, Sigma -> Ok [Vacuum; Psi]  // sigma x sigma = 1 + psi (TWO outcomes!)
-| Ising, Sigma, Psi   -> Ok [Sigma]        // sigma x psi = sigma
-| Ising, Psi, Psi     -> Ok [Vacuum]       // psi x psi = 1 (fermion pair annihilates)
-| Ising, Vacuum, x    -> Ok [x]            // 1 x x = x (identity)
+let sigmaSigma = FusionRules.channels sigma sigma ising   // Ok [Vacuum; Psi]  sigma x sigma = 1 + psi (TWO outcomes!)
+let sigmaPsi = FusionRules.channels sigma psi ising       // Ok [Sigma]        sigma x psi = sigma
+let psiPsi = FusionRules.channels psi psi ising           // Ok [Vacuum]       psi x psi = 1 (fermion pair annihilates)
+let vacuumSigma = FusionRules.channels vacuum sigma ising // Ok [Sigma]        1 x a = a (identity)
 
 // Fibonacci fusion rules
-| Fibonacci, Tau, Tau -> Ok [Vacuum; Tau]   // tau x tau = 1 + tau (Fibonacci!)
+let tauTau = FusionRules.channels tau tau fibonacci       // Ok [Vacuum; Tau]  tau x tau = 1 + tau (Fibonacci!)
 ```
 
 Note the return type: a **list** of possible outcomes. Fusion is a binary operation on charges with vacuum as its identity element — like a monoid operation, but multi-valued. It is not function composition: σ × σ can produce either 1 or ψ, and physically fusing forces one outcome and discards the rest. The composition-like structure in topological QC is **braiding**: braids stack sequentially and compose exactly like functions in a pipeline.
@@ -409,13 +429,13 @@ The key insight: `Sigma x Sigma` has **multiple possible outcomes** (non-abelian
 ### Quantum Dimensions
 
 ```fsharp
-let quantumDimension (p: Particle) (anyonType: AnyonType) : float =
-    match anyonType, p with
-    | Ising, Vacuum -> 1.0
-    | Ising, Sigma  -> sqrt 2.0            // d_sigma = sqrt(2)
-    | Ising, Psi    -> 1.0
-    | Fibonacci, Tau -> (1.0 + sqrt 5.0) / 2.0  // d_tau = phi (golden ratio!)
-    | _ -> failwith "Not implemented"
+let dVacuum = AnyonSpecies.quantumDimension vacuum   // 1.0
+let dSigma = AnyonSpecies.quantumDimension sigma     // sqrt 2 (d_sigma)
+let dPsi = AnyonSpecies.quantumDimension psi         // 1.0
+let dTau = AnyonSpecies.quantumDimension tau         // (1 + sqrt 5) / 2 = phi (golden ratio!)
+
+// SU(2)_k: d_j = sin(pi (j+1) / (k+2)) / sin(pi / (k+2)); here j = 1/2, k = 3
+let dHalf = AnyonSpecies.quantumDimension (AnyonSpecies.Particle.SpinJ(1, 3))
 ```
 
 **What quantum dimension means**: put n anyons together and their fusion space holds roughly d^n states. The quantum dimension d is the growth rate per anyon. For Ising, d_σ = √2: each σ carries "half a qubit", so each σ *pair* carries one qubit, because (√2)² = 2. A non-integer d such as φ ≈ 1.618 makes the point vividly: the information lives in no individual anyon. It lives only in the collective fusion structure.
@@ -454,34 +474,19 @@ When anyons `a` and `b` exchange positions while fusing to channel `c`, the stat
 The computational point: **different fusion channels pick up different phases**. Exchange two σ's. The vacuum channel gains e^(-iπ/8); the ψ channel gains e^(3iπ/8). Between logical |0⟩ and |1⟩ that is a relative phase of i — an S gate on the encoded qubit. The same physical motion acts differently on each channel. That is how moving particles computes.
 
 ```fsharp
-let element (a: Particle) (b: Particle) (c: Particle) (anyonType: AnyonType)
-    : TopologicalResult<Complex> =
-    
-    match anyonType with
-    | Ising ->
-        match a, b, c with
-        | Sigma, Sigma, Vacuum -> 
-            Ok (Complex.Exp(Complex(0.0, -Math.PI / 8.0)))       // e^(-i*pi/8)
-        | Sigma, Sigma, Psi    -> 
-            Ok (Complex.Exp(Complex(0.0, 3.0 * Math.PI / 8.0)))  // e^(3i*pi/8)
-        | Psi, Psi, Vacuum     -> 
-            Ok (Complex(-1.0, 0.0))                              // -1 (fermion exchange)
-        | Sigma, Psi, Sigma | Psi, Sigma, Sigma -> 
-            Ok (Complex(0.0, -1.0))                              // -i
-        | Vacuum, _, _ | _, Vacuum, _ -> 
-            Ok Complex.One
-        | _ -> Error (LogicError ("RMatrix.element", $"Invalid Ising fusion channel: {a} x {b} -> {c}"))
-    
-    | Fibonacci ->
-        match a, b, c with
-        | Tau, Tau, Vacuum -> 
-            Ok (Complex.Exp(Complex(0.0, 4.0 * Math.PI / 5.0)))  // e^(4i*pi/5)
-        | Tau, Tau, Tau    -> 
-            Ok (Complex.Exp(Complex(0.0, -3.0 * Math.PI / 5.0))) // e^(-3i*pi/5)
-        | _ -> Ok Complex.One
+// BraidingOperators.element a b c anyonType : TopologicalResult<Complex>
+let rSigmaVacuum = BraidingOperators.element sigma sigma vacuum ising  // e^(-i*pi/8)
+let rSigmaPsi = BraidingOperators.element sigma sigma psi ising        // e^(3i*pi/8)
+let rPsiPsi = BraidingOperators.element psi psi vacuum ising           // -1 (fermion exchange)
+let rSigmaPsiSigma = BraidingOperators.element sigma psi sigma ising   // -i
+let rTauVacuum = BraidingOperators.element tau tau vacuum fibonacci    // e^(4i*pi/5)
+let rTauTau = BraidingOperators.element tau tau tau fibonacci          // e^(-3i*pi/5)
+
+// A channel the fusion rules forbid is an error, not a phase:
+let invalid = BraidingOperators.element sigma sigma sigma ising        // Error (LogicError ...)
 ```
 
-(R-matrix phase conventions vary across the literature; the library follows the Kitaev 2006 convention, so these values match the implementation in `RMatrix.fs`.)
+(R-matrix phase conventions vary across the literature; the library follows the Kitaev 2006 convention in `BraidingOperators.fs` and `RMatrix.fs`. SU(2)_k values come from the conformal-weight formula.)
 
 **Topological protection**: The R-matrix depends **only** on anyon types, fusion channel, and braid topology. It does not depend on exact positions, exchange speed, path shape, or environmental temperature (as long as T is much less than the energy gap).
 
@@ -494,10 +499,17 @@ When fusing 3+ anyons, there are multiple association orders: `(a x b) x c` vs `
 ```fsharp
 // Ising: F^{sigma,sigma,sigma}_sigma is a 2x2 matrix
 let sqrt2inv = 1.0 / sqrt 2.0
-array2D [
+let isingF = array2D [
     [sqrt2inv;  sqrt2inv]
     [sqrt2inv; -sqrt2inv]
 ]
+
+// The library computes every F-symbol of a theory; look one up by its six labels
+let fSymbol =
+    FMatrix.computeFMatrix ising
+    |> Result.bind (fun data ->
+        FMatrix.getFSymbol data ({ A = sigma; B = sigma; C = sigma; D = sigma; E = vacuum; F = vacuum } : FMatrix.FSymbolIndex))
+// Ok (0.7071..., 0) = 1/sqrt 2
 
 // Fibonacci: F-matrices contain the golden ratio
 let phi = (1.0 + sqrt 5.0) / 2.0
@@ -548,19 +560,19 @@ A complete invariant that uniquely characterizes a topological quantum field the
 5. **Central charge** c mod 8
 
 ```fsharp
-open FSharp.Azure.Quantum.Topological.ModularData
+// ModularData is [<RequireQualifiedAccess>]; topologicalResult { } chains TopologicalResult values
+let verifyModularStructure (anyonType: AnyonSpecies.AnyonType) =
+    topologicalResult {
+        let! data = ModularData.computeModularData anyonType   // S, T, central charge, ...
 
-let verifyModularStructure (anyonType: AnyonType) = result {
-    let! s = sMatrix anyonType
-    let! t = tMatrix anyonType
-    
-    // S is symmetric and unitary
-    // T is diagonal
-    // (ST)^3 = e^(2*pi*i*c/8) * S^2
-    // Verlinde formula: N^{ab}_c = Sum_d (S_ad S_bd S_cd*) / S_0d
-    
-    return isSymmetric && isUnitary && isDiagonal && modularity
-}
+        // verifyModularData checks: S is unitary, T is diagonal,
+        // and the modular relation (ST)^3 = e^(2*pi*i*c/8) * S^2
+        return ModularData.verifyModularData data
+    }
+
+// Individual pieces are available too:
+let sIsing = ModularData.computeSMatrix ising
+let cIsing = ModularData.centralCharge ising   // Ok 0.5
 ```
 
 ### Toric Code: Topological Error Correction
@@ -569,54 +581,60 @@ The toric code stores logical qubits in the ground state degeneracy of a many-bo
 
 ```fsharp
 // L x L toric code: 2L^2 physical qubits, 2 logical qubits, code distance L
-let toricCodeExample (latticeSize: int) (errorEdge: Edge) = result {
-    let! lattice = createLattice latticeSize latticeSize
-    let groundState = initializeGroundState lattice
-    
-    // Inject a Pauli error:
-    // Z error creates two e-particles (vertex syndromes),
-    // X error creates two m-particles (plaquette syndromes)
-    let noisyState = applyZError groundState errorEdge
-    
-    // Detect and decode (greedy minimum-weight matching), then correct
-    let syndrome = measureSyndrome noisyState
-    let! decoded = decodeVertexSyndrome lattice syndrome
-    let correctedState = applyCorrections noisyState decoded.Corrections VertexSyndrome
-    
-    return correctedState
-}
+let toricCodeExample (latticeSize: int) =
+    topologicalResult {
+        let! lattice = ToricCode.createLattice latticeSize latticeSize
+        let groundState = ToricCode.initializeGroundState lattice
+
+        // Inject a Pauli error on one edge:
+        // Z error creates two e-particles (vertex syndromes),
+        // X error creates two m-particles (plaquette syndromes)
+        let errorEdge: ToricCode.Edge = { Position = { X = 0; Y = 0 }; Type = ToricCode.EdgeType.Horizontal }
+        let noisyState = ToricCode.applyZError groundState errorEdge
+
+        // Detect and decode (greedy matching on toric distances), then correct
+        let syndrome = ToricCode.measureSyndrome noisyState
+        let! decoded = ToricCode.decodeVertexSyndrome lattice syndrome
+        let correctedState = ToricCode.applyCorrections noisyState decoded.Corrections ToricCode.SyndromeKind.VertexSyndrome
+
+        return correctedState
+    }
+
+// ToricCode.decodeSyndrome does both syndrome types in one call.
 ```
 
 ### Production Readiness: Current Status
 
-**What works well** (2025):
-- Ising anyons (full support), Fibonacci (full support), SU(2)_k (general framework with computational basis encoding)
+**What works**:
+- Ising anyons (full support), Fibonacci (full support), SU(2)_k (general framework with computational basis encoding, k ≥ 2)
 - Unified backend (`TopologicalUnifiedBackend`) integrating with gate-based algorithms
 - Algorithm extensions: Grover, QFT, Shor, HHL on topological backends
-- Gate-to-braid compilation (21 gate types supported)
+- Gate-to-braid compilation (22 unitary gate types supported)
 - Modular data verification, toric code error correction
 - Surface code variants: planar code and color code (4.8.8 lattice)
 - Anyonic error correction: fusion-tree-level charge violation detection, syndrome extraction, greedy decoder, code space projection
 - Magic state distillation for Ising universality
 
 **Current limitations**:
-- **Simulator only** -- educational/research tool, max ~10-12 anyons practical
-- **No hardware backend** -- Microsoft Majorana is still in research phase
-- **Best practices**: Always handle Result types, understand complexity limits, cache expensive computations
+- **Simulator only** -- an educational/research tool; its cost grows exponentially with the number of qubits
+- **No hardware backend** -- Microsoft's Majorana devices are not available as a backend (`DeviceProfile` only records their published parameters)
+- **Best practices**: Always handle Result types, understand complexity limits, reuse expensive computations
 
 ```fsharp
 // DO: Always handle Result types (unified backend)
-let backend = TopologicalUnifiedBackendFactory.createIsing 10
-match backend.InitializeState 4 with
-| Ok state -> (* continue *)
-| Error err -> (* log error, return gracefully *)
+let backend10 = TopologicalUnifiedBackendFactory.createIsing 10
+match backend10.InitializeState 2 with
+| Ok state -> printfn "Initialized on %s" backend10.Name
+| Error err -> eprintfn "Could not initialize: %s" err.Message
 
-// DO: Understand complexity limits
+// DO: Understand complexity limits. InitializeState takes logical qubits;
+// Fibonacci uses a pair of tau anyons per qubit, so 6 qubits need 12 anyons.
 let fibBackend = TopologicalUnifiedBackendFactory.createFibonacci 24
-let reasonableResult = fibBackend.InitializeState 6  // Fibonacci: F(7)=13 dimensional
+let reasonableResult = fibBackend.InitializeState 6
 
-// DON'T: Try to simulate too many anyons
-let tooLargeResult = fibBackend.InitializeState 20  // Fibonacci: F(21)=10946 dimensional - will hang!
+// The anyon budget is checked up front: 20 qubits would need 40 anyons,
+// more than this backend's 24, so this returns Error instead of running.
+let tooLargeResult = fibBackend.InitializeState 20
 ```
 
 ### Future Roadmap
@@ -659,4 +677,4 @@ As functional programmers, you already understand the paradigm:
 
 Topological quantum computing is the most "functional" approach to quantum computation: information is stored in structure (not amplitudes), operations are pure transformations (geometric, not in-place), and errors are suppressed by design rather than by constant correction.
 
-When Microsoft Majorana or other topological quantum computers come online, this library provides strong typing, composability, and correctness guarantees for F# developers working at that frontier.
+Until topological hardware is available as a backend, this library lets F# developers explore the model with strong typing and composable, Result-based APIs on a classical simulator.

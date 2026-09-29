@@ -1,6 +1,6 @@
 # Topological Quantum Computing Documentation
 
-> **Topological quantum computing** encodes quantum information in global topological properties of anyon worldlines, providing natural protection against local errors. This approach offers a promising path to fault-tolerant quantum computation.
+> **Topological quantum computing** encodes quantum information in global topological properties of anyon worldlines, which in theory protects it against local errors. This library simulates that model on a classical computer.
 
 ## Documentation Overview
 
@@ -38,7 +38,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 - Three "first computation" options (computation expression, backend API, pure math)
 - Key concepts mapped to library types
 - Running the 10 built-in example scripts
-- Error handling overview (railway-oriented `Result<'T, TopologicalError>`)
+- Error handling overview (railway-oriented `TopologicalResult<'T>` and the backend's `QuantumError`)
 
 **Key Takeaway:** You can run a topological quantum computation in under 10 lines of F# using the `topological backend { }` computation expression builder.
 
@@ -72,7 +72,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 - **Section 4:** Braiding operations as quantum gates (geometry, not matrices)
 - **Section 5:** Advanced topics and production readiness
 
-**Key Takeaway:** Topological QC stores information in *how* particles are braided in spacetime, not in quantum amplitudes. This provides exponential error suppression.
+**Key Takeaway:** Topological QC stores information in *how* particles are braided in spacetime rather than in local degrees of freedom, which in theory suppresses local errors exponentially.
 
 **Code Examples:**
 - Creating anyons and fusion trees
@@ -98,10 +98,10 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 
 **Key Takeaway:** Clifford operations (native braiding) + T-gates (magic state injection) = Universal quantum computation
 
-**Performance Characteristics:**
+**Model Characteristics** (from the standard formula p_out ≈ 35 p³ that the module uses):
 - Cubic error suppression per distillation round
 - 5% error → 0.44% error with single round (11.4× improvement)
-- Resource overhead: ~225 noisy states for 99.99% fidelity
+- Resource overhead: 15 noisy states per round, 15² = 225 for two rounds (enough for 99.99% fidelity from 5% input)
 
 ---
 
@@ -151,9 +151,9 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 
 ### Core Modules
 
-```fsharp
-open FSharp.Azure.Quantum.Topological
+All modules live in the `FSharp.Azure.Quantum.Topological` namespace:
 
+```
 // Layer 1: Mathematical Foundation
 AnyonSpecies      // Particle types and anyon theories
 FusionRules       // Fusion algebra (sigma x sigma = 1+psi)
@@ -162,7 +162,7 @@ KauffmanBracket   // Knot invariants (Kauffman bracket, Jones polynomial)
 KnotConstructors  // Standard knot/link diagram constructors (trefoil, figure-eight, Hopf link, etc.)
 
 // Layer 2: Backends
-TopologicalUnifiedBackendFactory  // Factory: createIsing, createFibonacci, create
+TopologicalUnifiedBackendFactory  // Factory: createIsing, createFibonacci, createUnified, create
                                   // Returns IQuantumBackend for algorithm integration
 
 // Layer 3: Operations
@@ -180,24 +180,34 @@ AlgorithmExtensions // Run Grover, QFT, Shor, HHL on topological backends
 ### Common Operations
 
 ```fsharp
-// Create simulator (unified backend - implements IQuantumBackend)
+open System
+open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.GroverSearch
+open FSharp.Azure.Quantum.Topological
+
+// Create simulator (unified backend - implements IQuantumBackend).
+// The argument caps the anyon count: Ising needs 2n + 2 anyons for n qubits.
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Run standard algorithms on topological backend
-let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
-let qftResult = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
-let shorResult = AlgorithmExtensions.factor15WithTopology backend
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 5 3 backend Grover.defaultConfig
+let qftResult = AlgorithmExtensions.qftWithTopology 3 backend QFT.defaultConfig
+
+// Factoring 15 uses 15 qubits, so it needs a larger anyon budget
+let shorResult = AlgorithmExtensions.factor15WithTopology (TopologicalUnifiedBackendFactory.createIsing 40)
 
 // Computation expression
 let program = topological backend {
-    let! state = initialize AnyonSpecies.AnyonType.Ising 4
-    do! braid 0
-    do! braid 2
-    let! outcome = measure 0
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 2
+    do! TopologicalBuilder.braid 0
+    do! TopologicalBuilder.braid 2
+    let! outcome = TopologicalBuilder.measure 0
     return outcome
 }
 
 // Pure mathematical exploration (no backend needed)
+let sigma = AnyonSpecies.Particle.Sigma
+let ising = AnyonSpecies.AnyonType.Ising
 let channels = FusionRules.channels sigma sigma ising
 let R = BraidingOperators.element sigma sigma AnyonSpecies.Particle.Vacuum ising
 
@@ -206,16 +216,20 @@ let R = BraidingOperators.element sigma sigma AnyonSpecies.Particle.Vacuum ising
 let trefoil = KnotConstructors.trefoil true
 let jones = KauffmanBracket.Planar.jonesPolynomial trefoil KauffmanBracket.Planar.standardA
 
-// Magic state distillation
-let magicState = MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonType.Ising
-let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
+// Magic state distillation: exactly 15 noisy Ising magic states in, one purified state out
+let random = Random(42)
+let purified =
+    topologicalResult {
+        let! magicState = MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonSpecies.AnyonType.Ising
+        return! MagicStateDistillation.distill15to1 random (List.replicate 15 magicState)
+    }
 ```
 
 ---
 
 ## Complete Module Reference
 
-The topological library consists of 29 modules organized in 6 architectural layers. Below is the complete reference with brief descriptions.
+The topological library consists of 31 source files organized in 6 architectural layers. Below is the complete reference with brief descriptions.
 
 ### Layer 1: Mathematical Foundation (Core Anyonic Theory)
 
@@ -226,7 +240,7 @@ The topological library consists of 29 modules organized in 6 architectural laye
 | `AnyonSpecies.fs` | Anyon particle types, quantum dimensions, and anyon theories (Ising, Fibonacci) |
 | `FusionRules.fs` | Fusion algebra rules (e.g., sigma x sigma = 1+psi for Ising anyons) |
 | `BraidingOperators.fs` | R-matrices (braiding phase) and F-matrices (basis transformations) |
-| `FMatrix.fs` | F-matrix calculations and caching for efficient fusion tree manipulations |
+| `FMatrix.fs` | F-matrix (F-symbol) calculation and lookup tables for fusion tree basis changes |
 | `RMatrix.fs` | R-matrix calculations for braiding operations |
 | `ModularData.fs` | Modular tensor category data (S-matrix, T-matrix, topological central charge) |
 | `BraidGroup.fs` | Braid group representations and generators |
@@ -270,7 +284,7 @@ The topological library consists of 29 modules organized in 6 architectural laye
 
 | Module | Description |
 |--------|-------------|
-| `GateToBraid.fs` | Convert gate-based circuits to braid sequences (21 gate types) |
+| `GateToBraid.fs` | Convert gate-based circuits to braid sequences (22 unitary gate types, plus Measure and Barrier; Reset and classically conditioned gates are rejected) |
 | `BraidToGate.fs` | Convert braid sequences back to gate operations |
 | `SolovayKitaev.fs` | Gate approximation algorithm for efficient decomposition |
 | `CircuitOptimization.fs` | Circuit optimization and simplification strategies |
@@ -284,9 +298,10 @@ The topological library consists of 29 modules organized in 6 architectural laye
 |--------|-------------|
 | `TopologicalBuilder.fs` | F# computation expressions for building topological circuits |
 | `TopologicalFormat.fs` | `.tqp` file format for serializing topological programs |
+| `DeviceProfile.fs` | Descriptive parameters of Majorana (tetron) hardware generations, used to derive noise presets |
 | `NoiseModels.fs` | Noise simulation for realistic error modeling |
 | `Visualization.fs` | State visualization and debugging utilities |
-| `TopologicalError.fs` | Error types and exception handling |
+| `TopologicalError.fs` | `TopologicalError`, `TopologicalResult<'T>` and the `topologicalResult { }` builder |
 | `TopologicalHelpers.fs` | Complex number utilities and display formatting for particles |
 
 ---
@@ -302,7 +317,7 @@ The topological library consists of 29 modules organized in 6 architectural laye
 - **Braiding Operations** (R-matrices, F-matrices, F-moves)
 - **Measurement** (fusion outcome detection)
 - **Magic State Distillation** (15-to-1 protocol)
-- **Gate-to-Braid Compilation** (21 gate types)
+- **Gate-to-Braid Compilation** (22 unitary gate types)
 - **Braid-to-Gate Conversion** (reverse compilation with aggressive optimization)
 - **Unified Backend** (IQuantumBackend implementation)
 - **Algorithm Extensions** (Grover, QFT, Shor, HHL on topological backends, including Fibonacci-specific Grover search)
@@ -314,7 +329,7 @@ The topological library consists of 29 modules organized in 6 architectural laye
 - **Anyonic Error Correction** (fusion-tree-level charge violation detection, syndrome extraction, greedy charge-correction decoder, code space projection)
 - **Pentagon/Hexagon Verification** (F-matrix and R-matrix consistency checks)
 - **Entanglement Entropy** (von Neumann entropy, partial trace, density matrices)
-- **Solovay-Kitaev Algorithm** (gate approximation via Fibonacci anyons)
+- **Solovay-Kitaev Algorithm** (gate approximation over Clifford+T, and over Fibonacci braid generators)
 
 ### Planned (Future Development)
 
@@ -361,7 +376,7 @@ Please open an issue or submit a PR!
 
 ## License
 
-This documentation and the FSharp.Azure.Quantum.Topological library are licensed under [MIT License](../../LICENSE).
+This documentation and the FSharp.Azure.Quantum.Topological library are released into the public domain; see [LICENSE](../../LICENSE).
 
 ---
 
@@ -373,6 +388,6 @@ This documentation and the FSharp.Azure.Quantum.Topological library are licensed
 
 ---
 
-**Last Updated:** February 2026  
-**Library Version:** 0.3.9  
+**Last Updated:** September 2026  
+**Library Version:** 0.4.12  
 **F# Version:** 10.0

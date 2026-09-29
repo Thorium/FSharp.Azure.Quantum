@@ -37,8 +37,7 @@ Install-Package FSharp.Azure.Quantum
 
 - **.NET 10.0 or later**
 - **F# 10.0 or later**
-- **Azure Account** (for quantum backend access)
-- **Azure Quantum Workspace** (optional, for quantum execution)
+- **Azure Account and Azure Quantum Workspace** (optional, only for cloud quantum backends; the local simulator needs neither)
 
 ## Quick Start: Your First Quantum Optimization
 
@@ -54,6 +53,7 @@ let problem = graphColoring {
     node "R2" ["R1"; "R4"]
     node "R3" ["R1"; "R4"]
     node "R4" ["R2"; "R3"]
+    colors ["EAX"; "EBX"; "ECX"; "EDX"]   // required: the builder rejects a problem without colors
 }
 
 // Solve using QAOA quantum algorithm (LocalBackend simulation)
@@ -66,20 +66,20 @@ match GraphColoring.solve problem 4 None with  // None = LocalBackend (default)
     printfn "Error: %s" err.Message
 ```
 
-**Output:**
+**Output** (QAOA is probabilistic, so the exact assignment can differ between runs):
 ```
 Colors used: 2
-R1 → Color_0
-R2 → Color_1
-R3 → Color_1
-R4 → Color_0
+R1 → EAX
+R2 → EBX
+R3 → EBX
+R4 → EAX
 ```
 
 **What happens:**
 1. Computation expression builds graph coloring problem
 2. `GraphColoring.solve` encodes problem as QUBO
 3. QAOA quantum algorithm builds optimization circuit
-4. LocalBackend simulates quantum circuit (memory-derived width, free)
+4. LocalBackend simulates quantum circuit (memory-derived width, free); this problem needs 4 nodes × 4 colors = 16 qubits
 5. Returns color assignments with validation
 
 ## Key Concepts
@@ -109,9 +109,9 @@ match MaxCut.solve maxCutProblem None with
 | Error err -> printfn "Error: %s" err.Message
 ```
 
-### 2. **HybridSolver** - Optional Optimization for Variable-Sized Problems
+### 2. **HybridSolver** - Optional Routing for Variable-Sized Problems
 
-The `HybridSolver` provides automatic classical fallback for very small problems where quantum circuit overhead isn't beneficial:
+The `HybridSolver` solves small problems with classical heuristics and routes large ones to quantum when you supply a backend:
 
 ```fsharp
 open FSharp.Azure.Quantum.Classical
@@ -125,7 +125,7 @@ let distances = array2D [
     [10.0; 4.0; 8.0;  5.0; 0.0]
 ]
 
-// HybridSolver automatically routes to classical (fast) or quantum (scalable)
+// 5 cities is below the advisor's thresholds, so this runs the classical solver
 match HybridSolver.solveTsp distances None None None with
 | Ok solution ->
     printfn "Method: %A" solution.Method          // Classical or Quantum
@@ -150,34 +150,42 @@ match HybridSolver.solveTsp distances None None None with
       Yes  │       │ None (auto)
            │       │
            ▼       ▼
-    ┌──────────┐  ┌─────────────────┐
-    │ Classical│  │ Analyze Problem │
-    │    or    │  │  - Size         │
-    │ Quantum  │  │  - Complexity   │
-    │ (forced) │  │  - Structure    │
+    ┌──────────┐  ┌──────────────────┐
+    │ Classical│  │ QuantumAdvisor   │
+    │    or    │  │  - Size          │
+    │ Quantum  │  │  - Estimated     │
+    │ (forced) │  │    speedup       │
     └──────────┘  └────────┬─────────┘
                            │
                   ┌────────┴────────┐
                   ▼                 ▼
-           Size < 20         20 ≤ Size ≤ 200
+             Size < 50          Size ≥ 50
               │                     │
               ▼                     ▼
-        ┌──────────┐         ┌──────────┐
-        │Classical │         │ Quantum  │
-        │(too small│         │(QAOA on  │
-        │overhead) │         │backend)  │
-        └──────────┘         └──────────┘
+        ┌──────────┐     ┌─────────────────────┐
+        │Classical │     │ Backend supplied and │
+        │          │     │ cost within budget?  │
+        └──────────┘     └──────┬─────────┬─────┘
+                            Yes │         │ No
+                                ▼         ▼
+                         ┌──────────┐ ┌──────────┐
+                         │ Quantum  │ │Classical │
+                         │(QAOA on  │ │          │
+                         │backend)  │ │          │
+                         └──────────┘ └──────────┘
 ```
 
-**Key Decision Factors:**
-- **Size < 20**: Classical (quantum circuit overhead not beneficial yet)
-- **20 ≤ Size ≤ 200**: Quantum (QAOA on LocalBackend or cloud)
-- **Size > 200**: Quantum recommended (potential for quantum advantage)
-- **forceMethod**: Overrides automatic decision
+**Key Decision Factors** (with `QuantumAdvisor.defaultThresholds`):
+- **Size < 20**: Classical, strongly recommended
+- **20 ≤ Size < 50**: Advisor says "consider quantum", but HybridSolver still runs the classical solver
+- **Size ≥ 50**: Quantum, if you called a `solve*WithBackend` function with a backend and the estimated cost is within the optional budget; otherwise classical
+- **forceMethod**: Overrides the decision (`Some HybridSolver.Quantum` uses the given backend, or a new LocalBackend)
 
-### 3. **Computation Expression Pattern** - Type-Safe Problem Specification
+`solution.Reasoning` always says which branch was taken.
 
-Builders provide domain-specific computation expressions for intuitive, type-safe problem construction:
+### 3. **Problem Builders** - Type-Safe Problem Specification
+
+Each problem type has a builder: a computation expression (`graphColoring { ... }`, `scheduledTask { ... }`) or `createProblem` helpers that take plain tuples:
 
 ```fsharp
 // Knapsack problem (resource allocation)
@@ -201,11 +209,11 @@ match Knapsack.solve knapsackProblem None with
 
 | Scenario | Recommendation | Reason |
 |----------|---------------|--------|
-| Learning quantum algorithms | **Direct API** | Consistent quantum experience |
-| Production with fixed problem size | **Direct API** | Simple, predictable behavior |
-| Production with variable size | **HybridSolver** | Optimizes small problems automatically |
-| Prototyping | **Direct API** | LocalBackend is fast enough at these widths |
-| Performance-critical variable sizing | **HybridSolver** | Classical fallback saves overhead |
+| Learning quantum algorithms | **Direct API** | Every run goes through a quantum backend |
+| Fixed problem size that fits the backend | **Direct API** | Simple, predictable behavior |
+| Variable problem size | **HybridSolver** | Small problems are solved classically |
+| Prototyping | **Direct API** | LocalBackend is fast enough at small widths |
+| Problems too large for any backend | **HybridSolver** (classical path) | No qubit limit on the classical heuristics |
 
 ## Common Pitfalls & How to Avoid Them
 
@@ -217,7 +225,8 @@ let wrong = array2D [
     [0.0; 1.0; 2.0]
     [1.0; 0.0; 3.0]
 ]
-// Error: "Distance matrix must be square (NxN)"
+// HybridSolver.solveTsp returns
+// Error (ValidationError "Distance matrix must be square (got 2x3 dimensions)")
 ```
 
 **✅ Fix:** Ensure rows = columns = number of cities
@@ -238,7 +247,8 @@ let asymmetric = array2D [
     [0.0; 10.0]
     [5.0; 0.0]   // 10 ≠ 5
 ]
-// Warning: TSP assumes symmetric distances
+// No error or warning: the TSP solvers assume symmetric distances,
+// so tour lengths on this matrix are not meaningful
 ```
 
 **✅ Fix:** Make matrix symmetric
@@ -283,22 +293,23 @@ let constraints: PortfolioSolver.Constraints = { Budget = 100.0; MinHolding = 0.
 let constraintsFixed: PortfolioSolver.Constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
 ```
 
-### ❌ Pitfall 5: Type Inference Confusion
+### ❌ Pitfall 5: Treating Errors as Strings
 
-**❌ WRONG:** F# can't infer tuple structure
+Solvers return `QuantumResult<'T>`, which is `Result<'T, QuantumError>`. The error is a union (`ValidationError`, `OperationError`, `BackendError`, ...), not a string.
+
 ```fsharp
-// This would cause a type error:
-// let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0)]
-// let problem = TSP.createProblem cities
+// ❌ WRONG: 'err' is a QuantumError, so %s and err.Contains do not compile
+// | Error err -> printfn "Error: %s" err
 ```
 
-**✅ Fix:** Add type annotation
+**✅ Fix:** Use `err.Message` for text, or match on the case
 ```fsharp
-// ✅ CORRECT: Explicit type annotation
-let cities: (string * float * float) list = [
-    ("Seattle", 0.0, 0.0)
-    ("Portland", 0.0, 174.0)
-]
+open FSharp.Azure.Quantum.Core
+
+match HybridSolver.solveTsp wrong None None None with
+| Ok _ -> ()
+| Error (QuantumError.ValidationError (field, reason)) -> eprintfn "Invalid %s: %s" field reason
+| Error err -> eprintfn "Failed (%s): %s" err.Category err.Message
 ```
 
 ## Complete Error Handling Examples
@@ -306,15 +317,15 @@ let cities: (string * float * float) list = [
 ### Robust TSP Solving with Recovery
 
 ```fsharp
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Core
 
 let solveTspRobust (distances: float[,]) =
     // Validate input
     let n = distances.GetLength(0)
     if n <> distances.GetLength(1) then
-        Error "Distance matrix must be square"
+        Error (QuantumError.ValidationError ("distances", "Distance matrix must be square"))
     elif n < 2 then
-        Error "Need at least 2 cities"
+        Error (QuantumError.ValidationError ("distances", "Need at least 2 cities"))
     else
         // Try solving with automatic routing
         match HybridSolver.solveTsp distances None None None with
@@ -328,7 +339,7 @@ let solveTspRobust (distances: float[,]) =
         | Error err ->
             // Log error and return error (no classical fallback in this example)
             eprintfn "⚠ HybridSolver failed: %s" err.Message
-            Error $"Solver failed: {msg}"
+            Error err
 
 // Usage
 let distancesRobust = array2D [[0.0; 10.0]; [10.0; 0.0]]
@@ -340,7 +351,7 @@ match solveTspRobust distancesRobust with
 ### Portfolio Optimization with Validation
 
 ```fsharp
-let solvePortfolioSafely assets budget =
+let solvePortfolioSafely (assets: (string * float * float * float) list) (budget: float) =
     // Validate assets
     let invalidAssets = 
         assets 
@@ -348,9 +359,9 @@ let solvePortfolioSafely assets budget =
             price <= 0.0 || risk < 0.0)
     
     if not (List.isEmpty invalidAssets) then
-        Error $"Invalid assets: %A{invalidAssets}"
+        Error (QuantumError.ValidationError ("assets", $"Invalid assets: %A{invalidAssets}"))
     elif budget <= 0.0 then
-        Error $"Budget must be positive: {budget}"
+        Error (QuantumError.ValidationError ("budget", $"Budget must be positive: {budget}"))
     else
         let constraints: PortfolioSolver.Constraints = {
             Budget = budget
@@ -359,19 +370,15 @@ let solvePortfolioSafely assets budget =
         }
         
         // Create asset records
-        let assetRecords = 
+        let assetRecords: PortfolioSolver.Asset list = 
             assets 
-            |> List.map (fun (symbol, ret, risk, price) -> {
-                PortfolioSolver.Asset.Symbol = symbol
-                ExpectedReturn = ret
-                Risk = risk
-                Price = price
-            })
+            |> List.map (fun (symbol, ret, risk, price) ->
+                { Symbol = symbol; ExpectedReturn = ret; Risk = risk; Price = price })
         
         // Validate budget constraint
         match PortfolioSolver.validateBudgetConstraint assetRecords constraints with
         | validation when not validation.IsValid ->
-            Error (sprintf "Validation failed: %s" (String.concat "; " validation.Messages))
+            Error (QuantumError.ValidationError ("constraints", String.concat "; " validation.Messages))
         | _ ->
             // Solve
             match HybridSolver.solvePortfolio assetRecords constraints None None None with
@@ -383,7 +390,7 @@ let solvePortfolioSafely assets budget =
                 printfn "  Sharpe Ratio: %.2f" solution.Result.SharpeRatio
                 Ok solution
             | Error err ->
-                Error $"Solver failed: {msg}"
+                Error err
 
 // Usage with error recovery
 let assets: (string * float * float * float) list = [
@@ -402,73 +409,70 @@ match solvePortfolioSafely assets 10000.0 with
     eprintfn "Try: Increase budget or reduce constraints"
 ```
 
-### Handling Timeout and Budget Limits
+### Handling Budget Limits
+
+The `budget` argument (USD) is a cost guard: when the advisor recommends quantum but the estimated cost exceeds the budget, HybridSolver runs the classical solver instead and says so in `Reasoning`. Exceeding the budget is not an error.
 
 ```fsharp
-let solveTspWithLimits distances maxBudget maxTime =
-    printfn "Solving with budget=$%.2f, timeout=%.0fms" maxBudget maxTime
+let solveTspWithBudget (distances: float[,]) (maxBudget: float) =
+    printfn "Solving with budget=$%.2f" maxBudget
     
-    match HybridSolver.solveTsp distances (Some maxBudget) (Some maxTime) None with
-    | Ok solution when solution.ElapsedMs > maxTime ->
-        // Exceeded timeout (classical fallback might have taken longer)
-        printfn "⚠ Solution found but exceeded timeout (%.2f ms)" solution.ElapsedMs
-        Ok solution
-        
-    | Ok solution when solution.Method = Classical ->
-        // Classical was used (possibly due to budget)
-        printfn "✓ Classical solver used (budget=$%.2f saved)" maxBudget
+    match HybridSolver.solveTsp distances (Some maxBudget) None None with
+    | Ok solution when solution.Method = HybridSolver.Classical ->
+        // Classical was used (small problem, no backend, or over budget)
+        printfn "✓ Classical solver used: %s" solution.Reasoning
         Ok solution
         
     | Ok solution ->
-        // Quantum or classical succeeded within limits
-        printfn "✓ Solution found within limits"
+        printfn "✓ Quantum solver used: %s" solution.Reasoning
         Ok solution
         
-    | Error msg when msg.Contains("budget") ->
-        // Budget constraint violated
-        eprintfn "✗ Insufficient budget: %s" err.Message
-        eprintfn "  Try increasing budget or forcing classical solver"
-        Error msg
-        
-    | Error msg when msg.Contains("timeout") ->
-        // Timeout occurred
-        eprintfn "✗ Solver timeout: %s" err.Message
-        eprintfn "  Try increasing timeout or reducing problem size"
-        Error msg
+    | Error (QuantumError.ValidationError (field, reason)) ->
+        eprintfn "✗ Invalid input (%s): %s" field reason
+        Error (QuantumError.ValidationError (field, reason))
         
     | Error err ->
-        // Other error
         eprintfn "✗ Solver error: %s" err.Message
-        Error msg
+        Error err
 
-// Usage: Set limits
-let result = solveTspWithLimits distances 5.0 1000.0  // $5 budget, 1 second
+// Usage: $5 budget
+let result = solveTspWithBudget distances 5.0
 ```
+
+> The `timeout` argument of the HybridSolver functions is accepted but not currently used; there is no solver timeout.
 
 ## Quantum TSP with Parameter Optimization 
 
 FSharp.Azure.Quantum provides **automatic QAOA parameter optimization** - a variational quantum-classical loop that finds optimal circuit parameters for your specific problem:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 open FSharp.Azure.Quantum.Backends
 
-// Create distance matrix for 3-city TSP
+// Create distance matrix for 3-city TSP (3² = 9 qubits)
 let distances = array2D [
     [ 0.0; 1.0; 2.0 ]
     [ 1.0; 0.0; 1.5 ]
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Option 1: Use default configuration (optimization enabled)
 let backend = LocalBackendFactory.createUnified()
-match solve backend distances defaultConfig with
+
+// solveAsync returns a Task; run it synchronously in a script
+let runTsp config =
+    solveAsync backend distances config CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
+// Option 1: Use default configuration (optimization enabled)
+match runTsp defaultConfig with
 | Ok solution ->
     printfn "Best tour: %A" solution.Tour
     printfn "Tour length: %.2f" solution.TourLength
     printfn "Optimized parameters (gamma, beta): %A" solution.OptimizedParameters
-    printfn "Optimization converged: %b" solution.OptimizationConverged
-    printfn "Iterations: %d" solution.OptimizationIterations
+    printfn "Optimization converged: %A" solution.OptimizationConverged    // bool option
+    printfn "Iterations: %A" solution.OptimizationIterations              // int option
 | Error err -> printfn "Error: %s" err.Message
 
 // Option 2: Custom configuration for fine-tuning
@@ -479,16 +483,15 @@ let customConfig = {
     InitialParameters = (0.5, 0.5)   // Starting guess for (gamma, beta)
     MaxOptimizationIterations = 1000 // Cap the variational loop
 }
-let result = solve backend distances customConfig
+let result = runTsp customConfig
 
 // Option 3: No variational loop at all — one circuit at the initial parameters.
 // Use this when the backend is expensive (e.g. topological), since every
 // optimizer iteration is a full circuit execution.
-let fastResult = solve backend distances QuantumTspSolver.fastConfig
-
-// Option 4: Disable optimization (backward compatibility)
-let resultNoOpt = solveWithShots backend distances 1000
+let fastResult = runTsp fastConfig
 ```
+
+The synchronous `QuantumTspSolver.solve`, `solveWithDefaults` and `solveWithShots` still exist but are marked `[<Obsolete>]` in favour of `solveAsync`.
 
 ### How QAOA Parameter Optimization Works
 
@@ -497,25 +500,22 @@ let resultNoOpt = solveWithShots backend distances 1000
 2. **Quantum backend** executes QAOA circuit with those parameters (low shots for speed)
 3. **Measure tour quality** - Decode bitstrings to TSP tours and calculate cost
 4. **Optimizer updates** parameters based on gradient-free Nelder-Mead simplex method
-5. **Repeat until convergence** (~10-50 iterations typically)
+5. **Repeat until convergence** or until `MaxOptimizationIterations` is reached
 6. **Final execution** uses optimized parameters with high shots for accurate result
 
 **Benefits:**
-- ✅ **Better solutions** - Problem-specific parameters → higher success probability
-- ✅ **Research-grade** - Matches published QAOA implementations
+- ✅ **Problem-specific parameters** - usually a higher probability of sampling good tours than fixed parameters
 - ✅ **Configurable** - Easy to adjust optimization/final shots for speed vs. accuracy
-- ✅ **Backward compatible** - Old API still works via `solveWithShots`
+- ✅ **Cheap mode** - `fastConfig` skips the variational loop entirely
 
 **Configuration Guidelines:**
 - `OptimizationShots = 100` - Fast parameter search (increase for noisy hardware)
 - `FinalShots = 1000` - Accurate result (decrease for faster demos)
 - `EnableOptimization = true` - Enable variational loop (disable for testing)
 - `InitialParameters = (0.5, 0.5)` - Starting guess (γ, β ∈ [0, 2π])
+- `MaxOptimizationIterations = 1000` - Upper bound on Nelder–Mead iterations; each one runs a full circuit
 
-**Performance:**
-- **Extra cost:** ~20-50 optimization iterations × 100 shots = 2,000-5,000 shots
-- **Time:** +10-30 seconds for optimization on local simulator
-- **Quality improvement:** Problem-dependent, typically 5-20% better tour quality
+**Performance:** every optimizer iteration executes the circuit with `OptimizationShots` shots, so the extra cost is iterations × `OptimizationShots`. Measure on your own problem before relying on the variational loop on a paid backend.
 
 For more details, see:
 - **[Local Simulation Guide](local-simulation.md)** - Quantum simulation without Azure
@@ -528,29 +528,31 @@ For more details, see:
 ## Need Help?
 
 - **Issues:** [GitHub Issues](https://github.com/thorium/FSharp.Azure.Quantum/issues)
-- **Examples:** See [examples/](examples/) directory
+- **Examples:** See the [examples/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples) directory
 - **API Docs:** See [api-reference.md](api-reference.md)
 
 ## Authentication (for Cloud Quantum Backends)
 
-When using cloud quantum backends (IonQ, Rigetti via Azure Quantum), you'll need Azure credentials:
+When using cloud quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing, IQM via Azure Quantum), you'll need Azure credentials. Cloud backends take an authenticated `HttpClient` and your workspace URL:
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-// Configure authentication for Azure Quantum cloud
-let workspace = {
-    SubscriptionId = "your-subscription-id"
-    ResourceGroup = "your-resource-group"
-    WorkspaceName = "your-workspace-name"
-    Location = "eastus"
-}
+// Uses DefaultAzureCredential: Azure CLI (az login), Managed Identity, environment variables, etc.
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
 
-// Authentication handled automatically via DefaultAzureCredential
-// Supports: Azure CLI, Managed Identity, Environment Variables, etc.
+let workspaceUrl =
+    "https://eastus.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+
+// httpClient, workspace URL, target, shots
+let ionq = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 ```
 
-**Note:** LocalBackend (default) works without Azure credentials - perfect for development, testing, and small problems that fit the simulator width!
+For quota and provider queries, `FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace.createDefault` takes the subscription ID, resource group, workspace name and location.
+
+**Note:** LocalBackend (default) works without Azure credentials - suited to development, testing, and small problems that fit the simulator width.
 
 ---
 

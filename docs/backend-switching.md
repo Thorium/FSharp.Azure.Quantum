@@ -5,26 +5,28 @@ title: Switching Between Local and Azure Backends
 
 # Switching Between Local and Azure Backends
 
-**How to seamlessly switch between local simulation and Azure Quantum execution**
+**How to switch between local simulation and Azure Quantum execution**
 
 ## Overview
 
-FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` module that works with both:
+FSharp.Azure.Quantum provides a **unified API** through the `IQuantumBackend` interface (in `FSharp.Azure.Quantum.Core.BackendAbstraction`) that works with both:
 
 1. **Local Simulator** - Fast, free, offline simulation (width derived from available memory, up to 30 qubits)
-2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access (requires Azure subscription and workspace configuration)
+2. **Azure Quantum** - Cloud execution on simulators and real quantum hardware (requires an Azure subscription and a Quantum workspace)
 
-**Key Feature:** The same `QaoaCircuit` type is used for both backends, making backend switching a **one-line code change**.
+**Key Feature:** Solvers and algorithms take an `IQuantumBackend` parameter, so switching backends is a **one-line code change**: construct a different backend and pass it in.
 
 ## The Unified API
 
-### Current Implementation 
+### Current Implementation
 
 The library provides a unified backend abstraction that works with both local simulation and cloud quantum backends:
 
 ```fsharp
+open System.Threading
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 // Define TSP problem (3 cities)
 let distances = array2D [
@@ -33,14 +35,20 @@ let distances = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Method 1: Local simulator backend (width derived from available memory)
+/// Run the quantum TSP solver on any backend
+let solveTsp (backend: IQuantumBackend) (distances: float[,]) =
+    solveAsync backend distances defaultConfig CancellationToken.None
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
+// Local simulator backend (width derived from available memory)
 let localBackend = LocalBackendFactory.createUnified()
-match solve localBackend distances defaultConfig with
+
+match solveTsp localBackend distances with
 | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
 | Error err -> printfn "Error: %s" err.Message
 
-// Note: Cloud backends (IonQ/Rigetti) require Azure Quantum workspace configuration
-// and are created using workspace-specific factory methods (see Azure Quantum documentation)
+// Cloud backends (IonQ, Rigetti, ...) are created with CloudBackendFactory - see below
 ```
 
 **That's it!** Same solver API, different backends - just swap the backend creation.
@@ -50,19 +58,14 @@ match solve localBackend distances defaultConfig with
 ### Example: Switching with a Single Line
 
 ```fsharp
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Backends
-
-/// Solve TSP problem with different backends
-let solveTsp distances =
-    // Define TSP problem (distance matrix already defined)
-    
+/// Solve TSP problem with a chosen backend
+let solveWithChosenBackend distances =
     // CHANGE THIS ONE LINE TO SWITCH BACKENDS:
     let backend = LocalBackendFactory.createUnified()  // ← Local simulation
-    // Note: Cloud backends require Azure Quantum workspace configuration
-    
+    // let backend = CloudBackends.CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+
     // Same solver API for all backends
-    solve backend distances defaultConfig
+    solveTsp backend distances
 
 // Use it
 let distances2 = array2D [
@@ -71,7 +74,7 @@ let distances2 = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-match solveTsp distances2 with
+match solveWithChosenBackend distances2 with
 | Ok solution ->
     printfn "Best tour: %A" solution.Tour
     printfn "Tour length: %.2f" solution.TourLength
@@ -81,30 +84,35 @@ match solveTsp distances2 with
 
 ### Uniform Result Format
 
-All backends return the same `TspSolution` type (via `solve`):
+The TSP solver returns the same `QuantumTspSolution` record whichever backend it ran on (abridged):
 
 ```fsharp
-type TspSolution = {
-    /// Optimal tour (city visit order)
-    Tour: int[]
-    
+type QuantumTspSolution = {
+    /// Best tour found (city visit order)
+    Tour: int array
+
     /// Total tour length (distance)
     TourLength: float
-    
-    /// Execution method ("Quantum" or "Classical")
-    Method: string
-    
-    /// Explanation of why this method was chosen
-    Reasoning: string
-    
-    /// Optimized QAOA parameters (γ, β) if quantum
-    OptimizedParameters: float * float
-    
-    /// Whether optimization converged
-    OptimizationConverged: bool
-    
-    /// Number of optimization iterations
-    OptimizationIterations: int
+
+    /// Name of the backend that ran the circuits
+    BackendName: string
+
+    /// Number of measurement shots
+    NumShots: int
+
+    /// Wall-clock time in milliseconds
+    ElapsedMs: float
+
+    /// Optimized QAOA parameters (γ, β), when optimization ran
+    OptimizedParameters: (float * float) option
+
+    /// Whether the optimizer converged, when optimization ran
+    OptimizationConverged: bool option
+
+    /// Number of optimizer iterations, when optimization ran
+    OptimizationIterations: int option
+
+    // ... plus BestEnergy and TopSolutions
 }
 ```
 
@@ -119,29 +127,39 @@ This means:
 For production applications, use configuration to control backend selection:
 
 ```fsharp
-open FSharp.Azure.Quantum.Backends
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open System
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
 module BackendConfig =
-    
+
     type Config =
         | Local
-        // Note: Cloud backends require workspace-specific configuration
-    
-    let getBackend (config: Config) =
+        | IonQ of workspaceUrl: string * target: string
+
+    let getBackend (config: Config) : IQuantumBackend =
         match config with
-        | Local -> 
+        | Local ->
             LocalBackendFactory.createUnified()
-    
+        | IonQ(workspaceUrl, target) ->
+            // DefaultAzureCredential: `az login`, environment variables or managed identity
+            let credential = Authentication.CredentialProviders.createDefaultCredential ()
+            let httpClient = Authentication.createAuthenticatedClient credential
+            CloudBackendFactory.createIonQ httpClient workspaceUrl target 1000
+
     // Load config from environment
     let fromEnvironment () =
-        match System.Environment.GetEnvironmentVariable("QUANTUM_BACKEND") with
+        let backendName = Environment.GetEnvironmentVariable "QUANTUM_BACKEND"
+        let workspaceUrl = Environment.GetEnvironmentVariable "AZURE_QUANTUM_WORKSPACE_URL"
+
+        match backendName with
+        | "ionq" when not (String.IsNullOrWhiteSpace workspaceUrl) -> IonQ(workspaceUrl, "ionq.simulator")
         | _ -> Local  // Default: local simulator
 
 // Usage
 let config = BackendConfig.fromEnvironment ()
 let backend = BackendConfig.getBackend config
-match solve backend distances defaultConfig with
+match solveTsp backend distances with
 | Ok solution -> printfn "Solution: %A" solution
 | Error err -> printfn "Error: %s" err.Message
 ```
@@ -153,29 +171,36 @@ Set backend via environment variable:
 export QUANTUM_BACKEND=local
 dotnet run
 
-# Cloud backends require Azure Quantum workspace configuration
+# IonQ simulator on Azure Quantum (run `az login` first)
+export QUANTUM_BACKEND=ionq
+export AZURE_QUANTUM_WORKSPACE_URL=https://<location>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>
+dotnet run
 ```
 
 ## Unified High-Level API
 
-**Current API** - Already provides unified solving:
+The same pattern holds for the other solvers and algorithms: each takes an `IQuantumBackend` (or an `IQuantumBackend option`, where `None` means the local simulator).
 
 ```fsharp
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum
 
-let backend = LocalBackendFactory.createUnified()  // Local simulation
-match solve backend distances defaultConfig with
-| Ok solution -> 
-    printfn "Tour: %A" solution.Tour
-    printfn "Length: %.2f" solution.TourLength
-| Error err -> 
+// MaxCut with an explicit backend; pass None to use the local simulator
+let square =
+    MaxCut.createProblem
+        [ "A"; "B"; "C"; "D" ]
+        [ ("A", "B", 1.0); ("B", "C", 1.0); ("C", "D", 1.0); ("D", "A", 1.0) ]
+
+match MaxCut.solve square (Some localBackend) with
+| Ok solution ->
+    printfn "Cut value: %.1f" solution.CutValue
+    printfn "Partition S: %A" solution.PartitionS
+| Error err ->
     eprintfn "Error: %s" err.Message
 ```
 
 This API provides:
 - ✅ Unified backend abstraction (local and cloud)
-- ✅ Unified result format
+- ✅ Unified result format per solver
 - ✅ Error handling with Result type
 - ✅ Easy backend switching (one-line change)
 
@@ -196,14 +221,17 @@ This API provides:
 | Scenario | Local | Azure |
 |----------|-------|-------|
 | **Large problems** (beyond simulator width) | ❌ Not supported | ✅ Scales further |
-## Comparison: Local vs Azure
+| **Real hardware noise** | ⚠️ Only a simple depolarizing model (`NoisyLocalBackend`) | ✅ Actual device behaviour |
+| **Hardware results** | ❌ Simulation only | ✅ IonQ, Rigetti, Quantinuum, etc. |
+
+### Feature Comparison
 
 | Feature | Local Simulator | Azure Quantum |
 |---------|----------------|---------------|
-| **Qubit limit** | memory-derived, ≤30 (2ⁿ × 16 bytes) | 100+ qubits (cloud) |
-| **Cost** | Free | Pay per shot |
+| **Qubit limit** | memory-derived, ≤30 (2ⁿ × 16 bytes); solvers run up to 20 by default | Depends on the target device |
+| **Cost** | Free | Pay per shot / job |
 | **Network** | Offline capable | Requires internet |
-| **Speed (3 cities)** | <100ms | Seconds (network + queue) |
+| **Speed (3 cities)** | <100ms | Seconds to minutes (network + queue) |
 | **Use cases** | Development, testing, small problems | Production, large problems, research |
 | **Hardware access** | ❌ Simulation only | ✅ IonQ, Rigetti, etc. |
 
@@ -211,14 +239,14 @@ This API provides:
 
 ### The IQubitLimitedBackend Interface
 
-Some backends have a maximum number of qubits they can handle. The `IQubitLimitedBackend` interface provides a **non-breaking, opt-in extension** to `IQuantumBackend` that lets backends advertise their capacity:
+Some backends have a maximum number of qubits they can handle. The `IQubitLimitedBackend` interface provides a **non-breaking, opt-in extension** to `IQuantumBackend` that lets backends advertise their capacity. Its definition in `BackendAbstraction`:
 
 ```fsharp
 /// Optional interface for backends that have qubit limits.
 /// Inherits from IQuantumBackend — existing backends are unaffected.
 type IQubitLimitedBackend =
     inherit IQuantumBackend
-    
+
     /// Maximum number of qubits this backend supports, or None if unlimited.
     abstract MaxQubits : int option
 ```
@@ -226,7 +254,9 @@ type IQubitLimitedBackend =
 **Key design points:**
 - ✅ **Non-breaking** — backends that don't implement it continue to work unchanged
 - ✅ **Optional** — callers use a type-test pattern to check at runtime
-- ✅ `LocalBackend` implements it with `MaxQubits = Some 20`
+- ✅ `LocalBackend` implements it with `MaxQubits = Some StateVector.maxQubits`, which is derived from available memory (at least 20, at most 30; override with the `FSAQ_MAX_QUBITS` environment variable)
+
+A second optional interface, `IWallClockLimitedBackend`, reports `PracticalQubits`: the widest circuit worth running, as opposed to the widest state that fits in memory. `LocalBackend` reports `StateVector.practicalCircuitQubits` (20 by default; override with `FSAQ_MAX_CIRCUIT_QUBITS`).
 
 ### Querying Backend Limits
 
@@ -234,12 +264,13 @@ Use standard F# pattern matching to check whether a backend reports a qubit limi
 
 ```fsharp
 open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-let backend = LocalBackendFactory.createUnified()
+let limitedBackend = LocalBackendFactory.createUnified()
 
 // Pattern match to discover qubit limits
 let maxQubits =
-    match backend with
+    match limitedBackend with
     | :? IQubitLimitedBackend as lb -> lb.MaxQubits
     | _ -> None
 
@@ -248,62 +279,43 @@ match maxQubits with
 | None   -> printfn "Backend does not report a qubit limit"
 ```
 
-### UnifiedBackend.getMaxQubits Helper
+### UnifiedBackend Helpers
 
-For convenience, `UnifiedBackend` exposes a helper that wraps the pattern-match logic above:
+For convenience, `UnifiedBackend` exposes helpers that wrap the pattern-match logic above:
 
-```fsharp
-module UnifiedBackend =
-    
-    /// Returns the maximum qubit count for a backend, or None if the
-    /// backend does not implement IQubitLimitedBackend.
-    let getMaxQubits (backend: IQuantumBackend) : int option =
-        match backend with
-        | :? IQubitLimitedBackend as lb -> lb.MaxQubits
-        | _ -> None
-```
-
-Usage is straightforward:
+- `UnifiedBackend.getMaxQubits backend` - the `IQubitLimitedBackend` capacity, or `None`
+- `UnifiedBackend.getRunnableQubits backend` - the smaller of capacity and `PracticalQubits`, or `None` when the backend reports neither. Use this one to admit or refuse a problem.
 
 ```fsharp
-open FSharp.Azure.Quantum.Backends
+let capacity = UnifiedBackend.getMaxQubits limitedBackend
+// Some n for LocalBackend, where 20 <= n <= 30 depending on available memory
 
-let backend = LocalBackendFactory.createUnified()
-let limit = UnifiedBackend.getMaxQubits backend
-// limit = Some 20 for LocalBackend
+let runnable = UnifiedBackend.getRunnableQubits limitedBackend
+// Some 20 for LocalBackend with default settings
 ```
 
-### Integration with ProblemDecomposition
+### What Solvers Do With the Limit
 
-`ProblemDecomposition` uses `IQubitLimitedBackend` to **automatically decompose** problems that exceed the backend's qubit capacity. When a problem requires more qubits than the backend can handle, the decomposer splits it into smaller sub-problems, solves each independently, and merges the results:
+Solvers check `UnifiedBackend.getRunnableQubits` before running:
+
+- **TSP** needs N² qubits for N cities. If that exceeds the backend's runnable width, `solve`/`solveAsync` return a `ValidationError` that names the problem size and the limit; they do not split the problem. On the local simulator with default settings that means at most 4 cities.
+- **Vertex cover, clique and matching** use `ProblemDecomposition.solveWithDecomposition`: when the problem is wider than the limit and the graph has several connected components, each component is solved separately on the same backend and the results are merged. A single component that is too wide is still run as a whole.
+- **Set cover, SAT, bin packing and binary ILP** go through the same decomposition entry point, but they do not split problems yet.
 
 ```fsharp
-open FSharp.Azure.Quantum.Backends
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Quantum
 
-let backend = LocalBackendFactory.createUnified()  // MaxQubits = Some 20
-let largeProblem = (* distance matrix for 10+ cities *)
+// Two separate triangles: two connected components
+let twoTriangles : QuantumVertexCoverSolver.Problem =
+    { Vertices = [ for i in 0 .. 5 -> { Id = $"v{i}"; Weight = 1.0 } ]
+      Edges = [ (0, 1); (1, 2); (2, 0); (3, 4); (4, 5); (5, 3) ] }
 
-// ProblemDecomposition checks the backend's qubit limit automatically.
-// If the problem exceeds the limit, it decomposes into sub-problems,
-// solves each within the backend's capacity, and merges the results.
-match solve backend largeProblem defaultConfig with
-| Ok solution ->
-    printfn "Tour: %A" solution.Tour
-    printfn "Length: %.2f" solution.TourLength
-| Error err ->
-    eprintfn "Error: %s" err.Message
+// If the graph were wider than the backend's runnable width, each triangle
+// would be solved on its own and the covers combined.
+match QuantumVertexCoverSolver.solve localBackend twoTriangles 1000 with
+| Ok solution -> printfn "Cover: %A (valid: %b)" (solution.CoverVertices |> List.map _.Id) solution.IsValid
+| Error err -> eprintfn "Error: %s" err.Message
 ```
-
-The decomposition flow:
-
-1. **Check capacity** — calls `UnifiedBackend.getMaxQubits` on the active backend
-2. **Estimate qubit requirement** — computes qubits needed for the given problem size
-3. **Decompose if needed** — splits the problem into chunks that each fit within `MaxQubits`
-4. **Solve sub-problems** — runs QAOA on each chunk using the same backend
-5. **Merge results** — combines sub-solutions into a single `TspSolution`
-
-This is fully transparent to the caller — the same `solve` function handles both small problems (direct execution) and large problems (automatic decomposition).
 
 ## Async Backend Execution
 
@@ -311,32 +323,39 @@ All backends support **Task-based async execution** with `CancellationToken` sup
 
 ### IQuantumBackend Async Interface
 
-```fsharp
-type IQuantumBackend =
-    // Sync (original)
-    abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
-    abstract member ApplyOperation: QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
-    
-    // Async (new)
-    abstract member ExecuteToStateAsync: ICircuit -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
-    abstract member ApplyOperationAsync: QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
-    
-    // Other members...
-    abstract member Name: string
-    abstract member NativeStateType: QuantumStateType
-    abstract member SupportsOperation: QuantumOperation -> bool
-    abstract member InitializeState: int -> Result<QuantumState, QuantumError>
-```
+The interface members, from `BackendAbstraction`:
+
+| Member | Signature |
+|--------|-----------|
+| `ExecuteToState` | `ICircuit -> Result<QuantumState, QuantumError>` |
+| `ApplyOperation` | `QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>` |
+| `ExecuteToStateAsync` | `ICircuit -> CancellationToken -> Task<Result<QuantumState, QuantumError>>` |
+| `ApplyOperationAsync` | `QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>` |
+| `Name` | `string` |
+| `NativeStateType` | `QuantumStateType` |
+| `SupportsOperation` | `QuantumOperation -> bool` |
+| `InitializeState` | `int -> Result<QuantumState, QuantumError>` |
+
+`ICircuit` is the circuit interface in `Core.CircuitAbstraction`; wrap a `CircuitBuilder.Circuit` with `CircuitAbstraction.wrapCircuit`. Local backends complete these tasks synchronously; cloud backends submit a job and poll until it finishes.
 
 ### Async Usage Example
 
 ```fsharp
+open System
 open System.Threading
 open System.Threading.Tasks
-open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+
+// A 2-qubit Bell circuit, wrapped as an ICircuit
+let bell =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
+    |> wrapCircuit
 
 // Use task { } computation expression for async workflows
-let solveAsync (backend: IQuantumBackend) circuit (ct: CancellationToken) =
+let executeAsync (backend: IQuantumBackend) (circuit: ICircuit) (ct: CancellationToken) =
     task {
         let! result = backend.ExecuteToStateAsync circuit ct
         match result with
@@ -346,8 +365,8 @@ let solveAsync (backend: IQuantumBackend) circuit (ct: CancellationToken) =
 
 // Run with cancellation support
 let cts = new CancellationTokenSource(TimeSpan.FromSeconds(30.0))
-let result = 
-    solveAsync backend circuit cts.Token
+let result =
+    executeAsync localBackend bell cts.Token
     |> Async.AwaitTask |> Async.RunSynchronously
 ```
 
@@ -356,32 +375,32 @@ let result =
 Cloud backends benefit most from async since they involve HTTP calls, job submission, and polling:
 
 ```fsharp
-open System.Net.Http
-open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core
 
-// Create cloud backend via factory
-let httpClient = new HttpClient()
-let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+// Create an authenticated cloud backend via the factory
+let workspaceUrl = "https://<location>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
+let ionqBackend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 
 // Async execution avoids blocking threads during cloud I/O
-let executeOnCloud circuit (ct: CancellationToken) =
+let executeOnCloud (circuit: ICircuit) (ct: CancellationToken) =
     task {
-        let! result = backend.ExecuteToStateAsync circuit ct
+        let! result = ionqBackend.ExecuteToStateAsync circuit ct
         return result
     }
 ```
+
+Cloud backends turn the returned measurement histogram into an approximate state, so read results with `Primitives.sample` or `UnifiedBackend.measureState` rather than relying on amplitudes.
 
 ### Parallel Async Execution
 
 Run multiple circuits concurrently using `Task.WhenAll`:
 
 ```fsharp
-open System.Threading
-open System.Threading.Tasks
-
 let executeParallel (backend: IQuantumBackend) (circuits: ICircuit list) (ct: CancellationToken) =
     task {
-        let tasks = 
+        let tasks =
             circuits
             |> List.map (fun c -> backend.ExecuteToStateAsync c ct)
             |> Array.ofList
@@ -390,64 +409,76 @@ let executeParallel (backend: IQuantumBackend) (circuits: ICircuit list) (ct: Ca
     }
 ```
 
+`Primitives.sampleBatchAsync` and `Primitives.observeBatchAsync` do the same for `CircuitBuilder` circuits and return histograms or expectation values.
+
 ### UnifiedBackend Async Helpers
 
 The `UnifiedBackend` module provides higher-level async utilities:
 
 ```fsharp
-open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core
 
-// Apply a sequence of operations asynchronously
-let! result = UnifiedBackend.applySequenceAsync backend operations initialState ct
+// Apply a sequence of operations asynchronously, starting from |00⟩
+let applyBellAsync (backend: IQuantumBackend) (ct: CancellationToken) =
+    task {
+        match backend.InitializeState 2 with
+        | Error err -> return Error err
+        | Ok initialState ->
+            let operations =
+                [ QuantumOperation.Gate(CircuitBuilder.H 0)
+                  QuantumOperation.Gate(CircuitBuilder.CNOT(0, 1)) ]
 
-// Apply with automatic state conversion
-let! result = UnifiedBackend.applyWithConversionAsync backend operation state ct
+            return! UnifiedBackend.applySequenceAsync backend operations initialState ct
+    }
+
+// Apply one operation, converting the state to the backend's native representation if needed
+let applyXAsync (backend: IQuantumBackend) (state: QuantumState) (ct: CancellationToken) =
+    UnifiedBackend.applyWithConversionAsync backend (QuantumOperation.Gate(CircuitBuilder.X 0)) state ct
 ```
 
 ## Cloud Backend Factory
 
-Create cloud backends for different quantum hardware providers:
+Create cloud backends for different quantum hardware providers. Each factory function takes an authenticated `HttpClient`, the workspace URL, a target name and a shot count:
 
 ```fsharp
-open System.Net.Http
-open FSharp.Azure.Quantum.Backends
-
-let httpClient = new HttpClient()
-let workspaceUrl = "https://your-workspace.quantum.azure.com"
-
 // Rigetti (superconducting qubits)
-let rigetti = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.qvm" 1000
+let rigetti = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.sim.qvm" 1000
 
 // IonQ (trapped ions)
 let ionq = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 
 // Quantinuum (trapped ions)
-let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.h1-1" 1000
+let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.sim.h1-1sc" 1000
 
-// AtomComputing (neutral atoms)
-let atomComputing = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atomcomputing.phoenix" 1000
+// Atom Computing (neutral atoms)
+let atomComputing = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atom-computing.sim" 1000
+
+// IQM (superconducting qubits)
+let iqm = CloudBackendFactory.createIqm httpClient workspaceUrl "iqm.sim" 1000
 ```
 
-All cloud backends implement the same `IQuantumBackend` interface (sync and async), so they are fully interchangeable with `LocalBackend`.
+Hardware targets follow the same pattern, for example `"ionq.qpu.aria-1"`, `"rigetti.qpu.ankaa-3"`, `"quantinuum.qpu.h1-1"`, `"atom-computing.qpu.phoenix"` or `"iqm.qpu.garnet"`; check your workspace for the targets it offers. `CloudBackendFactory.createRigettiRouted` additionally takes a device coupling map and inserts SWAP gates so two-qubit gates respect the hardware connectivity.
+
+All cloud backends implement the same `IQuantumBackend` interface (sync and async), so they are interchangeable with `LocalBackend`.
 
 ## Summary
 
 **Current Implementation:**
-- ✅ **Local simulation**: Fully functional (memory-derived width, ~4 cities for TSP)
-- ✅ **Unified API**: Same `solve` function for all backends (sync and async)
+- ✅ **Local simulation**: Fully functional (memory-derived width; TSP up to 4 cities with default settings)
+- ✅ **Unified API**: The same solver calls work with every backend (sync and async)
 - ✅ **Async support**: Task-based async with CancellationToken on all backends
-- ✅ **Cloud backends**: Rigetti, IonQ, Quantinuum, AtomComputing via CloudBackendFactory
-- ⚠️ **Cloud integration**: Requires Azure Quantum workspace configuration
+- ✅ **Cloud backends**: Rigetti, IonQ, Quantinuum, Atom Computing and IQM via `CloudBackends.CloudBackendFactory`
+- ⚠️ **Cloud integration**: Requires Azure Quantum workspace configuration and credentials
 
 **Key Achievement:**
 Backend switching is a **one-line code change** - no refactoring needed!
 
 ```fsharp
 // Local simulation:
-let backend = LocalBackendFactory.createUnified()
+let chosenBackend = LocalBackendFactory.createUnified()
 
 // Everything else stays the same!
-match solve backend distances defaultConfig with
+match solveTsp chosenBackend distances with
 | Ok solution -> printfn "Solution: %A" solution
 | Error err -> eprintfn "Error: %s" err.Message
 ```
@@ -457,7 +488,6 @@ match solve backend distances defaultConfig with
 - ✅ Test locally without Azure credentials
 - ✅ No code changes needed to switch backends
 - ✅ Same result format for analysis/visualization
-- ✅ Production-ready quantum solving
 - ✅ Async execution for non-blocking cloud I/O
 
 ## Next Steps
@@ -468,5 +498,5 @@ match solve backend distances defaultConfig with
 
 ---
 
-**Last Updated**: 2026-02-22  
+**Last Updated**: 2026-09-29  
 **Status**: Current - Local and cloud backends supported with sync and async APIs
