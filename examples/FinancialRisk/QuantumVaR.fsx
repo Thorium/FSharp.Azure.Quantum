@@ -715,12 +715,12 @@ let printTable () =
             (r.VaR.ToString "N0")
             (r.VaRPercent * 100.0)
             "OK"
-    | Error _ -> printfn "  %-32s %15s %10s %8s" "Classical Parametric (Normal)" "â€”" "â€”" "FAIL"
+    | Error _ -> printfn "  %-32s %15s %10s %8s" "Classical Parametric (Normal)" "—" "—" "FAIL"
 
     match historicalVaRResult with
     | Ok r ->
         printfn "  %-32s $%14s %9.2f%% %8s" "Classical Historical Sim" (r.VaR.ToString "N0") (r.VaRPercent * 100.0) "OK"
-    | Error _ -> printfn "  %-32s %15s %10s %8s" "Classical Historical Sim" "â€”" "â€”" "FAIL"
+    | Error _ -> printfn "  %-32s %15s %10s %8s" "Classical Historical Sim" "—" "—" "FAIL"
 
     if not (Double.IsNaN quantumVaRValue) then
         printfn
@@ -730,7 +730,7 @@ let printTable () =
             (quantumVaRValue / portfolioValue * 100.0)
             "OK"
     else
-        printfn "  %-32s %15s %10s %8s" "QUANTUM Amplitude Estimation" "â€”" "â€”" "FAIL"
+        printfn "  %-32s %15s %10s %8s" "QUANTUM Amplitude Estimation" "—" "—" "FAIL"
 
     printfn "  %s" divider2
     printfn ""

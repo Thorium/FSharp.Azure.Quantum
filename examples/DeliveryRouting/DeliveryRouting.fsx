@@ -15,15 +15,16 @@ Actual addresses in NYC area converted to GPS coordinates. Distances calculated 
 Haversine formula (great-circle distance on Earth's surface).
 
 **Mathematical Formulation**:
-- Variables: Binary xáµ¢â±¼ (1 if edge iâ†’j is in tour, 0 otherwise)
-- Objective: Minimize Î£áµ¢â±¼ dáµ¢â±¼ Ã— xáµ¢â±¼ (total distance)
+- Variables: Binary xᵢⱼ (1 if edge i→j is in tour, 0 otherwise)
+- Objective: Minimize Σᵢⱼ dᵢⱼ × xᵢⱼ (total distance)
 - Constraints: Each city visited exactly once, no subtours
 
-**Expected Performance**:
-- Classical solver: < 100ms for 16 stops
+**Expected Performance** (built-in data, 16 stops):
+- Classical solver (nearest-neighbour + 2-opt heuristic): < 100ms
 - Quantum solver: Potential advantage for 50+ cities
-- Solution quality: Within 5-10% of optimal
-- Typical improvement: 20-30% better than naive route
+- Solution quality: 308 km, 3.2% longer than the exact optimum (298 km, Held-Karp);
+  a heuristic, so near-optimal but not guaranteed optimal
+- Improvement: 23.2% shorter than the naive closed tour (401 km, stops in given order)
 
 **Quantum-Ready**: This example uses the HybridSolver which automatically routes
 between classical (fast, free) and quantum (scalable) solvers based on problem size.
@@ -51,19 +52,19 @@ Classical heuristics (nearest neighbor, 2-opt, Lin-Kernighan) find good solution
 quickly, while exact methods (branch-and-bound, dynamic programming) guarantee
 optimality but scale exponentially.
 
-TSP maps to QUBO using binary variables xáµ¢,â‚œ âˆˆ {0,1} indicating city i is visited
-at time t. Constraints ensure: (1) each city visited once: Î£â‚œ xáµ¢,â‚œ = 1, (2) each
-time has one city: Î£áµ¢ xáµ¢,â‚œ = 1. The objective minimizes Î£áµ¢â±¼â‚œ dáµ¢â±¼Â·xáµ¢,â‚œÂ·xâ±¼,â‚œâ‚Šâ‚.
+TSP maps to QUBO using binary variables xᵢ,ₜ ∈ {0,1} indicating city i is visited
+at time t. Constraints ensure: (1) each city visited once: Σₜ xᵢ,ₜ = 1, (2) each
+time has one city: Σᵢ xᵢ,ₜ = 1. The objective minimizes Σᵢⱼₜ dᵢⱼ·xᵢ,ₜ·xⱼ,ₜ₊₁.
 This quadratic form suits QAOA, which explores tours in superposition. The Vehicle
 Routing Problem (VRP) generalizes TSP to multiple vehicles with capacity constraints.
 
 Key Equations:
-  - Tour length: L = Î£â‚–â‚Œâ‚â¿ d(Ï€â‚–, Ï€â‚–â‚Šâ‚) where Ï€ is a permutation of cities
-  - QUBO variables: xáµ¢,â‚œ = 1 iff city i visited at position t
-  - Row constraint: Î£â‚œ xáµ¢,â‚œ = 1 for each city i
-  - Column constraint: Î£áµ¢ xáµ¢,â‚œ = 1 for each time t
-  - Objective: Î£áµ¢â±¼â‚œ dáµ¢â±¼Â·xáµ¢,â‚œÂ·xâ±¼,â‚œâ‚Šâ‚ (distance between consecutive cities)
-  - Held-Karp DP: O(nÂ²Â·2â¿) exact solution (classical baseline)
+  - Tour length: L = Σₖ₌₁ⁿ d(πₖ, πₖ₊₁) where π is a permutation of cities
+  - QUBO variables: xᵢ,ₜ = 1 iff city i visited at position t
+  - Row constraint: Σₜ xᵢ,ₜ = 1 for each city i
+  - Column constraint: Σᵢ xᵢ,ₜ = 1 for each time t
+  - Objective: Σᵢⱼₜ dᵢⱼ·xᵢ,ₜ·xⱼ,ₜ₊₁ (distance between consecutive cities)
+  - Held-Karp DP: O(n²·2ⁿ) exact solution (classical baseline)
 
 Quantum Advantage:
   TSP is a prime target for quantum optimization. QAOA can explore the tour space
@@ -374,7 +375,7 @@ let printRoute (label: string) (route: Route) (perf: Performance) (method: strin
         | None -> ()
 
         match perf.Improvement with
-        | Some improvement -> printfn "  Improvement: %.1f%% better than naive route" improvement
+        | Some improvement -> printfn "  Improvement: %.1f%% shorter than the naive tour" improvement
         | None -> ()
 
         printfn "\n  Route:"
@@ -440,33 +441,92 @@ let solveWithHybridSolver (locations: Location list) : Result<(Route * Performan
         Ok(route, perf, solution.Reasoning)
     | Error err -> Error $"HybridSolver failed: %s{err.Message}"
 
-/// Calculate naive route (just visit in given order) for baseline
+/// Naive baseline: visit the locations in the given order and return to the
+/// first one, a closed tour like the solver's, so the two compare like for like.
 let calculateNaiveRoute (locations: Location list) : Route =
-    let distance = calculateRouteDistance locations
+    let path = locations @ [ List.head locations ]
+    let distance = calculateRouteDistance path
     let time = estimateDrivingTime distance
 
     {
-        Path = locations
+        Path = path
         TotalDistance = distance
         TotalTime = time
     }
+
+/// Largest instance (depot included) solved exactly; the Held-Karp table has
+/// 2^(n-1) x (n-1) entries, which stays cheap up to 16 locations.
+[<Literal>]
+let heldKarpMaxStops = 16
+
+/// Shortest closed tour from the first location, by Held-Karp dynamic
+/// programming (exact, O(n²·2ⁿ) time). None above heldKarpMaxStops locations.
+let exactShortestTour (locations: Location list) : Route option =
+    let n = List.length locations
+
+    if n < 3 || n > heldKarpMaxStops then
+        None
+    else
+        let d = buildDistanceMatrix locations
+        // Location k + 1 is bit k of a subset mask; location 0 is the start.
+        let m = n - 1
+        let full = (1 <<< m) - 1
+        let cost = Array2D.create (full + 1) m infinity
+        let parent = Array2D.create (full + 1) m -1
+
+        for k in 0 .. m - 1 do
+            cost.[1 <<< k, k] <- d.[0, k + 1]
+
+        for mask in 1..full do
+            for k in 0 .. m - 1 do
+                let c = cost.[mask, k]
+
+                if (mask >>> k) &&& 1 = 1 && c < infinity then
+                    for next in 0 .. m - 1 do
+                        if (mask >>> next) &&& 1 = 0 then
+                            let nextMask = mask ||| (1 <<< next)
+                            let nextCost = c + d.[k + 1, next + 1]
+
+                            if nextCost < cost.[nextMask, next] then
+                                cost.[nextMask, next] <- nextCost
+                                parent.[nextMask, next] <- k
+
+        let last = [ 0 .. m - 1 ] |> List.minBy (fun k -> cost.[full, k] + d.[k + 1, 0])
+
+        let rec walk mask k acc =
+            if k < 0 then
+                acc
+            else
+                walk (mask ^^^ (1 <<< k)) parent.[mask, k] (k + 1 :: acc)
+
+        let start = List.head locations
+
+        let path =
+            start :: (walk full last [] |> List.map (fun i -> locations.[i])) @ [ start ]
+
+        let distance = calculateRouteDistance path
+
+        Some
+            {
+                Path = path
+                TotalDistance = distance
+                TotalTime = estimateDrivingTime distance
+            }
 
 // ============================================================================
 // Main Execution (Side effects isolated at top level)
 // ============================================================================
 
 if not quiet then
-    printfn
-        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn "╔═══════════════════════════════════════════════════════════════╗"
 
-    printfn "â•‘     QuickShip Logistics - Delivery Route Optimization        â•‘"
+    printfn "║     QuickShip Logistics - Delivery Route Optimization         ║"
 
-    printfn
-        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    printfn "╚═══════════════════════════════════════════════════════════════╝"
 
     printfn ""
     printfn "Business Problem:"
-    printfn "  Optimize daily delivery route for 15 customers in NYC area"
+    printfn "  Optimize daily delivery route for %d customers" customers.Length
     printfn "  Starting point: %s" warehouse.Name
     printfn "  Customers: %d stops" customers.Length
     printfn ""
@@ -475,14 +535,14 @@ if not quiet then
 let naiveRoute = calculateNaiveRoute allStops
 
 if not quiet then
-    printfn "ðŸ“Š Baseline Analysis:"
-    printfn "  Naive route (visit in given order):"
+    printfn "📊 Baseline Analysis:"
+    printfn "  Naive route (visit in given order, then return to the depot):"
     printfn "    Distance: %s" (formatDistance naiveRoute.TotalDistance)
     printfn "    Est. Time: %s" (formatTime naiveRoute.TotalTime)
 
 // Solve with hybrid optimization (quantum-ready)
 if not quiet then
-    printfn "\nâš™ï¸  Solving with HybridSolver (Quantum-Ready Optimization)..."
+    printfn "\n⚙️  Solving with HybridSolver (Quantum-Ready Optimization)..."
 
 let solverResult = solveWithHybridSolver allStops
 
@@ -500,31 +560,30 @@ let resultRoute, resultPerf, resultSolver =
             }
 
         if not quiet then
-            printfn "\nðŸ’¡ Solver Decision: %s" reasoning
-            printRoute "âœ… Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
+            printfn "\n💡 Solver Decision: %s" reasoning
+            printRoute "✅ Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
 
             // Business insights
-            printfn "\nðŸ’¡ Business Impact:"
-            let fuelSavings = improvement
+            printfn "\n💡 Business Impact:"
             let timeSavings = naiveRoute.TotalTime - optimizedRoute.TotalTime
 
             printfn
-                "  â€¢ %.1f km shorter route (%.1f%% reduction)"
+                "  • %.1f km shorter route (%.1f%% reduction)"
                 (naiveRoute.TotalDistance - optimizedRoute.TotalDistance)
                 improvement
 
-            printfn "  â€¢ %s faster delivery" (formatTime timeSavings)
-            printfn "  â€¢ Estimated fuel savings: %.1f%% per day" fuelSavings
+            printfn "  • %s faster delivery" (formatTime timeSavings)
+            printfn "  • Fuel: %.1f%% less per day, if fuel use scales with distance" improvement
 
             printfn
-                "  â€¢ Annual impact (250 work days): ~%.0f km saved"
+                "  • Annual impact (250 work days): ~%.0f km saved"
                 ((naiveRoute.TotalDistance - optimizedRoute.TotalDistance) * 250.0)
 
         (optimizedRoute, perfWithImprovement, "HybridSolver")
 
     | Error msg ->
         if not quiet then
-            printfn "âŒ Optimization failed: %s" msg
+            printfn "❌ Optimization failed: %s" msg
             printfn "\nUsing baseline naive route"
 
         let perf =
@@ -539,14 +598,36 @@ let resultRoute, resultPerf, resultSolver =
 
         (naiveRoute, perf, "Fallback (naive)")
 
+// Exact optimum for small instances, to measure how far the heuristic tour is from it.
+let exactTimer = Diagnostics.Stopwatch.StartNew()
+let exactRoute = exactShortestTour allStops
+exactTimer.Stop()
+
+/// Percent by which the chosen route is longer than the exact optimum.
+let gapToOptimal =
+    exactRoute
+    |> Option.map (fun best -> (resultRoute.TotalDistance - best.TotalDistance) / best.TotalDistance * 100.0)
+
 // Additional Analysis
 if not quiet then
-    printfn "\nðŸ“ˆ Route Statistics:"
-    printfn "  Total stops: %d" allStops.Length
-    printfn "  Average distance between stops: %.1f km" (naiveRoute.TotalDistance / float allStops.Length)
+    let legs = resultRoute.Path.Length - 1
+    printfn "\n📈 Route Statistics:"
+    printfn "  Total stops: %d (depot + %d customers)" allStops.Length customers.Length
+    printfn "  Average leg on the chosen route: %.1f km (%d legs)" (resultRoute.TotalDistance / float legs) legs
 
-    printfn "\nâœ¨ Note: This example uses HybridSolver with automatic classical/quantum routing."
-    printfn "   Current problem size (16 cities) â†’ Classical solver (fast, optimal for <50 cities)"
+    match exactRoute, gapToOptimal with
+    | Some best, Some gap ->
+        printfn
+            "  Exact optimum (Held-Karp, %.0fms): %s; the chosen route is %.1f%% longer"
+            exactTimer.Elapsed.TotalMilliseconds
+            (formatDistance best.TotalDistance)
+            gap
+    | _ -> printfn "  Exact optimum: not computed above %d locations" heldKarpMaxStops
+
+    printfn "\n✨ Note: This example uses HybridSolver with automatic classical/quantum routing."
+
+    printfn "   Its classical solver is nearest-neighbour + 2-opt: a fast heuristic that gives"
+    printfn "   near-optimal tours but does not guarantee the optimum."
     printfn "   For larger problems (50+ cities), quantum solvers may provide advantages."
     printfn ""
 
@@ -555,7 +636,7 @@ if not quiet then
 // ==============================================================================
 
 let routeStops =
-    resultRoute.Path |> List.map (fun loc -> loc.Name) |> String.concat " â†’ "
+    resultRoute.Path |> List.map (fun loc -> loc.Name) |> String.concat " → "
 
 let resultRows: Map<string, string> list =
     [
@@ -571,6 +652,14 @@ let resultRows: Map<string, string> list =
                 | None -> "N/A"
                 "solution_time_ms", $"%.0f{resultPerf.SolutionTime.TotalMilliseconds}"
                 "naive_distance_km", $"%.2f{naiveRoute.TotalDistance}"
+                "optimal_distance_km",
+                match exactRoute with
+                | Some best -> $"%.2f{best.TotalDistance}"
+                | None -> "N/A"
+                "gap_to_optimal_pct",
+                match gapToOptimal with
+                | Some gap -> $"%.1f{gap}"
+                | None -> "N/A"
                 "route", routeStops
             ]
     ]
@@ -594,6 +683,8 @@ match csvPath with
             "improvement_pct"
             "solution_time_ms"
             "naive_distance_km"
+            "optimal_distance_km"
+            "gap_to_optimal_pct"
             "route"
         ]
 
@@ -792,6 +883,10 @@ let drawDeliveryPicture (file: string) =
         animate = [ ("stroke-dashoffset", drivenPx |> Array.map (fun d -> num (tourPx - d))) ]
     )
 
+    let depotX, depotY = points.[0]
+    pic.Rect(depotX - 7.0, depotY - 7.0, 14.0, 14.0, fill = ink, rx = 2.0)
+    pic.Text(depotX - 11.0, depotY - 8.0, "Depot", size = 10.0, bold = true, anchor = "end")
+
     // Stops: numbered in visit order, green once the van has reached them.
     for s in 1 .. n - 1 do
         let x, y = points.[s]
@@ -814,26 +909,36 @@ let drawDeliveryPicture (file: string) =
 
             pic.Text(x, y + 3.2, string s, size = 9.0, anchor = "middle", bold = true)
 
-    let depotX, depotY = points.[0]
-    pic.Rect(depotX - 7.0, depotY - 7.0, 14.0, 14.0, fill = ink, rx = 2.0)
-    pic.Text(depotX + 11.0, depotY - 8.0, "Depot", size = 10.0, bold = true)
-
     // The van: a small side view, facing the way it drives.
     let van (x: float, y: float) (facing: float) =
-        let d v = num (v * facing)
+        let size = 1.3
+        let d v = num (v * facing * size)
+        let s v = num (v * size)
 
         sprintf
-            "M%s %s v-8 h%s v2 h%s l%s 3 v3 z m%s 0 a2 2 0 1 0 %s 0 a2 2 0 1 0 %s 0 m%s 0 a2 2 0 1 0 %s 0 a2 2 0 1 0 %s 0"
-            (num (x - 9.0 * facing))
-            (num (y + 3.0))
+            "M%s %s v%s h%s v%s h%s l%s %s v%s z m%s 0 a%s %s 0 1 0 %s 0 a%s %s 0 1 0 %s 0 m%s 0 a%s %s 0 1 0 %s 0 a%s %s 0 1 0 %s 0"
+            (num (x - 9.0 * facing * size))
+            (num (y + 3.0 * size))
+            (s -8.0)
             (d 10.0)
+            (s 2.0)
             (d 4.0)
             (d 3.0)
+            (s 3.0)
+            (s 3.0)
             (d 4.0)
+            (s 2.0)
+            (s 2.0)
             (d 4.0)
+            (s 2.0)
+            (s 2.0)
             (d -4.0)
             (d 9.0)
+            (s 2.0)
+            (s 2.0)
             (d 4.0)
+            (s 2.0)
+            (s 2.0)
             (d -4.0)
 
     let facings =
@@ -849,7 +954,7 @@ let drawDeliveryPicture (file: string) =
     pic.Path(vans.[0], stroke = "white", width = 1.0, fill = accent, shapes = vans)
 
     // Visit list: the stop the van is heading for is shaded.
-    let listX, listTop = 300.0, 92.0
+    let listX, listTop = 300.0, 102.0
     let rowH = min 21.0 (340.0 / float (max 1 (n - 1)))
     let rowY s = listTop + float (s - 1) * rowH
 
@@ -883,23 +988,23 @@ let drawDeliveryPicture (file: string) =
                 stops.[s].Name
 
         let reached = Array.init frames (fun f -> f >= reachedFrame.[s])
-        pic.Text(listX, y, string s, size = 11.0, fill = grey)
+        pic.FrameText(listX, y, reached |> Array.map (fun r -> if r then "" else string s), size = 11.0, fill = grey)
 
         pic.FrameText(
-            listX + 20.0,
+            listX,
             y,
-            reached |> Array.map (fun r -> if r then "✓" else ""),
-            size = 12.0,
+            reached |> Array.map (fun r -> if r then string s else ""),
+            size = 11.0,
             fill = served,
             bold = true
         )
 
-        pic.FrameText(listX + 36.0, y, reached |> Array.map (fun r -> if r then "" else name), size = 11.5, fill = grey)
-        pic.FrameText(listX + 36.0, y, reached |> Array.map (fun r -> if r then name else ""), size = 11.5)
+        pic.FrameText(listX + 26.0, y, reached |> Array.map (fun r -> if r then "" else name), size = 11.5, fill = grey)
+        pic.FrameText(listX + 26.0, y, reached |> Array.map (fun r -> if r then name else ""), size = 11.5)
         pic.Text(736.0, y, clock atKm.[s], size = 11.0, fill = grey, anchor = "end")
 
     // Clock and odometer.
-    let statsY = listTop + 340.0 + 22.0
+    let statsY = listTop + 340.0 + 14.0
 
     pic.FrameText(
         listX,
@@ -968,7 +1073,7 @@ let drawDeliveryPicture (file: string) =
         fill = grey
     )
 
-    pic.Save file
+    pic.Save(file, quiet = quiet)
 
 match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "delivery-routing.svg")) with
 | Some file -> drawDeliveryPicture file
@@ -979,7 +1084,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "delivery-routin
 // ==============================================================================
 
 if argv.Length = 0 && not quiet then
-    printfn "ðŸ’¡ Tip: Run with --help to see all options:"
+    printfn "💡 Tip: Run with --help to see all options:"
     printfn "   dotnet fsi DeliveryRouting.fsx -- --help"
     printfn "   dotnet fsi DeliveryRouting.fsx -- --input locations.csv --output route.json"
     printfn "   dotnet fsi DeliveryRouting.fsx -- --quiet --output route.json  (pipeline mode)"

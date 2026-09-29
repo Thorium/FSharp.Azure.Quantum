@@ -387,7 +387,10 @@ module Visualization =
 
         // Time axis
         let maxTime = solution.Makespan.TotalMinutes
-        let numTicks = min 20 (int (maxTime / timeScale))
+        // At most 20 ticks: a longer schedule widens the tick (to whole 5 minutes)
+        // rather than cutting off its later tasks.
+        let timeScale = max timeScale (5.0 * Math.Ceiling(maxTime / 20.0 / 5.0))
+        let numTicks = min 20 (int (Math.Ceiling(maxTime / timeScale)))
         let tickWidth = 3
 
         sb.Append("║ Task         |") |> ignore
@@ -520,7 +523,12 @@ module Evidence =
             Aircraft: Aircraft
             Number: int
             Visits: Visit list
-            Samples: (float * Ev.P3)[]
+            /// The sampled track, built only when read: the dispatcher tries
+            /// many sorties whose timing already rules them out.
+            LazySamples: Lazy<(float * Ev.P3)[]>
+            /// MISSION_START and touchdown: the track's first and last sample times.
+            LaunchS: float
+            LandS: float
             /// Payload of all the sortie's tasks, carried from launch.
             PayloadKg: float
             DistanceKm: float
@@ -530,6 +538,9 @@ module Evidence =
             /// (arrival, departure) at each visit, in visit order.
             Stays: (float * float) list
         }
+
+        /// Where the aircraft is, when (a straight line between samples).
+        member s.Samples = s.LazySamples.Value
 
     /// One way of flying the schedule with a given fleet.
     type Outcome =
@@ -715,15 +726,14 @@ module Evidence =
         let top = overPad a first.Pos
         // NAV_TAKEOFF: the climb ends without a hold, so no settle sample.
         let atTop = climbFrom + flyS a a.Pad top
-        let climb = legSamples a climbFrom a.Pad top
-        let climb = List.truncate (climb.Length - 1) climb
 
-        // `path`: the waypoints and hold ends (distance and energy);
-        // `track`: with the S-curve ramps and orbits (separation).
-        let path, track, clock, pos, late =
+        // `path`: the waypoints and hold ends (distance and energy); `legs`:
+        // each leg's start and its task's arrival and departure, from which
+        // `track` (with the S-curve ramps and orbits) is built when needed.
+        let path, legs, clock, pos, late =
             visits
             |> List.fold
-                (fun (path, track, clock, pos, late) (v: Visit) ->
+                (fun (path, legs, clock, pos, late) (v: Visit) ->
                     let arrive = clock + travelS a pos v.Pos
                     let leave = max arrive v.EndS
 
@@ -734,30 +744,40 @@ module Evidence =
                             late
 
                     (path @ [ (arrive, v.Pos); (leave, v.Pos) ],
-                     track @ legSamples a clock pos v.Pos @ holdSamples a arrive leave v.Pos,
+                     (clock, pos, arrive, leave, v.Pos) :: legs,
                      leave,
                      v.Pos,
                      late))
-                ([ (launch, a.Pad); (climbFrom, a.Pad); (atTop, top) ],
-                 [ (launch, a.Pad); (climbFrom, a.Pad) ] @ climb,
-                 atTop,
-                 top,
-                 [])
+                ([ (launch, a.Pad); (climbFrom, a.Pad); (atTop, top) ], [], atTop, top, [])
 
         let above = overPad a pos
         let overAt = clock + homeS a pos
         let down = overAt + Mav.Flight.landingS (vehicleOf a) pos.Z
         let path = path @ [ (overAt, above); (down, a.Pad) ] |> Array.ofList
 
-        // A fixed-wing's leg home is one straight line, flown slower for the
-        // approach; a copter's goes through its S-curve ramps.
-        let home =
-            if a.FixedWing then
-                [ (overAt, above) ]
-            else
-                legSamples a clock pos above
+        let track =
+            lazy
+                (let climb = legSamples a climbFrom a.Pad top
 
-        let track = track @ home @ [ (down, a.Pad) ] |> Array.ofList
+                 // A fixed-wing's leg home is one straight line, flown slower
+                 // for the approach; a copter's goes through its S-curve ramps.
+                 let home =
+                     if a.FixedWing then
+                         [ (overAt, above) ]
+                     else
+                         legSamples a clock pos above
+
+                 [
+                     yield (launch, a.Pad)
+                     yield (climbFrom, a.Pad)
+                     yield! List.truncate (climb.Length - 1) climb
+                     for start, from, arrive, leave, at in List.rev legs do
+                         yield! legSamples a start from at
+                         yield! holdSamples a arrive leave at
+                     yield! home
+                     yield (down, a.Pad)
+                 ]
+                 |> Array.ofList)
 
         let payload = visits |> List.sumBy (fun v -> v.PayloadKg)
         let pairs = path |> Array.pairwise
@@ -766,7 +786,9 @@ module Evidence =
             Aircraft = a
             Number = number
             Visits = visits
-            Samples = track
+            LazySamples = track
+            LaunchS = launch
+            LandS = down
             PayloadKg = payload
             DistanceKm =
                 pairs
@@ -941,7 +963,7 @@ module Evidence =
     /// Airborne minutes vs. minutes the battery gives above reserve at the
     /// sortie's mean power (DroneDomain.estimateRemainingFlightTime).
     let private timeLeg (s: Sortie) =
-        let airS = fst (Array.last s.Samples) - fst s.Samples.[0]
+        let airS = s.LandS - s.LaunchS
         let meanW = if airS > 0.0 then s.EnergyWh * 3600.0 / airS else 0.0
         (describe s, airS / 60.0, estimateRemainingFlightTime s.Aircraft.Drone.BatteryCapacityWh 100.0 meanW)
 

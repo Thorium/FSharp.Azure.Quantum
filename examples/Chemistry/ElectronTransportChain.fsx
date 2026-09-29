@@ -1,5 +1,5 @@
 ﻿// ==============================================================================
-// Electron Transport Chain â€” Redox Pair Comparison
+// Electron Transport Chain — Redox Pair Comparison
 // ==============================================================================
 // Compares electron transfer energetics across multiple redox pairs using VQE,
 // ranking them by Marcus theory electron transfer rate.
@@ -186,8 +186,8 @@ let hartreeToKcalMol = 627.509
 // ==============================================================================
 // BUILT-IN REDOX PAIR PRESETS
 // ==============================================================================
-// Each pair models a 1-electron oxidation: neutral molecule â†’ cation + e-.
-// Real ETC carriers (cytochrome Fe2+â†’Fe3+, ubiquinone, Fe-S clusters) are too
+// Each pair models a 1-electron oxidation: neutral molecule → cation + e-.
+// Real ETC carriers (cytochrome Fe2+→Fe3+, ubiquinone, Fe-S clusters) are too
 // large for NISQ. These small-molecule analogues capture the same physics:
 // VQE on two charge states to get the ionization energy.
 
@@ -235,7 +235,7 @@ let private lihPair: RedoxPair =
         ReducedMolecule = reduced
         OxidizedMolecule = oxidized
         BiologicalAnalogue = "Metal-ligand bond (Fe-N in heme)"
-        Description = "Lithium hydride ionization â€” metal-ligand 1e- transfer model"
+        Description = "Lithium hydride ionization — metal-ligand 1e- transfer model"
     }
 
 /// HF: strongly polar bond with high ionization energy. Models electron
@@ -281,7 +281,7 @@ let private hfPair: RedoxPair =
         ReducedMolecule = reduced
         OxidizedMolecule = oxidized
         BiologicalAnalogue = "High-potential carrier (cyt a3, E0 +0.55V)"
-        Description = "Hydrogen fluoride ionization â€” high-potential 1e- transfer model"
+        Description = "Hydrogen fluoride ionization — high-potential 1e- transfer model"
     }
 
 /// H2: homonuclear diatomic, lowest ionization energy among presets.
@@ -328,7 +328,7 @@ let private h2Pair: RedoxPair =
         ReducedMolecule = reduced
         OxidizedMolecule = oxidized
         BiologicalAnalogue = "Low-potential donor (NADH, E0 -0.32V)"
-        Description = "Hydrogen ionization â€” low-potential 1e- donor model"
+        Description = "Hydrogen ionization — low-potential 1e- donor model"
     }
 
 /// H2O: lone-pair ionization removes a non-bonding electron. Models
@@ -695,7 +695,7 @@ let private computeSystem
 
     if not quiet then
         if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure â€” energies are unreliable)"
+            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
         else
             printfn "         => IE = %.4f eV  |  k_ET = %.2e /s" ieEv rate
 
@@ -782,7 +782,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-system progress output).
 printTable ()
 

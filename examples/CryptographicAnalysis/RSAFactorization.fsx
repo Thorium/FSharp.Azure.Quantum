@@ -13,7 +13,7 @@
 ===============================================================================
 
 Shor's algorithm (1994) is the most famous quantum algorithm, demonstrating
-exponential speedup for integer factorizationâ€”the problem underlying RSA
+exponential speedup for integer factorization—the problem underlying RSA
 encryption security. Given a composite number N = p x q, classical algorithms
 require O(exp(n^(1/3))) time (number field sieve) where n = log N, while Shor's
 algorithm runs in O(n^3) time. This means a sufficiently large quantum computer

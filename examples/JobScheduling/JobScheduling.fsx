@@ -174,14 +174,12 @@ let productionJobs =
 // ==============================================================================
 
 if not quiet then
-    printfn
-        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 
-    printfn "â•‘              JOB SCHEDULING WITH QUANTUM OPTIMIZATION                        â•‘"
-    printfn "â•‘              Resource-Constrained Scheduling via QUBO/QAOA                   â•‘"
+    printfn "║              JOB SCHEDULING WITH QUANTUM OPTIMIZATION                        ║"
+    printfn "║              Resource-Constrained Scheduling via QUBO/QAOA                   ║"
 
-    printfn
-        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 
     printfn ""
     printfn "Problem: Schedule %d jobs with resource capacity constraints" productionJobs.Length
@@ -301,19 +299,16 @@ let scheduleResult: (Solution * float * float * float) option =
             // RESULTS - Schedule Report
             // ==============================================================================
 
-            printfn
-                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 
-            printfn "â•‘                       JOB SCHEDULE REPORT                                    â•‘"
+            printfn "║                       JOB SCHEDULE REPORT                                    ║"
 
-            printfn
-                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+            printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 
             printfn ""
             printfn "SCHEDULE BY JOB:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
             // Sort assignments by start time
             let sortedAssignments = schedule.Assignments |> List.sortBy (fun a -> a.StartTime)
@@ -341,8 +336,7 @@ let scheduleResult: (Solution * float * float * float) option =
             printfn ""
             printfn "PERFORMANCE SUMMARY:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
             printfn "  Total Jobs:            %d" productionJobs.Length
             printfn "  Makespan:              %.1f hours" (schedule.Makespan.TotalHours)
@@ -380,20 +374,17 @@ let scheduleResult: (Solution * float * float * float) option =
                 0.0
 
         if not quiet then
-            printfn
-                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 
-            printfn "â•‘                       BUSINESS IMPACT ANALYSIS                               â•‘"
+            printfn "║                       BUSINESS IMPACT ANALYSIS                               ║"
 
-            printfn
-                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+            printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 
             printfn ""
 
             printfn "TIME ANALYSIS:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
             printfn "  Sequential Time (1 machine):   %.1f hours" sequentialHours
             printfn "  Parallel Time (optimized):     %.1f hours" makespanHours
@@ -406,75 +397,67 @@ let scheduleResult: (Solution * float * float * float) option =
 
             printfn "COST ANALYSIS (@ $%.0f/machine-hour):" costPerMachineHour
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
             printfn "  Sequential Cost:               $%.2f" sequentialCost
             printfn ""
 
             printfn "KEY INSIGHTS:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
-            printfn "  âœ“ Achieved %.2fx speedup through optimal scheduling" speedup
+            printfn "  ✓ Achieved %.2fx speedup through optimal scheduling" speedup
 
             if speedup > 1.5 then
-                printfn "  âœ“ Parallel scheduling provides significant time savings (%.1f%% faster)" timeSavedPct
+                printfn "  ✓ Parallel scheduling provides significant time savings (%.1f%% faster)" timeSavedPct
             else
-                printfn "  âš  Sequential execution would be more cost-effective (fewer dependencies needed)"
+                printfn "  ⚠ Sequential execution would be more cost-effective (fewer dependencies needed)"
 
             printfn ""
 
             // Export Gantt chart
             exportGanttChart schedule "schedule.txt"
-            printfn "âœ“ Gantt chart exported to: schedule.txt"
+            printfn "✓ Gantt chart exported to: schedule.txt"
             printfn ""
 
-            printfn
-                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 
-            printfn "â•‘                       SCHEDULING SUCCESSFUL                                  â•‘"
+            printfn "║                       SCHEDULING SUCCESSFUL                                  ║"
 
-            printfn
-                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+            printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 
             printfn ""
 
-            printfn
-                "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+            printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 
-            printfn "â•‘                    WHY QUANTUM OPTIMIZATION?                                 â•‘"
+            printfn "║                    WHY QUANTUM OPTIMIZATION?                                 ║"
 
-            printfn
-                "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+            printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 
             printfn ""
             printfn "CLASSICAL vs QUANTUM SCHEDULING:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
             printfn ""
             printfn "Classical Greedy Solver (solve):"
-            printfn "  âœ“ Handles task dependencies optimally"
-            printfn "  âœ“ Fast for dependency-only problems"
-            printfn "  âœ— Ignores resource capacity constraints"
-            printfn "  âœ— Cannot optimize resource allocation"
+            printfn "  ✓ Handles task dependencies optimally"
+            printfn "  ✓ Fast for dependency-only problems"
+            printfn "  ✗ Ignores resource capacity constraints"
+            printfn "  ✗ Cannot optimize resource allocation"
             printfn ""
             printfn "Quantum Solver (solveQuantum):"
-            printfn "  âœ“ Handles dependencies AND resource constraints"
-            printfn "  âœ“ Optimizes resource allocation via QUBO encoding"
-            printfn "  âœ“ Finds near-optimal solutions for NP-hard problems"
-            printfn "  âœ“ Scales to larger problems on quantum hardware"
+            printfn "  ✓ Handles dependencies AND resource constraints"
+            printfn "  ✓ Optimizes resource allocation via QUBO encoding"
+            printfn "  ✓ Finds near-optimal solutions for NP-hard problems"
+            printfn "  ✓ Scales to larger problems on quantum hardware"
             printfn ""
             printfn "HOW IT WORKS:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
             printfn "1. QUBO Encoding: Converts scheduling to binary optimization problem"
-            printfn "   - Variables: x_{task,time} âˆˆ {0,1} for each task and time slot"
+            printfn "   - Variables: x_{task,time} ∈ {0,1} for each task and time slot"
             printfn "   - Objective: Minimize makespan (latest task completion)"
             printfn "   - Constraints: One-hot (task starts once), dependencies, resources"
             printfn ""
@@ -489,29 +472,27 @@ let scheduleResult: (Solution * float * float * float) option =
             printfn ""
             printfn "BACKENDS:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
-            printfn "LocalBackend:    16 qubits max (~3 tasks Ã— 5 time slots, demo only)"
+            printfn "LocalBackend:    16 qubits max (~3 tasks × 5 time slots, demo only)"
             printfn "Azure Quantum:   29-80+ qubits (IonQ, Quantinuum, Rigetti)"
             printfn "                 Scales to realistic production problems (100+ tasks)"
             printfn ""
             printfn "WHEN TO USE QUANTUM:"
 
-            printfn
-                "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
+            printfn "────────────────────────────────────────────────────────────────────────────────"
 
-            printfn "âœ“ Resource capacity constraints exist"
-            printfn "âœ“ Multiple resources compete for same tasks"
-            printfn "âœ“ Optimization critical (minimize cost/makespan)"
-            printfn "âœ— Dependencies only (use classical solver instead)"
+            printfn "✓ Resource capacity constraints exist"
+            printfn "✓ Multiple resources compete for same tasks"
+            printfn "✓ Optimization critical (minimize cost/makespan)"
+            printfn "✗ Dependencies only (use classical solver instead)"
             printfn ""
 
         Some(schedule, speedup, timeSavedPct, elapsed.TotalMilliseconds)
 
     | Error err ->
         if not quiet then
-            printfn "âŒ Scheduling failed: %s" err.Message
+            printfn "❌ Scheduling failed: %s" err.Message
 
         None
 
@@ -603,7 +584,7 @@ match csvPath with
 // ==============================================================================
 
 if argv.Length = 0 && not quiet then
-    printfn "ðŸ’¡ Tip: Run with --help to see all options:"
+    printfn "💡 Tip: Run with --help to see all options:"
     printfn "   dotnet fsi JobScheduling.fsx -- --help"
     printfn "   dotnet fsi JobScheduling.fsx -- --input jobs.csv --output schedule.json"
     printfn "   dotnet fsi JobScheduling.fsx -- --quiet --output schedule.json  (pipeline mode)"

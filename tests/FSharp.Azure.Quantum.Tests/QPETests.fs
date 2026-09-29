@@ -439,3 +439,36 @@ module QPETests =
         | Error(QuantumError.ValidationError("numQubits", message)) -> Assert.Contains("8 qubits", message)
         | Error err -> Assert.Fail($"Expected the density-matrix qubit-cap ValidationError, got: {err}")
         | Ok _ -> Assert.Fail("A 10-qubit density-matrix simulation cannot succeed under an 8-qubit cap")
+
+    [<Fact>]
+    let ``QPE executeWithShots rejects a non-positive shot count`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
+        match QPE.executeWithShots config backend true QPE.Exact 0 with
+        | Error(QuantumError.ValidationError("Shots", _)) -> ()
+        | other -> Assert.Fail($"Expected a Shots ValidationError, got: {other}")
+
+    [<Fact>]
+    let ``QPE executeWithShots reads an exact phase from a single shot`` () =
+        // T has phase 1/8, exact in 3 bits: every shot measures 001.
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
+        match QPE.executeWithShots config backend true QPE.Exact 1 with
+        | Ok result -> Assert.Equal(0.125, result.EstimatedPhase, 9)
+        | Error err -> Assert.Fail($"QPE failed: {err}")

@@ -325,7 +325,7 @@ let drawPicture (result: AdaptQaoa.AdaptQaoaResult) (path: string) =
         for i, label in Array.indexed labels do
             pic.Element(
                 "text",
-                [ "x", num x; "text-anchor", "middle" ] @ attrs,
+                [ "x", num x; "text-anchor", "middle"; "font-family", fontFamily ] @ attrs,
                 animate = [ "y", Array.map num ys; "visibility", shownIn i ],
                 text = label
             )

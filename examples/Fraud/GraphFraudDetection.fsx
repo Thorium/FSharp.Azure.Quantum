@@ -587,7 +587,7 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
                 PatternType = "Layering"
             })
 
-    // Pattern 2: Money mule (star topology â€” many in, few out)
+    // Pattern 2: Money mule (star topology — many in, few out)
     let mulePatterns =
         features
         |> List.filter (fun f -> f.InDegree >= 3 && f.OutDegree <= 1 && f.TransactionVelocity > 2.0)
@@ -644,7 +644,7 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
     layeringPatterns @ mulePatterns @ circularPatterns
 
 // ==============================================================================
-// RISK SCORING (functional â€” no mutable)
+// RISK SCORING (functional — no mutable)
 // ==============================================================================
 
 let calculateRiskScores

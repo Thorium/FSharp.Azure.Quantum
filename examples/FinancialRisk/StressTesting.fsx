@@ -829,21 +829,17 @@ let printTable () =
 
         let qvarStr =
             if Double.IsNaN r.QuantumVaR then
-                "â€”"
+                "—"
             else
                 sprintf "$%s" (r.QuantumVaR.ToString "N0")
 
         let tailStr =
             if Double.IsNaN r.TailProbability then
-                "â€”"
+                "—"
             else
                 sprintf "%.4f%%" (r.TailProbability * 100.0)
 
-        let speedStr =
-            if Double.IsNaN r.Speedup then
-                "â€”"
-            else
-                $"%.1f{r.Speedup}x"
+        let speedStr = if Double.IsNaN r.Speedup then "—" else $"%.1f{r.Speedup}x"
 
         printfn
             "  %-32s %10s $%14s %7.2f%% %12s %10s %8s %8s"

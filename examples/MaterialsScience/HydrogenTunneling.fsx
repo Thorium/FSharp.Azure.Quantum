@@ -1008,7 +1008,7 @@ let drawTunnelling (path: string) (metal: MetalHost) =
         )
 
         pic.Progress(x0, height - 14.0, barRight - x0)
-        pic.Save path
+        pic.Save(path, quiet = quiet)
 
 match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "hydrogen-tunneling.svg")) with
 | Some path -> drawTunnelling path (selectedMetals |> List.maxBy (fun metal -> quantumTunnelingRate metal m_H))

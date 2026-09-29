@@ -855,7 +855,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-contact progress output).
 printTable ()
 

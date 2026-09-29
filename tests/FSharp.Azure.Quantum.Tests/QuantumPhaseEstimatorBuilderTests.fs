@@ -458,3 +458,30 @@ module QuantumPhaseEstimatorBuilderTests =
                 // Should have Hadamards, controlled-U, and IQFT gates
                 Assert.True(result.GateCount > 8, $"Gate count %d{result.GateCount} should be > 8")
             | Error err -> Assert.True(false, $"Estimate failed: %s{err.Message}")
+
+    [<Fact>]
+    let ``builder should reject zero shots`` () =
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 4
+                shots 0
+            }
+
+        match problem with
+        | Error(QuantumError.ValidationError("Shots", _)) -> ()
+        | other -> Assert.Fail($"Expected a Shots ValidationError, got: {other}")
+
+    [<Fact>]
+    let ``estimate should run with a single shot`` () =
+        // One shot of an exact phase still reads 1/8.
+        let problem =
+            phaseEstimator {
+                unitary TGate
+                precision 3
+                shots 1
+            }
+
+        match problem |> Result.bind estimate with
+        | Ok result -> Assert.Equal(0.125, result.Phase, 9)
+        | Error err -> Assert.Fail($"Estimate failed: %s{err.Message}")

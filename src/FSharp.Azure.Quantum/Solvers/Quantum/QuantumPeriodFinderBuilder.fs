@@ -90,8 +90,8 @@ module QuantumPeriodFinder =
             /// Quantum backend to use (None = LocalBackend)
             Backend: BackendAbstraction.IQuantumBackend option
 
-            /// Number of measurement shots for QPE (None = auto-scale: 1024 for Local, 2048 for Cloud)
-            /// Higher shots = better phase estimate accuracy but more execution time
+            /// Not used: Shor's algorithm reads one measurement per attempt and retries
+            /// up to MaxAttempts, so MaxAttempts is the setting that buys more samples.
             Shots: int option
         }
 
@@ -240,14 +240,13 @@ module QuantumPeriodFinder =
             { problem with Backend = Some backend }
 
         /// <summary>
-        /// Set the number of measurement shots for quantum phase estimation.
-        /// Higher shot counts improve phase estimate accuracy but increase execution time.
+        /// Accepted but not used by period finding.
         /// </summary>
-        /// <param name="shots">Number of measurements (typical: 1024-4096)</param>
+        /// <param name="shots">Ignored</param>
         /// <remarks>
-        /// If not specified, auto-scales based on backend:
-        /// - LocalBackend: 1024 shots
-        /// - Cloud backends: 2048 shots
+        /// Shor's algorithm reads one measurement per attempt and turns it into a
+        /// period candidate by continued fractions; a failed candidate starts a new
+        /// attempt. Use <c>maxAttempts</c> to allow more samples.
         /// </remarks>
         [<CustomOperation("shots")>]
         member _.Shots(problem: PeriodFinderProblem, shots: int) : PeriodFinderProblem =

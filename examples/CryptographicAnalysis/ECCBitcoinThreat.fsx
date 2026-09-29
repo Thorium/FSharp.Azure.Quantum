@@ -518,7 +518,7 @@ if not quiet then
     printfn "    Private (hex): %s" (bitcoinKey.ToHex())
     printfn "    Public (hex):  %s" (bitcoinPubKey.ToHex())
     printfn "    Address:       %s" (p2wpkhAddress.ToString())
-    printfn "    (Breaking requires ~2,330 logical qubits â€” ~1000x current hardware)"
+    printfn "    (Breaking requires ~2,330 logical qubits — ~1000x current hardware)"
     printfn ""
 
 // ==============================================================================

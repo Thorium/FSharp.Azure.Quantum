@@ -6,9 +6,9 @@
 // FSharp.Azure.Quantum library.
 //
 // FEATURES:
-// - MÃ¶ttÃ¶nen state preparation for GBM distribution encoding
+// - Möttönen state preparation for GBM distribution encoding
 // - Grover-based amplitude estimation
-// - Quadratic speedup: O(1/Îµ) vs classical O(1/ÎµÂ²)
+// - Quadratic speedup: O(1/ε) vs classical O(1/ε²)
 // - Production-ready validation and error handling
 //
 // REQUIREMENTS:
@@ -32,27 +32,27 @@ gives the holder the right (but not obligation) to buy an asset at a strike
 price K at expiration time T. The famous BLACK-SCHOLES formula (1973) provides
 closed-form pricing for European options under geometric Brownian motion:
 
-    C = Sâ‚€ * N(dâ‚) - K * e^(-rT) * N(dâ‚‚)
+    C = S₀ * N(d₁) - K * e^(-rT) * N(d₂)
 
 Where:
-    dâ‚ = [ln(Sâ‚€/K) + (r + ÏƒÂ²/2)T] / (ÏƒâˆšT)
-    dâ‚‚ = dâ‚ - ÏƒâˆšT
+    d₁ = [ln(S₀/K) + (r + σ²/2)T] / (σ√T)
+    d₂ = d₁ - σ√T
     N(x) = standard normal CDF
 
 For complex options (path-dependent, American, multi-asset), closed-form 
 solutions don't exist, requiring MONTE CARLO SIMULATION:
 
     Price = e^(-rT) * E[max(S_T - K, 0)]
-          â‰ˆ e^(-rT) * (1/N) * Î£áµ¢ max(Sáµ¢ - K, 0)
+          ≈ e^(-rT) * (1/N) * Σᵢ max(Sᵢ - K, 0)
 
-Classical Monte Carlo achieves precision Îµ with O(1/ÎµÂ²) samples due to the
-Central Limit Theorem convergence rate of 1/âˆšN.
+Classical Monte Carlo achieves precision ε with O(1/ε²) samples due to the
+Central Limit Theorem convergence rate of 1/√N.
 
 QUANTUM AMPLITUDE ESTIMATION provides quadratic speedup. The algorithm:
-1. Encode the price distribution into quantum amplitudes: |ÏˆâŸ© = Î£â‚“ âˆšp(x)|xâŸ©
+1. Encode the price distribution into quantum amplitudes: |ψ⟩ = Σₓ √p(x)|x⟩
 2. Apply an oracle marking "profitable" states (S > K)
 3. Use Grover-like iterations to amplify the probability
-4. Measure to estimate E[payoff] with O(1/Îµ) queries
+4. Measure to estimate E[payoff] with O(1/ε) queries
 
 The quantum speedup is particularly valuable for:
 - High-precision pricing (regulatory capital calculations)
@@ -61,13 +61,13 @@ The quantum speedup is particularly valuable for:
 - Greeks computation (multiple pricings per Greek)
 
 Key Equations:
-  - Black-Scholes: C = Sâ‚€*N(dâ‚) - K*e^(-rT)*N(dâ‚‚)
-  - GBM dynamics: dS = Î¼S dt + ÏƒS dW
-  - Classical MC error: O(1/âˆšN)
+  - Black-Scholes: C = S₀*N(d₁) - K*e^(-rT)*N(d₂)
+  - GBM dynamics: dS = μS dt + σS dW
+  - Classical MC error: O(1/√N)
   - Quantum AE error: O(1/N) - quadratic speedup
 
 Quantum Advantage:
-  For precision Îµ = 0.01 (1 cent on a $1 option):
+  For precision ε = 0.01 (1 cent on a $1 option):
   - Classical: ~10,000 samples
   - Quantum: ~100 queries
   100x speedup per option, compounding for portfolios.
@@ -192,14 +192,12 @@ let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 let resultRows = System.Collections.Generic.List<Map<string, string>>()
 
 if not quiet then
-    printfn
-        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn "╔═══════════════════════════════════════════════════════════════╗"
 
-    printfn "â•‘   Quantum Monte Carlo Option Pricing                         â•‘"
-    printfn "â•‘   Using FSharp.Azure.Quantum                                  â•‘"
+    printfn "║   Quantum Monte Carlo Option Pricing                         ║"
+    printfn "║   Using FSharp.Azure.Quantum                                  ║"
 
-    printfn
-        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    printfn "╚═══════════════════════════════════════════════════════════════╝"
 
     printfn ""
 
@@ -208,13 +206,13 @@ if not quiet then
 // ============================================================================
 
 if not quiet then
-    printfn "â•â•â• Example 1: European Call Option â•â•â•"
+    printfn "═══ Example 1: European Call Option ═══"
     printfn ""
     printfn "Market Parameters:"
-    printfn "  Spot Price (Sâ‚€):    $%.2f" spotPrice
+    printfn "  Spot Price (S₀):    $%.2f" spotPrice
     printfn "  Strike Price (K):   $%.2f" strikePrice
     printfn "  Risk-free Rate (r): %.1f%%" (riskFreeRate * 100.0)
-    printfn "  Volatility (Ïƒ):     %.1f%%" (volatility * 100.0)
+    printfn "  Volatility (σ):     %.1f%%" (volatility * 100.0)
     printfn "  Time to Expiry (T): %.1f year" timeToExpiry
     printfn ""
     printfn "Using LocalBackend (quantum simulator)..."
@@ -237,11 +235,11 @@ let result =
 match result with
 | Ok price ->
     if not quiet then
-        printfn "âœ“ Success!"
+        printfn "✓ Success!"
         printfn ""
         printfn "RESULTS:"
         printfn "  Option Price:          $%.4f" price.Price
-        printfn "  Confidence Interval:   Â±$%.4f" price.ConfidenceInterval
+        printfn "  Confidence Interval:   ±$%.4f" price.ConfidenceInterval
 
         printfn
             "  Price Range:           $%.4f - $%.4f"
@@ -278,7 +276,7 @@ match result with
 
 | Error err ->
     if not quiet then
-        printfn "âœ— Error: %A" err
+        printfn "✗ Error: %A" err
         printfn ""
 
     resultRows.Add(
@@ -304,7 +302,7 @@ match result with
 // ============================================================================
 
 if not quiet then
-    printfn "â•â•â• Example 2: Put-Call Comparison â•â•â•"
+    printfn "═══ Example 2: Put-Call Comparison ═══"
     printfn ""
 
 let priceBothOptions spot strike =
@@ -352,12 +350,12 @@ match callPrice, putPrice with
         printfn "  Put-Call Difference: $%.4f" (abs (call.Price - put.Price))
 
         // Put-Call Parity check (approximate due to quantum approximation)
-        // C - P â‰ˆ S - K*e^(-rT)
+        // C - P ≈ S - K*e^(-rT)
         let parity = call.Price - put.Price
         let expected = spotPrice - strikePrice * exp (-riskFreeRate * timeToExpiry)
         printfn "  Put-Call Parity Check:"
         printfn "    Observed (C - P):   $%.4f" parity
-        printfn "    Expected (S - Keâ»Ê³áµ€): $%.4f" expected
+        printfn "    Expected (S - Ke⁻ʳᵀ): $%.4f" expected
         printfn "    Difference:         $%.4f" (abs (parity - expected))
         printfn ""
 
@@ -409,7 +407,7 @@ match callPrice, putPrice with
 // ============================================================================
 
 if not quiet then
-    printfn "â•â•â• Example 3: Option Moneyness Analysis â•â•â•"
+    printfn "═══ Example 3: Option Moneyness Analysis ═══"
     printfn ""
 
 let strikes =
@@ -441,7 +439,7 @@ for (strike, description) in strikes do
     | Ok price ->
         if not quiet then
             printfn "  Strike $%.2f (%s):" strike description
-            printfn "    Price: $%.4f Â± $%.4f" price.Price price.ConfidenceInterval
+            printfn "    Price: $%.4f ± $%.4f" price.Price price.ConfidenceInterval
 
         resultRows.Add(
             [
@@ -490,7 +488,7 @@ if not quiet then
 // ============================================================================
 
 if not quiet then
-    printfn "â•â•â• Example 4: Volatility Impact â•â•â•"
+    printfn "═══ Example 4: Volatility Impact ═══"
     printfn ""
 
 let volatilities = [ 0.1; 0.2; 0.3; 0.4 ]
@@ -541,7 +539,7 @@ for vol in volatilities do
 
 if not quiet then
     printfn ""
-    printfn "(Higher volatility â†’ Higher option value)"
+    printfn "(Higher volatility → Higher option value)"
     printfn ""
 
 // ============================================================================
@@ -549,7 +547,7 @@ if not quiet then
 // ============================================================================
 
 if not quiet then
-    printfn "â•â•â• Example 5: Input Validation â•â•â•"
+    printfn "═══ Example 5: Input Validation ═══"
     printfn ""
 
 // Try invalid parameters to demonstrate validation
@@ -574,7 +572,7 @@ let invalidResult =
 match invalidResult with
 | Error(QuantumError.ValidationError(param, msg)) ->
     if not quiet then
-        printfn "  âœ“ Correctly rejected negative spot price"
+        printfn "  ✓ Correctly rejected negative spot price"
         printfn "    Parameter: %s" param
         printfn "    Message: %s" msg
 
@@ -597,7 +595,7 @@ match invalidResult with
     )
 | _ ->
     if not quiet then
-        printfn "  âœ— Should have rejected negative spot"
+        printfn "  ✗ Should have rejected negative spot"
 
 if not quiet then
     printfn ""
@@ -607,7 +605,7 @@ if not quiet then
 // ============================================================================
 
 if not quiet then
-    printfn "â•â•â• Example 6: Asian Options â•â•â•"
+    printfn "═══ Example 6: Asian Options ═══"
     printfn ""
 
 /// Monthly averaging
@@ -635,7 +633,7 @@ let asianResult =
 match asianResult with
 | Ok price ->
     if not quiet then
-        printfn "  Price:    $%.4f Â± $%.4f" price.Price price.ConfidenceInterval
+        printfn "  Price:    $%.4f ± $%.4f" price.Price price.ConfidenceInterval
         printfn "  Method:   %s" price.Method
         printfn "  Qubits:   %d" price.QubitsUsed
 
@@ -686,29 +684,27 @@ if not quiet then
 // ============================================================================
 
 if not quiet then
-    printfn
-        "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn "╔═══════════════════════════════════════════════════════════════╗"
 
-    printfn "â•‘   Summary                                                     â•‘"
+    printfn "║   Summary                                                     ║"
 
-    printfn
-        "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    printfn "╚═══════════════════════════════════════════════════════════════╝"
 
     printfn ""
     printfn "QUANTUM ADVANTAGES:"
-    printfn "  â€¢ Quadratic Speedup: O(1/Îµ) vs Classical O(1/ÎµÂ²)"
-    printfn "  â€¢ 100x faster for 1%% accuracy"
-    printfn "  â€¢ Scales to complex multi-dimensional problems"
+    printfn "  • Quadratic Speedup: O(1/ε) vs Classical O(1/ε²)"
+    printfn "  • 100x faster for 1%% accuracy"
+    printfn "  • Scales to complex multi-dimensional problems"
     printfn ""
     printfn "IMPLEMENTATION:"
-    printfn "  â€¢ MÃ¶ttÃ¶nen state preparation (exact GBM encoding)"
-    printfn "  â€¢ Grover-based amplitude estimation"
-    printfn "  â€¢ Production-ready validation & error handling"
+    printfn "  • Möttönen state preparation (exact GBM encoding)"
+    printfn "  • Grover-based amplitude estimation"
+    printfn "  • Production-ready validation & error handling"
     printfn ""
     printfn "LIMITATIONS:"
-    printfn "  â€¢ Payoff oracle uses MSB approximation (not exact)"
-    printfn "  â€¢ Best for strikes near median price"
-    printfn "  â€¢ 2-10 qubits (4-1024 price levels)"
+    printfn "  • Payoff oracle uses MSB approximation (not exact)"
+    printfn "  • Best for strikes near median price"
+    printfn "  • 2-10 qubits (4-1024 price levels)"
     printfn ""
 
 // ==============================================================================
@@ -766,4 +762,4 @@ if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
 
 if not quiet then
     printfn ""
-    printfn "âœ“ Example completed successfully!"
+    printfn "✓ Example completed successfully!"

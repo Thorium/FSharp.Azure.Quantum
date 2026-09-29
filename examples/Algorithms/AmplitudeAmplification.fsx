@@ -138,7 +138,9 @@ let amplificationSteps (intent: AmplitudeAmplification.Unified.AmplitudeAmplific
                 }
             ]
         |> Array.ofList
-    | Ok _ -> failwith "the picture replays oracle and diffusion one at a time; this backend runs them as lowered gates"
+    | Ok _ ->
+        failwith
+            $"the picture replays oracle and diffusion one at a time; this backend runs them as lowered gates, calling amplificationSteps with rounds: {rounds}"
 
 /// Draws the steps: amplitude bars with their mean on the left, the marked
 /// answer's chance per round on the right.
@@ -164,17 +166,11 @@ let drawPicture (steps: Step[]) (marked: int -> bool) (optimal: int) (path: stri
             452.0,
             frames,
             2.0 * float frames,
-            sprintf "Amplitude amplification: finding the marked answer among %d" n,
+            $"Amplitude amplification: finding the marked answer among %d{n}",
             hold = 0.6
         )
 
-    pic.Text(
-        24.0,
-        30.0,
-        sprintf "Amplitude amplification: finding the marked answer among %d" n,
-        size = 18.0,
-        bold = true
-    )
+    pic.Text(24.0, 30.0, $"Amplitude amplification: finding the marked answer among %d{n}", size = 18.0, bold = true)
 
     pic.Text(
         24.0,
@@ -189,8 +185,8 @@ let drawPicture (steps: Step[]) (marked: int -> bool) (optimal: int) (path: stri
         let p = 100.0 * chance s
 
         match s.Kind with
-        | "start" -> sprintf "start: all %d answers equally likely (%.1f%% each)" n p
-        | "oracle" -> sprintf "round %d: the oracle flips the marked answer (its chance stays %.1f%%)" s.Round p
+        | "start" -> $"start: all %d{n} answers equally likely (%.1f{p}%% each)"
+        | "oracle" -> $"round %d{s.Round}: the oracle flips the marked answer (its chance stays %.1f{p}%%)"
         | _ when s.Round = optimal ->
             sprintf
                 "round %d: mirror every bar about the mean: the marked answer reaches %.1f%%, the best stop"
@@ -201,7 +197,7 @@ let drawPicture (steps: Step[]) (marked: int -> bool) (optimal: int) (path: stri
                 "round %d: mirror again, past the best stop: the marked answer falls to %.1f%% (overshoot)"
                 s.Round
                 p
-        | _ -> sprintf "round %d: mirror every bar about the mean: the marked answer grows to %.1f%%" s.Round p
+        | _ -> $"round %d{s.Round}: mirror every bar about the mean: the marked answer grows to %.1f{p}%%"
 
     pic.FrameText(24.0, 78.0, steps |> Array.map label, size = 13.5, bold = true)
 
@@ -218,7 +214,7 @@ let drawPicture (steps: Step[]) (marked: int -> bool) (optimal: int) (path: stri
         pic.Text(
             left - 8.0,
             yOf tick + 4.0,
-            (if tick = 0.0 then "0" else sprintf "%+.1f" tick),
+            (if tick = 0.0 then "0" else $"%+.1f{tick}"),
             size = 10.0,
             fill = grey,
             anchor = "end"
@@ -375,7 +371,7 @@ let drawPicture (steps: Step[]) (marked: int -> bool) (optimal: int) (path: stri
     let legendY = 424.0
     pic.Rect(24.0, legendY - 9.0, 10.0, 10.0, fill = markedColour)
     let markedText = markedIndices |> Array.map bits |> String.concat ", "
-    pic.Text(40.0, legendY, sprintf "marked answer (%s)" markedText, size = 11.0)
+    pic.Text(40.0, legendY, $"marked answer (%s{markedText})", size = 11.0)
     pic.Rect(170.0, legendY - 9.0, 10.0, 10.0, fill = otherColour)
     pic.Text(186.0, legendY, sprintf "the other %d answers" (n - markedIndices.Length), size = 11.0)
     pic.Line(318.0, legendY - 4.0, 342.0, legendY - 4.0, stroke = ink, width = 1.5, dash = "6 4")

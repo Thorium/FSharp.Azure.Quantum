@@ -820,17 +820,17 @@ let printTable () =
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
 
         let fmt v =
-            if Double.IsNaN v then "â€”" else $"%8.4f{v}"
+            if Double.IsNaN v then "—" else $"%8.4f{v}"
 
         let priceFmt =
             if Double.IsNaN r.Price then
-                "       â€”"
+                "       —"
             else
                 $"$%8.4f{r.Price}"
 
         let errFmt =
             if Double.IsNaN r.StdError then
-                "       â€”"
+                "       —"
             else
                 $"$%7.4f{r.StdError}"
 

@@ -13,6 +13,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 ///
 /// The QFT transforms computational basis states into frequency basis:
 /// |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
+/// with j and k read as the textbook circuit reads them: qubit 0 is the most
+/// significant bit (the state vector's index reads qubit 0 as the least).
 ///
 /// Key features:
 /// - Works seamlessly with gate-based and topological backends
@@ -523,6 +525,12 @@ module QFT =
     /// This creates an equal superposition with specific phase relationships
     /// determined by the basis index j.
     ///
+    /// Bit order: j and k are read as the textbook QFT circuit reads them, with
+    /// qubit 0 as the most significant bit. The state vector indexes basis
+    /// states with qubit 0 as the least significant bit, so the amplitude of
+    /// |k⟩ is at the bit-reversed index of k (and at k itself when
+    /// <c>ApplySwaps</c> is false).
+    ///
     /// Applications:
     /// - Quantum phase estimation initialization
     /// - Period finding algorithms
@@ -560,12 +568,12 @@ module QFT =
                 // Initialize to |0⟩^⊗n
                 let! initialState = backend.InitializeState numQubits
 
-                // Apply X gates to set state to |basisIndex⟩
-                // Convert basisIndex to binary and flip corresponding qubits
+                // Apply X gates to set state to |basisIndex⟩ in the circuit's
+                // convention: qubit 0 holds the most significant bit.
                 let xOps =
                     [ 0 .. numQubits - 1 ]
                     |> List.choose (fun qubitIdx ->
-                        let bitValue = (basisIndex >>> qubitIdx) &&& 1
+                        let bitValue = (basisIndex >>> (numQubits - 1 - qubitIdx)) &&& 1
 
                         if bitValue = 1 then
                             Some(QuantumOperation.Gate(CircuitBuilder.X qubitIdx))

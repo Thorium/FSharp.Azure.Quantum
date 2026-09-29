@@ -604,7 +604,7 @@ let printTable () =
             printfn ""
     | None -> ()
 
-// Always print â€” this is the primary output.
+// Always print — this is the primary output.
 printTable ()
 
 // ==============================================================================

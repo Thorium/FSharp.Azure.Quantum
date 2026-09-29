@@ -275,7 +275,7 @@ if selectedStocks.IsEmpty then
     exit 1
 
 // ==============================================================================
-// SYNTHETIC DATA GENERATION (Markov chain â€” inherently stateful)
+// SYNTHETIC DATA GENERATION (Markov chain — inherently stateful)
 // ==============================================================================
 
 /// Per-asset return parameters: (bullMu, bullSigma), (bearMu, bearSigma)
@@ -339,7 +339,7 @@ let private generateMarketData (numDays: int) (rngSeed: int) (stockList: StockIn
     (marketReturns, regimes, assetReturns)
 
 // ==============================================================================
-// HIDDEN MARKOV MODEL (HMM) â€” Viterbi Algorithm
+// HIDDEN MARKOV MODEL (HMM) — Viterbi Algorithm
 // ==============================================================================
 
 module MarketHMM =

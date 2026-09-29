@@ -448,7 +448,7 @@ let compoundResults: CompoundResult list =
         })
 
 // Sort: selected first (by value descending), then unselected (by value descending).
-// Failed â†’ bottom.
+// Failed → bottom.
 let ranked =
     compoundResults
     |> List.sortBy (fun r ->
@@ -570,7 +570,7 @@ let printTable () =
             printfn ""
     | None -> ()
 
-// Always print â€” this is the primary output.
+// Always print — this is the primary output.
 printTable ()
 
 // ==============================================================================

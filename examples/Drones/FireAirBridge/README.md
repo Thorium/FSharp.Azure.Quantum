@@ -39,7 +39,7 @@ drones on a corridor = drops per tick × cycle time
 A corridor's throughput is capped by the narrowest part of the pipe: the
 source's fill slots, the lane's in-trail spacing, or the drop slots at the
 target. Past that cap, extra drones deliver nothing. The run starts by printing
-where each source saturates.
+where each source saturates, or a warning when no corridor can fly at all.
 
 Corridor choice is combinatorial because of the people and the physics, not
 the drones:
@@ -50,7 +50,7 @@ the drones:
 | **Drop coordinators** (`--coordinators`, default 5) | Every open corridor needs one at the targets. |
 | **Concentration floor** (`MinSalvoLpm`, 100 L/min, fire only) | Below this rate, water on a burning sector mostly evaporates. Drones must be massed on a few hotspots, so two corridors into one sector can be worth far more than twice one. Pre-wetting unburnt fuel has no floor. |
 | **Warm-up** | A new corridor delivers only after its pipe fills and its crew arrives. That makes every plan change cost something real. |
-| **Terminal legs** | A cycle is more than the lane: the climb off the pad, the radial leg from the pad ring to the source centre, the legs to and from the drop slot, the climb to the return altitude and the descent onto the pad. The corridor model counts them, sized for the whole fleet on one pad ring, and times every leg as ArduCopter flies it: from rest to rest, with a spool-up at launch (see "From flow to flights"). A plan never assumes a shorter cycle than a real aircraft flies. For the fire fleet a cycle is about 8.5 minutes, and the longest corridors do not fit a 10-minute battery at all. |
+| **Terminal legs** | A cycle is more than the lane: the climb off the pad, the radial leg from the pad ring to the source centre, the legs to and from the drop slot, the climb to the return altitude and the descent onto the pad. The corridor model counts them, sized for the whole fleet on one pad ring, and times every leg as ArduCopter flies it: from rest to rest, with a spool-up at launch (see "From flow to flights"). A plan never assumes a shorter cycle than a real aircraft flies. For the fire fleet a cycle is about 8.6–9 minutes, just over the 8.5 minutes a 10-minute battery leaves after its 15% reserve, so at t=0 no corridor fits. |
 | **Wind** | A tailwind on the way out is a headwind on the way back. It changes cycle times, endurance margins and lane capacity. |
 | **Traffic** | A lane that leaves the plan drains for one more cycle. A new corridor may not be opened across a lane that is flying or draining, so a target behind a finished one waits until the airspace is clear. |
 
@@ -84,9 +84,9 @@ fire physics are quoted per minute and scaled to the tick.
   candidate corridor plus one per source when the sources outnumber the crews.
   The QUBO is the pairwise expansion of the fast loop's score, plus penalty
   terms for the crew and coordinator limits and for conflicting lanes. QAOA
-  angles from the previous round warm-start the next one: 5 circuits instead of
-  a 40-point grid, which works because the QUBO is normalised to the same scale
-  every round.
+  angles from the previous round warm-start the next one: a warm round runs 6
+  circuits where a cold one runs 41, which works because the QUBO is
+  normalised to the same scale every round.
 
 **Anytime planning.** The slow loop never waits for a quantum answer. At a
 re-plan it takes the instant greedy plan if that beats what is flying. The QAOA
@@ -120,7 +120,7 @@ What the numbers say:
 - **This fleet cannot run this air bridge.** Flown as ArduCopter flies it, a
   cycle stops at eight waypoints, and each stop costs the S-curve ramps plus
   about 2.2 s to reach the waypoint and settle. At t=0 no corridor fits one
-  cycle into a 10-minute battery with 20% reserve. The static plan never
+  cycle into a 10-minute battery with 15% reserve. The static plan never
   opens a corridor and delivers nothing. The adaptive policies find a few
   short corridors after the wind shifts and deliver 771 L.
 - **Each step towards what really flies made the numbers worse.** Counting
@@ -131,8 +131,9 @@ What the numbers say:
   took them out. The earlier results were flying cycles no aircraft can fly.
   A longer-endurance fleet or fewer waypoints per cycle would change the
   picture; that is a change to the scenario, not to the model.
-- **At this size the combinatorics are shallow.** With 7–13 qubits, greedy
-  and QAOA (p=1) both matched the oracle in every round of the default run.
+- **At this size the combinatorics are shallow.** In the default run every
+  round with anything to choose had one candidate corridor, one qubit, so
+  greedy, QAOA (p=1) and the oracle agree trivially. With more candidates
   QAOA's measurement sampling is random, so it misses in some runs. At
   simulable sizes a classical planner is enough. The case for quantum hardware
   rests on scale: dozens of water points (lakes, portable tanks, hydrants),
@@ -148,9 +149,10 @@ What the numbers say:
     so slow rounds cost the plan real mission minutes.
   - Default runs finish in seconds; expect minutes per round from about 18
     qubits.
-- **Committing early has a price.** At t=0 the better QAOA plan arrived one
-  minute after greedy had been adopted. By then a crew was already heading to
-  greedy's lake, and switching no longer paid. The obvious remedy is not in the
+- **Committing early has a price.** The greedy plan is adopted at once and
+  the QAOA plan arrives later. If QAOA's plan is better but greedy's already
+  sent a crew to another lake, switching may no longer pay, and the better
+  plan is lost. The obvious remedy is not in the
   code yet: fly the instant plan's drones, but hold crew moves until the slower
   answer arrives. Crews are the expensive thing to move.
 
@@ -193,7 +195,7 @@ What the model says about the demo:
   is opened only when that lane is clear, which the run reports as
   `PAD>C3 clear`.
 - **All ten cans, and the retouched one, are touched by whole aircraft by
-  t=334 s**: 11 sorties of one cycle each, one per touch owed, about 60 s
+  t=327 s**: 11 sorties of one cycle each, one per touch owed, about 67 s
   per sortie, 15 s on the ground between an aircraft's sorties, one aircraft
   lost mid-sortie at t=60 s and written off where it was. A target's drops
   already on their way count against what it still needs, so no aircraft is
@@ -339,7 +341,7 @@ Every tick of the proposed policy's run is checked, not only the final plan:
 | Altitude | Every lane altitude against `--ceiling-m`. |
 | Drop-out | Losing aircraft mid-mission (the fleet re-spreads the same tick, and later ticks are still checked), losing a source (no lane flies from a closed source), and an aircraft failing inside a lane (no lane below it). |
 | Ratio | Declared pilots against fleet size and peak airborne (`--pilots`). |
-| Supervisor workload | Each scripted event (aircraft lost, source closed, wind shift, spot fire or retouch) and each single-aircraft failsafe is a scenario, resolved either automatically or by a pilot decision. The fire run is fully hands-off: at worst 15 aircraft are off-nominal at once, with no decisions. A failsafe the configuration baseline doesn't set up as modelled becomes a pilot decision. |
+| Supervisor workload | Each scripted event (aircraft lost, source closed, wind shift, spot fire or retouch) and each single-aircraft failsafe is a scenario, resolved either automatically or by a pilot decision. The fire run is fully hands-off: at worst 21 aircraft are off-nominal at once, with no decisions. A failsafe the configuration baseline doesn't set up as modelled becomes a pilot decision. |
 | Terminal areas | Every lane into a source or drop zone merges into one in-trail sequence before the slots. Each tick the pack checks three things: the merged drops per tick fit one lane's headway capacity; the merge point, where two lanes are one spacing apart, lies inside the shorter lane; and the fill or drop slots sit on a ring whose radius puts neighbouring slots one spacing apart. The ring radii are listed, ready for laying out the slots. |
 | Failsafes | The deconflicted way home is to finish the current cycle along the lanes to the source's recovery slot. Those lanes are in every check, and a whole cycle fits the usable battery. The operator's configuration baseline (`--vehicle-config`, default `fire_vehicle_config.csv`) is checked against that procedure for lost link, its timeout, low battery and in-lane failure. `rtl` fails because it flies straight home across other lanes. `smart_rtl` fails because it retraces the outbound lane against traffic. |
 

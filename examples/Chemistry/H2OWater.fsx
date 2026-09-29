@@ -6,7 +6,7 @@
 //
 // BDE = E(stretched) - E(equilibrium) approximates the energy required to
 // break a bond. Comparing BDEs across molecules reveals relative bond
-// strengths â€” essential for predicting reaction selectivity, metabolic
+// strengths — essential for predicting reaction selectivity, metabolic
 // stability, and solvation/H-bond energetics.
 //
 // Water (H2O, 10 electrons) is central to drug binding: solvation penalties,
@@ -228,7 +228,7 @@ let private h2oSystem: BondSystem =
         BondType = "O-H"
         BondLengthAngstrom = 0.96
         BiologicalRole = "Solvation shell, H-bond donor/acceptor"
-        Description = "Water O-H bond â€” the universal biological solvent"
+        Description = "Water O-H bond — the universal biological solvent"
     }
 
 /// HF: the H-F bond. Models strong H-bond acceptors and halogen
@@ -283,7 +283,7 @@ let private hfSystem: BondSystem =
         BondType = "H-F"
         BondLengthAngstrom = 0.92
         BiologicalRole = "Strong H-bond model, halogen drug interactions"
-        Description = "Hydrogen fluoride H-F bond â€” strongest single bond to H"
+        Description = "Hydrogen fluoride H-F bond — strongest single bond to H"
     }
 
 /// LiH: the Li-H bond. Models weak ionic/polar bonds.
@@ -338,7 +338,7 @@ let private lihSystem: BondSystem =
         BondType = "Li-H"
         BondLengthAngstrom = 1.60
         BiologicalRole = "Weak polar bond model, metal-ligand interactions"
-        Description = "Lithium hydride Li-H bond â€” weak ionic/polar bond model"
+        Description = "Lithium hydride Li-H bond — weak ionic/polar bond model"
     }
 
 /// H2: the H-H bond. Simplest covalent bond, reference for all BDE work.
@@ -393,7 +393,7 @@ let private h2System: BondSystem =
         BondType = "H-H"
         BondLengthAngstrom = 0.74
         BiologicalRole = "Reference covalent bond, hydrogenase substrates"
-        Description = "Molecular hydrogen H-H bond â€” simplest covalent bond"
+        Description = "Molecular hydrogen H-H bond — simplest covalent bond"
     }
 
 /// All built-in presets keyed by lowercase name.
@@ -682,7 +682,7 @@ let private computeSystem
 
     if not quiet then
         if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure â€” energies are unreliable)"
+            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
         else
             printfn "         => BDE = %.4f Ha = %.2f kcal/mol" bdeHartree bdeKcal
 
@@ -777,7 +777,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-system progress output).
 printTable ()
 

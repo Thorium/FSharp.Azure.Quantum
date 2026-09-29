@@ -6,12 +6,16 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.11</Version>
+    <Version>0.4.12</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.11: Rebuilt against FSharp.Azure.Quantum v1.4.11
+    <PackageReleaseNotes>v0.4.12: Rebuilt against FSharp.Azure.Quantum v1.4.12
+- No functional changes in this package; see the core package notes
+- Requires FSharp.Azure.Quantum v1.4.12+
+
+v0.4.11: Rebuilt against FSharp.Azure.Quantum v1.4.11
 - CHANGED (memory): EntanglementEntropy.entanglementEntropy built the full density matrix ρ_AB = |ψ⟩⟨ψ| only to partial-trace it away — 16·4^n bytes, 4.3 GB at 14 qubits, and past the .NET array limit at 16. It now computes ρ_A straight from the amplitudes in dimA² memory: at 14 qubits split 7|7 the whole call allocates about 1 MB. Same eigenvalues and entropy, verified against the dense path for every split of 1-6 qubits. It also refuses non-positive subsystem dimensions itself, as the partial trace did before
 - CHANGED: EntanglementEntropy.densityMatrix indexed its amplitude LIST inside the double loop, O(N³) for an O(N²) result; it converts to an array once. It is still dense by nature, and its doc now says so and points to entanglementEntropy
 - CHANGED: the surface-code and toric-code matching graphs indexed the defect list inside their pairwise loop (cubic in the number of defects); they index an array now. Edge order is unchanged

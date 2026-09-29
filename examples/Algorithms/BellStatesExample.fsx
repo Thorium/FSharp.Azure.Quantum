@@ -200,7 +200,7 @@ if not quiet then
     printfn "=== Bell States (EPR Pairs) ==="
     printfn ""
     printfn "BUSINESS SCENARIO:"
-    printfn "Create maximally entangled qubit pairs â€” the fundamental"
+    printfn "Create maximally entangled qubit pairs — the fundamental"
     printfn "resource for quantum communication, teleportation, and QKD."
     printfn ""
 

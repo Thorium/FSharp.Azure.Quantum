@@ -6,12 +6,22 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.4.11</Version>
+    <Version>1.4.12</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.11: GraphOptimization.validateConstraints checks what it claims; 2^n index lists removed from state-vector loops
+    <PackageReleaseNotes>v1.4.12: shots settings reach the circuit; network flow serves the most demand; QFT basis-state bit order
+
+- CHANGED (different results): QuantumNetworkFlowSolver.solve returned the cheapest valid sample. Validity only bounds a flow from above, so a single supplier-to-customer path is valid and cheaper than serving everyone, and solve usually served part of the demand. It now returns the valid flow that meets the most demand, the cheapest among equals. NetworkFlow.solve, which calls it, changes the same way
+- CHANGED (different results): QFT.transformBasisState (and encodeAndTransform) set bit i of the index on qubit i, while the QFT circuit reads qubit 0 as the most significant bit, so it transformed the bit-reversed index and matched neither reading of its documented formula. It now prepares |j⟩ in the circuit's convention, and the doc says where each amplitude lands: at the bit-reversed state-vector index with swaps, at k itself without. QFT.execute and executeOnState, and so QPE and Shor, are unchanged
+- ADDED: QPE.executeWithShots takes the number of measurements, and QPE.DefaultShots (1000) names what executeWithExactness, executeWith and execute use. A non-positive count is a ValidationError
+- CHANGED: the phaseEstimator builder's `shots` was stored and never used; QPE always measured 1000 times. estimate now measures `shots` times, or 1024 on LocalBackend and 2048 on any other backend when unset, as documented. `shots 0` is a ValidationError
+- DOCS: the periodFinder and linearSystemSolver builders' `shots` is accepted but not used, and their docs now say so: Shor reads one measurement per attempt and retries (maxAttempts buys more samples), and the linear-system solver reads its answer from the state vector exactly
+- CHANGED: the pattern matcher kept only outcomes above a fixed 5% frequency, which dropped every match of a broad pattern (128 matches in 256 items come out near 0.8% each). Candidates are verified classically anyway, so the threshold is now a uniform draw's frequency, 1/2^n
+- CHANGED: circuit statistics counted measurements as single-qubit gates as well as measurements, so single + two + multi + measurements exceeded TotalGates. SingleQubitGates now excludes measurements
+
+v1.4.11: GraphOptimization.validateConstraints checks what it claims; 2^n index lists removed from state-vector loops
 
 - CHANGED (false passes): GraphOptimization.validateConstraints returned true for Acyclic without checking anything, and Connected only tested that the PROBLEM graph had at least one edge, so any solution passed both. Acyclic now detects a cycle (a directed cycle for directed edges; any cycle, including a self-loop or parallel edges, otherwise) and Connected checks that the selected edges form one component. Callers can now get false where they previously got true
 - CHANGED: DegreeLimit and MinDegree judged the problem graph even when the solution selected edges, so a selection could break either and still pass. The structural constraints (DegreeLimit, MinDegree, Connected, Acyclic) now judge SelectedEdges when present and the problem graph otherwise. MinDegree also counts a node without edges as degree 0; iterating the adjacency map alone passed such nodes unchecked

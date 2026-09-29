@@ -69,6 +69,11 @@ Cli.exitIfHelp
             Description = "Suppress console output"
             Default = None
         }
+        {
+            Name = "svg"
+            Description = "Draw an animated SVG (default path: _images/basic-fusion.svg)"
+            Default = None
+        }
     ]
     args
 
@@ -240,7 +245,9 @@ if shouldRun 3 then
     let pVacuum, pPsi = crossFusionProbabilities ()
     pr "Probabilities: vacuum %.4f, psi %.4f" pVacuum pPsi
 
-    if pVacuum + pPsi <= 0.0 then
+    if cliTrials < 1 then
+        pr "No trials: --trials must be 1 or more."
+    elif pVacuum + pPsi <= 0.0 then
         pr "Measurement setup failed: no fusion outcome"
     else
         let rng = Random()
@@ -366,6 +373,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "basic-fusion.sv
     | [], _, _
     | _, None, _
     | _, _, None -> printfn "The picture needs Examples 2, 3 and 4: run with --example all."
+    | _, Some samples, _ when samples.Length = 0 -> printfn "The picture needs --trials 1 or more."
     | _, Some samples, Some numAnyons ->
         let vacuum = AnyonSpecies.Particle.Vacuum
         let psi = AnyonSpecies.Particle.Psi
@@ -439,6 +447,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "basic-fusion.sv
                             "fill", fill
                             "font-weight", (if bold then "bold" else "normal")
                             "text-anchor", anchor
+                            "font-family", fontFamily
                         ],
                         animate =
                             [
@@ -734,7 +743,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "basic-fusion.sv
             fill = grey
         )
 
-        pic.Save path
+        pic.Save(path, quiet = quiet)
 
 // ---------------------------------------------------------------------------
 // Usage hints

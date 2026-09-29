@@ -1088,8 +1088,9 @@ module Evidence =
             /// reaches the whole mission on its own.
             Relay: (Drone * RelayMesh.Mesh) option
             RelayMassKg: float
-            /// Fallback (RTL) layer of the first sortie; each next sortie flies
-            /// its fallback RtlStepM higher, so two fallbacks never share a level.
+            /// Fallback (RTL) layer of the first copter sortie; each next copter
+            /// sortie flies its fallback RtlStepM higher, and fixed-wings stack
+            /// down from the ceiling, so two fallbacks never share a level.
             RtlBaseM: float
             RtlStepM: float
             /// Where one-way flights end and stranded fallbacks go.
@@ -1100,8 +1101,27 @@ module Evidence =
     [<Literal>]
     let private dropoutStepS = 5.0
 
-    let rtlAltitude (st: Settings) (sortieIndex: int) =
-        st.RtlBaseM + float sortieIndex * st.RtlStepM
+    /// Sortie k's own RTL layer, so no two fallbacks share a level: copters from
+    /// RtlBaseM up, one RtlStepM per copter sortie before it; fixed-wings from
+    /// the ceiling down, in whole metres. A QuadPlane flies its RTL as a
+    /// fixed-wing and crosses the base at that height while copters climb over
+    /// their pads, and ArduPlane keeps Q_RTL_ALT as an integer.
+    let rtlAltitude (st: Settings) (sorties: FleetPlanner.Sortie list) (k: int) =
+        let fixedWing (s: FleetPlanner.Sortie) =
+            Mav.Vehicle.ofModel s.Model = Mav.ArduQuadPlane
+
+        let s = sorties.[k]
+
+        let rank =
+            sorties
+            |> List.take k
+            |> List.filter (fun o -> fixedWing o = fixedWing s)
+            |> List.length
+
+        if fixedWing s then
+            Math.Floor Regulations.maxAltitudeAglMeters - float rank * st.RtlStepM
+        else
+            st.RtlBaseM + float rank * st.RtlStepM
 
     /// Local metres around the base (equirectangular); the error is negligible
     /// over the few kilometres a sortie covers.
@@ -1814,7 +1834,7 @@ module Evidence =
             @ (relays
                |> List.map (fun (r, _) -> ($"repeater %s{r.Id} %s{r.Name}", r.Location.AltitudeMeters)))
             @ (sorties
-               |> List.mapi (fun k s -> ($"%s{s.DroneId} fallback layer", rtlAltitude st k)))
+               |> List.mapi (fun k s -> ($"%s{s.DroneId} fallback layer", rtlAltitude st sorties k)))
             |> Ev.Checks.altitude
 
         // --- Contingency ----------------------------------------------------
@@ -2013,7 +2033,7 @@ module Evidence =
             List.zip sorties missionFlights
             |> List.mapi (fun k (s, (tr, leaving)) ->
                 let d = droneById.[s.DroneId]
-                let rtlAlt = rtlAltitude st k
+                let rtlAlt = rtlAltitude st sorties k
                 let launch = fst tr.Samples.[0]
                 let landing = fst (Array.last tr.Samples)
                 // Times the aircraft passes each waypoint (its path starts at
@@ -2555,7 +2575,7 @@ module Export =
             |> List.mapi (fun i s ->
                 mission
                     droneById.[s.DroneId]
-                    (Evidence.rtlAltitude st i)
+                    (Evidence.rtlAltitude st sorties i)
                     []
                     (Evidence.sortieLaunchS st i)
                     s.Returns

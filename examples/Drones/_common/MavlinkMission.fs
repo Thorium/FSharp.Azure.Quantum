@@ -435,6 +435,9 @@ module Flight =
         (heading: (float * float) option)
         (points: (float * float * float) list)
         : (float * float * float)[] * int[] =
+        if List.isEmpty points then
+            invalidArg "points" "a path needs at least one point"
+
         let pts = Array.ofList points
         let n = pts.Length
         let path = ResizeArray<float * float>()
@@ -483,7 +486,12 @@ module Flight =
                 let finish = if left then beta - alpha else beta + alpha
                 let twoPi = 2.0 * Math.PI
                 let s = if left then finish - start else start - finish
-                arc centre (((s % twoPi) + twoPi) % twoPi) left
+                let sweep = ((s % twoPi) + twoPi) % twoPi
+
+                // Already heading for it: a sweep a hair short of a full turn
+                // is rounding, not a loop.
+                if sweep > 1e-6 && sweep < twoPi - 1e-6 then
+                    arc centre sweep left
         | _ -> ()
 
         for k in 1 .. n - 1 do
@@ -626,7 +634,13 @@ module Flight =
     /// `speedMs`, climbing no faster than `climbMs` and descending no faster
     /// than `descentMs`. Along a sloped track each axis's limits are divided by
     /// that axis's share of the track.
-    let copterLeg (speedMs: float) (climbMs: float) (descentMs: float) (horizontalM: float) (dzM: float) =
+    let private computeCopterLeg
+        (speedMs: float)
+        (climbMs: float)
+        (descentMs: float)
+        (horizontalM: float)
+        (dzM: float)
+        =
         let length = Math.Sqrt(horizontalM * horizontalM + dzM * dzM)
 
         if length < 1e-9 then
@@ -705,7 +719,7 @@ module Flight =
     /// fraction of its length): eight points through each ramp, where the speed
     /// changes. Between the ramps the speed is constant, so a straight line
     /// between samples is exact there.
-    let legFractions (leg: Leg) =
+    let private computeLegFractions (leg: Leg) =
         if leg.LengthM <= 0.0 || leg.TotalS <= 0.0 then
             []
         else
@@ -718,19 +732,46 @@ module Flight =
             |> List.sort
             |> List.map (fun t -> (t, alongM leg t / leg.LengthM))
 
+    let private legCache =
+        System.Collections.Concurrent.ConcurrentDictionary<struct (float * float * float * float * float), Leg>()
+
+    let private fractionCache =
+        System.Collections.Concurrent.ConcurrentDictionary<Leg, (float * float) list>()
+
+    /// A copter leg (see `computeCopterLeg`). Planners ask for the same few
+    /// legs, shifted in time, thousands of times, so each is worked out once.
+    let copterLeg (speedMs: float) (climbMs: float) (descentMs: float) (horizontalM: float) (dzM: float) =
+        legCache.GetOrAdd(
+            struct (speedMs, climbMs, descentMs, horizontalM, dzM),
+            fun _ -> computeCopterLeg speedMs climbMs descentMs horizontalM dzM
+        )
+
+    /// Where a leg's position is worth a sample (see `computeLegFractions`),
+    /// worked out once per leg.
+    let legFractions (leg: Leg) =
+        fractionCache.GetOrAdd(leg, fun l -> computeLegFractions l)
+
+    let private clearCache =
+        System.Collections.Concurrent.ConcurrentDictionary<struct (float * float), float>()
+
     /// Seconds a copter needs to get `distanceM` from rest on a level leg at
     /// `speedMs` (or, run backwards, to come to rest from that far out).
     let clearS (speedMs: float) (distanceM: float) =
-        let long = copterLeg speedMs speedMs speedMs (1e6 + 2.0 * distanceM) 0.0
+        // Bookings ask for the same few (speed, distance) pairs over and over.
+        clearCache.GetOrAdd(
+            struct (speedMs, distanceM),
+            fun _ ->
+                let long = copterLeg speedMs speedMs speedMs (1e6 + 2.0 * distanceM) 0.0
 
-        let rec find lo hi i =
-            let mid = (lo + hi) / 2.0
+                let rec find lo hi i =
+                    let mid = (lo + hi) / 2.0
 
-            if i = 0 then hi
-            elif alongM long mid >= distanceM then find lo mid (i - 1)
-            else find mid hi (i - 1)
+                    if i = 0 then hi
+                    elif alongM long mid >= distanceM then find lo mid (i - 1)
+                    else find mid hi (i - 1)
 
-        find 0.0 (long.RampS + distanceM / max 1e-6 long.PeakMs) 50
+                find 0.0 (long.RampS + distanceM / max 1e-6 long.PeakMs) 50
+        )
 
     /// Seconds for a straight leg of `horizontalM` and `dzM` (up positive) at
     /// `cruiseMs`. A copter flies it from rest to rest (copterLeg); a QuadPlane
@@ -2469,14 +2510,14 @@ let drawFlight () =
         // X, a fixed-wing as a plane turned the way it flies; faint on the
         // ground.
         let dot (plane: bool) (fill: string) (xs: float[]) (ys: float[]) (zs: float[]) =
-            let g = element "g" [ "transform", sprintf "translate(%s %s)" (f1 xs.[0]) (f1 ys.[0]) ] root
+            let g = element "g" [ ("transform", sprintf "translate(%s %s)" (f1 xs.[0]) (f1 ys.[0])) ] root
             animateTransform g "translate" (Array.map2 (fun x y -> f1 x + " " + f1 y) xs ys)
             animate g "opacity" (zs |> Array.map (fun z -> if z > airborneM then "1" else "0.35")) "linear"
 
             // The shapes are drawn 1.5 times their unit size.
             if plane then
                 let turns = headings xs ys
-                let body = element "g" [ "transform", sprintf "rotate(%s)" (f1 turns.[0]) ] g
+                let body = element "g" [ ("transform", sprintf "rotate(%s)" (f1 turns.[0])) ] g
                 animateTransform body "rotate" (turns |> Array.map f1)
 
                 element
@@ -2492,7 +2533,7 @@ let drawFlight () =
                     body
                 |> ignore
             else
-                let quad = element "g" [ "transform", "scale(1.5)" ] g
+                let quad = element "g" [ ("transform", "scale(1.5)") ] g
 
                 for w, c in [ ("3.5", "white"); ("1.8", fill) ] do
                     element "path" [ "d", "M -5 -5 L 5 5 M -5 5 L 5 -5"; "stroke", c; "stroke-width", w; "stroke-linecap", "round"; "fill", "none" ] quad

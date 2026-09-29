@@ -8,8 +8,11 @@
 ///      over all basis states (the Fourier transform of a delta is flat).
 ///   2. Applies the inverse QFT to undo it, recovering |000⟩.
 ///
-/// Executed on the unified IQuantumBackend (local simulator here). Swap in any
-/// cloud backend (IonQ / Rigetti / Quantinuum) to run the same code on hardware.
+/// Runs on the local state-vector simulator (LocalBackend) only; nothing is sent to
+/// Azure Quantum. Step 2 applies the inverse QFT to the state step 1 returned, and
+/// the picture reads amplitudes: both need state-vector access, which a cloud
+/// backend does not give. On a cloud backend the library runs a QFT only from |0⟩,
+/// as one submitted circuit, and returns sampled counts.
 ///
 /// Run with: dotnet fsi QuantumFourierTransform.fsx
 /// Add `--svg [path]` to also draw a 4-qubit QFT of the number 7, gate by gate,
@@ -69,7 +72,13 @@ let amplitudesOf (state: QuantumState) : Complex[] =
 
 /// One qubit on its own: the chance it reads 1, and the phase of its 1 against its 0
 /// as a hand of length 2|ρ₁₀| (1 = an even mix, 0 = a plain 0 or 1) at an angle in turns.
-type Dial = { POne: float; Length: float; Turn: float }
+[<Struct>]
+type Dial =
+    {
+        POne: float
+        Length: float
+        Turn: float
+    }
 
 let dialOf (amps: Complex[]) (q: int) : Dial =
     let mask = 1 <<< q
@@ -93,20 +102,24 @@ let dialOf (amps: Complex[]) (q: int) : Dial =
 /// The QFT here reads qubit 0 as the highest bit: a reading's number from a state index
 /// and back (reversing the bits is its own inverse).
 let readingOf (i: int) =
-    Seq.sum [ for q in 0 .. pictureQubits - 1 -> ((i >>> q) &&& 1) <<< (pictureQubits - 1 - q) ]
+    Seq.sum
+        [
+            for q in 0 .. pictureQubits - 1 -> ((i >>> q) &&& 1) <<< (pictureQubits - 1 - q)
+        ]
 
-/// A turn as a fraction of sixteenths, e.g. "7/16", "3/4", "0".
+/// A turn as a fraction of 1/2^pictureQubits, e.g. "7/16", "3/4", "0".
 let turnWords (t: float) =
-    let sixteenths = Math.Round(t * 16.0)
+    let parts = 1 <<< pictureQubits
+    let whole = Math.Round(t * float parts)
 
-    if abs (t * 16.0 - sixteenths) > 1e-6 then
-        sprintf "%.3f" t
+    if abs (t * float parts - whole) > 1e-6 then
+        $"%.3f{t}"
     else
         let rec gcd a b = if b = 0 then a else gcd b (a % b)
-        let m = int sixteenths % 16
-        let g = gcd m 16
+        let m = int whole % parts
+        let g = gcd m parts
 
-        if m = 0 then "0" else sprintf "%d/%d" (m / g) (16 / g)
+        if m = 0 then "0" else sprintf "%d/%d" (m / g) (parts / g)
 
 type QftStep =
     {
@@ -114,85 +127,134 @@ type QftStep =
         Caption: string
         Amplitudes: Complex[]
         Target: int option
-        Control: int option
+        Controls: int list
         /// Words under the chance bars.
         BarsCaption: string
     }
 
 let qftSteps () : QftStep[] =
     let n = pictureQubits
-    let orFail (r: Result<'T, QuantumError>) = r |> Result.defaultWith (fun e -> failwithf "picture: %s" e.Message)
-    let apply gates state = UnifiedBackend.applySequence backend (gates |> List.map QuantumOperation.Gate) state |> orFail
+
+    let orFail (r: Result<'T, QuantumError>) =
+        r |> Result.defaultWith (fun e -> failwithf "picture: %s" e.Message)
+
+    let apply gates state =
+        UnifiedBackend.applySequence backend (gates |> List.map QuantumOperation.Gate) state
+        |> orFail
+
     let bitOfInput q = (pictureInput >>> (n - 1 - q)) &&& 1
-    let binary = String [| for q in 0 .. n - 1 -> if bitOfInput q = 1 then '1' else '0' |]
+
+    let binary =
+        String [| for q in 0 .. n - 1 -> if bitOfInput q = 1 then '1' else '0' |]
+
     let readsOne (amps: Complex[]) (q: int) = (dialOf amps q).POne > 0.5
     let steps = ResizeArray<QftStep>()
 
-    let add label caption state target control barsCaption =
+    let add label caption state target controls barsCaption =
         steps.Add
             {
                 Label = label
                 Caption = caption
                 Amplitudes = amplitudesOf state
                 Target = target
-                Control = control
+                Controls = controls
                 BarsCaption = barsCaption
             }
 
     let start = backend.InitializeState n |> orFail
-    add "Start: all four qubits read 0" "No hands: each qubit is a plain 0." start None None "One reading is certain: 0000."
 
-    let loaded = apply [ for q in 0 .. n - 1 do if bitOfInput q = 1 then CircuitBuilder.X q ] start
-    let place = [ for q in 0 .. n - 1 -> sprintf "%d×%d" (bitOfInput q) (1 <<< (n - 1 - q)) ] |> String.concat " + "
+    let loaded =
+        apply
+            [
+                for q in 0 .. n - 1 do
+                    if bitOfInput q = 1 then
+                        CircuitBuilder.X q
+            ]
+            start
+
+    let place =
+        [ for q in 0 .. n - 1 -> sprintf "%d×%d" (bitOfInput q) (1 <<< (n - 1 - q)) ]
+        |> String.concat " + "
 
     add
-        (sprintf "Load the number %d = %s (q0 is the highest bit)" pictureInput binary)
-        (sprintf "%s = %d; still plain 0s and 1s, so still no hands." place pictureInput)
+        $"Load the number %d{pictureInput} = %s{binary} (q0 is the highest bit)"
+        $"%s{place} = %d{pictureInput}. Plain 0s and 1s have no hands yet."
         loaded
         None
-        None
-        (sprintf "One reading is certain: %s = %d." binary pictureInput)
+        []
+        $"One reading is certain: %s{binary} = %d{pictureInput}."
 
     let mutable state = loaded
 
+    // Per qubit: one frame for its H, one for all the controlled turns onto it.
     for j in 0 .. n - 1 do
         let wasOne = readsOne (amplitudesOf state) j
         state <- apply [ CircuitBuilder.H j ] state
 
         add
-            (sprintf "H on q%d: it becomes 0 and 1 at once" j)
+            $"q%d{j}: H makes it 0 and 1 at once"
             (if wasOne then
-                 sprintf "q%d read 1, so its hand starts at 1/2 turn." j
+                 $"q%d{j} read 1, so its hand starts at 1/2 turn."
              else
-                 sprintf "q%d read 0, so its hand starts at 0 (12 o'clock)." j)
+                 $"q%d{j} read 0, so its hand starts at 0 (12 o'clock).")
             state
             (Some j)
-            None
-            "Each H splits every reading in two; the arrows keep the phases."
+            []
+            "H splits each reading in two; the arrows carry the phases."
 
-        for k in j + 1 .. n - 1 do
-            let power = k - j + 1
-            let controlIsOne = readsOne (amplitudesOf state) k
-            state <- apply [ CircuitBuilder.CP(k, j, 2.0 * Math.PI / float (1 <<< power)) ] state
+        if j < n - 1 then
+
+            let turns: (int * int * bool) list =
+                [
+                    for k in j + 1 .. n - 1 do
+                        let power = k - j + 1
+                        let controlIsOne = readsOne (amplitudesOf state) k
+                        state <- apply [ CircuitBuilder.CP(k, j, 2.0 * Math.PI / float (1 <<< power)) ] state
+                        (k, power, controlIsOne)
+                ]
+
+            let turns = turns
+            let turned = turns |> List.filter (fun (_, _, one) -> one)
+
+            let fractions =
+                turned
+                |> List.map (fun (_, power, _) -> $"1/%d{1 <<< power}")
+                |> String.concat " + "
+
+            let names = turned |> List.map (fun (k, _, _) -> $"q%d{k}") |> String.concat ", "
+
+            let halves =
+                turns
+                |> List.map (fun (_, power, _) -> $"1/%d{1 <<< power}")
+                |> String.concat ", "
+
+            let from = turns |> List.map (fun (k, _, _) -> $"q%d{k}") |> String.concat ", "
 
             add
-                (sprintf "Controlled turn: q%d turns q%d by 1/%d of a turn" k j (1 <<< power))
-                (if controlIsOne then
-                     sprintf "q%d reads 1, so q%d turns a further 1/%d turn." k j (1 <<< power)
+                $"q%d{j}: halving turns of %s{halves} from %s{from}"
+                (if turned.IsEmpty then
+                     $"No later qubit reads 1, so q%d{j} does not turn."
                  else
-                     sprintf "q%d reads 0, so q%d does not turn." k j)
+                     $"%s{names} read 1, so q%d{j} turns a further %s{fractions}: now at %s{turnWords (dialOf (amplitudesOf state) j).Turn} turn.")
                 state
                 (Some j)
-                (Some k)
+                (turns |> List.map (fun (k, _, _) -> k))
                 "The chances stay put; only the arrows turn."
 
+    // The transform ends by reversing the qubit order.
     state <- apply [ for i in 0 .. n / 2 - 1 -> CircuitBuilder.SWAP(i, n - 1 - i) ] state
-    add "Swap the order: q0 ↔ q3 and q1 ↔ q2" "The transform ends by reversing the qubit order." state None None "The swap reorders the bars' arrows."
+
+    let pairs =
+        [ for i in 0 .. n / 2 - 1 -> sprintf "q%d ↔ q%d" i (n - 1 - i) ]
+        |> String.concat ", "
 
     // The library's own QFT of the loaded state must give the same state as the gates above.
     let library = QFT.executeOnState loaded backend QFT.defaultConfig |> orFail
     let libraryAmps = amplitudesOf library.FinalState
-    let gap = Array.map2 (fun (a: Complex) b -> (a - b).Magnitude) libraryAmps (amplitudesOf state) |> Array.max
+
+    let gap =
+        Array.map2 (fun (a: Complex) (b: Complex) -> (a - b).Magnitude) libraryAmps (amplitudesOf state)
+        |> Array.max
 
     if gap > 1e-9 then
         failwithf "picture: the gate-by-gate QFT differs from QFT.executeOnState by %g" gap
@@ -209,40 +271,55 @@ let qftSteps () : QftStep[] =
 
                 let whole = sprintf "%d/%d" pictureInput (1 <<< (q + 1))
                 let reduced = turnWords expected
-                if whole = reduced then sprintf "q%d %s" q whole else sprintf "q%d %s → %s" q whole reduced
+
+                if whole = reduced then
+                    $"q%d{q} %s{whole}"
+                else
+                    $"q%d{q} %s{whole} → %s{reduced}"
         ]
 
     // Neighbouring readings' arrows differ by input/2^n of a turn.
     let step = float pictureInput / float (1 <<< n)
 
     for k in 1 .. (1 <<< n) - 1 do
-        let turnOf (r: int) = libraryAmps.[readingOf r].Phase / (2.0 * Math.PI)
+        let turnOf (r: int) =
+            libraryAmps.[readingOf r].Phase / (2.0 * Math.PI)
+
         let d = ((turnOf k - turnOf (k - 1) - step) % 1.0 + 1.5) % 1.0 - 0.5
 
         if abs d > 1e-9 then
             failwithf "picture: reading %d's arrow is not %g turn past reading %d's" k step (k - 1)
 
     add
-        (sprintf "Result: dial q has turned %d ÷ 2^(q+1) of a turn" pictureInput)
+        $"Swap %s{pairs}: now dial q stands at %d{pictureInput} ÷ 2^(q+1) of a turn"
         ((ends |> String.concat ",  ") + " (whole turns drop out)")
         library.FinalState
         None
-        None
-        (sprintf "All 16 readings are equally likely; each arrow is %s turn past the one before." (turnWords step))
+        []
+        $"All %d{1 <<< n} readings are equally likely, and each arrow is %s{turnWords step} turn past the one before it."
 
     let back =
-        QFT.executeOnState library.FinalState backend { QFT.defaultConfig with Inverse = true } |> orFail
+        QFT.executeOnState
+            library.FinalState
+            backend
+            { QFT.defaultConfig with
+                Inverse = true
+            }
+        |> orFail
 
-    if not (readingOf (Array.findIndex (fun (a: Complex) -> a.Magnitude > 0.5) (amplitudesOf back.FinalState)) = pictureInput) then
+    if
+        (readingOf (Array.findIndex (fun (a: Complex) -> a.Magnitude > 0.5) (amplitudesOf back.FinalState)))
+        <> pictureInput
+    then
         failwith "picture: the inverse QFT did not return the input"
 
     add
-        (sprintf "Inverse QFT: the dials fold back into %s = %d" binary pictureInput)
+        $"Inverse QFT: the dials fold back into %s{binary} = %d{pictureInput}"
         "The angles held the number: undoing the transform reads it back."
         back.FinalState
         None
-        None
-        (sprintf "One reading is certain again: %s = %d." binary pictureInput)
+        []
+        $"One reading is certain again: %s{binary} = %d{pictureInput}."
 
     steps.ToArray()
 
@@ -252,21 +329,11 @@ let drawPicture (path: string) =
     let q = pictureQubits
     let dim = 1 <<< q
     let per (f: QftStep -> 'T) = Array.map f steps
-    let picW, picH = 760.0, 552.0
+    let picW, picH = 760.0, 566.0
     let accent, zeroColour, oneColour = colour 3, colour 0, colour 4
-    let pic = Picture(picW, picH, frames = n, durationS = 19.0, title = "Quantum Fourier transform", hold = 0.65)
-    let shownIn (i: int) = Array.init n (fun k -> if k = i then "visible" else "hidden")
 
-    // Text whose words change per frame while its y follows `ys` smoothly.
-    let ridingText (x: float) (ys: float[]) (labels: string[]) (attrs: (string * string) list) =
-        for i, label in Array.indexed labels do
-            if label <> "" then
-                pic.Element(
-                    "text",
-                    [ "x", num x; "text-anchor", "middle"; "font-family", fontFamily ] @ attrs,
-                    animate = [ "y", Array.map num ys; "visibility", shownIn i ],
-                    text = label
-                )
+    let pic =
+        Picture(picW, picH, frames = n, durationS = 2.0 * float n, title = "Quantum Fourier transform", hold = 0.55)
 
     // Header.
     pic.Text(16.0, 30.0, "The quantum Fourier transform turns a number into dial angles", size = 20.0, bold = true)
@@ -274,7 +341,7 @@ let drawPicture (path: string) =
     pic.Text(
         16.0,
         50.0,
-        sprintf "Four qubits hold the number %d. Gate by gate the transform turns each qubit's dial, until the dials stand at %d/2, %d/4, %d/8 and %d/16 of a turn." pictureInput pictureInput pictureInput pictureInput pictureInput,
+        $"Four qubits hold the number %d{pictureInput}. Gate by gate the transform turns each qubit's dial, until the dials stand at %d{pictureInput}/2, %d{pictureInput}/4, %d{pictureInput}/8 and %d{pictureInput}/16 of a turn.",
         size = 11.5,
         fill = grey
     )
@@ -300,57 +367,125 @@ let drawPicture (path: string) =
         let cx = 110.0 + 180.0 * float qubit
         let dials = per (fun s -> dialOf s.Amplitudes qubit)
         let isTarget = per (fun s -> if s.Target = Some qubit then 1.0 else 0.0)
-        let isControl = per (fun s -> if s.Control = Some qubit then 1.0 else 0.0)
+        let isControl = per (fun s -> if List.contains qubit s.Controls then 1.0 else 0.0)
 
         pic.Circle(cx, dialY, r + 7.0, stroke = accent, width = 3.0, animate = [ ("opacity", isTarget) ])
-        pic.Circle(cx, dialY, r + 7.0, stroke = accent, width = 2.0, opacity = 0.0, animate = [ ("opacity", isControl) ])
-        pic.Element("circle", [ "cx", num cx; "cy", num dialY; "r", num (r + 7.0); "fill", "none"; "stroke", "white"; "stroke-width", "2"; "stroke-dasharray", "4 4" ], animate = [ ("opacity", Array.map num isControl) ])
+
+        pic.Element(
+            "circle",
+            [
+                "cx", num cx
+                "cy", num dialY
+                "r", num (r + 7.0)
+                "fill", "none"
+                "stroke", accent
+                "stroke-width", "2.5"
+                "stroke-dasharray", "5 4"
+            ],
+            animate = [ ("opacity", Array.map num isControl) ]
+        )
+
         pic.Circle(cx, dialY, r, fill = tint 0.75 zeroColour)
-        pic.Circle(cx, dialY, r, fill = tint 0.45 oneColour, animate = [ ("opacity", dials |> Array.map (fun d -> d.POne)) ])
+
+        pic.Circle(
+            cx,
+            dialY,
+            r,
+            fill = tint 0.45 oneColour,
+            animate = [ ("opacity", dials |> Array.map (fun d -> d.POne)) ]
+        )
+
         pic.Circle(cx, dialY, r, stroke = ink, width = 1.2)
 
-        for t, label, dx, dy, anchor in [ (0.0, "0", 0.0, -5.0, "middle"); (0.25, "1/4", 5.0, 4.0, "start"); (0.5, "1/2", 0.0, 13.0, "middle"); (0.75, "3/4", -5.0, 4.0, "end") ] do
+        for t, label, dx, dy, anchor in
+            [
+                (0.0, "0", 0.0, -2.0, "middle")
+                (0.25, "1/4", 3.0, 4.0, "start")
+                (0.5, "1/2", 0.0, 11.0, "middle")
+                (0.75, "3/4", -3.0, 4.0, "end")
+            ] do
             let a = 2.0 * Math.PI * t
             let sx, sy = sin a, -(cos a)
-            pic.Line(cx + (r - 6.0) * sx, dialY + (r - 6.0) * sy, cx + r * sx, dialY + r * sy, stroke = grey, width = 1.0)
-            pic.Text(cx + (r + 2.0) * sx + dx, dialY + (r + 2.0) * sy + dy, label, size = 9.0, fill = grey, anchor = anchor)
+
+            pic.Line(
+                cx + (r - 6.0) * sx,
+                dialY + (r - 6.0) * sy,
+                cx + r * sx,
+                dialY + r * sy,
+                stroke = grey,
+                width = 1.0
+            )
+
+            pic.Text(
+                cx + (r + 9.0) * sx + dx,
+                dialY + (r + 9.0) * sy + dy,
+                label,
+                size = 9.0,
+                fill = grey,
+                anchor = anchor
+            )
 
         // The angle swept from 12 o'clock, as a slice with a fixed point count so it morphs.
         let slice (d: Dial) =
             let len = r * d.Length * 0.92
+
             let points =
-                [ for k in 0 .. 24 ->
-                    let a = 2.0 * Math.PI * d.Turn * float k / 24.0
-                    sprintf "L%s,%s" (num (cx + len * sin a)) (num (dialY - len * cos a)) ]
+                [
+                    for k in 0..24 ->
+                        let a = 2.0 * Math.PI * d.Turn * float k / 24.0
+                        sprintf "L%s,%s" (num (cx + len * sin a)) (num (dialY - len * cos a))
+                ]
 
             sprintf "M%s,%s %s Z" (num cx) (num dialY) (String.concat " " points)
 
         let slices = dials |> Array.map slice
         pic.Path(slices.[0], stroke = "none", width = 0.0, fill = tint 0.55 accent, opacity = 0.7, shapes = slices)
 
-        let tipX = dials |> Array.map (fun d -> cx + r * 0.92 * d.Length * sin (2.0 * Math.PI * d.Turn))
-        let tipY = dials |> Array.map (fun d -> dialY - r * 0.92 * d.Length * cos (2.0 * Math.PI * d.Turn))
+        let tipX =
+            dials
+            |> Array.map (fun d -> cx + r * 0.92 * d.Length * sin (2.0 * Math.PI * d.Turn))
+
+        let tipY =
+            dials
+            |> Array.map (fun d -> dialY - r * 0.92 * d.Length * cos (2.0 * Math.PI * d.Turn))
+
         pic.Line(cx, dialY, cx, dialY, stroke = ink, width = 3.0, animate = [ "x2", tipX; "y2", tipY ])
         pic.Circle(cx, dialY, 3.0, fill = ink)
 
-        let role = if qubit = 0 then " (highest bit)" elif qubit = q - 1 then " (lowest bit)" else ""
-        pic.Text(cx, dialY + r + 26.0, sprintf "q%d%s" qubit role, size = 12.0, bold = true, anchor = "middle")
+        let role =
+            if qubit = 0 then " (highest bit)"
+            elif qubit = q - 1 then " (lowest bit)"
+            else ""
+
+        pic.Text(cx, dialY + r + 32.0, $"q%d{qubit}%s{role}", size = 12.0, bold = true, anchor = "middle")
 
         let words (d: Dial) =
-            if d.Length > 0.5 then sprintf "turned %s" (turnWords d.Turn)
-            elif d.POne > 0.5 then "reads 1"
-            else "reads 0"
+            if d.Length > 0.5 then
+                sprintf "turned %s" (turnWords d.Turn)
+            elif d.POne > 0.5 then
+                "reads 1"
+            else
+                "reads 0"
 
-        pic.FrameText(cx, dialY + r + 41.0, dials |> Array.map words, size = 11.0, anchor = "middle")
+        pic.FrameText(cx, dialY + r + 47.0, dials |> Array.map words, size = 11.0, anchor = "middle")
 
     pic.FrameText(picW / 2.0, 318.0, per (fun s -> s.Caption), size = 11.5, anchor = "middle")
 
     // Bottom: the chance of each reading, and its amplitude as an arrow.
-    pic.Rect(16.0, 336.0, picW - 32.0, 192.0, fill = panel, stroke = frameColour, rx = 6.0)
+    pic.Rect(16.0, 336.0, picW - 32.0, 206.0, fill = panel, stroke = frameColour, rx = 6.0)
     pic.Text(28.0, 354.0, "Chance of each reading, with its amplitude as an arrow", size = 12.0, bold = true)
-    pic.Text(28.0, 368.0, "bits = q0 q1 q2 q3, read as a binary number · arrow length is relative to the largest in that step", size = 10.5, fill = grey)
 
-    let prob (s: QftStep) (i: int) = let a = s.Amplitudes.[i] in a.Real * a.Real + a.Imaginary * a.Imaginary
+    pic.Text(
+        28.0,
+        368.0,
+        "bits = q0 q1 q2 q3, read as a binary number · arrow length is relative to the largest in that step",
+        size = 10.5,
+        fill = grey
+    )
+
+    let prob (s: QftStep) (i: int) =
+        let a = s.Amplitudes.[i] in a.Real * a.Real + a.Imaginary * a.Imaginary
+
     let baseY, barArea = 452.0, 66.0
     let x0 = 60.0
     let slot = (picW - 28.0 - x0) / float dim
@@ -367,28 +502,58 @@ let drawPicture (path: string) =
         let i = readingOf reading
         let cx = x0 + slot * (float reading + 0.5)
         let tops = per (fun s -> yOf (prob s i))
-        pic.Rect(cx - 13.0, baseY, 26.0, 0.0, fill = tint 0.3 zeroColour, animate = [ "y", tops; "height", per (fun s -> barArea * prob s i) ])
+
+        pic.Rect(
+            cx - 13.0,
+            baseY,
+            26.0,
+            0.0,
+            fill = tint 0.3 zeroColour,
+            animate = [ "y", tops; "height", per (fun s -> barArea * prob s i) ]
+        )
 
         let pct (s: QftStep) =
             let p = prob s i
-            if p < 1e-9 then "" else sprintf "%g%%" (Math.Round(100.0 * p, 1))
 
-        ridingText cx (tops |> Array.map (fun y -> y - 4.0)) (per pct) [ "font-size", "9.5"; "fill", ink ]
+            if p < 1e-9 then
+                ""
+            else
+                sprintf "%g%%" (Math.Round(100.0 * p, 2))
 
-        let bits = String [| for b in q - 1 .. -1 .. 0 -> if (reading >>> b) &&& 1 = 1 then '1' else '0' |]
+        pic.FrameText(cx, baseY + 27.0, per pct, size = 9.5, fill = grey, anchor = "middle")
+
+        let bits =
+            String
+                [|
+                    for b in q - 1 .. -1 .. 0 -> if (reading >>> b) &&& 1 = 1 then '1' else '0'
+                |]
+
         pic.Text(cx, baseY + 14.0, bits, size = 10.0, anchor = "middle")
 
-        let ay, ar = baseY + 40.0, 13.0
+        let ay, ar = baseY + 52.0, 13.0
         pic.Circle(cx, ay, ar, fill = "white", stroke = frameColour)
         pic.Line(cx, ay - ar, cx, ay - ar + 3.0, stroke = grey, width = 1.0)
 
-        let largest (s: QftStep) = s.Amplitudes |> Array.map (fun a -> a.Magnitude) |> Array.max
-        let tip (f: float -> float) (s: QftStep) = let a = s.Amplitudes.[i] in f (a.Phase) * ar * a.Magnitude / largest s
-        pic.Line(cx, ay, cx, ay, stroke = accent, width = 2.0, animate = [ "x2", per (fun s -> cx + tip sin s); "y2", per (fun s -> ay - tip cos s) ])
+        let largest (s: QftStep) =
+            s.Amplitudes |> Array.map (fun a -> a.Magnitude) |> Array.max
+
+        let tip (f: float -> float) (s: QftStep) =
+            let a = s.Amplitudes.[i] in f a.Phase * ar * a.Magnitude / largest s
+
+        pic.Line(
+            cx,
+            ay,
+            cx,
+            ay,
+            stroke = accent,
+            width = 2.0,
+            animate = [ "x2", per (fun s -> cx + tip sin s); "y2", per (fun s -> ay - tip cos s) ]
+        )
+
         pic.Circle(cx, ay, 1.6, fill = accent)
 
-    pic.FrameText(picW / 2.0, 518.0, per (fun s -> s.BarsCaption), size = 11.5, anchor = "middle")
-    pic.Progress(16.0, 538.0, picW - 32.0, fill = accent)
+    pic.FrameText(picW / 2.0, 532.0, per (fun s -> s.BarsCaption), size = 11.5, anchor = "middle")
+    pic.Progress(16.0, 552.0, picW - 32.0, fill = accent)
     pic.Save path
 
 printfn "Quantum Fourier Transform (%d qubits)\n" numQubits
@@ -422,3 +587,7 @@ match QFT.execute numQubits backend QFT.defaultConfig with
 
         for (bitstring, count) in histogram inv.FinalState do
             printfn "  |%s⟩ : %5.1f%%" bitstring (100.0 * float count / float shots)
+
+match svgPath (Path.Combine(__SOURCE_DIRECTORY__, "_images", "quantum-fourier-transform.svg")) with
+| Some path -> drawPicture path
+| None -> ()

@@ -2136,11 +2136,20 @@ module Program =
                     // A corridor delivers only for the part of the horizon left
                     // after its warm-up and a crew move; with none left, nothing
                     // is ever worth opening and the run flies nothing.
+                    let corridors = Corridors.buildAll fleet tick cond0 sources sectors
+
                     let deliverable =
-                        Corridors.buildAll fleet tick cond0 sources sectors
+                        corridors
                         |> Array.filter (fun c -> c.WarmupTicks + settings.Limits.CrewMoveTicks < settings.HorizonTicks)
 
-                    if deliverable.Length = 0 then
+                    // Two different reasons nothing flies at the start: no
+                    // corridor exists (no cycle fits the fleet's battery, or the
+                    // wind grounds it), or every corridor needs longer than the
+                    // horizon to deliver.
+                    if corridors.Length = 0 then
+                        printfn
+                            "⚠ no corridor exists at the start: every source-to-sector cycle is beyond the fleet's usable battery or grounded by the wind"
+                    elif deliverable.Length = 0 then
                         printfn
                             "⚠ no corridor can deliver within the %g-tick horizon (warm-up plus crew move); raise --horizon"
                             settings.HorizonTicks

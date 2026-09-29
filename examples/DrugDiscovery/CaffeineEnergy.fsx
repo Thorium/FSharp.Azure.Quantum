@@ -204,7 +204,7 @@ let private formaldehydeFragment: DrugFragment =
         Name = "Formaldehyde"
         Molecule = mol
         FunctionalGroup = "Carbonyl (C=O)"
-        PharmRole = "H-bond acceptor â€” receptor selectivity"
+        PharmRole = "H-bond acceptor — receptor selectivity"
         Description = "Simplest carbonyl; models amide bonds in caffeine xanthine core"
     }
 
@@ -251,7 +251,7 @@ let private hcnFragment: DrugFragment =
         Name = "HCN"
         Molecule = mol
         FunctionalGroup = "Nitrile (C#N)"
-        PharmRole = "Electrophilic warhead â€” covalent inhibitors"
+        PharmRole = "Electrophilic warhead — covalent inhibitors"
         Description = "Nitrile model; sp-nitrogen in purine rings and covalent drug warheads"
     }
 
@@ -299,7 +299,7 @@ let private waterFragment: DrugFragment =
         Name = "Water"
         Molecule = mol
         FunctionalGroup = "Hydroxyl (O-H)"
-        PharmRole = "H-bond donor/acceptor â€” universal solvent shell"
+        PharmRole = "H-bond donor/acceptor — universal solvent shell"
         Description = "Hydroxyl model; Ser/Thr/Tyr sidechains and metabolic oxidation products"
     }
 
@@ -347,7 +347,7 @@ let private h2sFragment: DrugFragment =
         Name = "H2S"
         Molecule = mol
         FunctionalGroup = "Thiol (S-H)"
-        PharmRole = "Covalent target â€” disulfide bonds, cysteine reactivity"
+        PharmRole = "Covalent target — disulfide bonds, cysteine reactivity"
         Description = "Thiol model; Cys sidechain and covalent drug targets"
     }
 
@@ -672,7 +672,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-fragment progress output).
 printTable ()
 

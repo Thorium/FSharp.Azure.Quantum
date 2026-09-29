@@ -1,81 +1,60 @@
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                SUPPLY CHAIN OPTIMIZATION EXAMPLE                             ║
-║              Using QuantumNetworkFlowSolver (Rule 1 Compliant)              ║
-╚══════════════════════════════════════════════════════════════════════════════╝
 
-Problem: Route 1250 units through 4-stage supply chain
-  • Suppliers: 2 (capacity: 1800 units)
-  • Warehouses: 2
-  • Distributors: 2
-  • Customers: 3 (demand: 1250 units)
-Objective: Minimize total cost while meeting demand
+==================================================================
+  Supply Chain Optimization (QAOA Network Flow)
+==================================================================
 
-Running quantum network flow optimization...
-Completed in 500-1000 ms
+  Backend:      Local Simulator
+  Nodes:        9 (Suppliers: 2, Warehouses: 2, Distributors: 2, Customers: 3)
+  Edges:        14
+  Supply:       1800 units
+  Demand:       1250 units
+  Shots:        1000
 
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                     SUPPLY CHAIN FLOW REPORT                                 ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+  Completed in 36 ms
+  Samples:      685 distinct, 7 valid flows
 
-STAGE 1: SUPPLIERS → WAREHOUSES (Ocean Freight)
-────────────────────────────────────────────────────────────────────────────────
-  S2_Mumbai → W2_Dubai: $18.00 per unit
-  S1_Shanghai → W1_Singapore: $20.00 per unit
+  Suppliers -> Warehouses:
+    S1_Shanghai -> W1_Singapore  $20.00/unit
+    S1_Shanghai -> W2_Dubai  $25.00/unit
+    S2_Mumbai -> W2_Dubai  $18.00/unit
 
-STAGE 2: WAREHOUSES → DISTRIBUTORS (Air Freight)
-────────────────────────────────────────────────────────────────────────────────
-  W2_Dubai → D2_Frankfurt: $14.00 per unit
-  W1_Singapore → D2_Frankfurt: $18.00 per unit
+  Warehouses -> Distributors:
+    W1_Singapore -> D1_London  $15.00/unit
+    W2_Dubai -> D1_London  $16.00/unit
+    W2_Dubai -> D2_Frankfurt  $14.00/unit
 
-STAGE 3: DISTRIBUTORS → CUSTOMERS (Ground Shipping)
-────────────────────────────────────────────────────────────────────────────────
-  D2_Frankfurt → C2_Berlin: $10.00 per unit
-  D2_Frankfurt → C3_Amsterdam: $13.00 per unit
+  Distributors -> Customers:
+    D1_London -> C1_Paris  $10.00/unit
+    D1_London -> C3_Amsterdam  $11.00/unit
+    D2_Frankfurt -> C2_Berlin  $10.00/unit
 
-FLOW ANALYSIS:
-────────────────────────────────────────────────────────────────────────────────
-  Total Routes Selected:     6
-  Total Cost:                $93.00 (quantum optimized)
-  Demand Satisfied:          6 / 1250 units
-  Fill Rate:                 0.5%
-  Backend:                   Local Simulator
-  Measurement Shots:         1000
-  Estimated Revenue:         $253000.00 (if all demand met)
-  Estimated Profit:          $252907.00
+==================================================================
+  Supply Chain Optimization Results
+==================================================================
 
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                       BUSINESS INSIGHTS                                      ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+  #     Source            Target             Cost/Unit
+  =======================================================
+  1     S1_Shanghai       W1_Singapore           20.00
+  2     S1_Shanghai       W2_Dubai               25.00
+  3     S2_Mumbai         W2_Dubai               18.00
+  4     W1_Singapore      D1_London              15.00
+  5     W2_Dubai          D1_London              16.00
+  6     W2_Dubai          D2_Frankfurt           14.00
+  7     D1_London         C1_Paris               10.00
+  8     D1_London         C3_Amsterdam           11.00
+  9     D2_Frankfurt      C2_Berlin              10.00
 
-KEY INSIGHTS:
-────────────────────────────────────────────────────────────────────────────────
-  ✓ Quantum QAOA found min-cost flow through network
-  ✓ Multi-stage logistics network optimized via QUBO encoding
-  ✓ Selected 6 optimal routes minimizing total transport cost
-  ⚠ Fill rate: 0.5% - QAOA with p=1 layers finds partial solutions
+  Valid flow:        yes (flow conserved, within capacity, supply and demand)
+  Customers reached: 3 of 3
+  Total cost:        139.00 (one unit on each open route)
+  Demand fill rate:  0.2% (3 of 1250 units delivered)
+  Cheapest valid sample: cost 93.00, 2 of 3 customers reached
+  Exhaustive search (2^14 route sets, 133 ms): best valid flow reaches 3 of 3 customers at cost 139.00
 
-ALGORITHM NOTES:
-────────────────────────────────────────────────────────────────────────────────
-  • Quantum: QAOA with min-cost flow QUBO encoding (Rule 1 compliant)
-  • Backend: Local Simulator (supports IonQ, Rigetti, Local)
-  • For large networks (100+ nodes), quantum annealing provides
-    significant speedup and improved solution quality over classical algorithms
-  • Current: p=1 QAOA layers (basic) - for better results use p=3+ layers
-  • Problem complexity: 14 edges (14 qubits) + multi-stage flow constraints
 
-IMPORTANT: This example demonstrates quantum network flow optimization.
-The low fill rate (0.5%) is expected with p=1 QAOA layers on complex problems.
-For production use:
-  1. Increase QAOA layers (p=3 to p=5) for better solution quality
-  2. Use parameter optimization (VQE-style) to find optimal gamma/beta
-  3. Deploy on real quantum hardware (IonQ, Rigetti) for quantum advantage
-  4. Consider problem decomposition for very large networks
-
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                     OPTIMIZATION COMPLETE                                    ║
-╚══════════════════════════════════════════════════════════════════════════════╝
-
-✨ Note: This example uses QuantumNetworkFlowSolver with LocalBackend.
-   For production deployments, use Azure Quantum backends (IonQ, Rigetti)
-   for improved solution quality on large-scale supply chain networks.
+Tip: Run with --help to see all options.
+     --shots 3000           Increase measurement shots
+     --input nodes.csv      Load custom network nodes
+     --edges edges.csv      Load custom transport edges
+     --csv results.csv      Export route table as CSV
 

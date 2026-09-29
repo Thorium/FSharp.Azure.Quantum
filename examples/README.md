@@ -73,12 +73,20 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[DeliveryRouting/DeliveryRouting.fsx](DeliveryRouting/DeliveryRouting.fsx)**  
   Optimize delivery routes to minimize distance/time  
   **Use Case:** Last-mile delivery, logistics planning  
-  **ROI:** 10-15% reduction in fuel costs, faster deliveries
+  **Result (built-in 16-stop data):** 308 km round trip, 23% shorter than driving the stops in the given order and back (401 km), and 3.2% longer than the exact optimum (298 km): a fast heuristic, not a guaranteed optimum
+
+  ![A delivery van driving the solved tour](DeliveryRouting/_images/delivery-routing.svg)
+
+  The picture drives the solved tour: the van visits the stops in order at the script's 40 km/h, each stop turns green when reached, and the clock shows the drive time. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/DeliveryRouting/DeliveryRouting.fsx --svg
+  ```
 
 - **[SupplyChain/SupplyChain.fsx](SupplyChain/SupplyChain.fsx)**  
   Multi-echelon supply chain optimization  
   **Use Case:** Warehouse allocation, distribution planning  
-  **ROI:** Reduce inventory costs by 20%, improve fill rates
+  **Result:** QAOA route activation on 14 qubits; at 1000 shots the picked flow reached all 3 customers in 9 of 10 runs (cost 139 in eight), against an exhaustive optimum of 139
 
 - **[SupplyChain/SupplyChain-Small.fsx](SupplyChain/SupplyChain-Small.fsx)**  
   Small-scale supply chain example (faster execution)
@@ -321,7 +329,15 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ### Quantum Phase Estimation
 - **[PhaseEstimation/MolecularEnergy.fsx](PhaseEstimation/MolecularEnergy.fsx)**  
-  QPE (Quantum Phase Estimation) for molecular energies
+  QPE (Quantum Phase Estimation) of one-qubit stand-in unitaries (T, Rz(θ), phase gate), each checked against its exact phase; Rz(θ) = e^(−iH) stands in for time evolution under the toy H = (θ/2)·Z. No molecule is modelled: the script header lists what a real molecular QPE would need.
+
+  ![Phase estimation turning qubit dials into a phase reading](PhaseEstimation/_images/phase-estimation.svg)
+
+  The picture shows each counting qubit's dial turned by 1, 2, 4, 8… times the phase, the inverse QFT turning those angles into a reading, and the readings closing in on the exact phase θ/4π (and the toy energy E = −2πφ) as qubits are added. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/PhaseEstimation/MolecularEnergy.fsx --svg
+  ```
 
 ### Linear Algebra & Systems
 - **[LinearSystemSolver/HHLAlgorithm.fsx](LinearSystemSolver/HHLAlgorithm.fsx)**  
@@ -446,6 +462,14 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 - **[Algorithms/QuantumFourierTransform.fsx](Algorithms/QuantumFourierTransform.fsx)**  
   QFT on |0…0⟩ → uniform superposition, then inverse QFT round-trip (`QFT.execute`)
+
+  ![The QFT turning the number 7 into dial angles](Algorithms/_images/quantum-fourier-transform.svg)
+
+  The picture puts the number 7 on four qubits and follows the transform gate by gate until each qubit's dial has turned 7/2, 7/4, 7/8 or 7/16 of a turn, then undoes it. Regenerate it from the repository root:
+
+  ```
+  dotnet fsi --define:LOCAL_BUILD examples/Algorithms/QuantumFourierTransform.fsx --svg
+  ```
 
 - **[Algorithms/AmplitudeAmplification.fsx](Algorithms/AmplitudeAmplification.fsx)**  
   Amplitude amplification boosting a marked state 12.5% → ~95% (`AmplitudeAmplification.Unified.execute`)

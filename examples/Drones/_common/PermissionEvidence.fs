@@ -170,10 +170,16 @@ let positionAt (track: Track) (t: float) : P3 option =
     if s.Length = 0 || t < fst s.[0] || t > fst s.[s.Length - 1] then
         None
     else
-        let i =
-            s
-            |> Array.tryFindIndex (fun (ti, _) -> ti >= t)
-            |> Option.defaultValue (s.Length - 1)
+        // The first sample at or after t, by bisection: checks call this for
+        // every breakpoint of long tracks.
+        let mutable lo, hi = 0, s.Length - 1
+
+        while lo < hi do
+            let mid = (lo + hi) / 2
+
+            if fst s.[mid] >= t then hi <- mid else lo <- mid + 1
+
+        let i = lo
 
         if i = 0 then
             Some(snd s.[0])

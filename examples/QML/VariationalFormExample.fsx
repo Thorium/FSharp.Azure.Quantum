@@ -5,11 +5,11 @@
 /// of a VQC model.
 ///
 /// Examples:
-///   1. RealAmplitudes (depth 1) â€” Ry + CZ
-///   2. RealAmplitudes (depth 2) â€” deeper expressiveness
-///   3. TwoLocal (Ry+CZ) â€” flexible rotation + entanglement
-///   4. TwoLocal (Rx+CNOT) â€” different gate choice
-///   5. EfficientSU2 â€” full SU(2) coverage (2x parameters)
+///   1. RealAmplitudes (depth 1) — Ry + CZ
+///   2. RealAmplitudes (depth 2) — deeper expressiveness
+///   3. TwoLocal (Ry+CZ) — flexible rotation + entanglement
+///   4. TwoLocal (Rx+CNOT) — different gate choice
+///   5. EfficientSU2 — full SU(2) coverage (2x parameters)
 ///   6. Ansatz comparison table
 ///   7. Parameter initialization strategies
 ///   8. Feature map + ansatz composition
@@ -40,8 +40,8 @@ Key Ansatz Architectures:
   - EfficientSU2: Ry + Rz (full SU(2)) + CZ. 2x parameters but complex amplitudes.
 
 References:
-  [1] McClean et al., Nature Comm. 9, 4812 (2018) â€” barren plateaus.
-  [2] Sim et al., Adv. Quantum Technol. 2, 1900070 (2019) â€” expressibility.
+  [1] McClean et al., Nature Comm. 9, 4812 (2018) — barren plateaus.
+  [2] Sim et al., Adv. Quantum Technol. 2, 1900070 (2019) — expressibility.
 *)
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
@@ -65,7 +65,7 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Examples.Common
 
-// â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CLI ──────────────────────────────────────────────────────────────
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
@@ -126,10 +126,10 @@ let section title =
     pr "%s" title
     pr "%s" (String.replicate 60 "-")
 
-// â”€â”€ Quantum Backend (Rule 1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Quantum Backend (Rule 1) ────────────────────────────────────────
 let quantumBackend = LocalBackend() :> IQuantumBackend
 
-// â”€â”€ Result accumulators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Result accumulators ─────────────────────────────────────────────
 let mutable results: Map<string, obj> list = []
 let mutable csvRows: string list list = []
 
@@ -206,7 +206,7 @@ let addRow name nParams totalGates rotGates entGates =
             ]
         ]
 
-// â”€â”€ EXAMPLE 1: RealAmplitudes (depth from CLI) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 1: RealAmplitudes (depth from CLI) ──────────────────────
 if shouldRun 1 then
     section $"EXAMPLE 1: RealAmplitudes (depth=%d{cliDepth})"
     pr "Strategy: Ry rotations + CZ entanglement"
@@ -223,10 +223,10 @@ if shouldRun 1 then
         addRow "1_real_amplitudes" vParams.Length (gateCount circ) rot ent
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 2: RealAmplitudes (depth 2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 2: RealAmplitudes (depth 2) ─────────────────────────────
 if shouldRun 2 then
     section "EXAMPLE 2: RealAmplitudes (depth=2)"
-    pr "Strategy: Two layers of Ry + CZ â€” more expressiveness"
+    pr "Strategy: Two layers of Ry + CZ — more expressiveness"
     pr ""
 
     let vParams = randomParameters (RealAmplitudes 2) numQubits (Some 42)
@@ -240,7 +240,7 @@ if shouldRun 2 then
         addRow "2_real_amp_d2" vParams.Length (gateCount circ) rot ent
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 3: TwoLocal (Ry + CZ) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 3: TwoLocal (Ry + CZ) ──────────────────────────────────
 if shouldRun 3 then
     section "EXAMPLE 3: TwoLocal (Ry + CZ, depth=1)"
     pr "Strategy: Flexible rotation + entanglement choice"
@@ -259,7 +259,7 @@ if shouldRun 3 then
         addRow "3_twolocal_rycz" vParams.Length (gateCount circ) rot ent
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 4: TwoLocal (Rx + CNOT) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 4: TwoLocal (Rx + CNOT) ────────────────────────────────
 if shouldRun 4 then
     section "EXAMPLE 4: TwoLocal (Rx + CNOT, depth=1)"
     pr "Strategy: Different rotation and entanglement gates"
@@ -278,7 +278,7 @@ if shouldRun 4 then
         addRow "4_twolocal_rxcnot" vParams.Length (gateCount circ) rot ent
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 5: EfficientSU2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 5: EfficientSU2 ────────────────────────────────────────
 if shouldRun 5 then
     section "EXAMPLE 5: EfficientSU2 (depth=1)"
     pr "Strategy: Ry + Rz rotations = full SU(2) coverage"
@@ -296,7 +296,7 @@ if shouldRun 5 then
         addRow "5_efficient_su2" vParams.Length (gateCount circ) rot ent
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 6: Ansatz Comparison â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 6: Ansatz Comparison ────────────────────────────────────
 if shouldRun 6 then
     section "EXAMPLE 6: Ansatz Comparison (all architectures)"
 
@@ -321,7 +321,7 @@ if shouldRun 6 then
             addRow (sprintf "6_%s" (name.Replace("(", "").Replace(")", ""))) vParams.Length (gateCount circ) rot ent
         | Error _ -> pr "%-22s | %6s | %5s | %8s | %8s" name "Err" "Err" "Err" "Err"
 
-// â”€â”€ EXAMPLE 7: Parameter Initialization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 7: Parameter Initialization ─────────────────────────────
 if shouldRun 7 then
     section "EXAMPLE 7: Parameter Initialization Strategies"
 
@@ -349,7 +349,7 @@ if shouldRun 7 then
                 ]
         ]
 
-// â”€â”€ EXAMPLE 8: Feature Map + Ansatz Composition â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 8: Feature Map + Ansatz Composition ─────────────────────
 if shouldRun 8 then
     section "EXAMPLE 8: Feature Map + Ansatz Composition"
 
@@ -396,7 +396,7 @@ if shouldRun 8 then
         | Error err -> pr "Ansatz error: %s" err.Message
     | Error err -> pr "Feature map error: %s" err.Message
 
-// â”€â”€ EXAMPLE 9: Depth Scaling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 9: Depth Scaling ────────────────────────────────────────
 if shouldRun 9 then
     section "EXAMPLE 9: Depth Scaling (RealAmplitudes)"
 
@@ -429,7 +429,7 @@ if shouldRun 9 then
             addRow $"9_depth_%d{d}" vParams.Length (gateCount circ) ry cz
         | Error _ -> pr "%5d | %6s | %5s | %4s | %4s" d "Err" "Err" "--" "--"
 
-// â”€â”€ Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Output ───────────────────────────────────────────────────────────
 let payload =
     Map.ofList
         [
@@ -458,7 +458,7 @@ csvPath
         ]
         csvRows)
 
-// â”€â”€ Usage hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Usage hints ──────────────────────────────────────────────────────
 if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
     pr ""
     pr "Usage hints:"

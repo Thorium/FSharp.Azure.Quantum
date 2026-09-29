@@ -10,7 +10,7 @@
 // Background:
 // China controls ~90% of global 6-APA/7-ACA production (key antibiotic
 // intermediates). Quantum chemistry can discover alternative synthesis routes
-// by accurately calculating activation energies for transition states â€”
+// by accurately calculating activation energies for transition states —
 // a problem where classical DFT has systematic errors of 3-5 kcal/mol for
 // strained ring systems like beta-lactams (~27 kcal/mol ring strain).
 //
@@ -179,7 +179,7 @@ let hartreeToKJMol = 2625.5
 
 // --- Shared molecules used by multiple routes ---
 
-/// Formaldehyde (H2C=O) â€” used as ketene-analogue reactant in Staudinger
+/// Formaldehyde (H2C=O) — used as ketene-analogue reactant in Staudinger
 /// and Lewis acid routes.
 let private formaldehyde: Molecule =
     {
@@ -225,7 +225,7 @@ let private formaldehyde: Molecule =
         Multiplicity = 1
     }
 
-/// Ammonia (NH3) â€” used as imine-analogue reactant in Staudinger
+/// Ammonia (NH3) — used as imine-analogue reactant in Staudinger
 /// and Lewis acid routes.
 let private ammonia: Molecule =
     {
@@ -271,7 +271,7 @@ let private ammonia: Molecule =
         Multiplicity = 1
     }
 
-/// Formamide (simplified) â€” shared product of Staudinger and Lewis acid routes.
+/// Formamide (simplified) — shared product of Staudinger and Lewis acid routes.
 let private formamide: Molecule =
     {
         Name = "Formamide (simplified)"
@@ -1072,7 +1072,7 @@ let private computeRoute
 
     if not quiet then
         if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure â€” energies are unreliable)"
+            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
         else
             printfn "         => Ea = %.2f kcal/mol  |  dE = %.2f kcal/mol  |  k = %.2e /s" eaKcal dEKcal rateK
 
@@ -1163,7 +1163,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-route progress output).
 printTable ()
 

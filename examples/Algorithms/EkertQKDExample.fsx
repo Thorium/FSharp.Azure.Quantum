@@ -144,7 +144,7 @@ if runScenario "basis" then
         printfn ""
         printfn "BUSINESS SCENARIO:"
         printfn "Entanglement-based quantum key distribution with security"
-        printfn "guaranteed by Bell's theorem â€” any eavesdropping destroys"
+        printfn "guaranteed by Bell's theorem — any eavesdropping destroys"
         printfn "entanglement and is detected via CHSH inequality violation."
         printfn ""
         printfn "Backend: %s" backend.Name

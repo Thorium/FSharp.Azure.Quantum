@@ -805,7 +805,7 @@ let drawEvolution (path: string) (hamiltonian: QaoaCircuit.ProblemHamiltonian) (
     pic.Text(
         24.0,
         50.0,
-        "Both electrons start in the lower orbital. The Hamiltonian keeps moving them, together, to the upper one and back.",
+        "Both electrons start in the lower orbital; a few percent moves, both together, to the upper one and back.",
         size = 12.5,
         fill = grey
     )
@@ -1067,7 +1067,7 @@ let drawEvolution (path: string) (hamiltonian: QaoaCircuit.ProblemHamiltonian) (
         )
 
     pic.Progress(x0, height - 14.0, barRight - x0)
-    pic.Save path
+    pic.Save(path, quiet = quiet)
 
     if not quiet then
         printfn
@@ -1079,6 +1079,8 @@ let drawEvolution (path: string) (hamiltonian: QaoaCircuit.ProblemHamiltonian) (
 match
     svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "hamiltonian-time-evolution.svg")), hamiltonianResult
 with
+| Some _, Ok _ when trotterSteps < 1 || evolutionTime <= 0.0 ->
+    eprintfn "No picture drawn: it needs --steps 1 or more and a --time above 0."
 | Some path, Ok(hamiltonian, nuclearRepulsion) -> drawEvolution path hamiltonian nuclearRepulsion
 | Some _, Error err -> eprintfn "No picture drawn: %A" err
 | None, _ -> ()

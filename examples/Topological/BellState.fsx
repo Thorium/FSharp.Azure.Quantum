@@ -66,6 +66,11 @@ Cli.exitIfHelp
             Description = "Suppress console output"
             Default = None
         }
+        {
+            Name = "svg"
+            Description = "Draw an animated SVG (default path: _images/bell-state.svg)"
+            Default = None
+        }
     ]
     args
 
@@ -178,6 +183,7 @@ if shouldRun 2 then
     separator ()
 
     match bellState () with
+    | _ when cliTrials < 1 -> pr "No trials: --trials must be 1 or more."
     | Error err -> pr "Failed: %s" err
     | Ok state ->
         // Each shot fuses every qubit's pair and reads both bits.
@@ -286,6 +292,7 @@ match csvPath with
 // Every state, probability, phase and shot drawn comes from quantumBackend.
 match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "bell-state.svg")) with
 | None -> ()
+| Some _ when cliTrials < 1 -> printfn "The picture needs --trials 1 or more."
 | Some path ->
     let braids = [| 0; 2; 1 |]
 
@@ -363,6 +370,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "bell-state.svg"
                             "fill", fill
                             "font-weight", (if bold then "bold" else "normal")
                             "text-anchor", anchor
+                            "font-family", fontFamily
                         ],
                         animate =
                             [
@@ -665,7 +673,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "bell-state.svg"
             let y = 162.0 + 26.0 * float r
 
             let chances =
-                Array.init frames (fun k -> TopologicalOperations.probabilityOfBitstring bits (stateAt k))
+                Array.init frames (stateAt >> TopologicalOperations.probabilityOfBitstring bits)
 
             bar y (bitText bits) (colour 0) (chances |> Array.map ((*) barW)) (chances |> Array.map pct)
             let amps = Array.init frames (fun k -> amplitude (stateAt k) bits)
@@ -728,7 +736,7 @@ match svgPath (IO.Path.Combine(__SOURCE_DIRECTORY__, "_images", "bell-state.svg"
             fill = grey
         )
 
-        pic.Save path
+        pic.Save(path, quiet = quiet)
 
 // ---------------------------------------------------------------------------
 // Usage hints

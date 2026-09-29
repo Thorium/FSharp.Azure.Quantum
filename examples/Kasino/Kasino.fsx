@@ -4,11 +4,11 @@
 /// traditional Finnish card game Kasino.
 ///
 /// PROBLEM: Given a hand card and table cards, find a subset of table cards
-/// whose values sum exactly to the hand card value â€” maximizing captured value.
+/// whose values sum exactly to the hand card value — maximizing captured value.
 ///
 /// Kasino is a popular Finnish card game in the Nordic fishing-style family
 /// (similar to Italian Scopa). Players capture table cards by matching their
-/// sum to a hand card's value. This is a subset-sum problem â€” NP-complete â€”
+/// sum to a hand card's value. This is a subset-sum problem — NP-complete —
 /// naturally mapped to knapsack/QUBO optimization.
 
 (*
@@ -17,17 +17,17 @@
 ===============================================================================
 
 The capture step in Kasino reduces to a 0/1 Knapsack (or exact subset-sum)
-instance: given table cards with values wáµ¢ and a hand card with value W,
-find S âŠ† table cards maximizing Î£áµ¢âˆˆS wáµ¢ subject to Î£áµ¢âˆˆS wáµ¢ â‰¤ W. An exact
-match (Î£ = W) is a perfect capture.
+instance: given table cards with values wᵢ and a hand card with value W,
+find S ⊆ table cards maximizing Σᵢ∈S wᵢ subject to Σᵢ∈S wᵢ ≤ W. An exact
+match (Σ = W) is a perfect capture.
 
 For small tables (< 10 cards) classical DP is instantaneous, but the problem
 structure illustrates quantum optimization well: the QUBO encoding places
-binary variables xáµ¢ on each table card and penalises solutions exceeding
+binary variables xᵢ on each table card and penalises solutions exceeding
 the hand card value while rewarding high total captured value.
 
 Cultural Context:
-  Kasino is part of Finnish cultural heritage â€” a family card game that
+  Kasino is part of Finnish cultural heritage — a family card game that
   teaches arithmetic, pattern recognition, and strategic thinking.
 
 References:
@@ -261,7 +261,7 @@ let printHeader title =
         printfn "%s" title
         printfn "%s" (String.replicate (String.length title) "-")
 
-/// Scenario 1: Simple capture â€” King vs small table
+/// Scenario 1: Simple capture — King vs small table
 let runSimple () =
     printHeader "Scenario 1: Simple Capture (King vs Small Table)"
     let hand = card King
@@ -270,7 +270,7 @@ let runSimple () =
     findOptimalCapture hand table "Maximize value"
     |> Option.map (resultRow "simple")
 
-/// Scenario 2: Complex capture â€” multiple optimal paths exist
+/// Scenario 2: Complex capture — multiple optimal paths exist
 let runComplex () =
     printHeader "Scenario 2: Complex Capture (Multiple Solutions)"
 
@@ -284,7 +284,7 @@ let runComplex () =
     findOptimalCapture hand table "Maximize value"
     |> Option.map (resultRow "complex")
 
-/// Scenario 3: Strategy comparison â€” same hand, same table, two perspectives
+/// Scenario 3: Strategy comparison — same hand, same table, two perspectives
 let runStrategy () =
     printHeader "Scenario 3: Strategy Comparison"
     let hand = card Queen

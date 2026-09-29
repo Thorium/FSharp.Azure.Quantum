@@ -1005,7 +1005,7 @@ match tGateProblem with
 
 ### See Working Examples
 
-- [`examples/PhaseEstimation/MolecularEnergy.fsx`](../examples/PhaseEstimation/MolecularEnergy.fsx) - Drug discovery, materials science
+- [`examples/PhaseEstimation/MolecularEnergy.fsx`](../examples/PhaseEstimation/MolecularEnergy.fsx) - Phases of T, Rz(θ) and P(φ) read by QPE; the "molecular" scenario is a one-qubit stand-in, not a molecular Hamiltonian
 
 ---
 

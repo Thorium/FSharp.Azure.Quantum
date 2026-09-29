@@ -393,7 +393,7 @@ module QuantumNetworkFlowSolver =
     /// 2. QUBO → QaoaCircuit (Hamiltonians + layers)
     /// 3. Execute circuit on quantum backend asynchronously
     /// 4. Decode measurements → flow assignments
-    /// 5. Return best solution
+    /// 5. Return the valid flow that meets the most demand, the cheapest among equals
     ///
     /// Parameters:
     ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
@@ -471,8 +471,11 @@ module QuantumNetworkFlowSolver =
                                 )
                             )
                         else
-                            // Select best VALID solution (minimum cost)
-                            let bestSolution = flowResults |> Array.minBy (fun sol -> sol.TotalCost)
+                            // Validity only bounds flows from above, so a flow serving one
+                            // customer is valid too, and cheaper than one serving all.
+                            // Most demand met wins; cost breaks ties.
+                            let bestSolution =
+                                flowResults |> Array.minBy (fun sol -> (-sol.DemandSatisfied, sol.TotalCost))
 
                             let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
 
@@ -527,7 +530,7 @@ module QuantumNetworkFlowSolver =
     /// 2. QUBO → QaoaCircuit (Hamiltonians + layers)
     /// 3. Execute circuit on quantum backend
     /// 4. Decode measurements → flow assignments
-    /// 5. Return best solution
+    /// 5. Return the valid flow that meets the most demand, the cheapest among equals
     ///
     /// Parameters:
     ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)

@@ -1,5 +1,5 @@
 ﻿// ==============================================================================
-// Quantum VaR Stress Test â€” RiskEngine DSL
+// Quantum VaR Stress Test — RiskEngine DSL
 // ==============================================================================
 // Compares Value-at-Risk, Conditional VaR, and Expected Shortfall across
 // multiple confidence levels using the high-level QuantumRiskEngine DSL.
@@ -263,7 +263,7 @@ let backend = LocalBackend() :> IQuantumBackend
 // ==============================================================================
 
 if not quiet then
-    printfn "Quantum VaR Stress Test â€” RiskEngine DSL"
+    printfn "Quantum VaR Stress Test — RiskEngine DSL"
     printfn "Levels: %d  Qubits: %d  Shots: %d  Paths: %s" levels.Length numQubits shots (simulationPaths.ToString "N0")
     printfn ""
 
@@ -340,14 +340,14 @@ if not quiet then
 let private fmtPct (v: float option) =
     match v with
     | Some x -> sprintf "%8.4f%%" (x * 100.0)
-    | None -> sprintf "%9s" "â€”"
+    | None -> sprintf "%9s" "—"
 
 let private fmtMs (ms: float) = $"%8.1f{ms}"
 
 let printTable () =
     let divider = String('-', 96)
     printfn ""
-    printfn "  VaR Stress Test â€” Risk Metrics by Confidence Level"
+    printfn "  VaR Stress Test — Risk Metrics by Confidence Level"
     printfn "  %s" divider
     printfn "  %-20s %9s %9s %9s %9s %8s %8s %8s" "Level" "VaR" "CVaR" "ES" "Vol" "Time(ms)" "Method" "Status"
     printfn "  %s" divider

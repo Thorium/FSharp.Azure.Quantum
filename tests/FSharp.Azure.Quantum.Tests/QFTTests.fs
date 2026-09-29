@@ -378,3 +378,43 @@ module QFTTests =
                 "QFT should submit a complete circuit via ExecuteToState on a cloud-style backend"
             )
         | Error err -> Assert.Fail($"Cloud-style QFT failed: {err}")
+
+    [<Fact>]
+    let ``QFT transformBasisState gives the documented amplitudes`` () =
+        // |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩, with j and k read qubit 0 first
+        // (most significant): with swaps, |k⟩ sits at the bit-reversed state
+        // index; without them, at k itself.
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let n = 3
+        let size = 1 <<< n
+
+        let reversed (x: int) =
+            [ 0 .. n - 1 ] |> List.fold (fun acc b -> (acc <<< 1) ||| ((x >>> b) &&& 1)) 0
+
+        for applySwaps in [ true; false ] do
+            let config =
+                { QFT.defaultConfig with
+                    ApplySwaps = applySwaps
+                }
+
+            for j in 0 .. size - 1 do
+                match QFT.transformBasisState n j backend config with
+                | Error err -> Assert.Fail($"transformBasisState failed for |{j}⟩: {err}")
+                | Ok result ->
+                    match result.FinalState with
+                    | QuantumState.StateVector sv ->
+                        for k in 0 .. size - 1 do
+                            let expected =
+                                Numerics.Complex.FromPolarCoordinates(
+                                    1.0 / sqrt (float size),
+                                    2.0 * Math.PI * float (j * k) / float size
+                                )
+
+                            let index = if applySwaps then reversed k else k
+                            let actual = getAmplitude index sv
+
+                            Assert.True(
+                                (actual - expected).Magnitude < 1e-9,
+                                $"swaps={applySwaps} j={j} k={k}: expected {expected}, got {actual}"
+                            )
+                    | other -> Assert.Fail($"Expected a state vector, got {other}")

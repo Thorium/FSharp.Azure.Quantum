@@ -2,8 +2,9 @@
 /// packages. A picture is a fixed page, and anything on it can change over
 /// `frames` steps of an example's own computed data. The whole run plays in
 /// `durationS` seconds and loops. Each frame holds still for `hold` of its
-/// share of the time, then moves to the next. It plays in any browser,
-/// including as an image in a README on GitHub.
+/// share of the time, then moves to the next; a step picture (`hold` >= 0.5)
+/// also gets `readS` (1 s) more on every frame to read it. It plays in any
+/// browser, including as an image in a README on GitHub.
 ///
 ///     #load "../_common/SvgAnimation.fsx"
 ///     open SvgAnimation
@@ -83,8 +84,24 @@ let tint (f: float) (hex: string) =
     let mix v = int (float v + (255.0 - float v) * f)
     sprintf "#%02x%02x%02x" (mix (c 1)) (mix (c 3)) (mix (c 5))
 
-type Picture(width: float, height: float, frames: int, durationS: float, title: string, ?hold: float) =
-    let hold = defaultArg hold 0.6
+/// A step picture (each frame held for at least half its share, `hold` >= 0.5)
+/// gets `readS` more seconds on every frame, all of it spent holding the frame,
+/// so there is time to read it before it moves on; the moves between frames
+/// keep their speed. Continuous motion (a smaller `hold`) keeps its pace.
+type Picture(width: float, height: float, frames: int, durationS: float, title: string, ?hold: float, ?readS: float) =
+    do
+        if frames < 1 then
+            invalidArg "frames" "a picture needs at least one frame"
+
+    let requestedHold = defaultArg hold 0.6
+
+    let readS = if requestedHold >= 0.5 then defaultArg readS 1.0 else 0.0
+
+    let slotS = durationS / float frames
+    let durationS = durationS + readS * float frames
+
+    let hold = (requestedHold * slotS + readS) / (slotS + readS)
+
     let body = StringBuilder()
 
     let isNumber (s: string) =
@@ -94,10 +111,15 @@ type Picture(width: float, height: float, frames: int, durationS: float, title: 
 
     // A path or point list with the same commands and as many numbers in
     // every frame morphs smoothly: only the numbers change.
+    let colourPattern = RegularExpressions.Regex("^#[0-9a-fA-F]{3,8}$")
+
     let sameShape (values: string[]) =
         let skeleton (v: string) = numberPattern.Replace(v, "#")
         let first = skeleton values.[0]
-        first.Contains '#' && values |> Array.forall (fun v -> skeleton v = first)
+
+        first.Contains '#'
+        && not (values |> Array.exists colourPattern.IsMatch)
+        && values |> Array.forall (fun v -> skeleton v = first)
 
     // One value per frame: smooth (numbers, or paths of one shape, holding
     // each frame then moving to the next) or discrete (anything else,
@@ -146,9 +168,10 @@ type Picture(width: float, height: float, frames: int, durationS: float, title: 
         let anims = animate |> List.map (fun (a, vs) -> animation a vs) |> String.concat ""
 
         if anims = "" && inner = "" then
-            body.AppendLine(sprintf "<%s%s/>" name (attributes fixedAttrs)) |> ignore
+            body.Append(sprintf "<%s%s/>" name (attributes fixedAttrs)).Append('\n')
+            |> ignore
         else
-            body.AppendLine(sprintf "<%s%s>%s%s</%s>" name (attributes fixedAttrs) (escape inner) anims name)
+            body.Append(sprintf "<%s%s>%s%s</%s>" name (attributes fixedAttrs) (escape inner) anims name).Append '\n'
             |> ignore
 
     // Where a value is animated, its first frame is the fixed value too, so a
@@ -363,7 +386,7 @@ type Picture(width: float, height: float, frames: int, durationS: float, title: 
                         "visibility", (if first = 0 then "visible" else "hidden")
                     ]
 
-                body.AppendLine(sprintf "<text%s>%s%s</text>" (attributes fixedAttrs) (escape label) animation)
+                body.Append(sprintf "<text%s>%s%s</text>" (attributes fixedAttrs) (escape label) animation).Append '\n'
                 |> ignore
 
     /// A bar that fills left to right as the frames go by.
@@ -380,7 +403,8 @@ type Picture(width: float, height: float, frames: int, durationS: float, title: 
             animate = [ ("width", Array.init frames (fun k -> w * float (k + 1) / float frames)) ]
         )
 
-    member _.Save(path: string) =
+    /// Writes the picture; `quiet` leaves out the "Drawn:" line.
+    member _.Save(path: string, ?quiet: bool) =
         let dir = Path.GetDirectoryName(Path.GetFullPath path)
         Directory.CreateDirectory dir |> ignore
 
@@ -402,7 +426,9 @@ type Picture(width: float, height: float, frames: int, durationS: float, title: 
                 ]
 
         File.WriteAllText(path, svg)
-        printfn "Drawn: %s (animated, %s s loop, %d frames)" path (num durationS) frames
+
+        if not (defaultArg quiet false) then
+            printfn "Drawn: %s (animated, %s s loop, %d frames)" path (num durationS) frames
 
 /// `--svg [path]` on the command line: where to draw the picture, if at all.
 let svgPath (defaultPath: string) =

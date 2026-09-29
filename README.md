@@ -223,6 +223,8 @@ match GraphColoring.solve problem 3 None with
 
 **Use Case:** Circuit design, community detection, load balancing
 
+[![ADAPT-QAOA growing its circuit for MaxCut on a triangle](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/MaxCut/_images/adapt-qaoa-maxcut.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/MaxCut/AdaptQaoaMaxCut.fsx)
+
 ```fsharp
 let vertices = ["A"; "B"; "C"; "D"]
 let edges = [
@@ -267,6 +269,8 @@ match Knapsack.solve problem None with
 ### Traveling Salesperson Problem (TSP)
 
 **Use Case:** Route optimization, delivery planning, logistics
+
+[![Delivery route: one van, 15 customers](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/DeliveryRouting/_images/delivery-routing.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/DeliveryRouting/DeliveryRouting.fsx)
 
 ```fsharp
 let cities = [
@@ -313,6 +317,8 @@ match Portfolio.solve problem None with
 ### Network Flow
 
 **Use Case:** Supply chain optimization, logistics, distribution planning
+
+[![Supply chain route activation: classical greedy and QAOA](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/SupplyChain/_images/supply-chain-flow.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SupplyChain/NetworkFlowOptimization)
 
 ```fsharp
 open FSharp.Azure.Quantum
@@ -2685,6 +2691,7 @@ fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value), shal
 - **[Backend Switching Guide](docs/backend-switching.md)** - Local vs Cloud backends
 - **[Bring Your Own Hamiltonian](docs/bring-your-own-hamiltonian.md)** - Plug in external chemistry packages (PySCF, Psi4, FCIDUMP, fermionic/Pauli Hamiltonians)
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting
+- **[Examples](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/README.md)** - Runnable scripts; several draw an animated picture of what they compute with `--svg`
 
 ---
 
@@ -2797,6 +2804,8 @@ match Oracle.fromPredicate predicate 3 with
 
 **Generalization of Grover's algorithm for custom initial states.**
 
+[![Amplitude amplification finding the marked answer among 8](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/Algorithms/_images/amplitude-amplification.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Algorithms/AmplitudeAmplification.fsx)
+
 Amplitude amplification extends Grover's algorithm to work with arbitrary initial state preparations (not just uniform superposition). This enables quantum speedups for problems beyond simple database search.
 
 **Key Insight:** Grover's algorithm is a special case where:
@@ -2869,6 +2878,8 @@ match Oracle.forValue 5 3 with              // mark the basis state |101⟩ (val
 ### Quantum Fourier Transform (QFT)
 
 **Quantum analog of the discrete Fourier transform - foundational building block for many quantum algorithms.**
+
+[![Quantum Fourier transform](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/Algorithms/_images/quantum-fourier-transform.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Algorithms/QuantumFourierTransform.fsx)
 
 The QFT transforms computational basis states into frequency basis with exponential speedup over classical FFT:
 - **Classical FFT**: O(n·2^n) operations
@@ -3032,6 +3043,8 @@ var result = ExecutePeriodFinder(problem);
 
 **Use Case:** Drug discovery, molecular simulation, materials science
 
+[![Quantum phase estimation reading the phase of a one-qubit gate](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/PhaseEstimation/_images/phase-estimation.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/PhaseEstimation/MolecularEnergy.fsx)
+
 ```fsharp
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
 
@@ -3191,6 +3204,8 @@ var result = ExecutePhaseEstimator(problem);
 **NEW:** Simulate topological quantum computers using anyon braiding - the approach behind Microsoft's Majorana quantum computing program.
 
 Unlike gate-based quantum computing (which uses qubits and gates), topological quantum computing encodes information in **anyons** (exotic quasiparticles) and performs operations by **braiding** their worldlines. This provides inherent fault-tolerance through **topological protection**.
+
+[![Anyon fusion](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/Topological/_images/basic-fusion.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Topological/BasicFusion.fsx)
 
 ### Quick Example: Ising Anyons (Microsoft Majorana)
 

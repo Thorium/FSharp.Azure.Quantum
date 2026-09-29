@@ -2,7 +2,7 @@
 <title>H2 time evolution: Trotter steps against exact evolution</title>
 <rect width="760" height="560" fill="white"/>
 <text x="24" y="30" font-size="18" fill="#1a1a1a" font-weight="bold" text-anchor="start" font-family="Helvetica, Arial, sans-serif" opacity="1">H2 time evolution: Trotter steps against exact evolution</text>
-<text x="24" y="50" font-size="12.5" fill="#555555" font-weight="normal" text-anchor="start" font-family="Helvetica, Arial, sans-serif" opacity="1">Both electrons start in the lower orbital. The Hamiltonian keeps moving them, together, to the upper one and back.</text>
+<text x="24" y="50" font-size="12.5" fill="#555555" font-weight="normal" text-anchor="start" font-family="Helvetica, Arial, sans-serif" opacity="1">Both electrons start in the lower orbital; a few percent moves, both together, to the upper one and back.</text>
 <text x="64" y="104" font-size="12" fill="#555555" font-weight="normal" text-anchor="start" font-family="Helvetica, Arial, sans-serif" opacity="1">Population of |0011&gt; (double excitation)</text>
 <rect x="64" y="112" width="428" height="150" fill="#fafafa" stroke="#cccccc" rx="0" opacity="1"/>
 <line x1="64" y1="262" x2="492" y2="262" stroke="#e5e5e5" stroke-width="1" stroke-dasharray="none" stroke-linecap="round" opacity="1"/>

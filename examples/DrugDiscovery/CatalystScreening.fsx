@@ -205,7 +205,7 @@ let private createCatalyst element bondLength name formula acidity notes indUse 
         IndustrialUse = indUse
     }
 
-/// H2 baseline â€” no catalyst.
+/// H2 baseline — no catalyst.
 let private noCatalystPreset: CatalystInfo =
     {
         Name = "No Catalyst (Baseline)"
@@ -240,7 +240,7 @@ let private noCatalystPreset: CatalystInfo =
         IndustrialUse = "Baseline comparison"
     }
 
-/// BH â€” Boron hydride model for BF3.
+/// BH — Boron hydride model for BF3.
 let private bf3Preset =
     createCatalyst
         "B"
@@ -251,7 +251,7 @@ let private bf3Preset =
         "Highly reactive, may cause side reactions"
         "Staudinger synthesis"
 
-/// AlH â€” Aluminum hydride model for AlCl3.
+/// AlH — Aluminum hydride model for AlCl3.
 let private alcl3Preset =
     createCatalyst
         "Al"
@@ -262,7 +262,7 @@ let private alcl3Preset =
         "Classical Friedel-Crafts, can polymerize"
         "Alkylation, acylation"
 
-/// ZnH â€” Zinc hydride model for ZnCl2.
+/// ZnH — Zinc hydride model for ZnCl2.
 let private zncl2Preset =
     createCatalyst
         "Zn"
@@ -273,7 +273,7 @@ let private zncl2Preset =
         "Milder, better selectivity, biocompatible"
         "Organic synthesis"
 
-/// TiH â€” Titanium hydride model for TiCl4.
+/// TiH — Titanium hydride model for TiCl4.
 let private ticl4Preset =
     createCatalyst
         "Ti"
@@ -655,7 +655,7 @@ let results =
     |> List.mapi (fun i cat ->
         screenCatalyst backend maxIterations tolerance substrateEnergy substrateOk i catalysts.Length cat)
 
-// Sort: most negative binding energy first (strongest binder). Failed â†’ bottom.
+// Sort: most negative binding energy first (strongest binder). Failed → bottom.
 let ranked =
     results
     |> List.sortBy (fun r ->
@@ -728,7 +728,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-catalyst progress output).
 printTable ()
 

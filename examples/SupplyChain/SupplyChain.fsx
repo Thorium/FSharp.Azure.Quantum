@@ -1,9 +1,11 @@
 ﻿// ==============================================================================
 // Supply Chain Optimization using Quantum QAOA Network Flow
 // ==============================================================================
-// Multi-stage supply chain optimization using QuantumNetworkFlowSolver (QAOA)
-// to minimize total logistics cost while meeting demand.  Routes products
-// through a 4-stage network: suppliers -> warehouses -> distributors -> customers.
+// Multi-stage supply chain optimization using the QuantumNetworkFlowSolver QUBO
+// and QAOA to open transport routes that reach every customer at the lowest
+// route cost, through a 4-stage network: suppliers -> warehouses ->
+// distributors -> customers. The model is route activation: each open route
+// carries one unit, so it chooses routes, not shipment volumes.
 //
 // Usage:
 //   dotnet fsi SupplyChain.fsx
@@ -31,6 +33,7 @@
 #load "../_common/Reporting.fs"
 
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -322,8 +325,14 @@ let intermediateNodes =
     |> List.filter (fun n -> n.NodeType = "Warehouse" || n.NodeType = "Distributor")
     |> List.map (fun n -> n.Id)
 
+// Throughput limits apply to warehouses and distributors only: suppliers are
+// bounded by their supply and customers by their demand. A node listed here
+// can pass at most its capacity, so a customer with capacity 0 could never be served.
 let capacities =
-    supplyChainNodes |> List.map (fun n -> n.Id, n.Capacity) |> Map.ofList
+    supplyChainNodes
+    |> List.filter (fun n -> n.NodeType = "Warehouse" || n.NodeType = "Distributor")
+    |> List.map (fun n -> n.Id, n.Capacity)
+    |> Map.ofList
 
 let demands =
     supplyChainNodes
@@ -385,18 +394,125 @@ if not quiet then
     printfn ""
 
 // ==============================================================================
+// FLOW RULES
+// ==============================================================================
+// Route activation: each open route carries one unit. A route set is a valid
+// flow when every warehouse and distributor ships out as many routes as it takes
+// in and no node exceeds its capacity, supply or demand.
+
+let inflow (routes: Edge<float> list) node =
+    routes |> List.filter (fun e -> e.Target = node) |> List.length
+
+let outflow (routes: Edge<float> list) node =
+    routes |> List.filter (fun e -> e.Source = node) |> List.length
+
+/// The flow rules a route set breaks; empty for a valid flow.
+let flowViolations (routes: Edge<float> list) =
+    [
+        for n in intermediateNodes do
+            let i, o = inflow routes n, outflow routes n
+
+            if i <> o then
+                $"%s{n}: %d{i} routes in, %d{o} out"
+        for KeyValue(n, cap) in capacities do
+            let through = max (inflow routes n) (outflow routes n)
+
+            if through > cap then
+                $"%s{n}: %d{through} units over capacity %d{cap}"
+        for KeyValue(n, supply) in supplies do
+            if outflow routes n > supply then
+                $"%s{n}: ships more than its supply %d{supply}"
+        for KeyValue(n, demand) in demands do
+            if inflow routes n > demand then
+                $"%s{n}: receives more than its demand %d{demand}"
+    ]
+
+/// Customers with at least one open route into them.
+let customersReached (routes: Edge<float> list) =
+    sinks |> List.filter (fun c -> inflow routes c >= 1) |> List.length
+
+/// Units delivered: one per open route into a customer, capped at its demand.
+let unitsDelivered (routes: Edge<float> list) =
+    sinks
+    |> List.sumBy (fun c -> min (inflow routes c) (demands |> Map.tryFind c |> Option.defaultValue 0))
+
+// ==============================================================================
 // QUANTUM EXECUTION
 // ==============================================================================
+// QAOA (p = 1, the solver's default angles) samples route sets from the
+// QuantumNetworkFlowSolver QUBO. Among the valid samples the one reaching the
+// most customers wins, then the cheapest.
 
 let startTime = DateTime.UtcNow
 
-let solutionResult =
-    QuantumNetworkFlowSolver.solveWithShots quantumBackend flowProblem cliShots
+let samplesResult =
+    QuantumNetworkFlowSolver.toQubo flowProblem
+    |> Result.bind (fun qubo ->
+        let dense = Array2D.zeroCreate qubo.NumVariables qubo.NumVariables
+
+        for KeyValue((i, j), v) in qubo.Q do
+            dense.[i, j] <- v
+
+        let parameters = [| QuantumNetworkFlowSolver.defaultConfig.InitialParameters |]
+
+        (QaoaExecutionHelpers.executeFromQuboAsync quantumBackend dense parameters cliShots CancellationToken.None)
+            .Result)
+    |> Result.map (fun measurements ->
+        measurements
+        |> Array.distinctBy (fun bits -> String.Join("", bits))
+        |> Array.map (fun bits ->
+            edges
+            |> List.indexed
+            |> List.filter (fun (i, _) -> bits.[i] = 1)
+            |> List.map snd))
 
 let elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds
 
+let routeCost (routes: Edge<float> list) =
+    routes |> List.sumBy (fun e -> e.Weight)
+
+let distinctSamples =
+    samplesResult
+    |> Result.map (fun samples -> samples.Length)
+    |> Result.defaultValue 0
+
+let validSamples =
+    match samplesResult with
+    | Ok samples ->
+        samples
+        |> Array.filter (fun routes -> not routes.IsEmpty && List.isEmpty (flowViolations routes))
+    | Error _ -> [||]
+
+let bestRoutes =
+    validSamples
+    |> Array.sortBy (fun routes -> -(customersReached routes), routeCost routes)
+    |> Array.tryHead
+
+/// The cheapest valid sample, whatever customers it reaches.
+let cheapestValidRoutes = validSamples |> Array.sortBy routeCost |> Array.tryHead
+
+// Classical reference: every route set, same rules and same ranking; only up to 16 routes.
+let exhaustiveStart = DateTime.UtcNow
+
+let exhaustiveBest =
+    if edges.Length > 16 then
+        None
+    else
+        seq { 1 .. (1 <<< edges.Length) - 1 }
+        |> Seq.map (fun mask ->
+            edges
+            |> List.indexed
+            |> List.filter (fun (i, _) -> (mask >>> i) &&& 1 = 1)
+            |> List.map snd)
+        |> Seq.filter (flowViolations >> List.isEmpty)
+        |> Seq.sortBy (fun routes -> -(customersReached routes), routeCost routes)
+        |> Seq.tryHead
+
+let exhaustiveMs = (DateTime.UtcNow - exhaustiveStart).TotalMilliseconds
+
 if not quiet then
     printfn "  Completed in %.0f ms" elapsed
+    printfn "  Samples:      %d distinct, %d valid flows" distinctSamples validSamples.Length
     printfn ""
 
 // ==============================================================================
@@ -404,15 +520,18 @@ if not quiet then
 // ==============================================================================
 
 let hasQuantumFailure, routeMaps =
-    match solutionResult with
-    | Error err ->
+    match samplesResult, bestRoutes with
+    | Error err, _ ->
         if not quiet then
             eprintfn "  FAILED: %s" err.Message
 
         true, []
-    | Ok solution ->
-        let routes = solution.SelectedEdges
+    | Ok _, None ->
+        if not quiet then
+            eprintfn "  FAILED: no valid flow among the QAOA samples"
 
+        true, []
+    | Ok _, Some routes ->
         if not quiet then
             let stages =
                 [
@@ -435,13 +554,16 @@ let hasQuantumFailure, routeMaps =
 
                     printfn "")
 
-        let totalRevenue =
+        let totalCost = routeCost routes
+        let delivered = unitsDelivered routes
+
+        // Revenue of the units this route set delivers, not of the whole demand.
+        let revenue =
             supplyChainNodes
-            |> List.choose (fun n ->
+            |> List.sumBy (fun n ->
                 match n.Revenue, n.Demand with
-                | Some rev, Some dem -> Some(rev * float dem)
-                | _ -> None)
-            |> List.sum
+                | Some rev, Some dem -> rev * float (min (inflow routes n.Id) dem)
+                | _ -> 0.0)
 
         let maps =
             routes
@@ -451,15 +573,18 @@ let hasQuantumFailure, routeMaps =
                     "source", e.Source
                     "target", e.Target
                     "cost_per_unit", $"%.2f{e.Weight}"
-                    "total_cost", $"%.2f{solution.TotalCost}"
-                    "demand_satisfied", $"%.0f{solution.DemandSatisfied}"
-                    "total_demand", $"%.0f{solution.TotalDemand}"
-                    "fill_rate", $"%.3f{solution.FillRate}"
-                    "backend", solution.BackendName
-                    "shots", string solution.NumShots
+                    "total_cost", $"%.2f{totalCost}"
+                    "valid_flow", string (List.isEmpty (flowViolations routes))
+                    "customers_reached", string (customersReached routes)
+                    "customers_total", string sinks.Length
+                    "units_delivered", string delivered
+                    "total_demand", string totalDemand
+                    "demand_fill_rate", $"%.4f{float delivered / float (max 1 totalDemand)}"
+                    "backend", quantumBackend.Name
+                    "shots", string cliShots
                     "elapsed_ms", $"%.0f{elapsed}"
-                    "estimated_revenue", $"%.2f{totalRevenue}"
-                    "estimated_profit", sprintf "%.2f" (totalRevenue - solution.TotalCost)
+                    "estimated_revenue", $"%.2f{revenue}"
+                    "estimated_profit", $"%.2f{revenue - totalCost}"
                     "has_quantum_failure", "False"
                 ]
                 |> Map.ofList)
@@ -476,9 +601,12 @@ let resultMaps =
                 "target", ""
                 "cost_per_unit", ""
                 "total_cost", ""
-                "demand_satisfied", "0"
+                "valid_flow", "False"
+                "customers_reached", "0"
+                "customers_total", string sinks.Length
+                "units_delivered", "0"
                 "total_demand", string totalDemand
-                "fill_rate", "0.000"
+                "demand_fill_rate", "0.0000"
                 "backend", quantumBackend.Name
                 "shots", string cliShots
                 "elapsed_ms", $"%.0f{elapsed}"
@@ -515,15 +643,47 @@ let printTable () =
     printfn ""
     let first = resultMaps |> List.tryHead
 
-    match first with
-    | Some m ->
-        printfn "  Total Cost:       %s" (m |> Map.tryFind "total_cost" |> Option.defaultValue "N/A")
-        printfn "  Fill Rate:        %s" (m |> Map.tryFind "fill_rate" |> Option.defaultValue "N/A")
+    match first, bestRoutes with
+    | Some m, Some routes ->
+        let get key =
+            m |> Map.tryFind key |> Option.defaultValue "N/A"
+
+        match flowViolations routes with
+        | [] -> printfn "  Valid flow:        yes (flow conserved, within capacity, supply and demand)"
+        | broken ->
+            printfn "  Valid flow:        no"
+
+            for b in broken do
+                printfn "    %s" b
+
+        printfn "  Customers reached: %s of %s" (get "customers_reached") (get "customers_total")
+        printfn "  Total cost:        %s (one unit on each open route)" (get "total_cost")
 
         printfn
-            "  Demand Satisfied: %s / %s"
-            (m |> Map.tryFind "demand_satisfied" |> Option.defaultValue "0")
-            (m |> Map.tryFind "total_demand" |> Option.defaultValue "0")
+            "  Demand fill rate:  %.1f%% (%s of %s units delivered)"
+            (100.0 * float (unitsDelivered routes) / float (max 1 totalDemand))
+            (get "units_delivered")
+            (get "total_demand")
+
+        match cheapestValidRoutes with
+        | Some cheapest when routeCost cheapest < routeCost routes ->
+            printfn
+                "  Cheapest valid sample: cost %.2f, %d of %d customers reached"
+                (routeCost cheapest)
+                (customersReached cheapest)
+                sinks.Length
+        | _ -> ()
+    | _ -> printfn "  No valid flow among %d distinct QAOA samples." distinctSamples
+
+    match exhaustiveBest with
+    | Some routes ->
+        printfn
+            "  Exhaustive search (2^%d route sets, %.0f ms): best valid flow reaches %d of %d customers at cost %.2f"
+            edges.Length
+            exhaustiveMs
+            (customersReached routes)
+            sinks.Length
+            (routeCost routes)
     | None -> ()
 
     printfn ""
@@ -551,9 +711,12 @@ match Cli.tryGet "csv" args with
             "target"
             "cost_per_unit"
             "total_cost"
-            "demand_satisfied"
+            "valid_flow"
+            "customers_reached"
+            "customers_total"
+            "units_delivered"
             "total_demand"
-            "fill_rate"
+            "demand_fill_rate"
             "backend"
             "shots"
             "elapsed_ms"

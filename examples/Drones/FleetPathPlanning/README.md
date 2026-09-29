@@ -206,8 +206,12 @@ first, then every sortie.
 swarm absorbs it and doesn't fall like a house of cards.** Every 5 s along
 every sortie, the aircraft leaves the plan while everyone else flies on
 unchanged. Its fallback is to fly to its own RTL layer, straight to its pad, then
-down. Each sortie's layer is `--rtl-step-m` above the previous one, starting at
-`--rtl-base-m`. If the battery can't get it home, it descends in place instead.
+down. Each copter sortie's layer is `--rtl-step-m` above the previous copter's,
+starting at `--rtl-base-m`. A QuadPlane's RTL crosses the base in forward
+flight rather than climbing over its pad, so fixed-wing layers start at the
+altitude ceiling rounded down to whole metres (121 m) and step down from
+there, above every copter's climb. If the battery can't get it home, it
+descends in place instead.
 
 The pack checks two things for each dropout moment:
 
@@ -232,7 +236,7 @@ dropout check still failed: one fallback passed 2.3 m from a neighbour.
 | `--relay-mass-kg <m>` | 0.4 | Mass of one repeater |
 | `--minimal-relays` | off | Fewest repeaters, accepting single points of failure |
 | `--termination-zones <path>` | `_data/termination_zones.csv` | Accepted areas where one-way aircraft come down |
-| `--rtl-base-m`, `--rtl-step-m` | 60, 10 | Fallback layers |
+| `--rtl-base-m`, `--rtl-step-m` | 60, 10 | Copter fallback layers; fixed-wings step down from the ceiling |
 | `--pilots <n>` | 1 | Pilots declared in the evidence |
 | `--method` | hybrid | `hybrid` or `quantum` TSP |
 | `--mavlink` | off | Write ArduPilot missions and the launcher |

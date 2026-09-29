@@ -25,7 +25,7 @@ These examples focus on specific components of the quantum chemistry pipeline:
 
     ![H2 time evolution: Trotter steps against exact evolution](_images/hamiltonian-time-evolution.svg)
 
-    The picture shows H2's two electrons starting in the lower orbital and briefly moving together to the upper one, with each Trotter step compared to exact evolution. Regenerate it from the repository root:
+    The picture shows H2's two electrons starting in the lower orbital, and a few percent of the population moving, both electrons together, to the upper one and back. Each Trotter step is compared to exact evolution. Regenerate it from the repository root:
 
     ```
     dotnet fsi --define:LOCAL_BUILD examples/Chemistry/HamiltonianTimeEvolution.fsx --svg

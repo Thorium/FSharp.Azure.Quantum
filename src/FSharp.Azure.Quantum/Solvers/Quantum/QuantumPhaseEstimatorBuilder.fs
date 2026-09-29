@@ -99,8 +99,8 @@ module QuantumPhaseEstimator =
             /// Quantum backend to use (None = LocalBackend)
             Backend: BackendAbstraction.IQuantumBackend option
 
-            /// Number of measurement shots for phase estimation (None = auto-scale: 1024 for Local, 2048 for Cloud)
-            /// Higher shots = better statistical accuracy of phase estimate
+            /// Number of measurement shots for phase estimation (None = 1024 for LocalBackend, 2048 for any other)
+            /// The estimate is the most frequent outcome over these shots
             Shots: int option
         }
 
@@ -175,6 +175,9 @@ module QuantumPhaseEstimator =
                     $"({problem.Precision + problem.TargetQubits}) exceeds limit (25 qubits)"
                 )
             )
+
+        elif problem.Shots |> Option.exists (fun shots -> shots < 1) then
+            Error(QuantumError.ValidationError("Shots", "must be at least 1"))
 
         else
             Ok()
@@ -270,9 +273,9 @@ module QuantumPhaseEstimator =
         /// <param name="shots">Number of measurements (typical: 1024-4096)</param>
         /// <remarks>
         /// If not specified, auto-scales based on backend:
-        /// - LocalBackend: 1024 shots
-        /// - Cloud backends: 2048 shots
-        /// Multiple measurements reduce statistical error in phase estimation.
+        /// - LocalBackend (the default): 1024 shots
+        /// - Any other backend: 2048 shots
+        /// The estimate is the most frequent outcome over these measurements.
         /// </remarks>
         [<CustomOperation("shots")>]
         member _.Shots(problem: PhaseEstimatorProblem, shots: int) : PhaseEstimatorProblem =
@@ -332,8 +335,14 @@ module QuantumPhaseEstimator =
                     problem.Backend
                     |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
+                let shots =
+                    match problem.Shots, backend with
+                    | Some shots, _ -> shots
+                    | None, (:? LocalBackend.LocalBackend) -> 1024
+                    | None, _ -> 2048
+
                 // Execute QPE using unified API
-                match QPE.executeWithExactness config backend problem.ApplySwaps problem.Exactness with
+                match QPE.executeWithShots config backend problem.ApplySwaps problem.Exactness shots with
                 | Error err -> Error err
                 | Ok result ->
 

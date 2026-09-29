@@ -9,7 +9,7 @@
 //
 // Background:
 // Cytochrome P450 enzymes catalyse the majority of Phase I drug metabolism.
-// The rate-determining step â€” typically C-H bond activation â€” has an activation
+// The rate-determining step — typically C-H bond activation — has an activation
 // energy that controls drug half-life, dosing frequency, and toxic metabolite
 // formation. Quantum chemistry can calculate these barriers more accurately
 // than classical DFT, which systematically underestimates them by 5-10 kcal/mol.
@@ -181,7 +181,7 @@ let hartreeToKJMol = 2625.5
 /// C-H hydroxylation: CH2 + OH -> [CH...H...OH] -> CH2OH
 /// The most common CYP450 reaction (~75% of Phase I metabolism).
 /// Model: methylene + OH captures essential C-H bond activation
-/// with NISQ-tractable molecule sizes (â‰¤5 atoms per species).
+/// with NISQ-tractable molecule sizes (≤5 atoms per species).
 let private hydroxylationPathway: MetabolicPathway =
     let reactant: Molecule =
         {
@@ -1314,7 +1314,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-pathway progress output).
 printTable ()
 

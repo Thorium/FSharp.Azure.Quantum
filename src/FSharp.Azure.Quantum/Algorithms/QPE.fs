@@ -603,15 +603,20 @@ module QPE =
     /// | Ok result -> printfn "Phase: %f" result.EstimatedPhase  // ~0.125 (1/8)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let executeWithExactness
+    ///
+    /// The phase is the most frequent outcome over `shots` measurements.
+    let executeWithShots
         (config: QPEConfig)
         (backend: IQuantumBackend)
         (applyBitReversalSwaps: bool)
         (exactness: Exactness)
+        (shots: int)
         : Result<QPEResult, QuantumError> =
         result {
             // Validation
-            if config.CountingQubits <= 0 then
+            if shots <= 0 then
+                return! Error(QuantumError.ValidationError("Shots", "must be positive"))
+            elif config.CountingQubits <= 0 then
                 return! Error(QuantumError.ValidationError("CountingQubits", "must be positive"))
             elif config.TargetQubits <= 0 then
                 return! Error(QuantumError.ValidationError("TargetQubits", "must be positive"))
@@ -640,7 +645,7 @@ module QPE =
                 let! (preparedState, gateCount) = executePlanned backend executionIntent initialState
 
                 // Step 3: Measure final state (all qubits)
-                let measurements = UnifiedBackend.measureState preparedState 1000
+                let measurements = UnifiedBackend.measureState preparedState shots
 
                 // Extract the phase from the counting register. QPE encodes the phase in
                 // the PEAK of the measurement distribution, so use the MOST FREQUENT outcome
@@ -677,6 +682,19 @@ module QPE =
                         Config = config
                     }
         }
+
+    /// Measurements `executeWithExactness` and the functions built on it take.
+    [<Literal>]
+    let DefaultShots = 1000
+
+    /// `executeWithShots` with `DefaultShots` measurements.
+    let executeWithExactness
+        (config: QPEConfig)
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        (exactness: Exactness)
+        : Result<QPEResult, QuantumError> =
+        executeWithShots config backend applyBitReversalSwaps exactness DefaultShots
 
     let executeWith
         (config: QPEConfig)

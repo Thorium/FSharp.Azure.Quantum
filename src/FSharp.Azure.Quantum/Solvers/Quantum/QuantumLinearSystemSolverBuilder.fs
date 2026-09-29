@@ -115,7 +115,8 @@ module QuantumLinearSystemSolver =
             /// Quantum backend to use (None = LocalBackend)
             Backend: BackendAbstraction.IQuantumBackend option
 
-            /// Number of measurement shots (None = auto: 1024 for Local, 2048 for Cloud)
+            /// Not used: the solver reads the solution and its success probability
+            /// from the state vector exactly, without sampling.
             Shots: int option
         }
 
@@ -328,8 +329,8 @@ module QuantumLinearSystemSolver =
             : LinearSystemProblem =
             { problem with Backend = Some backend }
 
-        /// <summary>Set number of measurement shots.</summary>
-        /// <param name="n">Number of shots</param>
+        /// <summary>Accepted but not used: the solution is read from the state vector exactly.</summary>
+        /// <param name="n">Ignored</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: LinearSystemProblem, n: int) : LinearSystemProblem = { problem with Shots = Some n }
 

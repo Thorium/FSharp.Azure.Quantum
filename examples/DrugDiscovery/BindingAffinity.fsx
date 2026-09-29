@@ -12,7 +12,7 @@
 // Binding affinity (dE = E_complex - E_protein - E_ligand) is the fundamental
 // measure of drug-target interaction strength. Classical force fields approximate
 // electrostatics + van der Waals but miss electron correlation, charge transfer,
-// and partial covalent character â€” exactly the effects VQE captures.
+// and partial covalent character — exactly the effects VQE captures.
 //
 // IMPORTANT LIMITATION:
 // This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
@@ -303,7 +303,7 @@ let private waterHfSystem: BindingSystem =
     }
 
 /// H2S...HF: sulfur as H-bond acceptor.
-/// Models cysteine thiol interactions â€” weaker than O-H donor.
+/// Models cysteine thiol interactions — weaker than O-H donor.
 let private h2sHfSystem: BindingSystem =
     let ligand: Molecule =
         {
@@ -824,7 +824,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table â€” that's the primary output of this tool,
+// Always print the ranked comparison table — that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-system progress output).
 printTable ()
 

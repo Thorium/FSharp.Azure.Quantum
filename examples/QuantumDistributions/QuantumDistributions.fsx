@@ -31,7 +31,7 @@ Supported distributions:
 
 All sampling functions accept an IQuantumBackend, ensuring the entropy
 source can be a real quantum device (Rigetti, IonQ, Quantinuum) or a
-local simulator â€” Rule 1 compliant.
+local simulator — Rule 1 compliant.
 
 References:
   [1] Herrero-Collantes & Garcia-Escartin, "Quantum random number generators",

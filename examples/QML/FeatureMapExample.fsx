@@ -2,7 +2,7 @@
 ///
 /// Demonstrates different feature map strategies for encoding classical data
 /// into quantum states. Feature maps are the bridge between classical and
-/// quantum computation â€” they determine how your data is represented in
+/// quantum computation — they determine how your data is represented in
 /// quantum Hilbert space.
 ///
 /// Examples:
@@ -26,27 +26,27 @@
 ===============================================================================
 
 Quantum feature maps are the bridge between classical data and quantum computation.
-They encode classical input vectors x âˆˆ â„áµˆ into quantum states |Ïˆ(x)âŸ© in a 2â¿-
+They encode classical input vectors x ∈ ℝᵈ into quantum states |ψ(x)⟩ in a 2ⁿ-
 dimensional Hilbert space. The choice of feature map critically determines the
 expressiveness and potential quantum advantage of variational quantum algorithms.
 Different encoding strategies create different "quantum feature spaces" that may
 capture patterns invisible to classical methods.
 
 The most common encoding strategies are:
-- **Angle Encoding**: Each feature xáµ¢ is encoded as a rotation angle, typically
-  via Ry(Ï€Â·xáµ¢) or Rz(xáµ¢) gates. Requires n qubits for n features. Simple and
+- **Angle Encoding**: Each feature xᵢ is encoded as a rotation angle, typically
+  via Ry(π·xᵢ) or Rz(xᵢ) gates. Requires n qubits for n features. Simple and
   hardware-efficient but limited expressiveness.
 - **Amplitude Encoding**: Features are encoded as amplitudes of a quantum state,
-  |ÏˆâŸ© = Î£áµ¢ xáµ¢|iâŸ© (normalized). Exponentially efficient (logâ‚‚(d) qubits for d
+  |ψ⟩ = Σᵢ xᵢ|i⟩ (normalized). Exponentially efficient (log₂(d) qubits for d
   features) but requires complex state preparation circuits.
 - **ZZ Feature Map**: Combines single-qubit rotations with two-qubit ZZ interactions
-  that encode products of features: exp(iÂ·Ï†(xáµ¢,xâ±¼)Â·Záµ¢Zâ±¼). Creates entanglement
+  that encode products of features: exp(i·φ(xᵢ,xⱼ)·ZᵢZⱼ). Creates entanglement
   and captures feature correlations, proven advantageous in Havlicek et al.
 
 Key Equations:
-  - Angle encoding: |Ïˆ(x)âŸ© = âŠ—áµ¢ Ry(Ï€Â·xáµ¢)|0âŸ© = âŠ—áµ¢ [cos(Ï€xáµ¢/2)|0âŸ© + sin(Ï€xáµ¢/2)|1âŸ©]
-  - ZZ feature map layer: U_ZZ = exp(iÂ·(Ï€-xáµ¢)(Ï€-xâ±¼)Â·Záµ¢Zâ±¼) for connected qubits
-  - Quantum kernel: K(x,x') = |âŸ¨Ïˆ(x)|Ïˆ(x')âŸ©|Â² (overlap of encoded states)
+  - Angle encoding: |ψ(x)⟩ = ⊗ᵢ Ry(π·xᵢ)|0⟩ = ⊗ᵢ [cos(πxᵢ/2)|0⟩ + sin(πxᵢ/2)|1⟩]
+  - ZZ feature map layer: U_ZZ = exp(i·(π-xᵢ)(π-xⱼ)·ZᵢZⱼ) for connected qubits
+  - Quantum kernel: K(x,x') = |⟨ψ(x)|ψ(x')⟩|² (overlap of encoded states)
   - Expressibility: measured by distribution of fidelities over parameter space
 
 References:
@@ -75,7 +75,7 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Examples.Common
 
-// â”€â”€ CLI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── CLI ──────────────────────────────────────────────────────────────
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
@@ -133,12 +133,12 @@ let section title =
     pr "%s" title
     pr "%s" (String.replicate 60 "-")
 
-// â”€â”€ Quantum Backend (Rule 1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Quantum Backend (Rule 1) ────────────────────────────────────────
 // Feature maps generate circuits for quantum backends.
 // The backend is available for downstream execution (see VQCExample).
 let quantumBackend = LocalBackend() :> IQuantumBackend
 
-// â”€â”€ Result accumulators â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Result accumulators ─────────────────────────────────────────────
 let mutable results: Map<string, obj> list = []
 let mutable csvRows: string list list = []
 
@@ -216,10 +216,10 @@ let addResult name qubits gateCount entangled extras =
 
     csvRows <- csvRows @ [ [ name; string qubits; string gateCount; string entangled ] ]
 
-// â”€â”€ EXAMPLE 1: Angle Encoding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 1: Angle Encoding ───────────────────────────────────────
 if shouldRun 1 then
     section "EXAMPLE 1: Angle Encoding"
-    pr "Strategy: Ry(pi * x_i) on each qubit â€” one qubit per feature"
+    pr "Strategy: Ry(pi * x_i) on each qubit — one qubit per feature"
     pr ""
 
     match FeatureMap.buildFeatureMap AngleEncoding features with
@@ -229,7 +229,7 @@ if shouldRun 1 then
         addResult "1_angle" circ.QubitCount (gateCount circ) false []
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 2: ZZ Feature Map (depth 1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 2: ZZ Feature Map (depth 1) ─────────────────────────────
 if shouldRun 2 then
     section "EXAMPLE 2: ZZ Feature Map (depth=1)"
     pr "Strategy: Hadamard + Rz rotations + ZZ entanglement"
@@ -244,7 +244,7 @@ if shouldRun 2 then
         addResult "2_zz_d1" circ.QubitCount (gateCount circ) true [ "hadamard", box h; "rz", box rz; "cnot", box cnot ]
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 3: ZZ Feature Map (depth 2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 3: ZZ Feature Map (depth 2) ─────────────────────────────
 if shouldRun 3 then
     section "EXAMPLE 3: ZZ Feature Map (depth=2)"
     pr "Strategy: Two layers of entangling feature maps"
@@ -257,7 +257,7 @@ if shouldRun 3 then
         addResult "3_zz_d2" circ.QubitCount (gateCount circ) true []
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 4: Pauli Feature Map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 4: Pauli Feature Map ────────────────────────────────────
 if shouldRun 4 then
     section "EXAMPLE 4: Pauli Feature Map"
     pr "Strategy: Custom Pauli string rotations (ZZ, XX)"
@@ -270,11 +270,11 @@ if shouldRun 4 then
         addResult "4_pauli" circ.QubitCount (gateCount circ) true []
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 5: Amplitude Encoding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 5: Amplitude Encoding ───────────────────────────────────
 if shouldRun 5 then
     section "EXAMPLE 5: Amplitude Encoding"
     pr "Strategy: Encode features as quantum state amplitudes"
-    pr "  Uses log2(d) qubits for d features â€” exponential compression"
+    pr "  Uses log2(d) qubits for d features — exponential compression"
     pr ""
 
     match FeatureMap.buildFeatureMap AmplitudeEncoding features with
@@ -289,7 +289,7 @@ if shouldRun 5 then
         addResult "5_amplitude" circ.QubitCount (gateCount circ) false []
     | Error err -> pr "Error: %s" err.Message
 
-// â”€â”€ EXAMPLE 6: Feature Map Comparison â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 6: Feature Map Comparison ───────────────────────────────
 if shouldRun 6 then
     section "EXAMPLE 6: Feature Map Comparison"
 
@@ -314,7 +314,7 @@ if shouldRun 6 then
             addResult (sprintf "6_%s" (name.Replace("(", "").Replace(")", ""))) circ.QubitCount (gateCount circ) ent []
         | Error _ -> pr "%-20s | %6s | %5s | %s" name "Error" "Error" "Error"
 
-// â”€â”€ EXAMPLE 7: Scaling Analysis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXAMPLE 7: Scaling Analysis ─────────────────────────────────────
 if shouldRun 7 then
     section "EXAMPLE 7: Scaling (Small / Medium / Large)"
 
@@ -335,7 +335,7 @@ if shouldRun 7 then
             addResult $"7_scale_%d{feat.Length}" circ.QubitCount (gateCount circ) true []
         | Error err -> pr "%-12s | Error: %s" desc err.Message
 
-// â”€â”€ Output â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Output ───────────────────────────────────────────────────────────
 let payload =
     Map.ofList
         [
@@ -352,7 +352,7 @@ outputPath |> Option.iter (fun p -> Reporting.writeJson p payload)
 csvPath
 |> Option.iter (fun p -> Reporting.writeCsv p [ "example"; "qubits"; "gates"; "entangled" ] csvRows)
 
-// â”€â”€ Usage hints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Usage hints ──────────────────────────────────────────────────────
 if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
     pr ""
     pr "Usage hints:"
