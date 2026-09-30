@@ -247,6 +247,31 @@ module ErrorMitigationStrategyTests =
         | Error msg -> Assert.Fail($"Strategy application failed: %s{msg.Message}")
 
     [<Fact>]
+    let ``High accuracy strategy applies to a histogram through a readout-only fallback`` () =
+        // The primary (PEC + ZNE + Readout) cannot run on a finished histogram; the fallback
+        // must be one that can, or the recommended strategy is unusable post hoc.
+        let criteria =
+            { createBaseCriteria () with
+                CircuitDepth = 40
+                RequiredAccuracy = Some 0.92
+                MaxCostUSD = Some 150.0
+            }
+
+        let strategy = ErrorMitigationStrategy.selectStrategy criteria
+        let histogram = Map.ofList [ ("00000", 480); ("11111", 520) ]
+
+        match ErrorMitigationStrategy.applyStrategy histogram strategy with
+        | Ok mitigated ->
+            Assert.True(mitigated.UsedFallback)
+
+            match mitigated.AppliedTechnique with
+            | ErrorMitigationStrategy.ReadoutErrorMitigation _ -> ()
+            | other -> Assert.Fail($"expected a readout-only fallback, got %A{other}")
+
+            Assert.Equal(2, Map.count mitigated.Histogram)
+        | Error e -> Assert.Fail($"Strategy application failed: %s{e.Message}")
+
+    [<Fact>]
     let ``Strategy with fallback should provide secondary option`` () =
         // Arrange
         let criteria =

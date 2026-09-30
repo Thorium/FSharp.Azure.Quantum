@@ -19,6 +19,7 @@ module ChemistryIntegrals =
         Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "_data", "chemistry", "fcidump"))
 
     let private speciesSlugRegex = Regex "[^a-z0-9]+"
+
     /// File-name stem of a species' FCIDUMP: lowercase letters and digits, other runs as '-'.
     let speciesSlug (name: string) : string =
         speciesSlugRegex.Replace(name.ToLowerInvariant(), "-").Trim('-')

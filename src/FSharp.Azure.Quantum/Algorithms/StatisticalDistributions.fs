@@ -234,6 +234,38 @@ module StatisticalDistributions =
 
             (z, prob))
 
+    /// Discretize a log-normal distribution (ln X ~ N(mu, sigma²)) into n equal-probability bins,
+    /// each represented by its CONDITIONAL MEAN rather than its mid-bin quantile
+    /// (discretizeLogNormal):
+    ///   E[X | bin i] = n · e^(mu + sigma²/2) · (Φ(zᵢ₊₁ − sigma) − Φ(zᵢ − sigma)),  zᵢ = Φ⁻¹(i/n).
+    ///
+    /// Returns (level, probability = 1/n) pairs in increasing order. The levels keep E[X]
+    /// exact and account for the spread inside each bin (the unbounded top bin above all),
+    /// which the mid-bin quantile drops; for an option payoff only the convexity inside the
+    /// one bin holding the strike is lost. Φ and Φ⁻¹ are MathNet's (full double precision).
+    let discretizeLogNormalBinMeans (mu: float) (sigma: float) (numBins: int) : (float * float)[] =
+        if numBins < 2 then
+            failwith "numBins must be >= 2"
+
+        let probability = 1.0 / float numBins
+        let scale = exp (mu + 0.5 * sigma * sigma)
+
+        // Φ(zᵢ − sigma) at the bin edges, exactly 0 and 1 at the open ends.
+        let shiftedCdf (i: int) =
+            if i <= 0 then
+                0.0
+            elif i >= numBins then
+                1.0
+            else
+                MathNet.Numerics.Distributions.Normal.CDF(
+                    0.0,
+                    1.0,
+                    MathNet.Numerics.Distributions.Normal.InvCDF(0.0, 1.0, float i * probability)
+                    - sigma
+                )
+
+        Array.init numBins (fun i -> (scale * (shiftedCdf (i + 1) - shiftedCdf i) / probability, probability))
+
     /// Discretize log-normal distribution into n bins
     ///
     /// Returns array of (price_level, probability) pairs

@@ -329,8 +329,7 @@ module QaoaExecutionHelpers =
             evaluated |> Array.minBy snd |> fst |> Ok
         else
             results
-            |> Array.choose (fun (_, r) ->
-                r |> Result.map (fun _ -> None) |> Result.defaultWith (fun err -> Some err))
+            |> Array.choose (fun (_, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun err -> Some err))
             |> Array.tryLast
             |> Option.defaultValue (QuantumError.OperationError("QAOA", "No valid solution found"))
             |> Error

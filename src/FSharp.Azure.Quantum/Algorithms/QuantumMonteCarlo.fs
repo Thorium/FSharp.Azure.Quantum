@@ -65,7 +65,10 @@ module QuantumMonteCarlo =
             /// Estimated expectation value
             ExpectationValue: float
 
-            /// Standard error of estimate
+            /// Cramér–Rao standard error of ExpectationValue from the maximum-likelihood
+            /// amplitude-estimation fit, for the shots behind each measured probability: the
+            /// backend's Shots on a shot-sampling (IShotSamplingBackend) backend that ran whole
+            /// circuits, else config.Shots
             StandardError: float
 
             /// Success probability (measured amplitude squared)
@@ -212,6 +215,25 @@ module QuantumMonteCarlo =
 
             Ok probabilities
         | QuantumState.DensityMatrix(rho, n) -> Ok(Array.init (1 <<< n) (fun i -> rho.[i, i].Real))
+        | QuantumState.FusionSuperposition superposition ->
+            // A topological backend's state: its logical-qubit probabilities, exact like a
+            // simulator's (bitstring.[q] = qubit q).
+            let n = superposition.LogicalQubits
+
+            Ok(Array.init (1 <<< n) (fun i -> superposition.Probability(Array.init n (fun q -> (i >>> q) &&& 1))))
+        | QuantumState.MeasurementHistogram(histogram, n) when n <= 30 ->
+            // A job's counts (character q = qubit q), as outcome frequencies.
+            let probabilities = Array.zeroCreate (1 <<< n)
+            let total = histogram |> Map.fold (fun acc _ c -> acc + max 0 c) 0 |> max 1 |> float
+
+            for KeyValue(key, count) in histogram do
+                let index =
+                    Seq.indexed key
+                    |> Seq.sumBy (fun (q, c) -> if c = '1' && q < n then 1 <<< q else 0)
+
+                probabilities.[index] <- probabilities.[index] + float (max 0 count) / total
+
+            Ok probabilities
         | _ ->
             Error(
                 QuantumError.OperationError(
@@ -316,7 +338,15 @@ module QuantumMonteCarlo =
     /// probabilities measured at several Grover powers, each obeying
     /// P_k(good) = sin²((2k+1)θ). A grid search over θ ∈ [0, π/2] maximises the Bernoulli
     /// log-likelihood (every power has the same shot count, so it is unweighted), followed by
-    /// a local refinement.
+    /// a local refinement, then a bisection of the score dL/dθ to the exact maximum.
+    ///
+    /// Why the bisection: the grid alone resolves θ to (π/2)/(2000·50) ≈ 1.6e-5 rad. That is
+    /// far below the shot noise of a sampling backend, but with the exact probabilities of a
+    /// simulator it quantises the estimate: about 1e-3 of an option price, which is the whole
+    /// signal of a 1bp rate bump or a one-day time bump, so finite-difference Greeks (Rho,
+    /// Theta, Gamma) lost several percent to it. With exact probabilities every term of the
+    /// likelihood peaks at the true θ, so the score's root recovers it (to ~1e-8 when a power
+    /// sits at probability 1, whose likelihood pins θ only to the square root of rounding).
     let private estimateThetaMLAE (measurements: (int * float) list) : float =
         let logLikelihood (theta: float) : float =
             measurements
@@ -336,12 +366,51 @@ module QuantumMonteCarlo =
 
         let step = half / float gridN
 
-        [ -50 .. 50 ]
-        |> List.map (fun j -> coarse + float j * step / 50.0)
-        |> List.filter (fun th -> th >= 0.0 && th <= half)
-        |> List.map (fun th -> (th, logLikelihood th))
-        |> List.maxBy snd
-        |> fst
+        let fine =
+            [ -50 .. 50 ]
+            |> List.map (fun j -> coarse + float j * step / 50.0)
+            |> List.filter (fun th -> th >= 0.0 && th <= half)
+            |> List.map (fun th -> (th, logLikelihood th))
+            |> List.maxBy snd
+            |> fst
+
+        // Score dL/dθ = Σ 2m·[p·cot(mθ) − (1 − p)·tan(mθ)], m = 2k + 1; NaN/∞ where a term is
+        // singular (θ at 0 or π/2), in which case the grid estimate stands.
+        let score (theta: float) : float =
+            measurements
+            |> List.sumBy (fun (k, pGood) ->
+                let m = float (2 * k + 1)
+                let angle = m * theta
+
+                2.0
+                * m
+                * (pGood * cos angle / sin angle - (1.0 - pGood) * sin angle / cos angle))
+
+        let lo = max 0.0 (fine - step / 50.0)
+        let hi = min half (fine + step / 50.0)
+        let scoreLo, scoreHi = score lo, score hi
+
+        if
+            Double.IsFinite scoreLo
+            && Double.IsFinite scoreHi
+            && scoreLo > 0.0
+            && scoreHi < 0.0
+        then
+            let rec bisect (a: float) (b: float) (iterations: int) =
+                let mid = 0.5 * (a + b)
+
+                if iterations = 0 || mid <= a || mid >= b then
+                    mid
+                else
+                    let sMid = score mid
+
+                    if not (Double.IsFinite sMid) then mid
+                    elif sMid > 0.0 then bisect mid b (iterations - 1)
+                    else bisect a mid (iterations - 1)
+
+            bisect lo hi 80
+        else
+            fine
 
     /// Shots behind each probability a sampling backend returns (IShotSamplingBackend).
     let private samplingShots (backend: IQuantumBackend) : int option =
@@ -581,7 +650,7 @@ module QuantumMonteCarlo =
                         // Validate backend support, take the marked set from the oracle's
                         // definition, then estimate the marked-subspace amplitude by
                         // Maximum-Likelihood Amplitude Estimation over a Grover-power schedule.
-                        let! estimatedAmplitude =
+                        let! estimate =
                             plan backend intent
                             |> Result.bind (fun _ -> markedSetOfOracle config.Oracle)
                             |> Result.bind (fun markedSet ->
@@ -592,19 +661,17 @@ module QuantumMonteCarlo =
                                     markedSet
                                     config.GroverIterations
                                     config.Shots)
-                            |> Result.map (fun estimate -> estimate.Amplitude)
 
                         // The estimated marked amplitude a = sin²θ IS the expectation E[1_good] = P(good).
-                        let originalAmplitude = estimatedAmplitude
-                        let successProb = estimatedAmplitude
+                        let originalAmplitude = estimate.Amplitude
+                        let successProb = estimate.Amplitude
 
-                        // Calculate standard error (theoretical bound)
-                        // Quantum amplitude estimation achieves O(1/M) error with M queries
-                        let stdError =
-                            if config.GroverIterations > 0 then
-                                1.0 / float config.GroverIterations
-                            else
-                                1.0 / sqrt (float config.Shots)
+                        // The Cramér–Rao error of the maximum-likelihood fit that produced the
+                        // estimate, for the shots actually behind each measured probability. The
+                        // asymptotic O(1/M) query bound (1/GroverIterations) is a scaling law, not
+                        // an error bar: it reported 0.25 for 4 iterations where the fit's real
+                        // error at 1,000 shots is ~0.001.
+                        let stdError = estimate.StandardError
 
                         // Classical equivalent samples for same accuracy
                         let classicalSamples =

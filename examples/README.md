@@ -396,6 +396,9 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[AzureQuantumWorkspace/WorkspaceExample.fsx](AzureQuantumWorkspace/WorkspaceExample.fsx)**  
   Cloud quantum hardware (IonQ, Rigetti, Quantinuum, Atom Computing)  
   **Features:** Quota management, job submission, circuit conversion
+- **[AzureQuantumWorkspace/LocalServiceExample.fsx](AzureQuantumWorkspace/LocalServiceExample.fsx)**  
+  The cloud backends against a local Azure Quantum REST emulator, no Azure account needed  
+  **Features:** Real HTTP job lifecycle, jobs run on the local simulator, no cost
 
 ---
 

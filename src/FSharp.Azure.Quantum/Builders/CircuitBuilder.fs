@@ -1138,6 +1138,40 @@ module CircuitBuilder =
         | Barrier qubits -> qubits
         | Conditional(q, inner) -> q :: getAffectedQubits inner
 
+    /// The gate with every qubit index q replaced by `f q`: the same operation on other
+    /// qubits, e.g. a copy of a sub-circuit placed beside the original.
+    let rec mapQubits (f: int -> int) (gate: Gate) : Gate =
+        match gate with
+        | X q -> X(f q)
+        | Y q -> Y(f q)
+        | Z q -> Z(f q)
+        | H q -> H(f q)
+        | S q -> S(f q)
+        | SDG q -> SDG(f q)
+        | T q -> T(f q)
+        | TDG q -> TDG(f q)
+        | P(q, a) -> P(f q, a)
+        | RX(q, a) -> RX(f q, a)
+        | RY(q, a) -> RY(f q, a)
+        | RZ(q, a) -> RZ(f q, a)
+        | U3(q, a, b, c) -> U3(f q, a, b, c)
+        | CNOT(c, t) -> CNOT(f c, f t)
+        | CZ(c, t) -> CZ(f c, f t)
+        | CP(c, t, a) -> CP(f c, f t, a)
+        | CRX(c, t, a) -> CRX(f c, f t, a)
+        | CRY(c, t, a) -> CRY(f c, f t, a)
+        | CRZ(c, t, a) -> CRZ(f c, f t, a)
+        | SWAP(a, b) -> SWAP(f a, f b)
+        | RXX(a, b, t) -> RXX(f a, f b, t)
+        | RYY(a, b, t) -> RYY(f a, f b, t)
+        | RZZ(a, b, t) -> RZZ(f a, f b, t)
+        | CCX(c1, c2, t) -> CCX(f c1, f c2, f t)
+        | MCZ(controls, target) -> MCZ(List.map f controls, f target)
+        | Measure q -> Measure(f q)
+        | Reset q -> Reset(f q)
+        | Barrier qubits -> Barrier(List.map f qubits)
+        | Conditional(q, inner) -> Conditional(f q, mapQubits f inner)
+
     /// Check if two gates act on disjoint qubits (always commute)
     let private areDisjoint (gate1: Gate) (gate2: Gate) : bool =
         let qubits1 = getAffectedQubits gate1 |> Set.ofList

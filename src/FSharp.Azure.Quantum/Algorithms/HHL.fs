@@ -928,16 +928,21 @@ module HHL =
     /// backend) or exact probabilities, and only |amplitude|² of it is read. Post-selecting the
     /// outcomes with ancilla = |1⟩ and the eigenvalue register |0⟩ gives |x_i|². Signs and
     /// relative phases are not in computational-basis counts, so the result holds magnitudes
-    /// and says so (HhlReadout.MeasuredMagnitudes); recovering signs would take further
-    /// interference circuits, which are not run.
-    let private executeWholeCircuit
+    /// and says so (HhlReadout.MeasuredMagnitudes); executeWithRelativePhases runs the
+    /// interference circuits that recover them.
+    ///
+    /// wholeCircuitRun is one such job: |b⟩ prepared by gates, the inversion lowering, then
+    /// `analysis` (gates on the solution register only, applied after the inversion), all
+    /// transpiled together and submitted as one circuit. Returns the probability of every
+    /// outcome (index little-endian by qubit), the state, the submitted gate count and the
+    /// classical spectrum estimate.
+    let private wholeCircuitRun
         (backend: IQuantumBackend)
         (intent: HhlExecutionIntent)
-        (config: HHLConfig)
-        : Result<HHLResult, QuantumError> =
+        (analysis: CircuitBuilder.Gate list)
+        : Result<float[] * QuantumState * int * float[], QuantumError> =
         result {
             let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
-            let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
             let! (spectrumEigenvalues, _minEig, _conditionNumber, maxEig) = validateIntent intent
 
             let! (inversionOps, _gateCount, _ancilla) =
@@ -954,7 +959,10 @@ module HHL =
                 |> List.rev
                 |> List.map QuantumOperation.Gate
 
-            let ops = transpileOpsForBackend backend totalQubits (preparationOps @ inversionOps)
+            let analysisOps = analysis |> List.map QuantumOperation.Gate
+
+            let ops =
+                transpileOpsForBackend backend totalQubits (preparationOps @ inversionOps @ analysisOps)
 
             let! finalState = UnifiedBackend.submitAsCircuit backend totalQubits ops
 
@@ -962,7 +970,20 @@ module HHL =
             let probabilityOf (index: int) =
                 QuantumState.probability (Array.init totalQubits (fun q -> (index >>> q) &&& 1)) finalState
 
-            let probabilities = Array.init (1 <<< totalQubits) probabilityOf
+            return (Array.init (1 <<< totalQubits) probabilityOf, finalState, ops.Length, spectrumEigenvalues)
+        }
+
+    let private executeWholeCircuit
+        (backend: IQuantumBackend)
+        (intent: HhlExecutionIntent)
+        (config: HHLConfig)
+        : Result<HHLResult, QuantumError> =
+        result {
+            let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+
+            let! (probabilities, finalState, gateCount, spectrumEigenvalues) =
+                wholeCircuitRun backend intent []
+
             let ancillaMask = 1 <<< ancillaQubit
 
             let successProb =
@@ -1004,7 +1025,7 @@ module HHL =
                             extractedEigenvalues
                         else
                             spectrumEigenvalues
-                    GateCount = ops.Length
+                    GateCount = gateCount
                     PostSelectionSuccess = postSelectionSuccess
                     Config = config
                     Fidelity = None
@@ -1113,6 +1134,181 @@ module HHL =
                         SolutionAmplitudes = solutionAmps
                     }
             }
+
+    // ========================================================================
+    // RELATIVE PHASES ON WHOLE-CIRCUIT BACKENDS
+    // ========================================================================
+
+    /// Result of executeWithRelativePhases.
+    type HhlPhasedResult =
+        {
+            /// The HHL result. On a whole-circuit backend Readout = MeasuredRelativePhases and
+            /// Solution holds the post-selected amplitudes, normalised as on the exact route, up
+            /// to one global phase and shot noise; elsewhere it is execute's result unchanged.
+            Result: HHLResult
+
+            /// Circuits submitted as whole-circuit jobs: 1 + S interference circuits for a real
+            /// system (1 + 2S for a complex one), S = SolutionQubits; 0 when the backend gave
+            /// state access (execute's gate-by-gate or native route, no job submitted).
+            Circuits: int
+        }
+
+    /// Relative phases of the post-selected solution amplitudes y_i from interference readouts.
+    ///
+    /// `magnitudes` are |y_i|. `realParts.[q]` holds, per pair (i, i + 2^q) with bit q of i
+    /// clear, Re(conj y_i · y_(i+2^q)), and `imaginaryParts.[q]` the imaginary parts (None for
+    /// a real system, whose solution is real). Pairs differing in one bit form the hypercube on
+    /// the solution indices; phases are propagated from the largest component along a maximum
+    /// spanning tree of that graph weighted by |y_i|·|y_j|, so every sign is read from the
+    /// best-conditioned pair available (a near-zero component never decides another's sign).
+    let internal assemblePhases
+        (magnitudes: float[])
+        (realParts: Map<int * int, float>)
+        (imaginaryParts: Map<int * int, float> option)
+        : Complex[] =
+        let n = magnitudes.Length
+
+        let edges =
+            realParts
+            |> Map.toList
+            |> List.map (fun ((i, j), re) ->
+                let im =
+                    imaginaryParts |> Option.bind (Map.tryFind (i, j)) |> Option.defaultValue 0.0
+
+                (i, j, Complex(re, im)))
+            |> List.sortByDescending (fun (i, j, _) -> magnitudes.[i] * magnitudes.[j])
+
+        let phases = Array.create n nan
+
+        if n > 0 then
+            let root = [| 0 .. n - 1 |] |> Array.maxBy (fun i -> magnitudes.[i])
+            phases.[root] <- 0.0
+
+            // Prim's algorithm on the sorted edges: repeatedly take the heaviest edge with
+            // exactly one end placed. c = conj y_i · y_j, so φ_j = φ_i + arg c.
+            let rec grow () =
+                let next =
+                    edges
+                    |> List.tryFind (fun (i, j, _) -> Double.IsNaN phases.[i] <> Double.IsNaN phases.[j])
+
+                match next with
+                | Some(i, j, c) ->
+                    if Double.IsNaN phases.[j] then
+                        phases.[j] <- phases.[i] + c.Phase
+                    else
+                        phases.[i] <- phases.[j] - c.Phase
+
+                    grow ()
+                | None -> ()
+
+            grow ()
+
+        Array.init n (fun i ->
+            let phase = if Double.IsNaN phases.[i] then 0.0 else phases.[i]
+            Complex.FromPolarCoordinates(magnitudes.[i], phase))
+
+    /// HHL whose solution carries its relative signs and phases on every backend.
+    ///
+    /// On a backend with state access (LocalBackend, TopologicalBackend) this is `execute`: the
+    /// amplitudes are read exactly. On a backend that runs complete circuits only (cloud
+    /// hardware), `execute` measures |x_i| alone (HhlReadout.MeasuredMagnitudes), so this runs
+    /// interference circuits as well, each the same HHL circuit followed by a basis change on
+    /// ONE solution qubit q, then measured and post-selected like the magnitude circuit
+    /// (ancilla |1⟩, eigenvalue register |0⟩). The basis change acts on the solution register
+    /// only, so it maps the post-selected branch y to Uy without mixing in other branches:
+    /// - H on q: outcomes i and i + 2^q (bit q of i clear) have probabilities
+    ///   |y_i ± y_(i+2^q)|²/2, whose difference is 2·Re(conj y_i · y_(i+2^q));
+    /// - RX(π/2) on q (the Y basis, native on cloud targets): the difference is
+    ///   2·Im(conj y_i · y_(i+2^q)).
+    /// With S solution qubits these give the product for every pair differing in one bit,
+    /// which connects all 2^S components; assemblePhases turns them into phases. A real system
+    /// (real A and b, as in least squares) has a real solution, so only the S Hadamard circuits
+    /// are run: 1 + S jobs in all, 1 + 2S for a complex system. Shot noise makes the sign of a
+    /// pair unreliable only when both components are small, which assemblePhases avoids.
+    let executeWithRelativePhases
+        (config: HHLConfig)
+        (backend: IQuantumBackend)
+        : Result<HhlPhasedResult, QuantumError> =
+        match execute config backend with
+        | Error e -> Error e
+        | Ok result when result.Readout <> HhlReadout.MeasuredMagnitudes -> Ok { Result = result; Circuits = 0 }
+        | Ok magnitudeResult ->
+            let intent = toExecutionIntent config
+            let eigenvalueQubits = intent.EigenvalueQubits
+            let solutionQubits = intent.SolutionQubits
+            let ancillaMask = 1 <<< (eigenvalueQubits + solutionQubits)
+            let solutionDim = 1 <<< solutionQubits
+
+            let isReal =
+                config.Matrix.Elements |> Array.forall (fun c -> abs c.Imaginary < 1e-12)
+                && config.InputVector.Components |> Array.forall (fun c -> abs c.Imaginary < 1e-12)
+
+            // Same normalisation as the magnitude readout: the post-selected branch over P(ancilla = 1).
+            let normaliser (probabilities: float[]) =
+                let success =
+                    probabilities
+                    |> Array.indexed
+                    |> Array.sumBy (fun (index, p) -> if index &&& ancillaMask <> 0 then p else 0.0)
+
+                if config.UsePostSelection && success > 0.0 then
+                    success
+                else
+                    1.0
+
+            /// Per pair (i, i + 2^q): (P(i) − P(i + 2^q)) / 2 of the post-selected branch after
+            /// `gate` on solution qubit q.
+            let pairProducts (gate: int -> CircuitBuilder.Gate) (q: int) =
+                wholeCircuitRun backend intent [ gate (eigenvalueQubits + q) ]
+                |> Result.map (fun (probabilities, _, _, _) ->
+                    let norm = normaliser probabilities
+
+                    let selected i =
+                        probabilities.[(i <<< eigenvalueQubits) ||| ancillaMask] / norm
+
+                    [
+                        for i in 0 .. solutionDim - 1 do
+                            if (i >>> q) &&& 1 = 0 then
+                                let j = i ||| (1 <<< q)
+                                yield (i, j), (selected i - selected j) / 2.0
+                    ])
+
+            let collect (gate: int -> CircuitBuilder.Gate) =
+                [ 0 .. solutionQubits - 1 ]
+                |> List.fold
+                    (fun acc q ->
+                        acc
+                        |> Result.bind (fun pairs -> pairProducts gate q |> Result.map (fun p -> pairs @ p)))
+                    (Ok [])
+                |> Result.map Map.ofList
+
+            let imaginary =
+                if isReal then
+                    Ok None
+                else
+                    collect (fun q -> CircuitBuilder.RX(q, Math.PI / 2.0)) |> Result.map Some
+
+            collect CircuitBuilder.H
+            |> Result.bind (fun realParts ->
+                imaginary
+                |> Result.map (fun imaginaryParts ->
+                    let magnitudes = magnitudeResult.Solution |> Array.map (fun c -> c.Magnitude)
+                    let solution = assemblePhases magnitudes realParts imaginaryParts
+
+                    let amplitudes =
+                        solution
+                        |> Array.indexed
+                        |> Array.filter (fun (_, amp) -> amp.Magnitude > 1e-10)
+                        |> Map.ofArray
+
+                    {
+                        Result =
+                            { magnitudeResult with
+                                Solution = solution
+                                Readout = HhlReadout.MeasuredRelativePhases
+                                SolutionAmplitudes = if Map.isEmpty amplitudes then None else Some amplitudes
+                            }
+                        Circuits = 1 + solutionQubits * (if isReal then 1 else 2)
+                    }))
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS

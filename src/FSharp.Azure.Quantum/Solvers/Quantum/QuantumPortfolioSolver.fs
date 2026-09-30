@@ -708,8 +708,7 @@ module QuantumPortfolioSolver =
 
             let failures =
                 runs
-                |> Seq.choose (fun (_, r) ->
-                    r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some e))
+                |> Seq.choose (fun (_, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some e))
                 |> Seq.toList
 
             let sampled =

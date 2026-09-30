@@ -575,7 +575,8 @@ module PortfolioCovarianceTests =
 
             let feasibleBest =
                 Array.init 32 (bitsOf 5)
-                |> Array.filter (fun bits -> Array.sum bits > 0 && QuantumPortfolioSolver.isFeasibleSelection problem bits)
+                |> Array.filter (fun bits ->
+                    Array.sum bits > 0 && QuantumPortfolioSolver.isFeasibleSelection problem bits)
                 |> Array.map (QuantumPortfolioSolver.meanVarianceEnergy problem)
                 |> Array.min
 
@@ -598,7 +599,8 @@ module PortfolioCovarianceTests =
                 Assert.True(solution.TotalValue <= constraints.Budget)
                 // 32 selections and thousands of samples: the best feasible one is always seen.
                 Assert.Equal(feasibleBest, solution.BestEnergy, 12)
-        } :> System.Threading.Tasks.Task
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``holding limits that cannot be met are validation errors`` () =
@@ -659,11 +661,14 @@ module PortfolioCovarianceTests =
                     Assert.True(a.Shares >= 1.0, $"{a.Asset.Symbol}: {a.Shares} shares")
 
             // The classical greedy also needs at least one share's worth.
-            match HybridSolver.solvePortfolio pricey constraints None None (Some HybridSolver.SolverMethod.Classical) with
+            match
+                HybridSolver.solvePortfolio pricey constraints None None (Some HybridSolver.SolverMethod.Classical)
+            with
             | Error err -> Assert.Fail(err.Message)
             | Ok solution ->
                 Assert.DoesNotContain("BRKA", solution.Result.Allocations |> List.map (fun a -> a.Asset.Symbol))
-        } :> System.Threading.Tasks.Task
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``no affordable asset is a validation error`` () =
@@ -684,7 +689,8 @@ module PortfolioCovarianceTests =
                     CancellationToken.None)
 
             Assert.True(result |> isValidationError "Price")
-        } :> System.Threading.Tasks.Task
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``validateCovariance accepts an all-zero covariance`` () =

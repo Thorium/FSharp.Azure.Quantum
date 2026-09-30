@@ -562,7 +562,7 @@ Results exclude the query item itself and anything below the threshold.
 | `indexItems items` | `('T * float[])[]` to index | required |
 | `similarityMetric` | `Cosine`, `Euclidean` or `QuantumKernel` | `Cosine` |
 | `threshold` | Minimum similarity, 0.0-1.0 | 0.7 |
-| `shots` | Shots per kernel evaluation (`QuantumKernel` only) | 1000 |
+| `shots` | Shots per kernel evaluation (`QuantumKernel` only); on a cloud backend it must equal the backend's own shots per job, else an `Error` | 1000 |
 | `backend` | Quantum backend (`QuantumKernel` only) | `LocalBackend` |
 | `saveIndexTo`, `note`, `verbose`, `progressReporter`, `cancellationToken` | Bookkeeping | none |
 

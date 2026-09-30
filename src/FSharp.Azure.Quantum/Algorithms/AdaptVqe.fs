@@ -28,8 +28,12 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 ///   e^(-iθcP), and the angles are re-optimised by SampledOptimizerSteps steps of Adam on those
 ///   gradients. A gradient counts only above max(GradientThreshold, 3 standard errors); an
 ///   iteration is kept only if its fresh energy estimate is not significantly worse. Jobs per
-///   iteration: G·(2·|pool| + 2·n·SampledOptimizerSteps + 1) with n angles — cap them with the
-///   backend's JobBudget.
+///   iteration: G·(2·|pool| + 2·n·SampledOptimizerSteps + 1) with n angles (estimateCloudJobs).
+///   That grows quadratically with the iterations (a 3-qubit toy reached 3,590 jobs, H2 in a
+///   full pool ≈85,000), so a run is capped by AdaptConfig.MaxCloudJobs (default
+///   DefaultMaxCloudJobs = 2,000): refused up front when the reference energy and the first
+///   operator do not fit, and stopped with the best ansatz so far (JobCapReached) before any
+///   iteration that would cross the cap. The backend's JobBudget still applies on top.
 module AdaptVqe =
 
     // ========================================================================
@@ -50,14 +54,27 @@ module AdaptVqe =
             GradientThreshold: float
             /// Central-difference step used for gradient screening.
             FiniteDiffEps: float
+            /// Most whole-circuit jobs one run may submit on a shot-sampling backend
+            /// (IShotSamplingBackend: each is a separately queued and billed cloud job); None =
+            /// no cap. Ignored on exact backends. A run whose reference energy and first
+            /// operator already exceed it is refused before any job; otherwise the run stops,
+            /// with the best ansatz so far and JobCapReached set, before an iteration that
+            /// could cross it.
+            MaxCloudJobs: int option
         }
 
-    /// Sensible defaults (20 operators, 1e-3 gradient cutoff).
+    /// Default MaxCloudJobs: enough for a few operators on a small Hamiltonian, and a bounded
+    /// bill when ADAPT does not converge quickly.
+    [<Literal>]
+    let DefaultMaxCloudJobs = 2_000
+
+    /// Sensible defaults (20 operators, 1e-3 gradient cutoff, at most 2,000 cloud jobs).
     let defaultConfig =
         {
             MaxIterations = 20
             GradientThreshold = 1e-3
             FiniteDiffEps = 1e-4
+            MaxCloudJobs = Some DefaultMaxCloudJobs
         }
 
     /// Result of an ADAPT-VQE run.
@@ -75,6 +92,15 @@ module AdaptVqe =
             Converged: bool
             /// Energy after each operator was added (chronological).
             EnergyHistory: float list
+            /// Shot-noise standard error of Energy on a shot-sampling backend (the
+            /// Primitives.sampledExpectation error of the final energy estimate); None on an
+            /// exact backend, where Energy is exact.
+            EnergyStandardError: float option
+            /// Whole-circuit jobs submitted on a shot-sampling backend; 0 on an exact backend.
+            CloudJobs: int
+            /// True when the run stopped because the next iteration could exceed
+            /// AdaptConfig.MaxCloudJobs: the result is the best ansatz so far, not Converged.
+            JobCapReached: bool
         }
 
     // ========================================================================
@@ -210,6 +236,23 @@ module AdaptVqe =
 
         step 1 init (Array.zeroCreate init.Length) (Array.zeroCreate init.Length)
 
+    /// Whole-circuit jobs of one shot-sampling ADAPT iteration that ends with `angles` angles,
+    /// for G measurement groups and a pool of `poolSize`: G·(2·poolSize + 2·angles·S + 1) — the
+    /// gradient screen (two shifted energies per pool operator), S Adam steps of the full
+    /// parameter-shift gradient, and the fresh energy of the new ansatz. An upper bound: a
+    /// zero-coefficient generator costs nothing.
+    let internal iterationJobs (groups: int) (poolSize: int) (angles: int) : int =
+        groups * (2 * poolSize + 2 * angles * SampledOptimizerSteps + 1)
+
+    /// Most whole-circuit jobs ADAPT-VQE can submit on a shot-sampling backend for a run of
+    /// `iterations` operators: the reference energy plus every iteration's iterationJobs, with
+    /// G = Primitives.measurementGroups of the Hamiltonian. Grows as iterations²·G·S.
+    let estimateCloudJobs (hamiltonian: TrotterSuzuki.PauliHamiltonian) (poolSize: int) (iterations: int) : int =
+        let groups = Primitives.measurementGroups hamiltonian |> List.length
+
+        groups
+        + ([ 1 .. max 0 iterations ] |> List.sumBy (iterationJobs groups poolSize))
+
     /// ADAPT-VQE on a shot-sampling backend (see the module notes).
     let private runSampled
         (backend: IQuantumBackend)
@@ -218,9 +261,27 @@ module AdaptVqe =
         (numQubits: int)
         (config: AdaptConfig)
         : QuantumResult<AdaptResult> =
+        let groups = Primitives.measurementGroups hamiltonian |> List.length
+        let perIteration = iterationJobs groups pool.Length
+        // Jobs submitted so far (each energy estimate reports its circuits).
+        let submitted = ref 0
+
         let energy (ops: TrotterSuzuki.PauliString list) (parameters: float[]) : QuantumResult<float * float> =
-            Primitives.sampledExpectation backend (buildAnsatz numQubits ops parameters) hamiltonian
-            |> Result.map (fun e -> e.Value, e.StandardError)
+            match config.MaxCloudJobs with
+            | Some cap when submitted.Value + groups > cap ->
+                // Unreachable while iterationJobs bounds every iteration; kept so no job is
+                // ever submitted past the cap.
+                Error(
+                    QuantumError.ValidationError(
+                        "MaxCloudJobs",
+                        $"ADAPT-VQE reached its cap of {cap} cloud jobs ({submitted.Value} submitted)"
+                    )
+                )
+            | _ ->
+                Primitives.sampledExpectation backend (buildAnsatz numQubits ops parameters) hamiltonian
+                |> Result.map (fun e ->
+                    submitted.Value <- submitted.Value + e.Circuits
+                    e.Value, e.StandardError)
 
         /// d energy / d parameters.[k] by the parameter-shift rule.
         let gradientAt (ops: TrotterSuzuki.PauliString list) (parameters: float[]) (k: int) =
@@ -249,7 +310,7 @@ module AdaptVqe =
                 | Ok estimate -> screen ops parameters rest ((op, estimate) :: acc)
 
         let rec loop iter ops parameters history ((current, currentError): float * float) =
-            let finish converged =
+            let finish converged capped =
                 Ok
                     {
                         Energy = current
@@ -258,10 +319,20 @@ module AdaptVqe =
                         Iterations = iter
                         Converged = converged
                         EnergyHistory = List.rev history
+                        EnergyStandardError = Some currentError
+                        CloudJobs = submitted.Value
+                        JobCapReached = capped
                     }
 
+            // Would the next iteration cross the cap? Then stop before submitting any of it.
+            let overCap =
+                config.MaxCloudJobs
+                |> Option.exists (fun cap -> submitted.Value + perIteration (parameters.Length + 1) > cap)
+
             if iter >= config.MaxIterations then
-                finish false
+                finish false false
+            elif overCap then
+                finish false true
             else
                 match screen ops parameters pool [] with
                 | Error err -> Error err
@@ -269,7 +340,7 @@ module AdaptVqe =
                     let (bestOp, (bestGrad, bestError)) = grads |> List.maxBy (fun (_, (g, _)) -> abs g)
 
                     if abs bestGrad <= max config.GradientThreshold (SampledGradientSigmas * bestError) then
-                        finish true
+                        finish true false
                     else
                         let newOps = ops @ [ bestOp ]
 
@@ -283,12 +354,28 @@ module AdaptVqe =
                                 let noise = 2.0 * sqrt (freshError * freshError + currentError * currentError)
 
                                 if fresh > current + max 1e-9 noise then
-                                    finish false
+                                    finish false false
                                 else
                                     loop (iter + 1) newOps optimised (fresh :: history) (fresh, freshError)
 
-        energy [] [||]
-        |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
+        // Refuse up front, before any job, when the reference energy and the first operator
+        // cannot fit under the cap: such a run could only return the reference state.
+        let firstPlan = groups + (if config.MaxIterations >= 1 then perIteration 1 else 0)
+
+        match config.MaxCloudJobs with
+        | Some cap when firstPlan > cap ->
+            Error(
+                QuantumError.ValidationError(
+                    "MaxCloudJobs",
+                    $"ADAPT-VQE on shot-sampling backend '{backend.Name}' needs {firstPlan} cloud jobs for the reference energy and its first operator "
+                    + $"({groups} per energy: 2·{pool.Length} gradient-screen energies, 2·{SampledOptimizerSteps} Adam-step energies per angle, 1 fresh energy), "
+                    + $"over MaxCloudJobs = {cap}; {config.MaxIterations} iterations could need up to {estimateCloudJobs hamiltonian pool.Length config.MaxIterations}. "
+                    + "Raise MaxCloudJobs (None = no cap), shrink the pool, or measure the Hamiltonian in fewer bases."
+                )
+            )
+        | _ ->
+            energy [] [||]
+            |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
 
     // ========================================================================
     // RUN
@@ -367,6 +454,9 @@ module AdaptVqe =
                                     Iterations = iter
                                     Converged = converged
                                     EnergyHistory = List.rev history
+                                    EnergyStandardError = None
+                                    CloudJobs = 0
+                                    JobCapReached = false
                                 }
 
                         if iter >= config.MaxIterations then

@@ -95,7 +95,7 @@ flowchart TD
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** 1.4.14 (core) / 0.4.14 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
+**Current Version:** 1.4.15 (core) / 0.4.15 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), NoisyLocalBackend (density-matrix noise), Azure Quantum (IonQ, Rigetti, Quantinuum, Atom Computing, IQM), D-Wave quantum annealers (1200-5640 qubits), AWS Braket (separate plugin)
@@ -2618,17 +2618,21 @@ match AdaptVqe.run backend h pool 2 AdaptVqe.defaultConfig with
 On a state-vector simulator `AdaptVqe.run` is exact (`Primitives.expectation` for ⟨H⟩,
 central-difference gradients, Nelder-Mead). On a cloud backend every energy is measured
 (`Primitives.sampledExpectation`, one job per commuting group of terms), gradients use the
-parameter-shift rule and the angles are re-optimised by Adam steps; a round of screening and
-re-optimisation submits many jobs, so give the backend a `JobBudget`. `AdaptResult` reports the final `Energy`, the
-`SelectedOperators`/`Parameters`, and the `EnergyHistory` (monotonically non-increasing on a
-simulator; measured energies carry shot noise).
+parameter-shift rule and the angles are re-optimised by Adam steps. A round of screening and
+re-optimisation submits many jobs (growing with the square of the iterations), so a run is capped
+by `AdaptConfig.MaxCloudJobs` (default 2,000; `None` = no cap): it is refused before any job when
+the first operator cannot fit (`AdaptVqe.estimateCloudJobs` gives the plan), and otherwise stops
+with the best ansatz so far and `JobCapReached = true` before an iteration that could cross the
+cap. `AdaptResult` reports the final `Energy` and, on a cloud backend, its shot-noise
+`EnergyStandardError` and the `CloudJobs` submitted, the `SelectedOperators`/`Parameters`, and
+the `EnergyHistory` (monotonically non-increasing on a simulator; measured energies carry shot noise).
 
 **ADAPT-QAOA** (`AdaptQaoa.run`) applies the same idea to QAOA: instead of a fixed mixer it
 selects, at each layer, the mixer from a pool with the largest gradient — each layer being a
 cost evolution `e^(-iγH)` followed by the chosen mixer `e^(-iβA)`, starting from `|+…+⟩`. It
 solves MaxCut on a frustrated triangle to the optimal `min ⟨H⟩ = -1` in a single adaptive layer.
 On a cloud backend it takes the same measured route as ADAPT-VQE (sampled energies,
-parameter-shift gradients).
+parameter-shift gradients), with the same `MaxCloudJobs` cap (`AdaptQaoaConfig`) and result fields.
 
 It's wired into the business layer too: `AdaptQaoa.solveQubo backend numQubits quboMap config`
 solves any QUBO end-to-end (Ising mapping → adaptive ansatz → best sampled assignment), and
@@ -2827,7 +2831,7 @@ match Oracle.forValue 5 3 with              // mark the basis state |101⟩ (val
 - Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases); `UnifiedBackend.measureState` on it draws new samples from those counts, while `Primitives.sample` returns the job's own counts
+- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases) that carries the job's recorded counts; `UnifiedBackend.measureState` on it returns the job's own shots, never more than it measured (so the array can be shorter than requested), and `Primitives.sample` returns the job's counts
 - Suitable for algorithms that measure amplification results
 - For amplitude/phase analysis, use local simulation
 
@@ -2892,7 +2896,7 @@ match QFT.execute 5 backend QFT.defaultConfig with
 - Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases); `UnifiedBackend.measureState` on it draws new samples from those counts, while `Primitives.sample` returns the job's own counts
+- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases) that carries the job's recorded counts; `UnifiedBackend.measureState` on it returns the job's own shots, never more than it measured (so the array can be shorter than requested), and `Primitives.sample` returns the job's counts
 - Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
 - For amplitude/phase analysis, use local simulation
 

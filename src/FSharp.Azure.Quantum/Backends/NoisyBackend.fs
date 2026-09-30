@@ -249,3 +249,9 @@ module DensityMatrixSimulator =
                 | QuantumOperation.Gate _
                 | QuantumOperation.Sequence _ -> true
                 | _ -> false
+
+        /// A 2^n × 2^n density matrix: declared so that algorithms size their circuits to it
+        /// (whole-circuit protocols pack trials into at most this many qubits) instead of
+        /// discovering the limit as a failed job.
+        interface IQubitLimitedBackend with
+            member _.MaxQubits = Some maxQubits

@@ -138,10 +138,17 @@ module HHLTypes =
 
         /// |x_i| from the measured outcome frequencies of one whole-circuit run, post-selected on
         /// ancilla = |1⟩ with the eigenvalue register |0⟩. Computational-basis counts carry no sign
-        /// or phase; recovering them needs further interference circuits (a Hadamard test per
-        /// component, say), which are not run, so Solution holds non-negative magnitudes. This is
-        /// the readout on every backend that runs complete circuits only (cloud hardware).
+        /// or phase, so Solution holds non-negative magnitudes. This is what HHL.execute returns
+        /// on every backend that runs complete circuits only (cloud hardware);
+        /// HHL.executeWithRelativePhases also recovers the signs and phases.
         | MeasuredMagnitudes
+
+        /// Measured on a backend that runs complete circuits only, with the relative signs and
+        /// phases recovered by interference circuits (HHL.executeWithRelativePhases): the
+        /// magnitude circuit plus one circuit per solution qubit with a Hadamard (and, for a
+        /// complex system, one with RX(π/2)) on that qubit. Solution then matches the Amplitudes
+        /// readout up to one global phase and shot noise.
+        | MeasuredRelativePhases
 
     /// Result of HHL algorithm execution
     type HHLResult =

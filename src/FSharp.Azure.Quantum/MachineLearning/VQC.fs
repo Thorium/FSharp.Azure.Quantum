@@ -109,7 +109,8 @@ module VQC =
             let onesCount =
                 measurements |> Array.filter (fun shot -> shot.[0] = 1) |> Array.length |> float
 
-            let totalShots = float shots
+            // A cloud result yields its recorded shots, which may be fewer than requested.
+            let totalShots = float (max 1 measurements.Length)
             let probability = onesCount / totalShots
 
             return probability
@@ -136,7 +137,7 @@ module VQC =
                     let onesCount =
                         measurements |> Array.filter (fun shot -> shot.[0] = 1) |> Array.length |> float
 
-                    let totalShots = float shots
+                    let totalShots = float (max 1 measurements.Length)
                     Ok(onesCount / totalShots)
         }
 

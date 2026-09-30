@@ -603,7 +603,7 @@ module OptionPricingTests =
     let private gridCallPrice () =
         let logMean = log 100.0 + (0.05 - 0.5 * 0.2 * 0.2) * 1.0
 
-        FSharp.Azure.Quantum.Algorithms.StatisticalDistributions.discretizeLogNormal logMean 0.2 16
+        FSharp.Azure.Quantum.Algorithms.StatisticalDistributions.discretizeLogNormalBinMeans logMean 0.2 16
         |> Array.sumBy (fun (s, p) -> p * max (s - 105.0) 0.0)
         |> (*) (exp -0.05)
 
@@ -614,7 +614,7 @@ module OptionPricingTests =
 
             match!
                 OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Ok price ->
                 let expected = gridCallPrice ()
@@ -622,7 +622,8 @@ module OptionPricingTests =
                 Assert.Contains("amplitude estimation", price.Method)
                 Assert.DoesNotContain("whole circuits", price.Method)
             | Error err -> failwith $"Should succeed, got error: {err}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``European call on a whole-circuit sampling backend is priced from the sampled amplitude estimate`` () =
@@ -631,7 +632,7 @@ module OptionPricingTests =
 
             match!
                 OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Ok price ->
                 let expected = gridCallPrice ()
@@ -644,4 +645,87 @@ module OptionPricingTests =
                 Assert.Contains("whole circuits sampled at 4000 shots", price.Method)
                 Assert.True(backend.Executed >= 3, $"expected one job per Grover power, got {backend.Executed}")
             | Error err -> failwith $"Should succeed, got error: {err}"
-        } :> Task
+        }
+        :> Task
+
+    // ========================================================================
+    // GREEKS AGAINST BLACK–SCHOLES (exact simulator)
+    // ========================================================================
+
+    /// Black–Scholes (price, Delta, Vega, Rho) of a European option.
+    let private blackScholes (isCall: bool) spot strike rate vol expiry =
+        let cdf x =
+            MathNet.Numerics.Distributions.Normal.CDF(0.0, 1.0, x)
+
+        let d1 =
+            (log (spot / strike) + (rate + 0.5 * vol * vol) * expiry) / (vol * sqrt expiry)
+
+        let d2 = d1 - vol * sqrt expiry
+        let discount = exp (-rate * expiry)
+
+        let vega =
+            spot * MathNet.Numerics.Distributions.Normal.PDF(0.0, 1.0, d1) * sqrt expiry
+
+        if isCall then
+            spot * cdf d1 - strike * discount * cdf d2, cdf d1, vega, strike * expiry * discount * cdf d2
+        else
+            strike * discount * cdf -d2 - spot * cdf -d1, cdf d1 - 1.0, vega, -strike * expiry * discount * cdf -d2
+
+    [<Theory>]
+    [<InlineData(true, 100.0, 100.0)>]
+    [<InlineData(true, 90.0, 100.0)>]
+    [<InlineData(false, 110.0, 100.0)>]
+    [<InlineData(false, 100.0, 120.0)>]
+    let ``Greeks on the exact simulator match Black-Scholes`` (isCall: bool, spot: float, strike: float) =
+        task {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let market = createMarketParams spot strike 0.05 0.2 1.0
+
+            let optionType =
+                if isCall then
+                    OptionPricing.EuropeanCall
+                else
+                    OptionPricing.EuropeanPut
+
+            let price, delta, vega, rho = blackScholes isCall spot strike 0.05 0.2 1.0
+
+            match!
+                OptionPricing.calculateGreeks optionType market OptionPricing.defaultGreeksConfig 6 5 backend
+                |> Async.StartImmediateAsTask
+            with
+            | Ok greeks ->
+                // 6 qubits = 64 price levels. Previously Delta was only checked to lie in
+                // [-0.5, 1.5]; the fit's grid step (≈1e-3 of the price) cost Rho and Theta
+                // several percent and the mid-quantile levels cost the price and Vega 1-2%.
+                Assert.True(abs (greeks.Delta - delta) < 0.002, $"Delta {greeks.Delta} vs Black–Scholes {delta}")
+                Assert.True(abs (greeks.Price - price) < 0.002 * price, $"price {greeks.Price} vs {price}")
+                Assert.True(abs (greeks.Vega - vega) < 0.01 * vega, $"Vega {greeks.Vega} vs {vega}")
+                Assert.True(abs (greeks.Rho - rho) < 0.03 * abs rho, $"Rho {greeks.Rho} vs {rho}")
+            | Error err -> failwith $"Should succeed, got error: {err}"
+        }
+        :> Task
+
+    [<Fact>]
+    let ``Gamma on the exact simulator converges to Black-Scholes with the price grid`` () =
+        task {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let market = createMarketParams 100.0 100.0 0.05 0.2 1.0
+            let d1 = (0.05 + 0.5 * 0.2 * 0.2) / 0.2
+            let gamma = MathNet.Numerics.Distributions.Normal.PDF(0.0, 1.0, d1) / (100.0 * 0.2)
+
+            match!
+                OptionPricing.calculateGreeks
+                    OptionPricing.EuropeanCall
+                    market
+                    OptionPricing.defaultGreeksConfig
+                    8
+                    5
+                    backend
+                |> Async.StartImmediateAsTask
+            with
+            | Ok greeks ->
+                // 256 levels; the second difference of the payoff kinks limits Gamma (was -4.6%).
+                Assert.True(abs (greeks.Gamma - gamma) < 0.02 * gamma, $"Gamma {greeks.Gamma} vs {gamma}")
+            | Error err -> failwith $"Should succeed, got error: {err}"
+        }
+        :> Task

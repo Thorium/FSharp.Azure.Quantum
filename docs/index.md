@@ -337,7 +337,7 @@ For problems of this size a classical solver is usually faster and cheaper. The 
 - [FAQ](faq)
 
 **Execution**
-- [Local Simulation](local-simulation), [Backend Switching](backend-switching), [Hardware Selection](Hardware-Selection-Guide)
+- [Local Simulation](local-simulation), [Local Azure Quantum Service](local-quantum-service), [Backend Switching](backend-switching), [Hardware Selection](Hardware-Selection-Guide)
 - [Error Mitigation](error-mitigation)
 
 **In depth**

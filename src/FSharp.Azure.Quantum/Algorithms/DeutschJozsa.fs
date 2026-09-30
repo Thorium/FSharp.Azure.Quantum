@@ -95,13 +95,14 @@ module DeutschJozsa =
     /// Create constant-zero oracle: f(x) = 0 for all x.
     ///
     /// In phase-oracle form this is the identity: |x⟩ → |x⟩.
-    let constantZeroOracle (state: QuantumState) : Result<QuantumState, QuantumError> = Ok state
+    /// It is `WholeCircuit.identityOracle`, so a whole-circuit backend submits it as no gates.
+    let constantZeroOracle: Oracle = WholeCircuit.identityOracle
 
     /// Create constant-one oracle: f(x) = 1 for all x.
     ///
     /// In phase-oracle form this is a global phase flip: |x⟩ → -|x⟩.
     /// Global phase is not observable, so we model it as identity.
-    let constantOneOracle: Oracle = fun state -> Ok state
+    let constantOneOracle: Oracle = WholeCircuit.identityOracle
 
     /// Create balanced oracle that flips phase for states where first qubit is |1⟩.
     /// Implements f(x) = x₀.
@@ -221,7 +222,8 @@ module DeutschJozsa =
 
                 let zeroCount = measurements |> Array.filter isAllZero |> Array.length
 
-                let zeroProbability = float zeroCount / float shots
+                // A cloud result yields its recorded shots, which may be fewer than requested.
+                let zeroProbability = float zeroCount / float (max 1 measurements.Length)
 
                 // Ideal DJ: constant → always zero, balanced → never zero.
                 // Use threshold to handle noise from real backends.
@@ -232,7 +234,7 @@ module DeutschJozsa =
                         OracleType = oracleType
                         ZeroProbability = zeroProbability
                         NumQubits = numQubits
-                        Shots = shots
+                        Shots = measurements.Length
                         BackendName = backend.Name
                     }
             }

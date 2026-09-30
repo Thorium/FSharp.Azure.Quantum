@@ -156,6 +156,25 @@ module OptionPricing =
             let logVar = sigma2 * T * (n + 1.0) * (2.0 * n + 1.0) / (6.0 * n * n)
             (logMean, sqrt logVar)
 
+    /// The 2^numQubits price levels (price, probability) of the priced variable: equal-
+    /// probability bins of its log-normal law, each represented by its conditional mean
+    /// (StatisticalDistributions.discretizeLogNormalBinMeans).
+    ///
+    /// Why the conditional mean rather than the mid-bin quantile (discretizeLogNormal): the
+    /// quantile rule drops the spread inside each bin (worst in the unbounded top bin), so
+    /// E[S] and the call prices came out 0.4-1.7% low and Vega 1-2% low at 6 qubits; the
+    /// conditional mean keeps E[S] exact and leaves only the convexity of the one bin that
+    /// holds the strike. The same z-grid serves every bumped market in calculateGreeks (a spot
+    /// bump rescales every level), so the finite differences compare like with like. The
+    /// state preparation and the payoff both read this one grid.
+    let private priceGrid
+        (optionType: OptionType)
+        (marketParams: MarketParameters)
+        (numQubits: int)
+        : (float * float)[] =
+        let logMean, logStd = logPriceParameters optionType marketParams
+        StatisticalDistributions.discretizeLogNormalBinMeans logMean logStd (1 <<< numQubits)
+
     /// Encode Geometric Brownian Motion distribution as quantum state
     ///
     /// Creates circuit that prepares |ψ⟩ = ∑ᵢ √p(Sᵢ) |i⟩
@@ -169,13 +188,7 @@ module OptionPricing =
         (numQubits: int)
         : CircuitBuilder.Circuit =
 
-        let numLevels = 1 <<< numQubits
-
-        // Discretize log-normal distribution of the priced variable
-        let logMean, logStd = logPriceParameters optionType marketParams
-
-        let priceLevels =
-            StatisticalDistributions.discretizeLogNormal logMean logStd numLevels
+        let priceLevels = priceGrid optionType marketParams numQubits
 
         // Convert probabilities to amplitudes: α_i = √p_i
         let amplitudes =
@@ -281,13 +294,9 @@ module OptionPricing =
                 // Build quantum state preparation (encode GBM using Möttönen)
                 let statePrep = encodeGBMDistribution optionType marketParams numQubits
 
-                // Reconstruct the same discretized price grid used for state preparation
+                // The same discretized price grid used for state preparation
                 // (terminal price for European, geometric-average price for Asian).
-                let numLevels = 1 <<< numQubits
-                let logMean, logStd = logPriceParameters optionType marketParams
-
-                let priceLevels =
-                    StatisticalDistributions.discretizeLogNormal logMean logStd numLevels
+                let priceLevels = priceGrid optionType marketParams numQubits
                 // For Asian options the grid variable is the (geometric) average price,
                 // so the same strike comparison prices the average-price payoff.
                 let payoffAt (price: float) =

@@ -335,45 +335,50 @@ module RigettiBackend =
 
     /// Parse Rigetti results from JSON response
     ///
-    /// Rigetti returns results in a histogram format:
+    /// Azure's Rigetti targets (`rigetti.quil-results.v1`) return every shot of each
+    /// declared register, one array per shot, element i being `ro[i]`:
     /// ```json
-    /// {
-    ///   "histogram": {
-    ///     "00": 480,
-    ///     "01": 12,
-    ///     "10": 8,
-    ///     "11": 500
-    ///   }
-    /// }
+    /// { "ro": [ [0, 0], [1, 1], [1, 1], [0, 0] ] }
     /// ```
+    /// The shots are counted into a histogram keyed by bitstring with the RIGHTMOST
+    /// character = `ro[0]` (= qubit 0, which the program MEASUREs into `ro[0]`), the
+    /// convention `CloudBackendHelpers.histogramToQuantumState` reads. A pre-aggregated
+    /// `"histogram": {"<bitstring>": count}` object is accepted too.
     ///
     /// Returns: Map<string, int> of measurement outcomes to counts
     let parseRigettiResults (json: string) : Result<Map<string, int>, QuantumError> =
+        let failure message =
+            Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, message)))
+
         try
             // Parse JSON response
             use doc = JsonDocument.Parse(json)
             let root = doc.RootElement
 
-            // Extract histogram
-            match tryGetJsonProperty "histogram" root with
-            | Some histogramElement ->
-                // Convert to F# Map
-                let histogram =
-                    histogramElement.EnumerateObject()
-                    |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
-                    |> Map.ofSeq
+            match tryGetJsonProperty "ro" root, tryGetJsonProperty "histogram" root with
+            | Some ro, _ when ro.ValueKind = JsonValueKind.Array ->
+                ro.EnumerateArray()
+                |> Seq.map (fun shot ->
+                    if shot.ValueKind <> JsonValueKind.Array then
+                        failwith $"each 'ro' shot must be an array of bits, got {shot.ValueKind}"
 
-                Ok histogram
-            | None ->
-                Error(
-                    QuantumError.AzureError(
-                        AzureQuantumError.UnknownError(0, "Missing 'histogram' field in Rigetti response")
-                    )
-                )
+                    shot.EnumerateArray()
+                    |> Seq.map (fun bit -> if bit.GetInt32() <> 0 then '1' else '0')
+                    |> Seq.rev // rightmost character = ro[0]
+                    |> Array.ofSeq
+                    |> String)
+                |> Seq.countBy id
+                |> Map.ofSeq
+                |> Ok
+            | _, Some histogramElement ->
+                histogramElement.EnumerateObject()
+                |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
+                |> Map.ofSeq
+                |> Ok
+            | _ -> failure "Missing 'ro' readout register (or 'histogram') in Rigetti response"
         with
-        | :? JsonException as ex ->
-            Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, $"JSON parsing error: %s{ex.Message}")))
-        | ex -> Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, $"Unexpected error: %s{ex.Message}")))
+        | :? JsonException as ex -> failure $"JSON parsing error: %s{ex.Message}"
+        | ex -> failure $"Unexpected error: %s{ex.Message}"
 
     /// Map Rigetti-specific error codes to QuantumError
     ///

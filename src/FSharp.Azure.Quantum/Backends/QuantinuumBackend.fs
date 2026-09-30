@@ -69,32 +69,47 @@ module QuantinuumBackend =
 
     /// Parse Quantinuum result JSON into measurement counts histogram
     ///
-    /// Quantinuum returns results as:
+    /// Azure's Quantinuum targets (`honeywell.quantum-results.v1`) return every shot of each
+    /// classical register, one bitstring per shot, written as OpenQASM prints a register
+    /// (rightmost character = c[0], which the program measures qubit 0 into):
     /// {
-    ///   "results": {
-    ///     "00": 48,
-    ///     "11": 52
-    ///   }
+    ///   "c": [ "00", "11", "11", "00" ]
     /// }
+    /// The shots are counted into a histogram keyed by that bitstring. A pre-aggregated
+    /// "results": {"<bitstring>": count} object is accepted too.
     ///
     /// Returns: Map<bitstring, count>, or an error describing how the
     /// payload deviated from the expected shape
     let parseQuantinuumResult (jsonResult: string) : Result<Map<string, int>, string> =
         try
             use jsonDoc = JsonDocument.Parse(jsonResult)
+            let root = jsonDoc.RootElement
 
-            match jsonDoc.RootElement.TryGetProperty "results" with
-            | false, _ -> Error "Quantinuum result JSON is missing the 'results' property"
-            | true, results when results.ValueKind <> JsonValueKind.Object ->
-                Error $"Expected 'results' to be a JSON object, got {results.ValueKind}"
-            | true, results ->
-                (Ok Map.empty, results.EnumerateObject())
-                ||> Seq.fold (fun acc prop ->
+            match root.TryGetProperty "c" with
+            | true, shots when shots.ValueKind = JsonValueKind.Array ->
+                (Ok Map.empty, shots.EnumerateArray())
+                ||> Seq.fold (fun acc shot ->
                     acc
                     |> Result.bind (fun histogram ->
-                        match prop.Value.TryGetInt32() with
-                        | true, count -> Ok(histogram |> Map.add prop.Name count)
-                        | false, _ -> Error $"Count for outcome '{prop.Name}' is not an integer"))
+                        match shot.ValueKind with
+                        | JsonValueKind.String ->
+                            let key = shot.GetString()
+                            let count = histogram |> Map.tryFind key |> Option.defaultValue 0
+                            Ok(histogram |> Map.add key (count + 1))
+                        | kind -> Error $"Each shot in 'c' must be a bitstring, got {kind}"))
+            | _ ->
+                match root.TryGetProperty "results" with
+                | false, _ -> Error "Quantinuum result JSON is missing the 'c' register (or 'results')"
+                | true, results when results.ValueKind <> JsonValueKind.Object ->
+                    Error $"Expected 'results' to be a JSON object, got {results.ValueKind}"
+                | true, results ->
+                    (Ok Map.empty, results.EnumerateObject())
+                    ||> Seq.fold (fun acc prop ->
+                        acc
+                        |> Result.bind (fun histogram ->
+                            match prop.Value.TryGetInt32() with
+                            | true, count -> Ok(histogram |> Map.add prop.Name count)
+                            | false, _ -> Error $"Count for outcome '{prop.Name}' is not an integer"))
         with :? JsonException as ex ->
             Error $"Invalid JSON in Quantinuum result: {ex.Message}"
 

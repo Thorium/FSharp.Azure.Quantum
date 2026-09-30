@@ -121,6 +121,7 @@ module MarketData =
 
     let defaultWindowFrom = DateTime(2019, 1, 1)
     let defaultWindowTo = DateTime(2023, 12, 31)
+
     [<Literal>]
     let defaultRegimeProxy = "SPY"
 
@@ -181,7 +182,10 @@ module MarketData =
         JsonSerializer.Deserialize<MarketStats>(File.ReadAllText bundledPath, jsonOptions)
 
     let private toJsonRegex2 = Regex @",\s*"
-    let private toJsonRegex = Regex @"\[\s*(-?[0-9][0-9.eE+-]*(?:,\s*-?[0-9][0-9.eE+-]*)*)\s*\]"
+
+    let private toJsonRegex =
+        Regex @"\[\s*(-?[0-9][0-9.eE+-]*(?:,\s*-?[0-9][0-9.eE+-]*)*)\s*\]"
+
     /// JSON with numeric arrays kept on one line.
     let toJson (stats: MarketStats) : string =
         let json = JsonSerializer.Serialize(stats, jsonOptions).Replace("\r\n", "\n")

@@ -686,12 +686,16 @@ module Grover =
 
             result {
                 let! finalState = plan backend intent |> Result.bind (executePlan backend oracle)
+                // On a cloud backend these are the job's recorded shots, never more: a 500-shot
+                // job yields 500 outcomes whatever config.Shots says, so frequencies below are
+                // taken over the outcomes measured rather than the outcomes requested.
                 let measurements = UnifiedBackend.measureState finalState config.Shots
+                let measured = max 1 measurements.Length
                 let distribution = extractDistribution measurements
 
                 // Grover measurements are probabilistic: keep only candidates the oracle accepts.
                 let solutions =
-                    extractSolutions distribution config.Shots threshold
+                    extractSolutions distribution measured threshold
                     |> List.filter (Oracle.isSolution oracle.Spec)
 
                 let successProb =
@@ -699,7 +703,7 @@ module Grover =
                     |> List.choose (fun s -> distribution |> Map.tryFind s)
                     |> function
                         | [] -> 0.0
-                        | counts -> float (List.max counts) / float config.Shots
+                        | counts -> float (List.max counts) / float measured
 
                 return
                     {

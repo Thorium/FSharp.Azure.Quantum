@@ -149,7 +149,19 @@ module BraketExecution =
     /// - SparseState up to 31 qubits (only observed outcomes carry amplitude)
     /// - MeasurementHistogram beyond that — the honest sampled-data representation
     ///   with NO width limit (≤ shots entries regardless of qubit count)
-    let private histogramToState (histogram: Map<string, int>) (numQubits: int) : Result<QuantumState, QuantumError> =
+    ///
+    /// Every tier carries the recorded counts (QuantumState.withRecordedCounts), so measuring
+    /// the state yields Braket's own shots rather than outcomes resampled from its amplitudes.
+    let rec private histogramToState
+        (histogram: Map<string, int>)
+        (numQubits: int)
+        : Result<QuantumState, QuantumError> =
+        // Braket's bitstring order (leftmost char = qubit 0) is already the recorded-counts
+        // key convention.
+        buildState histogram numQubits
+        |> Result.map (QuantumState.withRecordedCounts histogram)
+
+    and private buildState (histogram: Map<string, int>) (numQubits: int) : Result<QuantumState, QuantumError> =
         if numQubits > maxSparseStateQubits then
             // Braket's bitstring order (leftmost char = qubit 0) IS the
             // MeasurementHistogram key convention — pass through unchanged.

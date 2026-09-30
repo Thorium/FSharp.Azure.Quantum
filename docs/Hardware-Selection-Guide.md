@@ -199,13 +199,14 @@ The other algorithms take a cloud backend the same way, each as whole-circuit jo
 |---|---|
 | QAOA solvers, Grover and its builders, amplitude amplification, QFT, QPE, quantum arithmetic | One circuit per run (QAOA: one per optimizer step) |
 | Shor (`QuantumPeriodFinder`) | One circuit per base tried; `FactorSource` says whether the factors came from the measured period or from classical preprocessing |
-| HHL | One circuit; `Readout = MeasuredMagnitudes`: the solution holds \|xᵢ\| from post-selected counts, without signs or phases |
+| HHL | One circuit; `Readout = MeasuredMagnitudes`: the solution holds \|xᵢ\| from post-selected counts, without signs or phases. `HHL.executeWithRelativePhases` adds one interference circuit per solution qubit (two for a complex system) and returns the signed/phased solution (`Readout = MeasuredRelativePhases`) |
+| HHL regression (`QuantumRegressionHHL`) | 1 + log₂(padded dimension) circuits per fit (`RegressionResult.Circuits`): the magnitudes plus one Hadamard circuit per solution qubit for the signs |
 | `Primitives.observe`, ADAPT-VQE, ADAPT-QAOA | One circuit per commuting group of Pauli terms for every energy; parameter-shift gradients |
 | QML (VQC, quantum kernels) | One circuit per forward pass or kernel entry; kernels keep at most 8 in flight |
 | Quantum Monte Carlo, option pricing, risk engine | Maximum-likelihood amplitude estimation: one circuit per Grover power (0, 1, 2, 4, …), probabilities from the job's counts |
 | `QRNG.generateWithBackend` | One job of one shot: create the backend with `shots = 1` |
 
-A cloud backend returns an `Error`, never a guess, for what a circuit job cannot do: start from a state other than \|0…0⟩, read the gates of an opaque custom oracle function, `HamiltonianSimulation.simulate` of a given state (use `simulateFromPreparation`), the Shor 9-qubit and Steane code round trips, and HHL regression (`QuantumRegressionHHL`), which needs signed amplitudes.
+A cloud backend returns an `Error`, never a guess, for what a circuit job cannot do: start from a state other than \|0…0⟩, read the gates of an opaque custom oracle function, `HamiltonianSimulation.simulate` of a given state (use `simulateFromPreparation`), and the Shor 9-qubit and Steane code round trips.
 
 > **Async alternative:** Cloud backends support `task { }` with `CancellationToken`. Use `backend.ExecuteToStateAsync circuit ct` or `Primitives.sampleAsync` for non-blocking execution. See [Backend Switching](backend-switching.md).
 
@@ -377,7 +378,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 | **Binary Classification (VQC)** | Small (<100 samples) | IonQ | High precision |
 | | Medium (100-1000) | Rigetti | Acceptable noise |
 | **Quantum Kernel SVM** | Any | IonQ or Rigetti | Depends on feature dimension |
-| **Quantum Regression (HHL)** | Small systems | LocalBackend | `QuantumRegressionHHL` needs signed amplitudes and refuses cloud backends; the HHL solver itself runs on IonQ or Rigetti with magnitude-only readout (`Readout = MeasuredMagnitudes`) |
+| **Quantum Regression (HHL)** | Small systems | LocalBackend | On IonQ or Rigetti `QuantumRegressionHHL` measures the weights' signs with one extra Hadamard circuit per solution qubit (1 + log₂N jobs per fit); the HHL solver alone returns magnitudes (`Readout = MeasuredMagnitudes`) unless run with `HHL.executeWithRelativePhases` |
 
 ---
 

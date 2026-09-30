@@ -271,6 +271,81 @@ module QuantumState =
         |> Option.map fst
         |> Option.defaultWith (fun () -> fst probabilities.[probabilities.Length - 1])
 
+    // ------------------------------------------------------------------------
+    // Recorded counts (results of whole-circuit jobs)
+    // ------------------------------------------------------------------------
+
+    /// Counts recorded by the job a state was built from, keyed by the state object itself.
+    ///
+    /// A cloud backend returns its histogram as a phase-less state (amplitudes √(count/shots)),
+    /// which on its own looks exactly like a simulator's state. Sampling it again draws fresh
+    /// outcomes from a classical pseudo-random generator — outcomes the device never measured,
+    /// and as many of them as the caller asks for, whatever the job's shot count. Keeping the
+    /// recorded counts next to the state lets `measure` hand back the shots the device
+    /// actually took. Weak keys: the counts live exactly as long as the state does.
+    let private recordedCountsTable =
+        System.Runtime.CompilerServices.ConditionalWeakTable<QuantumState, Map<string, int>>()
+
+    /// Attach the counts a whole-circuit job measured to the state built from them, and return
+    /// that state. Keys use the QuantumState convention: character q = qubit q.
+    ///
+    /// Backends that return measured frequencies (cloud hardware and cloud simulators) call
+    /// this, so every consumer of the state measures the recorded shots rather than new ones.
+    let withRecordedCounts (counts: Map<string, int>) (state: QuantumState) : QuantumState =
+        recordedCountsTable.AddOrUpdate(state, counts)
+        state
+
+    /// The counts a job recorded for this state (character q = qubit q): those attached with
+    /// `withRecordedCounts`, or the histogram of a MeasurementHistogram. None for a state that
+    /// was computed rather than measured (simulator states), whose outcomes are sampled freshly.
+    let tryRecordedCounts (state: QuantumState) : Map<string, int> option =
+        match state with
+        | QuantumState.MeasurementHistogram(histogram, _) -> Some histogram
+        | _ ->
+            match recordedCountsTable.TryGetValue state with
+            | true, counts -> Some counts
+            | _ -> None
+
+    /// Number of shots a job recorded for this state; None for a computed state.
+    let recordedShotCount (state: QuantumState) : int option =
+        tryRecordedCounts state
+        |> Option.map (Map.fold (fun acc _ count -> acc + max 0 count) 0)
+
+    /// Every recorded shot exactly once, in random order (a device reports counts, not the
+    /// order it measured in); None for a computed state. Each element is one bit per qubit.
+    let recordedShots (state: QuantumState) : int[][] option =
+        tryRecordedCounts state
+        |> Option.map (fun counts ->
+            let n =
+                match state with
+                | QuantumState.StateVector sv -> StateVector.numQubits sv
+                | QuantumState.SparseState(_, n)
+                | QuantumState.DensityMatrix(_, n)
+                | QuantumState.MeasurementHistogram(_, n) -> n
+                | QuantumState.FusionSuperposition s -> s.LogicalQubits
+                | QuantumState.IsingSamples _ -> counts |> Map.fold (fun acc key _ -> max acc key.Length) 0
+
+            let shots =
+                counts
+                |> Map.toArray
+                |> Array.collect (fun (key, count) ->
+                    Array.init (max 0 count) (fun _ ->
+                        Array.init n (fun q -> if q < key.Length && key.[q] = '1' then 1 else 0)))
+
+            // Shuffled with a seed drawn from the counts themselves, so a given job result
+            // always yields its shots in the same order (reproducible runs against a seeded
+            // simulator) rather than an order taken from process-wide randomness.
+            let seed =
+                counts
+                |> Map.fold
+                    (fun acc (key: string) count ->
+                        let keyHash = key |> Seq.fold (fun h c -> h * 31 + int c) 17
+                        acc * 31 + keyHash * 7 + count)
+                    0
+
+            Random(seed).Shuffle shots
+            shots)
+
     /// Get number of qubits/variables in state
     ///
     /// Returns the number of logical qubits (gate-based) or variables (annealing) represented by this quantum state.
@@ -382,117 +457,109 @@ module QuantumState =
     /// Note: Measurement COLLAPSES the quantum state. For multiple measurements,
     /// this function samples from the probability distribution without collapsing
     /// (i.e., performs independent measurements on copies of the state).
+    ///
+    /// A state that carries recorded counts (a cloud job's result, or a MeasurementHistogram;
+    /// see `tryRecordedCounts`) is NOT sampled again: the result is `shots` of its recorded
+    /// shots, drawn without replacement, so every outcome returned is one the device measured.
+    /// When `shots` exceeds the recorded count, all recorded shots are returned — FEWER than
+    /// requested. Callers must size statistics by the returned length, not by `shots`.
     let measure (state: QuantumState) (shots: int) : int[][] =
-        match state with
-        | QuantumState.StateVector sv ->
-            // One pass over the 2^n distribution for the whole batch, not one per shot.
-            Measurement.sampleComputationalBasis (Random()) sv shots
+        let sampleFresh () =
+            match state with
+            | QuantumState.StateVector sv ->
+                // One pass over the 2^n distribution for the whole batch, not one per shot.
+                Measurement.sampleComputationalBasis (Random()) sv shots
 
-        | QuantumState.FusionSuperposition superposition ->
-            // Measure fusion outcomes and convert to computational basis
-            // Delegate to the superposition's MeasureAll method (interface call)
-            superposition.MeasureAll shots
+            | QuantumState.FusionSuperposition superposition ->
+                // Measure fusion outcomes and convert to computational basis
+                // Delegate to the superposition's MeasureAll method (interface call)
+                superposition.MeasureAll shots
 
-        | QuantumState.SparseState(amplitudes, n) ->
-            // Implement measurement for SparseState by sampling from probability distribution
-            let rng = Random()
+            | QuantumState.SparseState(amplitudes, n) ->
+                // Implement measurement for SparseState by sampling from probability distribution
+                let rng = Random()
 
-            let probabilities =
-                amplitudes
-                |> Map.toArray
-                |> Array.map (fun (idx, amp) ->
-                    let prob = amp.Magnitude
-                    idx, prob * prob)
-                |> Array.sortBy fst
+                let probabilities =
+                    amplitudes
+                    |> Map.toArray
+                    |> Array.map (fun (idx, amp) ->
+                        let prob = amp.Magnitude
+                        idx, prob * prob)
+                    |> Array.sortBy fst
 
-            let totalProb = Array.sumBy snd probabilities
+                let totalProb = Array.sumBy snd probabilities
 
-            let sampleOnce () =
-                let selectedIdx = sampleFromDistribution rng probabilities totalProb
-                // Sparse indices come straight from StateVector indices (QuantumStateConversion),
-                // i.e. qubit j = bit j, so decode LSB-first like the StateVector/DensityMatrix
-                // branches — an MSB-first decode would bit-reverse the results.
-                Array.init n (fun q -> (selectedIdx >>> q) &&& 1)
+                let sampleOnce () =
+                    let selectedIdx = sampleFromDistribution rng probabilities totalProb
+                    // Sparse indices come straight from StateVector indices (QuantumStateConversion),
+                    // i.e. qubit j = bit j, so decode LSB-first like the StateVector/DensityMatrix
+                    // branches — an MSB-first decode would bit-reverse the results.
+                    Array.init n (fun q -> (selectedIdx >>> q) &&& 1)
 
-            Array.init shots (fun _ -> sampleOnce ())
+                Array.init shots (fun _ -> sampleOnce ())
 
-        | QuantumState.DensityMatrix(rho, n) ->
-            // Implement measurement for DensityMatrix by sampling from diagonal
-            let rng = Random()
-            let dim = 1 <<< n
+            | QuantumState.DensityMatrix(rho, n) ->
+                // Implement measurement for DensityMatrix by sampling from diagonal
+                let rng = Random()
+                let dim = 1 <<< n
 
-            let probabilities = Array.init dim (fun i -> i, rho.[i, i].Real) // Diagonal elements are real and represent probabilities
+                let probabilities = Array.init dim (fun i -> i, rho.[i, i].Real) // Diagonal elements are real and represent probabilities
 
-            let totalProb = Array.sumBy snd probabilities
+                let totalProb = Array.sumBy snd probabilities
 
-            let sampleOnce () =
-                let selectedIdx = sampleFromDistribution rng probabilities totalProb
-                // The density matrix's basis index uses qubit j = bit j (it is built through the
-                // state-vector simulator), so decode LSB-first — array.[q] = bit q — to match the
-                // StateVector branch (Measurement.measureAll). An MSB-first decode here makes
-                // noisy histograms come out bit-reversed relative to noiseless runs.
-                Array.init n (fun q -> (selectedIdx >>> q) &&& 1)
+                let sampleOnce () =
+                    let selectedIdx = sampleFromDistribution rng probabilities totalProb
+                    // The density matrix's basis index uses qubit j = bit j (it is built through the
+                    // state-vector simulator), so decode LSB-first — array.[q] = bit q — to match the
+                    // StateVector branch (Measurement.measureAll). An MSB-first decode here makes
+                    // noisy histograms come out bit-reversed relative to noiseless runs.
+                    Array.init n (fun q -> (selectedIdx >>> q) &&& 1)
 
-            Array.init shots (fun _ -> sampleOnce ())
+                Array.init shots (fun _ -> sampleOnce ())
 
-        | QuantumState.IsingSamples(problem, solutions) ->
-            // Sample from D-Wave annealing solutions using reflection
-            let solutionsSeq = objToSeq solutions
-            let n = numQubits state
-            let rng = Random()
+            | QuantumState.IsingSamples(problem, solutions) ->
+                // Sample from D-Wave annealing solutions using reflection
+                let solutionsSeq = objToSeq solutions
+                let n = numQubits state
+                let rng = Random()
 
-            let spinToBit =
-                function
-                | -1 -> 0
-                | _ -> 1
+                let spinToBit =
+                    function
+                    | -1 -> 0
+                    | _ -> 1
 
-            let spinsToBitstring (spins: Map<int, int>) =
-                Array.init n (fun i -> spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0)
+                let spinsToBitstring (spins: Map<int, int>) =
+                    Array.init n (fun i -> spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0)
 
-            if Seq.isEmpty solutionsSeq then
-                // Array.init (not replicate): independent arrays per shot, safe to mutate
-                Array.init shots (fun _ -> Array.zeroCreate n)
-            else
-                // Build weighted sample pool based on NumOccurrences
-                let samplePool =
-                    solutionsSeq
-                    |> Seq.collect (fun sol ->
-                        let solType = sol.GetType()
-                        let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
-                        let occurrences = solType.GetProperty("NumOccurrences").GetValue sol :?> int
-                        Seq.replicate occurrences spins)
-                    |> Array.ofSeq
-
-                // Sample with replacement from solution pool
-                Array.init shots (fun _ -> samplePool.[rng.Next(samplePool.Length)] |> spinsToBitstring)
-
-        | QuantumState.MeasurementHistogram(histogram, n) ->
-            // Resample bitstrings proportional to their recorded counts.
-            // Key convention: key.[q] = qubit q ('0'/'1', leftmost char = qubit 0).
-            // Works at any width — no basis indices are ever materialised.
-            // Fallbacks use Array.init (NOT Array.replicate) so each shot gets an
-            // independent array — callers may mutate results in place.
-            let rng = Random()
-            let entries = histogram |> Map.toArray
-
-            if entries.Length = 0 then
-                Array.init shots (fun _ -> Array.zeroCreate n)
-            else
-                let toBits (key: string) =
-                    Array.init n (fun q -> if q < key.Length && key.[q] = '1' then 1 else 0)
-
-                let cumulative =
-                    entries |> Array.scan (fun acc (_, count) -> acc + max 0 count) 0 |> Array.tail
-
-                let total = cumulative.[cumulative.Length - 1]
-
-                if total <= 0 then
+                if Seq.isEmpty solutionsSeq then
+                    // Array.init (not replicate): independent arrays per shot, safe to mutate
                     Array.init shots (fun _ -> Array.zeroCreate n)
                 else
-                    Array.init shots (fun _ ->
-                        let r = rng.Next total
-                        let idx = cumulative |> Array.findIndex (fun c -> r < c)
-                        toBits (fst entries.[idx]))
+                    // Build weighted sample pool based on NumOccurrences
+                    let samplePool =
+                        solutionsSeq
+                        |> Seq.collect (fun sol ->
+                            let solType = sol.GetType()
+                            let spins = solType.GetProperty("Spins").GetValue sol :?> Map<int, int>
+                            let occurrences = solType.GetProperty("NumOccurrences").GetValue sol :?> int
+                            Seq.replicate occurrences spins)
+                        |> Array.ofSeq
+
+                    // Sample with replacement from solution pool
+                    Array.init shots (fun _ -> samplePool.[rng.Next(samplePool.Length)] |> spinsToBitstring)
+
+            | QuantumState.MeasurementHistogram(_, n) ->
+                // Recorded shots are returned above; only an empty histogram reaches here.
+                // Array.init (NOT Array.replicate): independent arrays, callers may mutate them.
+                Array.init shots (fun _ -> Array.zeroCreate n)
+
+        match recordedShots state with
+        | Some recorded when recorded.Length > 0 ->
+            if shots >= recorded.Length then
+                recorded
+            else
+                Array.sub recorded 0 (max 0 shots)
+        | _ -> sampleFresh ()
 
     /// Get probability of measuring specific bitstring
     ///

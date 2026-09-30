@@ -417,6 +417,9 @@ module CircuitAbstraction =
                 Some(RigettiBackend.TwoQubit("CNOT", c, t))
             | CircuitBuilder.SWAP(q1, q2) -> Some(RigettiBackend.TwoQubit("SWAP", q1, q2))
 
+            // Readout: qubit q into ro[q] (the program declares ro BIT[qubit count])
+            | CircuitBuilder.Measure q -> Some(RigettiBackend.Measure(q, $"ro[%d{q}]"))
+
             | _ -> None // Unsupported gate
 
         /// Quil instructions for one gate: its native form, U3 as RZ(λ)·RY(θ)·RZ(φ) (equal up to
