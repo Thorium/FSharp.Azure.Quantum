@@ -221,7 +221,9 @@ module QuantumKernels =
         | Ok() ->
             result {
                 let! circuit = buildKernelCircuit featureMap x y
-                return! measureKernelCircuit backend circuit shots
+
+                return!
+                    (measureKernelCircuitAsync backend circuit shots CancellationToken.None).GetAwaiter().GetResult()
             }
 
     /// Compute quantum kernel value K(x, y) = |⟨φ(x)|φ(y)⟩|² asynchronously.
@@ -291,7 +293,13 @@ module QuantumKernels =
             let computations =
                 uniquePairs
                 |> Array.map (fun (i, j) ->
-                    async { return (i, j, computeKernel backend featureMap data.[i] data.[j] shots) })
+                    async {
+                        let! result =
+                            computeKernelAsync backend featureMap data.[i] data.[j] shots CancellationToken.None
+                            |> Async.AwaitTask
+
+                        return (i, j, result)
+                    })
 
             // A sampling backend gets at most MaxConcurrentSampledJobs circuits at once.
             let kernelEntries =
@@ -423,7 +431,19 @@ module QuantumKernels =
             let computations =
                 allPairs
                 |> Array.map (fun (i, j) ->
-                    async { return (i, j, computeKernel backend featureMap testData.[i] trainData.[j] shots) })
+                    async {
+                        let! result =
+                            computeKernelAsync
+                                backend
+                                featureMap
+                                testData.[i]
+                                trainData.[j]
+                                shots
+                                CancellationToken.None
+                            |> Async.AwaitTask
+
+                        return (i, j, result)
+                    })
 
             // A sampling backend gets at most MaxConcurrentSampledJobs circuits at once.
             let kernelEntries =

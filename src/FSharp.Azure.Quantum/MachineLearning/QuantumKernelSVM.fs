@@ -377,7 +377,9 @@ module QuantumKernelSVM =
                     logInfo config.Logger "Computing quantum kernel matrix..."
 
                 // Compute kernel matrix and train SVM
-                QuantumKernels.computeKernelMatrix backend featureMap trainData shots
+                (QuantumKernels.computeKernelMatrixAsync backend featureMap trainData shots CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
                 |> Result.mapError (fun e ->
                     QuantumError.ValidationError("Input", $"Kernel matrix computation failed: {e}"))
                 |> Result.bind (fun kernelMatrix ->
@@ -446,7 +448,15 @@ module QuantumKernelSVM =
             let kernelResults =
                 model.SupportVectorIndices
                 |> Array.map (fun svIdx ->
-                    QuantumKernels.computeKernel backend model.FeatureMap sample model.TrainData.[svIdx] shots
+                    (QuantumKernels.computeKernelAsync
+                        backend
+                        model.FeatureMap
+                        sample
+                        model.TrainData.[svIdx]
+                        shots
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.mapError (fun e ->
                         QuantumError.OperationError("Kernel computation", $"Kernel computation failed: {e.Message}")))
 
@@ -551,7 +561,9 @@ module QuantumKernelSVM =
         else
             // Compute predictions for all test samples
             let predictionResults =
-                testData |> Array.map (fun sample -> predict backend model sample shots)
+                testData
+                |> Array.map (fun sample ->
+                    (predictAsync backend model sample shots CancellationToken.None).GetAwaiter().GetResult())
 
             // Traverse results and compute accuracy
             predictionResults

@@ -320,7 +320,7 @@ module BinaryClassifier =
                             Some(sprintf "Binary classifier trained %s" (startTime.ToString "yyyy-MM-dd HH:mm:ss"))
 
                     match
-                        ModelSerialization.saveVQCTrainingResult
+                        ModelSerialization.saveVQCTrainingResultAsync
                             path
                             result
                             numQubits
@@ -329,6 +329,9 @@ module BinaryClassifier =
                             "RealAmplitudes"
                             2
                             note
+                            System.Threading.CancellationToken.None
+                        |> Async.AwaitTask
+                        |> Async.RunSynchronously
                     with
                     | Error _e ->
                         // Model save failure is non-fatal: the trained classifier is still valid.
@@ -373,7 +376,14 @@ module BinaryClassifier =
             let predictionResults =
                 features
                 |> Array.map (fun x ->
-                    QuantumKernelSVM.predict backend model x config.Shots
+                    (QuantumKernelSVM.predictAsync
+                        backend
+                        model
+                        x
+                        config.Shots
+                        System.Threading.CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.map (fun pred -> pred.Label))
 
             let firstError =
@@ -461,7 +471,9 @@ module BinaryClassifier =
                 })
 
         | SVMModel(model, storedNumQubits) ->
-            QuantumKernelSVM.predict backend model sample 1000
+            (QuantumKernelSVM.predictAsync backend model sample 1000 System.Threading.CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
             |> Result.map (fun prediction ->
                 // Convert decision value to confidence (sigmoid-like transformation)
                 let confidence = 1.0 / (1.0 + exp (-abs prediction.DecisionValue))
@@ -585,7 +597,7 @@ module BinaryClassifier =
                 | TwoLocal _
                 | EfficientSU2 _ -> 0
 
-            ModelSerialization.saveVQCTrainingResult
+            ModelSerialization.saveVQCTrainingResultAsync
                 path
                 result
                 numQubits
@@ -594,6 +606,9 @@ module BinaryClassifier =
                 vfType
                 vfDepth
                 classifier.Metadata.Note
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         | SVMModel(svmModel, _numQubits) ->
             // numQubits is recoverable from the feature dimension on load, so it isn't

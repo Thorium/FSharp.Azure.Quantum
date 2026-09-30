@@ -1508,7 +1508,10 @@ module AutoML =
 
         member _.Run(f: unit -> AutoMLProblem) : QuantumResult<AutoMLResult> =
             let problem = f ()
-            search problem
+
+            searchAsync problem System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         member _.Combine(p1: AutoMLProblem, p2: AutoMLProblem) =
             { p2 with

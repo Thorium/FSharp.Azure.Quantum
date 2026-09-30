@@ -743,7 +743,17 @@ module ConstraintScheduler =
         : QuantumResult<Schedule option> =
         let satProblem = toQaoaSatProblem problem
 
-        match QuantumSatSolver.solve backend satProblem problem.Shots with
+        match
+            QuantumSatSolver.solveWithConfigAsync
+                backend
+                satProblem
+                { QuantumSatSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err -> Error err
         | Ok satSolution ->
             let schedule = decodeQaoaSatSolution problem satSolution
@@ -756,7 +766,17 @@ module ConstraintScheduler =
         : QuantumResult<Schedule option> =
         let binProblem = toQaoaBinPackingProblem problem
 
-        match QuantumBinPackingSolver.solve backend binProblem problem.Shots with
+        match
+            QuantumBinPackingSolver.solveWithConfigAsync
+                backend
+                binProblem
+                { QuantumBinPackingSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err -> Error err
         | Ok binSolution ->
             let schedule = decodeQaoaBinPackingSolution problem binSolution

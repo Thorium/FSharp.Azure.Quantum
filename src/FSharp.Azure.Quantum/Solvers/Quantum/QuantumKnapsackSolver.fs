@@ -707,7 +707,16 @@ module QuantumKnapsackSolver =
                         let (gamma, beta) = config.InitialParameters
                         let parameters = [| gamma, beta |]
 
-                        match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
+                        match
+                            (QaoaExecutionHelpers.executeFromQuboAsync
+                                backend
+                                quboArray
+                                parameters
+                                config.NumShots
+                                CancellationToken.None)
+                                .GetAwaiter()
+                                .GetResult()
+                        with
                         | Error err ->
                             lastError <- Some err
                             consecutiveFailures <- config.MaxConsecutiveFailures // Stop

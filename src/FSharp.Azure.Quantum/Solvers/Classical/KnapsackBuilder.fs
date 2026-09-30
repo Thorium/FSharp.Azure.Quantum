@@ -263,7 +263,13 @@ module Knapsack =
             // Call quantum Knapsack solver directly using computation expression
             quantumResult {
                 let! quantumResult =
-                    QuantumKnapsackSolver.solve actualBackend quantumProblem quantumConfig
+                    QuantumKnapsackSolver.solveAsync
+                        actualBackend
+                        quantumProblem
+                        quantumConfig
+                        System.Threading.CancellationToken.None
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
 
                 let efficiency =
                     if quantumResult.TotalWeight > 0.0 then

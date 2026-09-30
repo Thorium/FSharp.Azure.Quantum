@@ -206,15 +206,23 @@ module VQC =
         : QuantumResult<float> =
 
         let computeSampleLoss i =
-            buildVQCCircuit featureMap variationalForm features.[i] parameters
-            |> Result.bind (fun circuit -> forwardPass backend circuit shots)
-            |> Result.map (fun prediction -> binaryCrossEntropy prediction labels.[i])
+            async {
+                match buildVQCCircuit featureMap variationalForm features.[i] parameters with
+                | Error e -> return Error e
+                | Ok circuit ->
+                    let! forwardResult =
+                        forwardPassAsync backend circuit shots CancellationToken.None |> Async.AwaitTask
+
+                    return
+                        forwardResult
+                        |> Result.map (fun prediction -> binaryCrossEntropy prediction labels.[i])
+            }
 
         // 🚀 PARALLELIZED: Compute loss for all samples in parallel
         // This can provide N× speedup where N = number of samples
         let results =
             features
-            |> Array.mapi (fun i _ -> async { return computeSampleLoss i })
+            |> Array.mapi (fun i _ -> computeSampleLoss i)
             |> Async.Parallel
             |> Async.RunSynchronously
 
@@ -292,9 +300,10 @@ module VQC =
             features
             |> Array.map (fun sample ->
                 async {
-                    return
-                        buildVQCCircuit featureMap variationalForm sample parameters
-                        |> Result.bind (fun circuit -> forwardPass backend circuit shots)
+                    match buildVQCCircuit featureMap variationalForm sample parameters with
+                    | Error e -> return Error e
+                    | Ok circuit ->
+                        return! forwardPassAsync backend circuit shots CancellationToken.None |> Async.AwaitTask
                 })
             |> Async.Parallel
             |> Async.RunSynchronously
@@ -368,7 +377,11 @@ module VQC =
         let shift = Math.PI / 2.0
 
         // Unshifted per-sample predictions p_j(θ): loss-derivative factor of the chain rule
-        match computePredictions backend featureMap variationalForm parameters features shots with
+        match
+            (computePredictionsAsync backend featureMap variationalForm parameters features shots CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+        with
         | Error e -> Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
         | Ok basePredictions ->
             let lossDerivatives = Array.map2 binaryCrossEntropyDerivative basePredictions labels
@@ -387,14 +400,24 @@ module VQC =
                     let! results =
                         Async.Parallel
                             [|
-                                async {
-                                    return
-                                        computePredictions backend featureMap variationalForm paramsPlus features shots
-                                }
-                                async {
-                                    return
-                                        computePredictions backend featureMap variationalForm paramsMinus features shots
-                                }
+                                computePredictionsAsync
+                                    backend
+                                    featureMap
+                                    variationalForm
+                                    paramsPlus
+                                    features
+                                    shots
+                                    CancellationToken.None
+                                |> Async.AwaitTask
+                                computePredictionsAsync
+                                    backend
+                                    featureMap
+                                    variationalForm
+                                    paramsMinus
+                                    features
+                                    shots
+                                    CancellationToken.None
+                                |> Async.AwaitTask
                             |]
 
                     // Combine results via the chain rule, averaged over samples
@@ -545,7 +568,9 @@ module VQC =
 
         quantumResult {
             let! circuit = buildVQCCircuit featureMap variationalForm features parameters
-            let! probability = forwardPass backend circuit shots
+
+            let! probability =
+                (forwardPassAsync backend circuit shots CancellationToken.None).GetAwaiter().GetResult()
 
             let label = if probability >= 0.5 then 1 else 0
 
@@ -647,7 +672,7 @@ module VQC =
                     quantumResult {
                         // Compute current loss
                         let! loss =
-                            computeLoss
+                            (computeLossAsync
                                 backend
                                 featureMap
                                 variationalForm
@@ -655,6 +680,9 @@ module VQC =
                                 trainFeatures
                                 trainLabels
                                 config.Shots
+                                CancellationToken.None)
+                                .GetAwaiter()
+                                .GetResult()
                             |> Result.mapError (fun e ->
                                 QuantumError.ValidationError(
                                     "Input",
@@ -699,7 +727,7 @@ module VQC =
                         else
                             // Compute gradients
                             let! gradient =
-                                computeGradient
+                                (computeGradientAsync
                                     backend
                                     featureMap
                                     variationalForm
@@ -707,6 +735,9 @@ module VQC =
                                     trainFeatures
                                     trainLabels
                                     config.Shots
+                                    CancellationToken.None)
+                                    .GetAwaiter()
+                                    .GetResult()
                                 |> Result.mapError (fun e ->
                                     QuantumError.ValidationError(
                                         "Input",
@@ -979,7 +1010,7 @@ module VQC =
         match buildVQCCircuit featureMap variationalForm features parameters with
         | Error e -> Error e
         | Ok circuit ->
-            match forwardPass backend circuit shots with
+            match (forwardPassAsync backend circuit shots CancellationToken.None).GetAwaiter().GetResult() with
             | Error e -> Error e
             | Ok expectation ->
                 // Scale expectation [0, 1] to target range [min, max]
@@ -1031,7 +1062,19 @@ module VQC =
         let results =
             Array.zip trainFeatures trainTargets
             |> Array.map (fun (features, target) ->
-                match predictRegression backend featureMap variationalForm parameters features shots valueRange with
+                match
+                    (predictRegressionAsync
+                        backend
+                        featureMap
+                        variationalForm
+                        parameters
+                        features
+                        shots
+                        valueRange
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
+                with
                 | Error e -> Error e
                 | Ok prediction ->
                     let error = prediction.Value - target
@@ -1116,7 +1159,17 @@ module VQC =
         let results =
             trainFeatures
             |> Array.map (fun features ->
-                predictRegression backend featureMap variationalForm parameters features shots valueRange
+                (predictRegressionAsync
+                    backend
+                    featureMap
+                    variationalForm
+                    parameters
+                    features
+                    shots
+                    valueRange
+                    CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
                 |> Result.map (fun prediction -> prediction.Value))
 
         match results |> Array.tryFind Result.isError with
@@ -1198,7 +1251,17 @@ module VQC =
 
         // Unshifted per-sample predictions v_j(θ): loss-derivative factor of the chain rule
         match
-            computeRegressionPredictions backend featureMap variationalForm parameters trainFeatures shots valueRange
+            (computeRegressionPredictionsAsync
+                backend
+                featureMap
+                variationalForm
+                parameters
+                trainFeatures
+                shots
+                valueRange
+                CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
         with
         | Error e -> Error(QuantumError.ValidationError("Input", $"Gradient computation failed: {e}"))
         | Ok basePredictions ->
@@ -1217,15 +1280,18 @@ module VQC =
 
                 // Compute predictions with shifted parameters
                 match
-                    computeRegressionPredictions
+                    (computeRegressionPredictionsAsync
                         backend
                         featureMap
                         variationalForm
                         paramsPlus
                         trainFeatures
                         shots
-                        valueRange,
-                    computeRegressionPredictions
+                        valueRange
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult(),
+                    (computeRegressionPredictionsAsync
                         backend
                         featureMap
                         variationalForm
@@ -1233,6 +1299,9 @@ module VQC =
                         trainFeatures
                         shots
                         valueRange
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                 with
                 | Ok predsPlus, Ok predsMinus ->
                     // Chain rule, averaged over samples
@@ -1426,7 +1495,7 @@ module VQC =
                 else
                     // Compute current loss
                     match
-                        computeRegressionLoss
+                        (computeRegressionLossAsync
                             backend
                             featureMap
                             variationalForm
@@ -1435,6 +1504,9 @@ module VQC =
                             trainTargets
                             config.Shots
                             valueRange
+                            CancellationToken.None)
+                            .GetAwaiter()
+                            .GetResult()
                     with
                     | Error e ->
                         Error(
@@ -1476,7 +1548,7 @@ module VQC =
                         else
                             // Compute gradients
                             match
-                                computeRegressionGradient
+                                (computeRegressionGradientAsync
                                     backend
                                     featureMap
                                     variationalForm
@@ -1485,6 +1557,9 @@ module VQC =
                                     trainTargets
                                     config.Shots
                                     valueRange
+                                    CancellationToken.None)
+                                    .GetAwaiter()
+                                    .GetResult()
                             with
                             | Error e ->
                                 Error(
@@ -1547,14 +1622,17 @@ module VQC =
                 let predictions =
                     trainFeatures
                     |> Array.map (fun features ->
-                        (predictRegression
+                        (predictRegressionAsync
                             backend
                             featureMap
                             variationalForm
                             finalState.Parameters
                             features
                             config.Shots
-                            valueRange)
+                            valueRange
+                            CancellationToken.None)
+                            .GetAwaiter()
+                            .GetResult()
                         |> Result.map (fun pred -> pred.Value)
                         |> Result.defaultValue nan) // NaN signals prediction failure in metrics
 

@@ -181,7 +181,15 @@ module ResourcePairing =
 
             let matchingProblem = toMatchingProblem problem
 
-            (QuantumMatchingSolver.solve backend matchingProblem problem.Shots)
+            QuantumMatchingSolver.solveWithConfigAsync
+                backend
+                matchingProblem
+                { QuantumMatchingSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
             |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================

@@ -331,7 +331,17 @@ module SocialNetworkAnalyzer =
                 Edges = edges
             }
 
-        match QuantumCliqueSolver.solve backend cliqueProblem problem.Shots with
+        match
+            QuantumCliqueSolver.solveWithConfigAsync
+                backend
+                cliqueProblem
+                { QuantumCliqueSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err -> Error err
         | Ok solution ->
             let members = solution.CliqueVertices |> List.map (fun v -> v.Id)
@@ -385,7 +395,15 @@ module SocialNetworkAnalyzer =
                     Edges = edges
                 }
 
-            (QuantumVertexCoverSolver.solve backend vcProblem problem.Shots)
+            QuantumVertexCoverSolver.solveWithConfigAsync
+                backend
+                vcProblem
+                { QuantumVertexCoverSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
             |> Result.map (fun solution -> solution.CoverVertices |> List.map (fun v -> v.Id))
 
     /// Find optimal 1:1 pairings using QAOA max weight matching
@@ -419,7 +437,17 @@ module SocialNetworkAnalyzer =
                     Edges = edges
                 }
 
-            match QuantumMatchingSolver.solve backend matchingProblem problem.Shots with
+            match
+                QuantumMatchingSolver.solveWithConfigAsync
+                    backend
+                    matchingProblem
+                    { QuantumMatchingSolver.defaultConfig with
+                        FinalShots = problem.Shots
+                    }
+                    System.Threading.CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err -> Error err
             | Ok solution ->
                 let pairings =

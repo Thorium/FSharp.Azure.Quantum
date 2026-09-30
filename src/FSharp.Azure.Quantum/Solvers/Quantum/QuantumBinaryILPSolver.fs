@@ -464,13 +464,12 @@ module QuantumBinaryILPSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Solve Binary ILP using QAOA with full configuration control.
-    /// Supports automatic decomposition when problem exceeds backend capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
+    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
+        (cancellationToken: CancellationToken)
         : Result<Solution, QuantumError> =
 
         match validateProblem problem with
@@ -485,7 +484,10 @@ module QuantumBinaryILPSolver =
                             executeQaoaWithOptimization backend qubo config
                             |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
-                            executeQaoaWithGridSearch backend qubo config
+                            // Sequential (maxConcurrency = 1) grid search, as before
+                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
+                                .GetAwaiter()
+                                .GetResult()
                             |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
@@ -513,6 +515,16 @@ module QuantumBinaryILPSolver =
 
             ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
+    /// Solve Binary ILP using QAOA with full configuration control.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
+    let solveWithConfig
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: Problem)
+        (config: Config)
+        : Result<Solution, QuantumError> =
+        solveWithConfigCore backend problem config CancellationToken.None
+
     /// Solve Binary ILP using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
     /// once ProblemDecomposition supports async solve functions.
@@ -524,7 +536,7 @@ module QuantumBinaryILPSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfig backend problem config
+            return solveWithConfigCore backend problem config cancellationToken
         }
 
     /// Solve Binary ILP using QAOA with default configuration.

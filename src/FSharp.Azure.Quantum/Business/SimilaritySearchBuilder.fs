@@ -245,7 +245,9 @@ module SimilaritySearch =
         (b: float array)
         : QuantumResult<float> =
 
-        QuantumKernels.computeKernel backend featureMap a b shots
+        (QuantumKernels.computeKernelAsync backend featureMap a b shots System.Threading.CancellationToken.None)
+            .GetAwaiter()
+            .GetResult()
 
     // ========================================================================
     // INDEX BUILDING
@@ -283,7 +285,14 @@ module SimilaritySearch =
                     if problem.Verbose then
                         logInfo problem.Logger "  Computing quantum kernel matrix..."
 
-                    QuantumKernels.computeKernelMatrix backend featureMap features problem.Shots
+                    (QuantumKernels.computeKernelMatrixAsync
+                        backend
+                        featureMap
+                        features
+                        problem.Shots
+                        System.Threading.CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.map (fun matrix ->
                         Some matrix,
                         Some
@@ -343,7 +352,15 @@ module SimilaritySearch =
             ||> Array.fold (fun acc (item, features) ->
                 acc
                 |> Result.bind (fun sims ->
-                    QuantumKernels.computeKernel cfg.Backend cfg.FeatureMap queryFeatures features cfg.Shots
+                    (QuantumKernels.computeKernelAsync
+                        cfg.Backend
+                        cfg.FeatureMap
+                        queryFeatures
+                        features
+                        cfg.Shots
+                        System.Threading.CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.map (fun sim -> (item, sim) :: sims)))
             |> Result.map (List.rev >> Array.ofList)
 
@@ -474,11 +491,14 @@ module SimilaritySearch =
                     | None ->
                         match index.QuantumConfig with
                         | Some cfg ->
-                            QuantumKernels.computeKernelMatrix
+                            (QuantumKernels.computeKernelMatrixAsync
                                 cfg.Backend
                                 cfg.FeatureMap
                                 (index.Items |> Array.map snd)
                                 cfg.Shots
+                                System.Threading.CancellationToken.None)
+                                .GetAwaiter()
+                                .GetResult()
                             |> Result.map Some
                         | None ->
                             Error(

@@ -555,7 +555,9 @@ module QuantumNetworkFlowSolver =
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         : Result<NetworkFlowSolution, QuantumError> =
-        solve backend problem defaultConfig
+        solveAsync backend problem defaultConfig CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve network flow with custom number of shots
     let solveWithShots
@@ -568,4 +570,6 @@ module QuantumNetworkFlowSolver =
                 NumShots = numShots
             }
 
-        solve backend problem config
+        solveAsync backend problem config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously

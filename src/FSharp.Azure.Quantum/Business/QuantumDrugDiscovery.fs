@@ -312,7 +312,9 @@ type QuantumDrugDiscoveryBuilder() =
             // decision value is the screening score (signed distance from the hyperplane).
             features
             |> Array.mapi (fun i feat ->
-                QuantumKernelSVM.predict backend model feat shots
+                (QuantumKernelSVM.predictAsync backend model feat shots System.Threading.CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult()
                 |> Result.map (fun pred ->
                     {
                         Index = i
@@ -457,7 +459,15 @@ type QuantumDrugDiscoveryBuilder() =
             }
 
         // Run QAOA solver
-        DrugDiscoverySolvers.DiverseSelection.solve backend problem state.Shots
+        DrugDiscoverySolvers.DiverseSelection.solveWithConfigAsync
+            backend
+            problem
+            { DrugDiscoverySolvers.defaultConfig with
+                FinalShots = state.Shots
+            }
+            System.Threading.CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
         |> Result.map (fun solution ->
             let selectedIds =
                 solution.SelectedItems |> List.map (fun item -> item.Id) |> String.concat ", "
