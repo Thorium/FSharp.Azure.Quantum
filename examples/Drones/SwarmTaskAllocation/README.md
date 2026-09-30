@@ -90,7 +90,7 @@ several of them, and the launcher refuses a vehicle that lacks one.
 ### Flown in ArduPilot SITL
 
 The default plan was flown in ArduPilot's own software-in-the-loop simulator,
-with the generated launcher, on 29 September 2026. It used two ArduCopter
+with the generated launcher, on 30 September 2026. It used two ArduCopter
 4.7.1 vehicles and one ArduPlane 4.7.1 QuadPlane: UAV002 has no task in this
 plan. All nine sorties flew, the later ones uploaded and checked while their
 aircraft stood on its pad. [SITL.md](../SITL.md) shows how to repeat it.
@@ -100,14 +100,14 @@ aircraft stood on its pad. [SITL.md](../SITL.md) shows how to repeat it.
 | Measure | Result |
 |---|---|
 | Sorties started on time | 9 of 9, each within 0.5 s of its planned time |
-| Every aircraft down and disarmed | T0+7683 s, planned 7680 s |
-| Closest approach between airborne aircraft | 9.98 m, limit 5 m; the evidence predicts 10.0 m |
-| Copters from their planned tracks | at most 16.8 m, 95% of fixes within 13.5 m |
-| QuadPlane from its planned track | at most 168 m, 95% of fixes within 135 m |
+| Every aircraft down and disarmed | T0+7684 s, planned 7680 s |
+| Closest approach between airborne aircraft | 9.96 m, limit 5 m; the evidence predicts 10.0 m |
+| Copters from their planned tracks | at most 15.0 m, 95% of fixes within 3.1 m |
+| QuadPlane from its planned track | at most 173 m, 95% of fixes within 134 m |
 
 The QuadPlane's distance is its loiter circle. The plan cannot know where on
 its 64 m circle the aircraft is, so the checks treat the whole circle as
-occupied, and the flight stayed on it. It stayed airborne 7 to 12 s past
+occupied, and the flight stayed on it. It stayed airborne 9 to 14 s past
 each planned landing. The picture is animated: the two hours play in 20 s,
 looping. Copters show as quads and the fixed-wing as a plane.
 
