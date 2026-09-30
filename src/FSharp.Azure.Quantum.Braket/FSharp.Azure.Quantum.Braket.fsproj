@@ -21,41 +21,7 @@ v0.4.14: Rebuilt against FSharp.Azure.Quantum v1.4.14
 - ADDED: the Braket backend implements IShotSamplingBackend, so sampled UCCSD-VQE knows its shot count
 - CHANGED: circuits are transpiled to the target device's gate set before OpenQASM 3.0 export, so composite gates (Toffoli, multi-controlled, controlled-phase) reach the device; an optional JobBudget limits submitted jobs
 - Requires FSharp.Azure.Quantum v1.4.14+
-
-v0.4.12 (not published separately): Rebuilt against FSharp.Azure.Quantum v1.4.12
-- No functional changes in this package; see the core package notes
-
-v0.4.11: Rebuilt against FSharp.Azure.Quantum v1.4.11
-- No functional changes in this package; see the core package notes
-- Requires FSharp.Azure.Quantum v1.4.11+
-
-v0.4.10: Rebuilt against FSharp.Azure.Quantum v1.4.10
-- No functional changes in this package; see the core package notes for the local-simulator capacity and execution changes
-- Requires FSharp.Azure.Quantum v1.4.10+
-
-v0.4.9: Rebuilt against FSharp.Azure.Quantum v1.4.9
-- Codebase-wide Fantomas formatting; no functional changes intended
-- Requires FSharp.Azure.Quantum v1.4.9+
-
-v0.4.8: Rebuilt against FSharp.Azure.Quantum v1.4.8 (core struct-union binary change — recompile)
-- fsharp-refactor code clean-up: ordinal string comparisons, use-bindings for disposables, narrower exception catches. No functional changes intended
-- Requires FSharp.Azure.Quantum v1.4.8+
-
-v0.4.7: AWS SDK v4
-- UPDATED: AWS SDK for .NET to v4 (AWSSDK.Braket 4.0.*, AWSSDK.S3 4.0.*). No API surface changes in this plugin; the SDK usage (CreateQuantumTask/GetQuantumTask/S3 GetObject) is unaffected by v4's nullable-property and collection-initialization changes
-- Requires FSharp.Azure.Quantum v1.4.7+
-
-v0.4.6: Wide-device result support + correctness fixes
-- NEW: ExecuteToState returns tiered results — dense state vector ≤ 20 qubits, sparse state 21-31, QuantumState.MeasurementHistogram beyond (NO width limit: at most `shots` entries regardless of qubit count) — Rigetti Ankaa (~84q) and other wide gate devices are now usable end to end
-- NEW: BraketBackend.ExecuteToHistogramAsync — raw measurement histogram (bitstring → count) at any width
-- FIXED: 21+-qubit results no longer crash with an unhandled exception (previous cap mismatch: accepted 24, state vector limit 20)
-- Requires FSharp.Azure.Quantum v1.4.6+
-
-v0.4.3: Initial public release of the AWS Braket plugin
-- Submit gate circuits to Braket QPUs (IonQ, Rigetti, IQM, OQC, Infleqtion) and simulators (SV1/DM1/TN1) via OpenQASM 3.0
-- Submit QuEra Aquila neutral-atom analog programs via the Braket AHS format
-- Isolates the AWS SDK dependency so the core FSharp.Azure.Quantum package stays AWS-free
-- Requires FSharp.Azure.Quantum v1.4.3+</PackageReleaseNotes>
+</PackageReleaseNotes>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
     <Copyright>Unlicense - Public Domain</Copyright>
