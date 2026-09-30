@@ -145,7 +145,15 @@ module PackingOptimizer =
 
             let binProblem = toBinPackingProblem problem
 
-            (QuantumBinPackingSolver.solve backend binProblem problem.Shots)
+            QuantumBinPackingSolver.solveWithConfigAsync
+                backend
+                binProblem
+                { QuantumBinPackingSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
             |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================

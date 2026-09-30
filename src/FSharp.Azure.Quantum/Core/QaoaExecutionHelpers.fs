@@ -329,8 +329,7 @@ module QaoaExecutionHelpers =
             evaluated |> Array.minBy snd |> fst |> Ok
         else
             results
-            |> Array.choose (fun (_, r) ->
-                r |> Result.map (fun _ -> None) |> Result.defaultWith (fun err -> Some err))
+            |> Array.choose (fun (_, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun err -> Some err))
             |> Array.tryLast
             |> Option.defaultValue (QuantumError.OperationError("QAOA", "No valid solution found"))
             |> Error
@@ -432,7 +431,17 @@ module QaoaExecutionHelpers =
             Array.init config.NumLayers (fun i ->
                 (optimResult.OptimizedParameters.[2 * i], optimResult.OptimizedParameters.[2 * i + 1]))
 
-        match executeQaoaCircuit backend problemHam mixerHam optimizedParams config.FinalShots with
+        match
+            (executeQaoaCircuitAsync
+                backend
+                problemHam
+                mixerHam
+                optimizedParams
+                config.FinalShots
+                CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
+        with
         | Error err -> Error err
         | Ok measurements -> Ok(measurements |> Array.minBy energyOf, optimizedParams, optimResult.Converged)
 
@@ -455,7 +464,9 @@ module QaoaExecutionHelpers =
         |> Array.map (fun parameters -> parameters, evaluate parameters)
         |> pickGridPoint
         |> Result.bind (fun bestParams ->
-            executeQaoaCircuit backend problemHam mixerHam bestParams config.FinalShots
+            (executeQaoaCircuitAsync backend problemHam mixerHam bestParams config.FinalShots CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
             |> Result.map (fun measurements -> (measurements |> Array.minBy energyOf, bestParams)))
 
     /// Asynchronous gridSearchAndSample with at most maxConcurrency grid points in flight.
@@ -608,7 +619,10 @@ module QaoaExecutionHelpers =
         let n = Array2D.length1 qubo
         let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
         let mixerHam = QaoaCircuit.MixerHamiltonian.create n
-        executeQaoaCircuit backend problemHam mixerHam parameters shots
+
+        (executeQaoaCircuitAsync backend problemHam mixerHam parameters shots CancellationToken.None)
+            .GetAwaiter()
+            .GetResult()
 
     // ================================================================================
     // SPARSE QUBO EXECUTION (Task 1 — memory-efficient path)
@@ -633,7 +647,10 @@ module QaoaExecutionHelpers =
 
         let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
         let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
-        executeQaoaCircuit backend problemHam mixerHam parameters shots
+
+        (executeQaoaCircuitAsync backend problemHam mixerHam parameters shots CancellationToken.None)
+            .GetAwaiter()
+            .GetResult()
 
     /// Execute QAOA with Nelder-Mead optimization from sparse QUBO.
     /// Returns: (bestBitstring, optimizedParameters, converged)
@@ -830,7 +847,10 @@ module QaoaExecutionHelpers =
                     if config.EnableOptimization then
                         executeQaoaWithOptimization backend qubo adjustedConfig
                     else
-                        executeQaoaWithGridSearch backend qubo adjustedConfig
+                        // Sequential (maxConcurrency = 1) grid search, as before
+                        (executeQaoaWithGridSearchAsync backend qubo adjustedConfig 1 CancellationToken.None)
+                            .GetAwaiter()
+                            .GetResult()
                         |> Result.map (fun (bits, ps) -> (bits, ps, false))
 
     /// Execute QAOA with budget constraints and capacity checking asynchronously.

@@ -891,7 +891,9 @@ module FinancialData =
     /// Convenience overload with defaults.
     [<Obsolete("Use fetchYahooHistoryAsync with CancellationToken instead.")>]
     let fetchYahooHistoryDefault (httpClient: HttpClient) (symbol: string) : QuantumResult<PriceSeries> =
-        fetchYahooHistory httpClient (defaultYahooHistoryRequest symbol)
+        fetchYahooHistoryAsync httpClient (defaultYahooHistoryRequest symbol) CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // RETURN CALCULATIONS

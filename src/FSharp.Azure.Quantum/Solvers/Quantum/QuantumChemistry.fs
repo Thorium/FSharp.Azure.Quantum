@@ -2699,7 +2699,8 @@ module FermionMapping =
                     match p with
                     | QaoaCircuit.PauliOperator.PauliX -> Some(H q)
                     | QaoaCircuit.PauliOperator.PauliY -> Some(RX(q, Math.PI / 2.0))
-                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> None)
+                    | QaoaCircuit.PauliOperator.PauliI
+                    | QaoaCircuit.PauliOperator.PauliZ -> None)
 
             preparation |> CircuitBuilder.addGates rotations
 
@@ -6692,7 +6693,8 @@ module QuantumChemistryBuilder =
             | Direct mol -> return Ok mol
 
             | XyzFile path ->
-                let! result = Molecule.fromXyzFileAsync path
+                let! ct = Async.CancellationToken
+                let! result = Molecule.fromXyzFileTask path ct |> Async.AwaitTask
                 return result
 
             | FciDumpFile path ->

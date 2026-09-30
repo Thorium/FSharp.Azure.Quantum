@@ -144,7 +144,13 @@ module TSP =
             // Call quantum TSP solver directly using computation expression
             quantumResult {
                 let! quantumResult =
-                    QuantumTspSolver.solve actualBackend problem.DistanceMatrix quantumConfig
+                    QuantumTspSolver.solveAsync
+                        actualBackend
+                        problem.DistanceMatrix
+                        quantumConfig
+                        System.Threading.CancellationToken.None
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
 
                 // Validate tour
                 let valid = isValidTour quantumResult.Tour problem.CityCount

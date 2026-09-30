@@ -275,7 +275,13 @@ module MaxCut =
             // Call quantum MaxCut solver directly using computation expression
             quantumResult {
                 let! quantumResult =
-                    QuantumMaxCutSolver.solve actualBackend quantumProblem quantumConfig
+                    QuantumMaxCutSolver.solveAsync
+                        actualBackend
+                        quantumProblem
+                        quantumConfig
+                        System.Threading.CancellationToken.None
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
 
                 return
                     {

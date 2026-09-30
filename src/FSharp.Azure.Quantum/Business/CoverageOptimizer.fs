@@ -151,7 +151,15 @@ module CoverageOptimizer =
 
             let setCoverProblem = toSetCoverProblem problem
 
-            (QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots)
+            QuantumSetCoverSolver.solveWithConfigAsync
+                backend
+                setCoverProblem
+                { QuantumSetCoverSolver.defaultConfig with
+                    FinalShots = problem.Shots
+                }
+                System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
             |> Result.map (fun solution -> decodeSolution problem solution)
 
     // ========================================================================

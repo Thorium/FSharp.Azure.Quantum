@@ -708,8 +708,7 @@ module QuantumPortfolioSolver =
 
             let failures =
                 runs
-                |> Seq.choose (fun (_, r) ->
-                    r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some e))
+                |> Seq.choose (fun (_, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some e))
                 |> Seq.toList
 
             let sampled =
@@ -948,7 +947,9 @@ module QuantumPortfolioSolver =
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
         : Result<QuantumPortfolioSolution, QuantumError> =
-        solve backend assets constraints defaultConfig
+        solveAsync backend assets constraints defaultConfig CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve portfolio with custom number of shots and risk aversion
     let solveWithParams
@@ -964,4 +965,6 @@ module QuantumPortfolioSolver =
                 RiskAversion = riskAversion
             }
 
-        solve backend assets constraints config
+        solveAsync backend assets constraints config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
