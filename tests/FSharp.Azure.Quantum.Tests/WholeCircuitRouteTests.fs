@@ -1095,6 +1095,13 @@ module WholeCircuitRouteTests =
         Assert.Equal(3, all |> Array.filter (fun b -> b = [| 1; 0 |]) |> Array.length)
         Assert.Equal(1, all |> Array.filter (fun b -> b = [| 0; 1 |]) |> Array.length)
 
+        // The order is a function of the counts: the same job result (or another with the
+        // same counts) yields the same shots in the same order, run after run.
+        Assert.Equal<int[][]>(all, UnifiedBackend.measureState state 1000)
+
+        let again = CloudBackendHelpers.histogramToQuantumState (Map [ "01", 3; "10", 1 ]) 2
+        Assert.Equal<int[][]>(all, UnifiedBackend.measureState again 1000)
+
         // Fewer: a subset drawn without replacement, so "01" appears at most once.
         for _ in 1..50 do
             let two = UnifiedBackend.measureState state 2

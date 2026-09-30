@@ -215,7 +215,9 @@ module ErrorMitigationStrategy =
                             ZeroNoiseExtrapolation zneConfig
                             ReadoutErrorMitigation calibration
                         ]
-                Fallback = Some(Combined [ ZeroNoiseExtrapolation zneConfig; ReadoutErrorMitigation calibration ])
+                // Readout-only, so applyStrategy on a finished histogram has a fallback it can
+                // actually run: a fallback with a ZNE component would be refused like the primary.
+                Fallback = Some(ReadoutErrorMitigation calibration)
                 Reasoning = "High accuracy required (>90%) - full mitigation stack with PEC"
                 EstimatedCostMultiplier = 50.0 + 3.0 // PEC + ZNE
                 EstimatedAccuracy = 0.92

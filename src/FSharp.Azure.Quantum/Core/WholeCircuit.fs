@@ -374,9 +374,17 @@ module WholeCircuit =
                             )
                         )
                     else
+                        // A histogram whose keys are not padded to the circuit width reports a
+                        // narrower state; the missing high qubits measured 0.
+                        let widen (bits: int[]) =
+                            if bits.Length >= width then
+                                bits
+                            else
+                                Array.append bits (Array.zeroCreate (width - bits.Length))
+
                         for kind, offset in placed do
                             for bits in outcomes do
-                                collected.[kind.Key].Add(Array.sub bits offset kind.Width)
+                                collected.[kind.Key].Add(Array.sub (widen bits) offset kind.Width)
 
                         Ok())
 

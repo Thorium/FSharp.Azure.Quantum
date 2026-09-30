@@ -333,7 +333,18 @@ module QuantumState =
                     Array.init (max 0 count) (fun _ ->
                         Array.init n (fun q -> if q < key.Length && key.[q] = '1' then 1 else 0)))
 
-            Random.Shared.Shuffle shots
+            // Shuffled with a seed drawn from the counts themselves, so a given job result
+            // always yields its shots in the same order (reproducible runs against a seeded
+            // simulator) rather than an order taken from process-wide randomness.
+            let seed =
+                counts
+                |> Map.fold
+                    (fun acc (key: string) count ->
+                        let keyHash = key |> Seq.fold (fun h c -> h * 31 + int c) 17
+                        acc * 31 + keyHash * 7 + count)
+                    0
+
+            Random(seed).Shuffle shots
             shots)
 
     /// Get number of qubits/variables in state
