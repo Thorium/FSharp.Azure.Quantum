@@ -4,6 +4,8 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 module QuantumTspSolverTests =
 
@@ -11,12 +13,25 @@ module QuantumTspSolverTests =
     let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
         LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
 
-    // Helper wrappers for solve functions
+    // Helper wrappers over the async solve entry point. They mirror the deprecated
+    // synchronous solveWithShots / solveWithDefaults wrappers: a fixed shot count with
+    // optimisation off, and the default config on a LocalBackend respectively.
     let private solveWithShots backend distances shots =
-        QuantumTspSolver.solveWithShots backend distances shots
+        QuantumTspSolver.solveAsync
+            backend
+            distances
+            { QuantumTspSolver.defaultConfig with
+                FinalShots = shots
+                EnableOptimization = false
+            }
+            CancellationToken.None
 
     let private solveWithDefaults distances =
-        QuantumTspSolver.solveWithDefaults distances
+        QuantumTspSolver.solveAsync
+            (createLocalBackend ())
+            distances
+            QuantumTspSolver.defaultConfig
+            CancellationToken.None
 
     // ========================================================================
     // Helper Functions
@@ -41,265 +56,295 @@ module QuantumTspSolverTests =
     // ========================================================================
 
     [<Fact>]
-    let ``solve should reject single city`` () =
-        let backend = createLocalBackend ()
-        let distances = array2D [ [ 0.0 ] ]
+    let ``solve should reject single city`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = array2D [ [ 0.0 ] ]
 
-        let result = solveWithShots backend distances 100
+            let! result = solveWithShots backend distances 100
 
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should reject single city"))
-        |> Result.defaultWith (fun err -> Assert.Contains("at least 2 cities", err.Message))
-
-    [<Fact>]
-    let ``solve should reject negative shots`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
-
-        let result = solveWithShots backend distances -10
-
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should reject negative shots"))
-        |> Result.defaultWith (fun err -> Assert.Contains("positive", err.Message))
+            result
+            |> Result.map (fun _ -> Assert.True(false, "Should reject single city"))
+            |> Result.defaultWith (fun err -> Assert.Contains("at least 2 cities", err.Message))
+        }
 
     [<Fact>]
-    let ``solve should reject zero shots`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
+    let ``solve should reject negative shots`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        let result = solveWithShots backend distances 0
+            let! result = solveWithShots backend distances -10
 
-        result
-        |> Result.map (fun _ -> Assert.True(false, "Should reject zero shots"))
-        |> Result.defaultWith (fun err -> Assert.Contains("positive", err.Message))
-
-    [<Fact>]
-    let ``solve should reject problem too large for backend`` () =
-        let backend: BackendAbstraction.IQuantumBackend = createLocalBackend () // Max 16 qubits
-        // 5 cities requires 5*5 = 25 qubits (exceeds limit)
-        let distances = Array2D.zeroCreate 6 6
-
-        let result = solveWithShots backend distances 100
-
-        match result with
-        | Error err ->
-            Assert.Contains("qubits", err.Message)
-            // The solver checks backend capacity up front, so the message names the
-            // backend and the required size rather than surfacing a bare limit error
-            // from deep inside circuit execution.
-            Assert.Contains(backend.Name, err.Message)
-            Assert.Contains("36", err.Message) // 6 cities → 6² qubits
-        | Ok _ -> Assert.Fail("Should reject problem too large")
+            result
+            |> Result.map (fun _ -> Assert.True(false, "Should reject negative shots"))
+            |> Result.defaultWith (fun err -> Assert.Contains("positive", err.Message))
+        }
 
     [<Fact>]
-    let ``solve should reject a problem that fits in memory but not in time`` () =
-        // 5 cities → 25 qubits. That FITS: the memory-derived capacity is 28 on a 32GB box
-        // and 30 on a large one. It does not FINISH — the solver drives a 25-qubit state
-        // through its whole optimisation budget, which is hours.
-        //
-        // Checking capacity alone admitted this, which is why the admission check asks
-        // getRunnableQubits (capacity and wall-clock together) rather than getMaxQubits.
-        // The 6-city case above cannot catch it: 36 qubits exceeds capacity too, so it is
-        // refused either way.
-        let backend: BackendAbstraction.IQuantumBackend = createLocalBackend ()
-        let distances = Array2D.zeroCreate 5 5
+    let ``solve should reject zero shots`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        match solveWithShots backend distances 100 with
-        | Error err ->
-            Assert.Contains("qubits", err.Message)
-            Assert.Contains("25", err.Message)
-        | Ok _ ->
-            Assert.Fail(
-                "Should refuse 25 qubits: it fits the memory budget but not the wall-clock one, "
-                + "so accepting it trades a fast refusal for an hours-long run"
-            )
+            let! result = solveWithShots backend distances 0
+
+            result
+            |> Result.map (fun _ -> Assert.True(false, "Should reject zero shots"))
+            |> Result.defaultWith (fun err -> Assert.Contains("positive", err.Message))
+        }
+
+    [<Fact>]
+    let ``solve should reject problem too large for backend`` () : Task =
+        task {
+            let backend: BackendAbstraction.IQuantumBackend = createLocalBackend () // Max 16 qubits
+            // 5 cities requires 5*5 = 25 qubits (exceeds limit)
+            let distances = Array2D.zeroCreate 6 6
+
+            let! result = solveWithShots backend distances 100
+
+            match result with
+            | Error err ->
+                Assert.Contains("qubits", err.Message)
+                // The solver checks backend capacity up front, so the message names the
+                // backend and the required size rather than surfacing a bare limit error
+                // from deep inside circuit execution.
+                Assert.Contains(backend.Name, err.Message)
+                Assert.Contains("36", err.Message) // 6 cities → 6² qubits
+            | Ok _ -> Assert.Fail("Should reject problem too large")
+        }
+
+    [<Fact>]
+    let ``solve should reject a problem that fits in memory but not in time`` () : Task =
+        task {
+            // 5 cities → 25 qubits. That FITS: the memory-derived capacity is 28 on a 32GB box
+            // and 30 on a large one. It does not FINISH — the solver drives a 25-qubit state
+            // through its whole optimisation budget, which is hours.
+            //
+            // Checking capacity alone admitted this, which is why the admission check asks
+            // getRunnableQubits (capacity and wall-clock together) rather than getMaxQubits.
+            // The 6-city case above cannot catch it: 36 qubits exceeds capacity too, so it is
+            // refused either way.
+            let backend: BackendAbstraction.IQuantumBackend = createLocalBackend ()
+            let distances = Array2D.zeroCreate 5 5
+
+            match! solveWithShots backend distances 100 with
+            | Error err ->
+                Assert.Contains("qubits", err.Message)
+                Assert.Contains("25", err.Message)
+            | Ok _ ->
+                Assert.Fail(
+                    "Should refuse 25 qubits: it fits the memory budget but not the wall-clock one, "
+                    + "so accepting it trades a fast refusal for an hours-long run"
+                )
+        }
 
     // ========================================================================
     // Basic Execution Tests
     // ========================================================================
 
     [<Fact>]
-    let ``solve should execute on local backend`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
+    let ``solve should execute on local backend`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        let result = solveWithShots backend distances 50
+            let! result = solveWithShots backend distances 50
 
-        match result with
-        | Ok solution ->
-            Assert.Equal(3, solution.Tour.Length)
-            Assert.Equal("Local Simulator", solution.BackendName)
-            Assert.Equal(50, solution.NumShots)
-            Assert.True(solution.TourLength > 0.0)
-            Assert.True(solution.ElapsedMs >= 0.0)
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
-
-    [<Fact>]
-    let ``solve should return valid tour`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
-
-        let result = solveWithShots backend distances 100
-
-        match result with
-        | Ok solution ->
-            // Tour should contain all cities
-            Assert.Equal(3, solution.Tour.Length)
-
-            // All cities should be present
-            let citySet = Set.ofArray solution.Tour
-            Assert.Equal(3, citySet.Count)
-
-            // Cities should be 0, 1, 2
-            Assert.True(citySet.Contains 0)
-            Assert.True(citySet.Contains 1)
-            Assert.True(citySet.Contains 2)
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+            match result with
+            | Ok solution ->
+                Assert.Equal(3, solution.Tour.Length)
+                Assert.Equal("Local Simulator", solution.BackendName)
+                Assert.Equal(50, solution.NumShots)
+                Assert.True(solution.TourLength > 0.0)
+                Assert.True(solution.ElapsedMs >= 0.0)
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
 
     [<Fact>]
-    let ``solve should calculate correct tour length`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
+    let ``solve should return valid tour`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        let result = solveWithShots backend distances 100
+            let! result = solveWithShots backend distances 100
 
-        match result with
-        | Ok solution ->
-            // Manually calculate tour length
-            let tour = solution.Tour
-            let mutable totalDistance = 0.0
+            match result with
+            | Ok solution ->
+                // Tour should contain all cities
+                Assert.Equal(3, solution.Tour.Length)
 
-            for i in 0 .. tour.Length - 1 do
-                let fromCity = tour.[i]
-                let toCity = tour.[(i + 1) % tour.Length]
-                totalDistance <- totalDistance + distances.[fromCity, toCity]
+                // All cities should be present
+                let citySet = Set.ofArray solution.Tour
+                Assert.Equal(3, citySet.Count)
 
-            // Solution's tour length should match manual calculation
-            Assert.Equal(totalDistance, solution.TourLength, 2) // 2 decimal places
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
-
-    [<Fact>]
-    let ``solve should return top solutions`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
-
-        let result = solveWithShots backend distances 100
-
-        match result with
-        | Ok solution ->
-            // Should have at least 1 solution
-            Assert.True(solution.TopSolutions.Length > 0)
-            Assert.True(solution.TopSolutions.Length <= 5) // Max 5
-
-            // Top solutions should be sorted by length (shortest first)
-            let lengths = solution.TopSolutions |> List.map (fun (_, len, _) -> len)
-            let sortedLengths = lengths |> List.sort
-            Assert.Equal<float list>(sortedLengths, lengths)
-
-            // Best solution should be first
-            let (bestTour, bestLen, _) = solution.TopSolutions.[0]
-            Assert.Equal<int seq>(solution.Tour, bestTour)
-            Assert.Equal(solution.TourLength, bestLen)
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+                // Cities should be 0, 1, 2
+                Assert.True(citySet.Contains 0)
+                Assert.True(citySet.Contains 1)
+                Assert.True(citySet.Contains 2)
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
 
     [<Fact>]
-    let ``solve should set best energy`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
+    let ``solve should calculate correct tour length`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        let result = solveWithShots backend distances 100
+            let! result = solveWithShots backend distances 100
 
-        match result with
-        | Ok solution ->
-            // For TSP, best energy should equal tour length
-            Assert.Equal(solution.TourLength, solution.BestEnergy)
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+            match result with
+            | Ok solution ->
+                // Manually calculate tour length
+                let tour = solution.Tour
+                let mutable totalDistance = 0.0
+
+                for i in 0 .. tour.Length - 1 do
+                    let fromCity = tour.[i]
+                    let toCity = tour.[(i + 1) % tour.Length]
+                    totalDistance <- totalDistance + distances.[fromCity, toCity]
+
+                // Solution's tour length should match manual calculation
+                Assert.Equal(totalDistance, solution.TourLength, 2) // 2 decimal places
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
+
+    [<Fact>]
+    let ``solve should return top solutions`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
+
+            let! result = solveWithShots backend distances 100
+
+            match result with
+            | Ok solution ->
+                // Should have at least 1 solution
+                Assert.True(solution.TopSolutions.Length > 0)
+                Assert.True(solution.TopSolutions.Length <= 5) // Max 5
+
+                // Top solutions should be sorted by length (shortest first)
+                let lengths = solution.TopSolutions |> List.map (fun (_, len, _) -> len)
+                let sortedLengths = lengths |> List.sort
+                Assert.Equal<float list>(sortedLengths, lengths)
+
+                // Best solution should be first
+                let (bestTour, bestLen, _) = solution.TopSolutions.[0]
+                Assert.Equal<int seq>(solution.Tour, bestTour)
+                Assert.Equal(solution.TourLength, bestLen)
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
+
+    [<Fact>]
+    let ``solve should set best energy`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
+
+            let! result = solveWithShots backend distances 100
+
+            match result with
+            | Ok solution ->
+                // For TSP, best energy should equal tour length
+                Assert.Equal(solution.TourLength, solution.BestEnergy)
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
 
     // ========================================================================
     // Scalability Tests
     // ========================================================================
 
     [<Fact>]
-    let ``solve with different shot counts should work`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem () // 3 cities = 9 qubits (within 16 qubit limit)
+    let ``solve with different shot counts should work`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem () // 3 cities = 9 qubits (within 16 qubit limit)
 
-        let result1 = solveWithShots backend distances 10
+            let! result1 = solveWithShots backend distances 10
 
-        result1
-        |> Result.map (fun solution -> Assert.Equal(10, solution.NumShots))
-        |> Result.defaultWith (fun err -> Assert.True(false, $"Execution with 10 shots failed: %s{err.Message}"))
+            result1
+            |> Result.map (fun solution -> Assert.Equal(10, solution.NumShots))
+            |> Result.defaultWith (fun err -> Assert.True(false, $"Execution with 10 shots failed: %s{err.Message}"))
 
-        let result2 = solveWithShots backend distances 50
+            let! result2 = solveWithShots backend distances 50
 
-        result2
-        |> Result.map (fun solution -> Assert.Equal(50, solution.NumShots))
-        |> Result.defaultWith (fun err -> Assert.True(false, $"Execution with 50 shots failed: %s{err.Message}"))
+            result2
+            |> Result.map (fun solution -> Assert.Equal(50, solution.NumShots))
+            |> Result.defaultWith (fun err -> Assert.True(false, $"Execution with 50 shots failed: %s{err.Message}"))
+        }
 
     // ========================================================================
     // Default Parameters Test
     // ========================================================================
 
     [<Fact>]
-    let ``solveWithDefaults should use 1000 shots`` () =
-        let distances = create3CityProblem ()
+    let ``solveWithDefaults should use 1000 shots`` () : Task =
+        task {
+            let distances = create3CityProblem ()
 
-        let result = solveWithDefaults distances
+            let! result = solveWithDefaults distances
 
-        match result with
-        | Ok solution ->
-            Assert.Equal(1000, solution.NumShots)
-            Assert.Equal("Local Simulator", solution.BackendName)
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+            match result with
+            | Ok solution ->
+                Assert.Equal(1000, solution.NumShots)
+                Assert.Equal("Local Simulator", solution.BackendName)
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
 
     [<Fact>]
-    let ``solveWithDefaults should use local backend`` () =
-        let distances = create3CityProblem ()
+    let ``solveWithDefaults should use local backend`` () : Task =
+        task {
+            let distances = create3CityProblem ()
 
-        let result = solveWithDefaults distances
+            let! result = solveWithDefaults distances
 
-        result
-        |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName))
-        |> Result.defaultWith (fun err -> Assert.True(false, $"Execution failed: %s{err.Message}"))
+            result
+            |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName))
+            |> Result.defaultWith (fun err -> Assert.True(false, $"Execution failed: %s{err.Message}"))
+        }
 
     // ========================================================================
     // Tour Quality Tests (Heuristic)
     // ========================================================================
 
     [<Fact>]
-    let ``solve should find reasonable tour for 3 cities`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
+    let ``solve should find reasonable tour for 3 cities`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        let result = solveWithShots backend distances 200 // More shots for better quality
+            let! result = solveWithShots backend distances 200 // More shots for better quality
 
-        match result with
-        | Ok solution ->
-            // For 3 cities, there are only 3 unique tours (rotations of same tour)
-            // The optimal tour should have length around 4.5 (1 + 1.5 + 2)
-            // But quantum might not always find optimal, so be lenient
-            Assert.True(solution.TourLength < 10.0, $"Tour length %f{solution.TourLength} seems unreasonably high")
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+            match result with
+            | Ok solution ->
+                // For 3 cities, there are only 3 unique tours (rotations of same tour)
+                // The optimal tour should have length around 4.5 (1 + 1.5 + 2)
+                // But quantum might not always find optimal, so be lenient
+                Assert.True(solution.TourLength < 10.0, $"Tour length %f{solution.TourLength} seems unreasonably high")
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }
 
     // ========================================================================
     // Solution Frequency Tests
     // ========================================================================
 
     [<Fact>]
-    let ``solve should report solution frequencies`` () =
-        let backend = createLocalBackend ()
-        let distances = create3CityProblem ()
+    let ``solve should report solution frequencies`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let distances = create3CityProblem ()
 
-        let result = solveWithShots backend distances 100
+            let! result = solveWithShots backend distances 100
 
-        match result with
-        | Ok solution ->
-            // Check that frequencies add up to total shots
-            let totalFreq = solution.TopSolutions |> List.sumBy (fun (_, _, freq) -> freq)
-            Assert.True(totalFreq <= 100)
-            Assert.True(totalFreq > 0)
+            match result with
+            | Ok solution ->
+                // Check that frequencies add up to total shots
+                let totalFreq = solution.TopSolutions |> List.sumBy (fun (_, _, freq) -> freq)
+                Assert.True(totalFreq <= 100)
+                Assert.True(totalFreq > 0)
 
-            // Each frequency should be positive
-            for (_, _, freq) in solution.TopSolutions do
-                Assert.True(freq > 0)
-        | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+                // Each frequency should be positive
+                for (_, _, freq) in solution.TopSolutions do
+                    Assert.True(freq > 0)
+            | Error err -> Assert.True(false, $"Execution failed: %s{err.Message}")
+        }

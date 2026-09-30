@@ -4,10 +4,23 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum.QuantumBinaryILPSolver
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 /// Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+/// Solves with the default config and the given final shot count through the async API
+/// (what the deprecated synchronous solve wrapper does).
+let private solveDefaultAsync backend problem shots =
+    solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
 
 // ============================================================================
 // QUBO ENCODING TESTS
@@ -238,18 +251,20 @@ module ValidationTests =
         |> Result.defaultWith (fun err -> Assert.Fail($"Should accept zero bound, got: {err}"))
 
     [<Fact>]
-    let ``solveWithConfig rejects empty objective`` () =
-        let backend = createLocalBackend ()
+    let ``solveWithConfig rejects empty objective`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = []
-                Constraints = []
-            }
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = []
+                    Constraints = []
+                }
 
-        match solveWithConfig backend problem defaultConfig with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("objectiveCoeffs", field)
-        | _ -> Assert.Fail("Should reject empty objective")
+            match! solveWithConfigAsync backend problem defaultConfig CancellationToken.None with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("objectiveCoeffs", field)
+            | _ -> Assert.Fail("Should reject empty objective")
+        }
 
 // ============================================================================
 // QUBIT ESTIMATION TESTS
@@ -480,131 +495,149 @@ module DecomposeRecombineTests =
 module QuantumSolverTests =
 
     [<Fact>]
-    let ``solve returns Ok for unconstrained problem`` () =
-        let backend = createLocalBackend ()
+    let ``solve returns Ok for unconstrained problem`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = [ 1.0 ]
-                Constraints = []
-            }
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = [ 1.0 ]
+                    Constraints = []
+                }
 
-        (solve backend problem 100)
-        |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+            let! result = solveDefaultAsync backend problem 100
+
+            result
+            |> Result.map (fun solution -> Assert.Equal("Local Simulator", solution.BackendName))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+        }
 
     [<Fact; Trait("Category", "Slow")>]
-    let ``solve returns Ok for single-variable single-constraint`` () =
-        let backend = createLocalBackend ()
-        // min x0 subject to x0 <= 1
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = [ 1.0 ]
-                Constraints = [ { Coefficients = [ 1.0 ]; Bound = 1.0 } ]
-            }
+    let ``solve returns Ok for single-variable single-constraint`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // min x0 subject to x0 <= 1
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = [ 1.0 ]
+                    Constraints = [ { Coefficients = [ 1.0 ]; Bound = 1.0 } ]
+                }
 
-        match solve backend problem 100 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.Equal("Local Simulator", solution.BackendName)
-            Assert.Equal(1, solution.TotalConstraints)
-
-    [<Fact>]
-    let ``solve with constraint repair produces feasible solution`` () =
-        let backend = createLocalBackend ()
-        // min -x0 - x1 subject to x0 + x1 <= 1
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = [ -1.0; -1.0 ]
-                Constraints =
-                    [
-                        {
-                            Coefficients = [ 1.0; 1.0 ]
-                            Bound = 1.0
-                        }
-                    ]
-            }
-
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
-
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve with repair failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Repaired solution should be feasible")
-            Assert.Equal(1, solution.ConstraintsSatisfied)
+            match! solveDefaultAsync backend problem 100 with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.Equal("Local Simulator", solution.BackendName)
+                Assert.Equal(1, solution.TotalConstraints)
+        }
 
     [<Fact>]
-    let ``solveWithConfig uses config shots`` () =
-        let backend = createLocalBackend ()
+    let ``solve with constraint repair produces feasible solution`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // min -x0 - x1 subject to x0 + x1 <= 1
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = [ -1.0; -1.0 ]
+                    Constraints =
+                        [
+                            {
+                                Coefficients = [ 1.0; 1.0 ]
+                                Bound = 1.0
+                            }
+                        ]
+                }
 
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = [ 1.0 ]
-                Constraints = []
-            }
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
 
-        let config = { defaultConfig with FinalShots = 42 }
-
-        (solveWithConfig backend problem config)
-        |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
-
-    [<Fact>]
-    let ``solve two variables with constraint`` () =
-        let backend = createLocalBackend ()
-        // Knapsack-like: min -3*x0 - 5*x1 subject to 2*x0 + 4*x1 <= 5
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = [ -3.0; -5.0 ]
-                Constraints =
-                    [
-                        {
-                            Coefficients = [ 2.0; 4.0 ]
-                            Bound = 5.0
-                        }
-                    ]
-            }
-
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
-
-        (solveWithConfig backend problem config)
-        |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be feasible"))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve with repair failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid, "Repaired solution should be feasible")
+                Assert.Equal(1, solution.ConstraintsSatisfied)
+        }
 
     [<Fact>]
-    let ``solve with multiple constraints`` () =
-        let backend = createLocalBackend ()
-        // min -x0 - x1 - x2 subject to x0 + x1 <= 1, x1 + x2 <= 1
-        let problem: Problem =
-            {
-                ObjectiveCoeffs = [ -1.0; -1.0; -1.0 ]
-                Constraints =
-                    [
-                        {
-                            Coefficients = [ 1.0; 1.0; 0.0 ]
-                            Bound = 1.0
-                        }
-                        {
-                            Coefficients = [ 0.0; 1.0; 1.0 ]
-                            Bound = 1.0
-                        }
-                    ]
-            }
+    let ``solveWithConfig uses config shots`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = [ 1.0 ]
+                    Constraints = []
+                }
 
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be feasible")
-            Assert.Equal(2, solution.TotalConstraints)
-            Assert.Equal(2, solution.ConstraintsSatisfied)
+            let config = { defaultConfig with FinalShots = 42 }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``solve two variables with constraint`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // Knapsack-like: min -3*x0 - 5*x1 subject to 2*x0 + 4*x1 <= 5
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = [ -3.0; -5.0 ]
+                    Constraints =
+                        [
+                            {
+                                Coefficients = [ 2.0; 4.0 ]
+                                Bound = 5.0
+                            }
+                        ]
+                }
+
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be feasible"))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``solve with multiple constraints`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // min -x0 - x1 - x2 subject to x0 + x1 <= 1, x1 + x2 <= 1
+            let problem: Problem =
+                {
+                    ObjectiveCoeffs = [ -1.0; -1.0; -1.0 ]
+                    Constraints =
+                        [
+                            {
+                                Coefficients = [ 1.0; 1.0; 0.0 ]
+                                Bound = 1.0
+                            }
+                            {
+                                Coefficients = [ 0.0; 1.0; 1.0 ]
+                                Bound = 1.0
+                            }
+                        ]
+                }
+
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
+
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid, "Solution should be feasible")
+                Assert.Equal(2, solution.TotalConstraints)
+                Assert.Equal(2, solution.ConstraintsSatisfied)
+        }

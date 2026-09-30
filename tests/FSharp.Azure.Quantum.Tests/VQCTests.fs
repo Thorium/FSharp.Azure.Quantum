@@ -828,6 +828,8 @@ module VQCTests =
                 )
         }
 
+    // Covers the deprecated synchronous wrapper on purpose: this test compares it with the async API.
+    #nowarn "44"
     [<Fact>]
     let ``predictRegressionAsync - produces equivalent results to sync version`` () : Task =
         task {
@@ -860,6 +862,7 @@ module VQCTests =
             | Error _, _
             | _, Error _ -> Assert.True(false, "Both sync and async should succeed")
         }
+    #warnon "44"
 
     // ========================================================================
     // ASYNC REGRESSION TESTS (wider value ranges)
@@ -894,6 +897,8 @@ module VQCTests =
                 )
         }
 
+    // Covers the deprecated synchronous wrapper on purpose: this test compares it with the async API.
+    #nowarn "44"
     [<Fact>]
     let ``predictRegressionAsync - sync and async agree on negative value range`` () : Task =
         task {
@@ -926,6 +931,7 @@ module VQCTests =
             | Error _, _
             | _, Error _ -> Assert.True(false, "Both sync and async should succeed")
         }
+    #warnon "44"
 
     // ========================================================================
     // ASYNC CANCELLATION TESTS

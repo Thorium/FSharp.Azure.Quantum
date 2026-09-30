@@ -174,192 +174,223 @@ let ``train - should handle balanced classes`` () =
 // ============================================================================
 
 [<Fact; Trait("Category", "Slow")>]
-let ``predict - should return valid label`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
+let ``predict - should return valid label`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
 
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        let testSample = [| 0.15; 0.15 |] // Should be class 0
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            let testSample = [| 0.15; 0.15 |] // Should be class 0
 
-        (predict backend model testSample shots)
-        |> Result.map (fun prediction ->
-            Assert.True(prediction.Label = 0 || prediction.Label = 1, "Label should be 0 or 1"))
-        |> Result.defaultWith (fun err -> Assert.True(false, $"Prediction failed: %s{err.Message}"))
+            let! result = predictAsync backend model testSample shots CancellationToken.None
 
-[<Fact>]
-let ``predict - should reject non-positive shots`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
-
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        let testSample = [| 0.15; 0.15 |]
-
-        (predict backend model testSample 0)
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected zero shots"))
-        |> Result.defaultWith (fun msg -> Assert.Contains("must be positive", msg.Message))
+            result
+            |> Result.map (fun prediction ->
+                Assert.True(prediction.Label = 0 || prediction.Label = 1, "Label should be 0 or 1"))
+            |> Result.defaultWith (fun err -> Assert.True(false, $"Prediction failed: %s{err.Message}"))
+    }
 
 [<Fact>]
-let ``predict - should classify training samples correctly`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
+let ``predict - should reject non-positive shots`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
 
-    let config =
-        { defaultConfig with
-            Verbose = false
-            MaxIterations = 200
-        }
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            let testSample = [| 0.15; 0.15 |]
 
-    let shots = 1000
+            let! result = predictAsync backend model testSample 0 CancellationToken.None
 
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        // Test on training samples (should classify most correctly)
-        let mutable correctCount = 0
+            result
+            |> Result.map (fun _ -> Assert.True(false, "Should have rejected zero shots"))
+            |> Result.defaultWith (fun msg -> Assert.Contains("must be positive", msg.Message))
+    }
 
-        for i in 0 .. trainData.Length - 1 do
-            match predict backend model trainData.[i] shots with
+[<Fact>]
+let ``predict - should classify training samples correctly`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+
+        let config =
+            { defaultConfig with
+                Verbose = false
+                MaxIterations = 200
+            }
+
+        let shots = 1000
+
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            // Test on training samples (should classify most correctly)
+            let mutable correctCount = 0
+
+            for i in 0 .. trainData.Length - 1 do
+                match! predictAsync backend model trainData.[i] shots CancellationToken.None with
+                | Ok prediction ->
+                    if prediction.Label = trainLabels.[i] then
+                        correctCount <- correctCount + 1
+                | Error e -> Assert.Fail($"prediction of training sample {i} failed: {e.Message}")
+
+            // Should get at least 50% correct (with quantum noise)
+            Assert.True(
+                correctCount >= 2,
+                $"Should classify at least 2/4 training samples correctly, got %d{correctCount}"
+            )
+    }
+
+[<Fact>]
+let ``predict - decision value should have correct sign`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
+
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            let testSample = [| 0.15; 0.15 |]
+
+            match! predictAsync backend model testSample shots CancellationToken.None with
+            | Error err -> Assert.True(false, $"Prediction failed: %s{err.Message}")
             | Ok prediction ->
-                if prediction.Label = trainLabels.[i] then
-                    correctCount <- correctCount + 1
-            | Error e -> Assert.Fail($"prediction of training sample {i} failed: {e.Message}")
-
-        // Should get at least 50% correct (with quantum noise)
-        Assert.True(correctCount >= 2, $"Should classify at least 2/4 training samples correctly, got %d{correctCount}")
-
-[<Fact>]
-let ``predict - decision value should have correct sign`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
-
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        let testSample = [| 0.15; 0.15 |]
-
-        match predict backend model testSample shots with
-        | Error err -> Assert.True(false, $"Prediction failed: %s{err.Message}")
-        | Ok prediction ->
-            // Decision value sign should match label
-            if prediction.Label = 1 then
-                Assert.True(
-                    prediction.DecisionValue >= 0.0,
-                    $"Label 1 should have non-negative decision value, got %f{prediction.DecisionValue}"
-                )
-            else
-                Assert.True(
-                    prediction.DecisionValue < 0.0,
-                    $"Label 0 should have negative decision value, got %f{prediction.DecisionValue}"
-                )
+                // Decision value sign should match label
+                if prediction.Label = 1 then
+                    Assert.True(
+                        prediction.DecisionValue >= 0.0,
+                        $"Label 1 should have non-negative decision value, got %f{prediction.DecisionValue}"
+                    )
+                else
+                    Assert.True(
+                        prediction.DecisionValue < 0.0,
+                        $"Label 0 should have negative decision value, got %f{prediction.DecisionValue}"
+                    )
+    }
 
 // ============================================================================
 // Evaluation Tests
 // ============================================================================
 
 [<Fact>]
-let ``evaluate - should return accuracy between 0 and 1`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
+let ``evaluate - should return accuracy between 0 and 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
 
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        match evaluate backend model trainData trainLabels shots with
-        | Error err -> Assert.True(false, $"Evaluation failed: %s{err.Message}")
-        | Ok accuracy ->
-            Assert.True(accuracy >= 0.0 && accuracy <= 1.0, $"Accuracy should be in [0,1], got %f{accuracy}")
-
-[<Fact>]
-let ``evaluate - should reject empty test data`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
-
-    (train backend featureMap trainData trainLabels config shots)
-    |> Result.map (fun model ->
-        (evaluate backend model [||] [||] shots)
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty test data"))
-        |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message)))
-    |> Result.defaultWith (fun err -> Assert.True(false, $"Training failed: %s{err.Message}"))
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            match! evaluateAsync backend model trainData trainLabels shots CancellationToken.None with
+            | Error err -> Assert.True(false, $"Evaluation failed: %s{err.Message}")
+            | Ok accuracy ->
+                Assert.True(accuracy >= 0.0 && accuracy <= 1.0, $"Accuracy should be in [0,1], got %f{accuracy}")
+    }
 
 [<Fact>]
-let ``evaluate - should reject mismatched test data and labels`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
+let ``evaluate - should reject empty test data`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
 
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        let testData = [| [| 0.5; 0.5 |] |]
-        let testLabels = [| 0; 1 |] // Wrong length
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            let! result = evaluateAsync backend model [||] [||] shots CancellationToken.None
 
-        (evaluate backend model testData testLabels shots)
-        |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths"))
-        |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
+            result
+            |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty test data"))
+            |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
+    }
 
 [<Fact>]
-let ``evaluate - should achieve reasonable accuracy on training data`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
+let ``evaluate - should reject mismatched test data and labels`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
 
-    let config =
-        { defaultConfig with
-            Verbose = false
-            MaxIterations = 200
-        }
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            let testData = [| [| 0.5; 0.5 |] |]
+            let testLabels = [| 0; 1 |] // Wrong length
 
-    let shots = 1000
+            let! result =
+                evaluateAsync backend model testData testLabels shots CancellationToken.None
 
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        match evaluate backend model trainData trainLabels shots with
-        | Error err -> Assert.True(false, $"Evaluation failed: %s{err.Message}")
-        | Ok accuracy ->
-            // With quantum noise, should get at least 50% accuracy
-            Assert.True(accuracy >= 0.5, $"Training accuracy should be >= 0.5, got %f{accuracy}")
+            result
+            |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths"))
+            |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
+    }
+
+[<Fact>]
+let ``evaluate - should achieve reasonable accuracy on training data`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+
+        let config =
+            { defaultConfig with
+                Verbose = false
+                MaxIterations = 200
+            }
+
+        let shots = 1000
+
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            match! evaluateAsync backend model trainData trainLabels shots CancellationToken.None with
+            | Error err -> Assert.True(false, $"Evaluation failed: %s{err.Message}")
+            | Ok accuracy ->
+                // With quantum noise, should get at least 50% accuracy
+                Assert.True(accuracy >= 0.5, $"Training accuracy should be >= 0.5, got %f{accuracy}")
+    }
 
 // ============================================================================
 // Integration Tests
 // ============================================================================
 
 [<Fact>]
-let ``train and predict - end-to-end workflow`` () =
-    let featureMap = AngleEncoding
-    let (trainData, trainLabels) = createSimpleDataset ()
-    let config = { defaultConfig with Verbose = false }
-    let shots = 500
+let ``train and predict - end-to-end workflow`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let (trainData, trainLabels) = createSimpleDataset ()
+        let config = { defaultConfig with Verbose = false }
+        let shots = 500
 
-    // Train
-    match train backend featureMap trainData trainLabels config shots with
-    | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
-    | Ok model ->
-        // Predict on new samples
-        let testSamples =
-            [|
-                [| 0.1; 0.1 |] // Should be class 0
-                [| 0.9; 0.9 |] // Should be class 1
-            |]
+        // Train
+        match train backend featureMap trainData trainLabels config shots with
+        | Error err -> Assert.True(false, $"Training failed: %s{err.Message}")
+        | Ok model ->
+            // Predict on new samples
+            let testSamples =
+                [|
+                    [| 0.1; 0.1 |] // Should be class 0
+                    [| 0.9; 0.9 |] // Should be class 1
+                |]
 
-        for testSample in testSamples do
-            match predict backend model testSample shots with
-            | Error err -> Assert.True(false, $"Prediction failed: %s{err.Message}")
-            | Ok prediction -> Assert.True(prediction.Label = 0 || prediction.Label = 1, "Should return valid label")
+            for testSample in testSamples do
+                match! predictAsync backend model testSample shots CancellationToken.None with
+                | Error err -> Assert.True(false, $"Prediction failed: %s{err.Message}")
+                | Ok prediction ->
+                    Assert.True(prediction.Label = 0 || prediction.Label = 1, "Should return valid label")
+    }
 
 [<Fact>]
 let ``train with different feature maps`` () =
@@ -447,6 +478,8 @@ let ``predictAsync - should reject non-positive shots`` () : Task =
             | Ok _ -> Assert.True(false, "Should have rejected zero shots")
     }
 
+// Covers the deprecated synchronous wrapper on purpose: this test compares it with the async API.
+#nowarn "44"
 [<Fact>]
 let ``predictAsync - produces equivalent results to sync version`` () : Task =
     task {
@@ -471,6 +504,7 @@ let ``predictAsync - produces equivalent results to sync version`` () : Task =
             | Error _, _
             | _, Error _ -> Assert.True(false, "Both sync and async should succeed")
     }
+#warnon "44"
 
 [<Fact>]
 let ``predictAsync - decision value sign matches label`` () : Task =
@@ -556,6 +590,8 @@ let ``evaluateAsync - should reject mismatched test data and labels`` () : Task 
             | Ok _ -> Assert.True(false, "Should have rejected mismatched lengths")
     }
 
+// Covers the deprecated synchronous wrapper on purpose: this test compares it with the async API.
+#nowarn "44"
 [<Fact>]
 let ``evaluateAsync - produces equivalent results to sync version`` () : Task =
     task {
@@ -580,6 +616,7 @@ let ``evaluateAsync - produces equivalent results to sync version`` () : Task =
             | Error _, _
             | _, Error _ -> Assert.True(false, "Both sync and async should succeed")
     }
+#warnon "44"
 
 // ============================================================================
 // Async Cancellation Tests
