@@ -800,7 +800,12 @@ module HybridSolver =
                             quantumConfig
                             cancellationToken
                     | None ->
-                        QuantumPortfolioSolver.solveAsync actualBackend assets constraints quantumConfig cancellationToken
+                        QuantumPortfolioSolver.solveAsync
+                            actualBackend
+                            assets
+                            constraints
+                            quantumConfig
+                            cancellationToken
 
                 let! quantumResult = run |> asOperationError "Quantum portfolio solver"
 

@@ -503,7 +503,10 @@ module PortfolioCovarianceTests =
                         None
                         CancellationToken.None
 
-                Assert.True(result |> isValidationError "covariance", $"{method}: expected a covariance validation error")
+                Assert.True(
+                    result |> isValidationError "covariance",
+                    $"{method}: expected a covariance validation error"
+                )
         }
         :> System.Threading.Tasks.Task
 
