@@ -283,7 +283,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 FSharpOption<System.Threading.CancellationToken>.None);
 
             // Run AutoML search
-            var result = AutoML.search(problem);
+            var result = AutoML.searchAsync(problem, System.Threading.CancellationToken.None).GetAwaiter().GetResult();
 
             if (result.IsError)
             {

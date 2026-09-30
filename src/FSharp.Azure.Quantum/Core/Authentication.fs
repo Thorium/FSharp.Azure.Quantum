@@ -24,7 +24,8 @@ module Authentication =
         let createCliCredential () : TokenCredential = upcast AzureCliCredential()
 
         /// Create ManagedIdentityCredential (for Azure VM/App Service)
-        let createManagedIdentityCredential () : TokenCredential = upcast ManagedIdentityCredential()
+        let createManagedIdentityCredential () : TokenCredential =
+            upcast ManagedIdentityCredential(ManagedIdentityId.SystemAssigned)
 
     /// Cached token state (immutable record for thread-safety)
     type private TokenCache =
@@ -159,7 +160,7 @@ module Authentication =
     ///   use httpClient = Authentication.createAuthenticatedClient credential
     ///   // Use with IonQBackend, RigettiBackend, or Client modules
     let createAuthenticatedClient (credential: TokenCredential) : HttpClient =
-        let tokenManager = TokenManager(credential)
+        let tokenManager = new TokenManager(credential)
         // Handler chain: auth (adds bearer token) → throttling (client-side rate limiting
         // and exponential backoff on 429 / x-ms-ratelimit headers) → sockets.
         // DelegatingHandler requires an inner handler to forward requests to;

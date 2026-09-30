@@ -168,6 +168,10 @@ module HHLUnifiedTests =
                     | Measure _
                     | U3 _
                     | Reset _
+                    | Conditional _
+                    | RXX _
+                    | RYY _
+                    | RZZ _
                     | Barrier _ -> false
                 | QuantumOperation.Extension _
                 | QuantumOperation.Braid _

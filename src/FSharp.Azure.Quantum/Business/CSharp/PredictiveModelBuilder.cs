@@ -271,7 +271,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         public static IPredictiveModel LoadFrom(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
-            var result = PredictiveModel.load(path);
+            var result = PredictiveModel.loadAsync(path, System.Threading.CancellationToken.None).GetAwaiter().GetResult();
 
             if (result.IsError)
             {
@@ -595,7 +595,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         public void SaveTo(string path)
         {
-            var result = PredictiveModel.save(path, _model);
+            var result = PredictiveModel.saveAsync(path, _model, System.Threading.CancellationToken.None).GetAwaiter().GetResult();
 
             if (result.IsError)
             {

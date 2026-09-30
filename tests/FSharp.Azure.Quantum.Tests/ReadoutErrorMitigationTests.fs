@@ -626,10 +626,14 @@ module ReadoutErrorMitigationTests =
                             | CircuitBuilder.CRY(c, t, angle) -> LocalSimulator.Gates.applyCRY c t angle state
                             | CircuitBuilder.CRZ(c, t, angle) -> LocalSimulator.Gates.applyCRZ c t angle state
                             | CircuitBuilder.SWAP(q1, q2) -> LocalSimulator.Gates.applySWAP q1 q2 state
+                            | CircuitBuilder.RXX(q1, q2, angle) -> LocalSimulator.Gates.applyRxx q1 q2 angle state
+                            | CircuitBuilder.RYY(q1, q2, angle) -> LocalSimulator.Gates.applyRyy q1 q2 angle state
+                            | CircuitBuilder.RZZ(q1, q2, angle) -> LocalSimulator.Gates.applyRzz q1 q2 angle state
                             | CircuitBuilder.CCX(c1, c2, t) -> LocalSimulator.Gates.applyCCX c1 c2 t state
                             | CircuitBuilder.RX(q, angle) -> LocalSimulator.Gates.applyRx q angle state
                             | CircuitBuilder.RY(q, angle) -> LocalSimulator.Gates.applyRy q angle state
                             | CircuitBuilder.RZ(q, angle) -> LocalSimulator.Gates.applyRz q angle state
+                            | CircuitBuilder.Conditional _ -> failwith "conditional gates are not simulated here"
                             | CircuitBuilder.Measure q ->
                                 // Perform realistic measurement with state collapse
                                 let outcome = LocalSimulator.Measurement.measureSingleQubit rng q state

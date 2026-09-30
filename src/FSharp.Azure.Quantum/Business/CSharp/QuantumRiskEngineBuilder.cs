@@ -1,8 +1,10 @@
 namespace FSharp.Azure.Quantum.Business.CSharp;
 
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Control;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumRiskEngineDSL;
 using static FSharp.Azure.Quantum.Core.BackendAbstraction;
@@ -165,7 +167,19 @@ public class QuantumRiskEngineBuilder
             _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend),
             _cancellationToken.HasValue ? FSharpOption<CancellationToken>.Some(_cancellationToken.Value) : FSharpOption<CancellationToken>.None);
 
-        return RiskEngine.execute(config);
+        // Same as the obsolete RiskEngine.execute: run the async analysis and raise on failure.
+        var token = _cancellationToken.HasValue
+            ? FSharpOption<CancellationToken>.Some(_cancellationToken.Value)
+            : FSharpOption<CancellationToken>.None;
+        var result = FSharpAsync.RunSynchronously(RiskEngine.executeAsync(config), FSharpOption<int>.None, token);
+
+        if (result.IsError)
+        {
+            throw new InvalidOperationException(
+                $"Risk analysis failed: {result.ErrorValue.Message}. Use executeAsync to handle this as a Result.");
+        }
+
+        return result.ResultValue;
     }
 
 }

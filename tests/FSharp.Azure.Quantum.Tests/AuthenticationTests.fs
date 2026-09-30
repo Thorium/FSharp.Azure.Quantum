@@ -25,7 +25,7 @@ let ``TokenManager should acquire token on first request`` () =
     async {
         let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
         let mockCredential = MockTokenCredential("test-token-123", expiresOn)
-        use tokenManager = TokenManager(mockCredential)
+        use tokenManager = new TokenManager(mockCredential)
 
         let! token = tokenManager.GetAccessTokenAsync()
 
@@ -50,7 +50,7 @@ let ``TokenManager should cache token on subsequent requests`` () =
                     ValueTask<AccessToken>(AccessToken("token", expiresOn))
             }
 
-        use tokenManager = TokenManager(trackingCredential)
+        use tokenManager = new TokenManager(trackingCredential)
 
         // First call
         let! token1 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
@@ -80,7 +80,7 @@ let ``TokenManager should refresh expired token`` () =
                     ValueTask<AccessToken>(AccessToken($"token-%d{callCount}", currentExpiry))
             }
 
-        use tokenManager = TokenManager(trackingCredential)
+        use tokenManager = new TokenManager(trackingCredential)
 
         // First call
         let! token1 = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
@@ -117,7 +117,7 @@ let ``TokenManager ClearCache should force token refresh`` () =
                     ValueTask<AccessToken>(AccessToken("token", expiresOn))
             }
 
-        use tokenManager = TokenManager(trackingCredential)
+        use tokenManager = new TokenManager(trackingCredential)
 
         let! _ = tokenManager.GetAccessTokenAsync() |> Async.StartImmediateAsTask
         Assert.Equal(1, callCount)
@@ -168,7 +168,7 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
     task {
         let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
         let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
-        let tokenManager = TokenManager(mockCredential)
+        let tokenManager = new TokenManager(mockCredential)
 
         let testHandler = new TestMessageHandler()
 
@@ -202,7 +202,7 @@ let ``AuthenticationHandler skips Authorization for requests marked no-auth`` ()
     task {
         let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
         let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
-        let tokenManager = TokenManager(mockCredential)
+        let tokenManager = new TokenManager(mockCredential)
 
         let testHandler = new TestMessageHandler()
 
@@ -240,7 +240,7 @@ type FailingTokenCredential(errorMessage: string) =
 let ``TokenManager should propagate credential errors`` () =
     task {
         let failingCredential = FailingTokenCredential("Invalid credentials")
-        let tokenManager = TokenManager(failingCredential)
+        let tokenManager = new TokenManager(failingCredential)
 
         let! ex =
             Assert.ThrowsAsync<AuthenticationFailedException>(fun () ->
@@ -262,7 +262,7 @@ let ``TokenManager should handle network timeout gracefully`` () =
                     raise (TimeoutException("Network timeout"))
             }
 
-        let tokenManager = TokenManager(timeoutCredential)
+        let tokenManager = new TokenManager(timeoutCredential)
 
         let! _ =
             Assert.ThrowsAsync<TimeoutException>(fun () ->
@@ -276,7 +276,7 @@ let ``TokenManager should handle network timeout gracefully`` () =
 let ``AuthenticationHandler should fail gracefully when token acquisition fails`` () =
     task {
         let failingCredential = FailingTokenCredential("Token acquisition failed")
-        let tokenManager = TokenManager(failingCredential)
+        let tokenManager = new TokenManager(failingCredential)
 
         let testHandler = new TestMessageHandler()
 
@@ -318,7 +318,7 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
                         ValueTask<AccessToken>(AccessToken("recovered-token", expiresOn))
             }
 
-        let tokenManager = TokenManager(recoveringCredential)
+        let tokenManager = new TokenManager(recoveringCredential)
 
         // First attempt should fail
         let! _ =
