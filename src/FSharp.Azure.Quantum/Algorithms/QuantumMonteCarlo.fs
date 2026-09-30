@@ -215,6 +215,24 @@ module QuantumMonteCarlo =
 
             Ok probabilities
         | QuantumState.DensityMatrix(rho, n) -> Ok(Array.init (1 <<< n) (fun i -> rho.[i, i].Real))
+        | QuantumState.FusionSuperposition superposition ->
+            // A topological backend's state: its logical-qubit probabilities, exact like a
+            // simulator's (bitstring.[q] = qubit q).
+            let n = superposition.LogicalQubits
+
+            Ok(Array.init (1 <<< n) (fun i -> superposition.Probability(Array.init n (fun q -> (i >>> q) &&& 1))))
+        | QuantumState.MeasurementHistogram(histogram, n) when n <= 30 ->
+            // A job's counts (character q = qubit q), as outcome frequencies.
+            let probabilities = Array.zeroCreate (1 <<< n)
+            let total = histogram |> Map.fold (fun acc _ c -> acc + max 0 c) 0 |> max 1 |> float
+
+            for KeyValue(key, count) in histogram do
+                let index =
+                    Seq.indexed key |> Seq.sumBy (fun (q, c) -> if c = '1' && q < n then 1 <<< q else 0)
+
+                probabilities.[index] <- probabilities.[index] + float (max 0 count) / total
+
+            Ok probabilities
         | _ ->
             Error(
                 QuantumError.OperationError(

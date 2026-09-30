@@ -554,3 +554,36 @@ module TopologicalBackendTests =
         | Error(QuantumError.NotImplemented _) -> () // Expected
         | Error err -> Assert.Fail($"Expected NotImplemented error, got: {err}")
         | Ok _ -> Assert.Fail("Conversion to TopologicalBraiding should return NotImplemented")
+
+    // ========================================================================
+    // AMPLITUDE ESTIMATION
+    // ========================================================================
+
+    [<Fact>]
+    let ``Quantum Monte Carlo runs on the topological backend and matches the simulator`` () =
+        // E[v] over a uniform 2-qubit distribution with values 0.1, 0.4, 0.6, 0.9 is 0.5. The
+        // topological state's logical-qubit probabilities feed the amplitude-estimation fit
+        // exactly as a simulator's state vector does.
+        let prep =
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.H 1)
+
+        let values = [| 0.1; 0.4; 0.6; 0.9 |]
+
+        let estimate (backend: IQuantumBackend) =
+            match
+                FSharp.Azure.Quantum.Algorithms.QuantumMonteCarlo.estimateBoundedExpectation prep values 2 1000 backend
+                |> Async.RunSynchronously
+            with
+            | Ok result -> result
+            | Error err -> failwith $"{backend.Name}: {err.Message}"
+
+        let local = estimate (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend())
+
+        let topological =
+            estimate (TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20))
+
+        Assert.Equal(0.5, topological.Expectation, 4)
+        Assert.Equal(local.Expectation, topological.Expectation, 6)
+        Assert.Equal(local.StandardError, topological.StandardError, 6)
