@@ -169,7 +169,8 @@ module ResourcePairing =
             if problem.Participants.Length < 2 then
                 return! Error(QuantumError.ValidationError("Participants", "must have at least 2 participants"))
             elif problem.Compatibilities.IsEmpty then
-                return! Error(QuantumError.ValidationError("Compatibilities", "must have at least one compatibility score"))
+                return!
+                    Error(QuantumError.ValidationError("Compatibilities", "must have at least one compatibility score"))
             elif problem.Compatibilities |> List.exists (fun c -> c.Weight < 0.0) then
                 return! Error(QuantumError.ValidationError("Weight", "compatibility weights must be non-negative"))
             elif
@@ -178,7 +179,8 @@ module ResourcePairing =
                     not (List.contains c.Participant1 problem.Participants)
                     || not (List.contains c.Participant2 problem.Participants))
             then
-                return! Error(QuantumError.ValidationError("Participants", "compatibility references unknown participant"))
+                return!
+                    Error(QuantumError.ValidationError("Participants", "compatibility references unknown participant"))
             else
                 // Quantum-first: run on the caller's backend, or default to the local simulator
                 // (a real quantum backend) when none was supplied.

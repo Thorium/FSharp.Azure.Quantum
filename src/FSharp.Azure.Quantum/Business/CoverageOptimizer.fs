@@ -146,9 +146,16 @@ module CoverageOptimizer =
                 return! Error(QuantumError.ValidationError("Cost", "option costs must be non-negative"))
             elif
                 problem.Options
-                |> List.exists (fun opt -> opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
+                |> List.exists (fun opt ->
+                    opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize))
             then
-                return! Error(QuantumError.ValidationError("CoveredElements", "element indices must be in range [0, UniverseSize)"))
+                return!
+                    Error(
+                        QuantumError.ValidationError(
+                            "CoveredElements",
+                            "element indices must be in range [0, UniverseSize)"
+                        )
+                    )
             else
                 // Quantum-first: run on the caller's backend, or default to the local simulator
                 // (a real quantum backend) when none was supplied.
