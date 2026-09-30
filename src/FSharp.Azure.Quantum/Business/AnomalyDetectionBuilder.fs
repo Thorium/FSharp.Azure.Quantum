@@ -427,7 +427,14 @@ module AnomalyDetector =
             // i.e. the squared distance to the mean of the training points in the
             // quantum feature space. (A binary SVM is degenerate here: with all
             // labels identical the SMO bounds collapse and no alpha can move.)
-            QuantumKernels.computeKernelMatrix backend featureMap problem.NormalData problem.Shots
+            (QuantumKernels.computeKernelMatrixAsync
+                backend
+                featureMap
+                problem.NormalData
+                problem.Shots
+                System.Threading.CancellationToken.None)
+                .GetAwaiter()
+                .GetResult()
             |> Result.mapError (fun e -> QuantumError.ValidationError("Input", $"Training failed: {e}"))
             |> Result.map (fun kernelMatrix ->
 
@@ -535,7 +542,16 @@ module AnomalyDetector =
         // Kernel between the sample and every training point
         let kernelResults =
             trainData
-            |> Array.map (fun x -> QuantumKernels.computeKernel backend detector.Model.FeatureMap sample x shots)
+            |> Array.map (fun x ->
+                (QuantumKernels.computeKernelAsync
+                    backend
+                    detector.Model.FeatureMap
+                    sample
+                    x
+                    shots
+                    System.Threading.CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult())
 
         match
             kernelResults

@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -100,7 +101,7 @@ module SimilaritySearch =
             ProgressReporter: Core.Progress.IProgressReporter option
 
             /// Optional cancellation token for early termination
-            CancellationToken: System.Threading.CancellationToken option
+            CancellationToken: CancellationToken option
 
             /// Optional logger for structured logging
             Logger: ILogger option
@@ -245,7 +246,7 @@ module SimilaritySearch =
         (b: float array)
         : QuantumResult<float> =
 
-        QuantumKernels.computeKernel backend featureMap a b shots
+        (QuantumKernels.computeKernelAsync backend featureMap a b shots CancellationToken.None).GetAwaiter().GetResult()
 
     // ========================================================================
     // INDEX BUILDING
@@ -283,7 +284,14 @@ module SimilaritySearch =
                     if problem.Verbose then
                         logInfo problem.Logger "  Computing quantum kernel matrix..."
 
-                    QuantumKernels.computeKernelMatrix backend featureMap features problem.Shots
+                    (QuantumKernels.computeKernelMatrixAsync
+                        backend
+                        featureMap
+                        features
+                        problem.Shots
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.map (fun matrix ->
                         Some matrix,
                         Some
@@ -343,7 +351,15 @@ module SimilaritySearch =
             ||> Array.fold (fun acc (item, features) ->
                 acc
                 |> Result.bind (fun sims ->
-                    QuantumKernels.computeKernel cfg.Backend cfg.FeatureMap queryFeatures features cfg.Shots
+                    (QuantumKernels.computeKernelAsync
+                        cfg.Backend
+                        cfg.FeatureMap
+                        queryFeatures
+                        features
+                        cfg.Shots
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.map (fun sim -> (item, sim) :: sims)))
             |> Result.map (List.rev >> Array.ofList)
 
@@ -474,11 +490,14 @@ module SimilaritySearch =
                     | None ->
                         match index.QuantumConfig with
                         | Some cfg ->
-                            QuantumKernels.computeKernelMatrix
+                            (QuantumKernels.computeKernelMatrixAsync
                                 cfg.Backend
                                 cfg.FeatureMap
                                 (index.Items |> Array.map snd)
                                 cfg.Shots
+                                CancellationToken.None)
+                                .GetAwaiter()
+                                .GetResult()
                             |> Result.map Some
                         | None ->
                             Error(
@@ -875,7 +894,7 @@ module SimilaritySearch =
         /// <summary>Set a cancellation token for early termination of indexing.</summary>
         /// <param name="token">Cancellation token</param>
         [<CustomOperation("cancellationToken")>]
-        member _.CancellationToken(problem: SearchProblem<'T>, token: System.Threading.CancellationToken) =
+        member _.CancellationToken(problem: SearchProblem<'T>, token: CancellationToken) =
             { problem with
                 CancellationToken = Some token
             }

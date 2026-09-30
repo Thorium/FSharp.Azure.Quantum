@@ -366,14 +366,12 @@ module QuantumMatchingSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Solve maximum matching using QAOA with full configuration control.
-    /// Automatically decomposes into connected components when the problem
-    /// exceeds backend qubit capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
+    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
+        (cancellationToken: CancellationToken)
         : Result<Solution, QuantumError> =
 
         match validateProblem problem with
@@ -390,7 +388,10 @@ module QuantumMatchingSolver =
                             executeQaoaWithOptimization backend qubo config
                             |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
-                            executeQaoaWithGridSearch backend qubo config
+                            // Sequential (maxConcurrency = 1) grid search, as before
+                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
+                                .GetAwaiter()
+                                .GetResult()
                             |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
@@ -419,6 +420,17 @@ module QuantumMatchingSolver =
 
             ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
+    /// Solve maximum matching using QAOA with full configuration control.
+    /// Automatically decomposes into connected components when the problem
+    /// exceeds backend qubit capacity.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
+    let solveWithConfig
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: Problem)
+        (config: Config)
+        : Result<Solution, QuantumError> =
+        solveWithConfigCore backend problem config CancellationToken.None
+
     /// Solve maximum matching using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
     /// once ProblemDecomposition supports async solve functions.
@@ -430,7 +442,7 @@ module QuantumMatchingSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfig backend problem config
+            return solveWithConfigCore backend problem config cancellationToken
         }
 
     /// Solve maximum matching using QAOA with default configuration.

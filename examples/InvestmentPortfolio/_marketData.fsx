@@ -564,17 +564,11 @@ module MarketData =
 
         let dropped =
             fetched
-            |> List.choose (fun (s, r) ->
-                match r with
-                | Error e -> Some(s, e)
-                | Ok _ -> None)
+            |> List.choose (fun (s, r) -> r |> Result.map (fun _ -> None) |> Result.defaultWith (fun e -> Some(s, e)))
 
         let kept =
             fetched
-            |> List.choose (fun (s, r) ->
-                match r with
-                | Ok bars -> Some(s, bars)
-                | Error _ -> None)
+            |> List.choose (fun (s, r) -> r |> Result.map (fun bars -> Some(s, bars)) |> Result.defaultValue None)
 
         if kept.IsEmpty then
             Error(dropped |> List.map (fun (s, e) -> $"%s{s}: %s{e}") |> String.concat "; ")

@@ -434,7 +434,7 @@ let resultMaps =
             r.Couple.ReferenceDeltaH
             |> Option.map (sprintf "%.1f")
             |> Option.defaultValue ""
-            "e0_prime_v", sprintf "%.3f" r.Couple.E0Prime
+            "e0_prime_v", $"%.3f{r.Couple.E0Prime}"
             "hamiltonian", sourceLabel r
         ]
         |> Map.ofList)

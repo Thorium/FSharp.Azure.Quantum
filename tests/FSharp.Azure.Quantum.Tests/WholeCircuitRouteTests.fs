@@ -280,10 +280,10 @@ module WholeCircuitRouteTests =
                 member _.InitializeState n = local.InitializeState n
 
                 member this.ExecuteToStateAsync circuit _ =
-                    Threading.Tasks.Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
+                    Threading.Tasks.Task.FromResult(this.ExecuteToState circuit)
 
                 member this.ApplyOperationAsync operation state _ =
-                    Threading.Tasks.Task.FromResult((this :> IQuantumBackend).ApplyOperation operation state)
+                    Threading.Tasks.Task.FromResult(this.ApplyOperation operation state)
             }
 
         let recording = RecordingBackend(native, None)

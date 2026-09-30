@@ -367,7 +367,7 @@ let private computeRoute (index: int) (route: SynthesisRoute) : RouteResult =
                     role
                     molecule.Name
                     e.Energy
-                    (if e.Reused then "cached" else sprintf "%5.1fs" e.Seconds)
+                    (if e.Reused then "cached" else $"%5.1f{e.Seconds}s")
                     (ChemistryIntegrals.describeSource e.Source)
                     (if e.Converged then "" else " not converged")
             | Error msg -> printfn "         %-8s %-32s E = FAILED  (%s)" role molecule.Name msg
@@ -547,9 +547,9 @@ if not quiet then
     match
         results
         |> List.choose (fun r ->
-            match r.ActivationEnergy with
-            | Ok ea -> Some(r, ea)
-            | Error _ -> None)
+            r.ActivationEnergy
+            |> Result.map (fun ea -> Some(r, ea))
+            |> Result.defaultValue None)
         |> List.sortBy snd
     with
     | (best, ea) :: _ ->
@@ -601,7 +601,7 @@ let resultMaps =
             (match r.ActivationEnergy with
              | Ok ea -> sprintf "%.2f" (ea * hartreeToKcalMol)
              | Error why -> why)
-            "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+            "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
             "hamiltonian", sourceLabel r
         ]
         |> Map.ofList)

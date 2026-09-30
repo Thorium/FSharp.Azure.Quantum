@@ -7,6 +7,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Backends.DensityMatrixSimulator
+open System.Threading
+open System.Threading.Tasks
 
 /// Tests for the density-matrix noisy simulator.
 module NoisyBackendTests =
@@ -88,17 +90,21 @@ module NoisyBackendTests =
         | _ -> failwith "observe failed on the density-matrix backend"
 
     [<Fact>]
-    let ``a quantum ML kernel runs end-to-end on the noisy density-matrix backend`` () =
-        // The ML path (quantum kernel) is parameterised on IQuantumBackend, so it runs on the
-        // noisy backend too. K(x, x) should be near 1 (identical points), slightly reduced by noise.
-        let noisy = NoisyLocalBackend(depolarizing 0.02 0.02) :> IQuantumBackend
-        let x = [| 0.4; 0.7 |]
+    let ``a quantum ML kernel runs end-to-end on the noisy density-matrix backend`` () : Task =
+        task {
+            // The ML path (quantum kernel) is parameterised on IQuantumBackend, so it runs on the
+            // noisy backend too. K(x, x) should be near 1 (identical points), slightly reduced by noise.
+            let noisy = NoisyLocalBackend(depolarizing 0.02 0.02) :> IQuantumBackend
+            let x = [| 0.4; 0.7 |]
 
-        match QuantumKernels.computeKernel noisy FeatureMapType.AngleEncoding x x 1000 with
-        | Error e -> failwith $"noisy kernel failed: {e.Message}"
-        | Ok k ->
-            Assert.True(k >= 0.0 && k <= 1.0, $"kernel value out of range: {k}")
-            Assert.True(k > 0.7, $"K(x,x) should be near 1 even with light noise, got {k}")
+            match!
+                QuantumKernels.computeKernelAsync noisy FeatureMapType.AngleEncoding x x 1000 CancellationToken.None
+            with
+            | Error e -> failwith $"noisy kernel failed: {e.Message}"
+            | Ok k ->
+                Assert.True(k >= 0.0 && k <= 1.0, $"kernel value out of range: {k}")
+                Assert.True(k > 0.7, $"K(x,x) should be near 1 even with light noise, got {k}")
+        }
 
     [<Fact>]
     let ``density-matrix simulation rejects circuits that are too large`` () =

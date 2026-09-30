@@ -54,9 +54,13 @@ module ArithmeticStateBasedTests =
                 | CZ(c, t) -> Gates.applyCZ c t s
                 | MCZ(controls, t) -> Gates.applyMultiControlledZ controls t s
                 | SWAP(q1, q2) -> Gates.applySWAP q1 q2 s
+                | RXX(q1, q2, angle) -> Gates.applyRxx q1 q2 angle s
+                | RYY(q1, q2, angle) -> Gates.applyRyy q1 q2 angle s
+                | RZZ(q1, q2, angle) -> Gates.applyRzz q1 q2 angle s
                 | CCX(c1, c2, t) -> Gates.applyCCX c1 c2 t s
                 | Measure _ -> s
                 | Reset _ -> s
+                | Conditional _ -> failwith "conditional gates are not simulated here"
                 | Barrier _ -> s)
             initialState
 

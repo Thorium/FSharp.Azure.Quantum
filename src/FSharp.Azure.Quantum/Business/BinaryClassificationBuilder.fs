@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open System.Threading
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum
@@ -109,7 +110,7 @@ module BinaryClassifier =
             ProgressReporter: Core.Progress.IProgressReporter option
 
             /// Optional cancellation token for early termination
-            CancellationToken: System.Threading.CancellationToken option
+            CancellationToken: CancellationToken option
 
             /// Optional structured logger
             Logger: ILogger option
@@ -320,7 +321,7 @@ module BinaryClassifier =
                             Some(sprintf "Binary classifier trained %s" (startTime.ToString "yyyy-MM-dd HH:mm:ss"))
 
                     match
-                        ModelSerialization.saveVQCTrainingResult
+                        ModelSerialization.saveVQCTrainingResultAsync
                             path
                             result
                             numQubits
@@ -329,6 +330,9 @@ module BinaryClassifier =
                             "RealAmplitudes"
                             2
                             note
+                            CancellationToken.None
+                        |> Async.AwaitTask
+                        |> Async.RunSynchronously
                     with
                     | Error _e ->
                         // Model save failure is non-fatal: the trained classifier is still valid.
@@ -373,7 +377,9 @@ module BinaryClassifier =
             let predictionResults =
                 features
                 |> Array.map (fun x ->
-                    QuantumKernelSVM.predict backend model x config.Shots
+                    (QuantumKernelSVM.predictAsync backend model x config.Shots CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
                     |> Result.map (fun pred -> pred.Label))
 
             let firstError =
@@ -461,7 +467,7 @@ module BinaryClassifier =
                 })
 
         | SVMModel(model, storedNumQubits) ->
-            QuantumKernelSVM.predict backend model sample 1000
+            (QuantumKernelSVM.predictAsync backend model sample 1000 CancellationToken.None).GetAwaiter().GetResult()
             |> Result.map (fun prediction ->
                 // Convert decision value to confidence (sigmoid-like transformation)
                 let confidence = 1.0 / (1.0 + exp (-abs prediction.DecisionValue))
@@ -585,7 +591,7 @@ module BinaryClassifier =
                 | TwoLocal _
                 | EfficientSU2 _ -> 0
 
-            ModelSerialization.saveVQCTrainingResult
+            ModelSerialization.saveVQCTrainingResultAsync
                 path
                 result
                 numQubits
@@ -594,15 +600,14 @@ module BinaryClassifier =
                 vfType
                 vfDepth
                 classifier.Metadata.Note
+                CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
         | SVMModel(svmModel, _numQubits) ->
             // numQubits is recoverable from the feature dimension on load, so it isn't
             // separately persisted; use the canonical SVM schema (SVMModelSerialization).
-            SVMModelSerialization.saveSVMModelAsync
-                path
-                svmModel
-                classifier.Metadata.Note
-                System.Threading.CancellationToken.None
+            SVMModelSerialization.saveSVMModelAsync path svmModel classifier.Metadata.Note CancellationToken.None
             |> Async.AwaitTask
             |> Async.RunSynchronously
 
@@ -824,7 +829,7 @@ module BinaryClassifier =
         /// <summary>Set a cancellation token for early termination of training.</summary>
         /// <param name="token">Cancellation token</param>
         [<CustomOperation("cancellationToken")>]
-        member _.CancellationToken(problem: ClassificationProblem, token: System.Threading.CancellationToken) =
+        member _.CancellationToken(problem: ClassificationProblem, token: CancellationToken) =
             { problem with
                 CancellationToken = Some token
             }

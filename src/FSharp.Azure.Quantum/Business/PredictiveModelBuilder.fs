@@ -704,7 +704,11 @@ module PredictiveModel =
     let private saveModelIfRequested (savePath: string option) (verbose: bool) (logger: ILogger option) (model: Model) =
         match savePath with
         | Some path ->
-            match save path model with
+            match
+                saveAsync path model CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Ok() ->
                 if verbose then
                     logInfo logger $"[OK] Model saved to: {path}"
@@ -1030,7 +1034,7 @@ module PredictiveModel =
                     // VQC-based non-linear regression.
                     // Apply the same feature truncation used at training time (qubit cap).
                     match
-                        VQC.predictRegression
+                        (VQC.predictRegressionAsync
                             actualBackend
                             featureMap
                             varForm
@@ -1038,6 +1042,9 @@ module PredictiveModel =
                             (truncateFeatures numQubits features)
                             actualShots
                             vqcResult.ValueRange
+                            CancellationToken.None)
+                            .GetAwaiter()
+                            .GetResult()
                     with
                     | Ok pred ->
                         Ok
@@ -1062,7 +1069,16 @@ module PredictiveModel =
 
                 | SVMRegressor svmModel ->
                     // Use SVM for regression prediction
-                    match QuantumKernelSVM.predict actualBackend svmModel features actualShots with
+                    match
+                        (QuantumKernelSVM.predictAsync
+                            actualBackend
+                            svmModel
+                            features
+                            actualShots
+                            CancellationToken.None)
+                            .GetAwaiter()
+                            .GetResult()
+                    with
                     | Ok prediction ->
                         Ok
                             {

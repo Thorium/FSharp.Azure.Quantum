@@ -33,30 +33,41 @@ module IntegrationTests =
     // ===========================================
 
     [<Fact>]
-    let ``TSP Quantum - 5-city problem with emulator should produce valid tour`` () =
-        // Arrange: Small problem suitable for quantum emulation (5 cities = 25 qubits, within LocalBackend 10-qubit limit is too tight)
-        // Note: 5 cities requires 25 qubits (N^2), but LocalBackend only supports 10 qubits
-        // Using 3 cities (9 qubits) to stay within limit
-        let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
+    let ``TSP Quantum - 5-city problem with emulator should produce valid tour`` () : Task =
+        task {
+            // Arrange: Small problem suitable for quantum emulation (5 cities = 25 qubits, within LocalBackend 10-qubit limit is too tight)
+            // Note: 5 cities requires 25 qubits (N^2), but LocalBackend only supports 10 qubits
+            // Using 3 cities (9 qubits) to stay within limit
+            let cities = [ ("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0) ]
 
-        let problem = TSP.createProblem cities
+            let problem = TSP.createProblem cities
 
-        // Act: Solve using QuantumTspSolver with LocalBackend (quantum emulator)
-        let backend = createLocalBackend ()
-        let result = QuantumTspSolver.solveWithShots backend problem.DistanceMatrix 1000
+            // Act: Solve using QuantumTspSolver with LocalBackend (quantum emulator)
+            let backend = createLocalBackend ()
 
-        // Assert: Verify basic solution properties
-        match result with
-        | Ok solution ->
-            Assert.Equal(3, solution.Tour.Length)
-            Assert.True(solution.TourLength > 0.0)
-            Assert.Equal("Local Simulator", solution.BackendName)
-            Assert.Equal(1000, solution.NumShots)
+            let! result =
+                QuantumTspSolver.solveAsync
+                    backend
+                    problem.DistanceMatrix
+                    { QuantumTspSolver.defaultConfig with
+                        FinalShots = 1000
+                        EnableOptimization = false
+                    }
+                    CancellationToken.None
 
-            // Verify all cities visited
-            let uniqueCities = solution.Tour |> Array.distinct
-            Assert.Equal(3, uniqueCities.Length)
-        | Error msg -> Assert.Fail($"Expected successful solution, got error: {msg}")
+            // Assert: Verify basic solution properties
+            match result with
+            | Ok solution ->
+                Assert.Equal(3, solution.Tour.Length)
+                Assert.True(solution.TourLength > 0.0)
+                Assert.Equal("Local Simulator", solution.BackendName)
+                Assert.Equal(1000, solution.NumShots)
+
+                // Verify all cities visited
+                let uniqueCities = solution.Tour |> Array.distinct
+                Assert.Equal(3, uniqueCities.Length)
+            | Error msg -> Assert.Fail($"Expected successful solution, got error: {msg}")
+        }
 
     // ===========================================
     // Test Scenario 3: Portfolio Classical Backend
@@ -104,6 +115,8 @@ module IntegrationTests =
     // Test Scenario 4.5: Quantum Portfolio Solver Async vs Sync
     // ===========================================
 
+    // Covers the deprecated synchronous wrapper on purpose: this test compares it with the async API.
+    #nowarn "44"
     [<Fact>]
     let ``QuantumPortfolioSolver - solveAsync produces same results as solve`` () =
         // Arrange: Small 3-asset portfolio suitable for quantum simulation
@@ -171,6 +184,7 @@ module IntegrationTests =
             | _, Error msg -> Assert.Fail($"Async version failed: {msg}")
         }
         :> Task
+    #warnon "44"
 
     [<Fact>]
     let ``QuantumPortfolioSolver - solveAsync allows concurrent execution`` () =

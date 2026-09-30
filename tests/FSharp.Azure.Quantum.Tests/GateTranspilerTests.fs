@@ -191,6 +191,10 @@ module GateTranspilerTests =
                 | CCX _
                 | Measure _
                 | Reset _
+                | Conditional _
+                | RXX _
+                | RYY _
+                | RZZ _
                 | Barrier _ -> failwith $"Unsupported gate for IonQ: {gate}"
         )
 
@@ -236,6 +240,10 @@ module GateTranspilerTests =
                 | CCX _
                 | Measure _
                 | Reset _
+                | Conditional _
+                | RXX _
+                | RYY _
+                | RZZ _
                 | Barrier _ -> failwith $"Unsupported gate for Rigetti: {gate}"
         )
 

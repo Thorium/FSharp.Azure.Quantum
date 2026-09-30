@@ -22,7 +22,7 @@ module ChemistryIntegrals =
 
     /// File-name stem of a species' FCIDUMP: lowercase letters and digits, other runs as '-'.
     let speciesSlug (name: string) : string =
-        speciesSlugRegex.Replace(name.ToLowerInvariant(), "-").Trim('-')
+        speciesSlugRegex.Replace(name.ToLowerInvariant(), "-").Trim '-'
 
     /// FCIDUMP file name expected for a species.
     let fcidumpFileName (molecule: Molecule) : string = speciesSlug molecule.Name + ".fcidump"

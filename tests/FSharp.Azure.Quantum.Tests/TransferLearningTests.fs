@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.MachineLearning.Tests
 open Xunit
 open FSharp.Azure.Quantum.MachineLearning
 open System.IO
+open System.Threading
+open System.Threading.Tasks
 
 module TransferLearningTests =
 
@@ -14,10 +16,11 @@ module TransferLearningTests =
         if File.Exists filePath then
             File.Delete filePath
 
+
     let private createTestModel (filePath: string) =
         let parameters = [| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |] // 8 params = 4 layers * 2 params/layer
 
-        ModelSerialization.saveVQCModel
+        ModelSerialization.saveVQCModelAsync
             filePath
             parameters
             0.5
@@ -27,6 +30,7 @@ module TransferLearningTests =
             "RealAmplitudes"
             2
             (Some "Base model for transfer learning")
+            CancellationToken.None
 
     // ========================================================================
     // LOAD FOR TRANSFER LEARNING TESTS
@@ -34,25 +38,28 @@ module TransferLearningTests =
 
     [<Fact>]
     let ``Load for transfer learning returns parameters and architecture`` () =
-        let testFile = "test_transfer_load.json"
-        cleanupTestFile testFile
-
-        try
-            match createTestModel testFile with
-            | Error e -> Assert.Fail($"Setup failed: {e}")
-            | Ok() ->
-
-                match ModelSerialization.loadForTransferLearning testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok(params, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
-                    Assert.Equal(8, params.Length)
-                    Assert.Equal(2, numQubits)
-                    Assert.Equal("ZZFeatureMap", fmType)
-                    Assert.Equal(2, fmDepth)
-                    Assert.Equal("RealAmplitudes", vfType)
-                    Assert.Equal(2, vfDepth)
-        finally
+        task {
+            let testFile = "test_transfer_load.json"
             cleanupTestFile testFile
+
+            try
+                match! createTestModel testFile with
+                | Error e -> Assert.Fail($"Setup failed: {e}")
+                | Ok() ->
+
+                    match ModelSerialization.loadForTransferLearning testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok(loadedParams, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
+                        Assert.Equal(8, loadedParams.Length)
+                        Assert.Equal(2, numQubits)
+                        Assert.Equal("ZZFeatureMap", fmType)
+                        Assert.Equal(2, fmDepth)
+                        Assert.Equal("RealAmplitudes", vfType)
+                        Assert.Equal(2, vfDepth)
+            finally
+                cleanupTestFile testFile
+        }
+        :> Task
 
     // ========================================================================
     // INITIALIZE FOR FINE-TUNING TESTS
@@ -66,8 +73,8 @@ module TransferLearningTests =
 
         match ModelSerialization.initializeForFineTuning pretrainedParams numLayers freezeLayers with
         | Error e -> Assert.Fail($"Init failed: {e}")
-        | Ok(params, frozenIndices) ->
-            Assert.Equal<float seq>(pretrainedParams, params)
+        | Ok(loadedParams, frozenIndices) ->
+            Assert.Equal<float seq>(pretrainedParams, loadedParams)
             Assert.Empty(frozenIndices)
 
     [<Fact>]
@@ -78,8 +85,8 @@ module TransferLearningTests =
 
         match ModelSerialization.initializeForFineTuning pretrainedParams numLayers freezeLayers with
         | Error e -> Assert.Fail($"Init failed: {e}")
-        | Ok(params, frozenIndices) ->
-            Assert.Equal<float seq>(pretrainedParams, params)
+        | Ok(loadedParams, frozenIndices) ->
+            Assert.Equal<float seq>(pretrainedParams, loadedParams)
             Assert.Equal(4, frozenIndices.Length) // 2 layers * 2 params/layer
             Assert.Equal<int seq>([| 0; 1; 2; 3 |], frozenIndices)
 
@@ -158,88 +165,163 @@ module TransferLearningTests =
 
     [<Fact>]
     let ``Compatible models return true`` () =
-        let testFile1 = "test_compat_1.json"
-        let testFile2 = "test_compat_2.json"
-        cleanupTestFile testFile1
-        cleanupTestFile testFile2
-
-        try
-            // Create two models with same architecture
-            let params1 = [| 0.1; 0.2; 0.3; 0.4 |]
-            let params2 = [| 0.5; 0.6; 0.7; 0.8 |]
-
-            match ModelSerialization.saveVQCModel testFile1 params1 0.5 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
-            | Error e -> Assert.Fail($"Save 1 failed: {e}")
-            | Ok() ->
-
-                match
-                    ModelSerialization.saveVQCModel testFile2 params2 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None
-                with
-                | Error e -> Assert.Fail($"Save 2 failed: {e}")
-                | Ok() ->
-
-                    match ModelSerialization.areModelsCompatible testFile1 testFile2 with
-                    | Error e -> Assert.Fail($"Compatibility check failed: {e}")
-                    | Ok compatible -> Assert.True(compatible)
-        finally
+        task {
+            let testFile1 = "test_compat_1.json"
+            let testFile2 = "test_compat_2.json"
             cleanupTestFile testFile1
             cleanupTestFile testFile2
+
+            try
+                // Create two models with same architecture
+                let params1 = [| 0.1; 0.2; 0.3; 0.4 |]
+                let params2 = [| 0.5; 0.6; 0.7; 0.8 |]
+
+                match!
+                    ModelSerialization.saveVQCModelAsync
+                        testFile1
+                        params1
+                        0.5
+                        2
+                        "ZZFeatureMap"
+                        2
+                        "RealAmplitudes"
+                        1
+                        None
+                        CancellationToken.None
+                with
+                | Error e -> Assert.Fail($"Save 1 failed: {e}")
+                | Ok() ->
+
+                    match!
+                        ModelSerialization.saveVQCModelAsync
+                            testFile2
+                            params2
+                            0.3
+                            2
+                            "ZZFeatureMap"
+                            2
+                            "RealAmplitudes"
+                            1
+                            None
+                            CancellationToken.None
+                    with
+                    | Error e -> Assert.Fail($"Save 2 failed: {e}")
+                    | Ok() ->
+
+                        match ModelSerialization.areModelsCompatible testFile1 testFile2 with
+                        | Error e -> Assert.Fail($"Compatibility check failed: {e}")
+                        | Ok compatible -> Assert.True(compatible)
+            finally
+                cleanupTestFile testFile1
+                cleanupTestFile testFile2
+        }
+        :> Task
 
     [<Fact>]
     let ``Incompatible models return false - different qubits`` () =
-        let testFile1 = "test_incompat_1.json"
-        let testFile2 = "test_incompat_2.json"
-        cleanupTestFile testFile1
-        cleanupTestFile testFile2
-
-        try
-            let params1 = [| 0.1; 0.2 |]
-            let params2 = [| 0.5; 0.6 |]
-
-            match ModelSerialization.saveVQCModel testFile1 params1 0.5 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
-            | Error e -> Assert.Fail($"Save 1 failed: {e}")
-            | Ok() ->
-
-                match
-                    ModelSerialization.saveVQCModel testFile2 params2 0.3 3 "ZZFeatureMap" 2 "RealAmplitudes" 1 None
-                with
-                | Error e -> Assert.Fail($"Save 2 failed: {e}")
-                | Ok() ->
-
-                    match ModelSerialization.areModelsCompatible testFile1 testFile2 with
-                    | Error e -> Assert.Fail($"Compatibility check failed: {e}")
-                    | Ok compatible -> Assert.False(compatible)
-        finally
+        task {
+            let testFile1 = "test_incompat_1.json"
+            let testFile2 = "test_incompat_2.json"
             cleanupTestFile testFile1
             cleanupTestFile testFile2
+
+            try
+                let params1 = [| 0.1; 0.2 |]
+                let params2 = [| 0.5; 0.6 |]
+
+                match!
+                    ModelSerialization.saveVQCModelAsync
+                        testFile1
+                        params1
+                        0.5
+                        2
+                        "ZZFeatureMap"
+                        2
+                        "RealAmplitudes"
+                        1
+                        None
+                        CancellationToken.None
+                with
+                | Error e -> Assert.Fail($"Save 1 failed: {e}")
+                | Ok() ->
+
+                    match!
+                        ModelSerialization.saveVQCModelAsync
+                            testFile2
+                            params2
+                            0.3
+                            3
+                            "ZZFeatureMap"
+                            2
+                            "RealAmplitudes"
+                            1
+                            None
+                            CancellationToken.None
+                    with
+                    | Error e -> Assert.Fail($"Save 2 failed: {e}")
+                    | Ok() ->
+
+                        match ModelSerialization.areModelsCompatible testFile1 testFile2 with
+                        | Error e -> Assert.Fail($"Compatibility check failed: {e}")
+                        | Ok compatible -> Assert.False(compatible)
+            finally
+                cleanupTestFile testFile1
+                cleanupTestFile testFile2
+        }
+        :> Task
 
     [<Fact>]
     let ``Incompatible models return false - different variational form`` () =
-        let testFile1 = "test_incompat_vf_1.json"
-        let testFile2 = "test_incompat_vf_2.json"
-        cleanupTestFile testFile1
-        cleanupTestFile testFile2
-
-        try
-            let params1 = [| 0.1; 0.2 |]
-            let params2 = [| 0.5; 0.6 |]
-
-            match ModelSerialization.saveVQCModel testFile1 params1 0.5 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
-            | Error e -> Assert.Fail($"Save 1 failed: {e}")
-            | Ok() ->
-
-                match
-                    ModelSerialization.saveVQCModel testFile2 params2 0.3 2 "ZZFeatureMap" 2 "EfficientSU2" 1 None
-                with
-                | Error e -> Assert.Fail($"Save 2 failed: {e}")
-                | Ok() ->
-
-                    match ModelSerialization.areModelsCompatible testFile1 testFile2 with
-                    | Error e -> Assert.Fail($"Compatibility check failed: {e}")
-                    | Ok compatible -> Assert.False(compatible)
-        finally
+        task {
+            let testFile1 = "test_incompat_vf_1.json"
+            let testFile2 = "test_incompat_vf_2.json"
             cleanupTestFile testFile1
             cleanupTestFile testFile2
+
+            try
+                let params1 = [| 0.1; 0.2 |]
+                let params2 = [| 0.5; 0.6 |]
+
+                match!
+                    ModelSerialization.saveVQCModelAsync
+                        testFile1
+                        params1
+                        0.5
+                        2
+                        "ZZFeatureMap"
+                        2
+                        "RealAmplitudes"
+                        1
+                        None
+                        CancellationToken.None
+                with
+                | Error e -> Assert.Fail($"Save 1 failed: {e}")
+                | Ok() ->
+
+                    match!
+                        ModelSerialization.saveVQCModelAsync
+                            testFile2
+                            params2
+                            0.3
+                            2
+                            "ZZFeatureMap"
+                            2
+                            "EfficientSU2"
+                            1
+                            None
+                            CancellationToken.None
+                    with
+                    | Error e -> Assert.Fail($"Save 2 failed: {e}")
+                    | Ok() ->
+
+                        match ModelSerialization.areModelsCompatible testFile1 testFile2 with
+                        | Error e -> Assert.Fail($"Compatibility check failed: {e}")
+                        | Ok compatible -> Assert.False(compatible)
+            finally
+                cleanupTestFile testFile1
+                cleanupTestFile testFile2
+        }
+        :> Task
 
     // ========================================================================
     // FEATURE EXTRACTOR TESTS
@@ -247,61 +329,70 @@ module TransferLearningTests =
 
     [<Fact>]
     let ``Extract feature extractor returns subset of parameters`` () =
-        let testFile = "test_feature_extractor.json"
-        cleanupTestFile testFile
-
-        try
-            match createTestModel testFile with
-            | Error e -> Assert.Fail($"Setup failed: {e}")
-            | Ok() ->
-
-                let numLayers = 4
-                let extractLayers = 2
-
-                match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
-                | Error e -> Assert.Fail($"Extract failed: {e}")
-                | Ok extractedParams ->
-                    Assert.Equal(4, extractedParams.Length) // 2 layers * 2 params/layer
-                    Assert.Equal<float seq>([| 0.1; 0.2; 0.3; 0.4 |], extractedParams)
-        finally
+        task {
+            let testFile = "test_feature_extractor.json"
             cleanupTestFile testFile
+
+            try
+                match! createTestModel testFile with
+                | Error e -> Assert.Fail($"Setup failed: {e}")
+                | Ok() ->
+
+                    let numLayers = 4
+                    let extractLayers = 2
+
+                    match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
+                    | Error e -> Assert.Fail($"Extract failed: {e}")
+                    | Ok extractedParams ->
+                        Assert.Equal(4, extractedParams.Length) // 2 layers * 2 params/layer
+                        Assert.Equal<float seq>([| 0.1; 0.2; 0.3; 0.4 |], extractedParams)
+            finally
+                cleanupTestFile testFile
+        }
+        :> Task
 
     [<Fact>]
     let ``Extract feature extractor rejects extractLayers exceeding total`` () =
-        let testFile = "test_feature_extractor_invalid.json"
-        cleanupTestFile testFile
-
-        try
-            match createTestModel testFile with
-            | Error e -> Assert.Fail($"Setup failed: {e}")
-            | Ok() ->
-
-                let numLayers = 4
-                let extractLayers = 5
-
-                match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
-                | Ok _ -> Assert.Fail("Should reject extractLayers > numLayers")
-                | Error msg -> Assert.Contains("cannot exceed", msg.Message)
-        finally
+        task {
+            let testFile = "test_feature_extractor_invalid.json"
             cleanupTestFile testFile
+
+            try
+                match! createTestModel testFile with
+                | Error e -> Assert.Fail($"Setup failed: {e}")
+                | Ok() ->
+
+                    let numLayers = 4
+                    let extractLayers = 5
+
+                    match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
+                    | Ok _ -> Assert.Fail("Should reject extractLayers > numLayers")
+                    | Error msg -> Assert.Contains("cannot exceed", msg.Message)
+            finally
+                cleanupTestFile testFile
+        }
+        :> Task
 
     [<Fact>]
     let ``Extract all layers returns full parameter set`` () =
-        let testFile = "test_extract_all.json"
-        cleanupTestFile testFile
-
-        try
-            match createTestModel testFile with
-            | Error e -> Assert.Fail($"Setup failed: {e}")
-            | Ok() ->
-
-                let numLayers = 4
-                let extractLayers = 4 // Extract all layers
-
-                match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
-                | Error e -> Assert.Fail($"Extract failed: {e}")
-                | Ok extractedParams ->
-                    Assert.Equal(8, extractedParams.Length)
-                    Assert.Equal<float seq>([| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |], extractedParams)
-        finally
+        task {
+            let testFile = "test_extract_all.json"
             cleanupTestFile testFile
+
+            try
+                match! createTestModel testFile with
+                | Error e -> Assert.Fail($"Setup failed: {e}")
+                | Ok() ->
+
+                    let numLayers = 4
+                    let extractLayers = 4 // Extract all layers
+
+                    match ModelSerialization.extractFeatureExtractor testFile numLayers extractLayers with
+                    | Error e -> Assert.Fail($"Extract failed: {e}")
+                    | Ok extractedParams ->
+                        Assert.Equal(8, extractedParams.Length)
+                        Assert.Equal<float seq>([| 0.1; 0.2; 0.3; 0.4; 0.5; 0.6; 0.7; 0.8 |], extractedParams)
+            finally
+                cleanupTestFile testFile
+        }
+        :> Task

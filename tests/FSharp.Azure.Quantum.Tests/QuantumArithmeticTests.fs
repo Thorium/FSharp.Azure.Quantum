@@ -70,7 +70,11 @@ module QuantumArithmeticTests =
             | CZ(c, t) -> Gates.applyCZ c t state
             | MCZ(controls, t) -> Gates.applyMultiControlledZ controls t state
             | SWAP(q1, q2) -> Gates.applySWAP q1 q2 state
+            | RXX(q1, q2, angle) -> Gates.applyRxx q1 q2 angle state
+            | RYY(q1, q2, angle) -> Gates.applyRyy q1 q2 angle state
+            | RZZ(q1, q2, angle) -> Gates.applyRzz q1 q2 angle state
             | CCX(c1, c2, t) -> Gates.applyCCX c1 c2 t state
+            | Conditional _ -> failwith "conditional gates are not simulated here"
             | Measure q ->
                 // Perform realistic measurement with state collapse
                 let outcome = Measurement.measureSingleQubit rng q state

@@ -132,26 +132,8 @@ module QuantumTspSolver =
             OptimizationConverged: bool option
         }
 
-    /// Solve TSP using quantum backend via QAOA
-    ///
-    /// Full Pipeline:
-    /// 1. Distance matrix → GraphOptimization problem
-    /// 2. GraphOptimization → QUBO matrix
-    /// 3. QUBO → QaoaCircuit (Hamiltonians + layers)
-    /// 4. (Optional) Optimize QAOA parameters (gamma, beta) using classical optimizer
-    /// 5. Execute circuit on quantum backend with optimized parameters
-    /// 6. Decode measurements → tours
-    /// 7. Return best tour
-    ///
-    /// Parameters:
-    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
-    ///   distances - Distance matrix between cities (NxN)
-    ///   config - Configuration for optimization and execution
-    ///
-    /// Returns:
-    ///   Result with QuantumTspSolution or QuantumError
-    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
-    let solve
+    /// Shared implementation of solve and solveAsync.
+    let private solveCore
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])
         (config: QuantumTspConfig)
@@ -268,7 +250,16 @@ module QuantumTspSolver =
                 let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                 let parameters = [| finalGamma, finalBeta |]
 
-                match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.FinalShots with
+                match
+                    (QaoaExecutionHelpers.executeFromQuboAsync
+                        backend
+                        quboArray
+                        parameters
+                        config.FinalShots
+                        CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult()
+                with
                 | Error err -> Error err
                 | Ok measurements ->
 
@@ -364,6 +355,32 @@ module QuantumTspSolver =
             with ex ->
                 Error(QuantumError.OperationError("QuantumTspSolver", $"Quantum TSP solver failed: %s{ex.Message}"))
 
+    /// Solve TSP using quantum backend via QAOA
+    ///
+    /// Full Pipeline:
+    /// 1. Distance matrix → GraphOptimization problem
+    /// 2. GraphOptimization → QUBO matrix
+    /// 3. QUBO → QaoaCircuit (Hamiltonians + layers)
+    /// 4. (Optional) Optimize QAOA parameters (gamma, beta) using classical optimizer
+    /// 5. Execute circuit on quantum backend with optimized parameters
+    /// 6. Decode measurements → tours
+    /// 7. Return best tour
+    ///
+    /// Parameters:
+    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
+    ///   distances - Distance matrix between cities (NxN)
+    ///   config - Configuration for optimization and execution
+    ///
+    /// Returns:
+    ///   Result with QuantumTspSolution or QuantumError
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
+    let solve
+        (backend: BackendAbstraction.IQuantumBackend)
+        (distances: float[,])
+        (config: QuantumTspConfig)
+        : Result<QuantumTspSolution, QuantumError> =
+        solveCore backend distances config
+
     /// Solve TSP using quantum backend via QAOA (async).
     /// Wraps the synchronous solve in a task; the Nelder-Mead optimization loop
     /// is inherently sequential (each step depends on previous evaluation),
@@ -376,14 +393,17 @@ module QuantumTspSolver =
         : Task<Result<QuantumTspSolution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solve backend distances config
+            return solveCore backend distances config
         }
 
     /// Solve TSP with default configuration (LocalBackend, optimization enabled)
     [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solveWithDefaults (distances: float[,]) : Result<QuantumTspSolution, QuantumError> =
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
-        solve backend distances defaultConfig
+
+        solveAsync backend distances defaultConfig CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve TSP with custom number of shots (backward compatibility - no optimization)
     /// Note: For parameter optimization, use solve with full QuantumTspConfig
@@ -399,4 +419,6 @@ module QuantumTspSolver =
                 EnableOptimization = false
             }
 
-        solve backend distances config
+        solveAsync backend distances config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously

@@ -54,7 +54,15 @@ module DrugDiscoverySolvers =
         (parameters: (float * float)[])
         (shots: int)
         : Result<int[][], QuantumError> =
-        QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam parameters shots
+        (QaoaExecutionHelpers.executeQaoaCircuitAsync
+            backend
+            problemHam
+            mixerHam
+            parameters
+            shots
+            CancellationToken.None)
+            .GetAwaiter()
+            .GetResult()
 
     /// Create objective function for Nelder-Mead optimization
     /// Returns expectation value of QUBO Hamiltonian (lower = better)
@@ -82,7 +90,10 @@ module DrugDiscoverySolvers =
         (qubo: float[,])
         (config: QaoaConfig)
         : Result<int[] * (float * float)[], QuantumError> =
-        QaoaExecutionHelpers.executeQaoaWithGridSearch backend qubo config
+        // Sequential (maxConcurrency = 1) grid search, as before
+        (QaoaExecutionHelpers.executeQaoaWithGridSearchAsync backend qubo config 1 CancellationToken.None)
+            .GetAwaiter()
+            .GetResult()
 
     // ================================================================================
     // MAXIMUM WEIGHT INDEPENDENT SET (MWIS)
@@ -187,9 +198,8 @@ module DrugDiscoverySolvers =
                 OptimizationConverged = None
             }
 
-        /// Solve using quantum QAOA with advanced features
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solveWithConfig
+        /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+        let private solveWithConfigCore
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
             (config: QaoaConfig)
@@ -229,6 +239,15 @@ module DrugDiscoverySolvers =
                             OptimizationConverged = converged
                         }
 
+        /// Solve using quantum QAOA with advanced features
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
+        let solveWithConfig
+            (backend: BackendAbstraction.IQuantumBackend)
+            (problem: Problem)
+            (config: QaoaConfig)
+            : Result<Solution, QuantumError> =
+            solveWithConfigCore backend problem config
+
         /// Solve using quantum QAOA with advanced features (async).
         /// Wraps the synchronous solveWithConfig in a task; will become truly async
         /// once the underlying QAOA helpers are wired through.
@@ -240,7 +259,7 @@ module DrugDiscoverySolvers =
             : Task<Result<Solution, QuantumError>> =
             task {
                 cancellationToken.ThrowIfCancellationRequested()
-                return solveWithConfig backend problem config
+                return solveWithConfigCore backend problem config
             }
 
         /// Solve using quantum QAOA with default configuration
@@ -465,9 +484,8 @@ module DrugDiscoverySolvers =
                 OptimizationConverged = None
             }
 
-        /// Solve using quantum QAOA with advanced features
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solveWithConfig
+        /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+        let private solveWithConfigCore
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
             (config: QaoaConfig)
@@ -511,6 +529,15 @@ module DrugDiscoverySolvers =
                             OptimizationConverged = converged
                         }
 
+        /// Solve using quantum QAOA with advanced features
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
+        let solveWithConfig
+            (backend: BackendAbstraction.IQuantumBackend)
+            (problem: Problem)
+            (config: QaoaConfig)
+            : Result<Solution, QuantumError> =
+            solveWithConfigCore backend problem config
+
         /// Solve using quantum QAOA with advanced features (async).
         /// Wraps the synchronous solveWithConfig in a task; will become truly async
         /// once the underlying QAOA helpers are wired through.
@@ -522,7 +549,7 @@ module DrugDiscoverySolvers =
             : Task<Result<Solution, QuantumError>> =
             task {
                 cancellationToken.ThrowIfCancellationRequested()
-                return solveWithConfig backend problem config
+                return solveWithConfigCore backend problem config
             }
 
         /// Solve using quantum QAOA with default configuration
@@ -778,9 +805,8 @@ module DrugDiscoverySolvers =
                 OptimizationConverged = None
             }
 
-        /// Solve using quantum QAOA with advanced features
-        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-        let solveWithConfig
+        /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+        let private solveWithConfigCore
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
             (config: QaoaConfig)
@@ -828,6 +854,15 @@ module DrugDiscoverySolvers =
                             OptimizationConverged = converged
                         }
 
+        /// Solve using quantum QAOA with advanced features
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
+        let solveWithConfig
+            (backend: BackendAbstraction.IQuantumBackend)
+            (problem: Problem)
+            (config: QaoaConfig)
+            : Result<Solution, QuantumError> =
+            solveWithConfigCore backend problem config
+
         /// Solve using quantum QAOA with advanced features (async).
         /// Wraps the synchronous solveWithConfig in a task; will become truly async
         /// once the underlying QAOA helpers are wired through.
@@ -839,7 +874,7 @@ module DrugDiscoverySolvers =
             : Task<Result<Solution, QuantumError>> =
             task {
                 cancellationToken.ThrowIfCancellationRequested()
-                return solveWithConfig backend problem config
+                return solveWithConfigCore backend problem config
             }
 
         /// Solve using quantum QAOA with default configuration

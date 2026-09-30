@@ -18,234 +18,264 @@ let private backend = LocalBackend.LocalBackend() :> IQuantumBackend
 [<Literal>]
 let private epsilon = 1e-6
 
+
 // ============================================================================
 // Kernel Computation Tests
 // ============================================================================
 
 [<Fact>]
-let ``computeKernel - should return value between 0 and 1`` () =
-    let featureMap = AngleEncoding
-    let x = [| 0.5; 0.3 |]
-    let y = [| 0.7; 0.4 |]
-    let shots = 1000
+let ``computeKernel - should return value between 0 and 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7; 0.4 |]
+        let shots = 1000
 
-    let result = computeKernel backend featureMap x y shots
-
-    match result with
-    | Ok kernelValue ->
-        Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0, $"Kernel value should be in [0,1], got %f{kernelValue}")
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
-
-[<Fact>]
-let ``computeKernel - identical vectors should give high kernel value`` () =
-    let featureMap = AngleEncoding
-    let x = [| 0.5; 0.3 |]
-    let shots = 1000
-
-    // K(x, x) should be close to 1.0 (identical states)
-    let result = computeKernel backend featureMap x x shots
-
-    match result with
-    | Ok kernelValue ->
-        // Due to quantum noise, might not be exactly 1.0 but should be high
-        Assert.True(kernelValue > 0.8, $"K(x,x) should be high (>0.8), got %f{kernelValue}")
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+        match! computeKernelAsync backend featureMap x y shots CancellationToken.None with
+        | Ok kernelValue ->
+            Assert.True(
+                kernelValue >= 0.0 && kernelValue <= 1.0,
+                $"Kernel value should be in [0,1], got %f{kernelValue}"
+            )
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernel - should reject empty feature vectors`` () =
-    let featureMap = AngleEncoding
-    let x = [||]
-    let y = [||]
-    let shots = 1000
+let ``computeKernel - identical vectors should give high kernel value`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let shots = 1000
 
-    let result = computeKernel backend featureMap x y shots
-
-    result
-    |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty vectors"))
-    |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
-
-[<Fact>]
-let ``computeKernel - should reject mismatched vector lengths`` () =
-    let featureMap = AngleEncoding
-    let x = [| 0.5; 0.3 |]
-    let y = [| 0.7 |] // Different length
-    let shots = 1000
-
-    let result = computeKernel backend featureMap x y shots
-
-    result
-    |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths"))
-    |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
+        // K(x, x) should be close to 1.0 (identical states)
+        match! computeKernelAsync backend featureMap x x shots CancellationToken.None with
+        | Ok kernelValue ->
+            // Due to quantum noise, might not be exactly 1.0 but should be high
+            Assert.True(kernelValue > 0.8, $"K(x,x) should be high (>0.8), got %f{kernelValue}")
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernel - should reject non-positive shots`` () =
-    let featureMap = AngleEncoding
-    let x = [| 0.5; 0.3 |]
-    let y = [| 0.7; 0.4 |]
-    let shots = 0
+let ``computeKernel - should reject empty feature vectors`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [||]
+        let y = [||]
+        let shots = 1000
 
-    let result = computeKernel backend featureMap x y shots
+        let! result = computeKernelAsync backend featureMap x y shots CancellationToken.None
 
-    result
-    |> Result.map (fun _ -> Assert.True(false, "Should have rejected zero shots"))
-    |> Result.defaultWith (fun msg -> Assert.Contains("must be positive", msg.Message))
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty vectors"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
+    }
 
 [<Fact>]
-let ``computeKernel - orthogonal states should give low kernel value`` () =
-    let featureMap = AngleEncoding
-    // These should produce nearly orthogonal quantum states
-    let x = [| 0.0; 0.0 |] // |00⟩
-    let y = [| 1.0; 1.0 |] // After rotation, should be far from |00⟩
-    let shots = 1000
+let ``computeKernel - should reject mismatched vector lengths`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7 |] // Different length
+        let shots = 1000
 
-    let result = computeKernel backend featureMap x y shots
+        let! result = computeKernelAsync backend featureMap x y shots CancellationToken.None
 
-    match result with
-    | Ok kernelValue ->
-        // Orthogonal states should have low overlap
-        Assert.True(kernelValue < 0.8, $"K(x,y) for distant states should be lower, got %f{kernelValue}")
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected mismatched lengths"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("same length", msg.Message))
+    }
+
+[<Fact>]
+let ``computeKernel - should reject non-positive shots`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7; 0.4 |]
+        let shots = 0
+
+        let! result = computeKernelAsync backend featureMap x y shots CancellationToken.None
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected zero shots"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("must be positive", msg.Message))
+    }
+
+[<Fact>]
+let ``computeKernel - orthogonal states should give low kernel value`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        // These should produce nearly orthogonal quantum states
+        let x = [| 0.0; 0.0 |] // |00⟩
+        let y = [| 1.0; 1.0 |] // After rotation, should be far from |00⟩
+        let shots = 1000
+
+        match! computeKernelAsync backend featureMap x y shots CancellationToken.None with
+        | Ok kernelValue ->
+            // Orthogonal states should have low overlap
+            Assert.True(kernelValue < 0.8, $"K(x,y) for distant states should be lower, got %f{kernelValue}")
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 // ============================================================================
 // Kernel Matrix Tests
 // ============================================================================
 
 [<Fact>]
-let ``computeKernelMatrix - should be square and symmetric`` () =
-    let featureMap = AngleEncoding
-    let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
-    let shots = 500
+let ``computeKernelMatrix - should be square and symmetric`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
+        let shots = 500
 
-    let result = computeKernelMatrix backend featureMap data shots
+        let! result =
+            computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
 
-    match result with
-    | Ok matrix ->
-        // Should be 3x3
-        Assert.Equal(3, Array2D.length1 matrix)
-        Assert.Equal(3, Array2D.length2 matrix)
+        match result with
+        | Ok matrix ->
+            // Should be 3x3
+            Assert.Equal(3, Array2D.length1 matrix)
+            Assert.Equal(3, Array2D.length2 matrix)
 
-        // Should be symmetric: K[i,j] ≈ K[j,i]
-        for i in 0..2 do
-            for j in i + 1 .. 2 do
-                Assert.True(
-                    abs (matrix.[i, j] - matrix.[j, i]) < 0.1,
-                    sprintf "Matrix should be symmetric at (%d,%d): %f vs %f" i j matrix.[i, j] matrix.[j, i]
-                )
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
-
-[<Fact>]
-let ``computeKernelMatrix - diagonal should be close to 1`` () =
-    let featureMap = AngleEncoding
-    let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
-    let shots = 1000
-
-    let result = computeKernelMatrix backend featureMap data shots
-
-    match result with
-    | Ok matrix ->
-        // Diagonal elements K(x,x) should be close to 1
-        for i in 0..1 do
-            Assert.True(matrix.[i, i] > 0.8, sprintf "K(%d,%d) should be high, got %f" i i matrix.[i, i])
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+            // Should be symmetric: K[i,j] ≈ K[j,i]
+            for i in 0..2 do
+                for j in i + 1 .. 2 do
+                    Assert.True(
+                        abs (matrix.[i, j] - matrix.[j, i]) < 0.1,
+                        sprintf "Matrix should be symmetric at (%d,%d): %f vs %f" i j matrix.[i, j] matrix.[j, i]
+                    )
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernelMatrix - should reject empty dataset`` () =
-    let featureMap = AngleEncoding
-    let data = [||]
-    let shots = 1000
+let ``computeKernelMatrix - diagonal should be close to 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
+        let shots = 1000
 
-    let result = computeKernelMatrix backend featureMap data shots
+        let! result =
+            computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
 
-    result
-    |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty dataset"))
-    |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
+        match result with
+        | Ok matrix ->
+            // Diagonal elements K(x,x) should be close to 1
+            for i in 0..1 do
+                Assert.True(matrix.[i, i] > 0.8, sprintf "K(%d,%d) should be high, got %f" i i matrix.[i, i])
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernelMatrix - all values should be in range 0 to 1`` () =
-    let featureMap = AngleEncoding
-    let data = [| [| 0.1; 0.2 |]; [| 0.8; 0.9 |]; [| 0.4; 0.5 |] |]
-    let shots = 500
+let ``computeKernelMatrix - should reject empty dataset`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [||]
+        let shots = 1000
 
-    let result = computeKernelMatrix backend featureMap data shots
+        let! result =
+            computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
 
-    match result with
-    | Ok matrix ->
-        for i in 0..2 do
-            for j in 0..2 do
-                Assert.True(
-                    matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
-                    sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i, j]
-                )
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty dataset"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("cannot be empty", msg.Message))
+    }
+
+[<Fact>]
+let ``computeKernelMatrix - all values should be in range 0 to 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [| [| 0.1; 0.2 |]; [| 0.8; 0.9 |]; [| 0.4; 0.5 |] |]
+        let shots = 500
+
+        let! result =
+            computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            for i in 0..2 do
+                for j in 0..2 do
+                    Assert.True(
+                        matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
+                        sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i, j]
+                    )
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 // ============================================================================
 // Train/Test Kernel Matrix Tests
 // ============================================================================
 
 [<Fact>]
-let ``computeKernelMatrixTrainTest - should have correct dimensions`` () =
-    let featureMap = AngleEncoding
-    let trainData = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
-    let testData = [| [| 0.7; 0.8 |]; [| 0.9; 1.0 |] |]
-    let shots = 500
+let ``computeKernelMatrixTrainTest - should have correct dimensions`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let trainData = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
+        let testData = [| [| 0.7; 0.8 |]; [| 0.9; 1.0 |] |]
+        let shots = 500
 
-    let result =
-        computeKernelMatrixTrainTest backend featureMap trainData testData shots
+        let! result =
+            computeKernelMatrixTrainTestAsync backend featureMap trainData testData shots CancellationToken.None
 
-    match result with
-    | Ok matrix ->
-        // Should be 2 (test) × 3 (train)
-        Assert.Equal(2, Array2D.length1 matrix)
-        Assert.Equal(3, Array2D.length2 matrix)
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
-
-[<Fact>]
-let ``computeKernelMatrixTrainTest - all values should be in range`` () =
-    let featureMap = AngleEncoding
-    let trainData = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
-    let testData = [| [| 0.5; 0.6 |] |]
-    let shots = 500
-
-    let result =
-        computeKernelMatrixTrainTest backend featureMap trainData testData shots
-
-    match result with
-    | Ok matrix ->
-        for i in 0..0 do
-            for j in 0..1 do
-                Assert.True(
-                    matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
-                    sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i, j]
-                )
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+        match result with
+        | Ok matrix ->
+            // Should be 2 (test) × 3 (train)
+            Assert.Equal(2, Array2D.length1 matrix)
+            Assert.Equal(3, Array2D.length2 matrix)
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernelMatrixTrainTest - should reject empty train data`` () =
-    let featureMap = AngleEncoding
-    let trainData = [||]
-    let testData = [| [| 0.5; 0.6 |] |]
-    let shots = 500
+let ``computeKernelMatrixTrainTest - all values should be in range`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let trainData = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
+        let testData = [| [| 0.5; 0.6 |] |]
+        let shots = 500
 
-    let result =
-        computeKernelMatrixTrainTest backend featureMap trainData testData shots
+        let! result =
+            computeKernelMatrixTrainTestAsync backend featureMap trainData testData shots CancellationToken.None
 
-    result
-    |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty train data"))
-    |> Result.defaultWith (fun msg -> Assert.Contains("Training dataset cannot be empty", msg.Message))
+        match result with
+        | Ok matrix ->
+            for i in 0..0 do
+                for j in 0..1 do
+                    Assert.True(
+                        matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
+                        sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i, j]
+                    )
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernelMatrixTrainTest - should reject empty test data`` () =
-    let featureMap = AngleEncoding
-    let trainData = [| [| 0.1; 0.2 |] |]
-    let testData = [||]
-    let shots = 500
+let ``computeKernelMatrixTrainTest - should reject empty train data`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let trainData = [||]
+        let testData = [| [| 0.5; 0.6 |] |]
+        let shots = 500
 
-    let result =
-        computeKernelMatrixTrainTest backend featureMap trainData testData shots
+        let! result =
+            computeKernelMatrixTrainTestAsync backend featureMap trainData testData shots CancellationToken.None
 
-    result
-    |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty test data"))
-    |> Result.defaultWith (fun msg -> Assert.Contains("Test dataset cannot be empty", msg.Message))
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty train data"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("Training dataset cannot be empty", msg.Message))
+    }
+
+[<Fact>]
+let ``computeKernelMatrixTrainTest - should reject empty test data`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let trainData = [| [| 0.1; 0.2 |] |]
+        let testData = [||]
+        let shots = 500
+
+        let! result =
+            computeKernelMatrixTrainTestAsync backend featureMap trainData testData shots CancellationToken.None
+
+        result
+        |> Result.map (fun _ -> Assert.True(false, "Should have rejected empty test data"))
+        |> Result.defaultWith (fun msg -> Assert.Contains("Test dataset cannot be empty", msg.Message))
+    }
 
 // ============================================================================
 // Kernel Properties Tests
@@ -398,61 +428,70 @@ let ``computeStats - should compute correct statistics`` () =
 // ============================================================================
 
 [<Fact>]
-let ``computeKernel - should work with ZZFeatureMap`` () =
-    let featureMap = ZZFeatureMap 1
-    let x = [| 0.5; 0.3 |]
-    let y = [| 0.7; 0.4 |]
-    let shots = 1000
+let ``computeKernel - should work with ZZFeatureMap`` () : Task =
+    task {
+        let featureMap = ZZFeatureMap 1
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7; 0.4 |]
+        let shots = 1000
 
-    let result = computeKernel backend featureMap x y shots
-
-    match result with
-    | Ok kernelValue ->
-        Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0, $"Kernel value should be in [0,1], got %f{kernelValue}")
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
-
-[<Fact>]
-let ``computeKernelMatrix - should work with ZZFeatureMap`` () =
-    let featureMap = ZZFeatureMap 1
-    let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
-    let shots = 500
-
-    let result = computeKernelMatrix backend featureMap data shots
-
-    match result with
-    | Ok matrix ->
-        Assert.Equal(2, Array2D.length1 matrix)
-        Assert.Equal(2, Array2D.length2 matrix)
-
-        // Diagonal should be high
-        Assert.True(matrix.[0, 0] > 0.7, sprintf "K[0,0] should be high, got %f" matrix.[0, 0])
-        Assert.True(matrix.[1, 1] > 0.7, sprintf "K[1,1] should be high, got %f" matrix.[1, 1])
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+        match! computeKernelAsync backend featureMap x y shots CancellationToken.None with
+        | Ok kernelValue ->
+            Assert.True(
+                kernelValue >= 0.0 && kernelValue <= 1.0,
+                $"Kernel value should be in [0,1], got %f{kernelValue}"
+            )
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 [<Fact>]
-let ``computeKernelMatrix - properties should hold for real quantum kernel`` () =
-    let featureMap = AngleEncoding
-    let data = [| [| 0.1; 0.2 |]; [| 0.5; 0.6 |]; [| 0.9; 1.0 |] |]
-    let shots = 1000
+let ``computeKernelMatrix - should work with ZZFeatureMap`` () : Task =
+    task {
+        let featureMap = ZZFeatureMap 1
+        let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
+        let shots = 500
 
-    let result = computeKernelMatrix backend featureMap data shots
+        let! result =
+            computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
 
-    match result with
-    | Ok matrix ->
-        let stats = computeStats matrix
+        match result with
+        | Ok matrix ->
+            Assert.Equal(2, Array2D.length1 matrix)
+            Assert.Equal(2, Array2D.length2 matrix)
 
-        // All values in valid range
-        Assert.True(
-            stats.Min >= 0.0 && stats.Max <= 1.0,
-            $"All kernel values should be in [0,1]: min=%f{stats.Min}, max=%f{stats.Max}"
-        )
+            // Diagonal should be high
+            Assert.True(matrix.[0, 0] > 0.7, sprintf "K[0,0] should be high, got %f" matrix.[0, 0])
+            Assert.True(matrix.[1, 1] > 0.7, sprintf "K[1,1] should be high, got %f" matrix.[1, 1])
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
-        // Should be symmetric (within quantum noise)
-        Assert.True(isSymmetric matrix 0.2, "Kernel matrix should be approximately symmetric")
+[<Fact>]
+let ``computeKernelMatrix - properties should hold for real quantum kernel`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [| [| 0.1; 0.2 |]; [| 0.5; 0.6 |]; [| 0.9; 1.0 |] |]
+        let shots = 1000
 
-        // Diagonal mean should be high (self-similarity)
-        Assert.True(stats.DiagonalMean > 0.8, $"Diagonal mean should be high, got %f{stats.DiagonalMean}")
-    | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+        let! result =
+            computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            let stats = computeStats matrix
+
+            // All values in valid range
+            Assert.True(
+                stats.Min >= 0.0 && stats.Max <= 1.0,
+                $"All kernel values should be in [0,1]: min=%f{stats.Min}, max=%f{stats.Max}"
+            )
+
+            // Should be symmetric (within quantum noise)
+            Assert.True(isSymmetric matrix 0.2, "Kernel matrix should be approximately symmetric")
+
+            // Diagonal mean should be high (self-similarity)
+            Assert.True(stats.DiagonalMean > 0.8, $"Diagonal mean should be high, got %f{stats.DiagonalMean}")
+        | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
+    }
 
 // ============================================================================
 // Async Kernel Computation Tests
@@ -489,6 +528,7 @@ let ``computeKernelAsync - identical vectors should give high kernel value`` () 
         | Error err -> Assert.True(false, $"Should not fail: %s{err.Message}")
     }
 
+#nowarn "44" // This test compares against the deprecated synchronous computeKernel wrapper on purpose.
 [<Fact>]
 let ``computeKernelAsync - produces equivalent results to sync version`` () : Task =
     task {
@@ -510,6 +550,7 @@ let ``computeKernelAsync - produces equivalent results to sync version`` () : Ta
         | Error _, _
         | _, Error _ -> Assert.True(false, "Both sync and async should succeed")
     }
+#warnon "44"
 
 // ============================================================================
 // Async Kernel Matrix Tests

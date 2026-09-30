@@ -363,13 +363,12 @@ module QuantumSetCoverSolver =
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
     // ========================================================================
 
-    /// Solve set cover using QAOA with full configuration control.
-    /// Supports automatic decomposition when problem exceeds backend capacity.
-    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
-    let solveWithConfig
+    /// Shared implementation of solveWithConfig and solveWithConfigAsync.
+    let private solveWithConfigCore
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
         (config: Config)
+        (cancellationToken: CancellationToken)
         : Result<Solution, QuantumError> =
 
         if problem.Subsets.IsEmpty then
@@ -391,7 +390,10 @@ module QuantumSetCoverSolver =
                             executeQaoaWithOptimization backend qubo config
                             |> Result.map (fun (bits, optParams, converged) -> (bits, Some optParams, Some converged))
                         else
-                            executeQaoaWithGridSearch backend qubo config
+                            // Sequential (maxConcurrency = 1) grid search, as before
+                            (executeQaoaWithGridSearchAsync backend qubo config 1 cancellationToken)
+                                .GetAwaiter()
+                                .GetResult()
                             |> Result.map (fun (bits, optParams) -> (bits, Some optParams, None))
 
                     match result with
@@ -427,6 +429,16 @@ module QuantumSetCoverSolver =
 
             ProblemDecomposition.solveWithDecomposition backend problem estimateQubits decompose recombine solveSingle
 
+    /// Solve set cover using QAOA with full configuration control.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
+    let solveWithConfig
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: Problem)
+        (config: Config)
+        : Result<Solution, QuantumError> =
+        solveWithConfigCore backend problem config CancellationToken.None
+
     /// Solve set cover using QAOA with full configuration control (async).
     /// Wraps the synchronous solveWithConfig in a task; will become truly async
     /// once ProblemDecomposition supports async solve functions.
@@ -438,7 +450,7 @@ module QuantumSetCoverSolver =
         : Task<Result<Solution, QuantumError>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return solveWithConfig backend problem config
+            return solveWithConfigCore backend problem config cancellationToken
         }
 
     /// Solve set cover using QAOA with default configuration.

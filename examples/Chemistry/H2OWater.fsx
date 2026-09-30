@@ -636,10 +636,7 @@ let private computeSystem
 
         /// Run VQE on one geometry, logging the result and tracking failures.
         let energyOf (label: string) (molecule: Molecule) : float =
-            let provider =
-                match integralsFor molecule with
-                | Ok p -> p
-                | Error _ -> None
+            let provider = (integralsFor molecule) |> Result.defaultValue None
 
             match computeEnergy backend maxIter tol provider molecule with
             | Ok(e, source, converged), elapsed ->

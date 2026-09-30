@@ -21,6 +21,7 @@ open FSharp.Azure.Quantum.Backends.CloudBackends
 [<Collection("NonParallel")>]
 module LocalQuantumServiceTests =
 
+    [<Literal>]
     let private shots = 1000
 
     let private seeded =
@@ -60,9 +61,8 @@ module LocalQuantumServiceTests =
         | other -> failwith $"expected a state vector, got {other}"
 
     let private expectOk (result: Result<'T, QuantumError>) : 'T =
-        match result with
-        | Ok value -> value
-        | Error err -> failwith $"expected Ok, got {err.Message}"
+        result
+        |> Result.defaultWith (fun err -> failwith $"expected Ok, got {err.Message}")
 
     // ------------------------------------------------------------------------
     // Bell circuit through every provider
@@ -322,14 +322,18 @@ module LocalQuantumServiceTests =
 
     [<Fact>]
     let ``The service client refuses external hosts`` () =
-        use service = LocalQuantumService.start seeded
-        use http = service.CreateHttpClient()
+        task {
+            use service = LocalQuantumService.start seeded
+            use http = service.CreateHttpClient()
 
-        let ex =
-            Assert.ThrowsAny<exn>(fun () -> http.GetAsync("https://example.com/").GetAwaiter().GetResult() |> ignore)
+            let! ex =
+                Assert.ThrowsAnyAsync<exn>(fun () ->
+                    http.GetAsync "https://example.com/" :> System.Threading.Tasks.Task)
 
-        Assert.Contains("refused", ex.Message)
-        Assert.Empty service.Requests
+            Assert.Contains("refused", ex.Message)
+            Assert.Empty service.Requests
+        }
+        :> System.Threading.Tasks.Task
 
     // ------------------------------------------------------------------------
     // QuantumClient (Client.fs) through the routed data-plane URL

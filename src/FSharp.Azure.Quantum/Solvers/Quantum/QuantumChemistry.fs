@@ -6693,7 +6693,8 @@ module QuantumChemistryBuilder =
             | Direct mol -> return Ok mol
 
             | XyzFile path ->
-                let! result = Molecule.fromXyzFileAsync path
+                let! ct = Async.CancellationToken
+                let! result = Molecule.fromXyzFileTask path ct |> Async.AwaitTask
                 return result
 
             | FciDumpFile path ->

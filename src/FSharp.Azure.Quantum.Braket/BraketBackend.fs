@@ -1,5 +1,9 @@
 namespace FSharp.Azure.Quantum.Braket
 
+// IAmazonBraket / IAmazonS3 carry static abstract members in the AWS SDK; they are still the
+// SDK's client abstractions, meant to be used as parameter types (FS3536).
+#nowarn "3536"
+
 open System
 open System.Threading
 open System.Threading.Tasks
@@ -46,6 +50,44 @@ module BraketExecution =
         (timeout: TimeSpan)
         (ct: CancellationToken)
         : Task<Result<Map<string, int>, QuantumError>> =
+        // Defined outside the task so its recursion does not stop the state machine from
+        // compiling statically (FS3511).
+        let rec poll (taskArn: string) (deadline: DateTime) : Task<Result<Map<string, int>, QuantumError>> =
+            task {
+                let! info =
+                    braket.GetQuantumTaskAsync(GetQuantumTaskRequest(QuantumTaskArn = taskArn), ct)
+
+                match info.Status.Value with
+                | "COMPLETED" ->
+                    let key = $"%s{info.OutputS3Directory}/results.json"
+                    let! json = readS3Async s3 info.OutputS3Bucket key ct
+
+                    try
+                        return Ok(parseResult json)
+                    with ex ->
+                        return
+                            Error(
+                                QuantumError.OperationError("Braket", $"Failed to parse Braket result: %s{ex.Message}")
+                            )
+                | "FAILED"
+                | "CANCELLED" ->
+                    let reason = if isNull info.FailureReason then "" else info.FailureReason
+
+                    return
+                        Error(QuantumError.OperationError("Braket", $"Braket task %s{info.Status.Value}: %s{reason}"))
+                | _ when DateTime.UtcNow > deadline ->
+                    return
+                        Error(
+                            QuantumError.OperationError(
+                                "Braket",
+                                $"Braket task did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); the task %s{taskArn} may still be running."
+                            )
+                        )
+                | _ ->
+                    do! Task.Delay(pollInterval, ct)
+                    return! poll taskArn deadline
+            }
+
         task {
             try
                 let createRequest =
@@ -63,53 +105,7 @@ module BraketExecution =
 
                 // Wall-clock deadline so a task stuck in QUEUED/RUNNING never hangs the caller
                 // forever (the synchronous ExecuteToState path passes CancellationToken.None).
-                let deadline = DateTime.UtcNow + timeout
-
-                let rec poll () : Task<Result<Map<string, int>, QuantumError>> =
-                    task {
-                        let! info =
-                            braket.GetQuantumTaskAsync(GetQuantumTaskRequest(QuantumTaskArn = taskArn), ct)
-
-                        match info.Status.Value with
-                        | "COMPLETED" ->
-                            let key = $"%s{info.OutputS3Directory}/results.json"
-                            let! json = readS3Async s3 info.OutputS3Bucket key ct
-
-                            try
-                                return Ok(parseResult json)
-                            with ex ->
-                                return
-                                    Error(
-                                        QuantumError.OperationError(
-                                            "Braket",
-                                            $"Failed to parse Braket result: %s{ex.Message}"
-                                        )
-                                    )
-                        | "FAILED"
-                        | "CANCELLED" ->
-                            let reason = if isNull info.FailureReason then "" else info.FailureReason
-
-                            return
-                                Error(
-                                    QuantumError.OperationError(
-                                        "Braket",
-                                        $"Braket task %s{info.Status.Value}: %s{reason}"
-                                    )
-                                )
-                        | _ when DateTime.UtcNow > deadline ->
-                            return
-                                Error(
-                                    QuantumError.OperationError(
-                                        "Braket",
-                                        $"Braket task did not complete within %g{timeout.TotalMinutes} minutes (last status %s{info.Status.Value}); the task %s{taskArn} may still be running."
-                                    )
-                                )
-                        | _ ->
-                            do! Task.Delay(pollInterval, ct)
-                            return! poll ()
-                    }
-
-                return! poll ()
+                return! poll taskArn (DateTime.UtcNow + timeout)
             with ex ->
                 return
                     Error(
@@ -144,24 +140,7 @@ module BraketExecution =
         with _ ->
             None
 
-    /// Build a `QuantumState` from a measurement histogram. Three tiers:
-    /// - dense StateVector up to StateVector.maxQubits (amplitudes = √p, phases unknowable from counts)
-    /// - SparseState up to 31 qubits (only observed outcomes carry amplitude)
-    /// - MeasurementHistogram beyond that — the honest sampled-data representation
-    ///   with NO width limit (≤ shots entries regardless of qubit count)
-    ///
-    /// Every tier carries the recorded counts (QuantumState.withRecordedCounts), so measuring
-    /// the state yields Braket's own shots rather than outcomes resampled from its amplitudes.
-    let rec private histogramToState
-        (histogram: Map<string, int>)
-        (numQubits: int)
-        : Result<QuantumState, QuantumError> =
-        // Braket's bitstring order (leftmost char = qubit 0) is already the recorded-counts
-        // key convention.
-        buildState histogram numQubits
-        |> Result.map (QuantumState.withRecordedCounts histogram)
-
-    and private buildState (histogram: Map<string, int>) (numQubits: int) : Result<QuantumState, QuantumError> =
+    let private buildState (histogram: Map<string, int>) (numQubits: int) : Result<QuantumState, QuantumError> =
         if numQubits > maxSparseStateQubits then
             // Braket's bitstring order (leftmost char = qubit 0) IS the
             // MeasurementHistogram key convention — pass through unchanged.
@@ -193,6 +172,23 @@ module BraketExecution =
                 | _ -> ())
 
             Ok(QuantumState.StateVector(StateVector.create amplitudes))
+
+    /// Build a `QuantumState` from a measurement histogram. Three tiers:
+    /// - dense StateVector up to StateVector.maxQubits (amplitudes = √p, phases unknowable from counts)
+    /// - SparseState up to 31 qubits (only observed outcomes carry amplitude)
+    /// - MeasurementHistogram beyond that — the honest sampled-data representation
+    ///   with NO width limit (≤ shots entries regardless of qubit count)
+    ///
+    /// Every tier carries the recorded counts (QuantumState.withRecordedCounts), so measuring
+    /// the state yields Braket's own shots rather than outcomes resampled from its amplitudes.
+    let rec private histogramToState
+        (histogram: Map<string, int>)
+        (numQubits: int)
+        : Result<QuantumState, QuantumError> =
+        // Braket's bitstring order (leftmost char = qubit 0) is already the recorded-counts
+        // key convention.
+        buildState histogram numQubits
+        |> Result.map (QuantumState.withRecordedCounts histogram)
 
     /// Submit a neutral-atom `RydbergProgram` to a Braket AHS device (QuEra Aquila) and return
     /// the Rydberg-occupation histogram.

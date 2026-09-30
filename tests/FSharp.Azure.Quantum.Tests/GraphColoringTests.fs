@@ -203,7 +203,7 @@ let ``Hard constraints dominate all soft terms at the QUBO minimum`` () =
 
         let best =
             [ 0 .. (1 <<< matrix.NumVariables) - 1 ]
-            |> List.minBy (fun mask -> QaoaExecutionHelpers.evaluateQuboSparse matrix.Q (bits mask))
+            |> List.minBy (bits >> QaoaExecutionHelpers.evaluateQuboSparse matrix.Q)
             |> bits
 
         let colorOf v =

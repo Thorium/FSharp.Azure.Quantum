@@ -51,9 +51,7 @@ module CloudEndToEndTests =
         test service (cloud service http (CloudBackendHelpers.JobBudget()) provider shots)
 
     let private expectOk (result: Result<'T, QuantumError>) : 'T =
-        match result with
-        | Ok value -> value
-        | Error e -> failwith $"expected Ok, got {e.Message}"
+        result |> Result.defaultWith (fun e -> failwith $"expected Ok, got {e.Message}")
 
     // ========================================================================
     // ORACLE PROTOCOLS — one job each, on every provider

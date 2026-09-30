@@ -460,7 +460,7 @@ let resultMaps =
             "binding_energy_kj_mol", value (fun dE -> sprintf "%.2f" (dE * hartreeToKJMol))
             "reference_de_kcal_mol", r.System.ReferenceDe |> Option.map (sprintf "%.1f") |> Option.defaultValue ""
             "estimated_kd", value (fun dE -> estimateKd (dE * hartreeToKcalMol))
-            "temperature_k", sprintf "%.1f" temperature
+            "temperature_k", $"%.1f{temperature}"
             "hamiltonian", sourceLabel r
         ]
         |> Map.ofList)

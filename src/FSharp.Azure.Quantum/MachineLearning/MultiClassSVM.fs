@@ -169,7 +169,10 @@ module MultiClassSVM =
         else
             // Get predictions from all binary classifiers (functional)
             model.BinaryModels
-            |> Array.map (fun binaryModel -> QuantumKernelSVM.predict backend binaryModel sample shots)
+            |> Array.map (fun binaryModel ->
+                (QuantumKernelSVM.predictAsync backend binaryModel sample shots System.Threading.CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult())
             |> traverseResult
             |> Result.map (fun predictions ->
                 // Extract decision values

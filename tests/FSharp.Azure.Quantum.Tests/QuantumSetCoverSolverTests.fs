@@ -4,10 +4,23 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum.QuantumSetCoverSolver
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 /// Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+/// Solves with the default config and the given final shot count through the async API
+/// (what the deprecated synchronous solve wrapper does).
+let private solveDefaultAsync backend problem shots =
+    solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
 
 // ============================================================================
 // QUBO ENCODING TESTS
@@ -272,122 +285,127 @@ module RoundTripTests =
 module ConstraintRepairTests =
 
     [<Fact>]
-    let ``repair fixes empty selection`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 2
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0 ]
-                            Cost = 1.0
-                        }
-                        {
-                            Id = "S2"
-                            Elements = [ 1 ]
-                            Cost = 1.0
-                        }
-                    ]
-            }
+    let ``repair fixes empty selection`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 2
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0 ]
+                                Cost = 1.0
+                            }
+                            {
+                                Id = "S2"
+                                Elements = [ 1 ]
+                                Cost = 1.0
+                            }
+                        ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
 
-        let result = solveWithConfig backend problem config
-
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, $"Solution should be valid after repair. WasRepaired={solution.WasRepaired}")
-
-    [<Fact>]
-    let ``repair produces valid cover on overlapping subsets`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 4
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0; 1 ]
-                            Cost = 2.0
-                        }
-                        {
-                            Id = "S2"
-                            Elements = [ 1; 2 ]
-                            Cost = 2.0
-                        }
-                        {
-                            Id = "S3"
-                            Elements = [ 2; 3 ]
-                            Cost = 2.0
-                        }
-                        {
-                            Id = "S4"
-                            Elements = [ 0; 3 ]
-                            Cost = 2.0
-                        }
-                    ]
-            }
-
-        let backend = createLocalBackend ()
-
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
-
-        let result = solveWithConfig backend problem config
-
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(
-                solution.IsValid,
-                $"Cover must be valid. Size={solution.CoverSize}, Repaired={solution.WasRepaired}"
-            )
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(
+                    solution.IsValid,
+                    $"Solution should be valid after repair. WasRepaired={solution.WasRepaired}"
+                )
+        }
 
     [<Fact>]
-    let ``repair removes redundant subsets`` () =
-        // Universe {0,1}, all subsets cover everything
-        let problem: Problem =
-            {
-                UniverseSize = 2
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0; 1 ]
-                            Cost = 1.0
-                        }
-                        {
-                            Id = "S2"
-                            Elements = [ 0; 1 ]
-                            Cost = 5.0
-                        }
-                    ]
-            }
+    let ``repair produces valid cover on overlapping subsets`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 4
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0; 1 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "S2"
+                                Elements = [ 1; 2 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "S3"
+                                Elements = [ 2; 3 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "S4"
+                                Elements = [ 0; 3 ]
+                                Cost = 2.0
+                            }
+                        ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 50
-            }
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
 
-        let result = solveWithConfig backend problem config
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(
+                    solution.IsValid,
+                    $"Cover must be valid. Size={solution.CoverSize}, Repaired={solution.WasRepaired}"
+                )
+        }
 
-        result
-        |> Result.map (fun solution -> Assert.True(solution.IsValid))
-        |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
+    [<Fact>]
+    let ``repair removes redundant subsets`` () : Task =
+        task {
+            // Universe {0,1}, all subsets cover everything
+            let problem: Problem =
+                {
+                    UniverseSize = 2
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0; 1 ]
+                                Cost = 1.0
+                            }
+                            {
+                                Id = "S2"
+                                Elements = [ 0; 1 ]
+                                Cost = 5.0
+                            }
+                        ]
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 50
+                }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid))
+            |> Result.defaultWith (fun err -> Assert.Fail($"Solve failed: {err}"))
+        }
 
 // ============================================================================
 // VALIDITY TESTS
@@ -466,168 +484,174 @@ module ValidityTests =
 module BackendIntegrationTests =
 
     [<Fact>]
-    let ``solve returns solution with backend info`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 2
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0; 1 ]
-                            Cost = 1.0
-                        }
-                    ]
-            }
+    let ``solve returns solution with backend info`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 2
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0; 1 ]
+                                Cost = 1.0
+                            }
+                        ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let result = solve backend problem 100
-
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.NotEmpty(solution.BackendName)
-            Assert.Equal(100, solution.NumShots)
+            match! solveDefaultAsync backend problem 100 with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.NotEmpty(solution.BackendName)
+                Assert.Equal(100, solution.NumShots)
+        }
 
     [<Fact>]
-    let ``solveWithConfig returns optimized parameters`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 3
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0; 1 ]
-                            Cost = 2.0
-                        }
-                        {
-                            Id = "S2"
-                            Elements = [ 1; 2 ]
-                            Cost = 2.0
-                        }
-                        {
-                            Id = "S3"
-                            Elements = [ 0; 2 ]
-                            Cost = 2.0
-                        }
-                    ]
-            }
+    let ``solveWithConfig returns optimized parameters`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 3
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0; 1 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "S2"
+                                Elements = [ 1; 2 ]
+                                Cost = 2.0
+                            }
+                            {
+                                Id = "S3"
+                                Elements = [ 0; 2 ]
+                                Cost = 2.0
+                            }
+                        ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { defaultConfig with
-                EnableOptimization = true
-                NumLayers = 2
-                OptimizationShots = 50
-                FinalShots = 100
-            }
+            let config =
+                { defaultConfig with
+                    EnableOptimization = true
+                    NumLayers = 2
+                    OptimizationShots = 50
+                    FinalShots = 100
+                }
 
-        let result = solveWithConfig backend problem config
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.OptimizedParameters.IsSome)
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.OptimizedParameters.IsSome)
-
-            match solution.OptimizedParameters with
-            | Some parameters -> Assert.Equal(2, parameters.Length)
-            | None -> Assert.Fail("OptimizedParameters should not be None")
+                match solution.OptimizedParameters with
+                | Some parameters -> Assert.Equal(2, parameters.Length)
+                | None -> Assert.Fail("OptimizedParameters should not be None")
+        }
 
     [<Fact; Trait("Category", "Slow")>]
-    let ``solve validates empty subsets`` () =
-        let problem: Problem = { UniverseSize = 2; Subsets = [] }
-        let backend = createLocalBackend ()
+    let ``solve validates empty subsets`` () : Task =
+        task {
+            let problem: Problem = { UniverseSize = 2; Subsets = [] }
+            let backend = createLocalBackend ()
 
-        let result = solve backend problem 100
+            let! result = solveDefaultAsync backend problem 100
 
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with empty subsets"))
-        |> Result.defaultWith (fun err -> Assert.Contains("no subsets", err.ToString().ToLower()))
-
-    [<Fact>]
-    let ``solve validates zero universe size`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 0
-                Subsets = [ { Id = "S1"; Elements = []; Cost = 1.0 } ]
-            }
-
-        let backend = createLocalBackend ()
-
-        let result = solve backend problem 100
-
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with zero universe"))
-        |> Result.defaultWith (fun err -> Assert.Contains("universe", err.ToString().ToLower()))
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with empty subsets"))
+            |> Result.defaultWith (fun err -> Assert.Contains("no subsets", err.ToString().ToLower()))
+        }
 
     [<Fact>]
-    let ``solve validates element index out of range`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 2
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0; 5 ]
-                            Cost = 1.0
-                        }
-                    ]
-            }
+    let ``solve validates zero universe size`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 0
+                    Subsets = [ { Id = "S1"; Elements = []; Cost = 1.0 } ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let result = solve backend problem 100
+            let! result = solveDefaultAsync backend problem 100
 
-        result
-        |> Result.map (fun _ -> Assert.Fail("Should fail with invalid element index"))
-        |> Result.defaultWith (fun err -> Assert.Contains("element", err.ToString().ToLower()))
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with zero universe"))
+            |> Result.defaultWith (fun err -> Assert.Contains("universe", err.ToString().ToLower()))
+        }
 
     [<Fact>]
-    let ``solve produces valid cover on small instance`` () =
-        let problem: Problem =
-            {
-                UniverseSize = 4
-                Subsets =
-                    [
-                        {
-                            Id = "S1"
-                            Elements = [ 0; 1 ]
-                            Cost = 1.0
-                        }
-                        {
-                            Id = "S2"
-                            Elements = [ 2; 3 ]
-                            Cost = 1.0
-                        }
-                        {
-                            Id = "S3"
-                            Elements = [ 0; 2 ]
-                            Cost = 1.5
-                        }
-                    ]
-            }
+    let ``solve validates element index out of range`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 2
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0; 5 ]
+                                Cost = 1.0
+                            }
+                        ]
+                }
 
-        let backend = createLocalBackend ()
+            let backend = createLocalBackend ()
 
-        let config =
-            { fastConfig with
-                EnableConstraintRepair = true
-                FinalShots = 100
-            }
+            let! result = solveDefaultAsync backend problem 100
 
-        let result = solveWithConfig backend problem config
+            result
+            |> Result.map (fun _ -> Assert.Fail("Should fail with invalid element index"))
+            |> Result.defaultWith (fun err -> Assert.Contains("element", err.ToString().ToLower()))
+        }
 
-        match result with
-        | Error err -> Assert.Fail($"Solve failed: {err}")
-        | Ok solution ->
-            Assert.True(
-                solution.IsValid,
-                $"Cover must be valid. Selected={solution.SelectedSubsets |> List.map (fun s -> s.Id)}"
-            )
+    [<Fact>]
+    let ``solve produces valid cover on small instance`` () : Task =
+        task {
+            let problem: Problem =
+                {
+                    UniverseSize = 4
+                    Subsets =
+                        [
+                            {
+                                Id = "S1"
+                                Elements = [ 0; 1 ]
+                                Cost = 1.0
+                            }
+                            {
+                                Id = "S2"
+                                Elements = [ 2; 3 ]
+                                Cost = 1.0
+                            }
+                            {
+                                Id = "S3"
+                                Elements = [ 0; 2 ]
+                                Cost = 1.5
+                            }
+                        ]
+                }
+
+            let backend = createLocalBackend ()
+
+            let config =
+                { fastConfig with
+                    EnableConstraintRepair = true
+                    FinalShots = 100
+                }
+
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"Solve failed: {err}")
+            | Ok solution ->
+                Assert.True(
+                    solution.IsValid,
+                    $"Cover must be valid. Selected={solution.SelectedSubsets |> List.map (fun s -> s.Id)}"
+                )
+        }
 
 // ============================================================================
 // QUBIT ESTIMATION TESTS

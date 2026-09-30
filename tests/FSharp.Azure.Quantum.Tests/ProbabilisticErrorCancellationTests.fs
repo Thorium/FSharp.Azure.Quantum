@@ -848,7 +848,12 @@ module ProbabilisticErrorCancellationTests =
                                 | CircuitBuilder.Gate.CRY(ctrl, tgt, angle) -> Gates.applyCRY ctrl tgt angle state
                                 | CircuitBuilder.Gate.CRZ(ctrl, tgt, angle) -> Gates.applyCRZ ctrl tgt angle state
                                 | CircuitBuilder.Gate.SWAP(q1, q2) -> Gates.applySWAP q1 q2 state
+                                | CircuitBuilder.Gate.RXX(q1, q2, angle) -> Gates.applyRxx q1 q2 angle state
+                                | CircuitBuilder.Gate.RYY(q1, q2, angle) -> Gates.applyRyy q1 q2 angle state
+                                | CircuitBuilder.Gate.RZZ(q1, q2, angle) -> Gates.applyRzz q1 q2 angle state
                                 | CircuitBuilder.Gate.CCX(c1, c2, tgt) -> Gates.applyCCX c1 c2 tgt state
+                                | CircuitBuilder.Gate.Conditional _ ->
+                                    failwith "conditional gates are not simulated here"
                                 | CircuitBuilder.Gate.Measure q ->
                                     // Perform realistic measurement with state collapse
                                     let outcome = Measurement.measureSingleQubit rng q state
@@ -886,7 +891,11 @@ module ProbabilisticErrorCancellationTests =
                                     | CircuitBuilder.Gate.CRY(_, tgt, _) -> tgt
                                     | CircuitBuilder.Gate.CRZ(_, tgt, _) -> tgt
                                     | CircuitBuilder.Gate.SWAP(_, q2) -> q2
+                                    | CircuitBuilder.Gate.RXX(_, q2, _)
+                                    | CircuitBuilder.Gate.RYY(_, q2, _)
+                                    | CircuitBuilder.Gate.RZZ(_, q2, _) -> q2
                                     | CircuitBuilder.Gate.CCX(_, _, tgt) -> tgt
+                                    | CircuitBuilder.Gate.Conditional(q, _) -> q
                                     | CircuitBuilder.Gate.Measure q -> q
                                     | CircuitBuilder.Gate.Reset q -> q
                                     | CircuitBuilder.Gate.Barrier qubits ->

@@ -4,10 +4,23 @@ open Xunit
 open FSharp.Azure.Quantum.Quantum.QuantumMatchingSolver
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 /// Helper to create local backend for tests
 let private createLocalBackend () : BackendAbstraction.IQuantumBackend =
     LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+
+/// Solves with the default config and the given final shot count through the async API
+/// (what the deprecated synchronous solve wrapper does).
+let private solveDefaultAsync backend problem shots =
+    solveWithConfigAsync
+        backend
+        problem
+        { defaultConfig with
+            FinalShots = shots
+        }
+        CancellationToken.None
 
 // ============================================================================
 // QUBO ENCODING TESTS
@@ -217,13 +230,15 @@ module ValidationTests =
         | _ -> Assert.Fail("Should reject self-loops")
 
     [<Fact>]
-    let ``solveWithConfig rejects empty edges`` () =
-        let backend = createLocalBackend ()
-        let problem: Problem = { NumVertices = 3; Edges = [] }
+    let ``solveWithConfig rejects empty edges`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            let problem: Problem = { NumVertices = 3; Edges = [] }
 
-        match solveWithConfig backend problem defaultConfig with
-        | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("edges", field)
-        | _ -> Assert.Fail("Should reject empty edges")
+            match! solveWithConfigAsync backend problem defaultConfig CancellationToken.None with
+            | Error(QuantumError.ValidationError(field, _)) -> Assert.Equal("edges", field)
+            | _ -> Assert.Fail("Should reject empty edges")
+        }
 
 // ============================================================================
 // isValid TESTS
@@ -399,156 +414,178 @@ module DecomposeRecombineTests =
 module QuantumSolverTests =
 
     [<Fact>]
-    let ``solve returns Ok for single edge`` () =
-        let backend = createLocalBackend ()
+    let ``solve returns Ok for single edge`` () : Task =
+        task {
+            let backend = createLocalBackend ()
 
-        let problem: Problem =
-            {
-                NumVertices = 2
-                Edges = [ { Source = 0; Target = 1; Weight = 5.0 } ]
-            }
+            let problem: Problem =
+                {
+                    NumVertices = 2
+                    Edges = [ { Source = 0; Target = 1; Weight = 5.0 } ]
+                }
 
-        match solve backend problem 100 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be a valid matching")
-            Assert.Equal("Local Simulator", solution.BackendName)
+            match! solveDefaultAsync backend problem 100 with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid, "Solution should be a valid matching")
+                Assert.Equal("Local Simulator", solution.BackendName)
+        }
 
     [<Fact; Trait("Category", "Slow")>]
-    let ``solve returns valid matching for path graph`` () =
-        let backend = createLocalBackend ()
-        // Path: 0-1-2-3 (3 edges)
-        // Optimal matching: edges (0,1) and (2,3) → weight 2.0
-        let problem: Problem =
-            {
-                NumVertices = 4
-                Edges =
-                    [
-                        { Source = 0; Target = 1; Weight = 1.0 }
-                        { Source = 1; Target = 2; Weight = 1.0 }
-                        { Source = 2; Target = 3; Weight = 1.0 }
-                    ]
-            }
+    let ``solve returns valid matching for path graph`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // Path: 0-1-2-3 (3 edges)
+            // Optimal matching: edges (0,1) and (2,3) → weight 2.0
+            let problem: Problem =
+                {
+                    NumVertices = 4
+                    Edges =
+                        [
+                            { Source = 0; Target = 1; Weight = 1.0 }
+                            { Source = 1; Target = 2; Weight = 1.0 }
+                            { Source = 2; Target = 3; Weight = 1.0 }
+                        ]
+                }
 
-        (solve backend problem 200)
-        |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be a valid matching"))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+            let! result = solveDefaultAsync backend problem 200
 
-    [<Fact>]
-    let ``solve returns valid matching for triangle`` () =
-        let backend = createLocalBackend ()
-        // Triangle: only one edge can be selected
-        let problem: Problem =
-            {
-                NumVertices = 3
-                Edges =
-                    [
-                        { Source = 0; Target = 1; Weight = 1.0 }
-                        { Source = 1; Target = 2; Weight = 2.0 }
-                        { Source = 0; Target = 2; Weight = 3.0 }
-                    ]
-            }
-
-        match solve backend problem 200 with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be a valid matching")
-
-            Assert.True(
-                solution.MatchingSize <= 1,
-                $"Triangle matching should have at most 1 edge, got {solution.MatchingSize}"
-            )
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be a valid matching"))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+        }
 
     [<Fact>]
-    let ``solveWithConfig uses config shots`` () =
-        let backend = createLocalBackend ()
+    let ``solve returns valid matching for triangle`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // Triangle: only one edge can be selected
+            let problem: Problem =
+                {
+                    NumVertices = 3
+                    Edges =
+                        [
+                            { Source = 0; Target = 1; Weight = 1.0 }
+                            { Source = 1; Target = 2; Weight = 2.0 }
+                            { Source = 0; Target = 2; Weight = 3.0 }
+                        ]
+                }
 
-        let problem: Problem =
-            {
-                NumVertices = 2
-                Edges = [ { Source = 0; Target = 1; Weight = 1.0 } ]
-            }
+            match! solveDefaultAsync backend problem 200 with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid, "Solution should be a valid matching")
 
-        let config = { defaultConfig with FinalShots = 42 }
-
-        (solveWithConfig backend problem config)
-        |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
-
-    [<Fact>]
-    let ``solve with constraint repair produces valid matching`` () =
-        let backend = createLocalBackend ()
-        // Star graph: center vertex 0 connected to 1,2,3
-        // All edges share vertex 0, so at most 1 can be selected
-        let problem: Problem =
-            {
-                NumVertices = 4
-                Edges =
-                    [
-                        { Source = 0; Target = 1; Weight = 1.0 }
-                        { Source = 0; Target = 2; Weight = 2.0 }
-                        { Source = 0; Target = 3; Weight = 3.0 }
-                    ]
-            }
-
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
-
-        (solveWithConfig backend problem config)
-        |> Result.map (fun solution -> Assert.True(solution.IsValid, "Repaired solution should be valid"))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve with repair failed: {err}"))
-
-    [<Fact>]
-    let ``solve with disjoint edges returns valid matching`` () =
-        let backend = createLocalBackend ()
-        // Two disjoint edges: (0,1) and (2,3) — both can be selected
-        let problem: Problem =
-            {
-                NumVertices = 4
-                Edges =
-                    [
-                        { Source = 0; Target = 1; Weight = 5.0 }
-                        { Source = 2; Target = 3; Weight = 5.0 }
-                    ]
-            }
-
-        (solve backend problem 200)
-        |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be valid"))
-        |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
-
-    [<Fact>]
-    let ``solve with weighted edges prefers heavier`` () =
-        let backend = createLocalBackend ()
-        // Two edges sharing vertex 1: (0,1) weight 1 vs (1,2) weight 100
-        // Should prefer the heavier edge
-        let problem: Problem =
-            {
-                NumVertices = 3
-                Edges =
-                    [
-                        { Source = 0; Target = 1; Weight = 1.0 }
-                        {
-                            Source = 1
-                            Target = 2
-                            Weight = 100.0
-                        }
-                    ]
-            }
-
-        let config =
-            { defaultConfig with
-                EnableConstraintRepair = true
-            }
-
-        match solveWithConfig backend problem config with
-        | Error err -> Assert.Fail($"solve failed: {err}")
-        | Ok solution ->
-            Assert.True(solution.IsValid, "Solution should be valid")
-            // After constraint repair, should keep the heavier edge
-            if solution.MatchingSize = 1 && solution.WasRepaired then
                 Assert.True(
-                    solution.TotalWeight >= 100.0,
-                    $"Should prefer heavier edge, got weight {solution.TotalWeight}"
+                    solution.MatchingSize <= 1,
+                    $"Triangle matching should have at most 1 edge, got {solution.MatchingSize}"
                 )
+        }
+
+    [<Fact>]
+    let ``solveWithConfig uses config shots`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+
+            let problem: Problem =
+                {
+                    NumVertices = 2
+                    Edges = [ { Source = 0; Target = 1; Weight = 1.0 } ]
+                }
+
+            let config = { defaultConfig with FinalShots = 42 }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.Equal(42, solution.NumShots))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solveWithConfig failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``solve with constraint repair produces valid matching`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // Star graph: center vertex 0 connected to 1,2,3
+            // All edges share vertex 0, so at most 1 can be selected
+            let problem: Problem =
+                {
+                    NumVertices = 4
+                    Edges =
+                        [
+                            { Source = 0; Target = 1; Weight = 1.0 }
+                            { Source = 0; Target = 2; Weight = 2.0 }
+                            { Source = 0; Target = 3; Weight = 3.0 }
+                        ]
+                }
+
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
+
+            let! result = solveWithConfigAsync backend problem config CancellationToken.None
+
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid, "Repaired solution should be valid"))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve with repair failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``solve with disjoint edges returns valid matching`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // Two disjoint edges: (0,1) and (2,3) — both can be selected
+            let problem: Problem =
+                {
+                    NumVertices = 4
+                    Edges =
+                        [
+                            { Source = 0; Target = 1; Weight = 5.0 }
+                            { Source = 2; Target = 3; Weight = 5.0 }
+                        ]
+                }
+
+            let! result = solveDefaultAsync backend problem 200
+
+            result
+            |> Result.map (fun solution -> Assert.True(solution.IsValid, "Solution should be valid"))
+            |> Result.defaultWith (fun err -> Assert.Fail($"solve failed: {err}"))
+        }
+
+    [<Fact>]
+    let ``solve with weighted edges prefers heavier`` () : Task =
+        task {
+            let backend = createLocalBackend ()
+            // Two edges sharing vertex 1: (0,1) weight 1 vs (1,2) weight 100
+            // Should prefer the heavier edge
+            let problem: Problem =
+                {
+                    NumVertices = 3
+                    Edges =
+                        [
+                            { Source = 0; Target = 1; Weight = 1.0 }
+                            {
+                                Source = 1
+                                Target = 2
+                                Weight = 100.0
+                            }
+                        ]
+                }
+
+            let config =
+                { defaultConfig with
+                    EnableConstraintRepair = true
+                }
+
+            match! solveWithConfigAsync backend problem config CancellationToken.None with
+            | Error err -> Assert.Fail($"solve failed: {err}")
+            | Ok solution ->
+                Assert.True(solution.IsValid, "Solution should be valid")
+                // After constraint repair, should keep the heavier edge
+                if solution.MatchingSize = 1 && solution.WasRepaired then
+                    Assert.True(
+                        solution.TotalWeight >= 100.0,
+                        $"Should prefer heavier edge, got weight {solution.TotalWeight}"
+                    )
+        }

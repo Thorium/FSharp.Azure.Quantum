@@ -184,7 +184,15 @@ module HybridSolver =
     let private runQuantumTspCore (distances: float[,]) : QuantumResult<TspSolver.TspSolution> =
         let backend = defaultHybridBackend ()
 
-        match QuantumTspSolver.solve backend distances QuantumTspSolver.defaultConfig with
+        match
+            QuantumTspSolver.solveAsync
+                backend
+                distances
+                QuantumTspSolver.defaultConfig
+                Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        with
         | Error err -> Error err
         | Ok quantumResult ->
             Ok
@@ -560,7 +568,11 @@ module HybridSolver =
             // Execute quantum TSP solver using provided backend (or default LocalBackend)
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
-            match QuantumTspSolver.solve actualBackend distances quantumConfig with
+            match
+                QuantumTspSolver.solveAsync actualBackend distances quantumConfig Threading.CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err -> Error(QuantumError.OperationError("Quantum TSP solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 // Convert quantum result to classical TSP solution format
@@ -609,7 +621,15 @@ module HybridSolver =
                             |> Ok
 
                         | _ ->
-                            match QuantumTspSolver.solve actualBackend distances quantumConfig with
+                            match
+                                QuantumTspSolver.solveAsync
+                                    actualBackend
+                                    distances
+                                    quantumConfig
+                                    Threading.CancellationToken.None
+                                |> Async.AwaitTask
+                                |> Async.RunSynchronously
+                            with
                             | Error err ->
                                 Error(QuantumError.OperationError("Quantum TSP solver", QuantumResult.toString err))
                             | Ok quantumResult ->
@@ -926,7 +946,11 @@ module HybridSolver =
             let quantumConfig = QuantumMaxCutSolver.defaultConfig
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
-            match QuantumMaxCutSolver.solve actualBackend problem quantumConfig with
+            match
+                QuantumMaxCutSolver.solveAsync actualBackend problem quantumConfig Threading.CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err -> Error(QuantumError.OperationError("Quantum MaxCut solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
@@ -978,7 +1002,15 @@ module HybridSolver =
                         | _ ->
                             let quantumConfig = QuantumMaxCutSolver.defaultConfig
 
-                            match QuantumMaxCutSolver.solve actualBackend problem quantumConfig with
+                            match
+                                QuantumMaxCutSolver.solveAsync
+                                    actualBackend
+                                    problem
+                                    quantumConfig
+                                    Threading.CancellationToken.None
+                                |> Async.AwaitTask
+                                |> Async.RunSynchronously
+                            with
                             | Error err ->
                                 Error(QuantumError.OperationError("Quantum MaxCut solver", QuantumResult.toString err))
                             | Ok quantumResult ->
@@ -1053,7 +1085,11 @@ module HybridSolver =
             let quantumConfig = QuantumKnapsackSolver.defaultConfig
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
-            match QuantumKnapsackSolver.solve actualBackend problem quantumConfig with
+            match
+                QuantumKnapsackSolver.solveAsync actualBackend problem quantumConfig Threading.CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err -> Error(QuantumError.OperationError("Quantum Knapsack solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
@@ -1105,7 +1141,15 @@ module HybridSolver =
                         | _ ->
                             let quantumConfig = QuantumKnapsackSolver.defaultConfig
 
-                            match QuantumKnapsackSolver.solve actualBackend problem quantumConfig with
+                            match
+                                QuantumKnapsackSolver.solveAsync
+                                    actualBackend
+                                    problem
+                                    quantumConfig
+                                    Threading.CancellationToken.None
+                                |> Async.AwaitTask
+                                |> Async.RunSynchronously
+                            with
                             | Error err ->
                                 Error(
                                     QuantumError.OperationError("Quantum Knapsack solver", QuantumResult.toString err)
@@ -1200,7 +1244,15 @@ module HybridSolver =
             let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
             let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
-            match QuantumGraphColoringSolver.solve actualBackend problem quantumConfig with
+            match
+                QuantumGraphColoringSolver.solveAsync
+                    actualBackend
+                    problem
+                    quantumConfig
+                    Threading.CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+            with
             | Error err ->
                 Error(QuantumError.OperationError("Quantum Graph Coloring solver", QuantumResult.toString err))
             | Ok quantumResult ->
@@ -1243,7 +1295,15 @@ module HybridSolver =
                         | _ ->
                             let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
 
-                            match QuantumGraphColoringSolver.solve actualBackend problem quantumConfig with
+                            match
+                                QuantumGraphColoringSolver.solveAsync
+                                    actualBackend
+                                    problem
+                                    quantumConfig
+                                    Threading.CancellationToken.None
+                                |> Async.AwaitTask
+                                |> Async.RunSynchronously
+                            with
                             | Error err ->
                                 Error(
                                     QuantumError.OperationError(
