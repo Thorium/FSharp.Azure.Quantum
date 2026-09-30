@@ -96,6 +96,121 @@ module QuantumGraphColoringSolver =
             BestEnergy: float
         }
 
+    /// Soft goal of a coloring. It shapes the QUBO and the ranking of measured samples.
+    [<RequireQualifiedAccess; Struct>]
+    type ColoringGoal =
+        /// Prefer fewer distinct colors: a cost that grows with the color index, and
+        /// among valid samples the one using the fewest colors wins.
+        | MinimizeColors
+        /// Prefer the fewest conflicting edges, with no color-count preference:
+        /// samples are ranked by conflict count, then by QUBO energy.
+        | MinimizeConflicts
+        /// Prefer equal color class sizes: penalty Σ_c (Σ_i x_{i,c})², which is smallest
+        /// for equal class sizes because the one-hot constraint fixes Σ_c Σ_i x_{i,c} = n;
+        /// among valid samples the one with the smallest Σ_c n_c² wins.
+        | BalanceColors
+
+    /// Soft preferences layered on the hard K-coloring constraints.
+    ///
+    /// Scaling (P = penalty weight, n = vertices): a broken one-hot constraint costs at
+    /// least P, a broken fixed color at least 10 × P, and a conflicting edge
+    /// ConflictWeight × P. The soft terms are non-negative and bounded in TOTAL over the
+    /// whole graph: color index at most 0.2 × P (0.2 × P × c / (n × (K - 1)) per vertex),
+    /// balance at most 0.2 × P (λ = 0.2 × P / n²), avoided colors at most 0.3 × P
+    /// (0.3 × P / n per vertex on an avoided color). A valid coloring therefore costs at
+    /// most 0.5 × P of soft terms, and any assignment that breaks a constraint costs at
+    /// least min(1, ConflictWeight) × P more than its soft terms. So with ConflictWeight
+    /// ≥ 1 (the default), and generally above 0.5, the QUBO minimum is a valid coloring
+    /// whenever the K colors admit one. With ConflictWeight ≤ 0.5 a coloring with
+    /// conflicts can have lower energy than every valid coloring.
+    type ColoringPreferences =
+        {
+            /// Multiplier on the penalty weight for an edge whose endpoints share a color.
+            /// Must be positive.
+            ConflictWeight: float
+
+            /// Soft goal of the coloring
+            Goal: ColoringGoal
+
+            /// Color indices each vertex should avoid if possible (soft penalty per color).
+            /// Indices outside 0..NumColors-1 are ignored.
+            AvoidColors: Map<string, int list>
+
+            /// Tie-break priority per vertex (higher = assigned first, missing = 0.0).
+            /// Among samples that rank equal on the goal and on QUBO energy, the one that
+            /// gives higher-priority vertices lower color indices wins; the greedy coloring
+            /// (edgeless graphs, classical solver) visits vertices in descending priority.
+            /// Has no effect when all vertices share one priority.
+            Priorities: Map<string, float>
+        }
+
+    /// Preferences that reproduce the plain K-coloring QUBO: conflict weight 1,
+    /// fewer colors preferred, nothing avoided, no priorities.
+    let defaultPreferences: ColoringPreferences =
+        {
+            ConflictWeight = 1.0
+            Goal = ColoringGoal.MinimizeColors
+            AvoidColors = Map.empty
+            Priorities = Map.empty
+        }
+
+    /// Fraction of the penalty weight bounding the total color-index cost (MinimizeColors).
+    [<Literal>]
+    let private ColorIndexBudget = 0.2
+
+    /// Fraction of the penalty weight bounding the total avoided-color cost.
+    [<Literal>]
+    let private AvoidColorBudget = 0.3
+
+    /// Fraction of the penalty weight bounding the total balance cost (BalanceColors).
+    [<Literal>]
+    let private BalanceBudget = 0.2
+
+    /// Color-index cost of one vertex on color c: the n vertices together stay within
+    /// ColorIndexBudget × P.
+    let private colorIndexCost (penaltyWeight: float) (numVertices: int) (numColors: int) (c: int) : float =
+        if numColors > 1 then
+            penaltyWeight * ColorIndexBudget * float c
+            / float (numVertices * (numColors - 1))
+        else
+            0.0
+
+    /// Cost of one vertex on an avoided color: the n vertices together stay within
+    /// AvoidColorBudget × P.
+    let private avoidColorCost (penaltyWeight: float) (numVertices: int) : float =
+        penaltyWeight * AvoidColorBudget / float numVertices
+
+    /// λ of the balance term λ × Σ_c (Σ_i x_{i,c})²; Σ_c n_c² ≤ n² keeps it within
+    /// BalanceBudget × P.
+    let private balanceWeight (penaltyWeight: float) (numVertices: int) : float =
+        penaltyWeight * BalanceBudget / float (numVertices * numVertices)
+
+    /// Rejects inputs the encoding cannot represent.
+    let private validateEncoding
+        (problem: GraphColoringProblem)
+        (preferences: ColoringPreferences)
+        : Result<unit, QuantumError> =
+        if problem.Vertices.IsEmpty then
+            Error(QuantumError.ValidationError("numVertices", "Graph coloring problem has no vertices"))
+        elif problem.NumColors < 1 then
+            Error(QuantumError.ValidationError("numColors", "Graph coloring problem must have at least 1 color"))
+        elif
+            not (preferences.ConflictWeight > 0.0)
+            || Double.IsInfinity preferences.ConflictWeight
+        then
+            Error(
+                QuantumError.ValidationError(
+                    "ConflictWeight",
+                    $"Conflict weight must be a positive finite number, got %g{preferences.ConflictWeight}"
+                )
+            )
+        else
+            Ok()
+
+    /// Backend name reported when a graph has no edges and no circuit runs.
+    [<Literal>]
+    let NoCircuitBackendName = "None (graph has no edges; no circuit executed)"
+
     // ================================================================================
     // QUBO ENCODING FOR K-COLORING
     // ================================================================================
@@ -112,17 +227,24 @@ module QuantumGraphColoringSolver =
     ///    Penalty: Σ_i (1 - Σ_c x_{i,c})²
     ///           = Σ_i (1 - 2*Σ_c x_{i,c} + (Σ_c x_{i,c})²)
     ///
-    /// 2. Adjacent vertices have different colors:
+    /// 2. Adjacent vertices have different colors (weight ConflictWeight × P):
     ///    Penalty: Σ_{(i,j) ∈ E} Σ_c x_{i,c} * x_{j,c}
     ///
-    /// 3. Minimize colors used (optional, soft constraint):
-    ///    Penalty: Σ_c max_i(x_{i,c})  (penalize using higher color indices)
+    /// SOFT TERMS (see ColoringPreferences for their scaling):
     ///
-    /// QUBO FORMULATION:
-    ///   Minimize: λ₁ * OneHotPenalty + λ₂ * ConflictPenalty + λ₃ * ColorMinimizationPenalty
-    let toQubo
+    /// 3. MinimizeColors: 0.2 × P × c / (n × (K - 1)) on x_{i,c} (higher color indices cost more)
+    ///    BalanceColors: λ × Σ_c (Σ_i x_{i,c})² with λ = 0.2 × P / n²
+    ///    MinimizeConflicts: no color-count term
+    ///
+    /// 4. Avoided colors: 0.3 × P / n on x_{i,c} for each color c that vertex i avoids
+    ///
+    /// The soft terms total at most 0.5 × P on any valid coloring, so they never outweigh
+    /// a hard constraint while ConflictWeight > 0.5 (see ColoringPreferences).
+    /// An edgeless graph encodes to the one-hot and soft terms only.
+    let toQuboWithPreferences
         (problem: GraphColoringProblem)
         (penaltyWeight: float)
+        (preferences: ColoringPreferences)
         : Result<QuboMatrix * Map<int, string * int>, QuantumError> =
         try
             // Create variable mapping: (vertex_index, color_index) → qubo_variable_index
@@ -133,13 +255,9 @@ module QuantumGraphColoringSolver =
             let numColors = problem.NumColors
             let numVars = numVertices * numColors
 
-            if numVertices = 0 then
-                Error(QuantumError.ValidationError("numVertices", "Graph coloring problem has no vertices"))
-            elif numColors < 1 then
-                Error(QuantumError.ValidationError("numColors", "Graph coloring problem must have at least 1 color"))
-            elif problem.Edges.Length = 0 then
-                Error(QuantumError.ValidationError("numEdges", "Graph coloring problem has no edges"))
-            else
+            match validateEncoding problem preferences with
+            | Error err -> Error err
+            | Ok() ->
                 // Create reverse mapping: qubo_variable_index → (vertex, color)
                 let reverseMap =
                     seq {
@@ -201,6 +319,7 @@ module QuantumGraphColoringSolver =
 
                 // CONSTRAINT 2: Adjacent vertices have different colors
                 // Penalty: Σ_{(i,j) ∈ E} Σ_c x_{i,c} * x_{j,c}
+                let conflictWeight = penaltyWeight * preferences.ConflictWeight
 
                 let quboTerms =
                     problem.Edges
@@ -217,27 +336,62 @@ module QuantumGraphColoringSolver =
 
                                     if varIdx1 = varIdx2 then
                                         // Self-loop (should not happen in valid graph)
-                                        q |> addTerm (varIdx1, varIdx1) penaltyWeight
+                                        q |> addTerm (varIdx1, varIdx1) conflictWeight
                                     else
                                         let (row, col) = (min varIdx1 varIdx2, max varIdx1 varIdx2)
-                                        q |> addTerm (row, col) penaltyWeight)
+                                        q |> addTerm (row, col) conflictWeight)
                                 qubo)
                         quboTerms
 
-                // CONSTRAINT 3: Minimize colors used (soft constraint, small weight)
-                // Penalty: Σ_c c * max_i(x_{i,c})
-                // Approximation: Add small linear penalty proportional to color index
-                let colorPenaltyWeight = penaltyWeight * 0.1
+                // SOFT TERM 3: color-count goal
+                let quboTerms =
+                    match preferences.Goal with
+                    | ColoringGoal.MinimizeColors when numColors > 1 ->
+                        // Linear cost proportional to the color index, in total at most ColorIndexBudget × P
+                        seq {
+                            for v in 0 .. numVertices - 1 do
+                                for c in 1 .. numColors - 1 do
+                                    yield getVarIndex v c, colorIndexCost penaltyWeight numVertices numColors c
+                        }
+                        |> Seq.fold
+                            (fun qubo (varIdx, colorPenalty) -> qubo |> addTerm (varIdx, varIdx) colorPenalty)
+                            quboTerms
+                    | ColoringGoal.BalanceColors ->
+                        // λ × Σ_c (Σ_i x_{i,c})² = λ × Σ_c (Σ_i x_{i,c} + 2 × Σ_{i<j} x_{i,c} x_{j,c}),
+                        // at most λ × n² = BalanceBudget × P on a one-hot assignment
+                        let lambda = balanceWeight penaltyWeight numVertices
+
+                        seq {
+                            for c in 0 .. numColors - 1 do
+                                for v in 0 .. numVertices - 1 do
+                                    let varIdx = getVarIndex v c
+                                    yield (varIdx, varIdx), lambda
+
+                                    for w in v + 1 .. numVertices - 1 do
+                                        yield (varIdx, getVarIndex w c), 2.0 * lambda
+                        }
+                        |> Seq.fold (fun qubo (key, value) -> qubo |> addTerm key value) quboTerms
+                    | ColoringGoal.MinimizeColors
+                    | ColoringGoal.MinimizeConflicts -> quboTerms
+
+                // SOFT TERM 4: avoided colors (fixed vertices keep their fixed color),
+                // in total at most AvoidColorBudget × P
+                let avoidWeight = avoidColorCost penaltyWeight numVertices
 
                 let quboTerms =
                     seq {
                         for v in 0 .. numVertices - 1 do
-                            for c in 0 .. numColors - 1 do
-                                yield getVarIndex v c, float c * colorPenaltyWeight
+                            let vertexName = problem.Vertices.[v]
+
+                            if not (problem.FixedColors.ContainsKey vertexName) then
+                                match Map.tryFind vertexName preferences.AvoidColors with
+                                | Some avoided ->
+                                    for c in List.distinct avoided do
+                                        if c >= 0 && c < numColors then
+                                            yield getVarIndex v c
+                                | None -> ()
                     }
-                    |> Seq.fold
-                        (fun qubo (varIdx, colorPenalty) -> qubo |> addTerm (varIdx, varIdx) colorPenalty)
-                        quboTerms
+                    |> Seq.fold (fun qubo varIdx -> qubo |> addTerm (varIdx, varIdx) avoidWeight) quboTerms
 
                 Ok(
                     {
@@ -249,9 +403,126 @@ module QuantumGraphColoringSolver =
         with ex ->
             Error(QuantumError.OperationError("QuboEncoding", $"Graph coloring QUBO encoding failed: %s{ex.Message}"))
 
+    /// Encode K-coloring problem as QUBO with the default preferences
+    /// (conflict weight 1, fewer colors preferred); see toQuboWithPreferences.
+    let toQubo
+        (problem: GraphColoringProblem)
+        (penaltyWeight: float)
+        : Result<QuboMatrix * Map<int, string * int>, QuantumError> =
+        toQuboWithPreferences problem penaltyWeight defaultPreferences
+
+    /// QUBO energy of a color assignment: its one-hot bitstring evaluated against the QUBO.
+    let internal assignmentEnergy
+        (problem: GraphColoringProblem)
+        (qubo: QuboMatrix)
+        (assignments: Map<string, int>)
+        : float =
+        let bits = Array.zeroCreate qubo.NumVariables
+
+        problem.Vertices
+        |> List.iteri (fun v vertex ->
+            match Map.tryFind vertex assignments with
+            | Some c when c >= 0 && c < problem.NumColors -> bits.[v * problem.NumColors + c] <- 1
+            | _ -> ())
+
+        QaoaExecutionHelpers.evaluateQuboSparse qubo.Q bits
+
+    /// QUBO energy of a color assignment computed from the terms directly, equal to
+    /// assignmentEnergy on the matrix toQuboWithPreferences builds, without building it.
+    let internal coloringEnergy
+        (problem: GraphColoringProblem)
+        (penaltyWeight: float)
+        (preferences: ColoringPreferences)
+        (assignments: Map<string, int>)
+        : float =
+        let numVertices = problem.Vertices.Length
+        let numColors = problem.NumColors
+
+        let colorOf vertex =
+            match Map.tryFind vertex assignments with
+            | Some c when c >= 0 && c < numColors -> Some c
+            | _ -> None
+
+        let vertexTerms =
+            problem.Vertices
+            |> List.sumBy (fun vertex ->
+                match colorOf vertex with
+                | None -> 0.0
+                | Some c ->
+                    let constraintTerm, avoidTerm =
+                        match Map.tryFind vertex problem.FixedColors with
+                        | Some fixedColor -> (if c = fixedColor then -10.0 else 10.0) * penaltyWeight, 0.0
+                        | None ->
+                            let avoided =
+                                Map.tryFind vertex preferences.AvoidColors
+                                |> Option.defaultValue []
+                                |> List.contains c
+
+                            -penaltyWeight,
+                            (if avoided then
+                                 avoidColorCost penaltyWeight numVertices
+                             else
+                                 0.0)
+
+                    let indexTerm =
+                        match preferences.Goal with
+                        | ColoringGoal.MinimizeColors -> colorIndexCost penaltyWeight numVertices numColors c
+                        | ColoringGoal.BalanceColors
+                        | ColoringGoal.MinimizeConflicts -> 0.0
+
+                    constraintTerm + avoidTerm + indexTerm)
+
+        let balanceTerm =
+            match preferences.Goal with
+            | ColoringGoal.BalanceColors ->
+                let classSizes = problem.Vertices |> List.choose colorOf |> List.countBy id
+
+                balanceWeight penaltyWeight numVertices
+                * float (classSizes |> List.sumBy (fun (_, size) -> size * size))
+            | ColoringGoal.MinimizeColors
+            | ColoringGoal.MinimizeConflicts -> 0.0
+
+        let conflictTerm =
+            problem.Edges
+            |> List.sumBy (fun edge ->
+                match colorOf edge.Source, colorOf edge.Target with
+                | Some a, Some b when a = b -> penaltyWeight * preferences.ConflictWeight
+                | _ -> 0.0)
+
+        vertexTerms + balanceTerm + conflictTerm
+
     // ================================================================================
     // SOLUTION DECODING
     // ================================================================================
+
+    /// Solution record for a color assignment: colors used and conflicting edges.
+    let private summarizeAssignments
+        (problem: GraphColoringProblem)
+        (colorAssignments: Map<string, int>)
+        : GraphColoringSolution =
+        // Count distinct colors used
+        let colorsUsed =
+            colorAssignments |> Map.toList |> List.map snd |> List.distinct |> List.length
+
+        // Count conflicts (adjacent vertices with same color)
+        let conflictCount =
+            problem.Edges
+            |> List.filter (fun edge ->
+                let sourceColor = Map.find edge.Source colorAssignments
+                let targetColor = Map.find edge.Target colorAssignments
+                sourceColor = targetColor)
+            |> List.length
+
+        {
+            ColorAssignments = colorAssignments
+            ColorsUsed = colorsUsed
+            ConflictCount = conflictCount
+            IsValid = conflictCount = 0
+            BackendName = ""
+            NumShots = 0
+            ElapsedMs = 0.0
+            BestEnergy = 0.0
+        }
 
     /// Decode binary solution to color assignments
     let private decodeSolution
@@ -295,29 +566,128 @@ module QuantumGraphColoringSolver =
                     vertex, color)
             |> Map.ofList
 
-        // Count distinct colors used
-        let colorsUsed =
-            colorAssignments |> Map.toList |> List.map snd |> List.distinct |> List.length
+        summarizeAssignments problem colorAssignments
 
-        // Count conflicts (adjacent vertices with same color)
-        let conflictCount =
+    /// Vertices in descending priority (stable); empty when all vertices share one priority.
+    let private verticesByPriority (problem: GraphColoringProblem) (preferences: ColoringPreferences) : string list =
+        let priorityOf vertex =
+            Map.tryFind vertex preferences.Priorities |> Option.defaultValue 0.0
+
+        match problem.Vertices |> List.map priorityOf |> List.distinct with
+        | []
+        | [ _ ] -> []
+        | _ -> problem.Vertices |> List.sortByDescending priorityOf
+
+    /// Pick the best decoded sample for the goal.
+    ///
+    /// Ranking: MinimizeColors — valid first, then fewest colors (invalid: fewest conflicts);
+    /// BalanceColors — valid first, then smallest Σ_c n_c² (invalid: fewest conflicts);
+    /// MinimizeConflicts — fewest conflicts. Then lowest QUBO energy (BestEnergy), then the
+    /// sample giving higher-priority vertices lower color indices.
+    let internal selectBest
+        (problem: GraphColoringProblem)
+        (preferences: ColoringPreferences)
+        (solutions: GraphColoringSolution[])
+        : GraphColoringSolution =
+        let priorityOrder = verticesByPriority problem preferences
+
+        let classSizeSquares (sol: GraphColoringSolution) =
+            sol.ColorAssignments
+            |> Map.toList
+            |> List.countBy snd
+            |> List.sumBy (fun (_, n) -> n * n)
+
+        let goalKey (sol: GraphColoringSolution) =
+            match preferences.Goal with
+            | ColoringGoal.MinimizeColors ->
+                if sol.IsValid then
+                    (0, sol.ColorsUsed, sol.ConflictCount)
+                else
+                    (1, sol.ConflictCount, sol.ColorsUsed)
+            | ColoringGoal.BalanceColors ->
+                if sol.IsValid then
+                    (0, classSizeSquares sol, 0)
+                else
+                    (1, sol.ConflictCount, classSizeSquares sol)
+            | ColoringGoal.MinimizeConflicts -> (sol.ConflictCount, 0, 0)
+
+        let priorityKey (sol: GraphColoringSolution) =
+            priorityOrder |> List.map (fun vertex -> Map.find vertex sol.ColorAssignments)
+
+        solutions
+        |> Array.sortBy (fun sol -> goalKey sol, sol.BestEnergy, priorityKey sol)
+        |> Array.head
+
+    /// Greedy coloring. Fixed vertices keep their color and are placed first; the others are
+    /// visited in descending priority (vertex order when all priorities are equal) and take,
+    /// among the colors no already-colored neighbor uses, the one with the lowest
+    /// (avoided?, goal, index) cost. The goal is, for MinimizeColors, 0 for a color some
+    /// vertex already has and 1 for a new one (reuse before opening a color); for
+    /// BalanceColors, the class size so far; for MinimizeConflicts, 0. Returns Error with
+    /// the first vertex whose neighbors already use every color (never without edges).
+    let internal greedyColoring
+        (problem: GraphColoringProblem)
+        (preferences: ColoringPreferences)
+        : Result<Map<string, int>, string> =
+        let order =
+            match verticesByPriority problem preferences with
+            | [] -> problem.Vertices
+            | ordered -> ordered
+
+        let neighbors =
             problem.Edges
-            |> List.filter (fun edge ->
-                let sourceColor = Map.find edge.Source colorAssignments
-                let targetColor = Map.find edge.Target colorAssignments
-                sourceColor = targetColor)
-            |> List.length
+            |> List.collect (fun e -> [ e.Source, e.Target; e.Target, e.Source ])
+            |> List.groupBy fst
+            |> List.map (fun (vertex, pairs) -> vertex, pairs |> List.map snd)
+            |> Map.ofList
 
-        {
-            ColorAssignments = colorAssignments
-            ColorsUsed = colorsUsed
-            ConflictCount = conflictCount
-            IsValid = conflictCount = 0
-            BackendName = ""
-            NumShots = 0
-            ElapsedMs = 0.0
-            BestEnergy = 0.0
-        }
+        let fixedAssignments =
+            problem.Vertices
+            |> List.choose (fun vertex ->
+                Map.tryFind vertex problem.FixedColors
+                |> Option.map (fun color -> vertex, color))
+            |> Map.ofList
+
+        order
+        |> List.fold
+            (fun (state: Result<Map<string, int>, string>) vertex ->
+                match state with
+                | Ok assignments when not (assignments.ContainsKey vertex) ->
+                    let avoided =
+                        Map.tryFind vertex preferences.AvoidColors
+                        |> Option.defaultValue []
+                        |> Set.ofList
+
+                    let neighborColors =
+                        Map.tryFind vertex neighbors
+                        |> Option.defaultValue []
+                        |> List.choose (fun neighbor -> Map.tryFind neighbor assignments)
+                        |> Set.ofList
+
+                    let classSize color =
+                        assignments |> Map.filter (fun _ c -> c = color) |> Map.count
+
+                    let freeColors =
+                        [ 0 .. problem.NumColors - 1 ]
+                        |> List.filter (fun c -> not (neighborColors.Contains c))
+
+                    match freeColors with
+                    | [] -> Error vertex
+                    | _ ->
+                        let color =
+                            freeColors
+                            |> List.minBy (fun c ->
+                                let goalCost =
+                                    match preferences.Goal with
+                                    | ColoringGoal.BalanceColors -> classSize c
+                                    | ColoringGoal.MinimizeColors -> if classSize c > 0 then 0 else 1
+                                    | ColoringGoal.MinimizeConflicts -> 0
+
+                                (avoided.Contains c, goalCost, c))
+
+                        Ok(assignments |> Map.add vertex color)
+                | _ -> state)
+            (Ok fixedAssignments)
 
     // ================================================================================
     // QAOA CONFIGURATION
@@ -332,7 +702,8 @@ module QuantumGraphColoringSolver =
             /// Number of colors to use
             NumColors: int
 
-            /// Initial QAOA parameters (gamma, beta) for single layer
+            /// QAOA angles (gamma, beta) of the single layer, in units of the normalised cost
+            /// Hamiltonian (minimisation convention, see Core.QaoaCircuit)
             InitialParameters: float * float
 
             /// Penalty weight for constraint violations (default: 10.0)
@@ -352,7 +723,115 @@ module QuantumGraphColoringSolver =
     // MAIN SOLVER
     // ================================================================================
 
+    /// Solve graph coloring problem using quantum QAOA with soft preferences (async version)
+    ///
+    /// Parameters:
+    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
+    ///   - problem: Graph coloring problem (vertices, edges, colors)
+    ///   - preferences: Conflict weight, soft goal, avoided colors and priorities
+    ///   - config: QAOA configuration (shots, colors, parameters)
+    ///
+    /// The QUBO comes from toQuboWithPreferences and the measured samples are ranked by
+    /// selectBest. A graph without edges runs no circuit: it is colored directly by
+    /// greedyColoring and reported with BackendName = NoCircuitBackendName and NumShots = 0.
+    let solveWithPreferencesAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: GraphColoringProblem)
+        (preferences: ColoringPreferences)
+        (config: QaoaConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<GraphColoringSolution, QuantumError>> =
+        task {
+
+            let startTime = DateTime.Now
+
+            try
+                // Step 1: Validate problem inputs
+                if problem.Vertices.Length = 0 then
+                    return Error(QuantumError.ValidationError("numVertices", "Graph coloring problem has no vertices"))
+                elif config.NumColors < 1 then
+                    return
+                        Error(
+                            QuantumError.ValidationError(
+                                "numColors",
+                                "Graph coloring problem must have at least 1 color"
+                            )
+                        )
+                elif problem.Edges.IsEmpty then
+                    // No edge can conflict: the greedy coloring never fails, and its energy
+                    // comes from the terms directly instead of a built QUBO
+                    match validateEncoding problem preferences with
+                    | Error err -> return Error err
+                    | Ok() ->
+                        let assignments =
+                            greedyColoring problem preferences |> Result.defaultValue Map.empty
+
+                        return
+                            Ok
+                                { summarizeAssignments problem assignments with
+                                    BackendName = NoCircuitBackendName
+                                    NumShots = 0
+                                    ElapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                                    BestEnergy = coloringEnergy problem config.PenaltyWeight preferences assignments
+                                }
+                else
+                    // Step 2: Encode graph coloring as QUBO
+                    match toQuboWithPreferences problem config.PenaltyWeight preferences with
+                    | Error err -> return Error err
+                    | Ok(quboMatrix, reverseMap) ->
+
+                        // Step 3: Convert QUBO to dense array and execute QAOA pipeline
+                        let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
+                        let (gamma, beta) = config.InitialParameters
+                        let parameters = [| gamma, beta |]
+
+                        match!
+                            QaoaExecutionHelpers.executeFromQuboAsync
+                                backend
+                                quboArray
+                                parameters
+                                config.NumShots
+                                cancellationToken
+                        with
+                        | Error err -> return Error err
+                        | Ok measurements ->
+
+                            // Step 9: Decode measurements to color assignments with their QUBO energy
+                            let solutions =
+                                measurements
+                                |> Array.map (fun bitstring ->
+                                    let decoded = decodeSolution problem bitstring reverseMap
+
+                                    { decoded with
+                                        BestEnergy = assignmentEnergy problem quboMatrix decoded.ColorAssignments
+                                    })
+
+                            // Step 10: Pick the best sample for the goal
+                            let bestSolution = selectBest problem preferences solutions
+
+                            let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+
+                            return
+                                Ok
+                                    { bestSolution with
+                                        BackendName = backend.Name
+                                        NumShots = config.NumShots
+                                        ElapsedMs = elapsedMs
+                                    }
+
+            with ex ->
+                return
+                    Error(
+                        QuantumError.OperationError(
+                            "QuantumGraphColoringSolver",
+                            $"Quantum graph coloring solve failed: %s{ex.Message}"
+                        )
+                    )
+        }
+
     /// Solve graph coloring problem using quantum QAOA (async version)
+    ///
+    /// Uses defaultPreferences; see solveWithPreferencesAsync.
     ///
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
@@ -376,83 +855,7 @@ module QuantumGraphColoringSolver =
         (config: QaoaConfig)
         (cancellationToken: CancellationToken)
         : Task<Result<GraphColoringSolution, QuantumError>> =
-        task {
-
-            let startTime = DateTime.Now
-
-            try
-                // Step 1: Validate problem inputs
-                let numQubits = problem.Vertices.Length * config.NumColors
-
-                if problem.Vertices.Length = 0 then
-                    return Error(QuantumError.ValidationError("numVertices", "Graph coloring problem has no vertices"))
-                elif config.NumColors < 1 then
-                    return
-                        Error(
-                            QuantumError.ValidationError(
-                                "numColors",
-                                "Graph coloring problem must have at least 1 color"
-                            )
-                        )
-                elif problem.Edges.Length = 0 then
-                    return Error(QuantumError.ValidationError("numEdges", "Graph coloring problem has no edges"))
-                else
-                    // Step 2: Encode graph coloring as QUBO
-                    match toQubo problem config.PenaltyWeight with
-                    | Error err -> return Error err
-                    | Ok(quboMatrix, reverseMap) ->
-
-                        // Step 3: Convert QUBO to dense array and execute QAOA pipeline
-                        let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                        let (gamma, beta) = config.InitialParameters
-                        let parameters = [| gamma, beta |]
-
-                        match!
-                            QaoaExecutionHelpers.executeFromQuboAsync
-                                backend
-                                quboArray
-                                parameters
-                                config.NumShots
-                                cancellationToken
-                        with
-                        | Error err -> return Error err
-                        | Ok measurements ->
-
-                            // Step 9: Decode measurements to color assignments
-                            let solutions =
-                                measurements
-                                |> Array.map (fun bitstring -> decodeSolution problem bitstring reverseMap)
-
-                            // Step 10: Find best valid solution (prioritize valid, then minimize colors)
-                            let bestSolution =
-                                solutions
-                                |> Array.sortBy (fun sol ->
-                                    if sol.IsValid then
-                                        (0, sol.ColorsUsed, sol.ConflictCount) // Valid: minimize colors
-                                    else
-                                        (1, sol.ConflictCount, sol.ColorsUsed) // Invalid: minimize conflicts
-                                )
-                                |> Array.head
-
-                            let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
-
-                            return
-                                Ok
-                                    { bestSolution with
-                                        BackendName = backend.Name
-                                        NumShots = config.NumShots
-                                        ElapsedMs = elapsedMs
-                                    }
-
-            with ex ->
-                return
-                    Error(
-                        QuantumError.OperationError(
-                            "QuantumGraphColoringSolver",
-                            $"Quantum graph coloring solve failed: %s{ex.Message}"
-                        )
-                    )
-        }
+        solveWithPreferencesAsync backend problem defaultPreferences config cancellationToken
 
     /// Solve graph coloring problem using quantum QAOA (synchronous wrapper)
     ///
@@ -487,90 +890,33 @@ module QuantumGraphColoringSolver =
     // CLASSICAL GREEDY SOLVER (for comparison)
     // ================================================================================
 
-    /// Solve graph coloring using greedy coloring algorithm (classical)
+    /// Solve graph coloring using the greedy coloring algorithm (classical) with preferences
     ///
-    /// This provides a classical baseline for comparison with quantum QAOA.
-    /// Uses greedy vertex ordering with first-fit color assignment.
+    /// This provides a classical baseline for comparison with quantum QAOA. It runs
+    /// greedyColoring: fixed vertices keep their color, the others are visited in
+    /// descending priority and avoid their AvoidColors when another free color exists.
+    /// It never creates a conflict, so ConflictWeight has no effect here.
     ///
     /// Typical performance: Near-optimal for many graph types
     /// Returns Error when some vertex has all NumColors colors already used by its
     /// neighbors, i.e. the graph is not colorable with NumColors colors by this
     /// greedy heuristic.
-    let internal solveClassical (problem: GraphColoringProblem) : Result<GraphColoringSolution, QuantumError> =
-        // Build adjacency list for efficient neighbor lookup
-        let adjacencyMap =
-            problem.Vertices
-            |> List.map (fun vertex ->
-                let neighbors =
-                    problem.Edges
-                    |> List.collect (fun edge ->
-                        if edge.Source = vertex then [ edge.Target ]
-                        elif edge.Target = vertex then [ edge.Source ]
-                        else [])
-                    |> Set.ofList
-
-                vertex, neighbors)
-            |> Map.ofList
-
-        // Greedy coloring algorithm using functional fold, short-circuiting to Error
-        // when no color remains for a vertex
-        let colorAssignmentsResult =
-            problem.Vertices
-            |> List.fold
-                (fun assignmentsResult vertex ->
-                    assignmentsResult
-                    |> Result.bind (fun assignments ->
-                        // Check if vertex has fixed color
-                        match Map.tryFind vertex problem.FixedColors with
-                        | Some fixedColor -> Ok(assignments |> Map.add vertex fixedColor)
-                        | None ->
-                            // Find colors used by neighbors
-                            let neighbors = Map.find vertex adjacencyMap
-
-                            let neighborColors =
-                                neighbors
-                                |> Set.toList
-                                |> List.choose (fun neighbor -> Map.tryFind neighbor assignments)
-                                |> Set.ofList
-
-                            // Assign first available color (not used by any neighbor)
-                            let availableColor =
-                                seq { 0 .. problem.NumColors - 1 }
-                                |> Seq.tryFind (fun color -> not (Set.contains color neighborColors))
-
-                            match availableColor with
-                            | Some color -> Ok(assignments |> Map.add vertex color)
-                            | None ->
-                                Error(
-                                    QuantumError.OperationError(
-                                        "Classical graph coloring",
-                                        $"Graph is not colorable with {problem.NumColors} colors by the greedy heuristic: all colors are already used by neighbors of vertex '{vertex}'. Try increasing the number of colors."
-                                    )
-                                )))
-                (Ok Map.empty)
-
-        colorAssignmentsResult
+    let internal solveClassicalWithPreferences
+        (problem: GraphColoringProblem)
+        (preferences: ColoringPreferences)
+        : Result<GraphColoringSolution, QuantumError> =
+        greedyColoring problem preferences
+        |> Result.mapError (fun vertex ->
+            QuantumError.OperationError(
+                "Classical graph coloring",
+                $"Graph is not colorable with {problem.NumColors} colors by the greedy heuristic: all colors are already used by neighbors of vertex '{vertex}'. Try increasing the number of colors."
+            ))
         |> Result.map (fun colorAssignments ->
-            // Count distinct colors used
-            let colorsUsed =
-                colorAssignments |> Map.toList |> List.map snd |> List.distinct |> List.length
-
-            // Count conflicts (should be 0 for greedy algorithm)
-            let conflictCount =
-                problem.Edges
-                |> List.filter (fun edge ->
-                    let sourceColor = Map.find edge.Source colorAssignments
-                    let targetColor = Map.find edge.Target colorAssignments
-                    sourceColor = targetColor)
-                |> List.length
-
-            {
-                ColorAssignments = colorAssignments
-                ColorsUsed = colorsUsed
-                ConflictCount = conflictCount
-                IsValid = conflictCount = 0
+            { summarizeAssignments problem colorAssignments with
                 BackendName = "Classical Greedy"
-                NumShots = 0
-                ElapsedMs = 0.0
-                BestEnergy = 0.0
             })
+
+    /// Solve graph coloring using the greedy coloring algorithm (classical) with the
+    /// default preferences: vertex order, a color no neighbor uses, preferring one already in use.
+    let internal solveClassical (problem: GraphColoringProblem) : Result<GraphColoringSolution, QuantumError> =
+        solveClassicalWithPreferences problem defaultPreferences

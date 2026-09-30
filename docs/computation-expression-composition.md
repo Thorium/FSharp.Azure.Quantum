@@ -114,9 +114,10 @@ Loop bodies need functions that build a one-operation value of the state type. `
 let singleGate (gate: Gate) : Circuit =
     { QubitCount = 0; Gates = [gate] }
 
-/// Creates a circuit with multiple gates (for use in for loops)
+/// Creates a circuit with multiple gates (for use in for loops).
+/// `gates` is in program order; Circuit stores Gates most-recent-first.
 let multiGate (gates: Gate list) : Circuit =
-    { QubitCount = 0; Gates = gates }
+    { QubitCount = 0; Gates = List.rev gates }
 ```
 
 `CircuitBuilder` also has lowercase functions for the gate union cases, such as:

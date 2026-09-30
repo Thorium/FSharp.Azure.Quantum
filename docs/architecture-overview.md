@@ -291,7 +291,7 @@ match GraphColoring.solve problem 3 None with
 1. Create `Algorithms/NewAlgorithm.fs`
 2. Express the algorithm as intent → plan → execute (see the [Intent-First Algorithms ADR](adr-intent-first-algorithms))
 3. Accept an `IQuantumBackend` parameter
-4. Follow the `Algorithms/QFT.fs` pattern
+4. Follow the `Algorithms/QFT.fs` pattern, including its whole-circuit fallback: when `UnifiedBackend.isIncrementalUnsupported` reports that the backend (cloud hardware) refuses `ApplyOperation`, submit the complete gate list from |0…0⟩ with `UnifiedBackend.submitAsCircuit`, or wrap state-independent code in `WholeCircuit.run`
 
 **Add a Backend**:
 1. Create `Backends/NewBackend.fs`
@@ -300,8 +300,8 @@ match GraphColoring.solve problem 3 None with
    - `ApplyOperation` / `ApplyOperationAsync` (with `CancellationToken`)
    - `InitializeState`, `SupportsOperation`, `Name`, `NativeStateType`
    - Optionally `IQubitLimitedBackend.MaxQubits` so solvers can check capacity up front
-3. Handle provider-specific circuit format (or use OpenQASM)
-4. Add authentication and job submission logic
+3. Handle provider-specific circuit format (or use OpenQASM); transpile to the provider's gates first (`CloudBackendHelpers.transpileForTarget`)
+4. Add authentication and job submission logic. A backend that runs complete circuits only returns `OperationError("ApplyOperation", "... incremental ...")` from `ApplyOperation`, so the algorithms switch to whole-circuit submission; it implements `IShotSamplingBackend` (its shots per circuit) and `IJobCountingBackend` (a `JobBudget` reserved before every submission)
 5. Async methods should use `task { }` computation expression (not `async { }`)
 6. See `Backends/CloudBackends.fs` for a reference cloud implementation
 

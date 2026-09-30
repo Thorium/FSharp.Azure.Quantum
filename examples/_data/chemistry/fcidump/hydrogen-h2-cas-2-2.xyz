@@ -1,0 +1,4 @@
+2
+Hydrogen (H2) [CAS(2,2)] | RHF/STO-3G optimised (max gradient 6.5e-07 Ha/bohr) | PySCF 2.14.0
+H      0.00000000     0.00000000     0.01388477
+H      0.00000000     0.00000000     0.72611523

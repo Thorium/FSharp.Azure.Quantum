@@ -464,11 +464,16 @@ module ConstraintScheduler =
                 Edges = edges
             }
 
-        // Use MaxBudget if specified, otherwise use sum of all resource costs
+        // Use MaxBudget if specified; otherwise any assignment is affordable: every task on the
+        // most expensive resource bounds the total cost of every schedule.
         let maxCost =
             match problem.MaxBudget with
             | Some budget -> budget
-            | None -> colorCosts |> Array.sum
+            | None ->
+                if colorCosts.Length = 0 then
+                    0.0
+                else
+                    float problem.Tasks.Length * Array.max colorCosts
 
         {
             Graph = graph
@@ -512,26 +517,47 @@ module ConstraintScheduler =
         : QuantumResult<Schedule option> =
         let coloringConfig = toWeightedColoring problem
 
-        match weightedColoringOracle coloringConfig with
-        | Error err -> Error err
-        | Ok oracle ->
-            // Configure Grover search with specified shots
-            let groverConfig =
-                { Grover.defaultConfig with
-                    Shots = problem.Shots
-                }
+        let groverConfig =
+            { Grover.defaultConfig with
+                Shots = problem.Shots
+            }
 
-            // Run Grover's search algorithm
-            match Grover.search oracle backend groverConfig with
-            | Error err -> Error err
-            | Ok groverResult ->
-                // Decode bitstring solutions to Schedule
-                // We pick the most likely solution (highest probability)
-                match groverResult.Solutions with
-                | [] -> Ok None
-                | bestSolution :: _ ->
-                    let schedule = decodeColoringSolution problem bestSolution
-                    Ok(Some schedule)
+        // Quantum minimum finding (Dürr–Høyer): search for a valid colouring within the cost
+        // bound, then lower the bound below the cheapest schedule found and search again,
+        // until a search finds nothing. Each round's schedule is strictly cheaper than the
+        // last, so the rounds are bounded by the number of distinct schedule costs.
+        let maxRounds = 32
+
+        let rec descend (bound: float) (best: Schedule option) (round: int) =
+            if round >= maxRounds then
+                Ok best
+            else
+                match
+                    weightedColoringOracle
+                        { coloringConfig with
+                            MaxTotalCost = bound
+                        }
+                with
+                | Error err -> if best.IsSome then Ok best else Error err
+                | Ok oracle ->
+                    match Grover.search oracle backend groverConfig with
+                    | Error err -> Error err
+                    | Ok groverResult ->
+                        let decoded = groverResult.Solutions |> List.map (decodeColoringSolution problem)
+
+                        match decoded |> List.filter (fun s -> s.IsFeasible) with
+                        | [] ->
+                            // The colouring oracle doesn't encode RequiresResource, so a
+                            // first round may find only colourings that break it; report the
+                            // cheapest as a partial schedule rather than nothing.
+                            match best, decoded with
+                            | None, _ :: _ -> Ok(Some(decoded |> List.minBy (fun s -> s.TotalCost)))
+                            | _ -> Ok best
+                        | schedules ->
+                            let cheapest = schedules |> List.minBy (fun s -> s.TotalCost)
+                            descend (cheapest.TotalCost - 1e-9) (Some cheapest) (round + 1)
+
+        descend coloringConfig.MaxTotalCost None 0
 
     // ========================================================================
     // QAOA-BASED OPTIMIZATION (approximate, via QUBO)
@@ -812,61 +838,15 @@ module ConstraintScheduler =
             | Error e -> Error e
             | Ok schedule ->
 
-                // If quantum returned None (no solution found), try greedy fallback for small problems
-                let finalSchedule =
-                    match schedule with
-                    | Some _ -> schedule
-                    | None ->
-                        if problem.Tasks.Length <= 5 then
-                            // Recursive permutation generator using List.collect (idiomatic F#)
-                            let rec permutations =
-                                function
-                                | [] -> [ [] ]
-                                | list ->
-                                    list
-                                    |> List.collect (fun x ->
-                                        permutations (list |> List.filter ((<>) x)) |> List.map (fun p -> x :: p))
-
-                            // Generate all possible resource assignments using recursion
-                            let generateAssignments =
-                                let resources = problem.Resources
-
-                                let rec loop tasks acc =
-                                    match tasks with
-                                    | [] -> [ acc ]
-                                    | task :: rest ->
-                                        resources
-                                        |> List.collect (fun res ->
-                                            let assignment =
-                                                {
-                                                    Task = task
-                                                    Resource = res.Id
-                                                    Cost = res.Cost
-                                                }
-
-                                            loop rest (assignment :: acc))
-
-                                loop problem.Tasks []
-
-                            generateAssignments
-                            |> List.map (fun assignments -> createSchedule problem assignments)
-                            |> List.filter (fun s -> s.IsFeasible)
-                            |> List.sortBy (fun s ->
-                                match problem.Goal with
-                                | MinimizeCost -> s.TotalCost
-                                | MaximizeSatisfaction -> float (s.TotalHardConstraints - s.HardConstraintsSatisfied) // Minimize violations
-                                | Balanced -> s.TotalCost // Simplified
-                            )
-                            |> List.tryHead
-                        else
-                            None
-
+                // Quantum-first: when the quantum search finds no schedule, the result says
+                // so; no classical search runs in its place.
                 Ok
                     {
-                        BestSchedule = finalSchedule
+                        BestSchedule = schedule
                         Message =
-                            match finalSchedule with
-                            | None -> "No feasible schedule found with current constraints"
+                            match schedule with
+                            | None ->
+                                "The quantum search found no feasible schedule with the current constraints and shots"
                             | Some sched ->
                                 if sched.IsFeasible then
                                     $"Found feasible schedule with cost ${sched.TotalCost:F2}"

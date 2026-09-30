@@ -119,8 +119,10 @@ module BellStates =
         (plan: BellPlan)
         : Result<QuantumState, QuantumError> =
 
+        // Gate by gate where the backend allows it; a backend that runs complete circuits only
+        // gets the same gates as one circuit, from |0…0⟩ only (a job cannot load a state).
         match plan with
-        | BellPlan.ExecuteViaOps ops -> UnifiedBackend.applySequence backend ops state
+        | BellPlan.ExecuteViaOps ops -> WholeCircuit.applyOrSubmit "BellStates" backend ops state
 
     /// Result of Bell state measurement
     type BellMeasurement =

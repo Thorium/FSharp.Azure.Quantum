@@ -545,6 +545,77 @@ module QuantumKeyDistribution =
             SampleIndices = sampleIndices
         }
 
+    /// Widest circuit the whole-circuit BB84 route packs transmissions into.
+    [<Literal>]
+    let private wholeCircuitWidth = 12
+
+    /// Bob's results for every transmission, run as whole circuits on a backend that runs
+    /// complete circuits only.
+    ///
+    /// Each transmission is independent, so several share one circuit on disjoint qubits and
+    /// one shot of that circuit gives each of them one outcome. Eve's intercept-resend is a
+    /// mid-circuit measurement followed by re-preparation; it is deferred: rotate into her
+    /// basis, CNOT the qubit onto an ancilla of her own, rotate back. That decoheres the qubit
+    /// in her basis exactly as measuring it and resending the eigenstate she saw would, so
+    /// Bob's statistics are the protocol's.
+    let private bobResultsWholeCircuit (backend: IQuantumBackend) (intent: Bb84Intent) : Result<Bit[], QuantumError> =
+        let rotation basis qubit =
+            match basis with
+            | Rectilinear -> []
+            | Diagonal -> [ QuantumOperation.Gate(H qubit) ]
+
+        // Gates of transmission i on `qubit` (and Eve's ancilla next to it), and its width.
+        let transmission i qubit =
+            let prepare =
+                (match intent.Alice.Bits.[i] with
+                 | One -> [ QuantumOperation.Gate(X qubit) ]
+                 | Zero -> [])
+                @ rotation intent.Alice.Bases.[i] qubit
+
+            let eve, width =
+                match intent.EveActions.[i] with
+                | EveAction.None -> [], 1
+                | EveAction.InterceptResend eveBasis ->
+                    rotation eveBasis qubit
+                    @ [ QuantumOperation.Gate(CNOT(qubit, qubit + 1)) ]
+                    @ rotation eveBasis qubit,
+                    2
+
+            prepare @ eve @ rotation intent.BobBases.[i] qubit, width
+
+        // Pack consecutive transmissions into circuits no wider than wholeCircuitWidth.
+        let batches =
+            [ 0 .. intent.InitialQubits - 1 ]
+            |> List.fold
+                (fun (batches: (int * int) list list, used) i ->
+                    let width = snd (transmission i 0)
+
+                    match batches with
+                    | current :: rest when used + width <= wholeCircuitWidth ->
+                        (((i, used) :: current) :: rest, used + width)
+                    | _ -> ([ (i, 0) ] :: batches, width))
+                ([], 0)
+            |> fst
+            |> List.rev
+            |> List.map List.rev
+
+        batches
+        |> List.map (fun batch ->
+            let ops = batch |> List.collect (fun (i, qubit) -> fst (transmission i qubit))
+
+            let width = batch |> List.sumBy (fun (i, _) -> snd (transmission i 0))
+
+            UnifiedBackend.submitAsCircuit backend width ops
+            |> Result.map (fun state ->
+                let bits = QuantumState.measure state 1 |> Array.head
+                batch |> List.map (fun (_, qubit) -> if bits.[qubit] = 1 then One else Zero)))
+        |> List.fold
+            (fun acc next ->
+                acc
+                |> Result.bind (fun collected -> next |> Result.map (fun bits -> collected @ bits)))
+            (Ok [])
+        |> Result.map Array.ofList
+
     let private executeBb84Planned
         (backend: IQuantumBackend)
         (_plan: Bb84Plan)
@@ -552,23 +623,32 @@ module QuantumKeyDistribution =
         : Result<BB84Result, QuantumError> =
 
         result {
+            // Asked up front: the gate-by-gate loop below never touches the backend for a
+            // |0⟩ sent and measured in the rectilinear basis, so on a backend that runs
+            // complete circuits only it would "measure" those transmissions without running
+            // anything.
+            let! probeState = backend.InitializeState 1
+
             let! bobResults =
-                [| 0 .. intent.InitialQubits - 1 |]
-                |> Result.traverseArray (fun i ->
-                    result {
-                        let! aliceQubit = prepareQubit intent.Alice.Bits.[i] intent.Alice.Bases.[i] backend
+                if WholeCircuit.refusesIncremental backend probeState then
+                    bobResultsWholeCircuit backend intent
+                else
+                    [| 0 .. intent.InitialQubits - 1 |]
+                    |> Result.traverseArray (fun i ->
+                        result {
+                            let! aliceQubit = prepareQubit intent.Alice.Bits.[i] intent.Alice.Bases.[i] backend
 
-                        let! qubitForBob =
-                            match intent.EveActions.[i] with
-                            | EveAction.None -> Ok aliceQubit
-                            | EveAction.InterceptResend eveBasis ->
-                                result {
-                                    let! eveMeasurement = measureQubit aliceQubit eveBasis backend
-                                    return! prepareQubit eveMeasurement eveBasis backend
-                                }
+                            let! qubitForBob =
+                                match intent.EveActions.[i] with
+                                | EveAction.None -> Ok aliceQubit
+                                | EveAction.InterceptResend eveBasis ->
+                                    result {
+                                        let! eveMeasurement = measureQubit aliceQubit eveBasis backend
+                                        return! prepareQubit eveMeasurement eveBasis backend
+                                    }
 
-                        return! measureQubit qubitForBob intent.BobBases.[i] backend
-                    })
+                            return! measureQubit qubitForBob intent.BobBases.[i] backend
+                        })
 
             let bobMeasurement =
                 {

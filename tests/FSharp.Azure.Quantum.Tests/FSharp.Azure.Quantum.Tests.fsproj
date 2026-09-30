@@ -75,11 +75,13 @@
     <Compile Include="DWaveAnnealingIntentTests.fs" />
     <Compile Include="QuantumTspSolverTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />
+    <Compile Include="GraphColoringTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
     <Compile Include="QaoaOptimizerTests.fs" />
     <Compile Include="TspBuilderTests.fs" />
     <Compile Include="PortfolioBuilderTests.fs" />
     <Compile Include="HybridSolverTests.fs" />
+    <Compile Include="PortfolioCovarianceTests.fs" />
     <Compile Include="CircuitValidatorTests.fs" />
     <Compile Include="GateTranspilerTests.fs" />
     <Compile Include="QubitRoutingTests.fs" />
@@ -144,6 +146,9 @@
     <Compile Include="ModExpPhaseTests.fs" />
 
     <Compile Include="HHLUnifiedTests.fs" />
+
+    <!-- Route selection for backends that run complete circuits only -->
+    <Compile Include="WholeCircuitRouteTests.fs" />
     
     <!-- Quantum Finance Tests -->
     <Compile Include="StatisticalDistributionsTests.fs" />
@@ -154,6 +159,7 @@
     
     <!-- QAOA Execution Helpers Tests (shared QAOA infrastructure) -->
     <Compile Include="QaoaExecutionHelpersTests.fs" />
+    <Compile Include="QaoaConventionTests.fs" />
     
     <!-- Problem Decomposition Tests (backend-aware decomposition orchestrator) -->
     <Compile Include="ProblemDecompositionTests.fs" />
@@ -197,6 +203,7 @@
     <Compile Include="OpenQasm3Tests.fs" />
     <Compile Include="AdaptVqeTests.fs" />
     <Compile Include="AdaptQaoaTests.fs" />
+    <Compile Include="MaxCutBuilderTests.fs" />
     <Compile Include="IntegrationTests.fs" />
     
     <!-- Kasino Game Tests -->

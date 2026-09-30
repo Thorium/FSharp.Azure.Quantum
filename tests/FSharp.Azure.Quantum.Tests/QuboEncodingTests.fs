@@ -134,6 +134,67 @@ module QuboEncodingTests =
         Assert.Equal(0.0, qubo.GetCoefficient(0, 1))
         Assert.Equal(0.0, qubo.GetCoefficient(1, 0))
 
+    [<Fact>]
+    let ``One-hot constraint penalty - valid assignments are the minima with a gap of 1`` () =
+        // color (3 categories), flag (binary), size (2 categories): 6 qubits
+        let variables =
+            [
+                {
+                    Name = "color"
+                    VarType = CategoricalVar([ "red"; "green"; "blue" ])
+                }
+                { Name = "flag"; VarType = BinaryVar }
+                {
+                    Name = "size"
+                    VarType = CategoricalVar([ "small"; "large" ])
+                }
+            ]
+
+        let qubo = QuboEncoding.encodeVariablesWithConstraints variables
+        Assert.Equal(6, qubo.Size)
+
+        let bitsOf mask =
+            Array.init qubo.Size (fun k -> float ((mask >>> k) &&& 1))
+
+        let energy mask =
+            let x = bitsOf mask
+
+            [
+                for i in 0 .. qubo.Size - 1 do
+                    for j in 0 .. qubo.Size - 1 do
+                        yield qubo.GetCoefficient(i, j) * x.[i] * x.[j]
+            ]
+            |> List.sum
+
+        let activeIn (first: int) (count: int) mask =
+            [ first .. first + count - 1 ] |> List.sumBy (fun k -> (mask >>> k) &&& 1)
+
+        let isValid mask =
+            activeIn 0 3 mask = 1 && activeIn 4 2 mask = 1
+
+        let masks = [ 0 .. (1 <<< qubo.Size) - 1 ]
+        let minimum = masks |> List.map energy |> List.min
+
+        // Each one-hot variable contributes -1 when satisfied
+        Assert.Equal(-2.0, minimum, 9)
+
+        // The minima are exactly the valid assignments (binary flag free)
+        let minima = masks |> List.filter (fun m -> abs (energy m - minimum) < 1e-9)
+        let valid = masks |> List.filter isValid
+        Assert.Equal<int list>(valid, minima)
+        Assert.Equal(3 * 2 * 2, valid.Length)
+
+        // Penalty gap: zero bits or two bits in one variable cost exactly 1 more
+        let validMask = 0b010001 // color = red, flag = 0, size = small
+        Assert.Equal(minimum, energy validMask, 9)
+        Assert.Equal(minimum + 1.0, energy (validMask &&& ~~~0b000111), 9) // color: no bit
+        Assert.Equal(minimum + 1.0, energy (validMask ||| 0b000010), 9) // color: two bits
+
+        let lowestInvalid =
+            masks |> List.filter (isValid >> not) |> List.map energy |> List.min
+
+        Assert.Equal(minimum + 1.0, lowestInvalid, 9)
+
     // Categorical variables and constraint penalties
     [<Fact>]
     let ``Categorical variable encoding - should use one-hot encoding`` () =
@@ -190,11 +251,25 @@ module QuboEncodingTests =
         // Expansion: x^2 + y^2 + 2xy - 4x - 4y + 4
         // For binary: x^2 = x, so: x + y + 2xy - 4x - 4y + 4 = -3x - 3y + 2xy + 4
         // Implementation adds: (1 - 2*target)*x = (1 - 4)*x = -3x per diagonal
-        // Implementation adds: 2*weight per off-diagonal
+        // Implementation adds: the pair term 2xy split as weight on each side
         Assert.Equal(-30.0, qubo.GetCoefficient(0, 0)) // (1 - 2*2) * 10 = -3 * 10 = -30
         Assert.Equal(-30.0, qubo.GetCoefficient(1, 1)) // (1 - 2*2) * 10 = -3 * 10 = -30
-        Assert.Equal(20.0, qubo.GetCoefficient(0, 1)) // 2 * 10 = 20
-        Assert.Equal(20.0, qubo.GetCoefficient(1, 0)) // Symmetric
+        Assert.Equal(10.0, qubo.GetCoefficient(0, 1)) // 2 * 10 / 2 = 10
+        Assert.Equal(10.0, qubo.GetCoefficient(1, 0)) // Symmetric
+
+        // Brute force: x^T Q x = weight * ((x + y - 2)^2 - 4) for every assignment
+        for x in 0..1 do
+            for y in 0..1 do
+                let bits = [| float x; float y |]
+
+                let e =
+                    [
+                        for i in 0..1 do
+                            for j in 0..1 -> qubo.GetCoefficient(i, j) * bits.[i] * bits.[j]
+                    ]
+                    |> List.sum
+
+                Assert.Equal(10.0 * (float ((x + y - 2) * (x + y - 2)) - 4.0), e, 9)
 
     [<Fact>]
     let ``Complex problem - TSP with 3 cities`` () =
@@ -473,22 +548,36 @@ module QuboEncodingTests =
         let routeEncoding = VariableEncoding.OneHot 3
         let penalty = VariableEncoding.constraintPenalty routeEncoding 10.0
 
-        // Verify penalty matrix structure:
+        // Verify penalty matrix structure (symmetric, read as x^T Q x):
         // Diagonal: -1 * weight (encourages selection)
-        // Off-diagonal: +2 * weight (discourages multiple selections)
+        // Off-diagonal: +weight on each side, +2 * weight per pair (discourages multiple selections)
 
         // Diagonal elements should be -10.0
         Assert.Equal(-10.0, penalty.[0, 0])
         Assert.Equal(-10.0, penalty.[1, 1])
         Assert.Equal(-10.0, penalty.[2, 2])
 
-        // Off-diagonal elements should be +20.0
-        Assert.Equal(20.0, penalty.[0, 1])
-        Assert.Equal(20.0, penalty.[0, 2])
-        Assert.Equal(20.0, penalty.[1, 2])
-        Assert.Equal(20.0, penalty.[1, 0]) // Symmetric
-        Assert.Equal(20.0, penalty.[2, 0])
-        Assert.Equal(20.0, penalty.[2, 1])
+        // Off-diagonal elements should be +10.0
+        Assert.Equal(10.0, penalty.[0, 1])
+        Assert.Equal(10.0, penalty.[0, 2])
+        Assert.Equal(10.0, penalty.[1, 2])
+        Assert.Equal(10.0, penalty.[1, 0]) // Symmetric
+        Assert.Equal(10.0, penalty.[2, 0])
+        Assert.Equal(10.0, penalty.[2, 1])
+
+        // Brute force: k active bits cost weight * (k^2 - 2k), minimum -weight at exactly one
+        for mask in 0..7 do
+            let bits = Array.init 3 (fun i -> float ((mask >>> i) &&& 1))
+            let k = Array.sum bits
+
+            let e =
+                [
+                    for i in 0..2 do
+                        for j in 0..2 -> penalty.[i, j] * bits.[i] * bits.[j]
+                ]
+                |> List.sum
+
+            Assert.Equal(10.0 * (k * k - 2.0 * k), e, 9)
 
     [<Fact>]
     let ``OneHot constraint penalty - Verify QUBO math`` () =
@@ -505,8 +594,23 @@ module QuboEncodingTests =
 
         // Diagonal: -weight
         Assert.Equal(-1.0, penalty.[0, 0])
-        // Off-diagonal: 2 * weight
-        Assert.Equal(2.0, penalty.[0, 1])
+        // Off-diagonal: the pair term 2 * weight split across [0,1] and [1,0]
+        Assert.Equal(1.0, penalty.[0, 1])
+        Assert.Equal(1.0, penalty.[1, 0])
+
+        // x^T Q x reproduces (x0 + x1 + x2 - 1)^2 - 1 on every assignment
+        for mask in 0..7 do
+            let bits = Array.init 3 (fun i -> float ((mask >>> i) &&& 1))
+            let k = Array.sum bits
+
+            let e =
+                [
+                    for i in 0..2 do
+                        for j in 0..2 -> penalty.[i, j] * bits.[i] * bits.[j]
+                ]
+                |> List.sum
+
+            Assert.Equal((k - 1.0) * (k - 1.0) - 1.0, e, 9)
 
     [<Fact>]
     let ``BoundedInteger constraint penalty enforces value bounds`` () =
@@ -554,12 +658,12 @@ module QuboEncodingTests =
         // Small weight for soft constraints
         let softPenalty = VariableEncoding.constraintPenalty encoding 1.0
         Assert.Equal(-1.0, softPenalty.[0, 0])
-        Assert.Equal(2.0, softPenalty.[0, 1])
+        Assert.Equal(1.0, softPenalty.[0, 1])
 
         // Large weight for hard constraints
         let hardPenalty = VariableEncoding.constraintPenalty encoding 100.0
         Assert.Equal(-100.0, hardPenalty.[0, 0])
-        Assert.Equal(200.0, hardPenalty.[0, 1])
+        Assert.Equal(100.0, hardPenalty.[0, 1])
 
         // Verify linear scaling
         let ratio = hardPenalty.[0, 0] / softPenalty.[0, 0]
@@ -1023,8 +1127,10 @@ module QuboEncodingTests =
     [<Fact>]
     let ``TSP EdgeBased encoding should apply constraint penalties`` () =
         // Constraint: each city visited exactly once
-        // This requires penalty terms in off-diagonal elements
-        let distances = array2D [ [ 0.0; 10.0 ]; [ 10.0; 0.0 ] ]
+        // This requires penalty terms in off-diagonal elements (with 3+ cities, each city
+        // has two candidate entries and exits; with 2 cities each constraint has one edge)
+        let distances =
+            array2D [ [ 0.0; 10.0; 15.0 ]; [ 10.0; 0.0; 20.0 ]; [ 15.0; 20.0; 0.0 ] ]
 
         let penalty = 50.0
         let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
@@ -1032,10 +1138,102 @@ module QuboEncodingTests =
         // QUBO should have penalty terms for constraint violations
         // Off-diagonal should have non-zero penalty terms
         let hasOffDiagonalPenalty =
-            [ 0..3 ]
-            |> List.exists (fun i -> [ 0..3 ] |> List.exists (fun j -> i <> j && qubo.GetCoefficient(i, j) <> 0.0))
+            [ 0..8 ]
+            |> List.exists (fun i -> [ 0..8 ] |> List.exists (fun j -> i <> j && qubo.GetCoefficient(i, j) <> 0.0))
 
         Assert.True(hasOffDiagonalPenalty, "Expected constraint penalties in off-diagonal")
+
+    /// x^T Q x for the assignment whose bit k is set when edge k is chosen
+    let private tspEnergy (qubo: QuboMatrix) (mask: int) =
+        let chosen =
+            [|
+                for k in 0 .. qubo.Size - 1 do
+                    if (mask >>> k) &&& 1 = 1 then
+                        yield k
+            |]
+
+        chosen
+        |> Array.sumBy (fun a -> chosen |> Array.sumBy (fun b -> qubo.Coefficients.[a, b]))
+
+    /// Bit mask choosing the edges city.[k] -> city.[k+1] of a closed tour
+    let private tourMask (n: int) (tour: int list) =
+        List.pairwise (tour @ [ List.head tour ])
+        |> List.sumBy (fun (i, j) -> 1 <<< (i * n + j))
+
+    /// Brute-force minimum-energy bit mask over all 2^(n²) edge assignments
+    let private minimumEnergyMask (qubo: QuboMatrix) =
+        [ 0 .. (1 <<< qubo.Size) - 1 ] |> List.minBy (tspEnergy qubo)
+
+    [<Fact>]
+    let ``TSP EdgeBased minimum over all bitstrings is the shortest tour (3 cities)`` () =
+        // Asymmetric: 0 -> 1 -> 2 -> 0 costs 3, the reverse direction costs 30
+        let distances =
+            array2D [ [ 0.0; 1.0; 10.0 ]; [ 10.0; 0.0; 1.0 ]; [ 1.0; 10.0; 0.0 ] ]
+
+        let penalty = 100.0
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
+
+        let shortest = tourMask 3 [ 0; 1; 2 ]
+        let longest = tourMask 3 [ 0; 2; 1 ]
+
+        Assert.Equal(shortest, minimumEnergyMask qubo)
+        // Valid tour energy = length - 2nP
+        Assert.Equal(3.0 - 6.0 * penalty, tspEnergy qubo shortest, 9)
+        Assert.Equal(30.0 - 6.0 * penalty, tspEnergy qubo longest, 9)
+        Assert.True(tspEnergy qubo longest > tspEnergy qubo shortest)
+        // Choosing nothing violates every constraint and must not be optimal
+        Assert.True(tspEnergy qubo 0 > tspEnergy qubo longest)
+
+    [<Fact>]
+    let ``TSP EdgeBased minimum over all bitstrings is the shortest tour (4 cities)`` () =
+        // Edges i -> i+1 (mod 4) cost 1, every other edge costs 10, so the 2+2 subtours
+        // (which this encoding allows) cost at least 22 and the tour 0-1-2-3 is unique
+        let distances =
+            Array2D.init 4 4 (fun i j ->
+                if i = j then 0.0
+                elif j = (i + 1) % 4 then 1.0
+                else 10.0)
+
+        let penalty = 50.0 // > n × max distance
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
+
+        let shortest = tourMask 4 [ 0; 1; 2; 3 ]
+        let longer = tourMask 4 [ 0; 3; 2; 1 ] // reverse direction: 10 + 10 + 10 + 10
+
+        Assert.Equal(shortest, minimumEnergyMask qubo)
+        Assert.Equal(4.0 - 8.0 * penalty, tspEnergy qubo shortest, 9)
+        Assert.Equal(40.0 - 8.0 * penalty, tspEnergy qubo longer, 9)
+        Assert.True(tspEnergy qubo longer > tspEnergy qubo shortest)
+
+    [<Fact>]
+    let ``TSP EdgeBased energy of subtours equals their length (not excluded)`` () =
+        // Documented limitation: two disjoint 2-cycles satisfy enter/exit-once
+        let distances =
+            array2D
+                [
+                    [ 0.0; 1.0; 2.0; 1.0 ]
+                    [ 1.0; 0.0; 1.0; 2.0 ]
+                    [ 2.0; 1.0; 0.0; 1.0 ]
+                    [ 1.0; 2.0; 1.0; 0.0 ]
+                ]
+
+        let penalty = 50.0
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
+
+        let subtours = tourMask 4 [ 0; 1 ] ||| tourMask 4 [ 2; 3 ]
+        Assert.Equal(4.0 - 8.0 * penalty, tspEnergy qubo subtours, 9)
+
+    [<Fact>]
+    let ``TSP EdgeBased self-loops are never chosen`` () =
+        let distances =
+            array2D [ [ 0.0; 1.0; 10.0 ]; [ 10.0; 0.0; 1.0 ]; [ 1.0; 10.0; 0.0 ] ]
+
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        let shortest = tourMask 3 [ 0; 1; 2 ]
+        let withSelfLoop = shortest ||| (1 <<< 0) // add edge 0 -> 0
+
+        Assert.True(tspEnergy qubo withSelfLoop > tspEnergy qubo shortest)
+        Assert.Equal(0.0, qubo.GetCoefficient(0, 1), 9) // self-loop 0->0 pairs with nothing
 
     // ============================================================================
     // Portfolio Correlation Matrix Integration Tests

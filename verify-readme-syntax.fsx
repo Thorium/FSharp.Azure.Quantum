@@ -18,7 +18,7 @@ try
             initialState [ 1; 2; 3 ]
             maxDepth 3
             branchingFactor 2
-            evaluateWith (fun state -> float (List.sum state))
+            evaluateWith (List.sum >> float)
             generateMovesWith (fun state -> [ state @ [ 4 ]; state @ [ 5 ] ])
         }
 
@@ -101,7 +101,7 @@ printfn "✓ Testing QuantumPhaseEstimator.phaseEstimator computation expression
 try
     let phaseTest =
         QuantumPhaseEstimator.phaseEstimator {
-            unitary (QuantumPhaseEstimator.RotationZ(Math.PI / 4.0))
+            unitary (Algorithms.QPE.RotationZ(Math.PI / 4.0))
             precision 12
         }
 

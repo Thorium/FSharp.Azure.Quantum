@@ -50,6 +50,9 @@ module Portfolio =
             Budget: float
             /// Optional constraints for portfolio optimization
             Constraints: PortfolioSolver.Constraints option
+            /// Optional covariance matrix of the asset returns, rows and columns in Assets order.
+            /// None treats the assets as independent: Risk = sqrt(Σ (wᵢσᵢ)²).
+            Covariance: float[,] option
         }
 
     /// <summary>
@@ -63,7 +66,8 @@ module Portfolio =
             TotalValue: float
             /// Expected return of the portfolio
             ExpectedReturn: float
-            /// Overall risk of the portfolio
+            /// Overall risk of the portfolio: sqrt(wᵀΣw) with a covariance matrix,
+            /// otherwise sqrt(Σ (wᵢσᵢ)²) (independent assets)
             Risk: float
             /// Whether the allocation satisfies all constraints
             IsValid: bool
@@ -111,7 +115,51 @@ module Portfolio =
             AssetCount = assetArray.Length
             Budget = budget
             Constraints = None
+            Covariance = None
         }
+
+    /// <summary>
+    /// Create Portfolio problem with a covariance matrix of the asset returns
+    /// </summary>
+    /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available for investment</param>
+    /// <param name="covariance">Covariance matrix Σ, rows and columns in asset order (validated by solve)</param>
+    /// <returns>PortfolioProblem whose risk is sqrt(wᵀΣw)</returns>
+    /// <example>
+    /// <code>
+    /// let problem = Portfolio.createProblemWithCovariance assets 10000.0 covariance
+    /// </code>
+    /// </example>
+    let createProblemWithCovariance
+        (assets: (string * float * float * float) list)
+        (budget: float)
+        (covariance: float[,])
+        : PortfolioProblem =
+        { createProblem assets budget with
+            Covariance = Some covariance
+        }
+
+    /// <summary>
+    /// Create Portfolio problem with a correlation matrix: Σ[i,j] = ρ[i,j] × riskᵢ × riskⱼ,
+    /// using each asset's risk as its volatility.
+    /// </summary>
+    /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available for investment</param>
+    /// <param name="correlation">Correlation matrix ρ, rows and columns in asset order</param>
+    /// <returns>PortfolioProblem, or a ValidationError when the correlation shape does not match the assets</returns>
+    let createProblemWithCorrelation
+        (assets: (string * float * float * float) list)
+        (budget: float)
+        (correlation: float[,])
+        : QuantumResult<PortfolioProblem> =
+        let problem = createProblem assets budget
+        let volatilities = problem.Assets |> Array.map (fun a -> a.Risk)
+
+        PortfolioTypes.covarianceFromCorrelation volatilities correlation
+        |> Result.map (fun covariance ->
+            { problem with
+                Covariance = Some covariance
+            })
 
     /// <summary>
     /// Solve Portfolio problem using quantum optimization (QAOA)
@@ -130,6 +178,8 @@ module Portfolio =
     ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
     ///   let allocation = Portfolio.solve problem (Some ionqBackend)
     /// </remarks>
+    /// With problem.Covariance the QUBO includes the covariance terms and Risk is sqrt(wᵀΣw);
+    /// an invalid covariance gives a ValidationError.
     /// <param name="problem">Portfolio problem to solve</param>
     /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
     /// <returns>Result with PortfolioAllocation or error message</returns>
@@ -164,10 +214,27 @@ module Portfolio =
                     InitialParameters = (0.5, 0.5)
                 }
 
+            let solveTask =
+                match problem.Covariance with
+                | Some covariance ->
+                    QuantumPortfolioSolver.solveWithCovarianceAsync
+                        actualBackend
+                        solverAssets
+                        covariance
+                        constraints
+                        quantumConfig
+                        System.Threading.CancellationToken.None
+                | None ->
+                    QuantumPortfolioSolver.solveAsync
+                        actualBackend
+                        solverAssets
+                        constraints
+                        quantumConfig
+                        System.Threading.CancellationToken.None
+
             // Call quantum portfolio solver directly using computation expression
             quantumResult {
-                let! quantumResult =
-                    QuantumPortfolioSolver.solve actualBackend solverAssets constraints quantumConfig
+                let! quantumResult = solveTask |> Async.AwaitTask |> Async.RunSynchronously
 
                 // Validate solution
                 let valid = isValidPortfolio quantumResult.TotalValue problem.Budget

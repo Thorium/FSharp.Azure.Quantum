@@ -665,6 +665,53 @@ module SwarmState =
             | Departed(evt, time) -> Some(id, evt, time)
             | _ -> None)
 
+/// Attempts of a fixed-angle QAOA run whose samples hold no acceptable solution: the same
+/// angles with four times the shots, then two other angle sets at four times the shots. When
+/// every attempt fails the caller gets an Error; no classical solver stands in.
+module QaoaAttempts =
+
+    /// (shots, angles) per attempt, in order.
+    let schedule (shots: int) (angles: (float * float)[]) : (int * (float * float)[]) list =
+        [
+            shots, angles
+            4 * shots, angles
+            4 * shots, angles |> Array.map (fun (gamma, beta) -> (1.6 * gamma, 1.3 * beta))
+            4 * shots, angles |> Array.map (fun (gamma, beta) -> (0.6 * gamma, 0.7 * beta))
+        ]
+
+    /// The first attempt's accepted solution and a description of that attempt. `attempt`
+    /// runs the circuit and returns the accepted solution its samples hold, if any; an
+    /// execution Error stops at once.
+    let firstSolved
+        (shots: int)
+        (angles: (float * float)[])
+        (attempt: int -> (float * float)[] -> Result<'T option, string>)
+        : Result<'T * string, string> =
+        let attempts = schedule shots angles
+
+        let describe (s: int) (a: (float * float)[]) =
+            a
+            |> Array.map (fun (gamma, beta) -> sprintf "γ=%.3f β=%.3f" gamma beta)
+            |> String.concat ", "
+            |> sprintf "%d shots, %s" s
+
+        let rec go (index: int) (remaining: (int * (float * float)[]) list) =
+            match remaining with
+            | [] ->
+                Error(
+                    sprintf
+                        "no QAOA sample gave an acceptable solution in %d attempts (%s)"
+                        attempts.Length
+                        (attempts |> List.map (fun (s, a) -> describe s a) |> String.concat "; ")
+                )
+            | (s, a) :: rest ->
+                match attempt s a with
+                | Error err -> Error err
+                | Ok(Some solution) -> Ok(solution, sprintf "attempt %d of %d: %s" index attempts.Length (describe s a))
+                | Ok None -> go (index + 1) rest
+
+        go 1 attempts
+
 /// Result of swarm adaptation calculation
 type AdaptationResult =
     {
@@ -676,7 +723,7 @@ type AdaptationResult =
         HoldingDrones: int list
         /// Drones that have left formation
         DepartedDrones: int list
-        /// Whether QAOA was used (vs. fallback)
+        /// Whether QAOA produced the assignments (false only with no active drones)
         UsedQuantum: bool
         /// Time taken to compute
         ComputeTimeMs: int64
@@ -698,7 +745,7 @@ module SwarmAdaptation =
 
     /// Maximum problem size for QAOA (n drones * n positions = n² qubits)
     /// For n=4 drones: 16 qubits. For n=5: 25 qubits (too large).
-    /// Effective limit: 4 drones for QAOA, greedy for more.
+    /// Effective limit: 4 drones; wider problems are an Error.
     [<Literal>]
     let private MaxQaoaQubits = 20
 
@@ -775,33 +822,6 @@ module SwarmAdaptation =
                 // Drone position unknown, use large distance for all positions
                 Array.create m UnknownPositionDistance)
         |> array2D
-
-    /// Greedy assignment (Hungarian algorithm approximation)
-    /// Returns Map<droneId, positionIndex>
-    let greedyAssignment (distanceMatrix: float[,]) (droneIds: int list) : Map<int, int> =
-        let m = Array2D.length2 distanceMatrix
-
-        // Fold over drone indices, accumulating assignments and tracking which positions are taken
-        let assignments, _ =
-            droneIds
-            |> List.indexed
-            |> List.fold
-                (fun (acc, taken: Set<int>) (i, droneId) ->
-                    // Find best unassigned position for this drone
-                    let bestPosition =
-                        [ 0 .. m - 1 ]
-                        |> List.filter (fun j -> not (Set.contains j taken))
-                        |> List.map (fun j -> j, distanceMatrix.[i, j])
-                        |> function
-                            | [] -> None
-                            | candidates -> candidates |> List.minBy snd |> Some
-
-                    match bestPosition with
-                    | Some(posIdx, _) -> ((droneId, posIdx) :: acc, Set.add posIdx taken)
-                    | None -> (acc, taken))
-                ([], Set.empty)
-
-        assignments |> Map.ofList
 
     /// Encode drone-position assignment as QUBO matrix
     ///
@@ -911,13 +931,19 @@ module SwarmAdaptation =
             else
                 None // Not all drones assigned
 
-    /// Run QAOA to find optimal assignment
+
+    /// Run QAOA to find an assignment: the most frequent sampled bitstring that decodes to a
+    /// valid assignment `accept` takes (local position indices), retried by QaoaAttempts. No
+    /// valid, accepted sample in any attempt, or a problem wider than MaxQaoaQubits, is an
+    /// Error; no classical solver stands in. Returns the assignment and the attempt that
+    /// found it.
     let qaoaAssignment
         (backend: IQuantumBackend)
         (shots: int)
+        (accept: Map<int, int> -> bool)
         (distanceMatrix: float[,])
         (droneIds: int list)
-        : Result<Map<int, int> * bool, string> =
+        : Result<Map<int, int> * string, string> =
 
         let n = Array2D.length1 distanceMatrix
         let m = Array2D.length2 distanceMatrix
@@ -925,60 +951,52 @@ module SwarmAdaptation =
 
         // Check if problem size is within QAOA limits
         if numQubits > MaxQaoaQubits then
-            Ok(greedyAssignment distanceMatrix droneIds, false)
+            Error $"problem too large for QAOA (%d{numQubits} qubits > %d{MaxQaoaQubits} max)"
         else
             // Encode as QUBO
             let quboMatrix = encodeAssignmentQubo distanceMatrix
 
-            // Convert QUBO to Problem Hamiltonian
-            let problemHam = ProblemHamiltonian.fromQubo quboMatrix
+            // Convert QUBO to Problem Hamiltonian, normalised so the fixed angles are on the
+            // scale the library's solvers use
+            let problemHam =
+                ProblemHamiltonian.fromQubo quboMatrix |> ProblemHamiltonian.normalize
+
             let mixerHam = MixerHamiltonian.create numQubits
 
             // Initial QAOA parameters (heuristic starting point)
             // gamma ~ π/4, beta ~ π/8 are reasonable starting values
             let parameters = Array.init QaoaDepth (fun _ -> (Math.PI / 4.0, Math.PI / 8.0))
 
-            // Build QAOA circuit
-            let qaoaCircuit = QaoaCircuit.build problemHam mixerHam parameters
+            let attempt (attemptShots: int) (angles: (float * float)[]) =
+                // Wrap QAOA circuit for backend execution via ICircuit interface
+                let wrappedCircuit = wrapQaoaCircuit (QaoaCircuit.build problemHam mixerHam angles)
 
-            // Wrap QAOA circuit for backend execution via ICircuit interface
-            let wrappedCircuit = wrapQaoaCircuit qaoaCircuit
-
-            // Execute on backend
-            match backend.ExecuteToState wrappedCircuit with
-            | Error _err ->
-                // Quantum execution failed, fall back to greedy
-                Ok(greedyAssignment distanceMatrix droneIds, false)
-            | Ok quantumState ->
-                // Measure the state multiple times
-                let measurements = QuantumState.measure quantumState shots
-
-                // Count measurement outcomes
-                let counts =
-                    measurements
+                match backend.ExecuteToState wrappedCircuit with
+                | Error err -> Error err.Message
+                | Ok quantumState ->
+                    // Most frequent valid, accepted outcome first
+                    QuantumState.measure quantumState attemptShots
                     |> Array.map (Array.map string >> String.concat "")
                     |> Array.countBy id
                     |> Array.sortByDescending snd
+                    |> Array.tryPick (fun (bitstring, _count) ->
+                        decodeAssignment bitstring n m droneIds |> Option.filter accept)
+                    |> Ok
 
-                // Try to decode valid assignments from most frequent results
-                let validAssignment =
-                    counts
-                    |> Array.tryPick (fun (bitstring, _count) -> decodeAssignment bitstring n m droneIds)
+            QaoaAttempts.firstSolved shots parameters attempt
 
-                match validAssignment with
-                | Some assignment -> Ok(assignment, true)
-                | None ->
-                    // No valid assignment found in measurements, fall back to greedy
-                    Ok(greedyAssignment distanceMatrix droneIds, false)
-
-    /// Adapt formation when drone(s) depart
-    let adaptFormation
+    /// Adapt formation when drone(s) depart: select as many positions as there are active
+    /// drones and assign them by QAOA (qaoaAssignment), taking only an assignment `accept`
+    /// takes (drone ID -> original formation position index). An Error when QAOA finds none,
+    /// the problem is too wide for QAOA, or the time budget is under 100 ms.
+    let adaptFormationWith
         (backend: IQuantumBackend)
         (shots: int)
+        (accept: Map<int, int> -> bool)
         (state: SwarmState)
         (targetFormation: Formation)
         (maxComputeTimeMs: int64)
-        : AdaptationResult =
+        : Result<AdaptationResult, string> =
 
         let sw = Stopwatch.StartNew()
         let generation = nextGeneration () // Track computation generation
@@ -990,17 +1008,20 @@ module SwarmAdaptation =
         if activeDroneIds.IsEmpty then
             sw.Stop()
 
-            {
-                Assignments = Map.empty
-                SelectedPositions = [||]
-                HoldingDrones = []
-                DepartedDrones = departedDroneIds
-                UsedQuantum = false
-                ComputeTimeMs = sw.ElapsedMilliseconds
-                Method = "NoActiveDrones"
-                Generation = generation
-                WasCancelled = false
-            }
+            Ok
+                {
+                    Assignments = Map.empty
+                    SelectedPositions = [||]
+                    HoldingDrones = []
+                    DepartedDrones = departedDroneIds
+                    UsedQuantum = false
+                    ComputeTimeMs = sw.ElapsedMilliseconds
+                    Method = "NoActiveDrones"
+                    Generation = generation
+                    WasCancelled = false
+                }
+        elif maxComputeTimeMs < 100L then
+            Error $"time budget too small for QAOA (%d{maxComputeTimeMs} ms)"
         else
             let n = activeDroneIds.Length
 
@@ -1013,48 +1034,36 @@ module SwarmAdaptation =
             let distanceMatrix =
                 buildDistanceMatrix state.DronePositions targetFormation selectedIndices activeDroneIds
 
-            // Decide between QAOA and greedy based on problem size and time budget
-            let useQaoa = numQubits <= MaxQaoaQubits && maxComputeTimeMs >= 100L
-
-            let localAssignments, usedQuantum, method =
-                if useQaoa then
-                    match qaoaAssignment backend shots distanceMatrix activeDroneIds with
-                    | Ok(assign, wasQuantum) ->
-                        let methodStr =
-                            if wasQuantum then
-                                $"QAOA (p=%d{QaoaDepth}, %d{numQubits} qubits, %d{shots} shots)"
-                            else
-                                "Greedy (QAOA fallback - no valid quantum solution)"
-
-                        (assign, wasQuantum, methodStr)
-                    | Error _ -> (greedyAssignment distanceMatrix activeDroneIds, false, "Greedy (QAOA error)")
-                else
-                    let reason =
-                        if numQubits > MaxQaoaQubits then
-                            $"problem too large (%d{numQubits} qubits > %d{MaxQaoaQubits} max)"
-                        else
-                            $"time budget too small (%d{maxComputeTimeMs}ms)"
-
-                    (greedyAssignment distanceMatrix activeDroneIds, false, $"Greedy (%s{reason})")
-
             // Map local position indices back to original formation indices
-            let assignments =
-                localAssignments
+            let toOriginal (local: Map<int, int>) =
+                local
                 |> Map.map (fun _droneId localPosIdx -> Array.item localPosIdx selectedIndices)
 
-            sw.Stop()
+            qaoaAssignment backend shots (toOriginal >> accept) distanceMatrix activeDroneIds
+            |> Result.map (fun (localAssignments, how) ->
+                sw.Stop()
 
-            {
-                Assignments = assignments
-                SelectedPositions = selectedIndices
-                HoldingDrones = []
-                DepartedDrones = departedDroneIds
-                UsedQuantum = usedQuantum
-                ComputeTimeMs = sw.ElapsedMilliseconds
-                Method = method
-                Generation = generation
-                WasCancelled = false
-            }
+                {
+                    Assignments = toOriginal localAssignments
+                    SelectedPositions = selectedIndices
+                    HoldingDrones = []
+                    DepartedDrones = departedDroneIds
+                    UsedQuantum = true
+                    ComputeTimeMs = sw.ElapsedMilliseconds
+                    Method = $"QAOA (p=%d{QaoaDepth}, %d{numQubits} qubits, %s{how})"
+                    Generation = generation
+                    WasCancelled = false
+                })
+
+    /// adaptFormationWith taking any valid assignment.
+    let adaptFormation
+        (backend: IQuantumBackend)
+        (shots: int)
+        (state: SwarmState)
+        (targetFormation: Formation)
+        (maxComputeTimeMs: int64)
+        : Result<AdaptationResult, string> =
+        adaptFormationWith backend shots (fun _ -> true) state targetFormation maxComputeTimeMs
 
 // =============================================================================
 // EVENT HANDLER - Process notifications and generate commands

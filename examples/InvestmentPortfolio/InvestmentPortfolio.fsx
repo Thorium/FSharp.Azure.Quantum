@@ -5,12 +5,18 @@
 // to balance risk and return across multiple assets. Compares per-asset
 // allocation, contribution, and risk metrics.
 //
+// Figures: annual return, volatility and correlations estimated from Yahoo
+// Finance daily adjusted closes 2019-2023 (data/market-stats-2019-2023.json);
+// the buy price is the 2023-12-29 adjusted close and 2024 is the hold-out year.
+// --live recomputes the same figures from Yahoo Finance for any symbols/dates.
+//
 // Usage:
 //   dotnet fsi InvestmentPortfolio.fsx                                   (defaults)
 //   dotnet fsi InvestmentPortfolio.fsx -- --help                         (show options)
 //   dotnet fsi InvestmentPortfolio.fsx -- --symbols AAPL,NVDA,MSFT       (select stocks)
 //   dotnet fsi InvestmentPortfolio.fsx -- --input custom-stocks.csv
 //   dotnet fsi InvestmentPortfolio.fsx -- --live --budget 50000
+//   dotnet fsi InvestmentPortfolio.fsx -- --live --symbols KO,PEP,JNJ --from 2014-01-01 --to 2018-12-31
 //   dotnet fsi InvestmentPortfolio.fsx -- --quiet --output results.json --csv out.csv
 //
 // References:
@@ -30,14 +36,14 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "_marketData.fsx"
 
 open System
-open System.Net.Http
-open System.IO
+open System.Globalization
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
-open FSharp.Azure.Quantum.Data
 open FSharp.Azure.Quantum.Examples.Common
+open _marketData
 
 // ==============================================================================
 // CLI ARGUMENT PARSING
@@ -52,12 +58,12 @@ Cli.exitIfHelp
     [
         {
             Cli.OptionSpec.Name = "symbols"
-            Description = "Comma-separated stock symbols to include"
-            Default = None
+            Description = "Comma-separated symbols (any Yahoo ticker with --live)"
+            Default = Some "AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA,AMD"
         }
         {
             Cli.OptionSpec.Name = "input"
-            Description = "CSV file with custom stock definitions"
+            Description = "CSV: symbol[,name,expected_return,volatility,price] or preset"
             Default = None
         }
         {
@@ -67,8 +73,18 @@ Cli.exitIfHelp
         }
         {
             Cli.OptionSpec.Name = "live"
-            Description = "Fetch live data from Yahoo Finance"
+            Description = "Recompute the figures from Yahoo Finance adjusted closes"
             Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "from"
+            Description = "Estimation window start with --live (yyyy-MM-dd)"
+            Default = Some "2019-01-01"
+        }
+        {
+            Cli.OptionSpec.Name = "to"
+            Description = "Estimation window end with --live; the next year is the hold-out"
+            Default = Some "2023-12-31"
         }
         {
             Cli.OptionSpec.Name = "output"
@@ -125,98 +141,29 @@ type StockResult =
 // ==============================================================================
 // BUILT-IN STOCK PRESETS
 // ==============================================================================
+// Symbols only: their figures come from the bundled statistics or from --live.
 
-let private presetAapl =
+let private presetSymbols =
+    [ "AAPL"; "MSFT"; "GOOGL"; "AMZN"; "NVDA"; "META"; "TSLA"; "AMD" ]
+
+/// A stock to include; Figures = (expected return, volatility, price) when the CSV supplies them.
+type private StockSpec =
     {
-        Symbol = "AAPL"
-        Name = "Apple Inc."
-        ExpectedReturn = 0.18
-        Volatility = 0.22
-        Price = 175.00
+        Symbol: string
+        Name: string option
+        Figures: (float * float * float) option
     }
-
-let private presetMsft =
-    {
-        Symbol = "MSFT"
-        Name = "Microsoft Corp."
-        ExpectedReturn = 0.22
-        Volatility = 0.25
-        Price = 380.00
-    }
-
-let private presetGoogl =
-    {
-        Symbol = "GOOGL"
-        Name = "Alphabet Inc."
-        ExpectedReturn = 0.16
-        Volatility = 0.28
-        Price = 140.00
-    }
-
-let private presetAmzn =
-    {
-        Symbol = "AMZN"
-        Name = "Amazon.com Inc."
-        ExpectedReturn = 0.24
-        Volatility = 0.32
-        Price = 155.00
-    }
-
-let private presetNvda =
-    {
-        Symbol = "NVDA"
-        Name = "NVIDIA Corp."
-        ExpectedReturn = 0.35
-        Volatility = 0.45
-        Price = 485.00
-    }
-
-let private presetMeta =
-    {
-        Symbol = "META"
-        Name = "Meta Platforms Inc."
-        ExpectedReturn = 0.28
-        Volatility = 0.38
-        Price = 350.00
-    }
-
-let private presetTsla =
-    {
-        Symbol = "TSLA"
-        Name = "Tesla Inc."
-        ExpectedReturn = 0.30
-        Volatility = 0.55
-        Price = 245.00
-    }
-
-let private presetAmd =
-    {
-        Symbol = "AMD"
-        Name = "Advanced Micro Devices"
-        ExpectedReturn = 0.26
-        Volatility = 0.42
-        Price = 125.00
-    }
-
-let private builtInStocks =
-    [
-        presetAapl
-        presetMsft
-        presetGoogl
-        presetAmzn
-        presetNvda
-        presetMeta
-        presetTsla
-        presetAmd
-    ]
-    |> List.map (fun s -> s.Symbol.ToUpperInvariant(), s)
-    |> Map.ofList
 
 // ==============================================================================
 // CSV LOADING
 // ==============================================================================
 
-let private loadStocksFromCsv (filePath: string) : StockInfo list =
+let private tryParseInvariant (s: string) =
+    match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
+    | true, v -> Some v
+    | _ -> None
+
+let private loadSpecsFromCsv (filePath: string) : StockSpec list =
     let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
     let rows, errors = Data.readCsvWithHeaderWithErrors resolved
 
@@ -234,61 +181,68 @@ let private loadStocksFromCsv (filePath: string) : StockInfo list =
 
         match get "preset" with
         | p when not (String.IsNullOrWhiteSpace p) ->
-            match builtInStocks |> Map.tryFind (p.Trim().ToUpperInvariant()) with
-            | Some s -> s
-            | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
-        | _ ->
             {
-                Symbol =
-                    let s = get "symbol" in
+                Symbol = p.Trim().ToUpperInvariant()
+                Name = None
+                Figures = None
+            }
+        | _ ->
+            let symbol = get "symbol"
 
-                    if s = "" then
-                        failwithf "Missing symbol in CSV row %d" (i + 1)
-                    else
-                        s.ToUpperInvariant()
-                Name = let n = get "name" in if n = "" then get "symbol" else n
-                ExpectedReturn =
-                    get "expected_return"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 0.15
-                Volatility =
-                    get "volatility"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 0.25
-                Price =
-                    get "price"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 100.0
+            if symbol = "" then
+                failwithf "Missing symbol in CSV row %d" (i + 1)
+
+            let figures =
+                match get "expected_return", get "volatility", get "price" with
+                | "", "", "" -> None
+                | r, v, p ->
+                    match tryParseInvariant r, tryParseInvariant v, tryParseInvariant p with
+                    | Some r, Some v, Some p -> Some(r, v, p)
+                    | _ ->
+                        failwithf
+                            "CSV row %d (%s): give all of expected_return, volatility, price, or none of them"
+                            (i + 1)
+                            symbol
+
+            {
+                Symbol = symbol.ToUpperInvariant()
+                Name =
+                    (match get "name" with
+                     | "" -> None
+                     | n -> Some n)
+                Figures = figures
             })
 
 // ==============================================================================
 // STOCK SELECTION
 // ==============================================================================
 
-let selectedStocks =
-    let base' =
-        match Cli.tryGet "input" args with
-        | Some csvFile -> loadStocksFromCsv csvFile
-        | None -> builtInStocks |> Map.toList |> List.map snd
+let private selectedSpecs =
+    let symbolsArg =
+        Cli.getCommaSeparated "symbols" args |> List.map (fun s -> s.ToUpperInvariant())
 
-    match Cli.getCommaSeparated "symbols" args with
-    | [] -> base'
-    | filter ->
-        let filterSet = filter |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
-        base' |> List.filter (fun s -> filterSet.Contains(s.Symbol.ToUpperInvariant()))
+    match Cli.tryGet "input" args with
+    | Some csvFile ->
+        let specs = loadSpecsFromCsv csvFile
 
-if selectedStocks.IsEmpty then
+        match symbolsArg with
+        | [] -> specs
+        | filter -> specs |> List.filter (fun s -> List.contains s.Symbol filter)
+    | None ->
+        (if symbolsArg.IsEmpty then presetSymbols else symbolsArg)
+        |> List.map (fun s ->
+            {
+                Symbol = s
+                Name = None
+                Figures = None
+            })
+
+if selectedSpecs.IsEmpty then
     eprintfn "ERROR: No stocks selected. Check --symbols filter or --input CSV."
     exit 1
 
 // ==============================================================================
-// LIVE DATA SUPPORT
+// MARKET FIGURES (bundled, or --live from Yahoo Finance)
 // ==============================================================================
 
 let liveDataEnabled =
@@ -302,59 +256,77 @@ let liveDataEnabled =
             | "yes" -> true
             | _ -> false)
 
-let private tryLoadLiveStock (httpClient: HttpClient) (cacheDir: string) (stock: StockInfo) : StockInfo option =
-    let req: FinancialData.YahooHistoryRequest =
-        {
-            Symbol = stock.Symbol
-            Range = FinancialData.YahooHistoryRange.TwoYears
-            Interval = FinancialData.YahooHistoryInterval.OneDay
-            IncludeAdjustedClose = true
-            CacheDirectory = Some cacheDir
-            CacheTtl = TimeSpan.FromHours 6.0
-        }
+let private dateArg (name: string) (fallback: DateTime) =
+    match Cli.tryGet name args with
+    | None -> fallback
+    | Some s ->
+        match MarketData.tryParseIsoDate s with
+        | Some d when liveDataEnabled -> d
+        | Some _ ->
+            eprintfn "ERROR: --%s needs --live; the bundled figures cover 2019-01-01..2023-12-31." name
+            exit 1
+        | None ->
+            eprintfn "ERROR: --%s must be yyyy-MM-dd, got '%s'" name s
+            exit 1
 
-    match FinancialData.fetchYahooHistory httpClient req with
-    | Error _ -> None
-    | Ok series ->
-        let returns = FinancialData.calculateReturns series
-        let expectedReturn = FinancialData.calculateExpectedReturn returns 252.0
-        let volatility = FinancialData.calculateVolatility returns 252.0
+let windowFrom = dateArg "from" MarketData.defaultWindowFrom
+let windowTo = dateArg "to" MarketData.defaultWindowTo
 
-        match FinancialData.tryGetLatestPrice series with
-        | None -> None
-        | Some price ->
-            Some
-                { stock with
-                    ExpectedReturn = expectedReturn
-                    Volatility = volatility
-                    Price = price
-                }
+let marketStats, liveUsed =
+    let needed =
+        selectedSpecs
+        |> List.filter (fun s -> s.Figures.IsNone || liveDataEnabled)
+        |> List.map (fun s -> s.Symbol)
+
+    let info (msg: string) =
+        if not quiet then
+            printfn "%s" msg
+
+    if liveDataEnabled && not needed.IsEmpty then
+        match MarketData.computeFromYahoo info needed windowFrom windowTo None with
+        | Ok(stats, dropped) ->
+            for (s, reason) in dropped do
+                printfn "  Dropped %s: %s" s reason
+
+            stats, true
+        | Error e ->
+            eprintfn "Live fetch failed (%s); using the bundled figures." e
+            MarketData.loadBundled (), false
+    else
+        MarketData.loadBundled (), false
 
 let stocks =
-    if not liveDataEnabled then
-        if not quiet then
-            printfn "Using static stock data (use --live for Yahoo Finance)"
+    selectedSpecs
+    |> List.choose (fun spec ->
+        match spec.Figures, MarketData.tryAsset marketStats spec.Symbol with
+        | Some(r, v, p), _ ->
+            Some
+                {
+                    Symbol = spec.Symbol
+                    Name = spec.Name |> Option.defaultValue spec.Symbol
+                    ExpectedReturn = r
+                    Volatility = v
+                    Price = p
+                }
+        | None, Some a ->
+            Some
+                {
+                    Symbol = a.Symbol
+                    Name = spec.Name |> Option.defaultValue a.Name
+                    ExpectedReturn = a.AnnualReturn
+                    Volatility = a.AnnualVolatility
+                    Price = a.BuyPrice
+                }
+        | None, None ->
+            eprintfn "  Skipping %s: no figures for it (not in the bundled data; try --live)" spec.Symbol
+            None)
 
-        selectedStocks
-    else
-        let cacheDir = Path.Combine(__SOURCE_DIRECTORY__, "output", "yahoo-cache")
-        let _ = Directory.CreateDirectory(cacheDir) |> ignore
-        use httpClient = new HttpClient()
+if stocks.IsEmpty then
+    eprintfn "ERROR: No stocks with figures."
+    exit 1
 
-        if not quiet then
-            printfn "Fetching live data from Yahoo Finance..."
-            printfn "  Cache: %s" cacheDir
-
-        let live =
-            selectedStocks |> List.choose (fun s -> tryLoadLiveStock httpClient cacheDir s)
-
-        if live.Length = selectedStocks.Length then
-            live
-        else
-            if not quiet then
-                printfn "  Live fetch incomplete; falling back to static values"
-
-            selectedStocks
+if not quiet then
+    printfn "%s" (MarketData.describeSource marketStats liveUsed)
 
 // ==============================================================================
 // PORTFOLIO OPTIMIZATION
@@ -363,6 +335,10 @@ let stocks =
 if not quiet then
     printfn "Optimizing portfolio: %d stocks, budget $%s" stocks.Length (budget.ToString "N0")
     printfn ""
+
+/// Covariance of the selected stocks from the window correlations; None when a symbol has none.
+let portfolioCovariance =
+    MarketData.covariance marketStats (stocks |> List.map (fun s -> s.Symbol, s.Volatility))
 
 let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
     let toAsset (s: StockInfo) : PortfolioSolver.Asset =
@@ -382,7 +358,12 @@ let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
             MaxHolding = budget
         }
 
-    match HybridSolver.solvePortfolio assets constraints None None None with
+    let solved =
+        match portfolioCovariance with
+        | Some sigma -> HybridSolver.solvePortfolioWithCovariance assets sigma constraints None None None None
+        | None -> HybridSolver.solvePortfolio assets constraints None None None
+
+    match solved with
     | Ok solution ->
         let method = $"%A{solution.Method}"
         let pReturn = solution.Result.ExpectedReturn
@@ -462,6 +443,14 @@ let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
 // Sort: highest allocation value first
 let sortedResults = results |> List.sortByDescending (fun r -> r.Value)
 
+let chosenWeights = sortedResults |> List.map (fun r -> r.Stock.Symbol, r.Value)
+let equalWeights = stocks |> List.map (fun s -> s.Symbol, 1.0)
+
+let private fmtOption (x: float option) =
+    x
+    |> Option.map (fun v -> v.ToString("F4", CultureInfo.InvariantCulture))
+    |> Option.defaultValue ""
+
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
 // ==============================================================================
@@ -514,6 +503,13 @@ let printTable () =
         portfolioSharpe
         solverMethod
 
+    if solverMethod <> "Error" then
+        MarketData.printComparison
+            marketStats
+            chosenWeights
+            (stocks |> List.map (fun s -> s.Symbol))
+            (portfolioCovariance |> Option.map (fun _ -> portfolioRisk))
+
 printTable ()
 
 // ==============================================================================
@@ -539,6 +535,15 @@ let resultMaps: Map<string, string> list =
             "solver_method", r.SolverMethod
             "budget", $"%.2f{budget}"
             "has_optimization_failure", $"%b{r.HasOptimizationFailure}"
+            "holdout_return",
+            fmtOption (
+                MarketData.tryAsset marketStats r.Stock.Symbol
+                |> Option.bind (fun a -> a.HoldoutReturn)
+            )
+            "portfolio_holdout_return", fmtOption (MarketData.holdoutReturn marketStats chosenWeights)
+            "equal_weight_holdout_return", fmtOption (MarketData.holdoutReturn marketStats equalWeights)
+            "estimation_window", $"%s{marketStats.WindowFrom}..%s{marketStats.WindowTo}"
+            "holdout_window", $"%s{marketStats.HoldoutFrom}..%s{marketStats.HoldoutTo}"
         ]
         |> Map.ofList)
 
@@ -569,6 +574,11 @@ match csvPath with
             "solver_method"
             "budget"
             "has_optimization_failure"
+            "holdout_return"
+            "portfolio_holdout_return"
+            "equal_weight_holdout_return"
+            "estimation_window"
+            "holdout_window"
         ]
 
     let rows =

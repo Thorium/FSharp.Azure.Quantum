@@ -13,15 +13,23 @@
 // bridging waters, and proton transfer all depend on accurate H-bond energies.
 // This tool compares water's O-H bond with other biologically relevant bonds.
 //
-// IMPORTANT LIMITATION:
-// This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
-// Calculated energies are ILLUSTRATIVE. For production use, molecular integral
-// calculation (via PySCF, Psi4, or similar) would be needed.
+// HAMILTONIAN SOURCE:
+// Every VQE runs on molecular integrals. H2 uses STO-3G integrals the library
+// computes itself. H2O, HF and LiH use the bundled FCIDUMP files
+// (examples/_data/chemistry/fcidump: RHF/STO-3G equilibrium geometries optimised
+// with PySCF, the bond stretched x2.0; README.md there gives provenance). Both
+// geometries of a molecule use the same active space: CASSCF(2,2) on the
+// sigma/sigma* orbitals of the stretched bond. That is the minimum that describes
+// bond breaking, so the BDE compares like with like, in a minimal basis. Another
+// --stretch-factor needs FCIDUMP files for that geometry (--fcidump-dir DIR,
+// <species-slug>.fcidump); systems without integrals are skipped, not
+// estimated. Each energy line states its Hamiltonian source.
 //
 // Usage:
 //   dotnet fsi H2OWater.fsx
 //   dotnet fsi H2OWater.fsx -- --help
 //   dotnet fsi H2OWater.fsx -- --systems h2o,hf
+//   dotnet fsi H2OWater.fsx -- --fcidump-dir ./fcidumps
 //   dotnet fsi H2OWater.fsx -- --input molecules.csv
 //   dotnet fsi H2OWater.fsx -- --stretch-factor 2.0
 //   dotnet fsi H2OWater.fsx -- --output results.json --csv results.csv --quiet
@@ -34,6 +42,7 @@
 // ==============================================================================
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
+#r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -43,6 +52,7 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "../_common/ChemistryIntegrals.fs"
 
 open System
 open FSharp.Azure.Quantum.QuantumChemistry
@@ -89,6 +99,11 @@ Cli.exitIfHelp
             Default = Some "2.0"
         }
         {
+            Cli.OptionSpec.Name = "fcidump-dir"
+            Description = "Directory with one FCIDUMP per species (<species-slug>.fcidump) for non-H/He molecules"
+            Default = Some "bundled examples/_data/chemistry/fcidump"
+        }
+        {
             Cli.OptionSpec.Name = "output"
             Description = "Write results to JSON file"
             Default = None
@@ -112,6 +127,17 @@ let systemFilter = args |> Cli.getCommaSeparated "systems"
 let maxIterations = Cli.getIntOr "max-iterations" 50 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
 let stretchFactor = Cli.getFloatOr "stretch-factor" 2.0 args
+
+let fcidumpDir =
+    ChemistryIntegrals.integralDirectory
+        (args
+         |> Cli.tryGet "fcidump-dir"
+         |> Option.map (Data.resolveRelative __SOURCE_DIRECTORY__))
+        false
+
+/// Widest VQE this example runs: 2 qubits per spatial orbital.
+[<Literal>]
+let maxVqeQubits = 16
 
 // ==============================================================================
 // TYPES
@@ -145,6 +171,10 @@ type BdeResult =
         Electrons: int
         ComputeTimeSeconds: float
         HasVqeFailure: bool
+        /// Why the system did not run (no integrals), if it did not
+        Skipped: string option
+        /// Hamiltonian sources behind the energies (distinct)
+        Sources: EnergySource list
     }
 
 // ==============================================================================
@@ -163,183 +193,78 @@ let hartreeToEv = 27.2114
 // Each models a bond relevant to aqueous/biological chemistry.
 // All <=3 atoms for fast VQE (2 calls per system, ~5-15s each).
 
-/// H2O: the O-H bond. Central to solvation, H-bonding, and proton transfer.
-/// Experimental BDE(O-H) = 119 kcal/mol.
-let private h2oSystem: BondSystem =
-    let eq: Molecule =
-        {
-            Name = "H2O (equilibrium)"
-            Atoms =
-                [
-                    {
-                        Element = "O"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (0.96, 0.0, 0.0)
-                    } // O-H bond ~0.96 A
-                    {
-                        Element = "H"
-                        Position = (-0.24, 0.93, 0.0)
-                    }
-                ] // H-O-H angle ~104.5
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                    {
-                        Atom1 = 0
-                        Atom2 = 2
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
+/// A bond system whose equilibrium geometry is the bundled RHF/STO-3G minimum
+/// (examples/_data/chemistry/fcidump/<slug>.xyz). The stretched geometry moves atom
+/// `moved` away from atom `anchor` along the bond: r' = factor * r. The bundled FCIDUMP
+/// files cover factor 2.0; other factors need your own files (--fcidump-dir).
+let private bundledBondSystem
+    (name: string)
+    (bondType: string)
+    (anchor: int)
+    (moved: int)
+    (role: string)
+    (description: string)
+    : BondSystem =
+    let eq = ChemistryIntegrals.loadSpecies $"{name} (equilibrium)"
+    let (fx, fy, fz) = eq.Atoms.[anchor].Position
+    let (mx, my, mz) = eq.Atoms.[moved].Position
 
     let makeStretched (factor: float) : Molecule =
         { eq with
-            Name = $"H2O (O-H x%.1f{factor})"
+            Name = $"%s{name} (%s{bondType} x%.1f{factor})"
             Atoms =
-                [
-                    {
-                        Element = "O"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (0.96 * factor, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (-0.24, 0.93, 0.0)
-                    }
-                ]
+                eq.Atoms
+                |> List.mapi (fun i atom ->
+                    if i = moved then
+                        { atom with
+                            Position = (fx + factor * (mx - fx), fy + factor * (my - fy), fz + factor * (mz - fz))
+                        }
+                    else
+                        atom)
         }
 
     {
-        Name = "H2O"
+        Name = name
         EquilibriumMolecule = eq
         MakeStretched = makeStretched
-        BondType = "O-H"
-        BondLengthAngstrom = 0.96
-        BiologicalRole = "Solvation shell, H-bond donor/acceptor"
-        Description = "Water O-H bond — the universal biological solvent"
+        BondType = bondType
+        BondLengthAngstrom = Molecule.calculateBondLength eq.Atoms.[anchor] eq.Atoms.[moved]
+        BiologicalRole = role
+        Description = description
     }
+
+/// H2O: the O-H bond. Central to solvation, H-bonding, and proton transfer.
+/// Experimental BDE(O-H) = 119 kcal/mol.
+let private h2oSystem: BondSystem =
+    bundledBondSystem
+        "H2O"
+        "O-H"
+        0
+        1
+        "Solvation shell, H-bond donor/acceptor"
+        "Water O-H bond — the universal biological solvent"
 
 /// HF: the H-F bond. Models strong H-bond acceptors and halogen
 /// interactions in drug molecules. Experimental BDE(H-F) = 136 kcal/mol.
 let private hfSystem: BondSystem =
-    let eq: Molecule =
-        {
-            Name = "HF (equilibrium)"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "F"
-                        Position = (0.92, 0.0, 0.0)
-                    }
-                ] // H-F bond ~0.92 A
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let makeStretched (factor: float) : Molecule =
-        { eq with
-            Name = $"HF (H-F x%.1f{factor})"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "F"
-                        Position = (0.92 * factor, 0.0, 0.0)
-                    }
-                ]
-        }
-
-    {
-        Name = "HF"
-        EquilibriumMolecule = eq
-        MakeStretched = makeStretched
-        BondType = "H-F"
-        BondLengthAngstrom = 0.92
-        BiologicalRole = "Strong H-bond model, halogen drug interactions"
-        Description = "Hydrogen fluoride H-F bond — strongest single bond to H"
-    }
+    bundledBondSystem
+        "HF"
+        "H-F"
+        1
+        0
+        "Strong H-bond model, halogen drug interactions"
+        "Hydrogen fluoride H-F bond — strongest single bond to H"
 
 /// LiH: the Li-H bond. Models weak ionic/polar bonds.
 /// Experimental BDE(Li-H) = 57 kcal/mol.
 let private lihSystem: BondSystem =
-    let eq: Molecule =
-        {
-            Name = "LiH (equilibrium)"
-            Atoms =
-                [
-                    {
-                        Element = "Li"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (1.60, 0.0, 0.0)
-                    }
-                ] // Li-H bond ~1.60 A
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let makeStretched (factor: float) : Molecule =
-        { eq with
-            Name = $"LiH (Li-H x%.1f{factor})"
-            Atoms =
-                [
-                    {
-                        Element = "Li"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (1.60 * factor, 0.0, 0.0)
-                    }
-                ]
-        }
-
-    {
-        Name = "LiH"
-        EquilibriumMolecule = eq
-        MakeStretched = makeStretched
-        BondType = "Li-H"
-        BondLengthAngstrom = 1.60
-        BiologicalRole = "Weak polar bond model, metal-ligand interactions"
-        Description = "Lithium hydride Li-H bond — weak ionic/polar bond model"
-    }
+    bundledBondSystem
+        "LiH"
+        "Li-H"
+        0
+        1
+        "Weak polar bond model, metal-ligand interactions"
+        "Lithium hydride Li-H bond — weak ionic/polar bond model"
 
 /// H2: the H-H bond. Simplest covalent bond, reference for all BDE work.
 /// Experimental BDE(H-H) = 104 kcal/mol.
@@ -583,14 +508,41 @@ if not quiet then
     printfn "  Systems:      %d" systems.Length
     printfn "  VQE iters:    %d (tol: %g Ha)" maxIterations tolerance
     printfn "  Stretch:      x%.1f equilibrium bond length" stretchFactor
+
+    match fcidumpDir with
+    | Some dir ->
+        printfn "  Integrals:    %s" (ChemistryIntegrals.describeDirectory (Some dir))
+        printfn "                library STO-3G integrals for H/He molecules without a file"
+    | None -> printfn "  Integrals:    library STO-3G for H/He molecules; others need --fcidump-dir"
+
     printfn ""
+
+// ==============================================================================
+// MOLECULAR INTEGRALS
+// ==============================================================================
+
+/// Integral provider for a molecule: an FCIDUMP file when one exists for it, None when the
+/// library computes the integrals, or Error naming the missing file.
+let private integralsFor (molecule: Molecule) : Result<IntegralProvider option, string> =
+    let file = ChemistryIntegrals.fcidumpFileName molecule
+
+    match ChemistryIntegrals.tryFcidump maxVqeQubits fcidumpDir molecule, fcidumpDir with
+    | Some provider, _ -> Ok(Some provider)
+    | None, _ when ChemistryIntegrals.hasLibraryIntegrals molecule -> Ok None
+    | None, Some dir -> Error $"needs {file} in {dir}"
+    | None, None -> Error $"needs --fcidump-dir with {file}"
 
 // ==============================================================================
 // VQE COMPUTATION
 // ==============================================================================
 
 /// VQE solver configuration.
-let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) : SolverConfig =
+let private solverConfig
+    (backend: IQuantumBackend)
+    (maxIter: int)
+    (tol: float)
+    (provider: IntegralProvider option)
+    : SolverConfig =
     {
         Method = GroundStateMethod.VQE
         Backend = Some backend
@@ -599,19 +551,22 @@ let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) 
         InitialParameters = None
         ProgressReporter = None
         ErrorMitigation = None
-        IntegralProvider = None
+        IntegralProvider = provider
     }
 
+let private describeSource = ChemistryIntegrals.describeSource
+
 /// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
-/// Returns (Ok energy | Error message, elapsed seconds).
+/// Returns (Ok (energy, source, converged) | Error message, elapsed seconds).
 let private computeEnergy
     (backend: IQuantumBackend)
     (maxIter: int)
     (tol: float)
+    (provider: IntegralProvider option)
     (molecule: Molecule)
-    : Result<float, string> * float =
+    : Result<float * EnergySource * bool, string> * float =
     let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
+    let config = solverConfig backend maxIter tol provider
 
     let result =
         GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
@@ -619,7 +574,7 @@ let private computeEnergy
     let elapsed = (DateTime.Now - startTime).TotalSeconds
 
     match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
+    | Ok vqeResult -> (Ok(vqeResult.Energy, vqeResult.Source, vqeResult.Converged), elapsed)
     | Error err ->
         if not quiet then
             eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
@@ -644,62 +599,105 @@ let private computeSystem
         printfn "         Atoms: %d  |  Electrons: %d" sys.EquilibriumMolecule.Atoms.Length electrons
 
     let startTime = DateTime.Now
-    let mutable anyFailure = false
-
-    /// Unwrap a VQE result, logging failures and tracking error state.
-    let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
-        match res with
-        | Ok e ->
-            if not quiet then
-                printfn "         %-12s %-22s  E = %10.6f Ha  (%.1fs)" label name e elapsed
-
-            (e, elapsed)
-        | Error _ ->
-            anyFailure <- true
-
-            if not quiet then
-                printfn "         %-12s %-22s  E = FAILED         (%.1fs)" label name elapsed
-
-            (0.0, elapsed)
-
-    let (eqE, _) =
-        unwrapEnergy
-            "equilibrium"
-            sys.EquilibriumMolecule.Name
-            (computeEnergy backend maxIter tol sys.EquilibriumMolecule)
-
     let stretchedMol = sys.MakeStretched stretch
 
-    let (strE, _) =
-        unwrapEnergy "stretched" stretchedMol.Name (computeEnergy backend maxIter tol stretchedMol)
+    let skipReasons =
+        [ sys.EquilibriumMolecule; stretchedMol ]
+        |> List.choose (fun m ->
+            match integralsFor m with
+            | Error reason -> Some reason
+            | Ok _ -> None)
 
-    let totalTime = (DateTime.Now - startTime).TotalSeconds
+    if not skipReasons.IsEmpty then
+        let reason = String.concat "; " skipReasons
 
-    // BDE = E(stretched) - E(equilibrium)
-    let bdeHartree = strE - eqE
-    let bdeKcal = bdeHartree * hartreeToKcalMol
-    let bdeEv = bdeHartree * hartreeToEv
+        if not quiet then
+            printfn "         => SKIPPED: no molecular integrals (%s)" reason
+            printfn ""
 
-    if not quiet then
-        if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
-        else
-            printfn "         => BDE = %.4f Ha = %.2f kcal/mol" bdeHartree bdeKcal
+        {
+            System = sys
+            EquilibriumEnergy = nan
+            StretchedEnergy = nan
+            BdeHartree = nan
+            BdeKcalMol = nan
+            BdeEv = nan
+            StretchFactor = stretch
+            Electrons = electrons
+            ComputeTimeSeconds = 0.0
+            HasVqeFailure = false
+            Skipped = Some reason
+            Sources = []
+        }
+    else
 
-        printfn ""
+        let mutable anyFailure = false
+        let sources = Collections.Generic.List<EnergySource>()
 
-    {
-        System = sys
-        EquilibriumEnergy = eqE
-        StretchedEnergy = strE
-        BdeHartree = bdeHartree
-        BdeKcalMol = bdeKcal
-        BdeEv = bdeEv
-        StretchFactor = stretch
-        Electrons = electrons
-        ComputeTimeSeconds = totalTime
-        HasVqeFailure = anyFailure
-    }
+        /// Run VQE on one geometry, logging the result and tracking failures.
+        let energyOf (label: string) (molecule: Molecule) : float =
+            let provider =
+                match integralsFor molecule with
+                | Ok p -> p
+                | Error _ -> None
+
+            match computeEnergy backend maxIter tol provider molecule with
+            | Ok(e, source, converged), elapsed ->
+                sources.Add source
+
+                if not quiet then
+                    printfn
+                        "         %-12s %-22s  E = %10.6f Ha  (%.1fs)  [%s]%s"
+                        label
+                        molecule.Name
+                        e
+                        elapsed
+                        (describeSource source)
+                        (if converged then
+                             ""
+                         else
+                             $" not converged in {maxIter} iterations")
+
+                e
+            | Error _, elapsed ->
+                anyFailure <- true
+
+                if not quiet then
+                    printfn "         %-12s %-22s  E = FAILED         (%.1fs)" label molecule.Name elapsed
+
+                nan
+
+        let eqE = energyOf "equilibrium" sys.EquilibriumMolecule
+        let strE = energyOf "stretched" stretchedMol
+        let totalTime = (DateTime.Now - startTime).TotalSeconds
+
+        // BDE = E(stretched) - E(equilibrium)
+        let bdeHartree = strE - eqE
+        let bdeKcal = bdeHartree * hartreeToKcalMol
+        let bdeEv = bdeHartree * hartreeToEv
+
+        if not quiet then
+            if anyFailure then
+                printfn "         => INCOMPLETE (VQE failure, no BDE)"
+            else
+                printfn "         => BDE = %.4f Ha = %.2f kcal/mol" bdeHartree bdeKcal
+
+            printfn ""
+
+        {
+            System = sys
+            EquilibriumEnergy = eqE
+            StretchedEnergy = strE
+            BdeHartree = bdeHartree
+            BdeKcalMol = bdeKcal
+            BdeEv = bdeEv
+            StretchFactor = stretch
+            Electrons = electrons
+            ComputeTimeSeconds = totalTime
+            HasVqeFailure = anyFailure
+            Skipped = None
+            Sources = sources |> Seq.distinct |> List.ofSeq
+        }
 
 // --- Run all systems ---
 
@@ -711,15 +709,24 @@ let results =
     systems
     |> List.mapi (fun i sys -> computeSystem backend maxIterations tolerance stretchFactor i systems.Length sys)
 
+/// True when both energies were computed.
+let private isComplete (r: BdeResult) = not r.HasVqeFailure && r.Skipped.IsNone
+
+/// Hamiltonian sources of a system's energies, e.g. "STO-3G integrals (library)".
+let private sourceLabel (r: BdeResult) : string =
+    match r.Skipped, r.Sources with
+    | Some _, _ -> "skipped (no integrals)"
+    | None, [] -> "none"
+    | None, sources -> sources |> List.map describeSource |> String.concat " + "
+
 // Sort by BDE descending (strongest bond first).
-// Failed systems sink to bottom.
+// Failed and skipped systems sink to bottom.
 let ranked =
     results
     |> List.sortBy (fun r ->
-        if r.HasVqeFailure then
-            (2, infinity)
-        else
-            (0, -r.BdeKcalMol))
+        if r.Skipped.IsSome then (3, 0.0)
+        elif r.HasVqeFailure then (2, 0.0)
+        else (0, -r.BdeKcalMol))
 
 // ==============================================================================
 // RANKED COMPARISON TABLE
@@ -732,7 +739,7 @@ let printTable () =
     printfn ""
 
     printfn
-        "  %-4s  %-8s  %-8s  %8s  %14s  %10s  %10s"
+        "  %-4s  %-8s  %-8s  %8s  %14s  %10s  %10s  %s"
         "#"
         "System"
         "Bond"
@@ -740,33 +747,48 @@ let printTable () =
         "BDE (kcal/mol)"
         "BDE (eV)"
         "Time (s)"
+        "Hamiltonian"
 
-    printfn "  %s" (String('=', 80))
+    printfn "  %s" (String('=', 108))
 
     ranked
     |> List.iteri (fun i r ->
-        if r.HasVqeFailure then
+        if isComplete r then
             printfn
-                "  %-4d  %-8s  %-8s  %8.2f  %14s  %10s  %10.1f"
-                (i + 1)
-                r.System.Name
-                r.System.BondType
-                r.System.BondLengthAngstrom
-                "FAILED"
-                "FAILED"
-                r.ComputeTimeSeconds
-        else
-            printfn
-                "  %-4d  %-8s  %-8s  %8.2f  %14.2f  %10.4f  %10.1f"
+                "  %-4d  %-8s  %-8s  %8.2f  %14.2f  %10.4f  %10.1f  %s"
                 (i + 1)
                 r.System.Name
                 r.System.BondType
                 r.System.BondLengthAngstrom
                 r.BdeKcalMol
                 r.BdeEv
-                r.ComputeTimeSeconds)
+                r.ComputeTimeSeconds
+                (sourceLabel r)
+        else
+            let status = if r.Skipped.IsSome then "SKIPPED" else "FAILED"
+
+            printfn
+                "  %-4d  %-8s  %-8s  %8.2f  %14s  %10s  %10.1f  %s"
+                (i + 1)
+                r.System.Name
+                r.System.BondType
+                r.System.BondLengthAngstrom
+                status
+                status
+                r.ComputeTimeSeconds
+                (sourceLabel r))
 
     printfn ""
+
+    let skipped = ranked |> List.filter (fun r -> r.Skipped.IsSome)
+
+    if not skipped.IsEmpty then
+        printfn "  Skipped systems need FCIDUMP integrals from a chemistry package (PySCF, Psi4, Molpro):"
+
+        for r in skipped do
+            printfn "    %-8s %s" r.System.Name r.Skipped.Value
+
+        printfn ""
 
     // Biological roles
     printfn "  %-4s  %-8s  %4s  %s" "#" "System" "e-" "Biological Role"
@@ -786,7 +808,7 @@ printTable ()
 // ==============================================================================
 
 if not quiet then
-    let successful = ranked |> List.filter (fun r -> not r.HasVqeFailure)
+    let successful = ranked |> List.filter isComplete
 
     match successful with
     | best :: _ ->
@@ -797,7 +819,7 @@ if not quiet then
         printfn "  Quantum:         all VQE via IQuantumBackend [Rule 1 compliant]"
         printfn ""
     | [] ->
-        printfn "  All systems failed VQE computation."
+        printfn "  No system completed (see the SKIPPED/FAILED rows)."
         printfn ""
 
 // ==============================================================================
@@ -807,6 +829,13 @@ if not quiet then
 let resultMaps =
     ranked
     |> List.mapi (fun i r ->
+        let status =
+            if r.Skipped.IsSome then "SKIPPED"
+            elif r.HasVqeFailure then "FAILED"
+            else ""
+
+        let value (text: string) = if isComplete r then text else status
+
         [
             "rank", string (i + 1)
             "system", r.System.Name
@@ -816,22 +845,16 @@ let resultMaps =
             "description", r.System.Description
             "atoms", string r.System.EquilibriumMolecule.Atoms.Length
             "electrons", string r.Electrons
-            "eq_energy_ha",
-            (if r.HasVqeFailure then
-                 "FAILED"
-             else
-                 $"%.6f{r.EquilibriumEnergy}")
-            "stretched_energy_ha",
-            (if r.HasVqeFailure then
-                 "FAILED"
-             else
-                 $"%.6f{r.StretchedEnergy}")
-            "bde_hartree", (if r.HasVqeFailure then "FAILED" else $"%.6f{r.BdeHartree}")
-            "bde_kcal_mol", (if r.HasVqeFailure then "FAILED" else $"%.2f{r.BdeKcalMol}")
-            "bde_ev", (if r.HasVqeFailure then "FAILED" else $"%.4f{r.BdeEv}")
+            "eq_energy_ha", value $"%.6f{r.EquilibriumEnergy}"
+            "stretched_energy_ha", value $"%.6f{r.StretchedEnergy}"
+            "bde_hartree", value $"%.6f{r.BdeHartree}"
+            "bde_kcal_mol", value $"%.2f{r.BdeKcalMol}"
+            "bde_ev", value $"%.4f{r.BdeEv}"
             "stretch_factor", $"%.1f{r.StretchFactor}"
             "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
             "has_vqe_failure", string r.HasVqeFailure
+            "skipped", r.Skipped |> Option.defaultValue ""
+            "hamiltonian", sourceLabel r
         ]
         |> Map.ofList)
 
@@ -863,6 +886,8 @@ match Cli.tryGet "csv" args with
             "stretch_factor"
             "compute_time_s"
             "has_vqe_failure"
+            "skipped"
+            "hamiltonian"
         ]
 
     let rows =
@@ -879,6 +904,7 @@ if argv.Length = 0 && not quiet then
     printfn ""
     printfn "Tip: Run with --help to see all options."
     printfn "     --systems h2o,hf                 Run specific molecules"
+    printfn "     --fcidump-dir ./fcidumps         FCIDUMP integrals for H2O, HF, LiH"
     printfn "     --input molecules.csv            Load custom molecules from CSV"
     printfn "     --stretch-factor 3.0             Stretch further (stronger dissociation)"
     printfn "     --csv results.csv                Export ranked table as CSV"

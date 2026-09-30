@@ -86,7 +86,7 @@ module DeutschJozsa =
         List.init (max 0 numQubits) (gate >> QuantumOperation.Gate)
 
     let private oracleFromOps (backend: IQuantumBackend) (ops: QuantumOperation list) : Oracle =
-        fun state -> UnifiedBackend.applySequence backend ops state
+        WholeCircuit.gateOracle backend ops
 
     // ========================================================================
     // ORACLE CONSTRUCTORS
@@ -151,11 +151,9 @@ module DeutschJozsa =
 
         match plan with
         | DeutschJozsaPlan.ExecuteViaOpsAndOracle(preOps, oracle, postOps) ->
-            result {
-                let! afterPre = UnifiedBackend.applySequence backend preOps state
-                let! afterOracle = oracle afterPre
-                return! UnifiedBackend.applySequence backend postOps afterOracle
-            }
+            // Gate by gate where the backend allows it; a backend that runs complete circuits
+            // only gets one circuit with the oracle's gates inside it.
+            WholeCircuit.applyWithOracle "DeutschJozsa" backend preOps oracle postOps state
 
     // ========================================================================
     // ALGORITHM IMPLEMENTATION

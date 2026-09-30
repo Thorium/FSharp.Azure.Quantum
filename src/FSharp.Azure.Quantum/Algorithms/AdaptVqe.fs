@@ -16,11 +16,20 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 /// This yields a compact, problem-tailored ansatz — often far shallower than a fixed
 /// hardware-efficient form for the same accuracy.
 ///
-/// This implementation is state-vector exact: it reuses `Primitives.expectation` for the
-/// energy ⟨H⟩, `TrotterSuzuki.synthesizePauliEvolution` to realise each e^(-iθP) block, and
-/// the shared Nelder-Mead optimiser for re-optimisation. It therefore requires a
-/// state-vector (gate-based simulator) backend; on a measurement-only backend `run`
-/// returns the `Error` surfaced by `observe`.
+/// Each e^(-iθP) block is realised by `TrotterSuzuki.synthesizePauliEvolution`. Two routes:
+///
+/// - Exact backends (state vector, density matrix, topological): the energy is
+///   `Primitives.expectation` of the returned state, gradients are central differences with
+///   `FiniteDiffEps`, and the angles are re-optimised by Nelder-Mead (a 1-D scan for one).
+/// - Shot-sampling backends (IShotSamplingBackend: cloud hardware and cloud simulators): the
+///   returned state has no phases, so every energy is `Primitives.sampledExpectation` (one
+///   whole-circuit job per qubit-wise commuting group G of the Hamiltonian's terms), every
+///   gradient is the exact parameter-shift rule dE/dθ = c·[E(θ+π/4c) − E(θ−π/4c)] for a block
+///   e^(-iθcP), and the angles are re-optimised by SampledOptimizerSteps steps of Adam on those
+///   gradients. A gradient counts only above max(GradientThreshold, 3 standard errors); an
+///   iteration is kept only if its fresh energy estimate is not significantly worse. Jobs per
+///   iteration: G·(2·|pool| + 2·n·SampledOptimizerSteps + 1) with n angles — cap them with the
+///   backend's JobBudget.
 module AdaptVqe =
 
     // ========================================================================
@@ -135,6 +144,153 @@ module AdaptVqe =
                 (init, objective init)
 
     // ========================================================================
+    // SHOT-SAMPLING BACKENDS (measured energies, parameter-shift gradients)
+    // ========================================================================
+
+    /// Adam steps that re-optimise the angles on a shot-sampling backend.
+    [<Literal>]
+    let SampledOptimizerSteps = 40
+
+    /// Adam's initial step size, in radians; it decays linearly to a tenth over the steps.
+    [<Literal>]
+    let SampledLearningRate = 0.1
+
+    /// Standard errors a measured gradient must exceed to count as non-zero.
+    [<Literal>]
+    let SampledGradientSigmas = 3.0
+
+    /// Parameter-shift derivative of the energy in the time θ of a block e^(-iθcP) (P a Pauli
+    /// string, c real): c·[E(θ+π/4c) − E(θ−π/4c)], exact for any state and observable.
+    /// `energyWithTime` gives (energy, standard error) with that block's time replaced; the
+    /// result is (derivative, standard error).
+    let internal parameterShift
+        (coefficient: float)
+        (time: float)
+        (energyWithTime: float -> QuantumResult<float * float>)
+        : QuantumResult<float * float> =
+        if abs coefficient < 1e-12 then
+            Ok(0.0, 0.0)
+        else
+            let shift = System.Math.PI / (4.0 * coefficient)
+
+            energyWithTime (time + shift)
+            |> Result.bind (fun (plus, plusError) ->
+                energyWithTime (time - shift)
+                |> Result.map (fun (minus, minusError) ->
+                    coefficient * (plus - minus),
+                    abs coefficient * sqrt (plusError * plusError + minusError * minusError)))
+
+    /// Minimise by Adam from `init`, SampledOptimizerSteps steps of `gradient`: the optimiser
+    /// for shot-sampling backends, where every gradient is a noisy measured estimate.
+    let internal adamDescent (gradient: float[] -> QuantumResult<float[]>) (init: float[]) : QuantumResult<float[]> =
+        let beta1, beta2, epsilon = 0.9, 0.999, 1e-8
+
+        let rec step k (theta: float[]) (m: float[]) (v: float[]) =
+            if k > SampledOptimizerSteps || theta.Length = 0 then
+                Ok theta
+            else
+                match gradient theta with
+                | Error err -> Error err
+                | Ok g ->
+                    let m = Array.map2 (fun mi gi -> beta1 * mi + (1.0 - beta1) * gi) m g
+                    let v = Array.map2 (fun vi gi -> beta2 * vi + (1.0 - beta2) * gi * gi) v g
+
+                    let rate =
+                        SampledLearningRate * (1.0 - 0.9 * float (k - 1) / float SampledOptimizerSteps)
+
+                    let correction1 = 1.0 - beta1 ** float k
+                    let correction2 = 1.0 - beta2 ** float k
+
+                    let next =
+                        Array.init theta.Length (fun i ->
+                            theta.[i]
+                            - rate * (m.[i] / correction1) / (sqrt (v.[i] / correction2) + epsilon))
+
+                    step (k + 1) next m v
+
+        step 1 init (Array.zeroCreate init.Length) (Array.zeroCreate init.Length)
+
+    /// ADAPT-VQE on a shot-sampling backend (see the module notes).
+    let private runSampled
+        (backend: IQuantumBackend)
+        (hamiltonian: TrotterSuzuki.PauliHamiltonian)
+        (pool: OperatorPool)
+        (numQubits: int)
+        (config: AdaptConfig)
+        : QuantumResult<AdaptResult> =
+        let energy (ops: TrotterSuzuki.PauliString list) (parameters: float[]) : QuantumResult<float * float> =
+            Primitives.sampledExpectation backend (buildAnsatz numQubits ops parameters) hamiltonian
+            |> Result.map (fun e -> e.Value, e.StandardError)
+
+        /// d energy / d parameters.[k] by the parameter-shift rule.
+        let gradientAt (ops: TrotterSuzuki.PauliString list) (parameters: float[]) (k: int) =
+            parameterShift (ops.[k].Coefficient.Real) parameters.[k] (fun time ->
+                energy ops (Array.updateAt k time parameters))
+
+        let fullGradient (ops: TrotterSuzuki.PauliString list) (parameters: float[]) =
+            let rec collect k (acc: float list) =
+                if k >= parameters.Length then
+                    Ok(acc |> List.rev |> Array.ofList)
+                else
+                    match gradientAt ops parameters k with
+                    | Error err -> Error err
+                    | Ok(g, _) -> collect (k + 1) (g :: acc)
+
+            collect 0 []
+
+        let rec screen (ops: TrotterSuzuki.PauliString list) (parameters: float[]) remaining acc =
+            match remaining with
+            | [] -> Ok(List.rev acc)
+            | (op: TrotterSuzuki.PauliString) :: rest ->
+                let opsWith = ops @ [ op ]
+
+                match gradientAt opsWith (Array.append parameters [| 0.0 |]) parameters.Length with
+                | Error err -> Error err
+                | Ok estimate -> screen ops parameters rest ((op, estimate) :: acc)
+
+        let rec loop iter ops parameters history ((current, currentError): float * float) =
+            let finish converged =
+                Ok
+                    {
+                        Energy = current
+                        SelectedOperators = ops
+                        Parameters = parameters
+                        Iterations = iter
+                        Converged = converged
+                        EnergyHistory = List.rev history
+                    }
+
+            if iter >= config.MaxIterations then
+                finish false
+            else
+                match screen ops parameters pool [] with
+                | Error err -> Error err
+                | Ok grads ->
+                    let (bestOp, (bestGrad, bestError)) = grads |> List.maxBy (fun (_, (g, _)) -> abs g)
+
+                    if abs bestGrad <= max config.GradientThreshold (SampledGradientSigmas * bestError) then
+                        finish true
+                    else
+                        let newOps = ops @ [ bestOp ]
+
+                        match adamDescent (fullGradient newOps) (Array.append parameters [| 0.0 |]) with
+                        | Error err -> Error err
+                        | Ok optimised ->
+                            match energy newOps optimised with
+                            | Error err -> Error err
+                            | Ok(fresh, freshError) ->
+                                // Keep the operator unless the fresh estimate is significantly worse.
+                                let noise = 2.0 * sqrt (freshError * freshError + currentError * currentError)
+
+                                if fresh > current + max 1e-9 noise then
+                                    finish false
+                                else
+                                    loop (iter + 1) newOps optimised (fresh :: history) (fresh, freshError)
+
+        energy [] [||]
+        |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
+
+    // ========================================================================
     // RUN
     // ========================================================================
 
@@ -168,6 +324,8 @@ module AdaptVqe =
             match badHamTerm, badPoolOp with
             | Some t, _ -> widthError "hamiltonian" t.Operators.Length numQubits
             | _, Some p -> widthError "pool" p.Operators.Length numQubits
+            | None, None when (Primitives.shotsPerCircuit backend).IsSome ->
+                runSampled backend hamiltonian pool numQubits config
             | None, None ->
 
                 // Reference (|0…0⟩) energy — also validates the backend supports expectation.

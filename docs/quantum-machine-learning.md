@@ -476,7 +476,7 @@ match VQC.train backend featureMap variationalForm initialParams trainData train
 - **Optimizer**: Adam typically converges faster than SGD
 - **Depth**: Deeper circuits → more gate operations
 
-**Cost per epoch:** the loss needs one circuit run per training sample, and the parameter-shift gradient needs two more per sample for every parameter. With N samples and P parameters an epoch is about N × (2P + 1) circuit executions, each with `Shots` measurements. Wall-clock time depends on your machine and backend; time a few epochs on a small dataset before scaling up.
+**Cost per epoch:** the loss needs one circuit run per training sample, and the parameter-shift gradient needs two more per sample for every parameter. With N samples and P parameters an epoch is about N × (2P + 1) circuit executions, each with `Shots` measurements. On a cloud backend each execution is one whole-circuit job, billed separately, so cap a run with a `JobBudget`; a quantum kernel matrix of N samples is N(N + 1)/2 circuits, with at most `QuantumKernel.MaxConcurrentSampledJobs` (8) in flight. Wall-clock time depends on your machine and backend; time a few epochs on a small dataset before scaling up.
 
 ### Hyperparameter Tuning
 

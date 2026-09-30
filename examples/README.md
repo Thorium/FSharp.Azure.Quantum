@@ -86,7 +86,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[SupplyChain/SupplyChain.fsx](SupplyChain/SupplyChain.fsx)**  
   Multi-echelon supply chain optimization  
   **Use Case:** Warehouse allocation, distribution planning  
-  **Result:** QAOA route activation on 14 qubits; at 1000 shots the picked flow reached all 3 customers in 9 of 10 runs (cost 139 in eight), against an exhaustive optimum of 139
+  **Result:** QAOA route activation on 14 qubits; at 1000 shots the picked flow reached all 3 customers in 10 of 10 runs (cost 139 in three, 141 to 144 in the rest), against an exhaustive optimum of 139
 
 - **[SupplyChain/SupplyChain-Small.fsx](SupplyChain/SupplyChain-Small.fsx)**  
   Small-scale supply chain example (faster execution)
@@ -329,7 +329,9 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ### Quantum Phase Estimation
 - **[PhaseEstimation/MolecularEnergy.fsx](PhaseEstimation/MolecularEnergy.fsx)**  
-  QPE (Quantum Phase Estimation) of one-qubit stand-in unitaries (T, Rz(θ), phase gate), each checked against its exact phase; Rz(θ) = e^(−iH) stands in for time evolution under the toy H = (θ/2)·Z. No molecule is modelled: the script header lists what a real molecular QPE would need.
+  QPE (Quantum Phase Estimation), in two parts:
+  - One-qubit unitaries (T, Rz(θ), phase gate), each checked against its exact phase; Rz(θ) = e^(−iH) stands in for time evolution under the toy H = (θ/2)·Z.
+  - The `h2` scenario, a real molecular QPE: the H₂ Hamiltonian in STO-3G (4 qubits, Jordan-Wigner), controlled e^(−iHt·2^j) as Trotter circuits, and 8 counting qubits. It lands within 0.7 mHa of FCI in about 7 s. At `--bond 2.0` a second peak shows the overlap caveat: QPE returns each eigenvalue with the probability that the Hartree-Fock state overlaps it.
 
   ![Phase estimation turning qubit dials into a phase reading](PhaseEstimation/_images/phase-estimation.svg)
 

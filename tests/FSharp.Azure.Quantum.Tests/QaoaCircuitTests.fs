@@ -69,8 +69,8 @@ let ``Problem Hamiltonian should handle diagonal QUBO terms`` () =
 
 [<Fact>]
 let ``Mixer Hamiltonian should create X operators for all qubits`` () =
-    // Mixer Hamiltonian: H_mix = X0 + X1 + X2
-    // Each term has coefficient 1.0
+    // Mixer Hamiltonian: H_mix = -(X0 + X1 + X2): ground state |+>^n, positive angles minimise
+    // Each term has coefficient -1.0
     let numQubits = 3
 
     let mixer = MixerHamiltonian.create numQubits
@@ -78,10 +78,10 @@ let ``Mixer Hamiltonian should create X operators for all qubits`` () =
     Assert.Equal(3, mixer.NumQubits)
     Assert.Equal(3, mixer.Terms.Length)
 
-    // Check all terms are single-qubit X operators with coefficient 1.0
+    // Check all terms are single-qubit X operators with coefficient -1.0
     for i in 0 .. numQubits - 1 do
         let term = mixer.Terms[i]
-        Assert.Equal(1.0, term.Coefficient)
+        Assert.Equal(-1.0, term.Coefficient)
         Assert.Equal<int seq>([| i |], term.QubitsIndices)
         Assert.Equal<PauliOperator seq>([| PauliX |], term.PauliOperators)
 
@@ -109,13 +109,13 @@ let ``QAOA layer should construct cost and mixer gates`` () =
     match layer.MixerGates[0] with
     | RX(qubit, angle) ->
         Assert.Equal(0, qubit)
-        Assert.Equal(2.0 * beta, angle) // RX(2β) for mixer layer
+        Assert.Equal(-2.0 * beta, angle) // RX(-2β): e^(-iβH_mix) with H_mix = -ΣX
     | _ -> Assert.True(false, "Expected RX gate")
 
     match layer.MixerGates[1] with
     | RX(qubit, angle) ->
         Assert.Equal(1, qubit)
-        Assert.Equal(2.0 * beta, angle)
+        Assert.Equal(-2.0 * beta, angle)
     | _ -> Assert.True(false, "Expected RX gate")
 
 [<Fact>]
@@ -182,6 +182,6 @@ let ``QAOA circuit should serialize to OpenQASM format`` () =
     Assert.Contains("rzz(0.2500000000)", qasm)
 
     // Check mixer layer gates (RX rotations)
-    // Angle: 2 * 1.0 * 0.3 = 0.6
-    Assert.Contains("rx(0.6000000000) q[0]", qasm)
-    Assert.Contains("rx(0.6000000000) q[1]", qasm)
+    // Angle: 2 * (-1.0) * 0.3 = -0.6
+    Assert.Contains("rx(-0.6000000000) q[0]", qasm)
+    Assert.Contains("rx(-0.6000000000) q[1]", qasm)

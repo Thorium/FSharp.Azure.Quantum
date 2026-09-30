@@ -475,46 +475,6 @@ module TimingQubo =
 // QAOA SOLVER (RULE 1 COMPLIANT)
 // =============================================================================
 
-/// Private classical fallback - greedy sequential assignment
-let private classicalTimingFallback
-    (currentPositions: Position3D[])
-    (targetPositions: Position3D[])
-    (assignments: (int * int) list)
-    (constraints: PlanningConstraints)
-    : (int * int) list =
-
-    let n = currentPositions.Length
-    let k = constraints.DelaySteps
-
-    // Greedy: assign delays to minimize collisions one drone at a time
-    let rec assignDelays assigned remaining =
-        match remaining with
-        | [] -> assigned
-        | droneId :: rest ->
-            // Find delay that minimizes collision risk with already-assigned drones
-            let bestDelay =
-                [ 0 .. k - 1 ]
-                |> List.minBy (fun delay ->
-                    let testTimings = (droneId, delay) :: assigned
-
-                    let risk =
-                        CollisionDetection.checkTimingCollisions
-                            constraints
-                            currentPositions
-                            targetPositions
-                            assignments
-                            testTimings
-
-                    match risk with
-                    | Safe sep -> -sep // Prefer larger separation
-                    | PotentialCollision(_, _, _, dist) -> constraints.MinSeparationMeters - dist
-                    | MultipleCollisions risks -> float risks.Length * 10.0)
-
-            assignDelays ((droneId, bestDelay) :: assigned) rest
-
-    let droneIds = assignments |> List.map fst
-    assignDelays [] droneIds
-
 /// Solve for collision-free timing using QAOA
 ///
 /// RULE 1 COMPLIANT: Requires IQuantumBackend parameter
@@ -551,35 +511,34 @@ let solveTimings
         TimingQubo.buildQubo currentPositions targetPositions assignments constraints penaltyWeight
 
     // Build QAOA circuit
-    let problemHam = ProblemHamiltonian.fromQubo qubo
+    // Normalised so the fixed angles are on the scale the library's solvers use
+    let problemHam = ProblemHamiltonian.fromQubo qubo |> ProblemHamiltonian.normalize
     let mixerHam = MixerHamiltonian.create numVars
     let parameters = [| (0.5, 0.3) |] // Single QAOA layer
-    let circuit = QaoaCircuit.build problemHam mixerHam parameters
 
-    let wrapper =
-        CircuitAbstraction.QaoaCircuitWrapper(circuit) :> CircuitAbstraction.ICircuit
+    let attempt (attemptShots: int) (angles: (float * float)[]) =
+        let wrapper =
+            CircuitAbstraction.QaoaCircuitWrapper(QaoaCircuit.build problemHam mixerHam angles)
+            :> CircuitAbstraction.ICircuit
 
-    // Execute on backend
-    match backend.ExecuteToState wrapper with
-    | Error err -> Error err.Message
-    | Ok state ->
-        let measurements = QuantumState.measure state shots
-
-        // Find best valid solution from measurements
-        let validSolutions =
-            measurements
-            |> Array.map (fun bits ->
+        // Execute on backend
+        match backend.ExecuteToState wrapper with
+        | Error err -> Error err.Message
+        | Ok state ->
+            // First valid solution among the measurements
+            QuantumState.measure state attemptShots
+            |> Array.tryPick (fun bits ->
                 let timings = TimingQubo.decodeTimings bits n k
-                let isValid = TimingQubo.validateSolution timings n
-                (timings, isValid))
-            |> Array.filter snd
-            |> Array.map fst
 
-        match Array.tryHead validSolutions with
-        | Some timings -> Ok timings
-        | None ->
-            // Fallback: use greedy classical algorithm
-            Ok(classicalTimingFallback currentPositions targetPositions assignments constraints)
+                if TimingQubo.validateSolution timings n then
+                    Some timings
+                else
+                    None)
+            |> Ok
+
+    // No valid sample in any attempt is an Error; no classical solver stands in.
+    DynamicBehavior.QaoaAttempts.firstSolved shots parameters attempt
+    |> Result.map fst
 
 // =============================================================================
 // PUBLIC API

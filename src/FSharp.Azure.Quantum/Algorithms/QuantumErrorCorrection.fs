@@ -258,6 +258,61 @@ module QuantumErrorCorrection =
             )
 
     // ========================================================================
+    // WHOLE-CIRCUIT ROUND TRIPS (backends that run complete circuits only)
+    //
+    // A round trip measures the syndrome mid-circuit and corrects according to the outcome.
+    // A backend that runs complete circuits only cannot branch mid-circuit, so the round trip
+    // uses deferred measurement: the correction is controlled by the syndrome qubits
+    // themselves, and every qubit is measured at the end. Measuring the syndrome ancillas
+    // last gives the same syndrome statistics, and the data qubits end in the same state.
+    // ========================================================================
+
+    /// A two-bit syndrome read from ancillas (s1, s2) of a 3-qubit repetition code: which
+    /// data qubit it points at, as in the incremental codes.
+    let private repetitionSyndromeQubit (dataQubits: int[]) (s1: int, s2: int) : int option =
+        match (s1, s2) with
+        | (1, 0) -> Some dataQubits.[0]
+        | (1, 1) -> Some dataQubits.[1]
+        | (0, 1) -> Some dataQubits.[2]
+        | _ -> None
+
+    /// Gates applying X (or Z) to `target` only when ancillas (a1, a2) hold (s1, s2):
+    /// ancillas expected to hold 0 are flipped around a doubly-controlled X, and a Z is that
+    /// X conjugated by H on the target.
+    let private onSyndrome (a1: int, a2: int) (s1: int, s2: int) (applyZ: bool) (target: int) : QuantumOperation list =
+        let flips =
+            [ (a1, s1); (a2, s2) ]
+            |> List.filter (fun (_, bit) -> bit = 0)
+            |> List.map (fun (ancilla, _) -> QuantumOperation.Gate(X ancilla))
+
+        let basisChange = if applyZ then [ QuantumOperation.Gate(H target) ] else []
+
+        flips
+        @ basisChange
+        @ [ QuantumOperation.Gate(CCX(a1, a2, target)) ]
+        @ basisChange
+        @ flips
+
+    /// Deferred corrections of a 3-qubit repetition code: for each non-trivial syndrome, the
+    /// X (or Z) on the data qubit it points at, controlled by the ancillas.
+    let private repetitionCorrections (dataQubits: int[]) (ancillas: int * int) (applyZ: bool) : QuantumOperation list =
+        [ (1, 0); (1, 1); (0, 1) ]
+        |> List.collect (fun syndrome ->
+            match repetitionSyndromeQubit dataQubits syndrome with
+            | Some target -> onSyndrome ancillas syndrome applyZ target
+            | None -> [])
+
+    /// The error for a code whose whole-circuit round trip is not implemented.
+    let private noWholeCircuitRoundTrip (codeName: string) : QuantumError =
+        QuantumError.OperationError(
+            "QuantumErrorCorrection",
+            $"{codeName} needs mid-circuit syndrome measurement, and its deferred-measurement form "
+            + "(syndrome extraction onto ancillas with syndrome-controlled corrections) is not "
+            + "implemented, so it cannot run on a backend that runs complete circuits only. Use a "
+            + "backend that applies operations incrementally, or the bit-flip or phase-flip code."
+        )
+
+    // ========================================================================
     // 3-QUBIT BIT-FLIP CODE [[3,1,1]]
     // ========================================================================
 
@@ -416,8 +471,8 @@ module QuantumErrorCorrection =
             let measurements = QuantumState.measure state 1
             measurements.[0].[dataQubits.[0]]
 
-        /// Full round-trip: encode -> inject error -> measure syndrome -> correct -> decode
-        let roundTrip
+        /// The round trip applied gate by gate, measuring the syndrome mid-circuit.
+        let private roundTripIncremental
             (backend: IQuantumBackend)
             (logicalBit: int)
             (errorOnQubit: int option)
@@ -454,6 +509,86 @@ module QuantumErrorCorrection =
                         Success = (decodedBit = logicalBit)
                         BackendName = backend.Name
                     }
+            }
+
+        /// The round trip as one circuit with deferred measurement: encode, error, syndrome
+        /// extraction onto the ancillas (as measureSyndrome does), X corrections controlled by
+        /// the ancillas, and every qubit measured at the end.
+        let private roundTripWholeCircuit
+            (backend: IQuantumBackend)
+            (logicalBit: int)
+            (errorOnQubit: int option)
+            : Result<RoundTripResult, QuantumError> =
+
+            result {
+                do! validateBackend "BitFlip.roundTrip" backend
+
+                do!
+                    if logicalBit <> 0 && logicalBit <> 1 then
+                        Error(QuantumError.ValidationError("logicalBit", "must be 0 or 1"))
+                    else
+                        Ok()
+
+                let ops =
+                    (if logicalBit = 1 then
+                         [ QuantumOperation.Gate(X dataQubits.[0]) ]
+                     else
+                         [])
+                    @ [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[1]))
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[2]))
+                    ]
+                    @ (errorOnQubit |> Option.toList |> List.map (X >> QuantumOperation.Gate))
+                    @ [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla2))
+                        QuantumOperation.Gate(CNOT(dataQubits.[2], ancilla2))
+                    ]
+                    @ repetitionCorrections dataQubits (ancilla1, ancilla2) false
+
+                let! finalState = UnifiedBackend.submitAsCircuit backend totalQubits ops
+                let bits = QuantumState.measure finalState 1 |> Array.head
+                let syndromeBits = (bits.[ancilla1], bits.[ancilla2])
+                let errorQubit = repetitionSyndromeQubit dataQubits syndromeBits
+                let decodedBit = bits.[dataQubits.[0]]
+
+                return
+                    {
+                        Code = BitFlipCode3
+                        LogicalBit = logicalBit
+                        InjectedError = errorOnQubit |> Option.map (fun q -> (BitFlipError, q))
+                        Syndrome =
+                            {
+                                SyndromeBits = [ fst syndromeBits; snd syndromeBits ]
+                                DetectedError = errorQubit |> Option.map (fun _ -> BitFlipError)
+                                ErrorQubit = errorQubit
+                            }
+                        CorrectionApplied = errorQubit.IsSome
+                        DecodedBit = decodedBit
+                        Success = (decodedBit = logicalBit)
+                        BackendName = backend.Name
+                    }
+            }
+
+        /// Full round-trip: encode -> inject error -> measure syndrome -> correct -> decode.
+        ///
+        /// Gate by gate where the backend allows it. A backend that runs complete circuits
+        /// only cannot measure the syndrome mid-circuit, so it gets one circuit with deferred
+        /// measurement: corrections controlled by the syndrome ancillas, all qubits measured
+        /// at the end.
+        let roundTrip
+            (backend: IQuantumBackend)
+            (logicalBit: int)
+            (errorOnQubit: int option)
+            : Result<RoundTripResult, QuantumError> =
+            result {
+                let! probe = backend.InitializeState totalQubits
+
+                if WholeCircuit.refusesIncremental backend probe then
+                    return! roundTripWholeCircuit backend logicalBit errorOnQubit
+                else
+                    return! roundTripIncremental backend logicalBit errorOnQubit
             }
 
     // ========================================================================
@@ -643,8 +778,8 @@ module QuantumErrorCorrection =
                 return measurements.[0].[dataQubits.[0]]
             }
 
-        /// Full round-trip: encode -> inject error -> syndrome -> correct -> decode
-        let roundTrip
+        /// The round trip applied gate by gate, measuring the syndrome mid-circuit.
+        let private roundTripIncremental
             (backend: IQuantumBackend)
             (logicalBit: int)
             (errorOnQubit: int option)
@@ -680,6 +815,92 @@ module QuantumErrorCorrection =
                         Success = (decodedBit = logicalBit)
                         BackendName = backend.Name
                     }
+            }
+
+        /// The round trip as one circuit with deferred measurement: encode, error, syndrome
+        /// extraction onto the ancillas (in the Z basis, as measureSyndrome does), Z corrections
+        /// controlled by the ancillas, decoding H, and every qubit measured at the end.
+        let private roundTripWholeCircuit
+            (backend: IQuantumBackend)
+            (logicalBit: int)
+            (errorOnQubit: int option)
+            : Result<RoundTripResult, QuantumError> =
+
+            result {
+                do! validateBackend "PhaseFlip.roundTrip" backend
+
+                do!
+                    if logicalBit <> 0 && logicalBit <> 1 then
+                        Error(QuantumError.ValidationError("logicalBit", "must be 0 or 1"))
+                    else
+                        Ok()
+
+                let hadamards = dataQubits |> Array.toList |> List.map (H >> QuantumOperation.Gate)
+
+                let ops =
+                    (if logicalBit = 1 then
+                         [ QuantumOperation.Gate(X dataQubits.[0]) ]
+                     else
+                         [])
+                    @ [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[1]))
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], dataQubits.[2]))
+                    ]
+                    @ hadamards
+                    @ (errorOnQubit |> Option.toList |> List.map (Z >> QuantumOperation.Gate))
+                    @ hadamards
+                    @ [
+                        QuantumOperation.Gate(CNOT(dataQubits.[0], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla1))
+                        QuantumOperation.Gate(CNOT(dataQubits.[1], ancilla2))
+                        QuantumOperation.Gate(CNOT(dataQubits.[2], ancilla2))
+                    ]
+                    @ hadamards
+                    @ repetitionCorrections dataQubits (ancilla1, ancilla2) true
+                    @ hadamards
+
+                let! finalState = UnifiedBackend.submitAsCircuit backend totalQubits ops
+                let bits = QuantumState.measure finalState 1 |> Array.head
+                let syndromeBits = (bits.[ancilla1], bits.[ancilla2])
+                let errorQubit = repetitionSyndromeQubit dataQubits syndromeBits
+                let decodedBit = bits.[dataQubits.[0]]
+
+                return
+                    {
+                        Code = PhaseFlipCode3
+                        LogicalBit = logicalBit
+                        InjectedError = errorOnQubit |> Option.map (fun q -> (PhaseFlipError, q))
+                        Syndrome =
+                            {
+                                SyndromeBits = [ fst syndromeBits; snd syndromeBits ]
+                                DetectedError = errorQubit |> Option.map (fun _ -> PhaseFlipError)
+                                ErrorQubit = errorQubit
+                            }
+                        CorrectionApplied = errorQubit.IsSome
+                        DecodedBit = decodedBit
+                        Success = (decodedBit = logicalBit)
+                        BackendName = backend.Name
+                    }
+            }
+
+        /// Full round-trip: encode -> inject error -> syndrome -> correct -> decode.
+        ///
+        /// Gate by gate where the backend allows it. A backend that runs complete circuits
+        /// only cannot measure the syndrome mid-circuit, so it gets one circuit with deferred
+        /// measurement: corrections controlled by the syndrome ancillas, all qubits measured
+        /// at the end.
+        let roundTrip
+            (backend: IQuantumBackend)
+            (logicalBit: int)
+            (errorOnQubit: int option)
+            : Result<RoundTripResult, QuantumError> =
+            result {
+                let! probe = backend.InitializeState totalQubits
+
+                if WholeCircuit.refusesIncremental backend probe then
+                    return! roundTripWholeCircuit backend logicalBit errorOnQubit
+                else
+                    return! roundTripIncremental backend logicalBit errorOnQubit
             }
 
     // ========================================================================
@@ -1045,6 +1266,14 @@ module QuantumErrorCorrection =
             : Result<RoundTripResult, QuantumError> =
 
             result {
+                let! probe = backend.InitializeState totalQubits
+
+                do!
+                    if WholeCircuit.refusesIncremental backend probe then
+                        Error(noWholeCircuitRoundTrip "The Shor 9-qubit code")
+                    else
+                        Ok()
+
                 let! encoded = encode backend logicalBit
 
                 // Inject error
@@ -1410,6 +1639,14 @@ module QuantumErrorCorrection =
             : Result<RoundTripResult, QuantumError> =
 
             result {
+                let! probe = backend.InitializeState totalQubits
+
+                do!
+                    if WholeCircuit.refusesIncremental backend probe then
+                        Error(noWholeCircuitRoundTrip "The Steane 7-qubit code")
+                    else
+                        Ok()
+
                 let! encoded = encode backend logicalBit
 
                 let! afterError = injectError backend errorType errorQubit encoded.EncodedState

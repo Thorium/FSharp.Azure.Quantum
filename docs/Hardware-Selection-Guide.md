@@ -127,8 +127,8 @@ match GraphColoring.solve problem 2 None with
 - **Gate Time:** ~200 microseconds (slower than superconducting)
 
 **✅ Best For:**
-- **High-precision algorithms** (VQE, QPE, Shor's algorithm)
-- **Small molecules** quantum chemistry (H2, H2O, LiH)
+- **High-precision algorithms** (VQE, QPE, Shor's algorithm): the library submits each as whole circuits (below). VQE's shallow circuits suit today's devices; QPE and Shor's circuits are far deeper than ~100 gates even for H₂ or N = 15, so on current hardware they are demonstrations of the route rather than useful results
+- **Small molecules** quantum chemistry (H2, H2O, LiH); the library computes integrals for H and He molecules, and H2O or LiH need integrals from `SolverConfig.IntegralProvider` or an FCIDUMP file
 - **Algorithms requiring all-to-all connectivity** (no SWAP overhead)
 - **Deep circuits** up to ~100 gates
 - **Research requiring high fidelity** results
@@ -166,7 +166,46 @@ match Primitives.sample ionqBackend ghz 1000 with
 | Error err -> printfn "Error: %s" err.Message
 ```
 
-Chemistry solvers take the same backend through `SolverConfig.Backend`. Note that with `Method = GroundStateMethod.VQE`, `GroundStateEnergy.estimateEnergy` currently returns tabulated reference energies for molecules it recognises as H₂, H₂O or LiH without running circuits, so use a different molecule (or your own Hamiltonian, see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md)) when the goal is to exercise the hardware.
+Chemistry solvers take the same backend through `SolverConfig.Backend`. With `Method = GroundStateMethod.VQE`, `GroundStateEnergy.estimateEnergy` runs every energy evaluation on that backend. It uses integrals from `SolverConfig.IntegralProvider`, or STO-3G integrals the library computes for molecules of H and He atoms (see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md)). On a simulator that applies gates one at a time, the UCCSD-VQE computes exact expectation values. A backend that accepts only whole circuits, such as IonQ, Quantinuum, Rigetti, IQM, Atom Computing, Braket or `NoisyLocalBackend`, gets complete circuits instead:
+
+- the Hartree-Fock reference and the Trotterised UCCSD rotations, built from H, X, RX, RY, RZ and CNOT;
+- one circuit per qubit-wise commuting group of Hamiltonian terms for every energy (5 for H₂/STO-3G);
+- optimisation by SPSA, which needs two energies per iteration whatever the parameter count. Its first step moves each of the n amplitudes by 0.05/√n.
+
+The result says how it was estimated: `Estimation = SampledCircuits(circuitsPerEnergy, shotsPerCircuit, circuitsExecuted)`, against `ExactExpectation` on the simulator path.
+
+`Converged` means 30 iterations without an improvement above the shot noise. Every 10 iterations the energy is estimated with its standard error, and the run stops once three such checkpoints in a row have not beaten the best one. The reported energy is a fresh estimate at the best checkpoint. A run that is still improving at `MaxIterations`, or that did not get below its start, is `Converged = false`, and `Notes` says which.
+
+Every circuit is a separate job. A run that would submit more than `ChemistryVQE.MaxWholeCircuitJobs` (20,000) circuits is refused before it starts, and the error names the largest `MaxIterations` that fits. On a local whole-circuit simulator without a shot count, such as `NoisyLocalBackend`, the first circuit's time projects the run. It is refused when the projection exceeds one hour. Cancellation through the progress reporter is checked before every circuit.
+
+Measured on simulated whole-circuit backends:
+
+| System | Circuits per energy | Shots per circuit | Result |
+|---|---|---|---|
+| H₂ | 5 | 10,000 | stopped after 40–50 iterations (about 500 circuits), within 0.7 mHa of FCI at the returned amplitudes |
+| H₂ | 5 | 100,000 | stopped after 40–50 iterations (about 500 circuits), within 0.4 mHa of FCI at the returned amplitudes |
+| water CAS(2,2) | 9 | 1,000 | all 12 seeds within 2.4 mHa |
+| ethane CAS(4,4), 52 amplitudes | 100 | exact probabilities | 90 iterations, the most the budget allows, reach 5.6 mHa above FCI, reported as not converged |
+
+The energy reported for a run carries the shot noise of one estimate.
+
+`SolverConfig.ErrorMitigation` corrects each group's counts with the unbiased readout inverse. A strategy that cannot correct anything is an `Error`.
+
+`GroundStateMethod.QPE` also runs on a whole-circuit backend: the Hartree-Fock preparation, the controlled Trotter evolutions and the inverse QFT are one circuit, submitted as one job. For H₂ that is 12 qubits and about 146,000 gates, far deeper than today's hardware keeps coherent, so a hardware run of it is impractical now: use it on simulators, or to see the route work end to end.
+
+The other algorithms take a cloud backend the same way, each as whole-circuit jobs:
+
+| Algorithm | On a cloud backend |
+|---|---|
+| QAOA solvers, Grover and its builders, amplitude amplification, QFT, QPE, quantum arithmetic | One circuit per run (QAOA: one per optimizer step) |
+| Shor (`QuantumPeriodFinder`) | One circuit per base tried; `FactorSource` says whether the factors came from the measured period or from classical preprocessing |
+| HHL | One circuit; `Readout = MeasuredMagnitudes`: the solution holds \|xᵢ\| from post-selected counts, without signs or phases |
+| `Primitives.observe`, ADAPT-VQE, ADAPT-QAOA | One circuit per commuting group of Pauli terms for every energy; parameter-shift gradients |
+| QML (VQC, quantum kernels) | One circuit per forward pass or kernel entry; kernels keep at most 8 in flight |
+| Quantum Monte Carlo, option pricing, risk engine | Maximum-likelihood amplitude estimation: one circuit per Grover power (0, 1, 2, 4, …), probabilities from the job's counts |
+| `QRNG.generateWithBackend` | One job of one shot: create the backend with `shots = 1` |
+
+A cloud backend returns an `Error`, never a guess, for what a circuit job cannot do: start from a state other than \|0…0⟩, read the gates of an opaque custom oracle function, `HamiltonianSimulation.simulate` of a given state (use `simulateFromPreparation`), the Shor 9-qubit and Steane code round trips, and HHL regression (`QuantumRegressionHHL`), which needs signed amplitudes.
 
 > **Async alternative:** Cloud backends support `task { }` with `CancellationToken`. Use `backend.ExecuteToStateAsync circuit ct` or `Primitives.sampleAsync` for non-blocking execution. See [Backend Switching](backend-switching.md).
 
@@ -308,7 +347,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 | Algorithm | Recommended Backend | Qubit Need | Notes |
 |-----------|-------------------|------------|-------|
 | **Grover's Search** | IonQ (small), Rigetti (medium) | 5-50 | High fidelity helps accuracy |
-| **Shor's Factoring** | IonQ | 5-11 | QPE requires high precision |
+| **Shor's Factoring** | IonQ | counting + 2n + 4, n = ⌈log₂N⌉ (N = 15, 8 counting: 20) | One whole circuit per base; far deeper than today's hardware keeps coherent, so hardware runs demonstrate the route rather than factor reliably |
 | **QFT** | IonQ | 3-11 | Deep circuit, needs fidelity |
 | **QPE** | IonQ | 5-11 | High precision critical |
 | **VQE (chemistry)** | IonQ (<4 atoms), Rigetti (4-8 atoms) | 4-20 | Shallow circuits, noise-resilient; the library's chemistry path caps molecules at 20 qubits |
@@ -338,7 +377,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 | **Binary Classification (VQC)** | Small (<100 samples) | IonQ | High precision |
 | | Medium (100-1000) | Rigetti | Acceptable noise |
 | **Quantum Kernel SVM** | Any | IonQ or Rigetti | Depends on feature dimension |
-| **Quantum Regression (HHL)** | Small systems | IonQ | Requires QPE (high precision) |
+| **Quantum Regression (HHL)** | Small systems | LocalBackend | `QuantumRegressionHHL` needs signed amplitudes and refuses cloud backends; the HHL solver itself runs on IonQ or Rigetti with magnitude-only readout (`Readout = MeasuredMagnitudes`) |
 
 ---
 
@@ -373,6 +412,7 @@ let mockDWave = DWaveBackend.createDefaultMockBackend () :> IQuantumBackend
 3. **Batch jobs** - submit multiple problems in one QPU session
 4. **Start small** - validate with 5-10 qubits before scaling
 5. **Monitor spending** - Azure Cost Management alerts
+6. **Cap the job count** - every circuit an algorithm submits is a billed job, and iterative algorithms (QAOA, VQE, ADAPT, QML training) submit hundreds or thousands; pass a `JobBudget` to the backend (see [Backend Switching](backend-switching.md)) so a run stops with an `Error` at the limit
 
 ---
 
@@ -466,7 +506,7 @@ Mitigation is applied to results, not to a backend: ZNE and PEC run your circuit
 | Learn quantum computing | LocalBackend |
 | Develop/debug algorithm | LocalBackend |
 | Test small problem (≤20 qubits) | LocalBackend (free) |
-| Solve high-precision chemistry (H2, LiH) | IonQ |
+| Solve high-precision chemistry (H2, LiH) | IonQ (UCCSD-VQE; LiH with integrals from an `IntegralProvider` or FCIDUMP) |
 | Solve medium NISQ problem (20-80 qubits) | Rigetti |
 | Solve large optimization (100-5000 vars) | D-Wave Advantage |
 | Minimize cost | LocalBackend → Rigetti → IonQ |

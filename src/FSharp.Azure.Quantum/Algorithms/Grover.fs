@@ -667,24 +667,16 @@ module Grover =
         : Result<GroverResult, QuantumError> =
 
         let stopwatch = Stopwatch.StartNew()
+        let searchSpace = 1 <<< oracle.NumQubits
 
-        // Determine iteration count (auto-calculate if not specified)
-        let iterationCount =
-            match config.Iterations with
-            | Some k -> k
-            | None ->
-                // Auto-calculate based on number of solutions
-                let numSolutions =
-                    match oracle.Spec with
-                    | Oracle.OracleSpec.SingleTarget _ -> 1
-                    | Oracle.OracleSpec.Solutions solutionList -> solutionList.Length
-                    | Oracle.OracleSpec.Predicate _ -> 1 // Conservative estimate
-                    | _ -> 1 // Conservative estimate for combinators
+        // Every candidate is checked against the oracle below, so the threshold only has to
+        // separate signal from noise: an outcome seen at least as often as a uniform draw
+        // (1/N) is kept. With M solutions each is amplified to about 1/M ≥ 1/N, so a fixed
+        // threshold above 1/M would discard every true solution of a broad predicate.
+        let threshold = min config.SolutionThreshold (1.0 / float searchSpace)
 
-                calculateOptimalIterations oracle.NumQubits numSolutions
-
-        // Build intent → plan → execute (ADR).
-        let preparedAndIteratedState =
+        let runWith (iterationCount: int) =
+            // Build intent → plan → execute (ADR).
             let intent =
                 {
                     Oracle = oracle
@@ -692,46 +684,80 @@ module Grover =
                     Exactness = Exact
                 }
 
-            plan backend intent |> Result.bind (executePlan backend oracle)
+            result {
+                let! finalState = plan backend intent |> Result.bind (executePlan backend oracle)
+                let measurements = UnifiedBackend.measureState finalState config.Shots
+                let distribution = extractDistribution measurements
 
-        result {
-            let! finalState = preparedAndIteratedState
+                // Grover measurements are probabilistic: keep only candidates the oracle accepts.
+                let solutions =
+                    extractSolutions distribution config.Shots threshold
+                    |> List.filter (Oracle.isSolution oracle.Spec)
 
-            // Step 4: Measure final state
-            let measurements = UnifiedBackend.measureState finalState config.Shots
+                let successProb =
+                    solutions
+                    |> List.choose (fun s -> distribution |> Map.tryFind s)
+                    |> function
+                        | [] -> 0.0
+                        | counts -> float (List.max counts) / float config.Shots
 
-            // Step 5: Extract solutions from measurements
-            //
-            // Important: Grover measurements are probabilistic; finite shots may yield "false positives"
-            // above the solution threshold. Filter candidates classically via the oracle predicate.
-            let distribution = extractDistribution measurements
+                return
+                    {
+                        Solutions = solutions
+                        Iterations = iterationCount
+                        Measurements = distribution
+                        SuccessProbability = successProb
+                        ExecutionTimeMs = 0.0
+                    }
+            }
 
-            let candidateSolutions =
-                extractSolutions distribution config.Shots config.SolutionThreshold
+        let knownSolutionCount =
+            match oracle.Spec with
+            | Oracle.OracleSpec.SingleTarget _ -> Some 1
+            | Oracle.OracleSpec.Solutions solutionList -> Some solutionList.Length
+            | _ -> None
 
-            let solutions = candidateSolutions |> List.filter (Oracle.isSolution oracle.Spec)
+        let outcome =
+            match config.Iterations, knownSolutionCount with
+            | Some k, _ -> runWith k
+            | None, Some numSolutions -> runWith (calculateOptimalIterations oracle.NumQubits numSolutions)
+            | None, None ->
+                // Unknown solution count M: try the optimal iteration count for M = N/2,
+                // N/4, ..., 1 in turn (1, ... up to about (π/4)√N iterations) and stop at the
+                // first run that measures a verified solution. The counts grow geometrically,
+                // so the whole schedule costs O(√N) iterations.
+                //
+                // Every run amplifies: the schedule starts at one iteration, never zero. Zero
+                // iterations is uniform sampling with a classical check of each draw, which
+                // for a broad predicate returns an answer no Grover iteration produced.
+                let schedule =
+                    searchSpace / 2
+                    |> List.unfold (fun m ->
+                        if m >= 1 then
+                            Some(calculateOptimalIterations oracle.NumQubits m, m / 2)
+                        else
+                            None)
+                    |> List.distinct
 
-            let successProb =
-                solutions
-                |> List.choose (fun s -> distribution |> Map.tryFind s)
-                |> function
-                    | [] -> 0.0
-                    | counts -> float (List.max counts) / float config.Shots
+                let rec tryCounts counts =
+                    match counts with
+                    | [] -> runWith 1
+                    | [ k ] -> runWith k
+                    | k :: rest ->
+                        match runWith k with
+                        | Ok r when not r.Solutions.IsEmpty -> Ok r
+                        | Ok _ -> tryCounts rest
+                        | Error e -> Error e
 
-            // Calculate execution time
-            stopwatch.Stop()
-            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
+                tryCounts schedule
 
-            // Return result
-            return
-                {
-                    Solutions = solutions
-                    Iterations = iterationCount
-                    Measurements = distribution
-                    SuccessProbability = successProb
-                    ExecutionTimeMs = elapsedMs
-                }
-        }
+        stopwatch.Stop()
+
+        outcome
+        |> Result.map (fun r ->
+            { r with
+                ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds
+            })
 
     // ========================================================================
     // CONVENIENCE API FUNCTIONS

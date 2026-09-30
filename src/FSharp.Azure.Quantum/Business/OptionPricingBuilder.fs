@@ -30,8 +30,8 @@ open FSharp.Azure.Quantum.Algorithms
 ///   f = payoff function (e.g., max(S-K, 0) for European call)
 ///
 /// LIMITATIONS (documented for production use):
-/// 1. Payoff oracle uses diagonal comparator (O(2^n) gates, tractable for n ≤ 10)
-/// 2. Requires 2^n qubits for n-bit price discretization
+/// 1. Payoff rotation is a uniformly controlled RY (O(2^n) gates, tractable for n ≤ 10)
+/// 2. 2^n price levels on n qubits, plus one payoff ancilla
 /// 3. Accuracy depends on number of Grover iterations
 ///
 /// EXAMPLE USAGE:
@@ -91,7 +91,7 @@ module OptionPricing =
             /// Estimated option price
             Price: float
 
-            /// 95% confidence interval
+            /// Half-width of the 95% confidence interval: 1.96 standard errors of the amplitude estimate
             ConfidenceInterval: float
 
             /// Quantum speedup factor achieved
@@ -100,7 +100,7 @@ module OptionPricing =
             /// Method used (for logging/debugging)
             Method: string
 
-            /// Number of qubits used
+            /// Qubits of the price register; the amplitude-estimation circuits add one ancilla
             QubitsUsed: int
         }
 
@@ -192,78 +192,6 @@ module OptionPricing =
         MottonenStatePreparation.prepareStateFromAmplitudes normalizedAmplitudes qubits circuit
 
     // ========================================================================
-    // PRIVATE - Payoff Oracle
-    // ========================================================================
-
-    /// Encode option payoff as quantum oracle using diagonal comparator
-    ///
-    /// Marks states where option is "in-the-money" by applying phase flips:
-    /// - For calls: S_T > K (price level > strike)
-    /// - For puts: S_T < K (price level < strike)
-    ///
-    /// **IMPLEMENTATION**: Diagonal oracle that computes the exact strike index
-    /// from the discretized price grid and applies multi-controlled Z gates
-    /// to flip the phase of each in-the-money basis state.
-    ///
-    /// Gate cost: O(2^n) in the worst case, but n ≤ 10 (validation limit),
-    /// so the circuit is always tractable for simulation.
-    let private encodePayoffOracle
-        (optionType: OptionType)
-        (marketParams: MarketParameters)
-        (numQubits: int)
-        : CircuitBuilder.Circuit =
-
-        if numQubits = 0 then
-            CircuitBuilder.empty 0
-        else
-            let numLevels = 1 <<< numQubits
-
-            // Discretize the same log-normal distribution used by encodeGBMDistribution
-            // (terminal price for European, geometric-average price for Asian)
-            let logMean, logStd = logPriceParameters optionType marketParams
-
-            let priceLevels =
-                StatisticalDistributions.discretizeLogNormal logMean logStd numLevels
-
-            // Determine which basis states are in-the-money
-            let isInTheMoney =
-                match optionType with
-                | EuropeanCall
-                | AsianCall _ -> fun i -> fst priceLevels.[i] > marketParams.StrikePrice
-                | EuropeanPut
-                | AsianPut _ -> fun i -> fst priceLevels.[i] < marketParams.StrikePrice
-
-            let itmIndices = [| 0 .. numLevels - 1 |] |> Array.filter isInTheMoney
-
-            // Build circuit: for each ITM basis state, flip its phase.
-            // To flip the phase of |i⟩, apply X gates to qubits where bit is 0,
-            // then MCZ (all qubits as controls except last, last as target),
-            // then undo X gates.  This is the standard "mark a single basis state" pattern.
-            let mutable circuit = CircuitBuilder.empty numQubits
-
-            for idx in itmIndices do
-                // X gates to make the target state map to |11...1⟩
-                let xGates =
-                    [ 0 .. numQubits - 1 ] |> List.filter (fun bit -> (idx >>> bit) &&& 1 = 0)
-
-                for q in xGates do
-                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.X q)
-
-                // Apply phase flip to |11...1⟩ state
-                if numQubits = 1 then
-                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
-                else
-                    let controls = [ 0 .. numQubits - 2 ]
-                    let target = numQubits - 1
-                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.MCZ(controls, target))
-
-                // Undo X gates
-                for q in xGates do
-                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.X q)
-
-            circuit
-
-    // ========================================================================
     // PUBLIC - Quantum Option Pricing (RULE1: backend required)
     // ========================================================================
 
@@ -275,13 +203,14 @@ module OptionPricing =
     ///
     /// ALGORITHM:
     /// 1. Encode GBM distribution using Möttönen (exact amplitude encoding)
-    /// 2. Encode payoff function as oracle (diagonal comparator)
-    /// 3. Run Quantum Monte Carlo with Grover iterations
-    /// 4. Extract option price from amplitude estimate
-    /// 5. Discount to present value
+    /// 2. Rotate payoff / maxPayoff onto an ancilla (uniformly controlled RY)
+    /// 3. Estimate P(ancilla = 1) = E[payoff] / maxPayoff by maximum-likelihood amplitude
+    ///    estimation over Grover powers (QuantumMonteCarlo.estimateBoundedExpectation)
+    /// 4. Price = discount · maxPayoff · estimate; the 95% interval is 1.96 standard errors
+    ///    of the same estimate
     ///
     /// LIMITATIONS:
-    /// - Payoff oracle is diagonal (O(2^n) gates); tractable for n ≤ 10
+    /// - Payoff rotation costs O(2^n) gates; tractable for n ≤ 10
     /// - Requires careful selection of numQubits based on price range
     /// - groverIterations affects accuracy: more iterations = higher precision
     let priceWithCancellation
@@ -352,35 +281,6 @@ module OptionPricing =
                 // Build quantum state preparation (encode GBM using Möttönen)
                 let statePrep = encodeGBMDistribution optionType marketParams numQubits
 
-                // Build quantum oracle (encode payoff)
-                let oracle = encodePayoffOracle optionType marketParams numQubits
-
-                // Configure Quantum Monte Carlo
-                let qmcConfig =
-                    {
-                        QuantumMonteCarlo.NumQubits = numQubits
-                        QuantumMonteCarlo.StatePreparation = statePrep
-                        QuantumMonteCarlo.Oracle = oracle
-                        QuantumMonteCarlo.GroverIterations = groverIterations
-                        QuantumMonteCarlo.Shots = shots
-                    }
-
-                // Execute QMC on quantum backend (✅ RULE1 compliant - backend required)
-                let! qmcResult =
-                    match cancellationTokenOpt with
-                    | Some token when token.IsCancellationRequested -> raise (OperationCanceledException token)
-                    | Some token ->
-                        Async.StartAsTask(
-                            QuantumMonteCarlo.estimateExpectation qmcConfig backend,
-                            cancellationToken = token,
-                            taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None
-                        )
-                        |> Async.AwaitTask
-                    | None -> QuantumMonteCarlo.estimateExpectation qmcConfig backend
-
-                // Calculate discount factor
-                let discountFactor = exp (-marketParams.RiskFreeRate * marketParams.TimeToExpiry)
-
                 // Reconstruct the same discretized price grid used for state preparation
                 // (terminal price for European, geometric-average price for Asian).
                 let numLevels = 1 <<< numQubits
@@ -397,36 +297,69 @@ module OptionPricing =
                     | EuropeanPut
                     | AsianPut _ -> max (marketParams.StrikePrice - price) 0.0
 
-                // Genuine risk-neutral expected payoff E[payoff] = Σ_i q_i · payoff(S_i), where
-                // q_i are the quantum-measured bin probabilities of the prepared distribution.
-                // The Grover amplitude estimate (qmcResult) additionally yields P(in-the-money)
-                // and the O(1/M) error scaling used for the confidence interval.
-                match qmcResult, QuantumMonteCarlo.measureBinProbabilities backend statePrep with
-                | Error err, _
-                | _, Error err -> return Error err
-                | Ok result, Ok quantumProbs ->
-                    let expectedPayoff =
-                        Array.init numLevels (fun i -> quantumProbs.[i] * payoffAt (fst priceLevels.[i]))
-                        |> Array.sum
+                let payoffs = priceLevels |> Array.map (fst >> payoffAt)
+                let maxPayoff = Array.max payoffs
 
-                    let optionPrice = discountFactor * expectedPayoff
-                    let prices = priceLevels |> Array.map fst
-                    let priceRange = Array.max prices - Array.min prices
-                    let confidenceInterval = discountFactor * result.StandardError * priceRange
+                // The payoff scaled into [0, 1] is rotated onto an ancilla, so amplitude
+                // estimation of P(ancilla = 1) estimates E[payoff] / maxPayoff.
+                let scaledPayoffs =
+                    payoffs |> Array.map (fun p -> if maxPayoff > 0.0 then p / maxPayoff else 0.0)
+
+                let estimation =
+                    QuantumMonteCarlo.estimateBoundedExpectation statePrep scaledPayoffs groverIterations shots backend
+
+                // Execute amplitude estimation on the quantum backend (✅ RULE1 compliant - backend required)
+                let! estimate =
+                    match cancellationTokenOpt with
+                    | Some token when token.IsCancellationRequested -> raise (OperationCanceledException token)
+                    | Some token ->
+                        Async.StartAsTask(
+                            estimation,
+                            cancellationToken = token,
+                            taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None
+                        )
+                        |> Async.AwaitTask
+                    | None -> estimation
+
+                // Calculate discount factor
+                let discountFactor = exp (-marketParams.RiskFreeRate * marketParams.TimeToExpiry)
+
+                match estimate with
+                | Error err -> return Error err
+                | Ok result ->
+                    // Price and its 95% interval both come from the amplitude estimate.
+                    let optionPrice = discountFactor * maxPayoff * result.Expectation
+
+                    let confidenceInterval = 1.96 * discountFactor * maxPayoff * result.StandardError
+
+                    // Classical samples for the same accuracy (G²) over quantum queries (G · shots).
+                    let speedup =
+                        if groverIterations > 0 then
+                            float (groverIterations * groverIterations) / float (groverIterations * shots)
+                        else
+                            1.0
+
+                    let route =
+                        match result.ShotsPerCircuit with
+                        | Some s -> $", whole circuits sampled at {s} shots"
+                        | None when result.WholeCircuit -> ", whole circuits"
+                        | None -> ""
 
                     let methodName =
                         match optionType with
                         | EuropeanCall
-                        | EuropeanPut -> "Quantum Monte Carlo (Möttönen + Grover)"
+                        | EuropeanPut ->
+                            $"Quantum amplitude estimation of E[payoff] (Möttönen + payoff rotation, MLAE{route})"
                         | AsianCall _
-                        | AsianPut _ -> "Quantum Monte Carlo (geometric-average Asian approximation, Möttönen + Grover)"
+                        | AsianPut _ ->
+                            $"Quantum amplitude estimation of E[payoff] (geometric-average Asian approximation, Möttönen + payoff rotation, MLAE{route})"
 
                     return
                         Ok
                             {
                                 Price = optionPrice
                                 ConfidenceInterval = confidenceInterval
-                                Speedup = result.SpeedupFactor
+                                Speedup = speedup
                                 Method = methodName
                                 QubitsUsed = numQubits
                             }

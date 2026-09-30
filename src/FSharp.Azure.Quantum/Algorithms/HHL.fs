@@ -808,6 +808,44 @@ module HHL =
             }
 
 
+    /// Transpile gate operations into the backend's gate set. Some decompositions (e.g.,
+    /// MCZ -> CCX -> {RZ,CNOT,...}) require multiple passes, so this iterates to a bounded
+    /// fixpoint to emit only backend-native gates. Non-gate operations never appear in a
+    /// lowering; a list holding one is returned unchanged.
+    let private transpileOpsForBackend
+        (backend: IQuantumBackend)
+        (totalQubits: int)
+        (ops: QuantumOperation list)
+        : QuantumOperation list =
+        let gateOps =
+            ops
+            |> List.choose (function
+                | QuantumOperation.Gate gate -> Some gate
+                | _ -> None)
+
+        if gateOps.Length = ops.Length then
+            let circuit: CircuitBuilder.Circuit =
+                {
+                    QubitCount = totalQubits
+                    Gates = gateOps
+                }
+
+            let rec transpileToFixpoint remaining (current: CircuitBuilder.Circuit) =
+                if remaining <= 0 then
+                    current
+                else
+                    let next = GateTranspiler.transpileForBackend backend.Name current
+
+                    if next.Gates = current.Gates then
+                        next
+                    else
+                        transpileToFixpoint (remaining - 1) next
+
+            let transpiled = transpileToFixpoint 5 circuit
+            transpiled.Gates |> List.map QuantumOperation.Gate
+        else
+            ops
+
     let plan
         (backend: IQuantumBackend)
         (intent: HhlExecutionIntent)
@@ -851,39 +889,7 @@ module HHL =
                         // Backends (Rigetti/IonQ/etc.) require transpilation into their supported gate sets.
                         // `UnifiedBackend.applySequence` does not transpile, so we must do it during planning.
                         let transpiledOps =
-                            let gateOps =
-                                ops
-                                |> List.choose (function
-                                    | QuantumOperation.Gate gate -> Some gate
-                                    | _ -> None)
-
-                            if gateOps.Length = ops.Length then
-                                let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
-
-                                let circuit: CircuitBuilder.Circuit =
-                                    {
-                                        QubitCount = totalQubits
-                                        Gates = gateOps
-                                    }
-
-                                // Some decompositions (e.g., MCZ -> CCX -> {RZ,CNOT,...}) require multiple passes.
-                                // Iterate to a fixpoint (bounded) to ensure we emit only backend-native gates.
-                                let rec transpileToFixpoint remaining (current: CircuitBuilder.Circuit) =
-                                    if remaining <= 0 then
-                                        current
-                                    else
-                                        let next = GateTranspiler.transpileForBackend backend.Name current
-
-                                        if next.Gates = current.Gates then
-                                            next
-                                        else
-                                            transpileToFixpoint (remaining - 1) next
-
-                                let transpiled = transpileToFixpoint 5 circuit
-                                transpiled.Gates |> List.map QuantumOperation.Gate
-                            else
-                                // Non-gate operations should never appear in lowering, but keep this safe.
-                                ops
+                            transpileOpsForBackend backend (intent.EigenvalueQubits + intent.SolutionQubits + 1) ops
 
                         if transpiledOps |> List.forall backend.SupportsOperation then
                             return
@@ -912,6 +918,100 @@ module HHL =
             backend.ApplyOperation (QuantumOperation.Algorithm(AlgorithmOperation.HHL intent)) state
         | HhlPlan.ExecuteViaOps(ops, _) -> UnifiedBackend.applySequence backend ops state
 
+    /// HHL as one submitted circuit, for a backend that runs complete circuits only.
+    ///
+    /// A job starts from |0…0⟩ and cannot be handed a prepared state vector, so |b⟩ is
+    /// prepared by gates (Möttönen) on the solution register inside the circuit, followed by
+    /// the same inversion lowering the gate-by-gate route uses, transpiled the same way.
+    ///
+    /// Readout is by measurement: the returned state carries outcome frequencies (on a sampling
+    /// backend) or exact probabilities, and only |amplitude|² of it is read. Post-selecting the
+    /// outcomes with ancilla = |1⟩ and the eigenvalue register |0⟩ gives |x_i|². Signs and
+    /// relative phases are not in computational-basis counts, so the result holds magnitudes
+    /// and says so (HhlReadout.MeasuredMagnitudes); recovering signs would take further
+    /// interference circuits, which are not run.
+    let private executeWholeCircuit
+        (backend: IQuantumBackend)
+        (intent: HhlExecutionIntent)
+        (config: HHLConfig)
+        : Result<HHLResult, QuantumError> =
+        result {
+            let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+            let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+            let! (spectrumEigenvalues, _minEig, _conditionNumber, maxEig) = validateIntent intent
+
+            let! (inversionOps, _gateCount, _ancilla) =
+                buildLoweringOps intent spectrumEigenvalues maxEig
+
+            let solutionQubits =
+                Array.init intent.SolutionQubits (fun i -> intent.EigenvalueQubits + i)
+
+            let preparationOps =
+                (CircuitBuilder.empty totalQubits
+                 |> MottonenStatePreparation.prepareStateFromAmplitudes intent.InputVector.Components solutionQubits)
+                    .Gates
+                // Circuit.Gates is stored most-recent-first; restore program order.
+                |> List.rev
+                |> List.map QuantumOperation.Gate
+
+            let ops = transpileOpsForBackend backend totalQubits (preparationOps @ inversionOps)
+
+            let! finalState = UnifiedBackend.submitAsCircuit backend totalQubits ops
+
+            // Probability of each outcome, indexed little-endian by qubit.
+            let probabilityOf (index: int) =
+                QuantumState.probability (Array.init totalQubits (fun q -> (index >>> q) &&& 1)) finalState
+
+            let probabilities = Array.init (1 <<< totalQubits) probabilityOf
+            let ancillaMask = 1 <<< ancillaQubit
+
+            let successProb =
+                probabilities
+                |> Array.indexed
+                |> Array.sumBy (fun (index, p) -> if index &&& ancillaMask <> 0 then p else 0.0)
+
+            let solutionDim = 1 <<< intent.SolutionQubits
+
+            let selected =
+                Array.init solutionDim (fun i -> probabilities.[(i <<< intent.EigenvalueQubits) ||| ancillaMask])
+
+            let postSelectionSuccess = successProb > 0.0
+
+            let magnitudes =
+                if intent.UsePostSelection && postSelectionSuccess then
+                    selected |> Array.map (fun p -> sqrt (p / successProb))
+                else
+                    selected |> Array.map sqrt
+
+            let solution = magnitudes |> Array.map (fun m -> Complex(m, 0.0))
+
+            let solutionAmplitudes =
+                solution
+                |> Array.indexed
+                |> Array.filter (fun (_, amp) -> amp.Magnitude > 1e-10)
+                |> Map.ofArray
+                |> fun amps -> if Map.isEmpty amps then None else Some amps
+
+            let extractedEigenvalues = extractEigenvalues intent.EigenvalueQubits finalState
+
+            return
+                {
+                    Solution = solution
+                    Readout = HhlReadout.MeasuredMagnitudes
+                    SuccessProbability = successProb
+                    EstimatedEigenvalues =
+                        if extractedEigenvalues.Length > 0 then
+                            extractedEigenvalues
+                        else
+                            spectrumEigenvalues
+                    GateCount = ops.Length
+                    PostSelectionSuccess = postSelectionSuccess
+                    Config = config
+                    Fidelity = None
+                    SolutionAmplitudes = solutionAmplitudes
+                }
+        }
+
     /// <summary>
     /// Execute HHL algorithm to solve Ax = b.
     /// </summary>
@@ -923,78 +1023,96 @@ module HHL =
     /// - Diagonal matrices: may execute via native `AlgorithmOperation.HHL` intent on backends that support it.
     /// - General Hermitian matrices: executes via explicit gate lowering (QPE + Trotter-Suzuki simulation + multiplexed rotation),
     ///   then backend-specific gate transpilation during planning.
+    ///
+    /// A backend that runs complete circuits only (cloud hardware) gets the whole circuit as one
+    /// job, with |b⟩ prepared by gates, and the solution read from measured frequencies: the
+    /// result then holds |x_i| without signs or phases (Readout = MeasuredMagnitudes).
     /// </remarks>
     let execute (config: HHLConfig) (backend: IQuantumBackend) : Result<HHLResult, QuantumError> =
 
-        result {
-            let intent = toExecutionIntent config
-            let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+        let intent = toExecutionIntent config
+        let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
 
-            let! (plan, diagonalEigenvalues, ancillaQubit, _conditionNumber) =
-                plan backend intent
+        // Route order: the native intent where the plan chose it, otherwise the lowering gate
+        // by gate; either one refused as incremental application falls back to the whole
+        // circuit submitted as one job. Every other error surfaces unchanged.
+        let incremental =
+            result {
+                let! (plan, diagonalEigenvalues, ancillaQubit, _conditionNumber) =
+                    plan backend intent
 
-            let! inputState = prepareInputState intent.InputVector totalQubits backend
-            let! invertedState = executePlan backend inputState plan
+                let! inputState = prepareInputState intent.InputVector totalQubits backend
+                let! invertedState = executePlan backend inputState plan
+                return (diagonalEigenvalues, ancillaQubit, invertedState)
+            }
 
-            let successProb = calculateSuccessProbability ancillaQubit invertedState
+        match incremental with
+        | Error e when UnifiedBackend.isIncrementalUnsupported e -> executeWholeCircuit backend intent config
+        | Error e -> Error e
+        | Ok(diagonalEigenvalues, ancillaQubit, invertedState) ->
 
-            let! finalState, postSelectionSuccess =
-                if intent.UsePostSelection then
-                    match postSelectAncilla ancillaQubit invertedState with
-                    | Ok selected -> Ok(selected, true)
-                    | Error _ -> Ok(invertedState, false)
-                else
-                    Ok(invertedState, true)
+            result {
 
-            let extractedEigenvalues = extractEigenvalues intent.EigenvalueQubits finalState
+                let successProb = calculateSuccessProbability ancillaQubit invertedState
 
-            let finalEigenvalues =
-                if extractedEigenvalues.Length > 0 then
-                    extractedEigenvalues
-                else
-                    diagonalEigenvalues
+                let! finalState, postSelectionSuccess =
+                    if intent.UsePostSelection then
+                        match postSelectAncilla ancillaQubit invertedState with
+                        | Ok selected -> Ok(selected, true)
+                        | Error _ -> Ok(invertedState, false)
+                    else
+                        Ok(invertedState, true)
 
-            let solutionAmps =
-                extractSolutionAmplitudes intent.EigenvalueQubits intent.SolutionQubits ancillaQubit finalState
+                let extractedEigenvalues = extractEigenvalues intent.EigenvalueQubits finalState
 
-            let solution =
-                match finalState with
-                | QuantumState.StateVector stateVec ->
-                    let solutionDim = 1 <<< intent.SolutionQubits
-                    let ancillaMask = 1 <<< ancillaQubit
+                let finalEigenvalues =
+                    if extractedEigenvalues.Length > 0 then
+                        extractedEigenvalues
+                    else
+                        diagonalEigenvalues
 
-                    Array.init solutionDim (fun i ->
-                        let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
-                        StateVector.getAmplitude basisIndex stateVec)
-                | QuantumState.FusionSuperposition fs ->
-                    let amplitudeVec = fs.GetAmplitudeVector()
-                    let solutionDim = 1 <<< intent.SolutionQubits
-                    let ancillaMask = 1 <<< ancillaQubit
+                let solutionAmps =
+                    extractSolutionAmplitudes intent.EigenvalueQubits intent.SolutionQubits ancillaQubit finalState
 
-                    Array.init solutionDim (fun i ->
-                        let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
-                        amplitudeVec.[basisIndex])
-                | _ -> Array.create intent.Matrix.Dimension Complex.Zero
+                let solution =
+                    match finalState with
+                    | QuantumState.StateVector stateVec ->
+                        let solutionDim = 1 <<< intent.SolutionQubits
+                        let ancillaMask = 1 <<< ancillaQubit
 
-            let gateCount =
-                // Mirror the original estimate (independent of chosen plan).
-                let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
-                let inversionGates = intent.EigenvalueQubits
-                let inverseQpeGates = qpeGates
-                qpeGates + inversionGates + inverseQpeGates + 10
+                        Array.init solutionDim (fun i ->
+                            let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
+                            StateVector.getAmplitude basisIndex stateVec)
+                    | QuantumState.FusionSuperposition fs ->
+                        let amplitudeVec = fs.GetAmplitudeVector()
+                        let solutionDim = 1 <<< intent.SolutionQubits
+                        let ancillaMask = 1 <<< ancillaQubit
 
-            return
-                {
-                    Solution = solution
-                    SuccessProbability = successProb
-                    EstimatedEigenvalues = finalEigenvalues
-                    GateCount = gateCount
-                    PostSelectionSuccess = postSelectionSuccess
-                    Config = config
-                    Fidelity = None
-                    SolutionAmplitudes = solutionAmps
-                }
-        }
+                        Array.init solutionDim (fun i ->
+                            let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
+                            amplitudeVec.[basisIndex])
+                    | _ -> Array.create intent.Matrix.Dimension Complex.Zero
+
+                let gateCount =
+                    // Mirror the original estimate (independent of chosen plan).
+                    let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
+                    let inversionGates = intent.EigenvalueQubits
+                    let inverseQpeGates = qpeGates
+                    qpeGates + inversionGates + inverseQpeGates + 10
+
+                return
+                    {
+                        Solution = solution
+                        Readout = HhlReadout.Amplitudes
+                        SuccessProbability = successProb
+                        EstimatedEigenvalues = finalEigenvalues
+                        GateCount = gateCount
+                        PostSelectionSuccess = postSelectionSuccess
+                        Config = config
+                        Fidelity = None
+                        SolutionAmplitudes = solutionAmps
+                    }
+            }
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS

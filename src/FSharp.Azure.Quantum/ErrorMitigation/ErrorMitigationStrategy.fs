@@ -282,41 +282,49 @@ module ErrorMitigationStrategy =
         | ZeroNoiseExtrapolation _
         | ProbabilisticErrorCancellation _ -> None
 
-    /// Apply a mitigation strategy to a measurement histogram.
+    /// True when the technique contains a circuit-level component (ZNE or PEC).
+    let rec private hasCircuitLevelComponent (technique: MitigationTechnique) : bool =
+        match technique with
+        | ZeroNoiseExtrapolation _
+        | ProbabilisticErrorCancellation _ -> true
+        | Combined techniques -> techniques |> List.exists hasCircuitLevelComponent
+        | ReadoutErrorMitigation _ -> false
+
+    /// Apply a mitigation strategy to a measurement histogram, correcting readout with `config`.
     ///
-    /// Only readout error mitigation can be applied post-hoc to a finished histogram — it
-    /// corrects the measured counts with the inverse confusion matrix. Zero-Noise Extrapolation
-    /// and Probabilistic Error Cancellation are circuit-level techniques (they re-execute the
-    /// circuit at multiple noise levels / sample quasi-probability circuits), so they cannot be
-    /// applied here; for those use ZeroNoiseExtrapolation.mitigate / ProbabilisticErrorCancellation.mitigate
-    /// with a circuit executor.
-    ///
-    /// This genuinely applies the readout-correction component of the chosen technique (whether
-    /// a bare ReadoutErrorMitigation or a Combined strategy that contains one). A readout
-    /// component selected without calibration data (SelectionCriteria.Calibration = None) has
-    /// no confusion matrix to invert, so the counts pass through uncorrected. If the primary
-    /// carries no applicable readout component it falls back to the secondary strategy.
-    let applyStrategy (histogram: Map<string, int>) (strategy: RecommendedStrategy) : QuantumResult<MitigatedResult> =
+    /// Only readout error mitigation can be applied post-hoc to a finished histogram. A
+    /// technique with a ZNE or PEC component (alone or inside Combined) is an Error here,
+    /// since applying only its readout part would report a correction it did not make; the
+    /// fallback strategy is tried instead. Histogram keys are bitstrings with the most
+    /// significant qubit first (key "10" = qubit 1 measured 1, qubit 0 measured 0).
+    let applyStrategyWith
+        (config: ReadoutErrorMitigation.REMConfig)
+        (histogram: Map<string, int>)
+        (strategy: RecommendedStrategy)
+        : QuantumResult<MitigatedResult> =
 
         // Returns the (possibly corrected) histogram and whether a correction was
         // actually performed (false = calibration-less pass-through).
         let applyTechnique (technique: MitigationTechnique) : QuantumResult<Map<string, float> * bool> =
             match readoutComponentOf technique with
-            | Some(Some calibration) ->
-                ReadoutErrorMitigation.correctReadoutErrors histogram calibration ReadoutErrorMitigation.defaultConfig
-                |> Result.map (fun corrected -> corrected.Histogram, true)
-                |> Result.mapError (fun msg -> QuantumError.OperationError("Readout error mitigation", msg))
-            | Some None ->
-                // Readout mitigation was recommended without measured calibration data:
-                // there is nothing to invert, so return the counts uncorrected —
-                // flagged via CorrectionApplied = false on the result.
-                Ok(histogram |> Map.map (fun _ count -> float count), false)
-            | None ->
+            | _ when hasCircuitLevelComponent technique ->
                 Error(
                     QuantumError.NotImplemented(
                         "post-hoc circuit-level mitigation (ZNE/PEC)",
                         Some
-                            "Zero-Noise Extrapolation and Probabilistic Error Cancellation must execute the circuit at multiple noise levels; they cannot be applied to a finished histogram. Use their mitigate functions with a circuit executor, or include a ReadoutErrorMitigation calibration in the strategy."
+                            "Zero-Noise Extrapolation and Probabilistic Error Cancellation must execute the circuit at multiple noise levels; they cannot be applied to a finished histogram, alone or combined with readout correction. Use their mitigate functions with a circuit executor, or use a ReadoutErrorMitigation strategy with a calibration."
+                    )
+                )
+            | Some(Some calibration) ->
+                ReadoutErrorMitigation.correctReadoutErrors histogram calibration config
+                |> Result.map (fun corrected -> corrected.Histogram, true)
+                |> Result.mapError (fun msg -> QuantumError.OperationError("Readout error mitigation", msg))
+            | Some None -> Ok(histogram |> Map.map (fun _ count -> float count), false)
+            | None ->
+                Error(
+                    QuantumError.NotImplemented(
+                        "post-hoc circuit-level mitigation (ZNE/PEC)",
+                        Some "The strategy has no readout-correction component."
                     )
                 )
 
@@ -351,3 +359,16 @@ module ErrorMitigationStrategy =
                         )
                     )
             | None -> Error primaryErr
+
+    /// Apply a mitigation strategy to a measurement histogram with the default readout
+    /// configuration (negative corrected counts clipped, entries below 1% dropped).
+    ///
+    /// Only readout error mitigation can be applied post-hoc to a finished histogram; it
+    /// corrects the measured counts with the inverse confusion matrix. Zero-Noise Extrapolation
+    /// and Probabilistic Error Cancellation are circuit-level techniques; for those use
+    /// ZeroNoiseExtrapolation.mitigate / ProbabilisticErrorCancellation.mitigate with a circuit
+    /// executor. A readout component selected without calibration data has no confusion
+    /// matrix to invert, so the counts pass through with CorrectionApplied = false. See
+    /// applyStrategyWith for the key convention and the handling of ZNE/PEC components.
+    let applyStrategy (histogram: Map<string, int>) (strategy: RecommendedStrategy) : QuantumResult<MitigatedResult> =
+        applyStrategyWith ReadoutErrorMitigation.defaultConfig histogram strategy

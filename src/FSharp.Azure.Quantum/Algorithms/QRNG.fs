@@ -67,6 +67,13 @@ module QRNG =
                     )
                 )
 
+    /// H on each of `numBits` qubits: measuring it gives numBits unbiased bits.
+    let private superpositionCircuit (numBits: int) : CircuitBuilder.Circuit =
+        [ 0 .. numBits - 1 ]
+        |> List.fold
+            (fun c qubitIdx -> CircuitBuilder.addGate (CircuitBuilder.Gate.H qubitIdx) c)
+            (CircuitBuilder.empty numBits)
+
     let private executePlan
         (backend: IQuantumBackend)
         (intent: QrngIntent)
@@ -74,14 +81,8 @@ module QRNG =
         : Result<QuantumState, QuantumError> =
         match plan with
         | QrngPlan.ExecuteViaCircuit ->
-            let circuit = CircuitBuilder.empty intent.NumBits
-
-            let circuitWithH =
-                [ 0 .. intent.NumBits - 1 ]
-                |> List.fold (fun c qubitIdx -> CircuitBuilder.addGate (CircuitBuilder.Gate.H qubitIdx) c) circuit
-
             // Wrap-and-execute via the shared primitive (Primitives.getState).
-            Primitives.getState backend circuitWithH
+            Primitives.getState backend (superpositionCircuit intent.NumBits)
 
     // ========================================================================
     // TYPES
@@ -280,13 +281,17 @@ module QRNG =
     /// specifically need hardware-generated randomness for cryptographic purposes.
     ///
     /// **Randomness source (IMPORTANT):** this path executes the H-superposition
-    /// circuit through the backend's state pipeline (`ExecuteToState`) and then
-    /// samples the returned state ONCE locally with a classical PRNG
-    /// (`QuantumState.measure`). For LocalBackend — and any backend that returns a
-    /// simulated state vector — the bits are therefore classical pseudo-randomness,
-    /// NOT hardware quantum randomness. For cryptographic key material prefer
-    /// `generateBits`/`generateBytes` (unseeded → OS CSPRNG), or a hardware backend
-    /// integration that returns genuine per-shot measurement results.
+    /// circuit on the backend, and where the bits come from depends on the backend:
+    /// - A shot-sampling backend (IShotSamplingBackend: cloud hardware and cloud
+    ///   simulators) must be created with shots = 1. The call is then one job of one
+    ///   shot, and its numBits bits are that measured shot, read as returned — no
+    ///   classical randomness is involved. Cost: one billed job per call, so n draws
+    ///   are n jobs. A backend with more shots returns only outcome counts, from which
+    ///   one shot could be picked only by classical sampling, so it is an Error.
+    /// - An exact backend (LocalBackend and other simulators) returns a simulated state,
+    ///   which is sampled once locally with a classical PRNG (`QuantumState.measure`):
+    ///   classical pseudo-randomness, NOT quantum randomness. For cryptographic key
+    ///   material off hardware prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
     let generateWithBackend (numBits: int) (backend: IQuantumBackend) : Async<QuantumResult<QRNGResult>> =
 
         async {
@@ -299,65 +304,85 @@ module QRNG =
                 try
                     let intent = { NumBits = numBits }
 
-                    match plan backend intent with
-                    | Error err -> return Error err
-                    | Ok chosenPlan ->
-                        match executePlan backend intent chosenPlan with
-                        | Error err -> return Error err
-                        | Ok state ->
-                            // Measure state once to get random bits
-                            let measurements = QuantumState.measure state 1
-
-                            let bits =
-                                match measurements with
+                    let measuredBits (chosenPlan: QrngPlan) : QuantumResult<bool[]> =
+                        match Primitives.shotsPerCircuit backend with
+                        | Some 1 ->
+                            // One job, one shot: the returned counts hold exactly that shot.
+                            Primitives.sample backend (superpositionCircuit numBits) 1
+                            |> Result.bind (fun histogram ->
+                                match Map.toList histogram with
+                                | [ (key, 1) ] when key.Length = numBits ->
+                                    Ok(key.ToCharArray() |> Array.map ((=) '1'))
+                                | other ->
+                                    Error(
+                                        QuantumError.BackendError(
+                                            "QRNG",
+                                            $"a one-shot job returned %d{other.Length} outcomes; expected one %d{numBits}-bit shot"
+                                        )
+                                    ))
+                        | Some shots ->
+                            Error(
+                                QuantumError.ValidationError(
+                                    "backend",
+                                    $"{backend.Name} measures {shots} shots per job and returns only their counts, so a single shot can be taken from them only by classical sampling. Create the backend with shots = 1: each call is then one job of one shot."
+                                )
+                            )
+                        | None ->
+                            executePlan backend intent chosenPlan
+                            |> Result.map (fun state ->
+                                // Simulated state: sample it once.
+                                match QuantumState.measure state 1 with
                                 | [||] -> Array.zeroCreate<bool> numBits
-                                | _ -> measurements.[0] |> Array.map (fun bitValue -> bitValue = 1)
+                                | measurements -> measurements.[0] |> Array.map (fun bitValue -> bitValue = 1))
 
-                            // Shared conversion logic matches `generateBits` behavior (little-endian per byte)
-                            let numBytes = (numBits + 7) / 8
+                    match plan backend intent |> Result.bind measuredBits with
+                    | Error err -> return Error err
+                    | Ok bits ->
+                        // Shared conversion logic matches `generateBits` behavior (little-endian per byte)
+                        let numBytes = (numBits + 7) / 8
 
-                            let bytes =
-                                Array.init numBytes (fun byteIdx ->
-                                    [ 0..7 ]
-                                    |> List.fold
-                                        (fun acc bitIdx ->
-                                            let i = byteIdx * 8 + bitIdx
+                        let bytes =
+                            Array.init numBytes (fun byteIdx ->
+                                [ 0..7 ]
+                                |> List.fold
+                                    (fun acc bitIdx ->
+                                        let i = byteIdx * 8 + bitIdx
 
-                                            if i < numBits && bits.[i] then
-                                                acc ||| (1uy <<< bitIdx)
-                                            else
-                                                acc)
-                                        0uy)
+                                        if i < numBits && bits.[i] then
+                                            acc ||| (1uy <<< bitIdx)
+                                        else
+                                            acc)
+                                    0uy)
 
-                            let asInteger =
-                                if numBits <= 64 then
-                                    bits
-                                    |> Array.indexed
-                                    |> Array.filter snd
-                                    |> Array.fold (fun acc (i, _) -> acc ||| (1UL <<< i)) 0UL
-                                    |> Some
-                                else
-                                    None
+                        let asInteger =
+                            if numBits <= 64 then
+                                bits
+                                |> Array.indexed
+                                |> Array.filter snd
+                                |> Array.fold (fun acc (i, _) -> acc ||| (1UL <<< i)) 0UL
+                                |> Some
+                            else
+                                None
 
-                            let count0 = bits |> Array.filter not |> Array.length
-                            let count1 = numBits - count0
-                            let p0 = float count0 / float numBits
-                            let p1 = float count1 / float numBits
+                        let count0 = bits |> Array.filter not |> Array.length
+                        let count1 = numBits - count0
+                        let p0 = float count0 / float numBits
+                        let p1 = float count1 / float numBits
 
-                            let entropy =
-                                if p0 = 0.0 || p1 = 0.0 then
-                                    0.0
-                                else
-                                    -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
+                        let entropy =
+                            if p0 = 0.0 || p1 = 0.0 then
+                                0.0
+                            else
+                                -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
 
-                            return
-                                Ok
-                                    {
-                                        Bits = bits
-                                        AsInteger = asInteger
-                                        AsBytes = bytes
-                                        Entropy = entropy
-                                    }
+                        return
+                            Ok
+                                {
+                                    Bits = bits
+                                    AsInteger = asInteger
+                                    AsBytes = bytes
+                                    Entropy = entropy
+                                }
                 with ex ->
                     return Error(QuantumError.BackendError("QRNG", $"backend execution failed: {ex.Message}"))
         }

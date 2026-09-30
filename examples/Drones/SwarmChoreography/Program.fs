@@ -4,12 +4,12 @@
 /// to solve the Quadratic Assignment Problem (QAP).
 ///
 /// Uses 4 drones (16 qubits) which fits within LocalBackend's 20-qubit limit,
-/// enabling actual quantum execution rather than classical fallback.
+/// so every assignment is a QAOA sample run on the backend.
 ///
 /// QUANTUM OPTIMIZATION:
 /// - 4 drones = 16 QUBO variables = 16 qubits (fits LocalBackend)
 /// - QAOA solver via IQuantumBackend (RULE 1 compliant)
-/// - Classical greedy fallback only if quantum fails
+/// - No classical fallback: a transition with no valid, safe QAOA sample fails the show
 ///
 /// CRAZYFLIE EXPORT:
 /// - Use --export to generate Python scripts for real drone automation
@@ -299,30 +299,11 @@ module TransitionSafety =
     /// What a transition can be held to. With the assignment minimising the sum
     /// of SQUARED distances, synchronised straight lines keep every pair at
     /// least min(start spacing, end spacing) / sqrt 2 apart (Turpin, Michael &
-    /// Kumar, "CAPT", 2014). Minimising plain distance gives no such bound.
+    /// Kumar, "CAPT", 2014), so every transition has an assignment meeting this
+    /// bound. Minimising plain distance gives no such bound: the QAOA samples are
+    /// checked against it.
     let bound (starts: Position3D[]) (ends: Position3D[]) =
         min (spacing starts) (spacing ends) / sqrt 2.0
-
-    let private permutations n =
-        let rec go (rest: int list) =
-            match rest with
-            | [] -> [ [] ]
-            | _ ->
-                rest
-                |> List.collect (fun x -> go (List.filter ((<>) x) rest) |> List.map (fun p -> x :: p))
-
-        go [ 0 .. n - 1 ]
-
-    /// The assignment minimising the sum of squared distances, by enumeration
-    /// (n! assignments: fine for this 4-drone show).
-    let minSquaredAssignment (currentPositions: Position3D[]) (target: Formation) : Assignment[] =
-        permutations currentPositions.Length
-        |> List.minBy (fun p ->
-            p
-            |> List.mapi (fun d s -> Geometry.distance currentPositions.[d] target.Positions.[s] ** 2.0)
-            |> List.sum)
-        |> List.mapi (fun d s -> { DroneId = d; TargetPositionIndex = s })
-        |> Array.ofList
 
     let ends (target: Formation) (assignments: Assignment[]) (n: int) =
         Array.init n (fun d ->
@@ -426,11 +407,21 @@ module IndoorLayout =
             Automatic: bool
         }
 
+    /// Re-solves one transition in the weighted space: QAOA on the weighted
+    /// distances from the starts to the targets, taking only an assignment that
+    /// passes the safety gate there; the assignment and how it was found, or why
+    /// none was.
+    type Resolver = Position3D[] -> Position3D[] -> Result<Assignment[] * string, string>
+
     /// Lay the show out at the given per-formation scales and pass every
     /// transition through the safety gate again, in this layout and in the
     /// weighted space: an assignment that is safe in the drawn plane need not
-    /// be safe once the formations are flat and scaled differently.
-    let private lay (formations: Formation[]) (transitions: TransitionResult[]) (scales: float[]) =
+    /// be safe once the formations are flat and scaled differently. A QAOA
+    /// assignment that fails it is re-solved by `resolve` (QAOA again, on the
+    /// weighted distances); the closing move onto the drones' own slots is fixed.
+    /// Transitions that still fail are returned as failures; no classical
+    /// assignment stands in.
+    let private lay (resolve: Resolver) (formations: Formation[]) (transitions: TransitionResult[]) (scales: float[]) =
         let laid0 = Array.map2 place scales formations
         let n = laid0.[0].Positions.Length
         let last = formations.Length - 1
@@ -463,9 +454,9 @@ module IndoorLayout =
             else
                 (laid0, transitions, Set.empty)
 
-        let _, gated, transit =
-            ((laid.[0].Positions, [], Double.PositiveInfinity), Array.indexed transitions)
-            ||> Array.fold (fun (current, acc, transit) (k, t) ->
+        let _, gated, transit, failures =
+            ((laid.[0].Positions, [], Double.PositiveInfinity, []), Array.indexed transitions)
+            ||> Array.fold (fun (current, acc, transit, failures) (k, t) ->
                 let target = laid.[k + 1]
                 let weighted = Array.map weigh current
                 let targetWeighted = target.Positions |> Array.map weigh
@@ -475,27 +466,40 @@ module IndoorLayout =
                         weighted
                         (TransitionSafety.ends target assignments n |> Array.map weigh)
 
-                // Closing: every drone to its own start slot (above it, then on it).
-                let proposed, method =
-                    if closing.Contains k then
-                        (Array.init n (fun d -> { DroneId = d; TargetPositionIndex = d }),
-                         t.Method + ", closing on own slots")
-                    else
-                        (t.Assignments, t.Method)
+                let passes assignments =
+                    separation assignments
+                    >= TransitionSafety.bound weighted targetWeighted * (1.0 - 1e-6)
 
-                let assignments, how =
-                    if
-                        separation proposed
-                        >= TransitionSafety.bound weighted targetWeighted * (1.0 - 1e-6)
-                    then
-                        (proposed, method)
+                // Closing: every drone to its own start slot (above it, then on it).
+                let checkedT =
+                    if closing.Contains k then
+                        let own = Array.init n (fun d -> { DroneId = d; TargetPositionIndex = d })
+
+                        if passes own then
+                            Ok(own, t.Method + ", closing on own slots")
+                        else
+                            Error(
+                                sprintf
+                                    "%s → %s: closing on own slots comes %.2f m close (weighted), under the gate's %.2f m"
+                                    t.FromFormation
+                                    t.ToFormation
+                                    (separation own)
+                                    (TransitionSafety.bound weighted targetWeighted)
+                            )
+                    elif passes t.Assignments then
+                        Ok(t.Assignments, t.Method)
                     else
-                        (TransitionSafety.minSquaredAssignment
-                            weighted
-                            { target with
-                                Positions = targetWeighted
-                            },
-                         t.Method + ", indoor safety fallback")
+                        resolve weighted targetWeighted
+                        |> Result.map (fun (a, how) ->
+                            a, t.Method + $", re-solved by QAOA on downwash-weighted distances (%s{how})")
+                        |> Result.mapError (sprintf "%s → %s: %s" t.FromFormation t.ToFormation)
+
+                // A failed transition keeps its assignment only so the layout can go on
+                // to the next one; its transit is not counted and the plan is refused.
+                let assignments, how, failures =
+                    match checkedT with
+                    | Ok(a, how) -> a, how, failures
+                    | Error msg -> t.Assignments, t.Method, msg :: failures
 
                 let ends = TransitionSafety.ends target assignments n
 
@@ -506,20 +510,38 @@ module IndoorLayout =
                         TotalDistance = Array.map2 Geometry.distance current ends |> Array.sum
                     }
 
-                (ends, gatedT :: acc, min transit (separation assignments)))
+                let transit =
+                    if Result.isOk checkedT then
+                        min transit (separation assignments)
+                    else
+                        transit
 
-        (laid, gated |> List.rev |> Array.ofList, transit)
+                (ends, gatedT :: acc, transit, failures))
+
+        (laid, gated |> List.rev |> Array.ofList, transit, List.rev failures)
+
+    /// Most rounds the automatic indoor scale grows.
+    [<Literal>]
+    let MaxGrowthRounds = 10
 
     /// The indoor plan: with `--scale`, every formation at that scale; without,
     /// each at the smallest scale that keeps its slots 1.2 x the limit apart,
-    /// all grown together until every synchronised transit is too. (After the
-    /// gate the transits keep at least slot spacing / sqrt 2, so growing by
-    /// sqrt 2 always suffices.)
-    let plan (formations: Formation[]) (transitions: TransitionResult[]) (explicitScale: float option) : Plan =
+    /// all grown together until every synchronised transit is too, and every
+    /// transition has a QAOA assignment passing the gate (a failure grows the
+    /// scale by 1.25 and re-solves). (A gated transit keeps at least slot
+    /// spacing / sqrt 2, so growing by sqrt 2 suffices for the spacing.) An
+    /// Error when a transition still fails at `--scale` or after
+    /// MaxGrowthRounds rounds.
+    let plan
+        (resolve: Resolver)
+        (formations: Formation[])
+        (transitions: TransitionResult[])
+        (explicitScale: float option)
+        : Result<Plan, string> =
         let need = limitM * margin
 
         let build automatic scales =
-            let laid, gated, transit = lay formations transitions scales
+            let laid, gated, transit, failures = lay resolve formations transitions scales
 
             {
                 Formations = laid
@@ -528,21 +550,30 @@ module IndoorLayout =
                 TransitMin = transit
                 SlotMin = laid |> Array.map (fun f -> closestPair f.Positions) |> Array.min
                 Automatic = automatic
-            }
+            },
+            failures
+
+        let refuse (failures: string list) (where: string) =
+            Error(sprintf "%s: %s" where (String.concat "; " failures))
 
         match explicitScale with
-        | Some s -> build false (Array.create formations.Length s)
+        | Some s ->
+            match build false (Array.create formations.Length s) with
+            | p, [] -> Ok p
+            | _, failures -> refuse failures (sprintf "at --scale %.3f" s)
         | None ->
             let baseScales =
                 formations |> Array.map (fun f -> need / closestPair (place 1.0 f).Positions)
 
             let rec grow factor round =
-                let p = build true (baseScales |> Array.map ((*) factor))
+                let p, failures = build true (baseScales |> Array.map ((*) factor))
 
-                if p.TransitMin >= need - 1e-9 || round >= 10 then
-                    p
-                else
-                    grow (max (factor * 1.01) (factor * need / p.TransitMin)) (round + 1)
+                match failures with
+                | [] when p.TransitMin >= need - 1e-9 || round >= MaxGrowthRounds -> Ok p
+                | [] -> grow (max (factor * 1.01) (factor * need / p.TransitMin)) (round + 1)
+                | _ when round >= MaxGrowthRounds ->
+                    refuse failures (sprintf "after %d rounds of scale growth (x%.2f)" round factor)
+                | _ -> grow (factor * 1.25) (round + 1)
 
             grow 1.0 0
 
@@ -552,39 +583,19 @@ module IndoorLayout =
 
 module Solver =
 
-    /// Private classical greedy solver (nearest neighbor heuristic)
-    let private classicalGreedy (distanceMatrix: float[,]) : Assignment[] =
-        let n = Array2D.length1 distanceMatrix
-        let usedPositions = Array.create n false
-        let assignments = ResizeArray<Assignment>()
-
-        for drone in 0 .. n - 1 do
-            let mutable bestPos = -1
-            let mutable bestDist = Double.MaxValue
-
-            for pos in 0 .. n - 1 do
-                if not usedPositions.[pos] then
-                    let dist = distanceMatrix.[drone, pos]
-
-                    if dist < bestDist then
-                        bestDist <- dist
-                        bestPos <- pos
-
-            if bestPos >= 0 then
-                usedPositions.[bestPos] <- true
-
-                assignments.Add(
-                    {
-                        DroneId = drone
-                        TargetPositionIndex = bestPos
-                    }
-                )
-
-        assignments.ToArray()
-
     /// Quantum QAOA solver using IQuantumBackend
     /// RULE 1 COMPLIANT: Requires IQuantumBackend parameter.
-    let solve (backend: IQuantumBackend) (shots: int) (distanceMatrix: float[,]) : Result<Assignment[], string> =
+    ///
+    /// Returns the lowest-distance sampled assignment that is valid and that `accept` takes
+    /// (the transition safety gate), and the attempt that found it (DynamicBehavior.QaoaAttempts:
+    /// more shots, then other angles). No such sample in any attempt is an Error; no classical
+    /// solver stands in.
+    let solve
+        (backend: IQuantumBackend)
+        (shots: int)
+        (accept: Assignment[] -> bool)
+        (distanceMatrix: float[,])
+        : Result<Assignment[] * string, string> =
 
         let n = Array2D.length1 distanceMatrix
         let numVars = n * n
@@ -603,8 +614,12 @@ module Solver =
         // Build QUBO matrix
         let qubo = QapQubo.buildQubo distanceMatrix penaltyWeight
 
-        // Convert to Problem Hamiltonian
-        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
+        // Convert to Problem Hamiltonian, normalised so the fixed angles below are on the
+        // same scale the library's solvers use
+        let problemHam =
+            QaoaCircuit.ProblemHamiltonian.fromQubo qubo
+            |> QaoaCircuit.ProblemHamiltonian.normalize
+
         let mixerHam = QaoaCircuit.MixerHamiltonian.create numVars
 
         // QAOA parameters (p=1 layer)
@@ -612,43 +627,26 @@ module Solver =
         let beta = 0.3
         let parameters = [| (gamma, beta) |]
 
-        // Build QAOA circuit
-        let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
+        let attempt (attemptShots: int) (angles: (float * float)[]) =
+            // Build QAOA circuit
+            let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam angles
 
-        let circuit =
-            CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+            let circuit =
+                CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
 
-        // Execute on provided backend
-        match backend.ExecuteToState circuit with
-        | Error err -> Error err.Message
-        | Ok state ->
-            // Sample measurements
-            let measurements = QuantumState.measure state shots
+            // Execute on provided backend
+            match backend.ExecuteToState circuit with
+            | Error err -> Error err.Message
+            | Ok state ->
+                // Lowest-distance valid, accepted sample
+                QuantumState.measure state attemptShots
+                |> Array.map (fun bits -> QapQubo.decodeAssignment bits n)
+                |> Array.filter (fun assignments -> QapQubo.validateAssignment assignments n && accept assignments)
+                |> Array.sortBy (QapQubo.calculateTotalDistance distanceMatrix)
+                |> Array.tryHead
+                |> Ok
 
-            // Find best valid solution
-            let validSolutions =
-                measurements
-                |> Array.map (fun bits ->
-                    let assignments = QapQubo.decodeAssignment bits n
-                    let isValid = QapQubo.validateAssignment assignments n
-
-                    let cost =
-                        if isValid then
-                            QapQubo.calculateTotalDistance distanceMatrix assignments
-                        else
-                            Double.MaxValue
-
-                    (assignments, cost, isValid))
-                |> Array.filter (fun (_, _, valid) -> valid)
-                |> Array.sortBy (fun (_, cost, _) -> cost)
-
-            match Array.tryHead validSolutions with
-            | Some(assignments, _, _) -> Ok assignments
-            | None -> Ok(classicalGreedy distanceMatrix)
-
-    /// Classical solver (exposed for comparison only)
-    [<System.Obsolete("Use Solver.solve(backend, shots, distanceMatrix) for quantum execution")>]
-    let solveClassical (distanceMatrix: float[,]) : Assignment[] = classicalGreedy distanceMatrix
+        DynamicBehavior.QaoaAttempts.firstSolved shots parameters attempt
 
 // =============================================================================
 // VISUALIZATION
@@ -1266,84 +1264,78 @@ module Evidence =
                     |> Map.add gone (Dyn.Departed(Dyn.Standard Dyn.ReturnToHome, DateTime.UtcNow))
             }
 
-        // Per later point: where DynamicBehavior sends each remaining drone.
+        // Measured in the weighted space (vertical x ZWeight), like everything else.
+        let toP (p: Ev.P3) : Position3D =
+            {
+                X = p.X
+                Y = p.Y
+                Z = p.Z * f.ZWeight
+            }
+
+        // Per later point: where DynamicBehavior sends each remaining drone. Where the show
+        // closes on each drone's own slot, the re-plan does too: the leaving drone has landed
+        // on its own slot, which nobody else takes. Every other point is a QAOA re-plan that
+        // passes the same transition safety gate as the show: only a sampled assignment whose
+        // synchronised legs keep the CAPT bound is taken. None found is a failed re-plan; no
+        // classical assignment stands in.
         let adapted, _ =
             [ k + 1 .. f.Slots.Length - 1 ]
             |> List.mapFold
-                (fun (here: Map<int, Ev.P3>) j ->
-                    let formation: Dyn.Formation =
-                        {
-                            Name = f.Names.[j]
-                            Positions = f.Slots.[j] |> Array.map toDyn
-                        }
+                (fun (hereR: Result<Map<int, Ev.P3>, string>) j ->
+                    let step =
+                        hereR
+                        |> Result.bind (fun here ->
+                            if j >= f.Slots.Length - f.OwnSlotPoints then
+                                Ok(
+                                    Map.ofList [ for d in stay -> d, f.Points.[d].[j] ],
+                                    "own start slots (the closing formation)"
+                                )
+                            else
+                                let formation: Dyn.Formation =
+                                    {
+                                        Name = f.Names.[j]
+                                        Positions = f.Slots.[j] |> Array.map toDyn
+                                    }
 
-                    let state =
-                        { baseState with
-                            DronePositions = here |> Map.map (fun _ p -> toDyn p)
-                        }
+                                let state =
+                                    { baseState with
+                                        DronePositions = here |> Map.map (fun _ p -> toDyn p)
+                                    }
 
-                    let r = Dyn.SwarmAdaptation.adaptFormation backend shots state formation 1000L
+                                let proposedBy (assignments: Map<int, int>) =
+                                    here
+                                    |> Map.map (fun d p ->
+                                        assignments
+                                        |> Map.tryFind d
+                                        |> Option.map (fun slot -> f.Slots.[j].[slot])
+                                        |> Option.defaultValue p)
 
-                    let proposed =
-                        here
-                        |> Map.map (fun d p ->
-                            r.Assignments
-                            |> Map.tryFind d
-                            |> Option.map (fun slot -> f.Slots.[j].[slot])
-                            |> Option.defaultValue p)
+                                let ids = here |> Map.toArray |> Array.map fst
+                                let starts = ids |> Array.map (fun d -> toP here.[d])
 
-                    // The re-plan passes the same transition safety gate as the
-                    // show: if its synchronised legs break the CAPT bound, the
-                    // minimum-squared-distance assignment to the same slots is flown.
-                    // Measured in the weighted space (vertical x ZWeight), like everything else.
-                    let toP (p: Ev.P3) : Position3D =
-                        {
-                            X = p.X
-                            Y = p.Y
-                            Z = p.Z * f.ZWeight
-                        }
+                                let safe (assignments: Map<int, int>) =
+                                    let proposed = proposedBy assignments
+                                    let ends = ids |> Array.map (fun d -> toP proposed.[d])
 
-                    let ids = here |> Map.toArray |> Array.map fst
-                    let starts = ids |> Array.map (fun d -> toP here.[d])
-                    let ends = ids |> Array.map (fun d -> toP proposed.[d])
+                                    TransitionSafety.minSeparation starts ends
+                                    >= TransitionSafety.bound starts ends - 1e-9
 
-                    let next, how =
-                        if
-                            TransitionSafety.minSeparation starts ends
-                            >= TransitionSafety.bound starts ends - 1e-9
-                        then
-                            (proposed, r.Method)
-                        else
-                            let target: Formation =
-                                {
-                                    Name = f.Names.[j]
-                                    Positions = r.SelectedPositions |> Array.map (fun s -> toP f.Slots.[j].[s])
-                                }
+                                Dyn.SwarmAdaptation.adaptFormationWith backend shots safe state formation 1000L
+                                |> Result.map (fun r -> proposedBy r.Assignments, r.Method)
+                                |> Result.mapError (fun msg -> sprintf "re-plan to %s failed: %s" f.Names.[j] msg))
 
-                            let safe = TransitionSafety.minSquaredAssignment starts target
+                    (step, step |> Result.map fst))
+                (Ok(Map.ofList [ for d in stay -> d, f.Points.[d].[k] ]))
 
-                            (ids
-                             |> Array.mapi (fun i d ->
-                                 let a = safe |> Array.find (fun a -> a.DroneId = i)
-                                 let t = f.Slots.[j].[r.SelectedPositions.[a.TargetPositionIndex]]
-                                 (d, p3 t.X t.Y t.Z))
-                             |> Map.ofArray,
-                             r.Method + ", then the safety gate's minimum-squared-distance assignment")
-
-                    ((next, how), next))
-                (Map.ofList [ for d in stay -> d, f.Points.[d].[k] ])
-
-        // Where the show closes on each drone's own slot, the re-plan does too:
-        // the leaving drone has landed on its own slot, which nobody else takes.
         let adapted =
             adapted
-            |> List.mapi (fun i (m, how) ->
-                let j = k + 1 + i
-
-                if j >= f.Slots.Length - f.OwnSlotPoints then
-                    (Map.ofList [ for d in stay -> d, f.Points.[d].[j] ], "own start slots (the closing formation)")
-                else
-                    (m, how))
+            |> List.fold
+                (fun acc step ->
+                    match acc, step with
+                    | Error e, _ -> Error e
+                    | _, Error e -> Error e
+                    | Ok steps, Ok s -> Ok(steps @ [ s ]))
+                (Ok [])
 
         let departing =
             fly (name gone) f.Parking.[gone] (prefix f gone k @ f.Depart gone f.Points.[gone].[k])
@@ -1355,33 +1347,44 @@ module Evidence =
         // export would plan them, then end as they normally do.
         let stayArr = Array.ofList stay
 
-        let positions =
-            (Map.ofList [ for d in stay -> d, f.Points.[d].[k] ])
-            :: (adapted |> List.map fst)
-
-        let legs =
-            positions
-            |> List.pairwise
-            |> List.map (fun (a, b) -> stayArr |> Array.map (fun d -> (a.[d], b.[d])) |> f.Transition)
-
         let replanned =
-            stayArr
-            |> Array.mapi (fun i d ->
-                let steps =
-                    Wait f.DepartureHoldS :: (legs |> List.collect (fun perDrone -> perDrone.[i]))
+            adapted
+            |> Result.map (fun adapted ->
+                let positions =
+                    (Map.ofList [ for d in stay -> d, f.Points.[d].[k] ])
+                    :: (adapted |> List.map fst)
 
-                let last = (List.last positions).[d]
-                fly (name d) f.Parking.[d] (prefix f d k @ steps @ f.Finish d last))
-            |> List.ofArray
+                let legs =
+                    positions
+                    |> List.pairwise
+                    |> List.map (fun (a, b) -> stayArr |> Array.map (fun d -> (a.[d], b.[d])) |> f.Transition)
+
+                stayArr
+                |> Array.mapi (fun i d ->
+                    let steps =
+                        Wait f.DepartureHoldS :: (legs |> List.collect (fun perDrone -> perDrone.[i]))
+
+                    let last = (List.last positions).[d]
+                    fly (name d) f.Parking.[d] (prefix f d k @ steps @ f.Finish d last))
+                |> List.ofArray)
 
         let unchanged = stay |> List.map (showTrack f)
 
         {|
             LeavesAt = tLeave
-            Replanned = closest f.ZWeight (after tLeave (departing :: replanned))
+            // Closest approach of the re-planned flight, or why no re-plan was found
+            Replanned =
+                replanned
+                |> Result.map (fun tracks -> closest f.ZWeight (after tLeave (departing :: tracks)))
             Unchanged = closest f.ZWeight (after tLeave (departing :: unchanged))
-            Methods = adapted |> List.map snd |> List.distinct
-            Tracks = departing :: replanned
+            Methods =
+                match adapted with
+                | Ok steps -> steps |> List.map snd |> List.distinct
+                | Error msg -> [ msg ]
+            Tracks =
+                match replanned with
+                | Ok tracks -> departing :: tracks
+                | Error _ -> departing :: unchanged
         |}
 
     let build
@@ -1816,22 +1819,33 @@ module Evidence =
                     // Neither export re-plans in flight: the MAVLink missions and
                     // the Crazyflie's on-board trajectories fly on unchanged unless
                     // the ground station uploads new ones. So a drop-out passes only
-                    // if what flies anyway (show unchanged) AND the re-plan are clear.
+                    // if what flies anyway (show unchanged) AND the re-plan are clear;
+                    // a re-plan QAOA could not find fails it.
                     // Per departure: the worse of the two, and which one it was.
+                    let failedReplans =
+                        results
+                        |> List.choose (fun (k, r) ->
+                            match r.Replanned with
+                            | Error msg -> Some(k, msg)
+                            | Ok _ -> None)
+
                     let worstOf =
                         results
                         |> List.map (fun (k, r) ->
-                            if distanceOf r.Unchanged <= distanceOf r.Replanned then
-                                (k, "show unchanged", r.Unchanged)
-                            else
-                                (k, "re-planned", r.Replanned))
+                            match r.Replanned with
+                            | Ok replanned when distanceOf r.Unchanged > distanceOf replanned ->
+                                (k, "re-planned", replanned)
+                            | _ -> (k, "show unchanged", r.Unchanged))
 
                     let worst = worstOf |> List.sortBy (fun (_, _, c) -> distanceOf c)
 
                     let ok =
                         results
                         |> List.forall (fun (_, r) ->
-                            distanceOf r.Replanned >= limit && distanceOf r.Unchanged >= limit)
+                            distanceOf r.Unchanged >= limit
+                            && (match r.Replanned with
+                                | Ok replanned -> distanceOf replanned >= limit
+                                | Error _ -> false))
 
                     let check =
                         Ev.Checks.contingency
@@ -1843,20 +1857,26 @@ module Evidence =
                                 (n - 1)
                                 n
                                 limit)
-                            (match worst with
-                             | (k, how, c) :: _ ->
+                            (match failedReplans, worst with
+                             | (k, msg) :: _, _ -> sprintf "%s leaving at %s: %s" (name gone) f.Names.[k] msg
+                             | [], (k, how, c) :: _ ->
                                  sprintf "%s leaving at %s (%s): closest %s" (name gone) f.Names.[k] how (describe c)
-                             | [] -> sprintf "%s: no airborne formation to leave from" (name gone))
+                             | [], [] -> sprintf "%s: no airborne formation to leave from" (name gone))
                             (if ok then Ev.Pass else Ev.Fail)
                             [
                                 for k, r in results do
                                     sprintf
-                                        "leaving at %s (t=%.1f s): show unchanged %s; re-planned %.2f m by %s"
+                                        "leaving at %s (t=%.1f s): show unchanged %s; %s"
                                         f.Names.[k]
                                         r.LeavesAt
                                         (describe r.Unchanged)
-                                        (distanceOf r.Replanned)
-                                        (String.Join("; ", r.Methods))
+                                        (match r.Replanned with
+                                         | Ok replanned ->
+                                             sprintf
+                                                 "re-planned %.2f m by %s"
+                                                 (distanceOf replanned)
+                                                 (String.Join("; ", r.Methods))
+                                         | Error msg -> sprintf "no re-plan (%s)" msg)
                             ]
 
                     // Workload: the leaving drone is the pilot's (drop-out procedure);
@@ -2160,7 +2180,9 @@ module Program =
             printfn ""
             printfn "QUANTUM EXECUTION (RULE 1 COMPLIANT):"
             printfn "  All optimization uses QAOA via IQuantumBackend."
-            printfn "  Classical fallback only used if quantum fails."
+            printfn "  No classical fallback: a transition QAOA cannot solve fails the show."
+            printfn "  Indoors, a transition failing the downwash-weighted gate is re-solved"
+            printfn "  by QAOA on weighted distances, then at a larger scale, then fails."
             printfn ""
             printfn "EXPORT EXAMPLES:"
             printfn "  Crazyflie (indoor): dotnet run -- --export"
@@ -2257,44 +2279,29 @@ module Program =
 
                 printfn ""
 
-                // Solve based on method
-                // RULE 1 COMPLIANT: Always use quantum solver via IQuantumBackend
-                // Classical greedy is only used as internal fallback if quantum fails
+                // Solve with QAOA (RULE 1: quantum solver via IQuantumBackend). Safety gate:
+                // the drones fly this transition together in straight lines, so only a sampled
+                // assignment keeping every pair at least the CAPT bound apart is taken. No
+                // such sample, after the retries, fails the show: no classical solver stands in.
                 let assignments, methodUsed =
                     printfn "Running QAOA with %d shots..." shots
-
-                    match Solver.solve backend shots distMatrix with
-                    | Ok a -> (a, "Quantum (QAOA)")
-                    | Error msg ->
-                        printfn "  ⚠ Quantum solver error: %s" msg
-                        printfn "  → Using internal classical fallback"
-                        (Solver.solveClassical distMatrix, "Classical (Fallback)")
-
-                // Safety gate: the drones fly this transition together in
-                // straight lines. An assignment that brings two of them closer
-                // than the CAPT bound is not flown; the minimum-squared-distance
-                // assignment, which meets the bound by construction, is.
-                let assignments, methodUsed =
                     let n = currentPositions.Length
                     let bound = TransitionSafety.bound currentPositions toFormation.Positions
 
-                    let separation =
-                        TransitionSafety.minSeparation
-                            currentPositions
-                            (TransitionSafety.ends toFormation assignments n)
+                    let safe (candidate: Assignment[]) =
+                        TransitionSafety.minSeparation currentPositions (TransitionSafety.ends toFormation candidate n)
+                        >= bound - 1e-9
 
-                    if separation >= bound - 1e-9 then
-                        (assignments, methodUsed)
-                    else
-                        printfn
-                            "  ⚠ Assignment brings two drones %.2f apart in flight (bound %.2f): not flown"
-                            separation
-                            bound
-
-                        printfn "  → Using the minimum-squared-distance assignment (classical safety fallback)"
-
-                        (TransitionSafety.minSquaredAssignment currentPositions toFormation,
-                         "Classical (safety fallback)")
+                    match Solver.solve backend shots safe distMatrix with
+                    | Ok(a, how) ->
+                        printfn "  QAOA %s" how
+                        (a, "Quantum (QAOA)")
+                    | Error msg ->
+                        eprintfn ""
+                        eprintfn "TRANSITION %d FAILED: %s → %s" (i + 1) fromFormation.Name toFormation.Name
+                        eprintfn "  %s (valid assignments at least %.2f apart in flight)." msg bound
+                        eprintfn "  No show is exported: every transition must be solved by QAOA."
+                        exit 1
 
                 let totalDist = QapQubo.calculateTotalDistance distMatrix assignments
 
@@ -2341,8 +2348,6 @@ module Program =
             let quantumSolved =
                 transitions |> Seq.filter (fun t -> t.Method.Contains "Quantum") |> Seq.length
 
-            let fallbackUsed = transitions.Count - quantumSolved
-
             printfn ""
             printfn "╔══════════════════════════════════════════════════╗"
             printfn "║  SHOW SUMMARY                                    ║"
@@ -2353,7 +2358,7 @@ module Program =
             printfn "║  Elapsed Time: %d ms                             ║" sw.ElapsedMilliseconds
             printfn "╠══════════════════════════════════════════════════╣"
             printfn "║  RULE 1 COMPLIANT: Quantum solver via IBackend  ║"
-            printfn "║  Quantum solved: %d | Fallback used: %d           ║" quantumSolved fallbackUsed
+            printfn "║  Quantum solved: %d of %d                          ║" quantumSolved transitions.Count
             printfn "╚══════════════════════════════════════════════════╝"
 
             // Write metrics
@@ -2417,7 +2422,7 @@ module Program =
 
 This example is **RULE 1 compliant**:
 - All optimization uses QAOA via `IQuantumBackend`
-- Classical greedy is only used as internal fallback if quantum fails
+- A transition with no valid, safe QAOA sample fails the run; no classical fallback
 - No standalone classical solver exposed in public API
 
 ## Files Generated
@@ -2521,39 +2526,75 @@ This example is **RULE 1 compliant**:
             // The indoor (Crazyflie) show is laid out for the room: airborne
             // formations flat at the show height, each scaled (unless --scale)
             // to keep its slots and transits apart, every transition re-gated in
-            // this layout. It is built even without --export: it is the geometry
-            // the evidence pack checks when there is no MAVLink export.
+            // this layout. It is the geometry of --export and of the evidence pack
+            // when there is no MAVLink export; a MAVLink-only run does not build it.
             let roomX = Cli.getFloatOr "room-x" 4.0 args
             let roomY = Cli.getFloatOr "room-y" 4.0 args
 
-            let indoorPlan = IndoorLayout.plan formations (transitions.ToArray()) explicitScale
+            // Indoor re-solve: QAOA on the downwash-weighted distances, taking only
+            // an assignment that passes the safety gate in the weighted space.
+            let resolveIndoor (starts: Position3D[]) (targets: Position3D[]) =
+                let n = starts.Length
+
+                let distances =
+                    Array2D.init n n (fun i j -> Geometry.distance starts.[i] targets.[j])
+
+                let bound = TransitionSafety.bound starts targets
+
+                let target: Formation =
+                    {
+                        Name = "weighted target"
+                        Positions = targets
+                    }
+
+                let safe (candidate: Assignment[]) =
+                    TransitionSafety.minSeparation starts (TransitionSafety.ends target candidate n)
+                    >= bound * (1.0 - 1e-6)
+
+                printfn "Indoor downwash gate: re-solving a transition by QAOA on weighted distances..."
+
+                Solver.solve backend shots safe distances
+                |> Result.map (fun (a, how) ->
+                    printfn "  QAOA %s" how
+                    (a, how))
+
+            let indoorPlan =
+                lazy
+                    (match IndoorLayout.plan resolveIndoor formations (transitions.ToArray()) explicitScale with
+                     | Ok plan -> plan
+                     | Error msg ->
+                         eprintfn ""
+                         eprintfn "INDOOR LAYOUT FAILED: %s" msg
+                         eprintfn "  No indoor show is exported: every transition must have a QAOA assignment"
+                         eprintfn "  that passes the indoor downwash-weighted safety gate."
+                         exit 1)
 
             let show =
-                CrazyflieExport.fromTransitionResults
-                    (indoorPlan.Transitions
-                     |> Array.map (fun t ->
-                         {|
-                             FromFormation = t.FromFormation
-                             ToFormation = t.ToFormation
-                             Assignments =
-                                 t.Assignments
-                                 |> Array.map (fun a ->
-                                     {|
-                                         DroneId = a.DroneId
-                                         TargetPositionIndex = a.TargetPositionIndex
-                                     |})
-                             TotalDistance = t.TotalDistance
-                             Method = t.Method
-                         |}))
-                    (indoorPlan.Formations
-                     |> Array.map (fun f ->
-                         {|
-                             Name = f.Name
-                             Positions = f.Positions |> Array.map (fun p -> {| X = p.X; Y = p.Y; Z = p.Z |})
-                         |}))
-                    1.0 // already in metres
-                    transitionDuration
-
+                lazy
+                    (CrazyflieExport.fromTransitionResults
+                        (indoorPlan.Value.Transitions
+                         |> Array.map (fun t ->
+                             {|
+                                 FromFormation = t.FromFormation
+                                 ToFormation = t.ToFormation
+                                 Assignments =
+                                     t.Assignments
+                                     |> Array.map (fun a ->
+                                         {|
+                                             DroneId = a.DroneId
+                                             TargetPositionIndex = a.TargetPositionIndex
+                                         |})
+                                 TotalDistance = t.TotalDistance
+                                 Method = t.Method
+                             |}))
+                        (indoorPlan.Value.Formations
+                         |> Array.map (fun f ->
+                             {|
+                                 Name = f.Name
+                                 Positions = f.Positions |> Array.map (fun p -> {| X = p.X; Y = p.Y; Z = p.Z |})
+                             |}))
+                        1.0 // already in metres
+                        transitionDuration)
             // Export to Crazyflie Python if requested
             if Cli.hasFlag "export" args then
                 printfn ""
@@ -2563,11 +2604,11 @@ This example is **RULE 1 compliant**:
 
                 // Write JSON waypoints
                 let jsonPath = Path.Combine(outDir, "crazyflie_show.json")
-                CrazyflieExport.writeJson jsonPath show
+                CrazyflieExport.writeJson jsonPath show.Value
 
                 // Write Python script
                 let pythonPath = Path.Combine(outDir, "crazyflie_show.py")
-                CrazyflieExport.writePythonScript pythonPath show
+                CrazyflieExport.writePythonScript pythonPath show.Value
 
                 printfn ""
                 printfn "Export parameters:"
@@ -2578,8 +2619,11 @@ This example is **RULE 1 compliant**:
                     roomY
                     IndoorLayout.showHeightM
                     IndoorLayout.hoverM
-                    (indoorPlan.Scales |> Array.map (sprintf "%.3f") |> String.concat " / ")
-                    (if indoorPlan.Automatic then "automatic" else "--scale")
+                    (indoorPlan.Value.Scales |> Array.map (sprintf "%.3f") |> String.concat " / ")
+                    (if indoorPlan.Value.Automatic then
+                         "automatic"
+                     else
+                         "--scale")
 
                 printfn "  Transition duration: %.1f seconds" transitionDuration
                 printfn ""
@@ -2694,7 +2738,7 @@ This example is **RULE 1 compliant**:
             let flown =
                 match mavlinkSwarm with
                 | Some swarm -> Evidence.Outdoor(swarm, outdoorScale, Path.Combine(outDir, "mavlink"))
-                | None -> Evidence.Indoor(show, indoorPlan, roomX, roomY)
+                | None -> Evidence.Indoor(show.Value, indoorPlan.Value, roomX, roomY)
 
             let evidence =
                 Evidence.build

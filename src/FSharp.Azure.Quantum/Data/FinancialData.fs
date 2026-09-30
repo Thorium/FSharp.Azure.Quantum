@@ -556,11 +556,17 @@ module FinancialData =
     type YahooHistoryRequest =
         {
             Symbol: string
+            /// Range counted back from today; ignored when StartDate or EndDate is set.
             Range: YahooHistoryRange
             Interval: YahooHistoryInterval
             IncludeAdjustedClose: bool
             CacheDirectory: string option
             CacheTtl: TimeSpan
+            /// First calendar day (UTC) to fetch. With StartDate or EndDate set the request uses
+            /// explicit bounds (Yahoo period1/period2) instead of Range; None = earliest available.
+            StartDate: DateTime option
+            /// Last calendar day (UTC) to fetch, inclusive; None = up to today.
+            EndDate: DateTime option
         }
 
     let private defaultYahooHistoryRequest symbol =
@@ -571,7 +577,72 @@ module FinancialData =
             IncludeAdjustedClose = true
             CacheDirectory = None
             CacheTtl = TimeSpan.FromHours 6.0
+            StartDate = None
+            EndDate = None
         }
+
+    /// User-Agent sent with every Yahoo Finance request (set per request, never on the HttpClient).
+    [<Literal>]
+    let YahooUserAgent = "FSharp.Azure.Quantum"
+
+    let private isoDay (date: DateTime) =
+        date.ToString("yyyy-MM-dd", Globalization.CultureInfo.InvariantCulture)
+
+    /// Unix seconds of midnight UTC starting the calendar day of `date` (its Kind is ignored).
+    let private unixSecondsOfDay (date: DateTime) : int64 =
+        DateTimeOffset(DateTime.SpecifyKind(date.Date, DateTimeKind.Utc)).ToUnixTimeSeconds()
+
+    /// <summary>
+    /// Yahoo Finance chart API URL for a request.
+    /// </summary>
+    /// <remarks>
+    /// Without StartDate/EndDate the URL uses range=Range (counted back from today). With either
+    /// set it uses period1 = midnight UTC of StartDate (0 when None or before 1970) and
+    /// period2 = midnight UTC of the day after EndDate (after today when None or later than
+    /// today), so EndDate is inclusive.
+    /// </remarks>
+    /// <returns>The URL, or a ValidationError for an empty symbol or StartDate after EndDate</returns>
+    let yahooChartUrl (request: YahooHistoryRequest) : QuantumResult<string> =
+        let symbol = request.Symbol.Trim().ToUpperInvariant()
+
+        match request.StartDate, request.EndDate with
+        | _ when String.IsNullOrWhiteSpace symbol ->
+            Error(QuantumError.ValidationError("symbol", "Symbol must be non-empty"))
+        | Some startDate, Some endDate when startDate.Date > endDate.Date ->
+            Error(
+                QuantumError.ValidationError(
+                    "StartDate",
+                    $"StartDate {isoDay startDate} is after EndDate {isoDay endDate}"
+                )
+            )
+        | startDate, endDate ->
+            let window =
+                match startDate, endDate with
+                | None, None -> $"range=%s{request.Range.ToQueryString()}"
+                | _ ->
+                    // Days before 1970 start at 0; days after today end today.
+                    let period1 =
+                        startDate |> Option.map unixSecondsOfDay |> Option.defaultValue 0L |> max 0L
+
+                    let today = DateTime.UtcNow.Date
+
+                    let period2 =
+                        endDate
+                        |> Option.map (fun d -> min d.Date today)
+                        |> Option.defaultValue today
+                        |> fun d -> unixSecondsOfDay (d.AddDays 1.0)
+
+                    $"period1=%d{period1}&period2=%d{period2}"
+
+            let adjusted =
+                if request.IncludeAdjustedClose then
+                    "&includeAdjustedClose=true"
+                else
+                    ""
+
+            Ok(
+                $"https://query1.finance.yahoo.com/v8/finance/chart/%s{Uri.EscapeDataString symbol}?%s{window}&interval=%s{request.Interval.ToQueryString()}&includePrePost=false&events=div%%7Csplits%s{adjusted}"
+            )
 
     let private sha256Hex (text: string) =
         use sha = SHA256.Create()
@@ -770,23 +841,9 @@ module FinancialData =
         task {
             let symbol = request.Symbol.Trim().ToUpperInvariant()
 
-            if String.IsNullOrWhiteSpace symbol then
-                return Error(QuantumError.ValidationError("symbol", "Symbol must be non-empty"))
-            else
-                let range = request.Range.ToQueryString()
-                let interval = request.Interval.ToQueryString()
-
-                let url =
-                    sprintf
-                        "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&includePrePost=false&events=div%%7Csplits"
-                        (Uri.EscapeDataString symbol)
-                        range
-                        interval
-                    + (if request.IncludeAdjustedClose then
-                           "&includeAdjustedClose=true"
-                       else
-                           "")
-
+            match yahooChartUrl request with
+            | Error err -> return Error err
+            | Ok url ->
                 let cacheKey = sha256Hex url
 
                 let cachePathOpt =
@@ -803,12 +860,8 @@ module FinancialData =
                 | Some cachedJson -> return parseYahooChartJson symbol cachedJson
                 | None ->
                     try
-                        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd "FSharp.Azure.Quantum/InvestmentPortfolio"
-                    with _ ->
-                        ()
-
-                    try
                         use req = new HttpRequestMessage(HttpMethod.Get, url)
+                        req.Headers.UserAgent.ParseAdd YahooUserAgent
                         let! resp = httpClient.SendAsync(req, cancellationToken)
                         let! body = resp.Content.ReadAsStringAsync cancellationToken
 

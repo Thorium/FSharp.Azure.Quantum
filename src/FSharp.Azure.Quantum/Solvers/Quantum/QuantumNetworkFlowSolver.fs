@@ -371,7 +371,8 @@ module QuantumNetworkFlowSolver =
             /// Number of shots for execution
             NumShots: int
 
-            /// Initial QAOA parameters (gamma, beta)
+            /// QAOA angles (gamma, beta), in units of the normalised cost Hamiltonian
+            /// (minimisation convention, see Core.QaoaCircuit)
             InitialParameters: float * float
 
             /// Optional progress reporter for QAOA iterations

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Net.Http
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Data.FinancialData
@@ -653,3 +654,191 @@ module FinancialDataTests =
             [ Equity; FixedIncome; Commodity; Currency; Derivative; Alternative; Cash ]
 
         Assert.Equal(7, classes.Length)
+
+    // ========================================================================
+    // YAHOO FINANCE REQUESTS (no network: fake HttpMessageHandler)
+    // ========================================================================
+
+    let private yahooRequest symbol : YahooHistoryRequest =
+        {
+            Symbol = symbol
+            Range = YahooHistoryRange.FiveYears
+            Interval = YahooHistoryInterval.OneDay
+            IncludeAdjustedClose = true
+            CacheDirectory = None
+            CacheTtl = TimeSpan.FromHours 6.0
+            StartDate = None
+            EndDate = None
+        }
+
+    let private urlOf request =
+        (yahooChartUrl request) |> Result.defaultWith (fun err -> failwith err.Message)
+
+    /// Records every request and answers with a two-bar chart response.
+    type private FakeYahooHandler() =
+        inherit HttpMessageHandler()
+
+        let requests = System.Collections.Concurrent.ConcurrentQueue<string * string list>()
+
+        member _.Requests = requests |> Seq.toList
+
+        override _.SendAsync(request, _cancellationToken) =
+            let userAgents =
+                request.Headers.UserAgent |> Seq.map (fun p -> p.ToString()) |> Seq.toList
+
+            requests.Enqueue(request.RequestUri.OriginalString, userAgents)
+
+            let json =
+                """{"chart":{"result":[{"meta":{"currency":"USD"},"timestamp":[1704153600,1704240000],"indicators":{"quote":[{"open":[1.0,2.0],"high":[1.0,2.0],"low":[1.0,2.0],"close":[1.0,2.0],"volume":[10,20]}],"adjclose":[{"adjclose":[0.9,1.9]}]}}],"error":null}}"""
+
+            let response =
+                new HttpResponseMessage(
+                    System.Net.HttpStatusCode.OK,
+                    Content = new StringContent(json)
+                )
+
+            System.Threading.Tasks.Task.FromResult response
+
+    [<Fact>]
+    let ``yahooChartUrl counts back from today without dates`` () =
+        let url = urlOf (yahooRequest "aapl")
+
+        Assert.StartsWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?range=5y&interval=1d", url)
+        Assert.DoesNotContain("period1", url)
+        Assert.EndsWith("&includeAdjustedClose=true", url)
+
+    [<Fact>]
+    let ``yahooChartUrl uses period1 and period2 for explicit dates, end date inclusive`` () =
+        let url =
+            urlOf
+                { yahooRequest "SPY" with
+                    StartDate = Some(DateTime(2019, 1, 1))
+                    EndDate = Some(DateTime(2023, 12, 31))
+                }
+
+        // 2019-01-01T00:00Z = 1546300800; the day after 2023-12-31 starts at 1704067200
+        Assert.Contains("?period1=1546300800&period2=1704067200&interval=1d", url)
+        Assert.DoesNotContain("range=", url)
+
+    [<Fact>]
+    let ``yahooChartUrl reads dates as calendar days whatever their kind`` () =
+        let utc =
+            urlOf
+                { yahooRequest "SPY" with
+                    StartDate = Some(DateTime(2019, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+                    EndDate = Some(DateTime(2023, 12, 31, 0, 0, 0, DateTimeKind.Utc))
+                }
+
+        let local =
+            urlOf
+                { yahooRequest "SPY" with
+                    StartDate = Some(DateTime(2019, 1, 1, 15, 30, 0, DateTimeKind.Local))
+                    EndDate = Some(DateTime(2023, 12, 31, 23, 59, 0, DateTimeKind.Unspecified))
+                }
+
+        Assert.Equal(utc, local)
+
+    [<Fact>]
+    let ``yahooChartUrl with only one bound fills the other`` () =
+        let startOnly =
+            urlOf
+                { yahooRequest "SPY" with
+                    StartDate = Some(DateTime(2024, 1, 1))
+                }
+
+        let tomorrow =
+            DateTimeOffset(DateTime.SpecifyKind(DateTime.UtcNow.Date.AddDays 1.0, DateTimeKind.Utc)).ToUnixTimeSeconds()
+
+        Assert.Contains($"period1=1704067200&period2=%d{tomorrow}", startOnly)
+
+        let endOnly =
+            urlOf
+                { yahooRequest "SPY" with
+                    EndDate = Some(DateTime(2023, 12, 31))
+                }
+
+        Assert.Contains("period1=0&period2=1704067200", endOnly)
+
+    [<Fact>]
+    let ``yahooChartUrl rejects a start date after the end date`` () =
+        let result =
+            yahooChartUrl
+                { yahooRequest "SPY" with
+                    StartDate = Some(DateTime(2024, 1, 2))
+                    EndDate = Some(DateTime(2024, 1, 1))
+                }
+
+        match result with
+        | Error(QuantumError.ValidationError("StartDate", _)) -> ()
+        | other -> Assert.Fail($"Expected a StartDate validation error, got %A{other}")
+
+    [<Fact>]
+    let ``fetchYahooHistoryAsync sets the User-Agent per request and leaves the client headers alone`` () =
+        let handler = new FakeYahooHandler()
+        use client = new HttpClient(handler)
+
+        let requests =
+            [
+                { yahooRequest "AAPL" with
+                    StartDate = Some(DateTime(2019, 1, 1))
+                    EndDate = Some(DateTime(2023, 12, 31))
+                }
+                yahooRequest "MSFT"
+                yahooRequest "GOOGL"
+            ]
+
+        let results =
+            requests
+            |> List.map (fun r -> fetchYahooHistoryAsync client r System.Threading.CancellationToken.None)
+            |> System.Threading.Tasks.Task.WhenAll
+            |> fun t -> t.GetAwaiter().GetResult()
+
+        for result in results do
+            match result with
+            | Ok series ->
+                Assert.Equal(2, series.Prices.Length)
+                Assert.Equal(Some 1.9, series.Prices.[1].AdjustedClose)
+            | Error err -> Assert.Fail(err.Message)
+
+        Assert.Empty(client.DefaultRequestHeaders.UserAgent)
+
+        let sent = handler.Requests
+        Assert.Equal(3, sent.Length)
+
+        for (_, userAgents) in sent do
+            Assert.Equal<string list>([ YahooUserAgent ], userAgents)
+
+        Assert.Equal<Set<string>>(requests |> List.map urlOf |> Set.ofList, sent |> List.map fst |> Set.ofList)
+
+    [<Fact>]
+    let ``fetchYahooHistoryAsync reports an invalid date range without a request`` () =
+        task {
+            let handler = new FakeYahooHandler()
+            use client = new HttpClient(handler)
+
+            let request =
+                { yahooRequest "AAPL" with
+                    StartDate = Some(DateTime(2024, 1, 2))
+                    EndDate = Some(DateTime(2024, 1, 1))
+                }
+
+            let! result =
+                (fetchYahooHistoryAsync client request System.Threading.CancellationToken.None)
+
+            Assert.True(Result.isError result)
+            Assert.Empty(handler.Requests)
+        } :> System.Threading.Tasks.Task
+
+    [<Fact>]
+    let ``yahooChartUrl clamps dates outside the Unix range and the future`` () =
+        let tomorrow =
+            DateTimeOffset(DateTime.SpecifyKind(DateTime.UtcNow.Date.AddDays 1.0, DateTimeKind.Utc)).ToUnixTimeSeconds()
+
+        let url =
+            urlOf
+                { yahooRequest "SPY" with
+                    StartDate = Some DateTime.MinValue
+                    EndDate = Some DateTime.MaxValue
+                }
+
+        Assert.Contains($"period1=0&period2=%d{tomorrow}", url)

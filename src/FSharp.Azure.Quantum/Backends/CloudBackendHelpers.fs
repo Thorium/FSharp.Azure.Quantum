@@ -151,15 +151,85 @@ module CloudBackendHelpers =
 
     /// Check if a QuantumOperation is supported by gate-based cloud backends.
     ///
-    /// Cloud backends support gate operations, sequences, and measurement.
-    /// They do NOT support topological operations (Braid, FMove).
+    /// Cloud backends run gate operations, sequences and measurement, as parts of a whole
+    /// circuit submitted with ExecuteToState. They claim no algorithm intent (QFT, QPE, HHL,
+    /// Grover…): an intent is applied natively through ApplyOperation, which cloud hardware
+    /// refuses, so claiming one would steer planners onto a route that always fails. Nor do
+    /// they support topological operations (Braid, FMove).
     let isCloudSupportedOperation (op: BackendAbstraction.QuantumOperation) : bool =
         match op with
         | BackendAbstraction.QuantumOperation.Gate _ -> true
         | BackendAbstraction.QuantumOperation.Sequence _ -> true
         | BackendAbstraction.QuantumOperation.Measure _ -> true
-        | BackendAbstraction.QuantumOperation.Algorithm _ -> true
         | _ -> false
+
+    // ============================================================================
+    // TRANSPILATION (pre-conversion)
+    // ============================================================================
+
+    /// `circuit` in the native gates of the target named `backendName`
+    /// (GateTranspiler.transpileForBackendFully, which matches "ionq", "rigetti", "quantinuum",
+    /// "atom" in the name and decomposes every non-elementary gate for any other name). Cloud
+    /// backends call this before converting to the provider format, so T/TDG, CP, CRZ, CCX,
+    /// MCZ and the other composite gates reach every provider as gates it accepts. A circuit
+    /// that is not a gate circuit is returned unchanged for the converter to reject.
+    let transpileForTarget (backendName: string) (circuit: CircuitAbstraction.ICircuit) : CircuitAbstraction.ICircuit =
+        match CircuitAbstraction.CircuitAdapter.tryGetCircuit circuit with
+        | Some gateCircuit ->
+            FSharp.Azure.Quantum.GateTranspiler.transpileForBackendFully backendName gateCircuit
+            |> CircuitAbstraction.wrapCircuit
+        | None -> circuit
+
+    // ============================================================================
+    // JOB BUDGET
+    // ============================================================================
+
+    /// Counts the jobs cloud backends submit and, when MaxJobs is set, refuses the job after
+    /// the last one allowed. Every ExecuteToState on a cloud backend is one separately queued
+    /// and billed job, and iterative algorithms submit one per energy or per sample (a 3-city
+    /// TSP by QAOA is several hundred), so a limit set before the run bounds the bill. Share
+    /// one budget between backends to bound a run that uses several. Thread-safe.
+    type JobBudget(maxJobs: int option) =
+        let submitted = ref 0
+
+        /// Budget that counts but never refuses.
+        new() = JobBudget(None)
+
+        /// Most jobs allowed; None = no limit.
+        member _.MaxJobs = maxJobs
+
+        /// Jobs reserved so far (each became a submission attempt).
+        member _.Submitted = Threading.Volatile.Read(&submitted.contents)
+
+        /// Jobs left before the limit; None = no limit.
+        member this.Remaining = maxJobs |> Option.map (fun m -> max 0 (m - this.Submitted))
+
+        /// Reserve one job for `backendName`: Ok, or a QuotaExceeded error once MaxJobs jobs
+        /// have been reserved (the refused job is not counted).
+        member _.TryReserve(backendName: string) : Result<unit, QuantumError> =
+            let count = Threading.Interlocked.Increment(&submitted.contents)
+
+            match maxJobs with
+            | Some limit when count > limit ->
+                Threading.Interlocked.Decrement(&submitted.contents) |> ignore
+
+                Error(
+                    QuantumError.AzureError(
+                        AzureQuantumError.QuotaExceeded(
+                            $"%s{backendName}: the job budget of %d{limit} jobs is used up. Each ExecuteToState is one cloud job; raise MaxJobs on the JobBudget or reduce the algorithm's iterations or samples."
+                        )
+                    )
+                )
+            | _ -> Ok()
+
+        /// A budget allowing at most `maxJobs` jobs.
+        static member Limit(maxJobs: int) = JobBudget(Some(max 0 maxJobs))
+
+    /// A backend that submits separately billed jobs and counts them in a JobBudget.
+    type IJobCountingBackend =
+        inherit BackendAbstraction.IQuantumBackend
+        /// The budget this backend reserves each job from.
+        abstract member JobBudget: JobBudget
 
     // ============================================================================
     // ERROR HELPERS

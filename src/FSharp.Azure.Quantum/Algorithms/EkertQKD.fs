@@ -541,6 +541,86 @@ module EkertQKD =
     // FULL PROTOCOL EXECUTION
     // ========================================================================
 
+    /// Widest circuit the whole-circuit E91 route packs pairs into.
+    [<Literal>]
+    let private wholeCircuitWidth = 12
+
+    /// Every pair, run as whole circuits on a backend that runs complete circuits only.
+    ///
+    /// Pairs are independent, so several share one circuit on disjoint qubits and one shot of
+    /// that circuit gives each of them one joint outcome. Eve's intercept-resend (measure both
+    /// qubits in her basis, send fresh computational-basis states for what she saw) is
+    /// deferred: rotate both into her basis and CNOT each onto an ancilla of her own. That
+    /// leaves Alice's and Bob's qubits dephased in the computational basis with Eve's joint
+    /// outcome, which is the state she resends, so their statistics are the protocol's.
+    let private pairsWholeCircuit
+        (backend: IQuantumBackend)
+        (intent: E91Intent)
+        (rng: Random)
+        : Result<E91Pair[], QuantumError> =
+
+        let rotate qubit angle =
+            if abs angle < 1e-10 then
+                []
+            else
+                [ QuantumOperation.Gate(RY(qubit, -angle)) ]
+
+        // Eve's basis per pair, drawn in pair order as the gate-by-gate route draws it.
+        let eveAngles =
+            Array.init intent.NumPairs (fun _ ->
+                if intent.EveIntercepts then
+                    Some(float (rng.Next 4) * Math.PI / 4.0)
+                else
+                    None)
+
+        let pairWidth = if intent.EveIntercepts then 4 else 2
+        let pairsPerCircuit = max 1 (wholeCircuitWidth / pairWidth)
+
+        // Gates of pair i with Alice on `offset`, Bob on offset + 1, Eve's ancillas above.
+        let pairOps i offset =
+            let alice, bob = offset, offset + 1
+
+            let eve =
+                match eveAngles.[i] with
+                | None -> []
+                | Some angle ->
+                    rotate alice angle
+                    @ rotate bob angle
+                    @ [
+                        QuantumOperation.Gate(CNOT(alice, offset + 2))
+                        QuantumOperation.Gate(CNOT(bob, offset + 3))
+                    ]
+
+            [ QuantumOperation.Gate(H alice); QuantumOperation.Gate(CNOT(alice, bob)) ]
+            @ eve
+            @ rotate alice (aliceAngle intent.AliceBases.[i])
+            @ rotate bob (bobAngle intent.BobBases.[i])
+
+        [ 0 .. intent.NumPairs - 1 ]
+        |> List.chunkBySize pairsPerCircuit
+        |> List.map (fun chunk ->
+            let placed = chunk |> List.mapi (fun slot i -> i, slot * pairWidth)
+            let ops = placed |> List.collect (fun (i, offset) -> pairOps i offset)
+
+            UnifiedBackend.submitAsCircuit backend (chunk.Length * pairWidth) ops
+            |> Result.map (fun state ->
+                let bits = QuantumState.measure state 1 |> Array.head
+
+                placed
+                |> List.map (fun (i, offset) ->
+                    {
+                        AliceBasis = intent.AliceBases.[i]
+                        BobBasis = intent.BobBases.[i]
+                        AliceResult = bits.[offset]
+                        BobResult = bits.[offset + 1]
+                    })))
+        |> List.fold
+            (fun acc next ->
+                acc
+                |> Result.bind (fun collected -> next |> Result.map (fun pairs -> collected @ pairs)))
+            (Ok [])
+        |> Result.map Array.ofList
+
     /// Execute the E91 protocol (deterministic, given intent)
     let private executeE91 (backend: IQuantumBackend) (intent: E91Intent) : Result<E91Result, QuantumError> =
 
@@ -553,14 +633,21 @@ module EkertQKD =
                 | Some s -> Random(s + 1) // Offset seed to avoid correlation with basis choices
                 | None -> Random()
 
+            // Asked up front, before any pair runs, so that a backend that runs complete
+            // circuits only gets every pair as circuits rather than the first one failing.
+            let! probeState = backend.InitializeState 2
+
             // Execute all pair measurements
             let! pairs =
-                [| 0 .. intent.NumPairs - 1 |]
-                |> Result.traverseArray (fun i ->
-                    if intent.EveIntercepts then
-                        executeSinglePairWithEve backend intent intent.AliceBases.[i] intent.BobBases.[i] rng
-                    else
-                        executeSinglePair backend intent intent.AliceBases.[i] intent.BobBases.[i])
+                if WholeCircuit.refusesIncremental backend probeState then
+                    pairsWholeCircuit backend intent rng
+                else
+                    [| 0 .. intent.NumPairs - 1 |]
+                    |> Result.traverseArray (fun i ->
+                        if intent.EveIntercepts then
+                            executeSinglePairWithEve backend intent intent.AliceBases.[i] intent.BobBases.[i] rng
+                        else
+                            executeSinglePair backend intent intent.AliceBases.[i] intent.BobBases.[i])
 
             let pairList = Array.toList pairs
 

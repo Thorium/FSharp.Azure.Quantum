@@ -90,15 +90,16 @@ let distances =
              [20.0; 25.0; 30.0; 0.0; 15.0]
              [25.0; 30.0; 20.0; 15.0; 0.0]]
 
-let constraintPenalty = 200.0  // Must exceed max distance
+let constraintPenalty = 200.0  // Exceeds n × max distance = 5 × 35 = 175
 
 let qubo = ProblemTransformer.encodeTspEdgeBased distances constraintPenalty
 // qubo.Size = 25, qubo.VariableNames = ["edge_0_0"; "edge_0_1"; ...]
 
-// QUBO structure:
-// - Diagonal: -distance[i,j] for edge i->j, constraintPenalty on self-loops i->i
-// - Off-diagonal: +constraintPenalty for each pair of edges entering the same
-//   city or leaving the same city
+// QUBO structure (P = constraintPenalty, Q symmetric, energy = x^T Q x):
+// - Diagonal: distance[i,j] - 2P for edge i->j (one -P per exactly-once constraint)
+// - Off-diagonal: Q[a,b] = Q[b,a] = P for each pair of edges entering the same
+//   city or leaving the same city (2P per pair in x^T Q x)
+// - Self-loops i->i: diagonal +P, in no constraint, never chosen
 ```
 
 **Recommended for**: TSP with 5-15 cities, when solution quality matters
@@ -141,6 +142,8 @@ let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance risk
 
 **Recommended for**: All portfolio optimization problems
 
+`QuantumPortfolioSolver.toQubo` uses this encoding for the discretised problem in which selecting asset i buys one lot of weight s (1/n, kept within [MinHolding, MaxHolding] / Budget): returns sμ and risk weight λs², so xᵀQx = −μᵀw + λ wᵀΣw with w = s·x. An asset priced above one lot gets a diagonal penalty that keeps it out of the minimum. With 1/n lots the minimum is the discretised mean-variance optimum; larger lots also limit a selection to ⌊1/s⌋ assets, which the solver enforces on the samples rather than in the QUBO. Without a covariance it uses Σ = diag(σᵢ²), i.e. independent assets.
+
 ---
 
 ## TSP Encoding
@@ -176,23 +179,26 @@ The textbook penalty for "exactly once" is:
 Penalty = (Σ x - 1)²
 ```
 
-`encodeTspEdgeBased` adds only the pairwise part of that penalty: `+constraintPenalty` for every pair of edges that enter the same city, or leave the same city. That discourages two entries or two exits, but the matrix has no linear term that rewards choosing exactly one edge.
+`encodeTspEdgeBased` adds `constraintPenalty × (1 - Σ x)²` for every entry and every exit constraint, expanded in full: `-constraintPenalty` on the diagonal of each edge per constraint it belongs to, and `+2 × constraintPenalty` per pair of edges entering (or leaving) the same city, split across `Q[a,b]` and `Q[b,a]`. The constant `2n × constraintPenalty` of the squares is dropped, so a valid assignment has energy `tour length - 2n × constraintPenalty` and the all-zero assignment has energy 0.
+
+**Subtours are not excluded.** The two constraint types only make the chosen edges a permutation. An assignment made of several disjoint cycles (for example 0→1→0 and 2→3→2) satisfies them and can be the minimum. Excluding subtours needs extra variables; the node-based (position) encoding does not have this problem.
 
 ### Choosing Constraint Penalty
 
-**Lucas Rule** (from literature): `λ ≥ max(|H_objective|) + 1`
+With non-negative distances, every minimum of the QUBO satisfies the constraints when `constraintPenalty > n × max distance`: a violated constraint costs at least `constraintPenalty`, and no valid assignment is longer than `n × max distance`. Smaller penalties, such as the Lucas rule `λ ≥ max distance + 1`, often work in practice but can let a constraint violation win.
 
 ```fsharp
 // Example: TSP with max distance 500km (distances as defined above)
 let maxDistance = 500.0
-let constraintPenalty = maxDistance + 1.0  // 501.0
-
-// For better constraint enforcement, scale by problem size:
 let n = 20  // number of cities
-let scaledPenalty = (maxDistance + 1.0) * sqrt(float n)
-// ≈ 501 * 4.47 ≈ 2240
 
-let qubo = ProblemTransformer.encodeTspEdgeBased distances scaledPenalty
+// Guarantees that every minimum is a valid permutation
+let safePenalty = float n * maxDistance + 1.0  // 10001.0
+
+// Lucas rule: smaller energy scale, no guarantee
+let lucasPenalty = maxDistance + 1.0  // 501.0
+
+let qubo = ProblemTransformer.encodeTspEdgeBased distances safePenalty
 ```
 
 ---
@@ -223,13 +229,15 @@ let qubo = ProblemTransformer.encodePortfolioCorrelation
 The covariance matrix Σ captures **correlation between assets**:
 
 ```
-Σ[i,j] = correlation between asset i and asset j
+Σ[i,j] = ρ[i,j] σ[i] σ[j]   (ρ = correlation, σ = volatility)
 
 Diagonal Σ[i,i] = variance of asset i (risk)
 Off-diagonal Σ[i,j] = covariance (correlation)
 ```
 
 **Diversification**: Negative covariance → assets move oppositely → reduces risk
+
+`PortfolioTypes.covarianceFromCorrelation` builds Σ from volatilities and a correlation matrix, and `PortfolioTypes.validateCovariance` checks shape, symmetry and positive semidefiniteness (the portfolio solvers call it and return a `ValidationError` otherwise).
 
 ---
 
@@ -386,10 +394,10 @@ let strategy = ProblemTransformer.recommendStrategy "TSP" 100
 ### 2. Set Appropriate Constraint Penalties
 
 ```fsharp
-// ✓ GOOD: Use Lucas Rule with size scaling
+// ✓ GOOD: Exceed n × max distance, so every minimum satisfies the constraints
 let maxDistance = 500.0
 let n = 20
-let penalty = (maxDistance + 1.0) * sqrt(float n)
+let penalty = float n * maxDistance + 1.0
 
 // ✗ BAD: Penalty too small (constraints violated)
 let tooSmallPenalty = 10.0  // < maxDistance!
@@ -436,13 +444,13 @@ let qubo_no_risk = ProblemTransformer.encodePortfolioCorrelation
 ```fsharp
 // ✓ GOOD: Test with toy problem
 let test_distances = array2D [[0.0; 10.0]; [10.0; 0.0]]
-let test_qubo = ProblemTransformer.encodeTspEdgeBased test_distances 20.0
+let test_qubo = ProblemTransformer.encodeTspEdgeBased test_distances 21.0  // > 2 × 10
 let test_validation = ProblemTransformer.validateTransformation test_qubo
 assert test_validation.IsValid
 
 // Then scale to production
 let production_distances = array2D [[0.0; 50.0; 100.0]; [50.0; 0.0; 75.0]; [100.0; 75.0; 0.0]]  // Mock 3-city distance matrix
-let penalty = 100.0  // Penalty strength for constraint violations
+let penalty = 301.0  // Penalty strength: > n × max distance = 3 × 100
 let prod_qubo = ProblemTransformer.encodeTspEdgeBased production_distances penalty
 ```
 

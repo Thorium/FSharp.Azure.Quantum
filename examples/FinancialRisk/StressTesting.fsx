@@ -504,6 +504,8 @@ let private tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option 
                         IncludeAdjustedClose = true
                         CacheDirectory = Some yahooCacheDir
                         CacheTtl = TimeSpan.FromHours(6.0)
+                        StartDate = None
+                        EndDate = None
                     }
 
                 match fetchYahooHistory httpClient request with

@@ -580,10 +580,28 @@ module QFT =
                         else
                             None)
 
-                let! basisState = UnifiedBackend.applySequence backend xOps initialState
+                match UnifiedBackend.applySequence backend xOps initialState with
+                | Ok basisState ->
+                    // Apply QFT to the basis state
+                    return! executeOnState basisState backend config
 
-                // Apply QFT to the basis state
-                return! executeOnState basisState backend config
+                | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                    // A backend that runs complete circuits only: the basis-state preparation
+                    // is part of the circuit, so the X gates go in front of the QFT lowering
+                    // and both run as one job from |0…0⟩.
+                    let stopwatch = Stopwatch.StartNew()
+                    let lowerOps = buildLoweringOps numQubits config Exact
+                    let! finalState = UnifiedBackend.submitAsCircuit backend numQubits (xOps @ lowerOps)
+
+                    return
+                        {
+                            FinalState = finalState
+                            GateCount = lowerOps.Length
+                            Config = config
+                            ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds
+                        }
+
+                | Error e -> return! Error e
             }
 
     /// <summary>

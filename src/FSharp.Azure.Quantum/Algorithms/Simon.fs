@@ -180,7 +180,7 @@ module Simon =
                 |> List.map (fun i -> QuantumOperation.Gate(CNOT(j, n + i)))
             | None -> []
 
-        fun state -> UnifiedBackend.applySequence backend (copyOps @ maskOps) state
+        WholeCircuit.gateOracle backend (copyOps @ maskOps)
 
     // ========================================================================
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
@@ -216,11 +216,9 @@ module Simon =
 
         match plan with
         | SimonPlan.ExecuteViaOpsAndOracle(preOps, oracle, postOps) ->
-            result {
-                let! afterPre = UnifiedBackend.applySequence backend preOps state
-                let! afterOracle = oracle afterPre
-                return! UnifiedBackend.applySequence backend postOps afterOracle
-            }
+            // Gate by gate where the backend allows it; a backend that runs complete circuits
+            // only gets one circuit with the oracle's gates inside it.
+            WholeCircuit.applyWithOracle "Simon" backend preOps oracle postOps state
 
     // ========================================================================
     // ALGORITHM IMPLEMENTATION

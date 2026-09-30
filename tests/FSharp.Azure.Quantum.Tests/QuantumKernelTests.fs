@@ -632,3 +632,98 @@ let ``computeKernelAsync - accepts cancellation token`` () : Task =
         | Ok kernelValue -> Assert.InRange(kernelValue, 0.0, 1.0)
         | Error e -> Assert.Fail($"an uncancelled token must not fail the kernel: {e.Message}")
     }
+
+// ============================================================================
+// Job fan-out: a sampling (cloud) backend gets a bounded number of circuits at once
+// ============================================================================
+
+/// Local simulator whose ExecuteToStateAsync takes 20 ms and records the most calls in flight.
+type private InFlightProbe() =
+    let inner = LocalBackend.LocalBackend() :> IQuantumBackend
+    let mutable inFlight = 0
+    let mutable maxInFlight = 0
+
+    member _.MaxInFlight = maxInFlight
+
+    interface IQuantumBackend with
+        member _.ExecuteToState circuit = inner.ExecuteToState circuit
+
+        member _.ExecuteToStateAsync circuit _ =
+            task {
+                let now = Interlocked.Increment(&inFlight)
+
+                lock inner (fun () -> maxInFlight <- max maxInFlight now)
+
+                try
+                    do! Task.Delay 20
+                    return inner.ExecuteToState circuit
+                finally
+                    Interlocked.Decrement(&inFlight) |> ignore
+            }
+
+        member _.NativeStateType = inner.NativeStateType
+        member _.ApplyOperation op state = inner.ApplyOperation op state
+        member _.ApplyOperationAsync op state ct = inner.ApplyOperationAsync op state ct
+        member _.SupportsOperation op = inner.SupportsOperation op
+        member _.Name = "in-flight probe"
+        member _.InitializeState n = inner.InitializeState n
+
+/// The same probe reporting shots, as cloud backends do.
+type private SamplingInFlightProbe() =
+    inherit InFlightProbe()
+
+    interface IShotSamplingBackend with
+        member _.Shots = 1000
+
+let private fanOutData =
+    Array.init 7 (fun i -> [| 0.1 * float i; 0.3 - 0.05 * float i |])
+
+[<Fact>]
+let ``computeKernelMatrixAsync keeps a sampling backend to MaxConcurrentSampledJobs circuits at once`` () =
+    task {
+        let probe = SamplingInFlightProbe()
+
+        let! result =
+            computeKernelMatrixAsync probe AngleEncoding fanOutData 1000 CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            // 28 upper-triangle circuits, never more than the limit in flight.
+            Assert.InRange(probe.MaxInFlight, 2, MaxConcurrentSampledJobs)
+            Assert.Equal(matrix.[1, 3], matrix.[3, 1])
+        | Error e -> Assert.Fail e.Message
+    }
+
+[<Fact>]
+let ``computeKernelMatrixAsync leaves a simulator unthrottled`` () =
+    task {
+        let probe = InFlightProbe()
+
+        let! result =
+            computeKernelMatrixAsync probe AngleEncoding fanOutData 1000 CancellationToken.None
+
+        match result with
+        | Ok _ -> Assert.True(probe.MaxInFlight > MaxConcurrentSampledJobs, $"max in flight {probe.MaxInFlight}")
+        | Error e -> Assert.Fail e.Message
+    }
+
+[<Fact>]
+let ``computeKernelMatrixTrainTestAsync keeps a sampling backend to MaxConcurrentSampledJobs circuits at once`` () =
+    task {
+        let probe = SamplingInFlightProbe()
+
+        let! result =
+            computeKernelMatrixTrainTestAsync
+                probe
+                AngleEncoding
+                fanOutData
+                fanOutData.[0..3]
+                1000
+                CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            Assert.InRange(probe.MaxInFlight, 2, MaxConcurrentSampledJobs)
+            Assert.Equal(4, Array2D.length1 matrix)
+        | Error e -> Assert.Fail e.Message
+    }

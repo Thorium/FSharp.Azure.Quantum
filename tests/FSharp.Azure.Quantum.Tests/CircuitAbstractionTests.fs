@@ -186,14 +186,15 @@ module CircuitAbstractionTests =
             }
 
         let circuit = CircuitAdapter.qaoaCircuitToCircuit qaoaCircuit
+        let gates = CircuitBuilder.getGates circuit
 
-        Assert.Equal(2, circuit.Gates.Length)
+        Assert.Equal(2, gates.Length)
 
-        match circuit.Gates.[0] with
+        match gates.[0] with
         | CircuitBuilder.Gate.H q -> Assert.Equal(0, q)
         | _ -> Assert.True(false, "Expected H gate")
 
-        match circuit.Gates.[1] with
+        match gates.[1] with
         | CircuitBuilder.Gate.H q -> Assert.Equal(1, q)
         | _ -> Assert.True(false, "Expected H gate")
 
@@ -229,22 +230,17 @@ module CircuitAbstractionTests =
 
         let circuit = CircuitAdapter.qaoaCircuitToCircuit qaoaCircuit
 
-        // Should have: CostGates1 + MixerGates1 + CostGates2 + MixerGates2 = 4 gates
-        Assert.Equal(4, circuit.Gates.Length)
-
-        // Layer 1 cost gate
-        match circuit.Gates.[0] with
-        | CircuitBuilder.Gate.RZ(q, angle) ->
-            Assert.Equal(0, q)
-            Assert.Equal(0.5, angle, 6)
-        | _ -> Assert.True(false, "Expected RZ gate")
-
-        // Layer 1 mixer gate
-        match circuit.Gates.[1] with
-        | CircuitBuilder.Gate.RX(q, angle) ->
-            Assert.Equal(0, q)
-            Assert.Equal(1.0, angle, 6)
-        | _ -> Assert.True(false, "Expected RX gate")
+        // Should have: CostGates1 + MixerGates1 + CostGates2 + MixerGates2 = 4 gates,
+        // in that program order (Gates itself is stored most-recent-first)
+        Assert.Equal<CircuitBuilder.Gate list>(
+            [
+                CircuitBuilder.Gate.RZ(0, 0.5)
+                CircuitBuilder.Gate.RX(0, 1.0)
+                CircuitBuilder.Gate.RZ(1, 0.3)
+                CircuitBuilder.Gate.RX(1, 0.8)
+            ],
+            CircuitBuilder.getGates circuit
+        )
 
     [<Fact>]
     let ``qaoaCircuitToCircuit should convert RY gates`` () =
@@ -306,15 +302,16 @@ module CircuitAbstractionTests =
         match qaoaResult with
         | Ok qaoaCircuit ->
             let finalCircuit = CircuitAdapter.qaoaCircuitToCircuit qaoaCircuit
-            Assert.Equal(originalCircuit.Gates.Length, finalCircuit.Gates.Length)
+            Assert.Equal<CircuitBuilder.Gate list>(originalCircuit.Gates, finalCircuit.Gates)
+            let finalGates = CircuitBuilder.getGates finalCircuit
 
-            // Check H gate preserved
-            match finalCircuit.Gates.[0] with
+            // Check H gate preserved (first in program order)
+            match finalGates.[0] with
             | CircuitBuilder.Gate.H q -> Assert.Equal(0, q)
             | _ -> Assert.True(false, "Expected H gate")
 
             // Check RX gate and angle preserved
-            match finalCircuit.Gates.[1] with
+            match finalGates.[1] with
             | CircuitBuilder.Gate.RX(q, angle) ->
                 Assert.Equal(1, q)
                 Assert.Equal(1.5, angle, 6)

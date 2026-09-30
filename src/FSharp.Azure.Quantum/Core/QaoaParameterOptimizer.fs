@@ -489,6 +489,10 @@ module QaoaParameterOptimizer =
 
     /// Optimize QAOA parameters for a given problem
     ///
+    /// Angles follow Core.QaoaCircuit's minimisation convention (standard mixer -Σ Xᵢ) and
+    /// apply to problemHam as given; pass ProblemHamiltonian.normalize problemHam to get
+    /// angles in the solver pipeline's units.
+    ///
     /// Parameters:
     /// - problemHam: Problem Hamiltonian to optimize
     /// - p: Number of QAOA layers

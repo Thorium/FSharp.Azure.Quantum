@@ -128,6 +128,12 @@ module MottonenStatePreparation =
 
                 circ |> addGate (CNOT(controls[ctrlBit], target)))
 
+    /// Uniformly controlled RY on `target`: for control pattern c (bit t of c ↔ controls[t])
+    /// the target is rotated by RY(angles[c]). Built from RY and CNOT gates only, 2^m of each
+    /// for m controls; angles must have 2^m entries.
+    let uniformlyControlledRY (angles: float[]) (target: int) (controls: int[]) (circuit: Circuit) : Circuit =
+        applyMultiplexedRotation RY angles target controls circuit
+
     /// Convert state amplitudes to normalized form
     let normalizeState (amplitudes: Complex[]) : StateVector =
         let norm = amplitudes |> Array.sumBy (fun a -> a.Magnitude * a.Magnitude) |> sqrt

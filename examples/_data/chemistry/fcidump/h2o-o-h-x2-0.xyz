@@ -1,0 +1,5 @@
+3
+H2O (O-H x2.0) | RHF/STO-3G H2O (equilibrium) geometry with the O-H bond scaled x2.0 | PySCF 2.14.0
+O     -0.01962096    -0.02505404     0.00000000
+H      1.95771822     0.05145290     0.00000000
+H     -0.22942766     0.94185461    -0.00000000

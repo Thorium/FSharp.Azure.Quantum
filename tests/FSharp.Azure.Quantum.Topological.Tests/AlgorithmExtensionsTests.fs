@@ -1067,3 +1067,93 @@ module AlgorithmExtensionsTests =
                     )
             | Error err, _ -> failwith $"Gate simulator failed on basis {basisState}: {err}"
             | _, Error err -> failwith $"Topological backend failed on basis {basisState}: {err}"
+
+    // ========================================================================
+    // ROUTE PINNING: the native intent reaches the topological backend whole
+    // ========================================================================
+
+    /// Records every operation the wrapped backend is asked to apply.
+    type private RecordingBackend(inner: BackendAbstraction.IQuantumBackend) =
+        let applied = ResizeArray<BackendAbstraction.QuantumOperation>()
+        let mutable submitted = 0
+
+        member _.Applied = List.ofSeq applied
+        member _.Submitted = submitted
+
+        interface BackendAbstraction.IQuantumBackend with
+            member _.ExecuteToState circuit =
+                submitted <- submitted + 1
+                inner.ExecuteToState circuit
+
+            member _.NativeStateType = inner.NativeStateType
+
+            member _.ApplyOperation operation state =
+                applied.Add operation
+                inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation = inner.SupportsOperation operation
+            member _.Name = inner.Name
+            member _.InitializeState n = inner.InitializeState n
+
+            member this.ExecuteToStateAsync circuit _ =
+                System.Threading.Tasks.Task.FromResult(
+                    (this :> BackendAbstraction.IQuantumBackend).ExecuteToState circuit
+                )
+
+            member this.ApplyOperationAsync operation state _ =
+                System.Threading.Tasks.Task.FromResult(
+                    (this :> BackendAbstraction.IQuantumBackend).ApplyOperation operation state
+                )
+
+    let private isOnlyIntents (ops: BackendAbstraction.QuantumOperation list) =
+        not ops.IsEmpty
+        && ops
+           |> List.forall (function
+               | BackendAbstraction.QuantumOperation.Algorithm _ -> true
+               | _ -> false)
+
+    [<Fact>]
+    let ``Shor Route - topological backend receives the modular-exponentiation QPE intent, never a gate`` () =
+        // No braid → gate → braid round trip: the whole period-finding circuit is one intent,
+        // realised on the fusion encoding.
+        let recording = RecordingBackend(TopologicalUnifiedBackendFactory.createIsing 16)
+
+        match Shor.findPeriodQuantum 7 15 3 (recording :> BackendAbstraction.IQuantumBackend) with
+        | Ok result ->
+            Assert.Equal(4, result.Period)
+            Assert.True(isOnlyIntents recording.Applied, $"expected the QPE intent only, got %A{recording.Applied}")
+            Assert.Equal(1, recording.Applied.Length)
+            Assert.Equal(0, recording.Submitted)
+        | Error err -> Assert.Fail($"Native route failed: {err}")
+
+    [<Fact>]
+    let ``HHL Route - topological backend receives the HHL intent, never a gate`` () =
+        let recording = RecordingBackend(TopologicalUnifiedBackendFactory.createIsing 16)
+
+        match
+            HHLTypes.createDiagonalMatrix [| 2.0; 4.0 |],
+            HHLTypes.createQuantumVector [| Complex(0.6, 0.0); Complex(0.8, 0.0) |]
+        with
+        | Ok matrix, Ok vector ->
+            match HHLTypes.defaultConfig matrix vector with
+            | Ok config ->
+                match
+                    HHL.execute
+                        { config with
+                            EigenvalueQubits = 1
+                            QPEPrecision = 1
+                        }
+                        (recording :> BackendAbstraction.IQuantumBackend)
+                with
+                | Ok result ->
+                    Assert.Equal(HHLTypes.HhlReadout.Amplitudes, result.Readout)
+
+                    Assert.True(
+                        isOnlyIntents recording.Applied,
+                        $"expected the HHL intent only, got %A{recording.Applied}"
+                    )
+
+                    Assert.Equal(0, recording.Submitted)
+                | Error err -> Assert.Fail($"Native HHL route failed: {err}")
+            | Error err -> Assert.Fail(err.Message)
+        | _ -> Assert.Fail("Failed to create HHL test data")

@@ -208,15 +208,31 @@ module BraketExecution =
     /// A gate `IQuantumBackend` backed by an AWS Braket device (submits OpenQASM 3.0).
     /// `deviceArn` selects the device — e.g. `Braket.Devices.oqcLucy`, `.infleqtionSqale`,
     /// `.ionqAria1`, `.sv1`.
-    type BraketBackend(braket: IAmazonBraket, s3: IAmazonS3, s3Config: S3Config, deviceArn: string, ?shots: int) =
+    type BraketBackend
+        (
+            braket: IAmazonBraket,
+            s3: IAmazonS3,
+            s3Config: S3Config,
+            deviceArn: string,
+            ?shots: int,
+            ?jobBudget: FSharp.Azure.Quantum.Backends.CloudBackendHelpers.JobBudget
+        ) =
 
         let shots = defaultArg shots 1000
 
+        let jobBudget =
+            defaultArg jobBudget (FSharp.Azure.Quantum.Backends.CloudBackendHelpers.JobBudget())
+
+        /// OpenQASM 3.0 source of `circuit` in the device's native gates (transpiled by the device ARN,
+        /// which names the provider), with one job reserved from the budget.
         let circuitToOpenQasm3 (circuit: ICircuit) : Result<string, QuantumError> =
             match CircuitAdapter.tryGetCircuit circuit with
             | Some builderCircuit ->
                 try
-                    Ok(OpenQasm.exportV3 builderCircuit)
+                    let source =
+                        OpenQasm.exportV3 (GateTranspiler.transpileForBackendFully deviceArn builderCircuit)
+
+                    jobBudget.TryReserve deviceArn |> Result.map (fun () -> source)
                 with ex ->
                     Error(QuantumError.OperationError("OpenQASM3 export", ex.Message))
             | None ->
@@ -313,3 +329,9 @@ module BraketExecution =
                 | QuantumOperation.Gate _
                 | QuantumOperation.Sequence _ -> true
                 | _ -> false
+
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface FSharp.Azure.Quantum.Backends.CloudBackendHelpers.IJobCountingBackend with
+            member _.JobBudget = jobBudget

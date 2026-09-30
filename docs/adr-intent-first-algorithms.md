@@ -186,6 +186,11 @@ The intent-first pattern described here is already implemented in several core a
   - Implements explicit intent/plan/execute (`HhlExecutionIntent`, `HhlPlan`).
   - General Hermitian matrices are supported via explicit gate-level lowering (controlled Trotter-Suzuki Hamiltonian evolution) and backend-aware gate transpilation during planning.
 
+- **Whole-circuit route for cloud backends** (`src/FSharp.Azure.Quantum/Core/WholeCircuit.fs`)
+  - Cloud backends claim no intents and refuse incremental `ApplyOperation` (`UnifiedBackend.isIncrementalUnsupported`). On that refusal each plan above submits its lowered gates as one circuit from |0…0⟩ (`UnifiedBackend.submitAsCircuit`), and the backend transpiles it to the provider's gates.
+  - State-independent code is run once against `WholeCircuit.OperationRecorder`, so the submitted circuit is the very gate list a simulator applies one operation at a time (`WholeCircuit.run`, `WholeCircuit.applyOrSubmit`).
+  - What a job cannot express is an `Error`, not an approximation: an input state other than |0…0⟩ (`WholeCircuit.notFromZeroError`), and an oracle function whose gates cannot be read (`WholeCircuit.oracleOps`; oracles built with `WholeCircuit.gateOracle` keep theirs).
+
 ## Follow-Ups (Optional Improvements)
 
 - **Standardize plan visibility**: expose planned strategy in public results where it helps diagnostics.

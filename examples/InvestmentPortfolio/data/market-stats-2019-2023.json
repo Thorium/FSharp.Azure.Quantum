@@ -1,0 +1,331 @@
+{
+  "source": "Yahoo Finance daily adjusted closes (split- and dividend-adjusted), fetched with FinancialData.fetchYahooHistoryAsync",
+  "method": "Daily simple returns r_t = A_t/A_(t-1) - 1 of adjusted closes dated inside the window; annual return = mean(r_t) * 252; annual volatility = sample std(r_t) * sqrt(252); correlation = Pearson on dates shared by all symbols; buy price = adjusted close on the last trading day of the window; hold-out return = adjusted close on the last trading day of the following year / buy price - 1; regime = 2-state Gaussian HMM on the market proxy's daily returns, fitted by Viterbi training",
+  "generatedOn": "2026-09-30",
+  "windowFrom": "2019-01-01",
+  "windowTo": "2023-12-31",
+  "holdoutFrom": "2024-01-01",
+  "holdoutTo": "2024-12-31",
+  "assets": [
+    {
+      "symbol": "AAPL",
+      "name": "Apple Inc.",
+      "annualReturn": 0.377959,
+      "annualVolatility": 0.322217,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 190.211,
+      "holdoutReturn": 0.307052,
+      "recent30DailyMean": 0.000823,
+      "recent30DailyStd": 0.007993,
+      "regime": {
+        "bullDailyMean": 0.002175,
+        "bullDailyStd": 0.016388,
+        "bearDailyMean": -0.003566,
+        "bearDailyStd": 0.038309
+      }
+    },
+    {
+      "symbol": "MSFT",
+      "name": "Microsoft Corp.",
+      "annualReturn": 0.319153,
+      "annualVolatility": 0.304798,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 368.1798,
+      "holdoutReturn": 0.129273,
+      "recent30DailyMean": 0.000622,
+      "recent30DailyStd": 0.010408,
+      "regime": {
+        "bullDailyMean": 0.001698,
+        "bullDailyStd": 0.015135,
+        "bearDailyMean": -0.001968,
+        "bearDailyStd": 0.037582
+      }
+    },
+    {
+      "symbol": "GOOGL",
+      "name": "Alphabet Inc. Class A",
+      "annualReturn": 0.247655,
+      "annualVolatility": 0.317995,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 138.3733,
+      "holdoutReturn": 0.360056,
+      "recent30DailyMean": 0.001339,
+      "recent30DailyStd": 0.014887,
+      "regime": {
+        "bullDailyMean": 0.001529,
+        "bullDailyStd": 0.017197,
+        "bearDailyMean": -0.003114,
+        "bearDailyStd": 0.034366
+      }
+    },
+    {
+      "symbol": "AMZN",
+      "name": "Amazon.com Inc.",
+      "annualReturn": 0.203158,
+      "annualVolatility": 0.352237,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 151.94,
+      "holdoutReturn": 0.443925,
+      "recent30DailyMean": 0.002038,
+      "recent30DailyStd": 0.011292,
+      "regime": {
+        "bullDailyMean": 0.001461,
+        "bullDailyStd": 0.019284,
+        "bearDailyMean": -0.004108,
+        "bearDailyStd": 0.03711
+      }
+    },
+    {
+      "symbol": "NVDA",
+      "name": "NVIDIA Corp.",
+      "annualReturn": 0.675373,
+      "annualVolatility": 0.517554,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 49.3789,
+      "holdoutReturn": 1.712493,
+      "recent30DailyMean": 0.000576,
+      "recent30DailyStd": 0.017201,
+      "regime": {
+        "bullDailyMean": 0.00326,
+        "bullDailyStd": 0.029027,
+        "bearDailyMean": -0.001669,
+        "bearDailyStd": 0.052071
+      }
+    },
+    {
+      "symbol": "META",
+      "name": "Meta Platforms Inc.",
+      "annualReturn": 0.295863,
+      "annualVolatility": 0.43639,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 350.602,
+      "holdoutReturn": 0.660489,
+      "recent30DailyMean": 0.002161,
+      "recent30DailyStd": 0.014038,
+      "regime": {
+        "bullDailyMean": 0.001895,
+        "bullDailyStd": 0.023676,
+        "bearDailyMean": -0.004231,
+        "bearDailyStd": 0.046902
+      }
+    },
+    {
+      "symbol": "TSLA",
+      "name": "Tesla Inc.",
+      "annualReturn": 0.693915,
+      "annualVolatility": 0.647522,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 248.48,
+      "holdoutReturn": 0.625241,
+      "recent30DailyMean": 0.000996,
+      "recent30DailyStd": 0.021837,
+      "regime": {
+        "bullDailyMean": 0.004068,
+        "bullDailyStd": 0.037058,
+        "bearDailyMean": -0.007108,
+        "bearDailyStd": 0.061285
+      }
+    },
+    {
+      "symbol": "AMD",
+      "name": "Advanced Micro Devices",
+      "annualReturn": 0.559177,
+      "annualVolatility": 0.536779,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 147.41,
+      "holdoutReturn": -0.180585,
+      "recent30DailyMean": 0.007724,
+      "recent30DailyStd": 0.024375,
+      "regime": {
+        "bullDailyMean": 0.002898,
+        "bullDailyStd": 0.030807,
+        "bearDailyMean": -0.002873,
+        "bearDailyStd": 0.050868
+      }
+    },
+    {
+      "symbol": "TQQQ",
+      "name": "ProShares UltraPro QQQ (3x Nasdaq-100)",
+      "annualReturn": 0.632653,
+      "annualVolatility": 0.750822,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 24.6477,
+      "holdoutReturn": 0.582677,
+      "recent30DailyMean": 0.005789,
+      "recent30DailyStd": 0.019464,
+      "regime": {
+        "bullDailyMean": 0.004051,
+        "bullDailyStd": 0.036649,
+        "bearDailyMean": -0.009039,
+        "bearDailyStd": 0.094041
+      }
+    },
+    {
+      "symbol": "JNJ",
+      "name": "Johnson & Johnson",
+      "annualReturn": 0.085741,
+      "annualVolatility": 0.198608,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 145.0839,
+      "holdoutReturn": -0.048115,
+      "recent30DailyMean": 0.002038,
+      "recent30DailyStd": 0.008792,
+      "regime": {
+        "bullDailyMean": 0.000426,
+        "bullDailyStd": 0.009948,
+        "bearDailyMean": -0.000305,
+        "bearDailyStd": 0.024318
+      }
+    },
+    {
+      "symbol": "XLP",
+      "name": "Consumer Staples Select Sector SPDR",
+      "annualReturn": 0.110935,
+      "annualVolatility": 0.170368,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 66.9091,
+      "holdoutReturn": 0.122022,
+      "recent30DailyMean": 0.001022,
+      "recent30DailyStd": 0.007949,
+      "regime": {
+        "bullDailyMean": 0.000721,
+        "bullDailyStd": 0.007338,
+        "bearDailyMean": -0.001669,
+        "bearDailyStd": 0.02395
+      }
+    },
+    {
+      "symbol": "GLD",
+      "name": "SPDR Gold Shares",
+      "annualReturn": 0.102375,
+      "annualVolatility": 0.14931,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 191.17,
+      "holdoutReturn": 0.266569,
+      "recent30DailyMean": 0.001747,
+      "recent30DailyStd": 0.009188,
+      "regime": {
+        "bullDailyMean": 0.000476,
+        "bullDailyStd": 0.00868,
+        "bearDailyMean": -0.000116,
+        "bearDailyStd": 0.0137
+      }
+    },
+    {
+      "symbol": "TLT",
+      "name": "iShares 20+ Year Treasury Bond ETF",
+      "annualReturn": -0.00358,
+      "annualVolatility": 0.176386,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 88.2207,
+      "holdoutReturn": -0.080531,
+      "recent30DailyMean": 0.003967,
+      "recent30DailyStd": 0.010945,
+      "regime": {
+        "bullDailyMean": -2.5E-05,
+        "bullDailyStd": 0.009657,
+        "bearDailyMean": 6.4E-05,
+        "bearDailyStd": 0.018765
+      }
+    },
+    {
+      "symbol": "SH",
+      "name": "ProShares Short S&P500 (-1x)",
+      "annualReturn": -0.138081,
+      "annualVolatility": 0.212941,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 45.9072,
+      "holdoutReturn": -0.135184,
+      "recent30DailyMean": -0.001594,
+      "recent30DailyStd": 0.005085,
+      "regime": {
+        "bullDailyMean": -0.000999,
+        "bullDailyStd": 0.009049,
+        "bearDailyMean": 0.002838,
+        "bearDailyStd": 0.03013
+      }
+    },
+    {
+      "symbol": "SPY",
+      "name": "SPDR S&P 500 ETF",
+      "annualReturn": 0.1673,
+      "annualVolatility": 0.209874,
+      "observations": 1258,
+      "buyDate": "2023-12-29",
+      "buyPrice": 460.2484,
+      "holdoutReturn": 0.248865,
+      "recent30DailyMean": 0.001997,
+      "recent30DailyStd": 0.005125,
+      "regime": {
+        "bullDailyMean": 0.001113,
+        "bullDailyStd": 0.009072,
+        "bearDailyMean": -0.002707,
+        "bearDailyStd": 0.029339
+      }
+    }
+  ],
+  "correlation": {
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "GOOGL",
+      "AMZN",
+      "NVDA",
+      "META",
+      "TSLA",
+      "AMD",
+      "TQQQ",
+      "JNJ",
+      "XLP",
+      "GLD",
+      "TLT",
+      "SH",
+      "SPY"
+    ],
+    "matrix": [
+      [1, 0.7586, 0.6749, 0.6189, 0.6575, 0.5916, 0.4878, 0.5868, 0.8636, 0.4056, 0.5729, 0.0852, -0.1345, -0.8016, 0.8045],
+      [0.7586, 1, 0.7588, 0.6824, 0.707, 0.6194, 0.453, 0.6152, 0.8888, 0.4178, 0.5929, 0.0908, -0.1211, -0.8237, 0.8246],
+      [0.6749, 0.7588, 1, 0.6596, 0.6285, 0.671, 0.4072, 0.5633, 0.8238, 0.3462, 0.4892, 0.0813, -0.1009, -0.7573, 0.762],
+      [0.6189, 0.6824, 0.6596, 1, 0.6028, 0.614, 0.436, 0.5704, 0.7798, 0.2272, 0.3824, 0.113, -0.0092, -0.6421, 0.6482],
+      [0.6575, 0.707, 0.6285, 0.6028, 1, 0.5519, 0.5, 0.7561, 0.8152, 0.2327, 0.3966, 0.0882, -0.0609, -0.7083, 0.7124],
+      [0.5916, 0.6194, 0.671, 0.614, 0.5519, 1, 0.3502, 0.4936, 0.7244, 0.2422, 0.36, 0.0678, -0.0666, -0.6245, 0.6292],
+      [0.4878, 0.453, 0.4072, 0.436, 0.5, 0.3502, 1, 0.4406, 0.5928, 0.1085, 0.2447, 0.0772, -0.0479, -0.4927, 0.4969],
+      [0.5868, 0.6152, 0.5633, 0.5704, 0.7561, 0.4936, 0.4406, 1, 0.7271, 0.215, 0.3611, 0.1273, -0.048, -0.6298, 0.6339],
+      [0.8636, 0.8888, 0.8238, 0.7798, 0.8152, 0.7244, 0.5928, 0.7271, 1, 0.4269, 0.6373, 0.1189, -0.1145, -0.9259, 0.9301],
+      [0.4056, 0.4178, 0.3462, 0.2272, 0.2327, 0.2422, 0.1085, 0.215, 0.4269, 1, 0.6668, 0.0627, -0.1779, -0.5634, 0.5572],
+      [0.5729, 0.5929, 0.4892, 0.3824, 0.3966, 0.36, 0.2447, 0.3611, 0.6373, 0.6668, 1, 0.1425, -0.1666, -0.7819, 0.7761],
+      [0.0852, 0.0908, 0.0813, 0.113, 0.0882, 0.0678, 0.0772, 0.1273, 0.1189, 0.0627, 0.1425, 1, 0.3103, -0.1083, 0.1077],
+      [-0.1345, -0.1211, -0.1009, -0.0092, -0.0609, -0.0666, -0.0479, -0.048, -0.1145, -0.1779, -0.1666, 0.3103, 1, 0.2013, -0.1946],
+      [-0.8016, -0.8237, -0.7573, -0.6421, -0.7083, -0.6245, -0.4927, -0.6298, -0.9259, -0.5634, -0.7819, -0.1083, 0.2013, 1, -0.9981],
+      [0.8045, 0.8246, 0.762, 0.6482, 0.7124, 0.6292, 0.4969, 0.6339, 0.9301, 0.5572, 0.7761, 0.1077, -0.1946, -0.9981, 1]
+    ],
+    "observations": 1258
+  },
+  "regimeModel": {
+    "marketProxy": "SPY",
+    "bullMean": 0.001113,
+    "bullStd": 0.009072,
+    "bearMean": -0.002707,
+    "bearStd": 0.029339,
+    "pBullToBear": 0.005401,
+    "pBearToBull": 0.046667,
+    "bullDays": 1110,
+    "bearDays": 148,
+    "regimeAtWindowEnd": "Bull",
+    "iterations": 3
+  }
+}

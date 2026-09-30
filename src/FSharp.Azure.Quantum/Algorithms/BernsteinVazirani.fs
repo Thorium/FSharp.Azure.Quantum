@@ -87,7 +87,7 @@ module BernsteinVazirani =
             |> Array.map (fun (i, _) -> QuantumOperation.Gate(Z i))
             |> Array.toList
 
-        fun state -> UnifiedBackend.applySequence backend ops state
+        WholeCircuit.gateOracle backend ops
 
     // ========================================================================
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
@@ -126,11 +126,9 @@ module BernsteinVazirani =
 
         match plan with
         | BernsteinVaziraniPlan.ExecuteViaOpsAndOracle(preOps, oracle, postOps) ->
-            result {
-                let! afterPre = UnifiedBackend.applySequence backend preOps state
-                let! afterOracle = oracle afterPre
-                return! UnifiedBackend.applySequence backend postOps afterOracle
-            }
+            // Gate by gate where the backend allows it; a backend that runs complete circuits
+            // only gets one circuit with the oracle's gates inside it.
+            WholeCircuit.applyWithOracle "BernsteinVazirani" backend preOps oracle postOps state
 
     // ========================================================================
     // ALGORITHM IMPLEMENTATION

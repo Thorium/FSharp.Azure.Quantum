@@ -264,12 +264,12 @@ val node : string → string list → ColoredNode
 
 **Parameters of `solve`:**
 - `problem` - Graph coloring problem specification
-- `numColors` - Number of colors the QAOA encoding uses (capped at the number of available colors); qubits needed = nodes × numColors
+- `numColors` - Number of colors the QAOA encoding uses (capped at the number of available colors and `MaxColors`); qubits needed = nodes × encoded colors
 - `backend` - Quantum backend (None = new LocalBackend)
 
 **Computation expression operations:** `node id conflicts`, `nodes [ColoredNode list]`, `colors [...]` (required), `objective`, `maxColors`, `conflictPenalty`. The builder validates the problem when it finishes and throws if it is invalid (no nodes, no colors, unknown conflict references, ...).
 
-> **Note:** `solve` currently encodes only the nodes, their conflicts, the available colors and any `FixedColor`. `Objective`, `ConflictPenalty`, `Priority` and `AvoidColors` are stored on the problem but not used by the QAOA encoding, and `MaxColors` is only validated.
+> **Note:** `solve` encodes every option: `ConflictPenalty` multiplies the conflict penalty, `MaxColors` limits the encoded colors to the first `MaxColors`, `AvoidColors` and `Objective` add soft QUBO terms and pick among the samples, and `Priority` breaks ties. A graph with no conflicts runs no circuit (`IsQuantum = false`). See [Graph Coloring API](GraphColoring-API.md) for the weights.
 
 ### Example
 
@@ -524,14 +524,24 @@ match TSP.solve problem_tsp None with
 
 ```text
 val createProblem : (string * float * float * float) list → float → PortfolioProblem
+val createProblemWithCovariance : (string * float * float * float) list → float → float[,] → PortfolioProblem
+val createProblemWithCorrelation : (string * float * float * float) list → float → float[,] → QuantumResult<PortfolioProblem>
 val solve : PortfolioProblem → IQuantumBackend option → QuantumResult<PortfolioAllocation>
 ```
 
 **Parameters:**
 - `assets` - (symbol, expectedReturn, risk, price) tuples
 - `budget` - Total available capital
+- `covariance` - Covariance Σ of the asset returns, rows and columns in asset order
+- `correlation` - Correlation ρ; the covariance is Σᵢⱼ = ρᵢⱼ × riskᵢ × riskⱼ
 
 Qubits needed: one per asset.
+
+**Risk and the objective.** Without a covariance the assets are treated as independent and risk = sqrt(Σ (wᵢσᵢ)²), σᵢ = `Risk`. With one, risk = sqrt(wᵀΣw) and the QUBO carries the covariance terms. `solve` returns a `ValidationError` for a covariance that is not square, not one row per asset, not symmetric or not positive semidefinite (tolerance `PortfolioTypes.CovarianceTolerance` × the largest variance).
+
+The QUBO is the discretised mean-variance problem: selecting asset i buys one lot of weight s of the budget, so w = s·x, and QAOA minimises −μᵀw + λ wᵀΣw (λ = risk aversion, 0.5 in `solve`). s is 1/n, raised to MinHolding/Budget or lowered to MaxHolding/Budget when the holding limits require it; with s > 1/n at most ⌊1/s⌋ assets fit the budget. Budget not bought stays uninvested. Shares may be fractional, but an asset is only bought when one lot covers at least one share (the classical greedy has the same rule); unaffordable assets get no qubit. The solver samples p = 1 QAOA (cost Hamiltonian scaled to a largest coefficient of 1 by the shared pipeline) on a grid of angles with γ > 0, the minimising sign, samples again at the angles with the lowest mean energy, and returns the best feasible sample. `QuantumPortfolioSolver.toQubo` builds the QUBO with `ProblemTransformer.encodePortfolioCorrelation`; `QuantumPortfolioSolver.solveWithCovarianceAsync` is the algorithm-level entry point.
+
+`PortfolioTypes` also has `validateCovariance`, `covarianceFromCorrelation`, `portfolioVariance` and `portfolioRisk`.
 
 ### Types
 
@@ -543,6 +553,7 @@ type PortfolioProblem = {
     AssetCount: int
     Budget: float
     Constraints: PortfolioSolver.Constraints option   // { Budget; MinHolding; MaxHolding }
+    Covariance: float[,] option                       // None = independent assets
 }
 
 type PortfolioAllocation = {
@@ -578,6 +589,22 @@ match Portfolio.solve problem_portfolio None with
         printfn "  %s: %.2f shares = $%.2f" symbol shares value)
 | Error err ->
     printfn "Allocation failed: %s" err.Message
+
+// With correlations between the assets
+let correlation =
+    array2D [
+        [ 1.0; 0.6; 0.7; 0.0 ]
+        [ 0.6; 1.0; 0.8; 0.0 ]
+        [ 0.7; 0.8; 1.0; 0.0 ]
+        [ 0.0; 0.0; 0.0; 1.0 ]
+    ]
+
+match Portfolio.createProblemWithCorrelation assets 50000.0 correlation with
+| Ok correlated ->
+    match Portfolio.solve correlated None with
+    | Ok allocation -> printfn "Risk with correlations: %.4f" allocation.Risk
+    | Error err -> printfn "Allocation failed: %s" err.Message
+| Error err -> printfn "Invalid correlation: %s" err.Message
 ```
 
 ---
@@ -689,6 +716,9 @@ val solveTsp          : distances:float[,] → budget:float option → timeout:f
                         → QuantumResult<Solution<TspSolver.TspSolution>>
 val solvePortfolio    : assets:PortfolioSolver.Asset list → constraints:PortfolioSolver.Constraints
                         → budget → timeout → forceMethod → QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>
+val solvePortfolioWithCovariance : assets:PortfolioSolver.Asset list → covariance:float[,] → constraints
+                        → budget → timeout → forceMethod → backend:IQuantumBackend option
+                        → QuantumResult<Solution<PortfolioSolver.PortfolioSolution>>
 val solveMaxCut       : QuantumMaxCutSolver.MaxCutProblem → budget → timeout → forceMethod
                         → QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>>
 val solveKnapsack     : QuantumKnapsackSolver.KnapsackProblem → budget → timeout → forceMethod
@@ -698,6 +728,9 @@ val solveGraphColoring : QuantumGraphColoringSolver.GraphColoringProblem → num
 
 // Each has a ...WithBackend variant taking a final IQuantumBackend option;
 // solveTspWithBackendAndConfig also takes a QuantumTspSolver.QuantumTspConfig.
+// solvePortfolioWithCovariance validates the covariance and passes it to both paths, which
+// then report risk as sqrt(w'Σw); the classical path still picks assets by return/risk ratio.
+// solvePortfolio treats the assets as independent.
 
 type SolverMethod = Classical | Quantum
 
@@ -798,7 +831,20 @@ let run =
     }
 ```
 
-> **Note:** Cloud backends' `ApplyOperationAsync` always returns `Error` because cloud providers do not support incremental state operations. Use `ExecuteToStateAsync` for full circuit execution.
+> **Note:** Cloud backends' `ApplyOperationAsync` always returns `Error` because cloud providers do not support incremental state operations. Use `ExecuteToStateAsync` for full circuit execution. The library's solvers and algorithms do this themselves: on a cloud backend they record their gates and submit the complete circuit (`UnifiedBackend.submitAsCircuit`), and the backend transpiles it to the provider's native gates before conversion.
+
+**Job budget:** every `ExecuteToState` is one billed job. The backend types take an optional `jobBudget` (`CloudBackendHelpers.JobBudget`; `JobBudget.Limit n` allows n jobs, `JobBudget()` counts without a limit), and the job after the limit is refused with a `QuotaExceeded` error before submission. One budget can be shared by several backends; `IJobCountingBackend.JobBudget` exposes it, with `Submitted`, `MaxJobs` and `Remaining`.
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+
+let budget = CloudBackendHelpers.JobBudget.Limit 500
+let budgetedIonQ = CloudBackends.IonQCloudBackend(httpClient, workspaceUrl, "ionq.simulator", 1000, jobBudget = budget)
+
+match GraphColoring.solve problem 3 (Some(budgetedIonQ :> BackendAbstraction.IQuantumBackend)) with
+| Ok solution -> printfn "Done after %d jobs" budget.Submitted
+| Error err -> printfn "Error (after %d jobs): %s" budget.Submitted err.Message
+```
 
 > **Result format:** cloud results are measurement histograms, and the returned `QuantumState` is reconstructed from them in tiers by circuit width: a dense state vector up to `StateVector.maxQubits`, a `SparseState` (observed outcomes only) from there through 31 qubits, and `QuantumState.MeasurementHistogram` (bitstring → count, at most `shots` entries) above that. The histogram tier has no width limit, so wide devices such as Quantinuum H2 (56 qubits) and IonQ Forte (36 qubits) are usable.
 
@@ -892,6 +938,7 @@ var assets = new[] {
     (symbol: "AAPL", expectedReturn: 0.12, risk: 0.15, price: 150.0)
 };
 var portfolioProblem = PortfolioProblem(assets, budget: 10000.0);
+var correlatedProblem = PortfolioProblem(assets, budget: 10000.0, covariance: new double[,] { { 0.0225 } });
 ```
 
 `CSharpBuilders` also has entry points for the business and advanced builders (`CoverageProblem`, `PairingProblem`, `PackingProblem`, `FactorInteger`, `SolveTreeSearch`, `PriceEuropeanCall`, ...), and `QuantumBackendCSharpExtensions` adds Task-returning helpers such as `backend.ExecuteToStateTask(circuit)`. All live in `Builders/BuildersCSharpExtensions.fs`. See `examples/CSharpConsumer` for a complete C# project.
@@ -1030,7 +1077,7 @@ HHL solves linear systems **Ax = b** where:
 - **Output**: Quantum state |x⟩ encoding the solution (not a classical vector)
 - **Theory**: O(log(N) × poly(κ, 1/ε)) for sparse, well-conditioned A, versus O(N³) for Gaussian elimination. The advantage only holds when A can be loaded efficiently and you need a property of |x⟩ rather than all of its entries.
 
-This library simulates HHL on small matrices; it does not run faster than a classical solver at these sizes.
+This library runs HHL on small matrices, on the local simulator or as one whole-circuit job on a cloud backend; it does not run faster than a classical solver at these sizes.
 
 ### Computation Expression API
 
@@ -1074,7 +1121,7 @@ let diagonalProblem = linearSystemSolver {
 }
 ```
 
-The `shots` operation is accepted but not used: the solver reads the solution and success probability from the state vector exactly.
+The `shots` operation is accepted but not used. On a simulator the solver reads the solution and success probability from the state vector exactly; on a cloud backend they come from the shots that backend was created with.
 
 **Limits** (checked when the builder finishes): matrix dimension 2–16 and a power of 2; `eigenvalueQubits` 2–12; eigenvalue + solution + ancilla qubits ≤ 20.
 
@@ -1106,6 +1153,7 @@ type LinearSystemSolution = {
     GateCount: int
     PostSelectionSuccess: bool
     SolutionAmplitudes: Map<int, Complex> option
+    Readout: HhlReadout        // Amplitudes | MeasuredMagnitudes
     BackendName: string
     IsQuantum: bool
     Success: bool
@@ -1220,8 +1268,9 @@ match QuantumRegressionHHL.train regressionConfig with
 
 **Solution Format:**
 - Output is a **quantum state |x⟩** (normalized), not a classical vector
-- Local simulation: `SolutionAmplitudes` holds the amplitude distribution
-- On real hardware you would only get measurement statistics; reading out every amplitude needs state tomography, whose cost grows exponentially
+- Local simulation: `SolutionAmplitudes` holds the amplitudes, signs and phases included (`Readout = Amplitudes`)
+- Cloud backends: the state preparation of |b⟩ and the HHL circuit run as one whole-circuit job, and `SolutionAmplitudes` holds the magnitudes |xᵢ| from the measured counts, post-selected on ancilla = 1 with the eigenvalue register at 0 (`Readout = MeasuredMagnitudes`). Counts carry no signs or phases; recovering them would take further interference circuits, which are not run. Every amplitude from counts needs a number of shots that grows with the dimension
+- `QuantumRegressionHHL` needs the signed solution, so it returns an `Error` on a cloud backend rather than fit weights from magnitudes
 
 **Performance Considerations:**
 - **Condition number κ**: Lower is better (κ < 100 recommended)
@@ -1309,6 +1358,11 @@ val executeFromQuboAsync :
 - `qubo` — Dense QUBO matrix (`float[,]`)
 - `config` — QAOA solver configuration
 - `backend` — Quantum backend (always passed explicitly)
+
+**Angle conventions:**
+- Every circuit is built from the cost Hamiltonian scaled to a largest |coefficient| of 1 (`ProblemHamiltonian.normalize`), so a (γ, β) pair means the same for a unit-weight MaxCut and for a penalty QUBO with coefficients in the thousands.
+- The mixer is `-Σ Xᵢ` (`MixerHamiltonian.create`), so small γ > 0 with 0 < β < π/4 lowers the expected QUBO energy (minimisation).
+- Grid search and Nelder-Mead rank angles by the expected QUBO energy: exact from the amplitudes when the backend returns a state vector, otherwise the mean over `OptimizationShots` samples. Nelder-Mead starts from a ramp (γ rising, β falling across the layers).
 
 ### Sparse QUBO Functions
 
@@ -1696,4 +1750,4 @@ val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePa
 
 ---
 
-**Last Updated**: 2026-09-29 (package version 1.4.12)
+**Last Updated**: 2026-09-29 (package version 1.4.14)

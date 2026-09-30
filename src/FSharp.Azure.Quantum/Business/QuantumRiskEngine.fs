@@ -120,195 +120,184 @@ module RiskEngine =
 
         MottonenStatePreparation.prepareStateFromAmplitudes amplitudes qubits circuit
 
-    /// Build a threshold comparator oracle circuit for VaR estimation.
-    ///
-    /// Marks (applies phase flip to) all computational basis states |i> where
-    /// i < thresholdIndex, i.e., the return bins below the VaR loss threshold.
-    ///
-    /// Implementation: For each basis state i < thresholdIndex, apply a diagonal
-    /// phase (-1) using a multi-controlled Z decomposition. This is equivalent to
-    /// Z * diag(1,...,1,-1,...,-1) on the marked subspace.
-    ///
-    /// For small threshold indices this is efficient; for larger thresholds we
-    /// flip the complement (mark i >= threshold) and apply a global phase.
-    let private buildThresholdOracle (numQubits: int) (thresholdIndex: int) : CircuitBuilder.Circuit =
-        let numStates = 1 <<< numQubits
-        let clampedThreshold = max 0 (min numStates thresholdIndex)
+    /// Risk metrics estimated on the quantum path, each by amplitude estimation.
+    type private QuantumRiskEstimates =
+        {
+            VaR: float voption
+            CVaR: float voption
+            Volatility: float voption
+            /// How the circuits ran: "" gate by gate, else a note on the whole-circuit route
+            Route: string
+        }
 
-        if clampedThreshold = 0 then
-            // No states to mark - identity oracle
-            CircuitBuilder.empty numQubits
-        elif clampedThreshold = numStates then
-            // All states marked - global phase flip (Z on qubit 0 with all others as control
-            // effectively -I). We apply X to all, MCZ, X to all (marks |11...1> = marks all).
-            // Simpler: phase flip on every state = -I, which is just Z on any qubit preceded
-            // by X gates to flip it. But for Grover oracle the global phase is irrelevant,
-            // so we can just apply Z to qubit 0.
-            CircuitBuilder.empty numQubits |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
-        else
-            // Mark each basis state i < thresholdIndex with a phase flip.
-            // For each target state, we apply X gates to qubits that are 0 in the binary
-            // representation, then MCZ (or CZ/Z for small cases), then undo the X gates.
-            //
-            // This is O(thresholdIndex * numQubits) gates. For VaR at typical confidence
-            // levels (95%, 99%), thresholdIndex is small (5% or 1% of 2^n states), so this
-            // is efficient.
-            let markState (circuit: CircuitBuilder.Circuit) (stateIdx: int) : CircuitBuilder.Circuit =
-                // Apply X to qubits where bit is 0 (so |stateIdx> maps to |11...1>)
-                let flipQubits =
-                    [ 0 .. numQubits - 1 ] |> List.filter (fun q -> (stateIdx >>> q) &&& 1 = 0)
-
-                let withFlips =
-                    flipQubits
-                    |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.X q)) circuit
-
-                // Apply multi-controlled Z to flip phase of |11...1>
-                let withPhaseFlip =
-                    if numQubits = 1 then
-                        withFlips |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
-                    elif numQubits = 2 then
-                        withFlips |> CircuitBuilder.addGate (CircuitBuilder.CZ(0, 1))
-                    else
-                        let controls = [ 0 .. numQubits - 2 ]
-
-                        withFlips
-                        |> CircuitBuilder.addGate (CircuitBuilder.MCZ(controls, numQubits - 1))
-
-                // Undo X flips
-                flipQubits
-                |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.X q)) withPhaseFlip
-
-            // If marking more than half the states, mark the complement and apply global phase
-            if clampedThreshold > numStates / 2 then
-                // Mark states i >= threshold (the complement) and apply global phase
-                let complementCircuit =
-                    [ clampedThreshold .. numStates - 1 ]
-                    |> List.fold markState (CircuitBuilder.empty numQubits)
-
-                // Global phase flip = mark all states, which together with complement marking
-                // gives: (-1)^(all) * (-1)^(complement) = (-1)^(target)
-                // Global Z on qubit 0 suffices for global phase
-                complementCircuit |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
-            else
-                [ 0 .. clampedThreshold - 1 ]
-                |> List.fold markState (CircuitBuilder.empty numQubits)
-
-    /// Find the bin index corresponding to the VaR threshold.
-    ///
-    /// At confidence level alpha, VaR is the threshold where
-    /// P(return < -VaR) = 1 - alpha. We find the bin index such that
-    /// the cumulative probability of bins [0..index-1] is approximately 1-alpha.
-    let private findVarThresholdIndex (probabilities: float[]) (confidenceLevel: float) : int =
-        let targetCumProb = 1.0 - confidenceLevel
-
-        let rec findIndex idx cumProb =
-            if idx >= probabilities.Length then
-                probabilities.Length
-            else
-                let newCum = cumProb + probabilities.[idx]
-
-                if newCum >= targetCumProb then
-                    idx + 1
-                else
-                    findIndex (idx + 1) newCum
-
-        findIndex 0 0.0
-
-    /// Read the genuine quantum bin probabilities q_i = |⟨i|ψ⟩|² from the prepared state |ψ⟩ = A|0⟩.
-    /// Bin index i maps directly to basis-state index i (the state-preparation encoding), so VaR/CVaR
-    /// are derived from the measured quantum distribution rather than from a classical array.
-    let private quantumBinProbabilities
-        (backend: IQuantumBackend)
-        (statePrep: CircuitBuilder.Circuit)
-        : Result<float[], QuantumError> =
-        QuantumMonteCarlo.measureBinProbabilities backend statePrep
-
-    /// Execute quantum amplitude estimation for VaR using the QMC infrastructure.
-    ///
-    /// Algorithm:
-    /// 1. Ingest returns data and discretize into 2^n bins
-    /// 2. Build state prep circuit (Mottonen encoding of distribution)
-    /// 3. Build threshold oracle (marks bins below VaR threshold)
-    /// 4. Run QMC amplitude estimation via backend
-    /// 5. Extract estimated tail probability from quantum result
-    /// 6. Map back to VaR value using bin edges
-    ///
-    /// Returns: (quantumVaR, quantumCVaR, estimatedTailProb)
-    let private executeQuantumVaR
+    /// Execute the quantum risk metrics, each from amplitude estimation of an expectation over
+    /// the loaded distribution |ψ⟩ = Σ_i √p_i |i⟩ of the 2^n return bins
+    /// (QuantumMonteCarlo.estimateBoundedExpectation):
+    /// - VaR: bisection over the bin index t for the smallest t whose estimated CDF
+    ///   F(t) = P(bin < t) reaches 1 - ConfidenceLevel; VaR is minus the upper edge of bin t - 1.
+    /// - CVaR / ES: the mean loss over the tail bins, E[loss · 1(bin < t)] / F(t), with both
+    ///   expectations estimated (the loss scaled into [0, 1] over the tail's range).
+    /// - Volatility: the standard deviation of the bin midpoints, E[(r - c)²] - E[r - c]² for
+    ///   the grid centre c, both estimated.
+    /// Only the metrics requested are estimated. A negative estimated variance (possible from
+    /// sampled whole circuits) is an Error.
+    let private executeQuantumRisk
         (config: RiskConfiguration)
         (qBackend: IQuantumBackend)
         (returns: float[])
-        : Async<Result<float * float * float, QuantumError>> =
+        : Async<Result<QuantumRiskEstimates, QuantumError>> =
         async {
             let numQubits = config.NumQubits
+            let numBins = 1 <<< numQubits
+            let wants metric = List.contains metric config.Metrics
+            let needTail = wants ConditionalVaR || wants ExpectedShortfall
+            let needVaR = wants ValueAtRisk || needTail
 
-            // 1. Discretize the empirical return distribution and encode it as |ψ⟩ = A|0⟩.
-            let (empiricalProbs, binEdges, _binWidth) = discretizeDistribution returns numQubits
-            let statePrep = buildStatePrepCircuit empiricalProbs numQubits
+            let (probabilities, binEdges, _binWidth) = discretizeDistribution returns numQubits
+            let statePrep = buildStatePrepCircuit probabilities numQubits
 
-            // 2. Read the GENUINE quantum bin probabilities from the prepared state.
-            //    Everything below is derived from these, not from the classical array.
-            match quantumBinProbabilities qBackend statePrep with
-            | Error err -> return Error err
-            | Ok quantumProbs ->
-                // 3. VaR threshold from the quantum cumulative distribution.
-                let thresholdIndex = findVarThresholdIndex quantumProbs config.ConfidenceLevel
-                let oracle = buildThresholdOracle numQubits thresholdIndex
+            let midpoints =
+                Array.init numBins (fun i -> (binEdges.[i] + binEdges.[i + 1]) / 2.0)
 
-                // 4. Quantum amplitude estimation of the tail probability P(return < threshold).
-                let qmcConfig =
-                    {
-                        QuantumMonteCarlo.QMCConfig.NumQubits = numQubits
-                        QuantumMonteCarlo.QMCConfig.StatePreparation = statePrep
-                        QuantumMonteCarlo.QMCConfig.Oracle = oracle
-                        QuantumMonteCarlo.QMCConfig.GroverIterations = config.GroverIterations
-                        QuantumMonteCarlo.QMCConfig.Shots = config.Shots
+            let route = ref ""
+
+            /// Amplitude estimate of Σ_i p_i values_i, values in [0, 1].
+            let estimate (values: float[]) : Async<Result<float, QuantumError>> =
+                let run =
+                    QuantumMonteCarlo.estimateBoundedExpectation
+                        statePrep
+                        values
+                        config.GroverIterations
+                        config.Shots
+                        qBackend
+
+                async {
+                    let! result =
+                        match config.CancellationToken with
+                        | Some token ->
+                            Async.StartAsTask(
+                                run,
+                                cancellationToken = token,
+                                taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None
+                            )
+                            |> Async.AwaitTask
+                        | None -> run
+
+                    return
+                        result
+                        |> Result.map (fun r ->
+                            route.Value <-
+                                match r.ShotsPerCircuit with
+                                | Some s -> $" (whole circuits sampled at {s} shots)"
+                                | None when r.WholeCircuit -> " (whole circuits)"
+                                | None -> ""
+
+                            r.Expectation)
+                }
+
+            /// Amplitude estimate of Σ_i p_i values_i for real values: scaled into [0, 1] over
+            /// their range for the estimate, and back.
+            let estimateReal (values: float[]) : Async<Result<float, QuantumError>> =
+                let lo = Array.min values
+                let span = Array.max values - lo
+
+                if span <= 0.0 then
+                    async { return Ok lo }
+                else
+                    async {
+                        let! scaled = estimate (values |> Array.map (fun v -> (v - lo) / span))
+                        return scaled |> Result.map (fun e -> lo + span * e)
                     }
 
-                let! qmcResultWrapped =
-                    match config.CancellationToken with
-                    | Some token ->
-                        Async.StartAsTask(
-                            QuantumMonteCarlo.estimateExpectation qmcConfig qBackend,
-                            cancellationToken = token,
-                            taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None
-                        )
-                        |> Async.AwaitTask
-                    | None -> QuantumMonteCarlo.estimateExpectation qmcConfig qBackend
+            let target = 1.0 - config.ConfidenceLevel
 
-                match qmcResultWrapped with
-                | Error err -> return Error err
-                | Ok qmcResult ->
-                    // 5. Tail probability is the genuine amplitude-estimation result.
-                    let estimatedTailProb = qmcResult.ExpectationValue
+            /// Smallest t in [lo, hi] with estimated F(t) >= target, and F(t). F(numBins) = 1.
+            let rec bisect (lo: int) (hi: int) (known: Map<int, float>) =
+                async {
+                    if lo >= hi then
+                        return Ok(lo, known.[lo])
+                    else
+                        let mid = (lo + hi) / 2
+                        match! estimate (Array.init numBins (fun i -> if i < mid then 1.0 else 0.0)) with
+                        | Error err -> return Error err
+                        | Ok f when f >= target -> return! bisect lo mid (known.Add(mid, f))
+                        | Ok f -> return! bisect (mid + 1) hi (known.Add(mid, f))
+                }
 
-                    // VaR = loss at the threshold bin edge (the quantile boundary).
-                    let quantumVaR =
-                        if thresholdIndex > 0 && thresholdIndex <= binEdges.Length - 1 then
-                            -binEdges.[thresholdIndex]
-                        else
-                            0.0
+            let! tail =
+                async {
+                    if needVaR then
+                        let! found = bisect 1 numBins (Map.ofList [ numBins, 1.0 ])
+                        return found |> Result.map Some
+                    else
+                        return Ok None
+                }
 
-                    // CVaR/ES: quantum-probability-weighted mean of the tail bin midpoints.
-                    let quantumCVaR =
-                        if thresholdIndex > 0 then
-                            let tailBins = [| 0 .. thresholdIndex - 1 |]
-                            let tailMass = tailBins |> Array.sumBy (fun i -> quantumProbs.[i])
+            let! cvar =
+                match tail with
+                | Ok(Some(t, tailProbability)) when needTail ->
+                    let losses = Array.init t (fun i -> -midpoints.[i])
+                    let lo = Array.min losses
+                    let span = Array.max losses - lo
 
-                            if tailMass > 1e-12 then
-                                let weightedSum =
-                                    tailBins
-                                    |> Array.sumBy (fun i ->
-                                        let binMid = (binEdges.[i] + binEdges.[i + 1]) / 2.0
-                                        quantumProbs.[i] * binMid)
+                    if span <= 0.0 then
+                        async { return Ok(ValueSome lo) }
+                    else
+                        async {
+                            let! scaled =
+                                estimate (Array.init numBins (fun i -> if i < t then (losses.[i] - lo) / span else 0.0))
 
-                                -(weightedSum / tailMass)
-                            else
-                                quantumVaR
-                        else
-                            quantumVaR
+                            // E[scaled loss · 1(tail)] <= P(tail); the ratio is clamped to [0, 1]
+                            // against sampling noise.
+                            return
+                                scaled
+                                |> Result.map (fun g -> ValueSome(lo + span * min 1.0 (max 0.0 (g / tailProbability))))
+                        }
+                | Ok _ -> async { return Ok ValueNone }
+                | Error err -> async { return Error err }
 
-                    return Ok(quantumVaR, quantumCVaR, estimatedTailProb)
+            let! volatility =
+                if wants Volatility && Result.isOk tail && Result.isOk cvar then
+                    let centre = (binEdges.[0] + binEdges.[numBins]) / 2.0
+
+                    async {
+                        let! mean = estimateReal (midpoints |> Array.map (fun r -> r - centre))
+
+                        let! second =
+                            estimateReal (midpoints |> Array.map (fun r -> (r - centre) * (r - centre)))
+
+                        return
+                            match mean, second with
+                            | Error err, _
+                            | _, Error err -> Error err
+                            | Ok m1, Ok m2 when m2 - m1 * m1 < 0.0 ->
+                                Error(
+                                    QuantumError.OperationError(
+                                        "RiskEngine",
+                                        $"estimated variance is negative ({m2 - m1 * m1:E3}); raise the backend's shots"
+                                    )
+                                )
+                            | Ok m1, Ok m2 -> Ok(ValueSome(sqrt (m2 - m1 * m1)))
+                    }
+                else
+                    async { return Ok ValueNone }
+
+            return
+                match tail, cvar, volatility with
+                | Error err, _, _
+                | _, Error err, _
+                | _, _, Error err -> Error err
+                | Ok tail, Ok cvar, Ok volatility ->
+                    Ok
+                        {
+                            VaR =
+                                match tail with
+                                | Some(t, _) when wants ValueAtRisk -> ValueSome(-binEdges.[t])
+                                | _ -> ValueNone
+                            CVaR = cvar
+                            Volatility = volatility
+                            Route = route.Value
+                        }
         }
 
     // ========================================================================
@@ -434,47 +423,34 @@ module RiskEngine =
                 | Ok returns ->
                     // 2. Choose quantum or classical path
                     if config.UseAmplitudeEstimation && config.Backend.IsSome then
-                        // Quantum path: amplitude estimation for VaR/CVaR
+                        // Quantum path: every reported metric from amplitude estimation
                         let qBackend = config.Backend.Value
 
-                        match! executeQuantumVaR config qBackend returns with
+                        match! executeQuantumRisk config qBackend returns with
                         | Error err ->
                             // Business outcome: propagate the quantum failure as Error (no classical fallback).
                             return Error err
-                        | Ok(quantumVaR, quantumCVaR, _tailProb) ->
-                            // Volatility still computed classically (not a tail-risk metric)
-                            let vol =
-                                if List.contains Volatility config.Metrics then
-                                    let mean = Array.average returns
-                                    let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
-                                    ValueSome(sqrt (sumSq / float returns.Length))
-                                else
-                                    ValueNone
-
+                        | Ok estimates ->
                             let executionTime = (DateTime.Now - startTime).TotalMilliseconds
 
                             return
                                 Ok
                                     {
-                                        VaR =
-                                            if List.contains ValueAtRisk config.Metrics then
-                                                ValueSome quantumVaR
-                                            else
-                                                ValueNone
+                                        VaR = estimates.VaR
                                         CVaR =
                                             if List.contains ConditionalVaR config.Metrics then
-                                                ValueSome quantumCVaR
+                                                estimates.CVaR
                                             else
                                                 ValueNone
                                         ExpectedShortfall =
                                             if List.contains ExpectedShortfall config.Metrics then
-                                                ValueSome quantumCVaR
+                                                estimates.CVaR
                                             else
                                                 ValueNone
-                                        Volatility = vol
+                                        Volatility = estimates.Volatility
                                         ConfidenceLevel = config.ConfidenceLevel
                                         ExecutionTimeMs = executionTime
-                                        Method = "Quantum Amplitude Estimation"
+                                        Method = "Quantum Amplitude Estimation" + estimates.Route
                                         Configuration = config
                                     }
                     else

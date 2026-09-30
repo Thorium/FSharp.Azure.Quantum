@@ -6,10 +6,156 @@ open System.Numerics
 open System.Threading
 open System.Threading.Tasks
 open Xunit
+open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.Backends
+
+/// Local stand-ins for cloud backends, shared by the tests of algorithms that must run on
+/// hardware: they refuse incremental ApplyOperation with the cloud backends' own error, run
+/// only whole circuits, and return measured shot frequencies without phases.
+module CloudStyleBackends =
+
+    /// The error cloud backends return for ApplyOperation (UnifiedBackend.isIncrementalUnsupported).
+    let incrementalUnsupported (name: string) : QuantumError =
+        QuantumError.OperationError(
+            "ApplyOperation",
+            $"%s{name} does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+        )
+
+    /// Bitstring in the Azure histogram convention (rightmost character = qubit 0).
+    let azureKey (numQubits: int) (index: int) : string =
+        String(
+            Array.init numQubits (fun i ->
+                if (index >>> (numQubits - 1 - i)) &&& 1 = 1 then
+                    '1'
+                else
+                    '0')
+        )
+
+    /// A shot-sampling cloud backend simulated locally: each ExecuteToState is one "job" that
+    /// runs the circuit on LocalBackend, measures `shots` shots (seeded — the device's own
+    /// randomness) and returns them exactly as a cloud backend does, through
+    /// CloudBackendHelpers.histogramToQuantumState. Records every submitted circuit and histogram.
+    type ShotSamplingCloud(shots: int, seed: int) =
+        let inner = LocalBackend.LocalBackend() :> IQuantumBackend
+        let rng = Random(seed)
+        let circuits = ResizeArray<FSharp.Azure.Quantum.CircuitBuilder.Circuit>()
+        let histograms = ResizeArray<Map<string, int>>()
+        let mutable applyCalls = 0
+
+        /// Jobs submitted (ExecuteToState calls that reached the device)
+        member _.Jobs = circuits.Count
+        /// Circuits submitted, in order
+        member _.Circuits = List.ofSeq circuits
+        /// Histograms returned, in order (Azure bitstring convention)
+        member _.Histograms = List.ofSeq histograms
+        /// ApplyOperation attempts (all refused)
+        member _.ApplyOperationCalls = applyCalls
+
+        interface IQuantumBackend with
+            member _.Name = "ShotSamplingCloud"
+            member _.NativeStateType = QuantumStateType.GateBased
+
+            member _.ExecuteToState circuit =
+                match CircuitAbstraction.CircuitAdapter.tryGetCircuit circuit with
+                | None -> Error(QuantumError.OperationError("ShotSamplingCloud", "not a gate circuit"))
+                | Some gateCircuit ->
+                    circuits.Add gateCircuit
+
+                    inner.ExecuteToState circuit
+                    |> Result.bind (fun state ->
+                        match state with
+                        | QuantumState.StateVector sv ->
+                            let n = circuit.NumQubits
+
+                            let histogram =
+                                Measurement.sampleComputationalBasis rng sv shots
+                                |> Array.map (fun bits ->
+                                    bits |> Array.mapi (fun q b -> b <<< q) |> Array.sum |> azureKey n)
+                                |> Array.countBy id
+                                |> Map.ofArray
+
+                            histograms.Add histogram
+                            Ok(CloudBackendHelpers.histogramToQuantumState histogram n)
+                        | other -> Error(QuantumError.OperationError("ShotSamplingCloud", $"unexpected {other}")))
+
+            member this.ExecuteToStateAsync circuit _ =
+                Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
+
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+            member _.ApplyOperation _ _ =
+                applyCalls <- applyCalls + 1
+                Error(incrementalUnsupported "ShotSamplingCloud")
+
+            member this.ApplyOperationAsync operation state _ =
+                Task.FromResult((this :> IQuantumBackend).ApplyOperation operation state)
+
+            member _.SupportsOperation operation =
+                CloudBackendHelpers.isCloudSupportedOperation operation
+
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+    /// Forwards everything to `inner` (an exact backend) and counts ExecuteToState calls.
+    type CountingBackend(inner: IQuantumBackend) =
+        let mutable executions = 0
+
+        member _.Executions = executions
+
+        interface IQuantumBackend with
+            member _.Name = inner.Name + " (counting)"
+            member _.NativeStateType = inner.NativeStateType
+
+            member _.ExecuteToState circuit =
+                executions <- executions + 1
+                inner.ExecuteToState circuit
+
+            member this.ExecuteToStateAsync circuit _ =
+                Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
+
+            member _.InitializeState n = inner.InitializeState n
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.ApplyOperationAsync operation state ct =
+                inner.ApplyOperationAsync operation state ct
+
+            member _.SupportsOperation operation = inner.SupportsOperation operation
+
+    /// A shot-sampling cloud backend that returns the same measured histogram (Azure bitstring
+    /// convention) for every circuit, and counts its jobs.
+    type FixedHistogramCloud(histogram: Map<string, int>, numQubits: int, shots: int) =
+        let mutable jobs = 0
+
+        member _.Jobs = jobs
+
+        interface IQuantumBackend with
+            member _.Name = "FixedHistogramCloud"
+            member _.NativeStateType = QuantumStateType.GateBased
+
+            member _.ExecuteToState _ =
+                jobs <- jobs + 1
+                Ok(CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+
+            member this.ExecuteToStateAsync circuit _ =
+                Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
+
+            member _.InitializeState n =
+                Ok(QuantumState.StateVector(StateVector.init n))
+
+            member _.ApplyOperation _ _ =
+                Error(incrementalUnsupported "FixedHistogramCloud")
+
+            member _.ApplyOperationAsync _ _ _ =
+                Task.FromResult(Error(incrementalUnsupported "FixedHistogramCloud"))
+
+            member _.SupportsOperation operation =
+                CloudBackendHelpers.isCloudSupportedOperation operation
+
+        interface IShotSamplingBackend with
+            member _.Shots = shots
 
 /// Tests for CloudBackendHelpers and cloud IQuantumBackend wrapper classes.
 ///
@@ -793,3 +939,281 @@ module CloudBackendTests =
             Assert.Contains("TestBackend", message)
             Assert.Contains("Braid", message)
         | _ -> Assert.True(false, $"Expected OperationError, got: %A{error}")
+
+    // ============================================================================
+    // HARDWARE READINESS: transpilation, intent claims, job budget
+    // ============================================================================
+
+    module CB = FSharp.Azure.Quantum.CircuitBuilder
+
+    [<Literal>]
+    let private dummyWorkspace =
+        "https://example.invalid/subscriptions/x/resourceGroups/y/providers/Microsoft.Quantum/Workspaces/z"
+
+    /// The five Azure cloud backend classes, each with a zero-job budget: ExecuteToState then
+    /// runs transpilation and provider conversion and stops just before submission.
+    let private zeroBudgetBackends () : (string * IQuantumBackend) list =
+        let http = createDummyHttpClient ()
+        let budget () = CloudBackendHelpers.JobBudget.Limit 0
+
+        [
+            "rigetti",
+            CloudBackends.RigettiCloudBackend(http, dummyWorkspace, "rigetti.sim.qvm", 100, jobBudget = budget ())
+            :> IQuantumBackend
+            "ionq",
+            CloudBackends.IonQCloudBackend(http, dummyWorkspace, "ionq.simulator", 100, jobBudget = budget ())
+            :> IQuantumBackend
+            "quantinuum",
+            CloudBackends.QuantinuumCloudBackend(
+                http,
+                dummyWorkspace,
+                "quantinuum.sim.h1-1e",
+                100,
+                jobBudget = budget ()
+            )
+            :> IQuantumBackend
+            "atom",
+            CloudBackends.AtomComputingCloudBackend(
+                http,
+                dummyWorkspace,
+                "atom-computing.sim",
+                100,
+                jobBudget = budget ()
+            )
+            :> IQuantumBackend
+            "iqm",
+            CloudBackends.IqmCloudBackend(http, dummyWorkspace, "iqm.sim", 100, jobBudget = budget ())
+            :> IQuantumBackend
+        ]
+
+    /// Composite gates no provider takes as they are.
+    let private compositeCircuits: (string * CB.Gate list) list =
+        [
+            "T/TDG/S/SDG", [ CB.T 0; CB.TDG 1; CB.S 2; CB.SDG 3 ]
+            "CP", [ CB.CP(0, 2, 0.37) ]
+            "CRZ", [ CB.CRZ(1, 3, 0.9) ]
+            "CRX/CRY", [ CB.CRX(2, 0, 1.3); CB.CRY(3, 1, -0.6) ]
+            "CCX", [ CB.CCX(0, 1, 2) ]
+            "MCZ3", [ CB.MCZ([ 0; 1 ], 2) ]
+            "MCZ4", [ CB.MCZ([ 0; 1; 2 ], 3) ]
+            "P/U3", [ CB.P(1, 0.4); CB.U3(2, 0.3, 1.2, -0.7) ]
+            "SWAP/RXX/RYY/RZZ", [ CB.SWAP(0, 3); CB.RXX(0, 1, 0.5); CB.RYY(1, 2, 0.8); CB.RZZ(2, 3, 1.1) ]
+        ]
+
+    /// `gates` after a preparation that makes every qubit's state non-trivial, so a wrong
+    /// decomposition changes the final state.
+    let private withPreparation (gates: CB.Gate list) : CB.Circuit =
+        let preparation =
+            [
+                CB.H 0
+                CB.RY(1, 0.7)
+                CB.H 2
+                CB.RX(3, 1.1)
+                CB.CNOT(0, 1)
+                CB.RZ(0, 0.3)
+                CB.H 1
+            ]
+
+        CB.empty 4 |> CB.addGates (preparation @ gates @ [ CB.H 3 ])
+
+    let private finalState (circuit: CB.Circuit) : StateVector.StateVector =
+        match
+            (LocalBackend.LocalBackend() :> IQuantumBackend).ExecuteToState(CircuitAbstraction.wrapCircuit circuit)
+        with
+        | Ok(QuantumState.StateVector sv) -> sv
+        | other -> failwith $"local execution failed: %A{other}"
+
+    /// |⟨a|b⟩|: 1 when the states are equal up to global phase.
+    let private overlap (a: StateVector.StateVector) (b: StateVector.StateVector) =
+        let inner =
+            [ 0 .. StateVector.dimension a - 1 ]
+            |> List.fold
+                (fun acc i ->
+                    acc
+                    + Complex.Conjugate(StateVector.getAmplitude i a) * StateVector.getAmplitude i b)
+                Complex.Zero
+
+        inner.Magnitude
+
+    [<Fact>]
+    let ``transpileForTarget gives every provider convertible gates with the same state`` () =
+        for provider in [ "ionq"; "rigetti"; "quantinuum"; "atom"; "iqm" ] do
+            for (name, gates) in compositeCircuits do
+                let original = withPreparation gates
+
+                let transpiled =
+                    CloudBackendHelpers.transpileForTarget provider (CircuitAbstraction.wrapCircuit original)
+
+                let gateCircuit =
+                    CircuitAbstraction.CircuitAdapter.tryGetCircuit transpiled |> Option.get
+
+                let converted =
+                    match provider with
+                    | "ionq" -> CircuitAbstraction.CircuitAdapter.toIonQCircuit transpiled |> Result.map ignore
+                    | "rigetti" -> CircuitAbstraction.CircuitAdapter.toQuilProgram transpiled |> Result.map ignore
+                    | _ ->
+                        try
+                            FSharp.Azure.Quantum.OpenQasmExport.export gateCircuit |> ignore
+                            Ok()
+                        with ex ->
+                            Error(QuantumError.OperationError("export", ex.Message))
+
+                match converted with
+                | Error err -> Assert.Fail($"%s{provider} %s{name}: conversion failed after transpilation: %A{err}")
+                | Ok() -> ()
+
+                let fidelity = overlap (finalState original) (finalState gateCircuit)
+                Assert.True(abs (fidelity - 1.0) < 1e-9, $"{provider} {name}: |<orig|transpiled>| = {fidelity}")
+
+    [<Fact>]
+    let ``cloud backend classes transpile inside ExecuteToState and reach submission`` () =
+        // A zero-job budget refuses at the moment of submission, after conversion: QuotaExceeded
+        // proves the circuit converted; a conversion error would surface instead.
+        for (provider, backend) in zeroBudgetBackends () do
+            for (name, gates) in compositeCircuits do
+                match backend.ExecuteToState(CircuitAbstraction.wrapCircuit (withPreparation gates)) with
+                | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) -> ()
+                | other -> Assert.Fail($"%s{provider} %s{name}: expected the job-budget refusal, got %A{other}")
+
+            let budget = (backend :?> CloudBackendHelpers.IJobCountingBackend).JobBudget
+            Assert.Equal(0, budget.Submitted)
+
+    [<Fact>]
+    let ``transpileForBackendFully gives the same state for every target`` () =
+        let original =
+            CB.empty 3
+            |> CB.addGates
+                [
+                    CB.RY(0, 0.9)
+                    CB.CRY(0, 1, 0.8)
+                    CB.RX(2, 0.4)
+                    CB.CCX(0, 1, 2)
+                    CB.RYY(1, 2, 0.6)
+                    CB.CP(2, 0, 1.4)
+                ]
+
+        for target in [ "ionq"; "rigetti"; "quantinuum"; "unknown-target" ] do
+            let transpiled =
+                FSharp.Azure.Quantum.GateTranspiler.transpileForBackendFully target original
+
+            Assert.True(abs (overlap (finalState original) (finalState transpiled) - 1.0) < 1e-9, target)
+
+    let private qftIntentOp =
+        QuantumOperation.Algorithm(
+            AlgorithmOperation.QFT
+                {
+                    NumQubits = 3
+                    Inverse = false
+                    ApplySwaps = true
+                }
+        )
+
+    [<Fact>]
+    let ``cloud backends claim no algorithm intent while local and topological keep theirs`` () =
+        Assert.False(CloudBackendHelpers.isCloudSupportedOperation qftIntentOp)
+
+        for (provider, backend) in zeroBudgetBackends () do
+            Assert.False(backend.SupportsOperation qftIntentOp, $"{provider} must not claim a native QFT")
+            Assert.True(backend.SupportsOperation(QuantumOperation.Gate(CB.H 0)))
+
+        // Cloud-only: the backends that run intents natively still claim them.
+        Assert.True((LocalBackend.LocalBackend() :> IQuantumBackend).SupportsOperation qftIntentOp)
+
+        let topological =
+            FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 10
+
+        Assert.True(topological.SupportsOperation qftIntentOp)
+
+    [<Fact>]
+    let ``QFT plans the gate route on cloud classes and the native route on local and topological`` () =
+        let intent: QFT.QftExecutionIntent =
+            {
+                NumQubits = 3
+                Config = QFT.defaultConfig
+                Exactness = FSharp.Azure.Quantum.Algorithms.QFT.Exact
+            }
+
+        for (provider, backend) in zeroBudgetBackends () do
+            match QFT.plan backend intent with
+            | Ok(QFT.QftPlan.ExecuteViaOps _) -> ()
+            | other -> Assert.Fail($"%s{provider}: expected the gate route, got %A{other}")
+
+        let nativeBackends: IQuantumBackend list =
+            [
+                LocalBackend.LocalBackend()
+                FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 10
+            ]
+
+        for backend in nativeBackends do
+            match QFT.plan backend intent with
+            | Ok(QFT.QftPlan.ExecuteNatively _) -> ()
+            | other -> Assert.Fail($"%s{backend.Name}: expected the native route, got %A{other}")
+
+    [<Fact>]
+    let ``QFT on a real cloud class takes the whole-circuit route to submission`` () =
+        let backend = zeroBudgetBackends () |> List.find (fst >> (=) "ionq") |> snd
+
+        match
+            QFT.execute 3 backend QFT.defaultConfig
+        with
+        | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) -> ()
+        | other -> Assert.Fail($"expected the whole circuit to reach submission, got %A{other}")
+
+    [<Fact>]
+    let ``JobBudget counts reservations and refuses past its limit`` () =
+        let budget = CloudBackendHelpers.JobBudget.Limit 2
+        Assert.Equal(Ok(), budget.TryReserve "t")
+        Assert.Equal(Ok(), budget.TryReserve "t")
+
+        match budget.TryReserve "t" with
+        | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded message)) -> Assert.Contains("2 jobs", message)
+        | other -> Assert.Fail($"expected QuotaExceeded, got %A{other}")
+
+        Assert.Equal(2, budget.Submitted)
+        Assert.Equal(Some 0, budget.Remaining)
+
+        let unlimited = CloudBackendHelpers.JobBudget()
+
+        for _ in 1..5 do
+            Assert.Equal(Ok(), unlimited.TryReserve "t")
+
+        Assert.Equal(5, unlimited.Submitted)
+        Assert.Equal(None, unlimited.MaxJobs)
+
+    [<Fact>]
+    let ``cloud backends default to an unlimited budget and share one when given`` () =
+        let http = createDummyHttpClient ()
+
+        let plain =
+            CloudBackends.IonQCloudBackend(http, dummyWorkspace, "ionq.simulator", 100)
+
+        Assert.Equal(None, (plain :> CloudBackendHelpers.IJobCountingBackend).JobBudget.MaxJobs)
+
+        let shared = CloudBackendHelpers.JobBudget.Limit 1
+
+        let ionq =
+            CloudBackends.IonQCloudBackend(http, dummyWorkspace, "ionq.simulator", 100, jobBudget = shared)
+            :> IQuantumBackend
+
+        let quantinuum =
+            CloudBackends.QuantinuumCloudBackend(http, dummyWorkspace, "quantinuum.sim.h1-1e", 100, jobBudget = shared)
+            :> IQuantumBackend
+
+        let bell =
+            CB.empty 2
+            |> CB.addGates [ CB.H 0; CB.CNOT(0, 1) ]
+            |> CircuitAbstraction.wrapCircuit
+
+        // The first job is reserved and goes to the (unreachable) workspace.
+        match ionq.ExecuteToState bell with
+        | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) ->
+            Assert.Fail("the first job is within budget")
+        | _ -> ()
+
+        Assert.Equal(1, shared.Submitted)
+
+        match quantinuum.ExecuteToState bell with
+        | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) -> ()
+        | other -> Assert.Fail($"the shared budget is used up; expected QuotaExceeded, got %A{other}")
+
+        Assert.Equal(1, shared.Submitted)

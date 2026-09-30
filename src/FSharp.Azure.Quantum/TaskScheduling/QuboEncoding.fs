@@ -188,6 +188,33 @@ module QuboEncoding =
                             | _ -> None)))
         |> List.fold (fun acc (key, value) -> addOrUpdate key value acc) Map.empty
 
+    /// QUBO variables whose (task, start slot) is not allowed: the slot starts before the
+    /// task's EarliestStart, or the task would not run inside an availability window of a
+    /// resource it requires (see Validation.startIsAllowed; slot start = slot × slotMinutes).
+    let forbiddenStartVariables
+        (problem: SchedulingProblem<'TTask, 'TResource>)
+        (timeHorizon: int)
+        (slotMinutes: float)
+        : Set<int> =
+
+        let (varMapping, _, _) = createVariableMappings problem.Tasks timeHorizon
+
+        problem.Tasks
+        |> List.collect (fun task ->
+            [ 0 .. timeHorizon - 1 ]
+            |> List.choose (fun t ->
+                if Validation.startIsAllowed problem.Resources task (float t * slotMinutes) then
+                    None
+                else
+                    Map.tryFind (task.Id, t) varMapping))
+        |> Set.ofList
+
+    /// Build start-slot restriction QUBO terms: a linear penalty on every forbidden
+    /// (task, slot) variable, so a task's one-hot start lands on an allowed slot
+    let private buildForbiddenStartTerms (forbidden: Set<int>) (penaltyForbidden: float) : Map<int * int, float> =
+        forbidden
+        |> Set.fold (fun acc varIdx -> addOrUpdate (varIdx, varIdx) penaltyForbidden acc) Map.empty
+
     /// Build resource constraint QUBO terms
     let private buildResourceTerms
         (tasks: ScheduledTask<'T> list)
@@ -379,9 +406,12 @@ module QuboEncoding =
     ///   1. One-hot: Each task starts exactly once: Σ_time x_{task,time} = 1
     ///   2. Dependencies: Successor starts after predecessor finishes
     ///   3. Resources: At any time t, Σ_{overlapping tasks} resource_usage ≤ capacity
+    ///   4. Allowed starts: x_{task,time} = 0 when the slot starts before EarliestStart or the
+    ///      task would leave every availability window of a resource it requires
+    ///      (the variables stay in the QUBO, so qubits = tasks × slots)
     ///
     /// QUBO FORM (minimization for QAOA):
-    ///   H = Objective + λ₁*Penalty₁ + λ₂*Penalty₂ + λ₃*Penalty₃
+    ///   H = Objective + λ₁*Penalty₁ + λ₂*Penalty₂ + λ₃*Penalty₃ + λ₄*Penalty₄
     let toQubo
         (problem: SchedulingProblem<'TTask, 'TResource>)
         (timeHorizon: int)
@@ -431,9 +461,18 @@ module QuboEncoding =
             let resourceTerms =
                 buildResourceTerms problem.Tasks problem.Resources varMapping timeHorizon slotMinutes penaltyResource
 
+            let forbiddenStartTerms =
+                buildForbiddenStartTerms (forbiddenStartVariables problem timeHorizon slotMinutes) penaltyDependency
+
             // Combine all terms
             let quboTerms =
-                [ objectiveTerms; oneHotTerms; dependencyTerms; resourceTerms ]
+                [
+                    objectiveTerms
+                    oneHotTerms
+                    dependencyTerms
+                    resourceTerms
+                    forbiddenStartTerms
+                ]
                 |> List.fold
                     (fun acc terms -> Map.fold (fun acc2 key value -> addOrUpdate key value acc2) acc terms)
                     Map.empty

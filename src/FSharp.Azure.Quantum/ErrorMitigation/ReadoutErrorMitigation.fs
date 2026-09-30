@@ -67,10 +67,14 @@ module ReadoutErrorMitigation =
             /// Confidence level for intervals (typically 0.95 for 95%)
             ConfidenceLevel: float
 
-            /// Whether to clip negative corrected counts to zero
+            /// Whether to clip negative corrected counts to zero (then renormalise). False keeps
+            /// the unbiased quasi-probabilities M^-1 × measured, negative entries included,
+            /// which expectation values need.
             ClipNegative: bool
 
-            /// Minimum probability threshold for filtering noise
+            /// Minimum probability threshold for filtering noise: corrected entries below it
+            /// (negative ones included) are dropped. 0 keeps every nonzero entry, which
+            /// unbiased expectation values need together with ClipNegative = false.
             MinProbability: float
         }
 
@@ -305,30 +309,39 @@ module ReadoutErrorMitigation =
                             [| for j in 0 .. dimension - 1 -> inverse.[i, j] * measuredVector.[j] |]
                             |> Array.sum)
 
-                    // Step 4: Clip negative values if configured
-                    let clippedVector =
+                    // Steps 4-5: with ClipNegative, clip negative entries to zero and renormalise to
+                    // a probability distribution. Without it, keep the quasi-probabilities
+                    // unchanged: M^-1 × measured is the unbiased estimate, and clipping,
+                    // renormalising or dropping entries would bias expectation values.
+                    let normalizedVector =
                         if config.ClipNegative then
-                            correctedVector |> Array.map (max 0.0)
+                            let clippedVector = correctedVector |> Array.map (max 0.0)
+                            let totalProb = Array.sum clippedVector
+
+                            if totalProb > 0.0 then
+                                clippedVector |> Array.map (fun p -> p / totalProb)
+                            else
+                                clippedVector
                         else
                             correctedVector
 
-                    // Step 5: Renormalize to ensure probabilities sum to 1.0
-                    let totalProb = Array.sum clippedVector
-
-                    let normalizedVector =
-                        if totalProb > 0.0 then
-                            clippedVector |> Array.map (fun p -> p / totalProb)
+                    // Step 6: Convert back to histogram (scale by total shots), dropping entries
+                    // below MinProbability of the shots (negative ones included). MinProbability = 0
+                    // keeps every nonzero entry: with ClipNegative = false, that is the whole
+                    // unbiased quasi-distribution.
+                    let keep (count: float) =
+                        if config.MinProbability > 0.0 then
+                            count >= config.MinProbability * totalShots
                         else
-                            clippedVector
+                            count <> 0.0
 
-                    // Step 6: Convert back to histogram (scale by total shots)
                     let correctedHistogram =
                         normalizedVector
                         |> Array.mapi (fun i prob ->
                             let bitstring = intToBitstring i calibration.Qubits
                             let count = prob * totalShots
                             (bitstring, count))
-                        |> Array.filter (fun (_, count) -> count >= config.MinProbability * totalShots)
+                        |> Array.filter (fun (_, count) -> keep count)
                         |> Map.ofArray
 
                     // Step 7: Calculate confidence intervals (error propagation)
@@ -351,7 +364,13 @@ module ReadoutErrorMitigation =
                             let stdDev = sqrt variance
                             // 95% confidence interval: ±1.96 * stdDev
                             let margin = 1.96 * stdDev * totalShots
-                            let lower = max 0.0 (correctedCount - margin)
+
+                            let lower =
+                                if config.ClipNegative then
+                                    max 0.0 (correctedCount - margin)
+                                else
+                                    correctedCount - margin
+
                             let upper = correctedCount + margin
                             (lower, upper))
 

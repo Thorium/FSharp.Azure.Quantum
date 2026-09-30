@@ -372,6 +372,101 @@ module QuantumTeleportation =
             result.BackendName
 
     // ========================================================================
+    // WHOLE-CIRCUIT TELEPORTATION (backends that run complete circuits only)
+    // ========================================================================
+
+    /// ⟨σ⟩ of qubit 2 from a measured state: P(q2 = 0) − P(q2 = 1).
+    let private expectationOnBob (state: QuantumState) : float =
+        [ 0..7 ]
+        |> List.sumBy (fun index ->
+            let bits = Array.init 3 (fun q -> (index >>> q) &&& 1)
+            let p = QuantumState.probability bits state
+            if bits.[2] = 0 then p else -p)
+
+    /// Teleportation of the state `prepOps` make on qubit 0, run as whole circuits.
+    ///
+    /// The corrections are already deferred-measurement gates (CNOT, CZ), so the protocol
+    /// is one circuit and Alice's bits are the final measurement of q0 and q1 — measuring
+    /// them at the end gives the same distribution as measuring them mid-circuit. Counts give
+    /// no state vector, so fidelity is estimated by tomography of Bob's qubit: the circuit
+    /// is run three times, measuring q2 in the Z, X and Y bases, and F = (1 + r_in·r)/2 for
+    /// the measured Bloch vector r and the input's r_in.
+    let private teleportWholeCircuit
+        (prepOps: QuantumOperation list)
+        (backend: IQuantumBackend)
+        : Result<TeleportationResult, QuantumError> =
+
+        result {
+            let intent =
+                {
+                    AliceInputQubit = 0
+                    AliceBellQubit = 1
+                    BobBellQubit = 2
+                }
+
+            let! teleportPlan = plan backend intent
+
+            let protocolOps =
+                match teleportPlan with
+                | TeleportationPlan.ExecuteViaOps(bellOps, aliceOps, correctionOps) ->
+                    prepOps @ bellOps @ aliceOps @ correctionOps
+
+            let bob = intent.BobBellQubit
+            let! zState = UnifiedBackend.submitAsCircuit backend 3 protocolOps
+
+            let! xState =
+                UnifiedBackend.submitAsCircuit backend 3 (protocolOps @ [ QuantumOperation.Gate(H bob) ])
+
+            let! yState =
+                UnifiedBackend.submitAsCircuit
+                    backend
+                    3
+                    (protocolOps @ [ QuantumOperation.Gate(SDG bob); QuantumOperation.Gate(H bob) ])
+
+            let measured =
+                (expectationOnBob xState, expectationOnBob yState, expectationOnBob zState)
+
+            // The input's Bloch vector is the reference the fidelity is measured against: the
+            // state the caller asked to teleport, described exactly, not a result.
+            let reference =
+                FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+
+            let! referenceState =
+                reference.InitializeState 3
+                |> Result.bind (UnifiedBackend.applySequence reference prepOps)
+
+            let! (alpha, beta) = extractInputQubitState referenceState
+            let overlap = Complex.Conjugate alpha * beta
+
+            let inputBloch =
+                (2.0 * overlap.Real,
+                 2.0 * overlap.Imaginary,
+                 alpha.Magnitude * alpha.Magnitude - beta.Magnitude * beta.Magnitude)
+
+            let dot (x1, y1, z1) (x2, y2, z2) = x1 * x2 + y1 * y2 + z1 * z2
+            let fidelity = max 0.0 (min 1.0 ((1.0 + dot inputBloch measured) / 2.0))
+
+            // Alice's bits: one shot of the Z-basis run.
+            let bits = QuantumState.measure zState 1 |> Array.head
+
+            let aliceMeasurement =
+                {
+                    Bit0 = bits.[intent.AliceInputQubit]
+                    Bit1 = bits.[intent.AliceBellQubit]
+                }
+
+            return
+                {
+                    AliceMeasurement = aliceMeasurement
+                    BobCorrection = getCorrection aliceMeasurement
+                    BobState = zState
+                    NumQubits = 3
+                    BackendName = backend.Name
+                    Fidelity = fidelity
+                }
+        }
+
+    // ========================================================================
     // TELEPORTATION PROTOCOL
     // ========================================================================
 
@@ -405,7 +500,23 @@ module QuantumTeleportation =
     /// - Measurements are extracted from actual quantum state (not hardcoded)
     /// - All 4 measurement outcomes (00, 01, 10, 11) are possible
     /// - Fidelity depends on Bell pair quality and gate fidelity
-    let teleport (inputState: QuantumState) (backend: IQuantumBackend) : Result<TeleportationResult, QuantumError> =
+    let rec teleport (inputState: QuantumState) (backend: IQuantumBackend) : Result<TeleportationResult, QuantumError> =
+        match teleportIncremental inputState backend with
+        | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+            // A backend that runs complete circuits only. A job starts from |0…0⟩ and cannot
+            // be handed a prepared state, so only the |0⟩ input can be teleported this way;
+            // teleportOne, teleportPlus and teleportMinus prepare theirs inside the circuit.
+            if UnifiedBackend.isZeroState inputState then
+                teleportWholeCircuit [] backend
+            else
+                Error(WholeCircuit.notFromZeroError "QuantumTeleportation")
+        | other -> other
+
+    /// Teleportation applied gate by gate to `inputState`.
+    and private teleportIncremental
+        (inputState: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<TeleportationResult, QuantumError> =
 
         result {
             let intent =
@@ -467,6 +578,22 @@ module QuantumTeleportation =
     // CONVENIENCE FUNCTIONS
     // ========================================================================
 
+    /// Teleport the state `prepOps` make on qubit 0 from |000⟩. Gate by gate where the backend
+    /// allows it; a backend that runs complete circuits only gets the preparation inside the
+    /// teleportation circuit.
+    let private teleportPrepared
+        (prepOps: QuantumOperation list)
+        (backend: IQuantumBackend)
+        : Result<TeleportationResult, QuantumError> =
+        result {
+            let! initialState = backend.InitializeState 3
+
+            match UnifiedBackend.applySequence backend prepOps initialState with
+            | Ok prepared -> return! teleport prepared backend
+            | Error e when UnifiedBackend.isIncrementalUnsupported e -> return! teleportWholeCircuit prepOps backend
+            | Error e -> return! Error e
+        }
+
     /// Teleport a |0⟩ state (trivial test case)
     ///
     /// This is the simplest teleportation scenario:
@@ -487,49 +614,21 @@ module QuantumTeleportation =
     /// Input: |1⟩ on qubit 0
     /// Expected outcomes vary based on measurement
     let teleportOne (backend: IQuantumBackend) : Result<TeleportationResult, QuantumError> =
-        result {
-            // Prepare 3-qubit state
-            let! initialState = backend.InitializeState 3
-
-            // Apply X to qubit 0 to create |1⟩
-            let! stateWithOne = backend.ApplyOperation (QuantumOperation.Gate(X 0)) initialState
-
-            // Teleport
-            return! teleport stateWithOne backend
-        }
+        teleportPrepared [ QuantumOperation.Gate(X 0) ] backend
 
     /// Teleport a |+⟩ state (superposition)
     ///
     /// Input: |+⟩ = (|0⟩ + |1⟩) / √2 on qubit 0
     /// This tests teleportation of superposition states
     let teleportPlus (backend: IQuantumBackend) : Result<TeleportationResult, QuantumError> =
-        result {
-            // Prepare 3-qubit state
-            let! initialState = backend.InitializeState 3
-
-            // Apply H to qubit 0 to create |+⟩
-            let! stateWithPlus = backend.ApplyOperation (QuantumOperation.Gate(H 0)) initialState
-
-            // Teleport
-            return! teleport stateWithPlus backend
-        }
+        teleportPrepared [ QuantumOperation.Gate(H 0) ] backend
 
     /// Teleport a |-⟩ state (superposition with phase)
     ///
     /// Input: |-⟩ = (|0⟩ - |1⟩) / √2 on qubit 0
     /// This tests teleportation with relative phase
     let teleportMinus (backend: IQuantumBackend) : Result<TeleportationResult, QuantumError> =
-        result {
-            // Prepare 3-qubit state
-            let! initialState = backend.InitializeState 3
-
-            // Apply H and Z to qubit 0 to create |-⟩
-            let! afterH = backend.ApplyOperation (QuantumOperation.Gate(H 0)) initialState
-            let! stateWithMinus = backend.ApplyOperation (QuantumOperation.Gate(Z 0)) afterH
-
-            // Teleport
-            return! teleport stateWithMinus backend
-        }
+        teleportPrepared [ QuantumOperation.Gate(H 0); QuantumOperation.Gate(Z 0) ] backend
 
     /// Teleport arbitrary single-qubit state
     ///
@@ -544,6 +643,10 @@ module QuantumTeleportation =
     ///
     /// **Returns**:
     ///   TeleportationResult with Bob's final state
+    ///
+    /// A backend that runs complete circuits only cannot be handed a prepared state, so there
+    /// this is an Error unless the state is |000⟩; teleportOne, teleportPlus and teleportMinus
+    /// prepare their inputs inside the circuit.
     let teleportArbitrary (state: QuantumState) (backend: IQuantumBackend) : Result<TeleportationResult, QuantumError> =
         teleport state backend
 

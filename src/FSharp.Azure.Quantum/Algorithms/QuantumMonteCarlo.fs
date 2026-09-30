@@ -190,58 +190,112 @@ module QuantumMonteCarlo =
                     )
                 )
 
-    /// Extract the dense amplitude vector from a state-vector (gate-based) result.
-    let private tryGetAmplitudes (state: QuantumState) : Result<Complex[], QuantumError> =
+    /// Probability of every computational basis state (index i: qubit q = bit q of i) of a
+    /// state a backend returned: |amplitude|² of a state vector, which is exact on a
+    /// simulator and the job's outcome frequencies for a sampled whole-circuit result, or the
+    /// diagonal of a density matrix.
+    let private basisProbabilities (state: QuantumState) : Result<float[], QuantumError> =
         match state with
         | QuantumState.StateVector sv ->
             let dim = 1 <<< StateVector.numQubits sv
-            Ok(Array.init dim (fun i -> StateVector.getAmplitude i sv))
+
+            Ok(
+                Array.init dim (fun i ->
+                    let a = StateVector.getAmplitude i sv
+                    a.Real * a.Real + a.Imaginary * a.Imaginary)
+            )
+        | QuantumState.SparseState(amplitudes, n) ->
+            let probabilities = Array.zeroCreate (1 <<< n)
+
+            for KeyValue(i, a) in amplitudes do
+                probabilities.[i] <- a.Real * a.Real + a.Imaginary * a.Imaginary
+
+            Ok probabilities
+        | QuantumState.DensityMatrix(rho, n) -> Ok(Array.init (1 <<< n) (fun i -> rho.[i, i].Real))
         | _ ->
             Error(
                 QuantumError.OperationError(
                     "QuantumMonteCarlo",
-                    "Amplitude estimation requires a state-vector (gate-based) backend"
+                    "Amplitude estimation needs basis-state probabilities; the backend returned a state without them"
                 )
             )
 
-    /// Execute a circuit on the backend and read back its amplitude vector.
-    let private runAndReadAmplitudes
+    /// Run a gate circuit from |0…0⟩ and return its basis-state probabilities, and whether it
+    /// was submitted whole. Gate by gate (UnifiedBackend.applySequence) on a backend that applies
+    /// gates one at a time; as one whole circuit (UnifiedBackend.submitAsCircuit) only when the
+    /// backend refuses incremental application, as cloud hardware does.
+    let private runForProbabilities
         (backend: IQuantumBackend)
         (circuit: CircuitBuilder.Circuit)
-        : Result<Complex[], QuantumError> =
-        let wrapper =
-            CircuitAbstraction.CircuitWrapper(circuit) :> CircuitAbstraction.ICircuit
+        : Result<float[] * bool, QuantumError> =
+        let numQubits = circuit.QubitCount
+        let operations = CircuitBuilder.getGates circuit |> List.map QuantumOperation.Gate
 
-        backend.ExecuteToState wrapper |> Result.bind tryGetAmplitudes
+        match
+            backend.InitializeState numQubits
+            |> Result.bind (UnifiedBackend.applySequence backend operations)
+        with
+        | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+            UnifiedBackend.submitAsCircuit backend numQubits operations
+            |> Result.bind basisProbabilities
+            |> Result.map (fun p -> p, true)
+        | stepped -> stepped |> Result.bind basisProbabilities |> Result.map (fun p -> p, false)
 
-    /// Identify the marked (good) basis states encoded by the phase oracle.
-    /// Running the oracle on the uniform superposition flips the sign of exactly the
-    /// marked amplitudes, so they are the indices whose real part becomes negative.
-    let private determineMarkedSet
-        (backend: IQuantumBackend)
-        (oracle: CircuitBuilder.Circuit)
-        (numQubits: int)
-        : Result<Set<int>, QuantumError> =
+    /// The marked set of a phase oracle, read from the oracle's definition: the oracle circuit
+    /// is simulated exactly on the uniform superposition by the local state-vector simulator,
+    /// never on the target backend (a sampled result carries no phases), and the marked states
+    /// are those whose amplitude it negates. The backend only measures probabilities. An
+    /// oracle that does anything but multiply each basis state by +1 or -1 is an Error.
+    let private markedSetOfOracle (oracle: CircuitBuilder.Circuit) : Result<Set<int>, QuantumError> =
+        let numQubits = oracle.QubitCount
+
         let uniform =
             [ 0 .. numQubits - 1 ]
             |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q)) (CircuitBuilder.empty numQubits)
 
-        let circuit = CircuitBuilder.compose uniform oracle // H^⊗n first, then the oracle
+        let exact =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
 
-        runAndReadAmplitudes backend circuit
-        |> Result.map (
-            Array.indexed
-            >> Array.choose (fun (i, a) -> if a.Real < -1e-9 then Some i else None)
-            >> Set.ofArray
-        )
+        // H^⊗n first, then the oracle (compose c1 c2 = c1 then c2)
+        exact.ExecuteToState(CircuitWrapper(CircuitBuilder.compose uniform oracle) :> ICircuit)
+        |> Result.bind (fun state ->
+            match state with
+            | QuantumState.StateVector sv ->
+                let dim = 1 <<< numQubits
+                let expected = 1.0 / sqrt (float dim)
+                let amplitudes = Array.init dim (fun i -> StateVector.getAmplitude i sv)
 
-    /// Probability mass on the marked subspace for a given amplitude vector.
-    let private markedProbability (markedSet: Set<int>) (amps: Complex[]) : float =
+                if
+                    amplitudes
+                    |> Array.forall (fun a -> abs a.Imaginary < 1e-7 && abs (abs a.Real - expected) < 1e-7)
+                then
+                    amplitudes
+                    |> Array.indexed
+                    |> Array.choose (fun (i, a) -> if a.Real < 0.0 then Some i else None)
+                    |> Set.ofArray
+                    |> Ok
+                else
+                    Error(
+                        QuantumError.ValidationError(
+                            "Oracle",
+                            "must be a phase oracle that multiplies each basis state by +1 or -1"
+                        )
+                    )
+            | _ ->
+                Error(
+                    QuantumError.OperationError(
+                        "QuantumMonteCarlo",
+                        "local simulation of the oracle gave no state vector"
+                    )
+                ))
+
+    /// Probability mass on the marked subspace.
+    let private markedProbability (markedSet: Set<int>) (probabilities: float[]) : float =
         markedSet
         |> Set.fold
             (fun acc i ->
-                if i < amps.Length then
-                    acc + amps.[i].Magnitude ** 2.0
+                if i < probabilities.Length then
+                    acc + probabilities.[i]
                 else
                     acc)
             0.0
@@ -258,18 +312,19 @@ module QuantumMonteCarlo =
 
         build [] 0
 
-    /// Maximum-Likelihood Amplitude Estimation: recover θ (hence a = sin²θ) from the
-    /// marked-state probabilities measured at several Grover powers, each obeying
-    /// P_k(good) = sin²((2k+1)θ). A grid search over θ ∈ [0, π/2] maximises the
-    /// shot-weighted Bernoulli log-likelihood, followed by a local refinement.
-    let private estimateAmplitudeMLAE (shots: int) (measurements: (int * float) list) : float =
+    /// Maximum-Likelihood Amplitude Estimation: recover θ (a = sin²θ) from the marked-state
+    /// probabilities measured at several Grover powers, each obeying
+    /// P_k(good) = sin²((2k+1)θ). A grid search over θ ∈ [0, π/2] maximises the Bernoulli
+    /// log-likelihood (every power has the same shot count, so it is unweighted), followed by
+    /// a local refinement.
+    let private estimateThetaMLAE (measurements: (int * float) list) : float =
         let logLikelihood (theta: float) : float =
             measurements
             |> List.sumBy (fun (k, pGood) ->
                 let angle = float (2 * k + 1) * theta
                 let s = max 1e-12 ((sin angle) ** 2.0)
                 let c = max 1e-12 ((cos angle) ** 2.0)
-                float shots * (pGood * log s + (1.0 - pGood) * log c))
+                pGood * log s + (1.0 - pGood) * log c)
 
         let gridN = 2000
         let half = Math.PI / 2.0
@@ -287,41 +342,195 @@ module QuantumMonteCarlo =
         |> List.map (fun th -> (th, logLikelihood th))
         |> List.maxBy snd
         |> fst
-        |> fun thetaHat -> (sin thetaHat) ** 2.0
 
-    /// Run amplitude estimation end to end: identify the marked subspace, measure the
-    /// marked-state probability P_k(good) at each Grover power on the backend, and
-    /// return the maximum-likelihood estimate of the marked amplitude a.
-    let private runAmplitudeEstimation (backend: IQuantumBackend) (config: QMCConfig) : Result<float, QuantumError> =
-        let groverOp = buildGroverOperator config.StatePreparation config.Oracle
+    /// Shots behind each probability a sampling backend returns (IShotSamplingBackend).
+    let private samplingShots (backend: IQuantumBackend) : int option =
+        match backend with
+        | :? IShotSamplingBackend as sampling when sampling.Shots > 0 -> Some sampling.Shots
+        | _ -> None
+
+    /// Outcome of runAmplitudeEstimation.
+    type private AmplitudeEstimate =
+        {
+            Amplitude: float
+            StandardError: float
+            Powers: int list
+            WholeCircuit: bool
+            ShotsPerCircuit: int option
+        }
+
+    /// Amplitude estimation end to end: measure the marked-state probability P_k(good) of
+    /// statePrep · Q^k on the backend at each Grover power k of the MLAE schedule, and fit
+    /// a = sin²θ by maximum likelihood. StandardError is the Cramér–Rao error of that fit,
+    /// sin(2θ)·σ_θ + σ_θ² with σ_θ = 1 / (2 √(N Σ_k (2k+1)²)), for N shots per circuit: the
+    /// backend's when it samples whole circuits, else `shots`. The second-order term keeps
+    /// it positive at a = 0 or 1.
+    let private runAmplitudeEstimation
+        (backend: IQuantumBackend)
+        (statePrep: CircuitBuilder.Circuit)
+        (oracle: CircuitBuilder.Circuit)
+        (markedSet: Set<int>)
+        (groverIterations: int)
+        (shots: int)
+        : Result<AmplitudeEstimate, QuantumError> =
+        let groverOp = buildGroverOperator statePrep oracle
 
         let buildAmplified (k: int) : CircuitBuilder.Circuit =
             // State prep first, then k applications of the Grover operator (compose c1 c2 = c1 then c2).
-            [ 1..k ]
-            |> List.fold (fun c _ -> CircuitBuilder.compose c groverOp) config.StatePreparation
+            [ 1..k ] |> List.fold (fun c _ -> CircuitBuilder.compose c groverOp) statePrep
 
-        determineMarkedSet backend config.Oracle config.NumQubits
-        |> Result.bind (fun markedSet ->
-            mlaeSchedule config.GroverIterations
-            |> List.fold
-                (fun accR k ->
-                    accR
-                    |> Result.bind (fun acc ->
-                        runAndReadAmplitudes backend (buildAmplified k)
-                        |> Result.map (fun amps -> (k, markedProbability markedSet amps) :: acc)))
-                (Ok [])
-            |> Result.map (List.rev >> estimateAmplitudeMLAE config.Shots))
+        let powers = mlaeSchedule groverIterations
 
-    /// Measure the genuine bin probabilities q_i = |⟨i|ψ⟩|² produced by a state-preparation
-    /// circuit on the given backend (basis index i ↔ bin i). Exposed so business modules
-    /// (option pricing, risk) can derive expectations from the actual quantum distribution
-    /// rather than from a classical array.
+        powers
+        |> List.fold
+            (fun accR k ->
+                accR
+                |> Result.bind (fun (acc, whole) ->
+                    runForProbabilities backend (buildAmplified k)
+                    |> Result.map (fun (probabilities, submittedWhole) ->
+                        (k, markedProbability markedSet probabilities) :: acc, whole || submittedWhole)))
+            (Ok([], false))
+        |> Result.map (fun (measured, whole) ->
+            let shotsPerCircuit = if whole then samplingShots backend else None
+            let n = float (defaultArg shotsPerCircuit shots)
+            let theta = estimateThetaMLAE (List.rev measured)
+
+            let sigmaTheta =
+                1.0
+                / (2.0
+                   * sqrt (n * (powers |> List.sumBy (fun k -> float ((2 * k + 1) * (2 * k + 1))))))
+
+            {
+                Amplitude = (sin theta) ** 2.0
+                StandardError = abs (sin (2.0 * theta)) * sigmaTheta + sigmaTheta * sigmaTheta
+                Powers = powers
+                WholeCircuit = whole
+                ShotsPerCircuit = shotsPerCircuit
+            })
+
+    /// Measure the bin probabilities q_i = |⟨i|ψ⟩|² produced by a state-preparation circuit on
+    /// the given backend (basis index i ↔ bin i): exact on a simulator run gate by gate, the
+    /// job's outcome frequencies on a backend that runs whole circuits only.
     let measureBinProbabilities
         (backend: IQuantumBackend)
         (statePrep: CircuitBuilder.Circuit)
         : Result<float[], QuantumError> =
-        runAndReadAmplitudes backend statePrep
-        |> Result.map (Array.map (fun (a: Complex) -> a.Magnitude * a.Magnitude))
+        runForProbabilities backend statePrep |> Result.map fst
+
+    /// Result of estimateBoundedExpectation.
+    type BoundedExpectationResult =
+        {
+            /// Maximum-likelihood amplitude estimate of E[f(X)]
+            Expectation: float
+
+            /// Cramér–Rao standard error of Expectation for the shots behind each measured
+            /// probability (ShotsPerCircuit, else the requested shots)
+            StandardError: float
+
+            /// Grover powers whose marked-state probability was measured (0 = the prepared state)
+            GroverPowers: int list
+
+            /// True when the backend refused gate-by-gate application and every circuit was
+            /// submitted whole
+            WholeCircuit: bool
+
+            /// Shots behind each measured probability when a sampling backend
+            /// (IShotSamplingBackend) ran whole circuits; None when the probabilities are exact
+            ShotsPerCircuit: int option
+        }
+
+    /// Amplitude estimation of a bounded expectation E[f(X)] = Σ_i p_i f(i), f(i) ∈ [0, 1],
+    /// where `statePreparation` prepares Σ_i √p_i |i⟩ on its n qubits (basis index i, qubit q
+    /// = bit q of i); the construction of Woerner and Egger, "Quantum risk analysis" (2019).
+    ///
+    /// A = statePreparation, then an RY(2·asin √f(i)) on one ancilla (qubit n) uniformly
+    /// controlled by the n state qubits, so P(ancilla = 1) = E[f(X)]. The marked set is that
+    /// predicate, ancilla = 1, and the oracle is a Z on the ancilla. The estimate is the
+    /// maximum-likelihood fit of the ancilla = 1 probabilities measured at the Grover powers
+    /// 0, 1, 2, 4, … ≤ groverIterations: exact probabilities on a simulator run gate by gate,
+    /// the job's outcome frequencies on a backend that runs whole circuits only. The circuits
+    /// use n + 1 qubits and H, X, RY, CNOT and the multi-controlled Z of the reflection.
+    let estimateBoundedExpectation
+        (statePreparation: CircuitBuilder.Circuit)
+        (values: float[])
+        (groverIterations: int)
+        (shots: int)
+        (backend: IQuantumBackend)
+        : Async<QuantumResult<BoundedExpectationResult>> =
+        async {
+            let n = statePreparation.QubitCount
+
+            return
+                if n < 1 then
+                    Error(QuantumError.ValidationError("statePreparation", "Must act on at least 1 qubit"))
+                elif n + 1 > StateVector.practicalCircuitQubits then
+                    Error(
+                        QuantumError.ValidationError(
+                            "statePreparation",
+                            $"{n} qubits plus the ancilla exceed the circuit budget ({StateVector.practicalCircuitQubits})"
+                        )
+                    )
+                elif values.Length <> (1 <<< n) then
+                    Error(
+                        QuantumError.ValidationError(
+                            "values",
+                            $"Need one value per basis state ({1 <<< n}), got {values.Length}"
+                        )
+                    )
+                elif
+                    values
+                    |> Array.exists (fun v -> Double.IsNaN v || v < -1e-12 || v > 1.0 + 1e-12)
+                then
+                    Error(QuantumError.ValidationError("values", "Every value must lie in [0, 1]"))
+                elif groverIterations < 0 then
+                    Error(QuantumError.ValidationError("groverIterations", "Must be >= 0"))
+                elif shots < 1 then
+                    Error(QuantumError.ValidationError("shots", "Must be >= 1"))
+                elif backend.NativeStateType = QuantumStateType.Annealing then
+                    Error(
+                        QuantumError.OperationError(
+                            "QuantumMonteCarlo",
+                            $"Backend '{backend.Name}' does not support amplitude estimation (native state type: {backend.NativeStateType})"
+                        )
+                    )
+                else
+                    let ancilla = n
+
+                    let angles = values |> Array.map (fun v -> 2.0 * asin (sqrt (min 1.0 (max 0.0 v))))
+
+                    let widened: CircuitBuilder.Circuit =
+                        {
+                            QubitCount = n + 1
+                            Gates = statePreparation.Gates
+                        }
+
+                    let a =
+                        MottonenStatePreparation.uniformlyControlledRY angles ancilla [| 0 .. n - 1 |] widened
+
+                    let oracle =
+                        CircuitBuilder.empty (n + 1)
+                        |> CircuitBuilder.addGate (CircuitBuilder.Z ancilla)
+
+                    if not (supportsCircuit backend a && supportsCircuit backend oracle) then
+                        Error(
+                            QuantumError.OperationError(
+                                "QuantumMonteCarlo",
+                                $"Backend '{backend.Name}' does not support all required circuit operations"
+                            )
+                        )
+                    else
+                        let marked = Set.ofList [ (1 <<< n) .. (1 <<< (n + 1)) - 1 ]
+
+                        runAmplitudeEstimation backend a oracle marked groverIterations shots
+                        |> Result.map (fun estimate ->
+                            {
+                                Expectation = estimate.Amplitude
+                                StandardError = estimate.StandardError
+                                GroverPowers = estimate.Powers
+                                WholeCircuit = estimate.WholeCircuit
+                                ShotsPerCircuit = estimate.ShotsPerCircuit
+                            })
+        }
 
     // ========================================================================
     // PUBLIC - Quantum Monte Carlo (RULE1: backend required)
@@ -369,12 +578,21 @@ module QuantumMonteCarlo =
 
                         let intent = { Config = config }
 
-                        // Validate backend support, then estimate the marked-subspace amplitude
-                        // via Maximum-Likelihood Amplitude Estimation over a Grover-power schedule.
+                        // Validate backend support, take the marked set from the oracle's
+                        // definition, then estimate the marked-subspace amplitude by
+                        // Maximum-Likelihood Amplitude Estimation over a Grover-power schedule.
                         let! estimatedAmplitude =
-                            match plan backend intent with
-                            | Error err -> Error err
-                            | Ok _ -> runAmplitudeEstimation backend config
+                            plan backend intent
+                            |> Result.bind (fun _ -> markedSetOfOracle config.Oracle)
+                            |> Result.bind (fun markedSet ->
+                                runAmplitudeEstimation
+                                    backend
+                                    config.StatePreparation
+                                    config.Oracle
+                                    markedSet
+                                    config.GroverIterations
+                                    config.Shots)
+                            |> Result.map (fun estimate -> estimate.Amplitude)
 
                         // The estimated marked amplitude a = sin²θ IS the expectation E[1_good] = P(good).
                         let originalAmplitude = estimatedAmplitude

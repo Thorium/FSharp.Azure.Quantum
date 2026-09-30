@@ -818,7 +818,12 @@ module CircuitBuilder =
 
     /// Creates a circuit with multiple gates (useful for for loops)
     /// Use with yield! inside for loops: for gates in gateList do yield! multiGate gates
-    let multiGate (gates: Gate list) : Circuit = { QubitCount = 0; Gates = gates }
+    /// `gates` is in program order (first applied first); it is stored most-recent-first.
+    let multiGate (gates: Gate list) : Circuit =
+        {
+            QubitCount = 0
+            Gates = List.rev gates
+        }
 
     // ============================================================================
     // GATE CONSTRUCTOR HELPERS - For use in for loops

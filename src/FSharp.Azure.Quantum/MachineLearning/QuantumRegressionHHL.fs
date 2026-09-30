@@ -389,6 +389,16 @@ module QuantumRegressionHHL =
                         // Execute HHL with new unified API
                         match HHL.execute hhlConfig config.Backend with
                         | Error err -> Error err
+                        | Ok hhlResult when hhlResult.Readout = HhlReadout.MeasuredMagnitudes ->
+                            // Regression weights are signed. Measured counts give |w_i| only, and
+                            // guessing the signs would be a classical substitute for the quantum
+                            // answer, so this is refused.
+                            Error(
+                                QuantumError.OperationError(
+                                    "QuantumRegressionHHL",
+                                    $"Backend '{config.Backend.Name}' runs complete circuits only, so HHL returns measured magnitudes |w_i| without signs, and regression weights need their signs. Recovering them takes further interference circuits, which are not implemented; train on a backend with state access (LocalBackend, TopologicalBackend)."
+                                )
+                            )
                         | Ok hhlResult ->
                             if config.Verbose then
                                 logInfo config.Logger $"   HHL success probability: {hhlResult.SuccessProbability:F4}"

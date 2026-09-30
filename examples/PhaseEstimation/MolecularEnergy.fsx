@@ -1,25 +1,28 @@
 ﻿#!/usr/bin/env dotnet fsi
 // ============================================================================
-// Quantum Phase Estimation - the eigenphase of single-qubit stand-in unitaries
+// Quantum Phase Estimation - gate eigenphases, and the H2 molecule's energy
 // ============================================================================
 //
-// QPE reads the phase φ of an eigenvalue e^(2πiφ) of a unitary U. Every scenario
-// here estimates that phase for a one-qubit gate on its eigenvector |1⟩, on the
-// local simulator:
+// QPE reads the phase φ of an eigenvalue e^(2πiφ) of a unitary U. The first three
+// scenarios estimate that phase for a one-qubit gate on its eigenvector |1⟩, on the
+// local simulator (educational; "molecular" and "crystal" are scenario names only):
 //   tgate      T                          φ = 1/8
 //   molecular  Rz(θ) = e^(-iθZ/2)         φ = θ/(4π)  (the controlled-Rz kickback on |1⟩)
 //   crystal    P(angle) = diag(1, e^(i·angle))   φ = angle/(2π)
-// "molecular" and "crystal" are scenario names only: no molecule or lattice is
-// modelled. The molecular scenario reads Rz(θ) as U = e^(-iH) with the stand-in
-// Hamiltonian H = (θ/2)·Z, so its "energy" is E = -2πφ (known modulo 2π), which is
-// -θ/2 on |1⟩. Every result is checked against the exact phase.
+// The molecular scenario reads Rz(θ) as U = e^(-iH) with the stand-in Hamiltonian
+// H = (θ/2)·Z, so its "energy" is E = -2πφ (known modulo 2π), which is -θ/2 on |1⟩.
+// Every result is checked against the exact phase.
 //
-// A real molecular QPE needs: the molecule's electronic Hamiltonian mapped to qubits
-// (e.g. Jordan-Wigner, tens to thousands of qubits); controlled e^(-iHt·2^j) built
-// from Trotter steps or qubitization, whose depth grows with 2^j; a starting state
-// with large overlap on the ground state (e.g. Hartree-Fock); and about
-// log2(range / 1.6 mHa) phase bits for chemical accuracy, at depths that need
-// error-corrected hardware. None of that is done here.
+// The h2 scenario is a real molecular QPE (QuantumChemistry.QPE.runWith): the H2
+// electronic Hamiltonian in STO-3G, mapped to 4 qubits by Jordan-Wigner, shifted by an
+// upper bound on its spectrum so every eigenvalue has its own phase; controlled
+// e^(-iHt·2^j) as a first-order Trotter circuit repeated 2^j times; the Hartree-Fock
+// state as the starting state; 8 counting qubits (12 in all). The energy is the most
+// probable peak of the readings, refined between its two highest bins, and is compared
+// with UCCSD-VQE (exact for H2 in this basis). QPE returns each eigenvalue with the
+// probability that the starting state overlaps it: at --bond 2.0 the Hartree-Fock state
+// overlaps the ground state only 71%, and a second peak (a doubly excited state) shows.
+// About 7 s on the local simulator; larger molecules need error-corrected hardware.
 //
 // Add `--svg [path]` to also draw the Rz(θ) estimate (with --theta)
 // as an animated picture (default: _images/phase-estimation.svg next to this script).
@@ -27,6 +30,7 @@
 // ============================================================================
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
+#r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -47,6 +51,7 @@ open FSharp.Azure.Quantum.Algorithms.QPE
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Examples.Common
 open SvgAnimation
 
@@ -59,12 +64,28 @@ let args = Cli.parse argv
 
 Cli.exitIfHelp
     "MolecularEnergy.fsx"
-    "Quantum Phase Estimation of single-qubit stand-in unitaries (T, Rz(theta), P(angle))"
+    "Quantum Phase Estimation: single-qubit unitaries (T, Rz(theta), P(angle)) and the H2 molecule's energy"
     [
         {
             Name = "scenario"
-            Description = "Which scenario (all|tgate|molecular = Rz(theta)|crystal = P(angle))"
+            Description =
+                "Which scenario (all|tgate|molecular = Rz(theta)|crystal = P(angle)|h2 = QPE of the H2 Hamiltonian)"
             Default = Some "all"
+        }
+        {
+            Name = "bond"
+            Description = "H-H bond length for the h2 scenario (Angstrom)"
+            Default = Some "0.7414"
+        }
+        {
+            Name = "counting"
+            Description = "Counting qubits for the h2 scenario (3 to 12; 4 system qubits + counting <= 16)"
+            Default = Some "8"
+        }
+        {
+            Name = "trotter-steps"
+            Description = "Trotter steps per e^(-iHt) for the h2 scenario"
+            Default = Some "4"
         }
         {
             Name = "precision"
@@ -111,6 +132,9 @@ let scenario = Cli.getOr "scenario" "all" args
 let cliPrecision = Cli.getIntOr "precision" 10 args
 let theta = Cli.getFloatOr "theta" (Math.PI / 3.0) args
 let phaseAngle = Cli.getFloatOr "phase-angle" (Math.PI / 4.0) args
+let bondLength = Cli.getFloatOr "bond" 0.7414 args
+let h2Counting = Cli.tryGet "counting" args |> Option.map int
+let trotterSteps = Cli.getIntOr "trotter-steps" 4 args
 
 let pr fmt =
     Printf.ksprintf
@@ -323,6 +347,121 @@ if shouldRun "crystal" then
 
     | Error err -> pr "  [ERROR] Builder: %s" err.Message
 
+// ============================================================================
+// SCENARIO 4: H2 ground-state energy by QPE of e^(-iHt) (scenario key "h2")
+// ============================================================================
+
+if shouldRun "h2" then
+    pr "--- Scenario 4: H2 energy by phase estimation of its Hamiltonian ---"
+    pr ""
+
+    let molecule = Molecule.createH2 bondLength
+
+    let solverConfig: SolverConfig =
+        {
+            Method = GroundStateMethod.QPE
+            MaxIterations = 100
+            Tolerance = 1e-8
+            InitialParameters = None
+            Backend = Some quantumBackend
+            ProgressReporter = None
+            ErrorMitigation = None
+            IntegralProvider = None
+        }
+
+    let settings =
+        { QPE.defaultSettings with
+            CountingQubits = h2Counting
+            TrotterSteps = trotterSteps
+        }
+
+    // The circuit QPE.runWith builds, for its size: STO-3G integrals -> Jordan-Wigner -> shift and t.
+    let plan =
+        Sto3gIntegrals.compute molecule
+        |> Result.bind (fun integrals ->
+            MolecularHamiltonian.buildFromIntegrals integrals MolecularHamiltonian.JordanWigner
+            |> Result.map (fun (h, _) ->
+                let pauli = QPE.toPauliHamiltonian h
+
+                let m =
+                    h2Counting |> Option.defaultValue (min 8 (QPE.MaxTotalQubits - pauli.NumQubits))
+
+                QPE.evolutionPlan pauli m settings.TrotterOrder trotterSteps))
+
+    // Reference: UCCSD-VQE on the same integrals, which is exact (FCI) for H2 in STO-3G.
+    let reference =
+        VQE.run
+            molecule
+            { solverConfig with
+                Method = GroundStateMethod.VQE
+            }
+        |> Async.RunSynchronously
+
+    match plan, reference, QPE.runWith settings molecule solverConfig |> Async.RunSynchronously with
+    | Ok plan, Ok vqe, Ok qpe ->
+        let d =
+            match qpe.Estimation with
+            | PhaseEstimation d -> d
+            | other -> failwithf "expected a phase estimation, got %A" other
+
+        let nuclear = Molecule.nuclearRepulsion molecule |> Result.defaultValue 0.0
+
+        let phaseOf energy =
+            QPE.energyToPhase plan (energy - nuclear)
+
+        let gates = (QPE.circuit plan [ for q in 0..1 -> CircuitBuilder.X q ]).Gates.Length
+
+        pr "  H2 at %.4f A, STO-3G, Jordan-Wigner: 4 system qubits + %d counting qubits" bondLength d.CountingQubits
+
+        pr
+            "  U = exp(-i(H - %.4f)t), t = %.4f: E = -2*pi*phase/t + %.4f (+ %.6f nuclear repulsion)"
+            d.EnergyShift
+            d.EvolutionTime
+            d.EnergyShift
+            nuclear
+
+        pr
+            "  controlled-U^(2^j) = %d-step order-%d Trotter circuit repeated 2^j times; %d gates in all"
+            d.TrotterStepsPerEvolution
+            d.TrotterOrder
+            gates
+
+        pr "  one reading step = %.2f mHa; the peak is refined between its two highest bins" (1000.0 * d.BinWidth)
+        pr ""
+        pr "  Peaks of the reading distribution (each an eigenvalue the Hartree-Fock state overlaps):"
+
+        for peak in d.Peaks do
+            pr "    E = %12.6f Ha   probability %.3f" peak.Energy peak.Probability
+
+        pr ""
+        pr "  QPE energy (most probable peak): %.6f Ha" qpe.Energy
+
+        pr
+            "  UCCSD-VQE reference:             %.6f Ha  (difference %+.2f mHa)"
+            vqe.Energy
+            (1000.0 * (qpe.Energy - vqe.Energy))
+
+        for note in qpe.Notes do
+            pr "  note: %s" note
+
+        pr ""
+
+        record
+            {
+                Scenario = "h2"
+                Label = "H2 QPE energy"
+                Phase = phaseOf qpe.Energy
+                ExpectedPhase = phaseOf vqe.Energy
+                PhaseError = phaseError (phaseOf qpe.Energy) (phaseOf vqe.Energy)
+                Qubits = 4 + d.CountingQubits
+                GateCount = gates
+                PrecisionBits = d.CountingQubits
+                Note = $"E=%.6f{qpe.Energy} Ha, VQE %.6f{vqe.Energy} Ha, bond %.4f{bondLength} A"
+            }
+    | Error e, _, _
+    | _, Error e, _
+    | _, _, Error e -> pr "  [ERROR] %s" e.Message
+
 // --- JSON output ---
 
 outputPath
@@ -375,8 +514,8 @@ if not quiet then
 
     pr ""
     pr "Key: n counting qubits read the phase to 1/2^n of a turn, using controlled-U^(2^j)"
-    pr "     for j < n. For these one-qubit gates the phase is known exactly, so this"
-    pr "     checks the circuit; it computes no molecular or material property."
+    pr "     for j < n. For the one-qubit gates the phase is known exactly, so those check"
+    pr "     the circuit; the h2 scenario estimates the molecule's ground-state energy."
     pr ""
 
 if not quiet && outputPath.IsNone && csvPath.IsNone && (argv |> Array.isEmpty) then

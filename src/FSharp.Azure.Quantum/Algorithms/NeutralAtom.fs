@@ -277,11 +277,13 @@ module NeutralAtom =
 
     /// Optimize analog pulse parameters to minimise ⟨costHamiltonian⟩. You supply a mapping
     /// `paramsToProgram` from a parameter vector to a `RydbergProgram`; this evolves it, reads
-    /// ⟨H⟩ via `Primitives.expectation`, and minimises with the shared Nelder-Mead optimiser
+    /// ⟨H⟩ via `Primitives.observe`, and minimises with the shared Nelder-Mead optimiser
     /// (a coarse 1-D scan for a single parameter). Returns the best parameters and energy.
     ///
     /// This is the analog counterpart of variational gate optimisation (QAOA/VQE): instead of
-    /// tuning gate angles you tune pulse knobs (durations, Ω, Δ). State-vector backends only.
+    /// tuning gate angles you tune pulse knobs (durations, Ω, Δ). On a shot-sampling backend every
+    /// energy is a measured estimate (one job per commuting group of terms), and Nelder-Mead on
+    /// noisy energies stops early; exact backends give exact energies.
     let optimizeAnalog
         (backend: IQuantumBackend)
         (paramsToProgram: float[] -> RydbergProgram)
@@ -290,8 +292,9 @@ module NeutralAtom =
         (initialParameters: float[])
         : QuantumResult<float[] * float> =
         let energyOf (parameters: float[]) : QuantumResult<float> =
-            evolve backend (paramsToProgram parameters) stepsPerSegment
-            |> Result.bind (Primitives.expectation costHamiltonian)
+            // observe measures in rotated bases on a shot-sampling backend, whose returned
+            // state has no phases; on an exact backend it is expectation of the evolved state.
+            Primitives.observe backend (toCircuit (paramsToProgram parameters) stepsPerSegment) costHamiltonian
         // Validate once so a real error (bad Hamiltonian width, non-state-vector backend) surfaces.
         match energyOf initialParameters with
         | Error e -> Error e

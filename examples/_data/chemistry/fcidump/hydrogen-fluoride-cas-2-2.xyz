@@ -1,0 +1,4 @@
+2
+Hydrogen fluoride [CAS(2,2)] | RHF/STO-3G optimised (max gradient 2.1e-06 Ha/bohr) | PySCF 2.14.0
+F     -0.01923211    -0.00000000    -0.00000000
+H      0.93623211     0.00000000     0.00000000

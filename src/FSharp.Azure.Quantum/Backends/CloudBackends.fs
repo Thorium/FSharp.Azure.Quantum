@@ -43,6 +43,7 @@ module CloudBackends =
     ///   target       - Rigetti target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
+    ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     type RigettiCloudBackend
         (
             httpClient: HttpClient,
@@ -51,11 +52,13 @@ module CloudBackends =
             ?shots: int,
             ?timeout: TimeSpan,
             ?costLimitUsd: decimal,
-            ?couplingMap: QubitRouting.CouplingMap
+            ?couplingMap: QubitRouting.CouplingMap,
+            ?jobBudget: CloudBackendHelpers.JobBudget
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
+        let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
 
         interface IQuantumBackend with
 
@@ -85,6 +88,9 @@ module CloudBackends =
                     // Keep the final logical→physical mapping: the SWAPs leave measurement
                     // results in physical qubit order, and without un-permuting the histogram
                     // the caller would silently receive permuted bits.
+                    // Native gates first: routing and Quil conversion see only gates Rigetti runs.
+                    let circuit = CloudBackendHelpers.transpileForTarget "rigetti" circuit
+
                     let circuit, routing =
                         match couplingMap with
                         | Some cm ->
@@ -98,6 +104,7 @@ module CloudBackends =
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
                         |> Result.bind (fun () -> CircuitAdapter.toQuilProgram circuit)
+                        |> Result.bind (fun program -> jobBudget.TryReserve target |> Result.map (fun () -> program))
                     with
                     | Error err -> return Error err
                     | Ok quilProgram ->
@@ -221,6 +228,12 @@ module CloudBackends =
             member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface CloudBackendHelpers.IJobCountingBackend with
+            member _.JobBudget = jobBudget
+
         interface IQubitLimitedBackend with
             member _.MaxQubits =
                 // Rigetti QVM simulator: effectively unlimited for small circuits
@@ -244,6 +257,7 @@ module CloudBackends =
     ///   target       - IonQ target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
+    ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     type IonQCloudBackend
         (
             httpClient: HttpClient,
@@ -251,11 +265,13 @@ module CloudBackends =
             target: string,
             ?shots: int,
             ?timeout: TimeSpan,
-            ?costLimitUsd: decimal
+            ?costLimitUsd: decimal,
+            ?jobBudget: CloudBackendHelpers.JobBudget
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
+        let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
 
         interface IQuantumBackend with
 
@@ -281,7 +297,9 @@ module CloudBackends =
                     // Step 1: Convert ICircuit → IonQCircuit
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
-                        |> Result.bind (fun () -> CircuitAdapter.toIonQCircuit circuit)
+                        |> Result.bind (fun () ->
+                            CircuitAdapter.toIonQCircuit (CloudBackendHelpers.transpileForTarget "ionq" circuit))
+                        |> Result.bind (fun ionq -> jobBudget.TryReserve target |> Result.map (fun () -> ionq))
                     with
                     | Error err -> return Error err
                     | Ok ionqCircuit ->
@@ -404,6 +422,12 @@ module CloudBackends =
             member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface CloudBackendHelpers.IJobCountingBackend with
+            member _.JobBudget = jobBudget
+
         interface IQubitLimitedBackend with
             member _.MaxQubits =
                 // IonQ simulator: 29 qubits
@@ -429,6 +453,7 @@ module CloudBackends =
     ///   target       - Quantinuum target (e.g., "quantinuum.sim.h1-1sc", "quantinuum.qpu.h1-1")
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
+    ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     type QuantinuumCloudBackend
         (
             httpClient: HttpClient,
@@ -436,11 +461,13 @@ module CloudBackends =
             target: string,
             ?shots: int,
             ?timeout: TimeSpan,
-            ?costLimitUsd: decimal
+            ?costLimitUsd: decimal,
+            ?jobBudget: CloudBackendHelpers.JobBudget
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
+        let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
 
         /// Convert ICircuit to OpenQASM 2.0 string for Quantinuum.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
@@ -500,7 +527,9 @@ module CloudBackends =
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
-                        |> Result.bind (fun () -> circuitToOpenQasm circuit)
+                        |> Result.bind (fun () ->
+                            circuitToOpenQasm (CloudBackendHelpers.transpileForTarget "quantinuum" circuit))
+                        |> Result.bind (fun qasm -> jobBudget.TryReserve target |> Result.map (fun () -> qasm))
                     with
                     | Error err -> return Error err
                     | Ok qasmCode ->
@@ -622,6 +651,12 @@ module CloudBackends =
             member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface CloudBackendHelpers.IJobCountingBackend with
+            member _.JobBudget = jobBudget
+
         interface IQubitLimitedBackend with
             member _.MaxQubits =
                 // Quantinuum H1-1SC simulator: 32 qubits
@@ -646,6 +681,7 @@ module CloudBackends =
     ///   target       - Atom Computing target (e.g., "atom-computing.sim", "atom-computing.qpu.phoenix")
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 10 minutes, longer for neutral atom hardware)
+    ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     type AtomComputingCloudBackend
         (
             httpClient: HttpClient,
@@ -653,11 +689,13 @@ module CloudBackends =
             target: string,
             ?shots: int,
             ?timeout: TimeSpan,
-            ?costLimitUsd: decimal
+            ?costLimitUsd: decimal,
+            ?jobBudget: CloudBackendHelpers.JobBudget
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(10.0)) // Longer default for Atom Computing
+        let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
 
         /// Convert ICircuit to OpenQASM 2.0 string for Atom Computing.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
@@ -716,7 +754,9 @@ module CloudBackends =
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
-                        |> Result.bind (fun () -> circuitToOpenQasm circuit)
+                        |> Result.bind (fun () ->
+                            circuitToOpenQasm (CloudBackendHelpers.transpileForTarget "atom" circuit))
+                        |> Result.bind (fun qasm -> jobBudget.TryReserve target |> Result.map (fun () -> qasm))
                     with
                     | Error err -> return Error err
                     | Ok qasmCode ->
@@ -821,6 +861,12 @@ module CloudBackends =
             member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
 
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface CloudBackendHelpers.IJobCountingBackend with
+            member _.JobBudget = jobBudget
+
         interface IQubitLimitedBackend with
             member _.MaxQubits =
                 // Atom Computing Phoenix: 100+ qubits
@@ -840,6 +886,7 @@ module CloudBackends =
     ///   target       - IQM target (e.g., "iqm.sim", "iqm.qpu.garnet")
     ///   shots        - Number of measurement shots (default 1000)
     ///   timeout      - Job timeout (default 5 minutes)
+    ///   jobBudget    - JobBudget every submitted job is reserved from (default: counted, no limit)
     type IqmCloudBackend
         (
             httpClient: HttpClient,
@@ -847,11 +894,13 @@ module CloudBackends =
             target: string,
             ?shots: int,
             ?timeout: TimeSpan,
-            ?costLimitUsd: decimal
+            ?costLimitUsd: decimal,
+            ?jobBudget: CloudBackendHelpers.JobBudget
         ) =
 
         let shots = defaultArg shots 1000
         let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
+        let jobBudget = defaultArg jobBudget (CloudBackendHelpers.JobBudget())
 
         /// Convert ICircuit to an OpenQASM 2.0 string for IQM.
         let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
@@ -910,7 +959,9 @@ module CloudBackends =
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
                     match
                         CloudBackendHelpers.checkCostGuard target shots costLimitUsd
-                        |> Result.bind (fun () -> circuitToOpenQasm circuit)
+                        |> Result.bind (fun () ->
+                            circuitToOpenQasm (CloudBackendHelpers.transpileForTarget "iqm" circuit))
+                        |> Result.bind (fun qasm -> jobBudget.TryReserve target |> Result.map (fun () -> qasm))
                     with
                     | Error err -> return Error err
                     | Ok qasmCode ->
@@ -1014,6 +1065,12 @@ module CloudBackends =
 
             member _.SupportsOperation(op: QuantumOperation) : bool =
                 CloudBackendHelpers.isCloudSupportedOperation op
+
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface CloudBackendHelpers.IJobCountingBackend with
+            member _.JobBudget = jobBudget
 
         interface IQubitLimitedBackend with
             member _.MaxQubits =

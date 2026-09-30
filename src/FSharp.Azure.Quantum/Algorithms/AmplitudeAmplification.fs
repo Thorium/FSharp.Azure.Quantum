@@ -484,7 +484,28 @@ module AmplitudeAmplification =
                     return finalState
                 }
 
+        /// The whole amplification as one submitted circuit, for a backend that runs complete
+        /// circuits only: A, then Q = S_ψ · O repeated, all lowered to gates (a Grover-intent
+        /// plan lowers to the same unitary, since S_ψ for A = H^⊗n is the diffusion). A job
+        /// starts from |0…0⟩, which is where amplification starts.
+        let private submitWholeCircuit
+            (backend: IQuantumBackend)
+            (intent: AmplitudeAmplificationIntent)
+            : Result<QuantumState, QuantumError> =
+            result {
+                let! (prepOps, iterationOps) = buildLoweredOps intent
+
+                let allOps =
+                    prepOps @ (List.replicate intent.Iterations iterationOps |> List.concat)
+
+                return! UnifiedBackend.submitAsCircuit backend intent.NumQubits allOps
+            }
+
         /// Execute amplitude amplification starting from |0...0⟩.
+        ///
+        /// Route order: the Grover intents where the plan chose them, otherwise the lowering
+        /// gate by gate; either one refused as incremental application falls back to the whole
+        /// circuit submitted as one job. Every other error surfaces unchanged.
         let execute
             (backend: IQuantumBackend)
             (intent: AmplitudeAmplificationIntent)
@@ -493,7 +514,10 @@ module AmplitudeAmplification =
             result {
                 let! plan = plan backend intent
                 let! initial = backend.InitializeState intent.NumQubits
-                return! executePlan backend initial plan
+
+                match executePlan backend initial plan with
+                | Error e when UnifiedBackend.isIncrementalUnsupported e -> return! submitWholeCircuit backend intent
+                | other -> return! other
             }
 
     // ========================================================================

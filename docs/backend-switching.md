@@ -391,7 +391,7 @@ let executeOnCloud (circuit: ICircuit) (ct: CancellationToken) =
     }
 ```
 
-Cloud backends turn the returned measurement histogram into an approximate state, so read results with `Primitives.sample` or `UnifiedBackend.measureState` rather than relying on amplitudes.
+Cloud backends turn the returned measurement histogram into an approximate state, so read results with `Primitives.sample`, which returns the job's own counts, rather than relying on amplitudes. `UnifiedBackend.measureState` on such a state draws new samples from those counts.
 
 ### Parallel Async Execution
 
@@ -413,7 +413,7 @@ let executeParallel (backend: IQuantumBackend) (circuits: ICircuit list) (ct: Ca
 
 ### UnifiedBackend Async Helpers
 
-The `UnifiedBackend` module provides higher-level async utilities:
+The `UnifiedBackend` module provides higher-level async utilities. They apply operations one at a time, so they need a backend that accepts incremental `ApplyOperation` (the local simulators and the topological backend); a cloud backend returns an `Error` for them, and takes the same gates as one circuit through `ExecuteToStateAsync` or `UnifiedBackend.submitAsCircuit`:
 
 ```fsharp
 open FSharp.Azure.Quantum.Core
@@ -461,6 +461,24 @@ Hardware targets follow the same pattern, for example `"ionq.qpu.aria-1"`, `"rig
 
 All cloud backends implement the same `IQuantumBackend` interface (sync and async), so they are interchangeable with `LocalBackend`.
 
+What differs on cloud backends:
+
+- **Whole circuits only.** They refuse incremental `ApplyOperation` and claim no algorithm intent (QFT, QPE, Grover…), so algorithms build the complete gate circuit and submit it with `ExecuteToState`. Before conversion each backend transpiles the circuit to its provider's gates (`GateTranspiler.transpileForBackendFully`): T/TDG, CP, CRZ, CCX, MCZ and the other composite gates are decomposed, and the Braket backend does the same by device ARN.
+- **Measured shots, not amplitudes.** They implement `IShotSamplingBackend`: the returned state holds √(count/shots) with no phases. `Primitives.observe` therefore measures each qubit-wise commuting group of Pauli terms in its own rotated basis (`Primitives.sampledExpectation`, one job per group, with a standard error), ADAPT-VQE and ADAPT-QAOA switch to measured energies with parameter-shift gradients, and `Primitives.sample` returns the backend's own counts (the requested shot count must equal the backend's). `QRNG.generateWithBackend` needs a backend created with `shots = 1`: its bits are that one measured shot.
+- **Every `ExecuteToState` is a separately billed job.** Iterative algorithms submit many (one per energy, gradient term or sample; a 3-city TSP by QAOA is several hundred). Pass a `JobBudget` to cap them; the job after the limit is refused with a `QuotaExceeded` error before it is submitted. A budget can be shared by several backends, and every cloud backend exposes its budget through `IJobCountingBackend`, including how many jobs it has submitted. Without one, jobs are counted but not limited.
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+
+let budget = CloudBackendHelpers.JobBudget.Limit 200
+
+let limitedIonQ =
+    CloudBackends.IonQCloudBackend(httpClient, workspaceUrl, "ionq.simulator", 1000, jobBudget = budget)
+
+// ... run an algorithm on limitedIonQ ...
+printfn "Jobs submitted: %d of %A" budget.Submitted budget.MaxJobs
+```
+
 ## Summary
 
 **Current Implementation:**
@@ -468,6 +486,7 @@ All cloud backends implement the same `IQuantumBackend` interface (sync and asyn
 - ✅ **Unified API**: The same solver calls work with every backend (sync and async)
 - ✅ **Async support**: Task-based async with CancellationToken on all backends
 - ✅ **Cloud backends**: Rigetti, IonQ, Quantinuum, Atom Computing and IQM via `CloudBackends.CloudBackendFactory`
+- ✅ **Algorithms on cloud**: QAOA solvers, chemistry VQE and QPE, Grover and its builders, amplitude amplification, QFT, QPE, Shor, HHL (magnitudes), arithmetic, ADAPT-VQE/ADAPT-QAOA, QML, quantum Monte Carlo and `Primitives` submit whole circuits; a `JobBudget` caps the billed jobs
 - ⚠️ **Cloud integration**: Requires Azure Quantum workspace configuration and credentials
 
 **Key Achievement:**
@@ -484,7 +503,7 @@ match solveTsp chosenBackend distances with
 ```
 
 **Benefits:**
-- ✅ Write once, run anywhere (local or cloud)
+- ✅ Write once, run anywhere (local or cloud): the solvers and algorithms pick the whole-circuit route on a cloud backend themselves. Only code that continues from a returned state with `ApplyOperation` needs a simulator
 - ✅ Test locally without Azure credentials
 - ✅ No code changes needed to switch backends
 - ✅ Same result format for analysis/visualization
@@ -498,5 +517,5 @@ match solveTsp chosenBackend distances with
 
 ---
 
-**Last Updated**: 2026-09-29  
+**Last Updated**: 2026-09-30  
 **Status**: Current - Local and cloud backends supported with sync and async APIs

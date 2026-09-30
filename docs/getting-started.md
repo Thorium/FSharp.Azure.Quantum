@@ -409,6 +409,8 @@ match solvePortfolioSafely assets 10000.0 with
     eprintfn "Try: Increase budget or reduce constraints"
 ```
 
+`HybridSolver.solvePortfolio` treats the assets as independent (risk = sqrt(Σ (wᵢσᵢ)²)). When you have the covariance of the returns, `HybridSolver.solvePortfolioWithCovariance assets covariance constraints None None None None` validates it (square, one row per asset, symmetric, positive semidefinite, otherwise a `ValidationError`) and both solver paths report risk as sqrt(wᵀΣw).
+
 ### Handling Budget Limits
 
 The `budget` argument (USD) is a cost guard: when the advisor recommends quantum but the estimated cost exceeds the budget, HybridSolver runs the classical solver instead and says so in `Reasoning`. Exceeding the budget is not an error.
@@ -477,7 +479,7 @@ match runTsp defaultConfig with
 
 // Option 2: Custom configuration for fine-tuning
 let customConfig = {
-    OptimizationShots = 100          // Low shots for fast parameter search
+    OptimizationShots = 100          // Samples per step when the backend has no state vector
     FinalShots = 1000                // High shots for accurate final result
     EnableOptimization = true        // Enable variational loop
     InitialParameters = (0.5, 0.5)   // Starting guess for (gamma, beta)
@@ -497,8 +499,8 @@ The synchronous `QuantumTspSolver.solve`, `solveWithDefaults` and `solveWithShot
 
 **Variational Quantum-Classical Loop:**
 1. **Classical optimizer** proposes QAOA parameters (gamma, beta)
-2. **Quantum backend** executes QAOA circuit with those parameters (low shots for speed)
-3. **Measure tour quality** - Decode bitstrings to TSP tours and calculate cost
+2. **Quantum backend** executes the QAOA circuit with those parameters
+3. **Score the parameters** - the expected QUBO energy of the circuit: exact from the amplitudes on a state-vector backend, otherwise the mean over `OptimizationShots` samples
 4. **Optimizer updates** parameters based on gradient-free Nelder-Mead simplex method
 5. **Repeat until convergence** or until `MaxOptimizationIterations` is reached
 6. **Final execution** uses optimized parameters with high shots for accurate result
@@ -509,13 +511,13 @@ The synchronous `QuantumTspSolver.solve`, `solveWithDefaults` and `solveWithShot
 - ✅ **Cheap mode** - `fastConfig` skips the variational loop entirely
 
 **Configuration Guidelines:**
-- `OptimizationShots = 100` - Fast parameter search (increase for noisy hardware)
+- `OptimizationShots = 100` - Samples per optimizer step on backends without a state vector (increase for noisy hardware)
 - `FinalShots = 1000` - Accurate result (decrease for faster demos)
 - `EnableOptimization = true` - Enable variational loop (disable for testing)
-- `InitialParameters = (0.5, 0.5)` - Starting guess (γ, β ∈ [0, 2π])
+- `InitialParameters = (0.5, 0.5)` - Starting guess; the optimizer searches γ ∈ [0, π], β ∈ [0, π/2] in units of the cost Hamiltonian scaled to a largest coefficient of 1
 - `MaxOptimizationIterations = 1000` - Upper bound on Nelder–Mead iterations; each one runs a full circuit
 
-**Performance:** every optimizer iteration executes the circuit with `OptimizationShots` shots, so the extra cost is iterations × `OptimizationShots`. Measure on your own problem before relying on the variational loop on a paid backend.
+**Performance:** every optimizer iteration executes the circuit once (with `OptimizationShots` shots on hardware), so the extra cost is iterations × `OptimizationShots`. Measure on your own problem before relying on the variational loop on a paid backend.
 
 For more details, see:
 - **[Local Simulation Guide](local-simulation.md)** - Quantum simulation without Azure

@@ -325,7 +325,10 @@ module CircuitAbstraction =
 
         /// Convert QaoaCircuit to CircuitBuilder.Circuit
         ///
-        /// Flattens QAOA layer structure into sequential gates.
+        /// Flattens QAOA layer structure into sequential gates: initial state, then per
+        /// layer the cost gates followed by the mixer gates. Like every CircuitBuilder.Circuit,
+        /// the result stores Gates most-recent-first; CircuitBuilder.getGates returns
+        /// program order.
         let qaoaCircuitToCircuit (qaoa: QaoaCircuit) : CircuitBuilder.Circuit =
             // Convert initial state gates
             let initialGates =
@@ -340,12 +343,12 @@ module CircuitAbstraction =
                 |> Array.toList
                 |> List.collect qaoaGateToCircuitBuilderGates
 
-            // Combine all gates
-            let allGates = initialGates @ layerGates
+            // Program order, reversed into the most-recent-first storage order
+            let programOrder = initialGates @ layerGates
 
             {
                 QubitCount = qaoa.NumQubits
-                Gates = allGates
+                Gates = List.rev programOrder
             }
 
         // ========================================================================
@@ -375,6 +378,21 @@ module CircuitAbstraction =
 
             | _ -> None // Unsupported gate
 
+        /// IonQ instructions for one gate: its native form, U3 as RZ(λ)·RY(θ)·RZ(φ) (equal up to
+        /// global phase), a barrier as nothing. None for a gate IonQ cannot run;
+        /// GateTranspiler.transpileForBackendFully removes the other kinds before conversion.
+        let private circuitBuilderGateToIonQGates (gate: CircuitBuilder.Gate) : IonQBackend.IonQGate list option =
+            match gate with
+            | CircuitBuilder.U3(q, theta, phi, lambda) ->
+                Some
+                    [
+                        IonQBackend.SingleQubitRotation("rz", q, lambda)
+                        IonQBackend.SingleQubitRotation("ry", q, theta)
+                        IonQBackend.SingleQubitRotation("rz", q, phi)
+                    ]
+            | CircuitBuilder.Barrier _ -> Some []
+            | other -> circuitBuilderGateToIonQGate other |> Option.map List.singleton
+
         /// Convert CircuitBuilder.Gate to Quil instruction
         let private circuitBuilderGateToQuilGate (gate: CircuitBuilder.Gate) : RigettiBackend.QuilGate option =
             match gate with
@@ -400,6 +418,21 @@ module CircuitAbstraction =
             | CircuitBuilder.SWAP(q1, q2) -> Some(RigettiBackend.TwoQubit("SWAP", q1, q2))
 
             | _ -> None // Unsupported gate
+
+        /// Quil instructions for one gate: its native form, U3 as RZ(λ)·RY(θ)·RZ(φ) (equal up to
+        /// global phase), a barrier as nothing. None for a gate Quil cannot express here;
+        /// GateTranspiler.transpileForBackendFully removes the other kinds before conversion.
+        let private circuitBuilderGateToQuilGates (gate: CircuitBuilder.Gate) : RigettiBackend.QuilGate list option =
+            match gate with
+            | CircuitBuilder.U3(q, theta, phi, lambda) ->
+                Some
+                    [
+                        RigettiBackend.SingleQubitRotation("RZ", lambda, q)
+                        RigettiBackend.SingleQubitRotation("RY", theta, q)
+                        RigettiBackend.SingleQubitRotation("RZ", phi, q)
+                    ]
+            | CircuitBuilder.Barrier _ -> Some []
+            | other -> circuitBuilderGateToQuilGate other |> Option.map List.singleton
 
         // ========================================================================
         // HELPER: Extract underlying circuit from wrapper
@@ -430,13 +463,13 @@ module CircuitAbstraction =
                 )
             | Some builderCircuit ->
                 // Convert all gates
-                let convertedGates =
-                    builderCircuit.Gates |> List.rev |> List.choose circuitBuilderGateToIonQGate
+                let converted =
+                    builderCircuit.Gates |> List.rev |> List.map circuitBuilderGateToIonQGates
 
                 // Check if any gates failed to convert
-                if convertedGates.Length < builderCircuit.Gates.Length then
-                    let unsupportedCount = builderCircuit.Gates.Length - convertedGates.Length
+                let unsupportedCount = converted |> List.filter Option.isNone |> List.length
 
+                if unsupportedCount > 0 then
                     Error(
                         QuantumError.OperationError(
                             "Circuit conversion",
@@ -447,7 +480,7 @@ module CircuitAbstraction =
                     Ok
                         {
                             IonQBackend.Qubits = builderCircuit.QubitCount
-                            IonQBackend.Circuit = convertedGates
+                            IonQBackend.Circuit = converted |> List.collect (Option.defaultValue [])
                         }
 
         /// Convert ICircuit to QuilProgram
@@ -465,13 +498,15 @@ module CircuitAbstraction =
                 )
             | Some builderCircuit ->
                 // Convert all gates to Quil instructions
-                let instructions =
-                    builderCircuit.Gates |> List.rev |> List.choose circuitBuilderGateToQuilGate
+                let converted =
+                    builderCircuit.Gates |> List.rev |> List.map circuitBuilderGateToQuilGates
+
+                let instructions = converted |> List.collect (Option.defaultValue [])
 
                 // Check if any gates failed to convert
-                if instructions.Length < builderCircuit.Gates.Length then
-                    let unsupportedCount = builderCircuit.Gates.Length - instructions.Length
+                let unsupportedCount = converted |> List.filter Option.isNone |> List.length
 
+                if unsupportedCount > 0 then
                     Error(
                         QuantumError.OperationError(
                             "Circuit conversion",

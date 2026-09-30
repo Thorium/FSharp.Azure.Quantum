@@ -1,0 +1,590 @@
+{
+  "pyscf": "2.14.0",
+  "scipy": "1.18.1",
+  "basis": "sto-3g",
+  "species": [
+    {
+      "name": "Hydrogen (H2) [CAS(2,2)]",
+      "file": "hydrogen-h2-cas-2-2.fcidump",
+      "geometry": "hydrogen-h2-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 6.5e-07 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -1.1175058851157562,
+      "e_cas": -1.1368478399426434,
+      "lowest_frequency_cm1": 5480.8
+    },
+    {
+      "name": "Water [CAS(2,2)]",
+      "file": "water-cas-2-2.fcidump",
+      "geometry": "water-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 5.9e-07 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -74.96590119229892,
+      "e_cas": -74.97995699417719,
+      "lowest_frequency_cm1": 2169.9
+    },
+    {
+      "name": "Ketene [CAS(2,2)]",
+      "file": "ketene-cas-2-2.fcidump",
+      "geometry": "ketene-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 6.0e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -149.7261049968631,
+      "e_cas": -149.7264637693331,
+      "lowest_frequency_cm1": 461.1
+    },
+    {
+      "name": "Methanimine [CAS(2,2)]",
+      "file": "methanimine-cas-2-2.fcidump",
+      "geometry": "methanimine-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 2.5e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -92.82304306513339,
+      "e_cas": -92.87050711260011,
+      "lowest_frequency_cm1": 1204.2
+    },
+    {
+      "name": "Aziridine [CAS(2,2)]",
+      "file": "aziridine-cas-2-2.fcidump",
+      "geometry": "aziridine-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 5.3e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -131.39947634590595,
+      "e_cas": -131.41731817889257,
+      "lowest_frequency_cm1": 919.2
+    },
+    {
+      "name": "Carbon monoxide [CAS(2,2)]",
+      "file": "carbon-monoxide-cas-2-2.fcidump",
+      "geometry": "carbon-monoxide-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 7.0e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -111.22544951412041,
+      "e_cas": -111.25358698285757,
+      "lowest_frequency_cm1": 2462.1
+    },
+    {
+      "name": "Formaldonitrone [CAS(2,2)]",
+      "file": "formaldonitrone-cas-2-2.fcidump",
+      "geometry": "formaldonitrone-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 2.5e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -166.5667901901749,
+      "e_cas": -166.63795115675111,
+      "lowest_frequency_cm1": 549.9
+    },
+    {
+      "name": "Acetylene [CAS(2,2)]",
+      "file": "acetylene-cas-2-2.fcidump",
+      "geometry": "acetylene-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 4.6e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -75.85624771348026,
+      "e_cas": -75.88585555469602,
+      "lowest_frequency_cm1": 945.4
+    },
+    {
+      "name": "beta-Alanine [CAS(4,4)]",
+      "file": "beta-alanine-cas-4-4.fcidump",
+      "geometry": "beta-alanine-cas-4-4.xyz",
+      "geometry_source": "optimised (max gradient 6.7e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -317.6992023366936,
+      "e_cas": -317.7774062479234,
+      "lowest_frequency_cm1": 40.5
+    },
+    {
+      "name": "2-Azetidinone [CAS(2,2)]",
+      "file": "2-azetidinone-cas-2-2.fcidump",
+      "geometry": "2-azetidinone-cas-2-2.xyz",
+      "geometry_source": "optimised, minimum verified (lowest frequency 205 cm-1)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -242.67750682412105,
+      "e_cas": -242.7218614656472,
+      "lowest_frequency_cm1": 205.3
+    },
+    {
+      "name": "2-Azetidinone [CAS(4,4)]",
+      "file": "2-azetidinone-cas-4-4.fcidump",
+      "geometry": "2-azetidinone-cas-4-4.xyz",
+      "geometry_source": "optimised, minimum verified (lowest frequency 205 cm-1)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -242.67750682412105,
+      "e_cas": -242.75453523297847,
+      "lowest_frequency_cm1": 205.3
+    },
+    {
+      "name": "Pyridine [CAS(2,2)]",
+      "file": "pyridine-cas-2-2.fcidump",
+      "geometry": "pyridine-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 7.5e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -243.63861355823417,
+      "e_cas": -243.6621977184726,
+      "lowest_frequency_cm1": 460.3
+    },
+    {
+      "name": "1,4-Dihydropyridine [CAS(4,4)]",
+      "file": "1-4-dihydropyridine-cas-4-4.fcidump",
+      "geometry": "1-4-dihydropyridine-cas-4-4.xyz",
+      "geometry_source": "optimised, minimum verified (lowest frequency 155 cm-1)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -244.7847900667515,
+      "e_cas": -244.86160854926973,
+      "lowest_frequency_cm1": 154.8
+    },
+    {
+      "name": "Ethylene [CAS(2,2)]",
+      "file": "ethylene-cas-2-2.fcidump",
+      "geometry": "ethylene-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 6.1e-07 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -77.07395478358673,
+      "e_cas": -77.11519298769734,
+      "lowest_frequency_cm1": 947.4
+    },
+    {
+      "name": "Ethane [CAS(4,4)]",
+      "file": "ethane-cas-4-4.fcidump",
+      "geometry": "ethane-cas-4-4.xyz",
+      "geometry_source": "optimised (max gradient 7.6e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -78.30617964636903,
+      "e_cas": -78.33984370532349,
+      "lowest_frequency_cm1": 316.6
+    },
+    {
+      "name": "p-Benzoquinone [CAS(2,2)]",
+      "file": "p-benzoquinone-cas-2-2.fcidump",
+      "geometry": "p-benzoquinone-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 5.1e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -374.3533478972879,
+      "e_cas": -374.37346429223015,
+      "lowest_frequency_cm1": 85.9
+    },
+    {
+      "name": "Hydroquinone [CAS(4,4)]",
+      "file": "hydroquinone-cas-4-4.fcidump",
+      "geometry": "hydroquinone-cas-4-4.xyz",
+      "geometry_source": "optimised (max gradient 5.9e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -375.57292272014826,
+      "e_cas": -375.624778690482,
+      "lowest_frequency_cm1": 177.6
+    },
+    {
+      "name": "Hydrogen peroxide [CAS(2,2)]",
+      "file": "hydrogen-peroxide-cas-2-2.fcidump",
+      "geometry": "hydrogen-peroxide-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 4.7e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -148.76499662098084,
+      "e_cas": -148.80380304246674,
+      "lowest_frequency_cm1": 184.1
+    },
+    {
+      "name": "Hydrogen fluoride [CAS(2,2)]",
+      "file": "hydrogen-fluoride-cas-2-2.fcidump",
+      "geometry": "hydrogen-fluoride-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 2.1e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -98.57284734715711,
+      "e_cas": -98.59989076505167,
+      "lowest_frequency_cm1": 4474.5
+    },
+    {
+      "name": "Hydrogen sulfide [CAS(2,2)]",
+      "file": "hydrogen-sulfide-cas-2-2.fcidump",
+      "geometry": "hydrogen-sulfide-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 3.7e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -394.31163005926186,
+      "e_cas": -394.3205331700762,
+      "lowest_frequency_cm1": 1609.5
+    },
+    {
+      "name": "Hydrogen chloride [CAS(2,2)]",
+      "file": "hydrogen-chloride-cas-2-2.fcidump",
+      "geometry": "hydrogen-chloride-cas-2-2.xyz",
+      "geometry_source": "optimised (max gradient 1.4e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "lowest CASSCF(2,2) from frontier and MP2 natural orbitals",
+      "qubits": 4,
+      "e_rhf": -455.13601165474506,
+      "e_cas": -455.15538730240553,
+      "lowest_frequency_cm1": 3371.6
+    },
+    {
+      "name": "HF dimer (F-H...F) [CAS(4,4)]",
+      "file": "hf-dimer-f-h-f-cas-4-4.fcidump",
+      "geometry": "hf-dimer-f-h-f-cas-4-4.xyz",
+      "geometry_source": "optimised (max gradient 8.9e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier, MP2 natural and monomer-matched orbitals",
+      "qubits": 8,
+      "e_rhf": -197.1544757085653,
+      "e_cas": -197.20465623232974,
+      "lowest_frequency_cm1": 274.7
+    },
+    {
+      "name": "HF-H2S (F-H...S) [CAS(4,4)]",
+      "file": "hf-h2s-f-h-s-cas-4-4.fcidump",
+      "geometry": "hf-h2s-f-h-s-cas-4-4.xyz",
+      "geometry_source": "optimised (max gradient 1.1e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier, MP2 natural and monomer-matched orbitals",
+      "qubits": 8,
+      "e_rhf": -492.88962412308354,
+      "e_cas": -492.9275436818719,
+      "lowest_frequency_cm1": 153.6
+    },
+    {
+      "name": "HF-HCl (F-H...Cl) [CAS(4,4)]",
+      "file": "hf-hcl-f-h-cl-cas-4-4.fcidump",
+      "geometry": "hf-hcl-f-h-cl-cas-4-4.xyz",
+      "geometry_source": "optimised (max gradient 4.8e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier, MP2 natural and monomer-matched orbitals",
+      "qubits": 8,
+      "e_rhf": -553.7109286151307,
+      "e_cas": -553.756544091785,
+      "lowest_frequency_cm1": 75.5
+    },
+    {
+      "name": "HF-H2O (F-H...O) [CAS(4,4)]",
+      "file": "hf-h2o-f-h-o-cas-4-4.fcidump",
+      "geometry": "hf-h2o-f-h-o-cas-4-4.xyz",
+      "geometry_source": "optimised, minimum verified (lowest frequency 264 cm-1)",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier, MP2 natural and monomer-matched orbitals",
+      "qubits": 8,
+      "e_rhf": -173.55071514811928,
+      "e_cas": -173.59968072059075,
+      "lowest_frequency_cm1": 263.7
+    },
+    {
+      "name": "H2O (equilibrium)",
+      "file": "h2o-equilibrium.fcidump",
+      "geometry": "h2o-equilibrium.xyz",
+      "geometry_source": "optimised (max gradient 2.1e-07 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "CASSCF(2,2) from the sigma/sigma* orbitals of bond O1-H2",
+      "qubits": 4,
+      "e_rhf": -74.96590119230038,
+      "e_cas": -74.9799569830114,
+      "lowest_frequency_cm1": 2169.9
+    },
+    {
+      "name": "HF (equilibrium)",
+      "file": "hf-equilibrium.fcidump",
+      "geometry": "hf-equilibrium.xyz",
+      "geometry_source": "optimised (max gradient 1.3e-06 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "CASSCF(2,2) from the sigma/sigma* orbitals of bond F2-H1",
+      "qubits": 4,
+      "e_rhf": -98.57284734715888,
+      "e_cas": -98.5998907174224,
+      "lowest_frequency_cm1": 4474.6
+    },
+    {
+      "name": "LiH (equilibrium)",
+      "file": "lih-equilibrium.fcidump",
+      "geometry": "lih-equilibrium.xyz",
+      "geometry_source": "optimised (max gradient 1.1e-07 Ha/bohr)",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "CASSCF(2,2) from the sigma/sigma* orbitals of bond Li1-H2",
+      "qubits": 4,
+      "e_rhf": -7.863382128921108,
+      "e_cas": -7.881166872757648,
+      "lowest_frequency_cm1": 1867.9
+    },
+    {
+      "name": "H2O (O-H x2.0)",
+      "file": "h2o-o-h-x2-0.fcidump",
+      "geometry": "h2o-o-h-x2-0.xyz",
+      "geometry_source": "H2O (equilibrium) geometry with the O-H bond scaled x2.0",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "CASSCF(2,2) from the sigma/sigma* orbitals of bond O1-H2",
+      "qubits": 4,
+      "e_rhf": -74.67962375394438,
+      "e_cas": -74.84874599960703
+    },
+    {
+      "name": "HF (H-F x2.0)",
+      "file": "hf-h-f-x2-0.fcidump",
+      "geometry": "hf-h-f-x2-0.xyz",
+      "geometry_source": "HF (equilibrium) geometry with the F-H bond scaled x2.0",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "CASSCF(2,2) from the sigma/sigma* orbitals of bond F2-H1",
+      "qubits": 4,
+      "e_rhf": -98.27861439765137,
+      "e_cas": -98.470465809592
+    },
+    {
+      "name": "LiH (Li-H x2.0)",
+      "file": "lih-li-h-x2-0.fcidump",
+      "geometry": "lih-li-h-x2-0.xyz",
+      "geometry_source": "LiH (equilibrium) geometry with the Li-H bond scaled x2.0",
+      "basis": "sto-3g",
+      "active_electrons": 2,
+      "active_orbitals": 2,
+      "active_space": "CASSCF(2,2) from the sigma/sigma* orbitals of bond Li1-H2",
+      "qubits": 4,
+      "e_rhf": -7.708423339161741,
+      "e_cas": -7.797639839228178
+    },
+    {
+      "name": "Staudinger [2+2] TS",
+      "file": "staudinger-2-2-ts.fcidump",
+      "geometry": "staudinger-2-2-ts.xyz",
+      "geometry_source": "TS optimised with geomeTRIC, imaginary frequency 924i cm-1",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -242.47733410768353,
+      "e_cas": -242.5459426538713,
+      "transition_state": true,
+      "imaginary_frequency_cm1": 923.6,
+      "second_frequency_cm1": 163.8,
+      "forming_bonds": [
+        [
+          0,
+          1
+        ],
+        [
+          2,
+          3
+        ]
+      ],
+      "breaking_bonds": [],
+      "validation": "exactly one imaginary frequency; minimising from the TS displaced 0.15 A both ways along that mode ends once with every forming bond below 1.7 A and every breaking bond above 1.8 A (product) and once the other way round (reactant)",
+      "downhill_ends": [
+        {
+          "e_rhf": -242.67750673282308,
+          "distances_angstrom": {
+            "0-1": 1.45,
+            "2-3": 1.552,
+            "1-4": 1.207
+          }
+        },
+        {
+          "e_rhf": -242.55145446207658,
+          "distances_angstrom": {
+            "0-1": 4.167,
+            "2-3": 4.31,
+            "1-4": 1.184
+          }
+        }
+      ]
+    },
+    {
+      "name": "Kinugasa TS",
+      "file": "kinugasa-ts.fcidump",
+      "geometry": "kinugasa-ts.xyz",
+      "geometry_source": "TS optimised with geomeTRIC, imaginary frequency 551i cm-1",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -242.40354048452363,
+      "e_cas": -242.50034298486702,
+      "transition_state": true,
+      "imaginary_frequency_cm1": 551.3,
+      "second_frequency_cm1": 236.6,
+      "forming_bonds": [
+        [
+          0,
+          6
+        ],
+        [
+          2,
+          7
+        ]
+      ],
+      "breaking_bonds": [],
+      "validation": "exactly one imaginary frequency; minimising from the TS displaced 0.15 A both ways along that mode ends once with every forming bond below 1.7 A and every breaking bond above 1.8 A (product) and once the other way round (reactant)",
+      "downhill_ends": [
+        {
+          "e_rhf": -242.64488720165542,
+          "distances_angstrom": {
+            "0-6": 1.522,
+            "2-7": 1.409,
+            "6-7": 1.308,
+            "1-2": 1.443
+          }
+        },
+        {
+          "e_rhf": -242.43038084983633,
+          "distances_angstrom": {
+            "0-6": 4.587,
+            "2-7": 2.844,
+            "6-7": 1.169,
+            "1-2": 1.336
+          }
+        }
+      ]
+    },
+    {
+      "name": "beta-Amino Acid Cyclization TS",
+      "file": "beta-amino-acid-cyclization-ts.fcidump",
+      "geometry": "beta-amino-acid-cyclization-ts.xyz",
+      "geometry_source": "TS optimised with geomeTRIC, imaginary frequency 1390i cm-1",
+      "basis": "sto-3g",
+      "active_electrons": 4,
+      "active_orbitals": 4,
+      "active_space": "lowest CASSCF(4,4) from frontier and MP2 natural orbitals",
+      "qubits": 8,
+      "e_rhf": -317.565704917945,
+      "e_cas": -317.620872786145,
+      "transition_state": true,
+      "imaginary_frequency_cm1": 1390.1,
+      "second_frequency_cm1": 189.5,
+      "forming_bonds": [
+        [
+          0,
+          1
+        ],
+        [
+          10,
+          11
+        ]
+      ],
+      "breaking_bonds": [
+        [
+          1,
+          10
+        ],
+        [
+          0,
+          11
+        ]
+      ],
+      "validation": "exactly one imaginary frequency; minimising from the TS displaced 0.15 A both ways along that mode ends once with every forming bond below 1.7 A and every breaking bond above 1.8 A (product) and once the other way round (reactant)",
+      "downhill_ends": [
+        {
+          "e_rhf": -317.64676110058167,
+          "distances_angstrom": {
+            "0-1": 1.452,
+            "1-10": 3.934,
+            "0-11": 4.463,
+            "10-11": 0.988
+          }
+        },
+        {
+          "e_rhf": -317.7017107641267,
+          "distances_angstrom": {
+            "0-1": 3.017,
+            "1-10": 1.381,
+            "0-11": 1.032,
+            "10-11": 3.265
+          }
+        }
+      ]
+    }
+  ],
+  "geometric": "1.1.1"
+}

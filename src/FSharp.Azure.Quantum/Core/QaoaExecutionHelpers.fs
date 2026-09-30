@@ -4,6 +4,7 @@ open System
 open System.Threading
 open System.Threading.Tasks
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.LocalSimulator
 
 /// Shared QAOA execution infrastructure for all quantum solvers.
 ///
@@ -134,8 +135,22 @@ module QaoaExecutionHelpers =
         }
         |> Seq.sum
 
+    /// The QAOA circuit every solver executes: the cost Hamiltonian is normalised to a largest
+    /// |coefficient| of 1 (ProblemHamiltonian.normalize) before the circuit is built, so solver
+    /// angles are on a problem-independent scale. The mixer is used as given.
+    let private buildSolverCircuit
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (parameters: (float * float)[])
+        : CircuitAbstraction.ICircuit =
+        let qaoaCircuit =
+            QaoaCircuit.QaoaCircuit.build (QaoaCircuit.ProblemHamiltonian.normalize problemHam) mixerHam parameters
+
+        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+
     /// Execute a single QAOA circuit with given parameters and return measurements.
-    /// Pipeline: QUBO -> ProblemHamiltonian -> MixerHamiltonian -> QaoaCircuit -> ICircuit -> backend
+    /// Pipeline: QUBO -> ProblemHamiltonian (normalised) -> MixerHamiltonian -> QaoaCircuit -> ICircuit -> backend
+    /// Angles follow QaoaCircuit's minimisation convention, in units of the normalised Hamiltonian.
     [<Obsolete("Use executeQaoaCircuitAsync for non-blocking execution against cloud backends")>]
     let executeQaoaCircuit
         (backend: BackendAbstraction.IQuantumBackend)
@@ -145,17 +160,13 @@ module QaoaExecutionHelpers =
         (shots: int)
         : Result<int[][], QuantumError> =
 
-        let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
-
-        let circuit =
-            CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-
-        (backend.ExecuteToState circuit)
+        (backend.ExecuteToState(buildSolverCircuit problemHam mixerHam parameters))
         |> Result.map (fun state -> QuantumState.measure state shots)
 
     /// Execute a single QAOA circuit asynchronously with given parameters and return measurements.
     /// Uses backend.ExecuteToStateAsync for non-blocking I/O against cloud backends.
-    /// Pipeline: QUBO -> ProblemHamiltonian -> MixerHamiltonian -> QaoaCircuit -> ICircuit -> backend
+    /// Pipeline: QUBO -> ProblemHamiltonian (normalised) -> MixerHamiltonian -> QaoaCircuit -> ICircuit -> backend
+    /// Angles follow QaoaCircuit's minimisation convention, in units of the normalised Hamiltonian.
     let executeQaoaCircuitAsync
         (backend: BackendAbstraction.IQuantumBackend)
         (problemHam: QaoaCircuit.ProblemHamiltonian)
@@ -165,14 +176,164 @@ module QaoaExecutionHelpers =
         (cancellationToken: CancellationToken)
         : Task<Result<int[][], QuantumError>> =
         task {
-            let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
+            let! result =
+                backend.ExecuteToStateAsync (buildSolverCircuit problemHam mixerHam parameters) cancellationToken
 
-            let circuit =
-                CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-
-            let! result = backend.ExecuteToStateAsync circuit cancellationToken
             return result |> Result.map (fun state -> QuantumState.measure state shots)
         }
+
+    // ================================================================================
+    // ENERGY OBJECTIVE (shared by grid search and Nelder-Mead)
+    // ================================================================================
+
+    /// Energy of every computational basis state, where bit q of the index is variable q
+    /// (the StateVector convention).
+    let private basisEnergies (numQubits: int) (energyOf: int[] -> float) : float[] =
+        let bits = Array.zeroCreate numQubits
+
+        Array.init (1 <<< numQubits) (fun index ->
+            for q in 0 .. numQubits - 1 do
+                bits.[q] <- (index >>> q) &&& 1
+
+            energyOf bits)
+
+    /// Dense QUBO energy over the non-zero entries only.
+    let private denseEnergy (qubo: float[,]) : int[] -> float =
+        let n = Array2D.length1 qubo
+
+        let entries =
+            [|
+                for i in 0 .. n - 1 do
+                    for j in 0 .. n - 1 do
+                        if qubo.[i, j] <> 0.0 then
+                            yield struct (i, j, qubo.[i, j])
+            |]
+
+        fun (bits: int[]) ->
+            let mutable total = 0.0
+
+            for struct (i, j, v) in entries do
+                if bits.[i] = 1 && bits.[j] = 1 then
+                    total <- total + v
+
+            total
+
+    /// Expected QUBO energy of a backend state: exact over the amplitudes when the backend
+    /// returns a state vector of the problem's width, otherwise the mean energy of `shots`
+    /// samples. Lower is better.
+    let private expectedEnergy
+        (energyOf: int[] -> float)
+        (energies: Lazy<float[]>)
+        (numQubits: int)
+        (shots: int)
+        (state: QuantumState)
+        : float =
+        match state with
+        | QuantumState.StateVector sv when StateVector.numQubits sv = numQubits ->
+            let e = energies.Value
+            let mutable total = 0.0
+
+            for index in 0 .. e.Length - 1 do
+                let amplitude = StateVector.getAmplitude index sv
+
+                total <-
+                    total
+                    + e.[index]
+                      * (amplitude.Real * amplitude.Real + amplitude.Imaginary * amplitude.Imaginary)
+
+            total
+        | _ -> QuantumState.measure state shots |> Array.averageBy energyOf
+
+    /// Expected energy of the QAOA state at `parameters`, or the backend's error.
+    let private evaluateParameters
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (energies: Lazy<float[]>)
+        (shots: int)
+        (parameters: (float * float)[])
+        : Result<float, QuantumError> =
+        backend.ExecuteToState(buildSolverCircuit problemHam mixerHam parameters)
+        |> Result.map (expectedEnergy energyOf energies problemHam.NumQubits shots)
+
+    /// Asynchronous evaluateParameters.
+    let private evaluateParametersAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (energies: Lazy<float[]>)
+        (shots: int)
+        (parameters: (float * float)[])
+        (cancellationToken: CancellationToken)
+        : Task<Result<float, QuantumError>> =
+        task {
+            let! result =
+                backend.ExecuteToStateAsync (buildSolverCircuit problemHam mixerHam parameters) cancellationToken
+
+            return
+                result
+                |> Result.map (expectedEnergy energyOf energies problemHam.NumQubits shots)
+        }
+
+    /// Nelder-Mead objective over flat [γ₁; β₁; γ₂; β₂; …]: the expected energy, or
+    /// Double.MaxValue when execution fails.
+    let private flatObjective
+        (evaluate: (float * float)[] -> Result<float, QuantumError>)
+        (numLayers: int)
+        : float[] -> float =
+        fun (flatParams: float[]) ->
+            let parameters =
+                Array.init numLayers (fun i -> (flatParams.[2 * i], flatParams.[2 * i + 1]))
+
+            (evaluate parameters) |> Result.defaultWith (fun _ -> Double.MaxValue)
+
+    /// Nelder-Mead starting point: a linear ramp (γ rising, β falling across the layers, as a
+    /// discretised annealing schedule) in normalised-Hamiltonian units.
+    let private rampInitialParameters (numLayers: int) : float[] =
+        Array.init (2 * numLayers) (fun i ->
+            let fraction = (float (i / 2) + 0.5) / float numLayers
+
+            if i % 2 = 0 then
+                0.75 * fraction
+            else
+                0.75 * (1.0 - fraction))
+
+    /// γ values of the grid search, in normalised-Hamiltonian units.
+    let private gridGammas = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
+
+    /// β values of the grid search.
+    let private gridBetas = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
+
+    /// Every grid point as a p-layer parameter set (the same (γ, β) in each layer).
+    let private gridParameterSets (numLayers: int) : (float * float)[][] =
+        [|
+            for gamma in gridGammas do
+                for beta in gridBetas do
+                    Array.init numLayers (fun _ -> (gamma, beta))
+        |]
+
+    /// Lowest-energy evaluated grid point, or the last error when none evaluated.
+    let private pickGridPoint
+        (results: ((float * float)[] * Result<float, QuantumError>)[])
+        : Result<(float * float)[], QuantumError> =
+        let evaluated =
+            results
+            |> Array.choose (fun (parameters, r) ->
+                match r with
+                | Ok energy -> Some(parameters, energy)
+                | Error _ -> None)
+
+        if evaluated.Length > 0 then
+            evaluated |> Array.minBy snd |> fst |> Ok
+        else
+            results
+            |> Array.choose (fun (_, r) ->
+                r |> Result.map (fun _ -> None) |> Result.defaultWith (fun err -> Some err))
+            |> Array.tryLast
+            |> Option.defaultValue (QuantumError.OperationError("QAOA", "No valid solution found"))
+            |> Error
 
     /// Execute QAOA from a dense QUBO matrix asynchronously.
     /// Builds Hamiltonians, circuit, executes via backend.ExecuteToStateAsync,
@@ -206,9 +367,10 @@ module QaoaExecutionHelpers =
         executeQaoaCircuitAsync backend problemHam mixerHam parameters shots cancellationToken
 
     /// Create objective function closure for Nelder-Mead optimization.
-    /// Returns expectation value of QUBO Hamiltonian (lower = better).
-    /// The returned function converts flat parameter array to (gamma, beta) pairs,
-    /// executes the QAOA circuit, and returns average QUBO energy.
+    /// The returned function converts the flat parameter array [γ₁; β₁; γ₂; β₂; …] to
+    /// (gamma, beta) pairs, executes the QAOA circuit, and returns the expected QUBO energy
+    /// (lower = better): exact over the amplitudes on a state-vector backend, otherwise the
+    /// mean energy of `shots` samples.
     let createObjectiveFunction
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
@@ -218,23 +380,138 @@ module QaoaExecutionHelpers =
         (shots: int)
         : float[] -> float =
 
-        fun (flatParams: float[]) ->
-            // Convert flat array to (gamma, beta) pairs
-            let parameters =
-                Array.init numLayers (fun i ->
-                    let gamma = flatParams.[2 * i]
-                    let beta = flatParams.[2 * i + 1]
-                    (gamma, beta))
+        if
+            Array2D.length1 qubo <> problemHam.NumQubits
+            || Array2D.length2 qubo <> problemHam.NumQubits
+        then
+            invalidArg
+                (nameof qubo)
+                $"QUBO is {Array2D.length1 qubo}x{Array2D.length2 qubo} but the problem Hamiltonian has {problemHam.NumQubits} qubits"
 
-            match executeQaoaCircuit backend problemHam mixerHam parameters shots with
-            | Error _ -> Double.MaxValue // Penalty for failed execution
-            | Ok measurements ->
-                // Calculate average QUBO energy across all measurements
-                measurements |> Array.averageBy (fun bits -> evaluateQubo qubo bits)
+        let energyOf = denseEnergy qubo
+        let energies = lazy (basisEnergies (Array2D.length1 qubo) energyOf)
+        flatObjective (evaluateParameters backend problemHam mixerHam energyOf energies shots) numLayers
+
+    /// Nelder-Mead over the expected energy from the ramp start, then FinalShots samples at the
+    /// optimum; returns the lowest-energy sample, the parameters and whether the optimizer converged.
+    let private optimizeAndSample
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        : Result<int[] * (float * float)[] * bool, QuantumError> =
+
+        let energies = lazy (basisEnergies problemHam.NumQubits energyOf)
+
+        let objectiveFunc =
+            flatObjective
+                (evaluateParameters backend problemHam mixerHam energyOf energies config.OptimizationShots)
+                config.NumLayers
+
+        let initialParams = rampInitialParameters config.NumLayers
+
+        // γ ∈ [0, π], β ∈ [0, π/2]
+        let lowerBounds = Array.zeroCreate (2 * config.NumLayers)
+
+        let upperBounds =
+            Array.init (2 * config.NumLayers) (fun i -> if i % 2 = 0 then Math.PI else Math.PI / 2.0)
+
+        // On non-convergence the optimizer returns the best evaluation seen so far
+        // with Converged = false instead of throwing.
+        let optimResult =
+            QaoaOptimizer.Optimizer.minimizeWithBounds
+                objectiveFunc
+                initialParams
+                lowerBounds
+                upperBounds
+                1e-6
+                config.MaxOptimizationIterations
+
+        let optimizedParams =
+            Array.init config.NumLayers (fun i ->
+                (optimResult.OptimizedParameters.[2 * i], optimResult.OptimizedParameters.[2 * i + 1]))
+
+        match executeQaoaCircuit backend problemHam mixerHam optimizedParams config.FinalShots with
+        | Error err -> Error err
+        | Ok measurements -> Ok(measurements |> Array.minBy energyOf, optimizedParams, optimResult.Converged)
+
+    /// Grid search over (γ, β) by expected energy, then FinalShots samples at the best grid
+    /// point; returns the lowest-energy sample and the parameters.
+    let private gridSearchAndSample
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        : Result<int[] * (float * float)[], QuantumError> =
+
+        let energies = lazy (basisEnergies problemHam.NumQubits energyOf)
+
+        let evaluate =
+            evaluateParameters backend problemHam mixerHam energyOf energies config.OptimizationShots
+
+        gridParameterSets config.NumLayers
+        |> Array.map (fun parameters -> parameters, evaluate parameters)
+        |> pickGridPoint
+        |> Result.bind (fun bestParams ->
+            executeQaoaCircuit backend problemHam mixerHam bestParams config.FinalShots
+            |> Result.map (fun measurements -> (measurements |> Array.minBy energyOf, bestParams)))
+
+    /// Asynchronous gridSearchAndSample with at most maxConcurrency grid points in flight.
+    let private gridSearchAndSampleAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problemHam: QaoaCircuit.ProblemHamiltonian)
+        (mixerHam: QaoaCircuit.MixerHamiltonian)
+        (energyOf: int[] -> float)
+        (config: QaoaSolverConfig)
+        (maxConcurrency: int)
+        (cancellationToken: CancellationToken)
+        : Task<Result<int[] * (float * float)[], QuantumError>> =
+        task {
+            let energies = lazy (basisEnergies problemHam.NumQubits energyOf)
+            let parameterSets = gridParameterSets config.NumLayers
+            let concurrency = max 1 (min maxConcurrency parameterSets.Length)
+            use semaphore = new SemaphoreSlim(concurrency, concurrency)
+
+            let executeOne (parameters: (float * float)[]) =
+                task {
+                    do! semaphore.WaitAsync cancellationToken
+
+                    try
+                        let! result =
+                            evaluateParametersAsync
+                                backend
+                                problemHam
+                                mixerHam
+                                energyOf
+                                energies
+                                config.OptimizationShots
+                                parameters
+                                cancellationToken
+
+                        return (parameters, result)
+                    finally
+                        semaphore.Release() |> ignore
+                }
+
+            let! results = parameterSets |> Array.map executeOne |> Task.WhenAll
+
+            match pickGridPoint results with
+            | Error err -> return Error err
+            | Ok bestParams ->
+                let! finalResult =
+                    executeQaoaCircuitAsync backend problemHam mixerHam bestParams config.FinalShots cancellationToken
+
+                return
+                    finalResult
+                    |> Result.map (fun measurements -> (measurements |> Array.minBy energyOf, bestParams))
+        }
 
     /// Execute QAOA with Nelder-Mead parameter optimization.
     /// Returns: (bestBitstring, optimizedParameters, converged)
-    /// Uses QaoaOptimizer.minimizeWithBounds for bounded Nelder-Mead.
+    /// Uses QaoaOptimizer.minimizeWithBounds for bounded Nelder-Mead on the expected energy
+    /// (see createObjectiveFunction), starting from a γ-rising, β-falling ramp.
     let executeQaoaWithOptimization
         (backend: BackendAbstraction.IQuantumBackend)
         (qubo: float[,])
@@ -244,63 +521,19 @@ module QaoaExecutionHelpers =
         match validateConfig config with
         | Error err -> Error err
         | Ok() ->
-
             let n = Array2D.length1 qubo
-            let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-            let mixerHam = QaoaCircuit.MixerHamiltonian.create n
 
-            // Create objective function for optimization
-            let objectiveFunc =
-                createObjectiveFunction backend qubo problemHam mixerHam config.NumLayers config.OptimizationShots
-
-            // Initial parameters: use standard QAOA heuristic
-            // gamma in [0, pi/2], beta in [0, pi/4] works well for many problems
-            let rng = Random(42) // Fixed seed for reproducibility
-
-            let initialParams =
-                Array.init (2 * config.NumLayers) (fun i ->
-                    if i % 2 = 0 then
-                        rng.NextDouble() * (Math.PI / 2.0) // gamma
-                    else
-                        rng.NextDouble() * (Math.PI / 4.0)) // beta
-
-            // Parameter bounds
-            let lowerBounds = Array.init (2 * config.NumLayers) (fun _ -> 0.0)
-
-            let upperBounds =
-                Array.init (2 * config.NumLayers) (fun i -> if i % 2 = 0 then Math.PI else Math.PI / 2.0)
-
-            // Run Nelder-Mead optimization.
-            // On non-convergence the optimizer returns the best evaluation seen so far
-            // with Converged = false instead of throwing.
-            let optimResult =
-                QaoaOptimizer.Optimizer.minimizeWithBounds
-                    objectiveFunc
-                    initialParams
-                    lowerBounds
-                    upperBounds
-                    1e-6
-                    config.MaxOptimizationIterations
-
-            let converged = optimResult.Converged
-
-            // Extract optimized parameters (best-so-far if optimization did not converge)
-            let optimizedParams =
-                Array.init config.NumLayers (fun i ->
-                    (optimResult.OptimizedParameters.[2 * i], optimResult.OptimizedParameters.[2 * i + 1]))
-
-            // Execute final circuit with optimized parameters and more shots
-            match executeQaoaCircuit backend problemHam mixerHam optimizedParams config.FinalShots with
-            | Error err -> Error err
-            | Ok measurements ->
-                // Find best solution (lowest QUBO energy)
-                let bestSolution = measurements |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-
-                Ok(bestSolution, optimizedParams, converged)
+            optimizeAndSample
+                backend
+                (QaoaCircuit.ProblemHamiltonian.fromQubo qubo)
+                (QaoaCircuit.MixerHamiltonian.create n)
+                (denseEnergy qubo)
+                config
 
     /// Execute QAOA with grid search (fallback when optimization disabled).
     /// Returns: (bestBitstring, bestParameters)
-    /// Searches over a grid of (gamma, beta) values using config.NumLayers layers.
+    /// Searches a grid of (gamma, beta) values using config.NumLayers layers and keeps the
+    /// point with the lowest expected energy (see createObjectiveFunction).
     [<Obsolete("Use executeQaoaWithGridSearchAsync for non-blocking execution with optional parallelism")>]
     let executeQaoaWithGridSearch
         (backend: BackendAbstraction.IQuantumBackend)
@@ -311,67 +544,18 @@ module QaoaExecutionHelpers =
         match validateConfig config with
         | Error err -> Error err
         | Ok() ->
-
             let n = Array2D.length1 qubo
-            let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-            let mixerHam = QaoaCircuit.MixerHamiltonian.create n
 
-            // Grid search parameter sets for multi-layer QAOA
-            let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
-            let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
-
-            let initialState =
-                {|
-                    BestSolution = None
-                    BestEnergy = Double.MaxValue
-                    BestParams = Array.empty<float * float>
-                    LastError = None
-                |}
-
-            // Try different parameter combinations
-            let result =
-                (initialState,
-                 seq {
-                     for gamma in gammaValues do
-                         for beta in betaValues do
-                             yield (gamma, beta)
-                 })
-                ||> Seq.fold (fun state (gamma, beta) ->
-                    // Create multi-layer parameters (same gamma/beta for each layer)
-                    let parameters = Array.init config.NumLayers (fun _ -> (gamma, beta))
-
-                    match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
-                    | Error err -> {| state with LastError = Some err |}
-                    | Ok measurements ->
-                        // Find best measurement in this batch
-                        let candidate = measurements |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-
-                        let energy = evaluateQubo qubo candidate
-
-                        if energy < state.BestEnergy then
-                            {| state with
-                                BestSolution = Some candidate
-                                BestEnergy = energy
-                                BestParams = parameters
-                            |}
-                        else
-                            state)
-
-            match result.BestSolution with
-            | Some _ ->
-                // Re-execute with FinalShots using the best parameters found
-                match executeQaoaCircuit backend problemHam mixerHam result.BestParams config.FinalShots with
-                | Error err -> Error err
-                | Ok measurements ->
-                    let bestSolution = measurements |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-                    Ok(bestSolution, result.BestParams)
-            | None ->
-                match result.LastError with
-                | Some err -> Error err
-                | None -> Error(QuantumError.OperationError("QAOA", "No valid solution found"))
+            gridSearchAndSample
+                backend
+                (QaoaCircuit.ProblemHamiltonian.fromQubo qubo)
+                (QaoaCircuit.MixerHamiltonian.create n)
+                (denseEnergy qubo)
+                config
 
     /// Execute QAOA with grid search asynchronously.
     /// Returns: (bestBitstring, bestParameters)
+    /// Keeps the grid point with the lowest expected energy (see createObjectiveFunction).
     ///
     /// The maxConcurrency parameter controls how many grid search evaluations
     /// run concurrently. Default is 1 (sequential) to limit memory usage on
@@ -384,94 +568,19 @@ module QaoaExecutionHelpers =
         (maxConcurrency: int)
         (cancellationToken: CancellationToken)
         : Task<Result<int[] * (float * float)[], QuantumError>> =
-        task {
-            match validateConfig config with
-            | Error err -> return Error err
-            | Ok() ->
+        match validateConfig config with
+        | Error err -> Task.FromResult(Error err)
+        | Ok() ->
+            let n = Array2D.length1 qubo
 
-                let n = Array2D.length1 qubo
-                let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-                let mixerHam = QaoaCircuit.MixerHamiltonian.create n
-
-                let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
-                let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
-
-                let parameterSets =
-                    [|
-                        for gamma in gammaValues do
-                            for beta in betaValues do
-                                Array.init config.NumLayers (fun _ -> (gamma, beta))
-                    |]
-
-                let concurrency = max 1 (min maxConcurrency parameterSets.Length)
-                use semaphore = new SemaphoreSlim(concurrency, concurrency)
-
-                let executeOne (parameters: (float * float)[]) =
-                    task {
-                        do! semaphore.WaitAsync cancellationToken
-
-                        try
-                            let! result =
-                                executeQaoaCircuitAsync
-                                    backend
-                                    problemHam
-                                    mixerHam
-                                    parameters
-                                    config.OptimizationShots
-                                    cancellationToken
-
-                            return
-                                match result with
-                                | Error err -> Error err
-                                | Ok measurements ->
-                                    let candidate = measurements |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-                                    let energy = evaluateQubo qubo candidate
-                                    Ok(candidate, energy, parameters)
-                        finally
-                            semaphore.Release() |> ignore
-                    }
-
-                let! results = parameterSets |> Array.map executeOne |> Task.WhenAll
-
-                // Find best across all results
-                let mutable bestSolution = None
-                let mutable bestEnergy = Double.MaxValue
-                let mutable bestParams = Array.empty<float * float>
-                let mutable lastError = None
-
-                for r in results do
-                    match r with
-                    | Error err -> lastError <- Some err
-                    | Ok(candidate, energy, parameters) ->
-                        if energy < bestEnergy then
-                            bestSolution <- Some candidate
-                            bestEnergy <- energy
-                            bestParams <- parameters
-
-                match bestSolution with
-                | Some _ ->
-                    // Re-execute with FinalShots using the best parameters found
-                    let! finalResult =
-                        executeQaoaCircuitAsync
-                            backend
-                            problemHam
-                            mixerHam
-                            bestParams
-                            config.FinalShots
-                            cancellationToken
-
-                    return
-                        match finalResult with
-                        | Error err -> Error err
-                        | Ok measurements ->
-                            let best = measurements |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-                            Ok(best, bestParams)
-                | None ->
-                    return
-                        match lastError with
-                        | Some err -> Error err
-                        | None -> Error(QuantumError.OperationError("QAOA", "No valid solution found"))
-        }
+            gridSearchAndSampleAsync
+                backend
+                (QaoaCircuit.ProblemHamiltonian.fromQubo qubo)
+                (QaoaCircuit.MixerHamiltonian.create n)
+                (denseEnergy qubo)
+                config
+                maxConcurrency
+                cancellationToken
 
     // ================================================================================
     // DENSE QUBO CONVENIENCE (for old solver migration — Task 2)
@@ -528,6 +637,7 @@ module QaoaExecutionHelpers =
 
     /// Execute QAOA with Nelder-Mead optimization from sparse QUBO.
     /// Returns: (bestBitstring, optimizedParameters, converged)
+    /// Same objective and start as executeQaoaWithOptimization.
     let executeQaoaWithOptimizationSparse
         (backend: BackendAbstraction.IQuantumBackend)
         (numQubits: int)
@@ -538,65 +648,16 @@ module QaoaExecutionHelpers =
         match validateConfig config with
         | Error err -> Error err
         | Ok() ->
-
-            let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
-            let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
-
-            // Build a dense array on the fly for the objective function (evaluateQubo needs it)
-            // For very large problems, callers should use evaluateQuboSparse directly.
-            let objectiveFunc =
-                fun (flatParams: float[]) ->
-                    let parameters =
-                        Array.init config.NumLayers (fun i -> (flatParams.[2 * i], flatParams.[2 * i + 1]))
-
-                    match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
-                    | Error _ -> Double.MaxValue
-                    | Ok measurements ->
-                        measurements
-                        |> Array.map (fun bits -> evaluateQuboSparse quboMap bits)
-                        |> Array.average
-
-            let rng = Random(42)
-
-            let initialParams =
-                Array.init (2 * config.NumLayers) (fun i ->
-                    if i % 2 = 0 then
-                        rng.NextDouble() * (Math.PI / 2.0)
-                    else
-                        rng.NextDouble() * (Math.PI / 4.0))
-
-            let lowerBounds = Array.init (2 * config.NumLayers) (fun _ -> 0.0)
-
-            let upperBounds =
-                Array.init (2 * config.NumLayers) (fun i -> if i % 2 = 0 then Math.PI else Math.PI / 2.0)
-
-            // On non-convergence the optimizer returns the best evaluation seen so far
-            // with Converged = false instead of throwing.
-            let optimResult =
-                QaoaOptimizer.Optimizer.minimizeWithBounds
-                    objectiveFunc
-                    initialParams
-                    lowerBounds
-                    upperBounds
-                    1e-6
-                    config.MaxOptimizationIterations
-
-            let converged = optimResult.Converged
-
-            let optimizedParams =
-                Array.init config.NumLayers (fun i ->
-                    (optimResult.OptimizedParameters.[2 * i], optimResult.OptimizedParameters.[2 * i + 1]))
-
-            match executeQaoaCircuit backend problemHam mixerHam optimizedParams config.FinalShots with
-            | Error err -> Error err
-            | Ok measurements ->
-                let bestSolution =
-                    measurements |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
-
-                Ok(bestSolution, optimizedParams, converged)
+            optimizeAndSample
+                backend
+                (QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap)
+                (QaoaCircuit.MixerHamiltonian.create numQubits)
+                (evaluateQuboSparse quboMap)
+                config
 
     /// Execute QAOA with grid search from sparse QUBO.
     /// Returns: (bestBitstring, bestParameters)
+    /// Keeps the grid point with the lowest expected energy.
     [<Obsolete("Use executeQaoaWithGridSearchSparseAsync for non-blocking execution with optional parallelism")>]
     let executeQaoaWithGridSearchSparse
         (backend: BackendAbstraction.IQuantumBackend)
@@ -608,64 +669,16 @@ module QaoaExecutionHelpers =
         match validateConfig config with
         | Error err -> Error err
         | Ok() ->
-
-            let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
-            let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
-
-            let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
-            let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
-
-            let initialState =
-                {|
-                    BestSolution = None
-                    BestEnergy = Double.MaxValue
-                    BestParams = Array.empty<float * float>
-                    LastError = None
-                |}
-
-            let result =
-                (initialState,
-                 seq {
-                     for gamma in gammaValues do
-                         for beta in betaValues do
-                             yield (gamma, beta)
-                 })
-                ||> Seq.fold (fun state (gamma, beta) ->
-                    let parameters = Array.init config.NumLayers (fun _ -> (gamma, beta))
-
-                    match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
-                    | Error err -> {| state with LastError = Some err |}
-                    | Ok measurements ->
-                        let candidate =
-                            measurements |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
-
-                        let energy = evaluateQuboSparse quboMap candidate
-
-                        if energy < state.BestEnergy then
-                            {| state with
-                                BestSolution = Some candidate
-                                BestEnergy = energy
-                                BestParams = parameters
-                            |}
-                        else
-                            state)
-
-            match result.BestSolution with
-            | Some _ ->
-                match executeQaoaCircuit backend problemHam mixerHam result.BestParams config.FinalShots with
-                | Error err -> Error err
-                | Ok measurements ->
-                    let bestSolution =
-                        measurements |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
-
-                    Ok(bestSolution, result.BestParams)
-            | None ->
-                match result.LastError with
-                | Some err -> Error err
-                | None -> Error(QuantumError.OperationError("QAOA", "No valid solution found"))
+            gridSearchAndSample
+                backend
+                (QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap)
+                (QaoaCircuit.MixerHamiltonian.create numQubits)
+                (evaluateQuboSparse quboMap)
+                config
 
     /// Execute QAOA with grid search from sparse QUBO asynchronously.
     /// Returns: (bestBitstring, bestParameters)
+    /// Keeps the grid point with the lowest expected energy.
     ///
     /// The maxConcurrency parameter controls how many grid search evaluations
     /// run concurrently. Default is 1 (sequential) to limit memory usage on
@@ -678,93 +691,17 @@ module QaoaExecutionHelpers =
         (maxConcurrency: int)
         (cancellationToken: CancellationToken)
         : Task<Result<int[] * (float * float)[], QuantumError>> =
-        task {
-            match validateConfig config with
-            | Error err -> return Error err
-            | Ok() ->
-
-                let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
-                let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
-
-                let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
-                let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
-
-                let parameterSets =
-                    [|
-                        for gamma in gammaValues do
-                            for beta in betaValues do
-                                Array.init config.NumLayers (fun _ -> (gamma, beta))
-                    |]
-
-                let concurrency = max 1 (min maxConcurrency parameterSets.Length)
-                use semaphore = new SemaphoreSlim(concurrency, concurrency)
-
-                let executeOne (parameters: (float * float)[]) =
-                    task {
-                        do! semaphore.WaitAsync cancellationToken
-
-                        try
-                            let! result =
-                                executeQaoaCircuitAsync
-                                    backend
-                                    problemHam
-                                    mixerHam
-                                    parameters
-                                    config.OptimizationShots
-                                    cancellationToken
-
-                            return
-                                match result with
-                                | Error err -> Error err
-                                | Ok measurements ->
-                                    let candidate =
-                                        measurements |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
-
-                                    let energy = evaluateQuboSparse quboMap candidate
-                                    Ok(candidate, energy, parameters)
-                        finally
-                            semaphore.Release() |> ignore
-                    }
-
-                let! results = parameterSets |> Array.map executeOne |> Task.WhenAll
-
-                let mutable bestSolution = None
-                let mutable bestEnergy = Double.MaxValue
-                let mutable bestParams = Array.empty<float * float>
-                let mutable lastError = None
-
-                for r in results do
-                    match r with
-                    | Error err -> lastError <- Some err
-                    | Ok(candidate, energy, parameters) ->
-                        if energy < bestEnergy then
-                            bestSolution <- Some candidate
-                            bestEnergy <- energy
-                            bestParams <- parameters
-
-                match bestSolution with
-                | Some _ ->
-                    let! finalResult =
-                        executeQaoaCircuitAsync
-                            backend
-                            problemHam
-                            mixerHam
-                            bestParams
-                            config.FinalShots
-                            cancellationToken
-
-                    return
-                        match finalResult with
-                        | Error err -> Error err
-                        | Ok measurements ->
-                            let best = measurements |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
-                            Ok(best, bestParams)
-                | None ->
-                    return
-                        match lastError with
-                        | Some err -> Error err
-                        | None -> Error(QuantumError.OperationError("QAOA", "No valid solution found"))
-        }
+        match validateConfig config with
+        | Error err -> Task.FromResult(Error err)
+        | Ok() ->
+            gridSearchAndSampleAsync
+                backend
+                (QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap)
+                (QaoaCircuit.MixerHamiltonian.create numQubits)
+                (evaluateQuboSparse quboMap)
+                config
+                maxConcurrency
+                cancellationToken
 
     // ================================================================================
     // BUDGET-CONSTRAINED EXECUTION (Task 5)

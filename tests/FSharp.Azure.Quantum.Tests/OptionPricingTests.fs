@@ -594,3 +594,54 @@ module OptionPricingTests =
             ()
         }
         :> Task
+
+    // ========================================================================
+    // ROUTES: the price is the amplitude estimate, exact locally, sampled on whole circuits
+    // ========================================================================
+
+    /// Discounted E[max(S - 105, 0)] on the 16-level grid priceEuropeanCall 100 105 0.05 0.2 1 prices.
+    let private gridCallPrice () =
+        let logMean = log 100.0 + (0.05 - 0.5 * 0.2 * 0.2) * 1.0
+
+        FSharp.Azure.Quantum.Algorithms.StatisticalDistributions.discretizeLogNormal logMean 0.2 16
+        |> Array.sumBy (fun (s, p) -> p * max (s - 105.0) 0.0)
+        |> (*) (exp -0.05)
+
+    [<Fact>]
+    let ``European call price is the amplitude estimate of the grid expectation on the local simulator`` () =
+        task {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+            match!
+                OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
+                 |> Async.StartImmediateAsTask
+            with
+            | Ok price ->
+                let expected = gridCallPrice ()
+                Assert.True(abs (price.Price - expected) < 1e-3, $"expected {expected}, got {price.Price}")
+                Assert.Contains("amplitude estimation", price.Method)
+                Assert.DoesNotContain("whole circuits", price.Method)
+            | Error err -> failwith $"Should succeed, got error: {err}"
+        } :> Task
+
+    [<Fact>]
+    let ``European call on a whole-circuit sampling backend is priced from the sampled amplitude estimate`` () =
+        task {
+            let backend = SampledWholeCircuit.Backend(4000, 3)
+
+            match!
+                OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
+                 |> Async.StartImmediateAsTask
+            with
+            | Ok price ->
+                let expected = gridCallPrice ()
+                // ConfidenceInterval is 1.96 standard errors of the same estimate.
+                Assert.True(
+                    abs (price.Price - expected) < 2.0 * price.ConfidenceInterval + 0.05,
+                    $"expected ≈ {expected}, got {price.Price} ± {price.ConfidenceInterval}"
+                )
+
+                Assert.Contains("whole circuits sampled at 4000 shots", price.Method)
+                Assert.True(backend.Executed >= 3, $"expected one job per Grover power, got {backend.Executed}")
+            | Error err -> failwith $"Should succeed, got error: {err}"
+        } :> Task

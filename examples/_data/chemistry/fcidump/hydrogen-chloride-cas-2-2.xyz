@@ -1,0 +1,4 @@
+2
+Hydrogen chloride [CAS(2,2)] | RHF/STO-3G optimised (max gradient 1.4e-06 Ha/bohr) | PySCF 2.14.0
+Cl     0.00000000    -0.00000000    -0.01916779
+H     -0.00000000     0.00000000     1.29416779

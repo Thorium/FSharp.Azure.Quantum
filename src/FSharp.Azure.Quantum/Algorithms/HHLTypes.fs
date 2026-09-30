@@ -129,12 +129,29 @@ module HHLTypes =
     // HHL RESULT
     // ========================================================================
 
+    /// What an HHL result's Solution holds.
+    [<RequireQualifiedAccess>]
+    type HhlReadout =
+        /// Complex amplitudes read from the backend's state (the local simulator, the topological
+        /// backend): signs and relative phases included.
+        | Amplitudes
+
+        /// |x_i| from the measured outcome frequencies of one whole-circuit run, post-selected on
+        /// ancilla = |1⟩ with the eigenvalue register |0⟩. Computational-basis counts carry no sign
+        /// or phase; recovering them needs further interference circuits (a Hadamard test per
+        /// component, say), which are not run, so Solution holds non-negative magnitudes. This is
+        /// the readout on every backend that runs complete circuits only (cloud hardware).
+        | MeasuredMagnitudes
+
     /// Result of HHL algorithm execution
     type HHLResult =
         {
             /// Solution vector (x in Ax = b)
-            /// Extracted from quantum state amplitudes
+            /// Extracted from quantum state amplitudes, or magnitudes only: see Readout
             Solution: Complex[]
+
+            /// Whether Solution carries amplitudes or measured magnitudes without signs or phases
+            Readout: HhlReadout
 
             /// Success probability (probability of ancilla = |1⟩)
             /// Higher for well-conditioned matrices

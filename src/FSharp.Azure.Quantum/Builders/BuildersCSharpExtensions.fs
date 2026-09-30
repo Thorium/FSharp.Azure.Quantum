@@ -320,6 +320,18 @@ type CSharpBuilders private () =
 
         Portfolio.createProblem assetList budget
 
+    /// <summary>Create portfolio problem with a covariance matrix of the asset returns (C# helper).</summary>
+    /// <param name="assets">Array of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available</param>
+    /// <param name="covariance">Covariance matrix, rows and columns in asset order (validated when solved)</param>
+    static member PortfolioProblem
+        (assets: struct (string * float * float * float)[], budget: float, covariance: float[,])
+        =
+        let assetList =
+            assets |> Array.map (fun struct (s, r, k, p) -> (s, r, k, p)) |> Array.toList
+
+        Portfolio.createProblemWithCovariance assetList budget covariance
+
     // ============================================================================
     // OPTION PRICING BUILDER EXTENSIONS - Quantum Monte Carlo
     // ============================================================================

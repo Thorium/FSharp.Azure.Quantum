@@ -34,7 +34,7 @@ Computation expressions give a declarative way to describe quantum problems, cir
 | **phaseEstimator** | Quantum phase estimation (QPE) | `unitary`, `precision`, `targetQubits`, `eigenstate`, `applySwaps`, `swaps`, `exactness`, `backend`, `shots` |
 | **predictiveModel** | Predict continuous values or categories | `trainWith`, `problemType`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
 | **quantumArithmetic** | Quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
-| **quantumChemistry** | Ground state energy with VQE | `molecule`, `basis`, `ansatz`, `optimizer`, `maxIterations`, `initialParameters`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
+| **quantumChemistry** | Ground state energy with VQE or QPE | `molecule`, `basis`, `ansatz`, `groundStateMethod`, `optimizer`, `maxIterations`, `initialParameters`, `integralProvider`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
 | **quantumRiskEngine** | Portfolio risk metrics (VaR, CVaR) | `load_market_data`, `set_confidence_level`, `set_simulation_paths`, `use_amplitude_estimation`, `use_error_mitigation`, `calculate_metric`, `cancellation_token`, `qubits`, `iterations`, `shots`, `backend` |
 | **quantumTreeSearch<'T>** | Game-tree and decision-tree search with Grover search | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations`, `onProgress` |
 | **resource<'T>** | A resource for task scheduling | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
@@ -148,9 +148,9 @@ match GraphColoring.solve coloring 3 None with
 - `node id conflicts` - Add a node from its ID and the IDs it conflicts with
 - `nodes` - Add a list of `ColoredNode` values (built with `coloredNode`)
 - `colors` - Available colors
-- `maxColors` - Maximum number of colors to use
+- `maxColors` - Use only the first `maxColors` colors
 - `objective` - `MinimizeColors` (default) | `MinimizeConflicts` | `BalanceColors`
-- `conflictPenalty` - Penalty weight for conflicts (default 1.0)
+- `conflictPenalty` - Multiplier on the conflict penalty (positive; default 1.0)
 
 ---
 
@@ -884,6 +884,7 @@ match pricing |> Async.RunSynchronously with
 
 **Notes**:
 - Uses Möttönen state preparation to encode the price distribution.
+- The price is the maximum-likelihood amplitude estimate (`QuantumMonteCarlo.estimateBoundedExpectation`) over Grover powers 0, 1, 2, 4, … up to `iterations`, and the interval is 1.96 × its standard error. On a cloud backend every power is one whole-circuit job and its probability comes from the job's counts; the method name then says "whole circuits sampled at N shots".
 - In theory amplitude estimation needs O(1/ε) oracle queries for accuracy ε, where classical Monte Carlo needs O(1/ε²) samples. The local simulator does not show that advantage; the `Speedup` field of the result is the theoretical factor, not a measured one.
 
 **Greeks Calculation**:
@@ -922,7 +923,7 @@ match riskReport with
 - `load_market_data` - Path to a file of returns. Without it the engine uses generated sample returns
 - `set_confidence_level` - Confidence level (default 0.95)
 - `set_simulation_paths` - Number of simulation paths (default 10000)
-- `use_amplitude_estimation` - Use quantum amplitude estimation (default false)
+- `use_amplitude_estimation` - Use quantum amplitude estimation (default false); each metric is estimated with `QuantumMonteCarlo.estimateBoundedExpectation`, as whole-circuit jobs on a cloud backend
 - `use_error_mitigation` - Enable error mitigation (default false)
 - `calculate_metric` - Add a metric: `ValueAtRisk` | `ConditionalVaR` | `ExpectedShortfall` | `Volatility`
 - `cancellation_token` - Cancellation token
@@ -1017,7 +1018,7 @@ match (TopologicalBuilder.execute isingBackend program).Result with
 
 **Module**: `FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder`
 
-**Purpose**: Ground state energy calculations with VQE. The CE returns a `ChemistryProblem` and throws if `molecule` (or a `molecule_from_*` operation), `basis` or `ansatz` is missing. `solve problem` returns `Async<Result<ChemistryResult, QuantumError>>`.
+**Purpose**: Ground state energy calculations with VQE, or with quantum phase estimation (`groundStateMethod GroundStateMethod.QPE`). The CE returns a `ChemistryProblem` and throws if `molecule` (or a `molecule_from_*` operation) or `basis` is missing, or `ansatz` is missing for VQE. `solve problem` returns `Async<Result<ChemistryResult, QuantumError>>`.
 
 **Example**:
 ```fsharp
@@ -1034,20 +1035,39 @@ match solve h2Problem |> Async.RunSynchronously with
 | Ok result -> printfn "Ground state energy: %.6f Ha" result.GroundStateEnergy
 | Error err -> printfn "Error: %s" err.Message
 ```
+The same molecule by quantum phase estimation (12 qubits, about 7 s on the local simulator):
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumChemistry
+
+let h2Qpe = quantumChemistry {
+    molecule (h2 0.7414)
+    basis "sto-3g"
+    groundStateMethod GroundStateMethod.QPE
+}
+
+match solve h2Qpe |> Async.RunSynchronously with
+| Ok result ->
+    printfn "QPE energy: %.6f Ha (%A)" result.GroundStateEnergy result.Source
+    result.Notes |> List.iter (printfn "  %s")
+| Error err -> printfn "Error: %s" err.Message
+```
 
 **Custom Operations**:
 - `molecule mol` - Molecule instance
 - `molecule_from_xyz path` - Load the molecule from an XYZ file (read in `solve`)
-- `molecule_from_fcidump path` - Load the molecule from an FCIDump file (read in `solve`)
+- `molecule_from_fcidump path` - Run VQE on an FCIDump file's integrals (read in `solve`; the molecule is a placeholder, since the file has no geometry)
 - `molecule_from_provider provider name` - Load the molecule from a dataset provider
 - `molecule_from_name name` - Load the molecule from the built-in molecule library
 - `basis basisSet` - Basis set name (required)
 - `ansatz ansatzType` - `UCCSD`, `HEA` or `ADAPT` (required)
 - `optimizer name` - Optimizer name (default "COBYLA")
 - `maxIterations n` - Maximum VQE iterations (default: 100)
-- `initialParameters params` - Initial parameters for a warm start
+- `initialParameters params` - Initial UCCSD amplitudes for a warm start (the count must match the ansatz)
+- `integralProvider provider` - Molecular integrals for VQE (a PySCF/Psi4 wrapper, `FciDumpIntegrals.fromFile`, ...)
+- `groundStateMethod method` - `GroundStateMethod.QPE` runs quantum phase estimation of the Trotterised time evolution (`QPE.runWith QPE.defaultSettings` in the problem's basis; no `ansatz` needed); `VQE`, `Automatic` or no method runs UCCSD-VQE
 
-**Current behaviour of `solve`**: it runs VQE on the local simulator with the library's default integrals. The `basis` and `ansatz` values and the optimizer name are stored in the problem (`basis` and `ansatz` are required), but `solve` does not use them yet; `maxIterations` and `initialParameters` are used. `optimizer` copies the iteration count at the point where it appears, so put `maxIterations` before `optimizer`.
+**Current behaviour of `solve`**: it runs UCCSD-VQE on the local simulator, or quantum phase estimation with `groundStateMethod GroundStateMethod.QPE` (see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md) for its design and accuracy). The integrals come from `integralProvider`, else from the `molecule_from_fcidump` file, else from `VQE.run`'s own selection. That selection is integrals the library computes for molecules of H and He atoms, an `Error` for H2O and LiH, and the empirical prototype Hamiltonian otherwise. `basis` chooses the basis of the computed integrals. STO-3G and 6-31G are supported; any other basis is an `Error`. Integrals from a provider or an FCIDUMP file carry their own basis. The result's `Source` says which integrals were used. The `ansatz` value and the optimizer name are stored in the problem (`ansatz` is required), but `solve` does not use them yet: with integrals it runs UCCSD with its own BFGS optimizer. `maxIterations` and `initialParameters` are used. `optimizer` copies the iteration count at the point where it appears, so put `maxIterations` before `optimizer`.
 
 **Pre-built molecules**:
 ```fsharp
@@ -1084,6 +1104,9 @@ let fromLibrary = quantumChemistry {
 - `Convergence` - Whether VQE converged within tolerance
 - `BondLengths` - Bond lengths (e.g. "H-H" -> 0.74)
 - `DipoleMoment` - Dipole moment, if computed
+- `Source` - What produced the energy (`EnergySource`: `ProviderIntegrals`, `ComputedSto3gIntegrals`, `Computed631gIntegrals`, `EmpiricalHamiltonian`, `QpeTrotterEvolution`, ...)
+- `Estimation` - How the energy was estimated (`EnergyEstimation`); for QPE, `PhaseEstimation` with the evolution time, shift, Trotter order and steps, counting qubits, bin width and every peak of the outcome distribution
+- `Notes` - Caveats on the energy; for QPE, how strongly the Hartree-Fock state overlaps the reported eigenvalue and any other peaks
 
 ---
 

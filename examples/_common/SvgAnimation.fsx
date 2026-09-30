@@ -168,7 +168,7 @@ type Picture(width: float, height: float, frames: int, durationS: float, title: 
         let anims = animate |> List.map (fun (a, vs) -> animation a vs) |> String.concat ""
 
         if anims = "" && inner = "" then
-            body.Append(sprintf "<%s%s/>" name (attributes fixedAttrs)).Append('\n')
+            body.Append(sprintf "<%s%s/>" name (attributes fixedAttrs)).Append '\n'
             |> ignore
         else
             body.Append(sprintf "<%s%s>%s%s</%s>" name (attributes fixedAttrs) (escape inner) anims name).Append '\n'

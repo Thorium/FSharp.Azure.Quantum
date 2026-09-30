@@ -302,7 +302,7 @@ module Arithmetic =
     ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
     ///   let! initialState = backend.InitializeState 3
     ///   let! result = addConstant [0; 1; 2] 5 initialState backend
-    let addConstant
+    let private addConstantOnBackend
         (registerQubits: int list)
         (constant: int)
         (state: QuantumState)
@@ -390,7 +390,7 @@ module Arithmetic =
     /// Parameters: Same as addConstant
     ///
     /// Implementation: Subtraction is addition of two's complement
-    let subtractConstant
+    let private subtractConstantOnBackend
         (registerQubits: int list)
         (constant: int)
         (state: QuantumState)
@@ -423,7 +423,7 @@ module Arithmetic =
                 }
         else
             let twosComplement = (1 <<< numQubits) - constant
-            addConstant registerQubits twosComplement state backend
+            addConstantOnBackend registerQubits twosComplement state backend
 
     // ========================================================================
     // CONTROLLED ARITHMETIC
@@ -446,7 +446,7 @@ module Arithmetic =
     /// 3. Apply inverse QFT to get result
     ///
     /// The key difference from regular addition is using CP instead of P gates.
-    let controlledAddConstant
+    let private controlledAddConstantOnBackend
         (controlQubit: int)
         (registerQubits: int list)
         (constant: int)
@@ -543,7 +543,7 @@ module Arithmetic =
     /// 3. Uncompute ancilla with another Toffoli
     ///
     /// This ensures the operation is unitary and doesn't consume ancilla qubits permanently.
-    let doublyControlledAddConstant
+    let private doublyControlledAddConstantOnBackend
         (control1: int)
         (control2: int)
         (registerQubits: int list)
@@ -575,6 +575,7 @@ module Arithmetic =
             let stateSize =
                 match state with
                 | QuantumState.StateVector sv -> StateVector.numQubits sv
+                | QuantumState.SparseState(_, n) -> n
                 | _ -> maxQubitInUse + 2 // Assume enough for other state types
 
             if stateSize < requiredQubits then
@@ -592,7 +593,7 @@ module Arithmetic =
 
                     // Step 2: Perform controlled addition with ancilla as control
                     let! addResult =
-                        controlledAddConstant ancillaQubit registerQubits constant stateWithAncilla backend
+                        controlledAddConstantOnBackend ancillaQubit registerQubits constant stateWithAncilla backend
 
                     // Step 3: Uncompute ancilla (flip it back to |0⟩)
                     let! finalState =
@@ -615,7 +616,7 @@ module Arithmetic =
     /// Parameters: Same as controlledAddConstant
     ///
     /// Implementation: Controlled subtraction is controlled addition of two's complement
-    let controlledSubtractConstant
+    let private controlledSubtractConstantOnBackend
         (controlQubit: int)
         (registerQubits: int list)
         (constant: int)
@@ -647,7 +648,7 @@ module Arithmetic =
                 }
         else
             let twosComplement = (1 <<< numQubits) - constant
-            controlledAddConstant controlQubit registerQubits twosComplement state backend
+            controlledAddConstantOnBackend controlQubit registerQubits twosComplement state backend
 
     /// Doubly-controlled subtraction: Subtract constant if both control qubits are |1⟩
     ///
@@ -656,7 +657,7 @@ module Arithmetic =
     /// Parameters: Same as doublyControlledAddConstant
     ///
     /// Implementation: Doubly-controlled subtraction is doubly-controlled addition of two's complement
-    let doublyControlledSubtractConstant
+    let private doublyControlledSubtractConstantOnBackend
         (control1: int)
         (control2: int)
         (registerQubits: int list)
@@ -689,7 +690,7 @@ module Arithmetic =
                 }
         else
             let twosComplement = (1 <<< numQubits) - constant
-            doublyControlledAddConstant control1 control2 registerQubits twosComplement state backend
+            doublyControlledAddConstantOnBackend control1 control2 registerQubits twosComplement state backend
 
     // ========================================================================
     // MODULAR ARITHMETIC
@@ -715,7 +716,7 @@ module Arithmetic =
     /// Both are guaranteed to be restored to |0⟩ after the operation.
     ///
     /// Reference: Beauregard, "Circuit for Shor's algorithm using 2n+3 qubits" (2003)
-    let addConstantModN
+    let private addConstantModNOnBackend
         (registerQubits: int list)
         (constant: int)
         (modulus: int)
@@ -766,6 +767,7 @@ module Arithmetic =
             let stateSize =
                 match state with
                 | QuantumState.StateVector sv -> StateVector.numQubits sv
+                | QuantumState.SparseState(_, n) -> n
                 | _ -> maxQubitInUse + 3
 
             if stateSize < requiredQubits then
@@ -778,11 +780,11 @@ module Arithmetic =
             else
                 result {
                     // Step 1: Add constant to extended register (n+1 bits)
-                    let! afterAdd = addConstant extendedReg constant state backend
+                    let! afterAdd = addConstantOnBackend extendedReg constant state backend
 
                     // Step 2: Subtract modulus from extended register
                     // After this, overflow bit = 1 iff x + a < N (underflow occurred)
-                    let! afterSubN = subtractConstant extendedReg modulus afterAdd.State backend
+                    let! afterSubN = subtractConstantOnBackend extendedReg modulus afterAdd.State backend
 
                     // Step 3: Copy overflow (underflow indicator) to flag qubit
                     let! afterCopyFlag =
@@ -792,14 +794,15 @@ module Arithmetic =
 
                     // Step 4: Controlled add N back to extended register if flag=1 (underflow)
                     let! afterCondAdd =
-                        controlledAddConstant flagQubit extendedReg modulus afterCopyFlag backend
+                        controlledAddConstantOnBackend flagQubit extendedReg modulus afterCopyFlag backend
 
                     // Steps 5-8: Uncompute flag and overflow qubits (Beauregard trick)
                     // After step 4, register = (x+a) mod N, but flag and overflow may be dirty.
                     // The uncomputation sequence guarantees both are restored to |0⟩.
 
                     // Step 5: Subtract a from extended register (for flag uncomputation)
-                    let! afterSubA = subtractConstant extendedReg constant afterCondAdd.State backend
+                    let! afterSubA =
+                        subtractConstantOnBackend extendedReg constant afterCondAdd.State backend
 
                     // Step 6: CNOT(overflow → flag) — sets flag=1 in all cases
                     let! afterUncompCnot =
@@ -812,7 +815,7 @@ module Arithmetic =
                         backend.ApplyOperation (QuantumOperation.Gate(CB.X flagQubit)) afterUncompCnot
 
                     // Step 8: Add a back to extended register — restores result and cleans overflow
-                    let! afterRestore = addConstant extendedReg constant afterUncompX backend
+                    let! afterRestore = addConstantOnBackend extendedReg constant afterUncompX backend
 
                     return
                         {
@@ -839,7 +842,7 @@ module Arithmetic =
     /// (x - a) mod N ≡ (x + (N - a)) mod N
     ///
     /// Requires two ancilla qubits (same as addConstantModN).
-    let subtractConstantModN
+    let private subtractConstantModNOnBackend
         (registerQubits: int list)
         (constant: int)
         (modulus: int)
@@ -852,7 +855,7 @@ module Arithmetic =
         else
             // (x - a) mod N = (x + (N - a)) mod N
             let complement = if constant = 0 then 0 else modulus - constant
-            addConstantModN registerQubits complement modulus state backend
+            addConstantModNOnBackend registerQubits complement modulus state backend
 
     /// Controlled modular addition: if control=|1⟩, |x⟩ → |(x + a) mod N⟩
     ///
@@ -871,7 +874,7 @@ module Arithmetic =
     /// 8. C-ADD(a) on extended register
     ///
     /// Requires two ancilla qubits: overflow and flag (both restored to |0⟩).
-    let controlledAddConstantModN
+    let private controlledAddConstantModNOnBackend
         (outerControl: int)
         (registerQubits: int list)
         (constant: int)
@@ -917,6 +920,7 @@ module Arithmetic =
             let stateSize =
                 match state with
                 | QuantumState.StateVector sv -> StateVector.numQubits sv
+                | QuantumState.SparseState(_, n) -> n
                 | _ -> maxQubitInUse + 3
 
             if stateSize < requiredQubits then
@@ -929,11 +933,12 @@ module Arithmetic =
             else
                 result {
                     // Step 1: Controlled ADD(a) on extended register
-                    let! s1 = controlledAddConstant outerControl extendedReg constant state backend
+                    let! s1 =
+                        controlledAddConstantOnBackend outerControl extendedReg constant state backend
 
                     // Step 2: Controlled SUB(N) on extended register
                     let! s2 =
-                        controlledSubtractConstant outerControl extendedReg modulus s1.State backend
+                        controlledSubtractConstantOnBackend outerControl extendedReg modulus s1.State backend
 
                     // Step 3: CCX(outerControl, overflow → flag)
                     let! s3 =
@@ -943,11 +948,11 @@ module Arithmetic =
 
                     // Step 4: Doubly-controlled ADD(N) — controlled by outerControl AND flag
                     let! s4 =
-                        doublyControlledAddConstant outerControl flagQubit extendedReg modulus s3 backend
+                        doublyControlledAddConstantOnBackend outerControl flagQubit extendedReg modulus s3 backend
 
                     // Step 5: Controlled SUB(a) on extended register
                     let! s5 =
-                        controlledSubtractConstant outerControl extendedReg constant s4.State backend
+                        controlledSubtractConstantOnBackend outerControl extendedReg constant s4.State backend
 
                     // Step 6: CCX(outerControl, overflow → flag)
                     let! s6 =
@@ -960,7 +965,7 @@ module Arithmetic =
                         backend.ApplyOperation (QuantumOperation.Gate(CB.CNOT(outerControl, flagQubit))) s6
 
                     // Step 8: Controlled ADD(a) on extended register
-                    let! s8 = controlledAddConstant outerControl extendedReg constant s7 backend
+                    let! s8 = controlledAddConstantOnBackend outerControl extendedReg constant s7 backend
 
                     return
                         {
@@ -984,7 +989,7 @@ module Arithmetic =
     /// Controlled modular subtraction: if control=|1⟩, |x⟩ → |(x - a) mod N⟩
     ///
     /// Implemented via controlledAddConstantModN with the complement (N - a).
-    let controlledSubtractConstantModN
+    let private controlledSubtractConstantModNOnBackend
         (outerControl: int)
         (registerQubits: int list)
         (constant: int)
@@ -997,7 +1002,7 @@ module Arithmetic =
             Error(QuantumError.ValidationError("constant", $"Constant {constant} must be in range [0, {modulus})"))
         else
             let complement = if constant = 0 then 0 else modulus - constant
-            controlledAddConstantModN outerControl registerQubits complement modulus state backend
+            controlledAddConstantModNOnBackend outerControl registerQubits complement modulus state backend
 
     /// Doubly-controlled modular addition: if ctrl1=|1⟩ AND ctrl2=|1⟩, |x⟩ → |(x + a) mod N⟩
     ///
@@ -1007,7 +1012,7 @@ module Arithmetic =
     /// Pattern: CCX(ctrl1, ctrl2, ancilla) → controlledAddConstantModN(ancilla, ...) → CCX(ctrl1, ctrl2, ancilla)
     ///
     /// Requires ancilla qubits: 1 for AND decomposition + 2 internal to controlledAddConstantModN.
-    let doublyControlledAddConstantModN
+    let private doublyControlledAddConstantModNOnBackend
         (control1: int)
         (control2: int)
         (registerQubits: int list)
@@ -1054,6 +1059,7 @@ module Arithmetic =
             let stateSize =
                 match state with
                 | QuantumState.StateVector sv -> StateVector.numQubits sv
+                | QuantumState.SparseState(_, n) -> n
                 | _ -> maxQubitInUse + 4
 
             if stateSize < requiredQubits then
@@ -1071,7 +1077,7 @@ module Arithmetic =
 
                     // Controlled modular addition using andAncilla as control
                     let! s2 =
-                        controlledAddConstantModN andAncilla registerQubits constant modulus s1 backend
+                        controlledAddConstantModNOnBackend andAncilla registerQubits constant modulus s1 backend
 
                     // Uncompute AND: CCX(ctrl1, ctrl2, andAncilla)
                     let! s3 =
@@ -1093,7 +1099,7 @@ module Arithmetic =
     /// Doubly-controlled modular subtraction: if ctrl1=|1⟩ AND ctrl2=|1⟩, |x⟩ → |(x - a) mod N⟩
     ///
     /// Implemented via doublyControlledAddConstantModN with the complement (N - a).
-    let doublyControlledSubtractConstantModN
+    let private doublyControlledSubtractConstantModNOnBackend
         (control1: int)
         (control2: int)
         (registerQubits: int list)
@@ -1107,7 +1113,7 @@ module Arithmetic =
             Error(QuantumError.ValidationError("constant", $"Constant {constant} must be in range [0, {modulus})"))
         else
             let complement = if constant = 0 then 0 else modulus - constant
-            doublyControlledAddConstantModN control1 control2 registerQubits complement modulus state backend
+            doublyControlledAddConstantModNOnBackend control1 control2 registerQubits complement modulus state backend
 
     /// Modular multiplication: |x⟩|0⟩ → |x⟩|ax mod N⟩
     ///
@@ -1125,7 +1131,7 @@ module Arithmetic =
     ///   - backend: Backend to execute operations
     ///
     /// Note: Constant and modulus must be coprime (gcd(a, N) = 1)
-    let multiplyConstantModN
+    let private multiplyConstantModNOnBackend
         (inputQubits: int list)
         (outputQubits: int list)
         (constant: int)
@@ -1166,7 +1172,13 @@ module Arithmetic =
 
                         // Use controlled modular addition so the running sum stays in [0, N)
                         let! addResult =
-                            controlledAddConstantModN controlQubit outputQubits addend modulus currentState backend
+                            controlledAddConstantModNOnBackend
+                                controlQubit
+                                outputQubits
+                                addend
+                                modulus
+                                currentState
+                                backend
 
                         // Update power for next iteration: (a * 2^(k+1)) mod N = (power * 2) mod N
                         let nextPower = (power * 2) % modulus
@@ -1206,7 +1218,7 @@ module Arithmetic =
     ///   - modulus: Modulus 'N'
     ///   - state: Current quantum state
     ///   - backend: Backend to execute operations
-    let controlledMultiplyConstantModN
+    let private controlledMultiplyConstantModNOnBackend
         (controlQubit: int)
         (inputQubits: int list)
         (outputQubits: int list)
@@ -1244,7 +1256,7 @@ module Arithmetic =
 
                         // Use doubly-controlled modular addition: both controlQubit AND inputQubit must be |1⟩
                         let! addResult =
-                            doublyControlledAddConstantModN
+                            doublyControlledAddConstantModNOnBackend
                                 controlQubit
                                 inputQubit
                                 outputQubits
@@ -1298,7 +1310,7 @@ module Arithmetic =
     ///   - backend: Backend to execute operations
     ///
     /// Reference: Beauregard, "Circuit for Shor's algorithm using 2n+3 qubits" (2003)
-    let controlledMultiplyConstantModNInPlace
+    let private controlledMultiplyConstantModNInPlaceOnBackend
         (controlQubit: int)
         (registerQubits: int list)
         (tempQubits: int list)
@@ -1321,7 +1333,14 @@ module Arithmetic =
             result {
                 // Step 1: Forward multiplication - C|y⟩|0⟩ → C|y⟩|ay mod N⟩
                 let! multResult =
-                    controlledMultiplyConstantModN controlQubit registerQubits tempQubits constant modulus state backend
+                    controlledMultiplyConstantModNOnBackend
+                        controlQubit
+                        registerQubits
+                        tempQubits
+                        constant
+                        modulus
+                        state
+                        backend
 
                 // Step 2: Controlled SWAP - C|y⟩|ay⟩ → C|ay⟩|y⟩
                 // Each pair (regQubit, tempQubit) gets swapped if control is |1⟩
@@ -1378,7 +1397,7 @@ module Arithmetic =
 
                             // Doubly-controlled modular subtraction: both controlQubit AND controlBitQubit must be |1⟩
                             let! subResult =
-                                doublyControlledSubtractConstantModN
+                                doublyControlledSubtractConstantModNOnBackend
                                     controlQubit
                                     controlBitQubit
                                     tempQubits
@@ -1408,6 +1427,266 @@ module Arithmetic =
                             }
                     }
             }
+
+    // ========================================================================
+    // PUBLIC API - ANY BACKEND
+    //
+    // Each operation runs gate by gate where the backend allows it. A backend that runs
+    // complete circuits only gets the operation recorded and submitted as one circuit
+    // (WholeCircuit.run): the arithmetic is state-independent, so the recorded circuit is the
+    // one a simulator applies. A job starts from |0…0⟩, so on such a backend the input state
+    // must be |0…0⟩; prepare operands inside the circuit (QuantumArithmeticOps does) instead.
+    // The documentation of each operation is on its *OnBackend implementation above.
+    // ========================================================================
+
+    let private withState (result: ArithmeticResult) (state: QuantumState) : ArithmeticResult =
+        { result with State = state }
+
+    /// |x⟩ → |x + a mod 2^n⟩ (Draper QFT adder). See `addConstantOnBackend`.
+    let addConstant
+        (registerQubits: int list)
+        (constant: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.addConstant"
+            backend
+            state
+            (fun b s -> addConstantOnBackend registerQubits constant s b)
+            withState
+
+    /// |x⟩ → |x - a mod 2^n⟩. See `subtractConstantOnBackend`.
+    let subtractConstant
+        (registerQubits: int list)
+        (constant: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.subtractConstant"
+            backend
+            state
+            (fun b s -> subtractConstantOnBackend registerQubits constant s b)
+            withState
+
+    /// |c⟩|x⟩ → |c⟩|x + c·a mod 2^n⟩. See `controlledAddConstantOnBackend`.
+    let controlledAddConstant
+        (controlQubit: int)
+        (registerQubits: int list)
+        (constant: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.controlledAddConstant"
+            backend
+            state
+            (fun b s -> controlledAddConstantOnBackend controlQubit registerQubits constant s b)
+            withState
+
+    /// |c1⟩|c2⟩|x⟩ → |c1⟩|c2⟩|x + c1·c2·a mod 2^n⟩. See `doublyControlledAddConstantOnBackend`.
+    let doublyControlledAddConstant
+        (control1: int)
+        (control2: int)
+        (registerQubits: int list)
+        (constant: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.doublyControlledAddConstant"
+            backend
+            state
+            (fun b s -> doublyControlledAddConstantOnBackend control1 control2 registerQubits constant s b)
+            withState
+
+    /// |c⟩|x⟩ → |c⟩|x - c·a mod 2^n⟩. See `controlledSubtractConstantOnBackend`.
+    let controlledSubtractConstant
+        (controlQubit: int)
+        (registerQubits: int list)
+        (constant: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.controlledSubtractConstant"
+            backend
+            state
+            (fun b s -> controlledSubtractConstantOnBackend controlQubit registerQubits constant s b)
+            withState
+
+    /// |c1⟩|c2⟩|x⟩ → |c1⟩|c2⟩|x - c1·c2·a mod 2^n⟩. See `doublyControlledSubtractConstantOnBackend`.
+    let doublyControlledSubtractConstant
+        (control1: int)
+        (control2: int)
+        (registerQubits: int list)
+        (constant: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.doublyControlledSubtractConstant"
+            backend
+            state
+            (fun b s -> doublyControlledSubtractConstantOnBackend control1 control2 registerQubits constant s b)
+            withState
+
+    /// |x⟩ → |x + a mod N⟩ (Beauregard). See `addConstantModNOnBackend`.
+    let addConstantModN
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.addConstantModN"
+            backend
+            state
+            (fun b s -> addConstantModNOnBackend registerQubits constant modulus s b)
+            withState
+
+    /// |x⟩ → |x - a mod N⟩. See `subtractConstantModNOnBackend`.
+    let subtractConstantModN
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.subtractConstantModN"
+            backend
+            state
+            (fun b s -> subtractConstantModNOnBackend registerQubits constant modulus s b)
+            withState
+
+    /// |c⟩|x⟩ → |c⟩|x + c·a mod N⟩. See `controlledAddConstantModNOnBackend`.
+    let controlledAddConstantModN
+        (outerControl: int)
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.controlledAddConstantModN"
+            backend
+            state
+            (fun b s -> controlledAddConstantModNOnBackend outerControl registerQubits constant modulus s b)
+            withState
+
+    /// |c⟩|x⟩ → |c⟩|x - c·a mod N⟩. See `controlledSubtractConstantModNOnBackend`.
+    let controlledSubtractConstantModN
+        (outerControl: int)
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.controlledSubtractConstantModN"
+            backend
+            state
+            (fun b s -> controlledSubtractConstantModNOnBackend outerControl registerQubits constant modulus s b)
+            withState
+
+    /// |c1⟩|c2⟩|x⟩ → |c1⟩|c2⟩|x + c1·c2·a mod N⟩. See `doublyControlledAddConstantModNOnBackend`.
+    let doublyControlledAddConstantModN
+        (control1: int)
+        (control2: int)
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.doublyControlledAddConstantModN"
+            backend
+            state
+            (fun b s -> doublyControlledAddConstantModNOnBackend control1 control2 registerQubits constant modulus s b)
+            withState
+
+    /// |c1⟩|c2⟩|x⟩ → |c1⟩|c2⟩|x - c1·c2·a mod N⟩. See `doublyControlledSubtractConstantModNOnBackend`.
+    let doublyControlledSubtractConstantModN
+        (control1: int)
+        (control2: int)
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.doublyControlledSubtractConstantModN"
+            backend
+            state
+            (fun b s ->
+                doublyControlledSubtractConstantModNOnBackend control1 control2 registerQubits constant modulus s b)
+            withState
+
+    /// |x⟩|0⟩ → |x⟩|a·x mod N⟩. See `multiplyConstantModNOnBackend`.
+    let multiplyConstantModN
+        (inputQubits: int list)
+        (outputQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.multiplyConstantModN"
+            backend
+            state
+            (fun b s -> multiplyConstantModNOnBackend inputQubits outputQubits constant modulus s b)
+            withState
+
+    /// |c⟩|x⟩|0⟩ → |c⟩|x⟩|c·a·x mod N⟩. See `controlledMultiplyConstantModNOnBackend`.
+    let controlledMultiplyConstantModN
+        (controlQubit: int)
+        (inputQubits: int list)
+        (outputQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.controlledMultiplyConstantModN"
+            backend
+            state
+            (fun b s ->
+                controlledMultiplyConstantModNOnBackend controlQubit inputQubits outputQubits constant modulus s b)
+            withState
+
+    /// C|y⟩ → C|a·y mod N⟩ in place. See `controlledMultiplyConstantModNInPlaceOnBackend`.
+    let controlledMultiplyConstantModNInPlace
+        (controlQubit: int)
+        (registerQubits: int list)
+        (tempQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<ArithmeticResult, QuantumError> =
+        WholeCircuit.run
+            "Arithmetic.controlledMultiplyConstantModNInPlace"
+            backend
+            state
+            (fun b s ->
+                controlledMultiplyConstantModNInPlaceOnBackend
+                    controlQubit
+                    registerQubits
+                    tempQubits
+                    constant
+                    modulus
+                    s
+                    b)
+            withState
 
     // ========================================================================
     // CONFIGURATION HELPERS
@@ -1853,57 +2132,12 @@ module QuantumArithmetic =
 /// them to braids, and a backend with something better still claims the intent natively.
 module ModularExponentiationCircuit =
 
-    /// Records the operations applied to it and computes nothing.
-    ///
-    /// This extracts `Arithmetic`'s circuit by running the real code against a backend that
-    /// only remembers what it was asked to do. That is sound here, and only here, because the
-    /// modular arithmetic is state-INDEPENDENT: it performs no measurement, reads no
-    /// amplitude, and branches on nothing but qubit indices and classical constants (the four
-    /// `match state with` sites in `Arithmetic` bound a validation check, never the operations
-    /// emitted). Running the real implementation is also why the extracted circuit cannot
-    /// drift from the executed one — there is only one implementation, not two.
-    ///
-    /// The state is `SparseState` with an empty amplitude map, so the recorder costs nothing
-    /// at any width: no 2^n vector is ever allocated.
-    type private OperationRecorder(numQubits: int) =
-        let recorded = ResizeArray<QuantumOperation>()
-
-        member _.Recorded: QuantumOperation list = List.ofSeq recorded
-
-        member _.State: QuantumState = QuantumState.SparseState(Map.empty, numQubits)
-
-        interface IQuantumBackend with
-            member _.Name = "beauregard-circuit-recorder"
-            member _.NativeStateType = QuantumStateType.GateBased
-
-            member _.InitializeState n =
-                Ok(QuantumState.SparseState(Map.empty, n))
-
-            member _.ApplyOperation operation state =
-                recorded.Add operation
-                Ok state
-
-            // Gates only. Answering false for algorithm intents keeps any nested lowering on
-            // primitive gates, which is what makes the recorded list portable to a backend
-            // that shares none of this one's shortcuts.
-            member _.SupportsOperation operation =
-                match operation with
-                | QuantumOperation.Algorithm _ -> false
-                | _ -> true
-
-            member _.ExecuteToState _ =
-                Error(
-                    QuantumError.OperationError(
-                        "OperationRecorder",
-                        "records operations only; it does not execute circuits"
-                    )
-                )
-
-            member this.ExecuteToStateAsync circuit _ =
-                System.Threading.Tasks.Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
-
-            member this.ApplyOperationAsync operation state _ =
-                System.Threading.Tasks.Task.FromResult((this :> IQuantumBackend).ApplyOperation operation state)
+    // The circuit is extracted by running `Arithmetic`'s real code against
+    // WholeCircuit.OperationRecorder. That is sound because the modular arithmetic is
+    // state-independent: it performs no measurement, reads no amplitude, and branches on
+    // nothing but qubit indices and classical constants (the `match state with` sites in
+    // `Arithmetic` bound a validation check, never the operations emitted). Running the real
+    // implementation is also why the extracted circuit cannot drift from the executed one.
 
     /// Bits needed to hold a residue mod N — the width of the target register.
     ///
@@ -1939,17 +2173,16 @@ module ModularExponentiationCircuit =
             let tempQubits = [ maxExistingQubit + 1 .. maxExistingQubit + numBits ]
             let totalQubits = maxExistingQubit + workspaceQubits numBits
 
-            let recorder = OperationRecorder(totalQubits)
-
-            Arithmetic.controlledMultiplyConstantModNInPlace
-                controlQubit
-                targetQubits
-                tempQubits
-                a
-                n
-                recorder.State
-                (recorder :> IQuantumBackend)
-            |> Result.map (fun _ -> recorder.Recorded)
+            WholeCircuit.record totalQubits (fun recorder state ->
+                Arithmetic.controlledMultiplyConstantModNInPlace
+                    controlQubit
+                    targetQubits
+                    tempQubits
+                    a
+                    n
+                    state
+                    recorder)
+            |> Result.map snd
 
     /// How the inverse QFT over the counting register is emitted.
     ///

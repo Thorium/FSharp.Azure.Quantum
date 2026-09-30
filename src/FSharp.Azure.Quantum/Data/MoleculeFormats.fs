@@ -271,8 +271,8 @@ module MoleculeFormats =
     /// FCIDump (Full Configuration Interaction Dump) format parser.
     ///
     /// FCIDump is a standard format for molecular orbital integrals used by
-    /// quantum chemistry programs (PySCF, Psi4, etc.). This parser extracts
-    /// header metadata only - full integral parsing requires specialized software.
+    /// quantum chemistry programs (PySCF, Psi4, etc.). `parseHeader`/`parse`/`readAsync`
+    /// read the header metadata; `parseIntegrals` also reads the integrals.
     ///
     /// IMPORTANT: FCIDump does NOT contain molecular geometry. The resulting
     /// MoleculeData will have Geometry = None.
@@ -399,6 +399,162 @@ module MoleculeFormats =
                 with ex ->
                     return Error(QuantumError.OperationError("FciDumpRead", ex.Message))
             }
+
+        /// Integrals of a restricted-orbital FCIDUMP file, 0-based orbital indices, Hartree.
+        type Integrals =
+            {
+                Header: Header
+                /// Constant energy term: nuclear repulsion plus any frozen-core energy
+                CoreEnergy: float
+                /// One-electron integrals h[p,q], NORB × NORB, symmetric
+                OneElectron: float[,]
+                /// Two-electron integrals (pq|rs) in chemists' notation, NORB⁴, all eight
+                /// permutationally equivalent entries filled
+                TwoElectron: float[,,,]
+            }
+
+        /// True for the line that closes an FCIDUMP namelist header (&END, $END or /).
+        let private isHeaderEnd (line: string) =
+            let t = line.Trim().ToUpperInvariant()
+
+            t = "&" || t = "$" || t.EndsWith "&END" || t.EndsWith "$END" || t.EndsWith "/"
+
+        /// Parse a Fortran or .NET floating-point literal (1.5D-01, 1.5E-01, 0.15).
+        let private tryParseValue (s: string) =
+            match
+                Double.TryParse(s.Replace('D', 'E').Replace('d', 'e'), NumberStyles.Float, CultureInfo.InvariantCulture)
+            with
+            | true, v -> Some v
+            | false, _ -> None
+
+        let private tryParseIndex (s: string) =
+            match Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+
+        /// Read the "value i j k l" lines that follow the header. Indices are 1-based:
+        /// i j k l > 0 is (ij|kl); k = l = 0 is h_ij; all zero is the core energy;
+        /// i > 0 with j = k = l = 0 is an orbital energy and carries no Hamiltonian term.
+        let private readIntegralLines
+            (norb: int)
+            (lines: string array)
+            (firstLineNumber: int)
+            : QuantumResult<float * float[,] * float[,,,]> =
+            let h1 = Array2D.zeroCreate norb norb
+            let g2 = Array4D.zeroCreate norb norb norb norb
+            let mutable core = 0.0
+            let failure = ref None
+            let mutable i = 0
+
+            while failure.Value.IsNone && i < lines.Length do
+                let line = lines.[i].Trim()
+                let lineNumber = firstLineNumber + i
+
+                let fail reason =
+                    failure.Value <-
+                        Some(QuantumError.ValidationError("FciDump", $"line {lineNumber}: {reason}: '{line}'"))
+
+                if line <> "" then
+                    let tokens = line.Split([| ' '; '\t' |], StringSplitOptions.RemoveEmptyEntries)
+
+                    if tokens.Length <> 5 then
+                        fail "expected 'value i j k l'"
+                    else
+                        match
+                            tryParseValue tokens.[0],
+                            tryParseIndex tokens.[1],
+                            tryParseIndex tokens.[2],
+                            tryParseIndex tokens.[3],
+                            tryParseIndex tokens.[4]
+                        with
+                        | Some v, Some p, Some q, Some r, Some s ->
+                            if [ p; q; r; s ] |> List.exists (fun x -> x < 0 || x > norb) then
+                                fail $"orbital index outside 0..{norb}"
+                            elif p = 0 && q = 0 && r = 0 && s = 0 then
+                                core <- v
+                            elif p > 0 && q = 0 && r = 0 && s = 0 then
+                                ()
+                            elif p > 0 && q > 0 && r = 0 && s = 0 then
+                                h1.[p - 1, q - 1] <- v
+                                h1.[q - 1, p - 1] <- v
+                            elif p > 0 && q > 0 && r > 0 && s > 0 then
+                                let a, b, c, d = p - 1, q - 1, r - 1, s - 1
+
+                                for (w, x, y, z) in
+                                    [
+                                        (a, b, c, d)
+                                        (b, a, c, d)
+                                        (a, b, d, c)
+                                        (b, a, d, c)
+                                        (c, d, a, b)
+                                        (d, c, a, b)
+                                        (c, d, b, a)
+                                        (d, c, b, a)
+                                    ] do
+                                    g2.[w, x, y, z] <- v
+                            else
+                                fail "index pattern is none of (ij|kl), h_ij, orbital energy or core energy"
+                        | _ -> fail "not a number"
+
+                i <- i + 1
+
+            match failure.Value with
+            | Some err -> Error err
+            | None -> Ok(core, h1, g2)
+
+        /// Parse a restricted-orbital FCIDUMP (Molpro/PySCF format, as written by PySCF, Psi4,
+        /// Molpro, OpenMolcas): the &FCI NORB, NELEC, MS2, ORBSYM, ISYM header, then
+        /// "value i j k l" lines. Unrestricted files (IUHF=1) are an Error.
+        let parseIntegrals (content: string) : QuantumResult<Integrals> =
+            let lines = content.Replace("\r\n", "\n").Split '\n'
+
+            let headerStart =
+                lines
+                |> Array.tryFindIndex (fun line ->
+                    let t = line.Trim().ToUpperInvariant()
+                    t.StartsWith("&FCI") || t.StartsWith("$FCI"))
+
+            match headerStart with
+            | None -> Error(QuantumError.ValidationError("FciDump", "No FCIDump header found (&FCI line)"))
+            | Some start ->
+                match lines.[start..] |> Array.tryFindIndex isHeaderEnd with
+                | None -> Error(QuantumError.ValidationError("FciDump", "FCIDump header has no end marker (&END or /)"))
+                | Some endOffset ->
+                    let headerEnd = start + endOffset
+                    let headerText = String.Join("\n", lines.[start..headerEnd])
+
+                    parseHeader headerText
+                    |> Result.bind (fun header ->
+                        if Regex.IsMatch(headerText, @"IUHF\s*=\s*1", RegexOptions.IgnoreCase) then
+                            Error(
+                                QuantumError.ValidationError(
+                                    "FciDump",
+                                    "unrestricted (IUHF=1) FCIDump files are not supported"
+                                )
+                            )
+                        elif header.NumOrbitals < 1 then
+                            Error(
+                                QuantumError.ValidationError(
+                                    "FciDump",
+                                    $"NORB must be positive, got {header.NumOrbitals}"
+                                )
+                            )
+                        elif header.NumElectrons < 1 || header.NumElectrons > 2 * header.NumOrbitals then
+                            Error(
+                                QuantumError.ValidationError(
+                                    "FciDump",
+                                    $"NELEC={header.NumElectrons} does not fit NORB={header.NumOrbitals} orbitals"
+                                )
+                            )
+                        else
+                            readIntegralLines header.NumOrbitals lines.[headerEnd + 1 ..] (headerEnd + 2)
+                            |> Result.map (fun (core, h1, g2) ->
+                                {
+                                    Header = header
+                                    CoreEnergy = core
+                                    OneElectron = h1
+                                    TwoElectron = g2
+                                }))
 
     // ========================================================================
     // SDF/MOL FORMAT

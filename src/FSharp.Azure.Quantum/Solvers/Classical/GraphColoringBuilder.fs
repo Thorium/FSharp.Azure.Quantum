@@ -58,9 +58,16 @@ module GraphColoring =
             ConflictsWith: string list
             /// Optional fixed color assignment (pre-assigned)
             FixedColor: string option
-            /// Priority for tie-breaking (higher = assign first, default 0.0)
+            /// Priority for tie-breaking (higher = assign first, default 0.0).
+            /// Among measured samples that rank equal on the objective and on QUBO energy,
+            /// the one giving higher-priority nodes earlier colors (lower index in
+            /// AvailableColors) is returned; the greedy coloring (graphs without conflicts,
+            /// classical solver) visits nodes in descending priority. It never outweighs the
+            /// objective or a soft penalty.
             Priority: float
-            /// Colors to avoid if possible (soft constraint)
+            /// Colors to avoid if possible (soft constraint): assigning one costs 0.3 × P / n
+            /// (P = the solver's penalty weight, n = number of nodes), so all avoided colors
+            /// together cost at most 0.3 × P. Must be in AvailableColors.
             AvoidColors: string list
             /// Additional metadata for this node
             Properties: Map<string, obj>
@@ -71,11 +78,15 @@ module GraphColoring =
     /// </summary>
     [<Struct>]
     type ColoringObjective =
-        /// Minimize the total number of colors used (chromatic number)
+        /// Minimize the total number of colors used (chromatic number): a small cost that
+        /// grows with the color index, among valid samples the fewest colors wins, and the
+        /// greedy coloring reuses a color already in use before opening a new one
         | MinimizeColors
-        /// Minimize conflicts (allow invalid colorings, penalize conflicts)
+        /// Minimize conflicts (allow invalid colorings, penalize conflicts): no color-count
+        /// preference, and samples are ranked by conflict count
         | MinimizeConflicts
-        /// Balanced usage of colors (load balancing)
+        /// Balanced usage of colors (load balancing): penalty Σ_c (nodes with color c)²,
+        /// and among valid samples the most even class sizes win
         | BalanceColors
 
     /// <summary>
@@ -89,9 +100,15 @@ module GraphColoring =
             AvailableColors: string list
             /// Optimization objective
             Objective: ColoringObjective
-            /// Maximum colors to use (None = use as many as needed)
+            /// Maximum colors to use (None = use as many as needed): only the first MaxColors
+            /// entries of AvailableColors are encoded, so no other color can be assigned
             MaxColors: int option
-            /// Penalty weight for conflicts (used with MinimizeConflicts objective)
+            /// Weight of the conflict penalty (same color on both ends of an edge), as a
+            /// multiplier on the solver's penalty weight P; applies to every objective. Must be
+            /// positive. The soft terms (objective, avoided colors) total at most 0.5 × P on a
+            /// valid coloring, so at 1.0 (the default), and at any value above 0.5, the QUBO
+            /// minimum is a valid coloring whenever one exists; at 0.5 or below a coloring with
+            /// conflicts can have lower energy than every valid coloring.
             ConflictPenalty: float
         }
 
@@ -174,7 +191,32 @@ module GraphColoring =
                             )
                         )
                     else
+                        let invalidAvoidColors =
+                            problem.Nodes
+                            |> List.collect (fun n -> n.AvoidColors)
+                            |> List.filter (fun color -> not (availableColorSet.Contains color))
+
+                        let colorIndex color =
+                            problem.AvailableColors |> List.findIndex ((=) color)
+
                         match problem.MaxColors with
+                        | _ when not invalidAvoidColors.IsEmpty ->
+                            Error(
+                                QuantumError.ValidationError(
+                                    "AvoidColors",
+                                    $"Avoid colors not in available colors: %A{invalidAvoidColors}"
+                                )
+                            )
+                        | _ when
+                            not (problem.ConflictPenalty > 0.0)
+                            || System.Double.IsInfinity problem.ConflictPenalty
+                            ->
+                            Error(
+                                QuantumError.ValidationError(
+                                    "ConflictPenalty",
+                                    $"ConflictPenalty must be a positive finite number, got %g{problem.ConflictPenalty}"
+                                )
+                            )
                         | Some maxColors when maxColors < 1 ->
                             Error(QuantumError.ValidationError("MaxColors", "MaxColors must be at least 1"))
                         | Some maxColors when maxColors > problem.AvailableColors.Length ->
@@ -184,7 +226,22 @@ module GraphColoring =
                                     $"MaxColors (%d{maxColors}) exceeds available colors (%d{problem.AvailableColors.Length})"
                                 )
                             )
-                        | _ -> Ok()
+                        | Some maxColors ->
+                            let fixedBeyondMax =
+                                problem.Nodes
+                                |> List.choose (fun n -> n.FixedColor)
+                                |> List.filter (fun color -> colorIndex color >= maxColors)
+
+                            if fixedBeyondMax.IsEmpty then
+                                Ok()
+                            else
+                                Error(
+                                    QuantumError.ValidationError(
+                                        "FixedColors",
+                                        $"Fixed colors outside the first MaxColors (%d{maxColors}) available colors: %A{fixedBeyondMax}"
+                                    )
+                                )
+                        | None -> Ok()
 
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDERS - Colored Node Builder
@@ -365,6 +422,66 @@ module GraphColoring =
     // MAIN SOLVER - QUANTUM-FIRST
     // ============================================================================
 
+    /// Number of colors the solver encodes: numColors, capped by the available colors and MaxColors.
+    let private effectiveColorCount (problem: GraphColoringProblem) (numColors: int) : int =
+        let maxColors =
+            problem.MaxColors |> Option.defaultValue problem.AvailableColors.Length
+
+        List.min [ numColors; problem.AvailableColors.Length; maxColors ]
+
+    /// Soft preferences for the quantum solver: conflict weight, objective, avoided colors, priorities.
+    let private toPreferences (problem: GraphColoringProblem) : QuantumGraphColoringSolver.ColoringPreferences =
+        let colorToIndex =
+            problem.AvailableColors |> List.mapi (fun i color -> color, i) |> Map.ofList
+
+        {
+            ConflictWeight = problem.ConflictPenalty
+            Goal =
+                match problem.Objective with
+                | MinimizeColors -> QuantumGraphColoringSolver.ColoringGoal.MinimizeColors
+                | MinimizeConflicts -> QuantumGraphColoringSolver.ColoringGoal.MinimizeConflicts
+                | BalanceColors -> QuantumGraphColoringSolver.ColoringGoal.BalanceColors
+            AvoidColors =
+                problem.Nodes
+                |> List.filter (fun n -> not n.AvoidColors.IsEmpty)
+                |> List.map (fun n -> n.Id, n.AvoidColors |> List.map (fun color -> colorToIndex.[color]))
+                |> Map.ofList
+            Priorities = problem.Nodes |> List.map (fun n -> n.Id, n.Priority) |> Map.ofList
+        }
+
+    /// Solver-level problem: one undirected edge per conflicting pair (a pair listed from
+    /// both ends is one edge), fixed colors as indices, and the effective color count.
+    let internal toQuantumProblem
+        (problem: GraphColoringProblem)
+        (numColors: int)
+        : QuantumGraphColoringSolver.GraphColoringProblem =
+        let edges =
+            problem.Nodes
+            |> List.collect (fun n ->
+                n.ConflictsWith
+                |> List.map (fun conflictId ->
+                    if n.Id <= conflictId then
+                        n.Id, conflictId
+                    else
+                        conflictId, n.Id))
+            |> List.distinct
+            |> List.map (fun (source, target) -> GraphOptimization.edge source target 1.0)
+
+        let colorToIndex =
+            problem.AvailableColors |> List.mapi (fun i color -> color, i) |> Map.ofList
+
+        let fixedColors =
+            problem.Nodes
+            |> List.choose (fun n -> n.FixedColor |> Option.map (fun color -> n.Id, colorToIndex.[color]))
+            |> Map.ofList
+
+        {
+            Vertices = problem.Nodes |> List.map (fun n -> n.Id)
+            Edges = edges
+            NumColors = effectiveColorCount problem numColors
+            FixedColors = fixedColors
+        }
+
     /// Solve graph coloring problem using quantum optimization (QAOA)
     ///
     /// QUANTUM-FIRST API:
@@ -374,7 +491,7 @@ module GraphColoring =
     ///
     /// PARAMETERS:
     ///   problem - Graph coloring problem with nodes and conflicts
-    ///   numColors - Number of colors to use for solving
+    ///   numColors - Number of colors to use for solving (capped by AvailableColors and MaxColors)
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
     ///
     /// EXAMPLES:
@@ -400,44 +517,23 @@ module GraphColoring =
                     backend
                     |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
 
-                // Create vertex list from nodes
-                let vertices = problem.Nodes |> List.map (fun n -> n.Id)
-
-                // Create edges from conflicts (undirected)
-                let edges =
-                    problem.Nodes
-                    |> List.collect (fun n ->
-                        n.ConflictsWith
-                        |> List.map (fun conflictId -> GraphOptimization.edge n.Id conflictId 1.0))
-                    |> List.distinct
-
-                // Build fixed color mapping (color names → indices)
-                let colorToIndex =
-                    problem.AvailableColors |> List.mapi (fun i color -> color, i) |> Map.ofList
-
-                let fixedColors =
-                    problem.Nodes
-                    |> List.choose (fun n ->
-                        match n.FixedColor with
-                        | Some color -> Some(n.Id, colorToIndex.[color])
-                        | None -> None)
-                    |> Map.ofList
-
                 // Convert to quantum solver format
-                let quantumProblem: QuantumGraphColoringSolver.GraphColoringProblem =
-                    {
-                        Vertices = vertices
-                        Edges = edges
-                        NumColors = min numColors problem.AvailableColors.Length
-                        FixedColors = fixedColors
-                    }
+                let quantumProblem = toQuantumProblem problem numColors
 
                 // Create quantum solver configuration
-                let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
+                let quantumConfig =
+                    QuantumGraphColoringSolver.defaultConfig quantumProblem.NumColors
 
-                // Call quantum solver
+                // Call quantum solver (a graph without conflicts is colored without a circuit)
                 let! quantumResult =
-                    QuantumGraphColoringSolver.solve actualBackend quantumProblem quantumConfig
+                    QuantumGraphColoringSolver.solveWithPreferencesAsync
+                        actualBackend
+                        quantumProblem
+                        (toPreferences problem)
+                        quantumConfig
+                        System.Threading.CancellationToken.None
+                    |> Async.AwaitTask
+                    |> Async.RunSynchronously
 
                 // Map color indices back to color names
                 let indexToColor =
@@ -469,50 +565,27 @@ module GraphColoring =
                         ColorDistribution = colorDistribution
                         Cost = quantumResult.BestEnergy
                         BackendName = quantumResult.BackendName
-                        IsQuantum = true
+                        IsQuantum = quantumResult.BackendName <> QuantumGraphColoringSolver.NoCircuitBackendName
                     }
             with ex ->
                 return! Error(QuantumError.OperationError("Graph coloring solve", $"Failed: {ex.Message}"))
         }
 
-    /// Solve graph coloring using classical greedy algorithm (for comparison)
+    /// Solve graph coloring using classical greedy algorithm (for comparison): fixed colors,
+    /// MaxColors, AvoidColors, Priority (visiting order) and BalanceColors (smallest class
+    /// first) apply; the greedy never creates a conflict, so ConflictPenalty has no effect.
     let internal solveClassical (problem: GraphColoringProblem) (numColors: int) : QuantumResult<ColoringSolution> =
         quantumResult {
             try
                 // Validate problem first
                 do! validate problem
 
-                let vertices = problem.Nodes |> List.map (fun n -> n.Id)
-
-                let edges =
-                    problem.Nodes
-                    |> List.collect (fun n ->
-                        n.ConflictsWith
-                        |> List.map (fun conflictId -> GraphOptimization.edge n.Id conflictId 1.0))
-                    |> List.distinct
-
-                let colorToIndex =
-                    problem.AvailableColors |> List.mapi (fun i color -> color, i) |> Map.ofList
-
-                let fixedColors =
-                    problem.Nodes
-                    |> List.choose (fun n ->
-                        match n.FixedColor with
-                        | Some color -> Some(n.Id, colorToIndex.[color])
-                        | None -> None)
-                    |> Map.ofList
-
-                let quantumProblem: QuantumGraphColoringSolver.GraphColoringProblem =
-                    {
-                        Vertices = vertices
-                        Edges = edges
-                        NumColors = min numColors problem.AvailableColors.Length
-                        FixedColors = fixedColors
-                    }
+                let quantumProblem = toQuantumProblem problem numColors
 
                 // Propagates Error when the greedy heuristic cannot color the graph
                 // with the available colors (instead of throwing).
-                let! classicalResult = QuantumGraphColoringSolver.solveClassical quantumProblem
+                let! classicalResult =
+                    QuantumGraphColoringSolver.solveClassicalWithPreferences quantumProblem (toPreferences problem)
 
                 let indexToColor =
                     problem.AvailableColors |> List.mapi (fun i color -> i, color) |> Map.ofList
@@ -643,8 +716,16 @@ module GraphColoring =
 
     /// Calculate chromatic number (minimum colors needed) - approximation
     let approximateChromaticNumber (problem: GraphColoringProblem) : int =
-        // Use greedy algorithm as lower bound approximation
-        (solveClassical problem problem.AvailableColors.Length)
+        // Use greedy algorithm as lower bound approximation, without the soft preferences
+        // and the MaxColors cap that would change the number of colors it uses
+        let plainProblem =
+            { problem with
+                Objective = MinimizeColors
+                MaxColors = None
+                Nodes = problem.Nodes |> List.map (fun n -> { n with AvoidColors = [] })
+            }
+
+        (solveClassical plainProblem problem.AvailableColors.Length)
         |> Result.map (fun solution -> solution.ColorsUsed)
         |> Result.defaultWith (fun _ -> problem.AvailableColors.Length)
 

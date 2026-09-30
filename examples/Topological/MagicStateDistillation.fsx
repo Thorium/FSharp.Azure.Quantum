@@ -128,6 +128,14 @@ if shouldRun 1 then
         | Ok distR ->
             let p = distR.PurifiedState
             let suppression = avgErr / p.ErrorRate
+
+            pr
+                "Syndrome check:     %s"
+                (if distR.Accepted then
+                     "passed"
+                 else
+                     "failed (batch discarded, fidelity unchanged)")
+
             pr "Output fidelity:    %s (%.6f%% error)" (fmt p.Fidelity) (p.ErrorRate * 100.0)
             pr "Error suppression:  %.1fx" suppression
             pr "Acceptance prob:    %s" (fmt distR.AcceptanceProbability)
@@ -158,7 +166,12 @@ if shouldRun 2 then
     separator ()
 
     let initErr = 0.10
-    let needed = 225
+    // Two rounds need at least 15^2 = 225 states, but rejected batches are discarded.
+    // A batch passes the syndrome check with probability (1 - p)^14: 0.9^14 ≈ 0.23 in
+    // round 1 and 0.965^14 ≈ 0.61 in round 2 (p ≈ 3.5%), and round 2 uses only full
+    // batches of 15 accepted states. With 1000 round-1 batches the run fails with
+    // probability about 1.5e-6 under this model (225 states would almost always fail).
+    let needed = 15000
 
     let states =
         [ 1..needed ]
@@ -176,8 +189,8 @@ if shouldRun 2 then
             let suppression = initErr / finalState.ErrorRate
             pr "Output error:       %.8f (%.6f%%)" finalState.ErrorRate (finalState.ErrorRate * 100.0)
             pr "Total suppression:  %.1fx" suppression
-            let theoretical = 35.0 * 35.0 * (initErr ** 9.0)
-            pr "Theoretical p_out:  %.8f  (35^2 * p^9)" theoretical
+            let theoretical = (35.0 ** 4.0) * (initErr ** 9.0)
+            pr "Theoretical p_out:  %.8f  (35^4 * p^9)" theoretical
 
             jsonResults <-
                 ("2_iterative",
@@ -253,40 +266,51 @@ if shouldRun 4 then
 
     pr "Data qubit: |0> (4 sigma anyons)"
 
-    let magicStates =
+    let prepareBatch () =
         [ 1..15 ]
         |> List.map (fun _ -> MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
         |> List.choose (function
             | Ok s -> Some s
             | Error _ -> None)
 
-    match magicStates with
-    | ms when ms.Length = 15 ->
-        match MagicStateDistillation.distill15to1 random ms with
-        | Ok distR ->
-            pr "Purified magic state fidelity: %s" (fmt distR.PurifiedState.Fidelity)
+    // A batch passes the syndrome check with probability (1 - p)^14 and a rejected batch is
+    // discarded, so distil fresh batches until one passes.
+    let maxAttempts = 100
 
-            match MagicStateDistillation.applyTGate random dataQubit distR.PurifiedState with
-            | Ok tGateR ->
-                pr "T-gate applied — gate fidelity: %s" (fmt tGateR.GateFidelity)
-                pr ""
-                pr "Clifford + T-gate = universal quantum computation!"
+    let rec distillUntilAccepted attempt =
+        match prepareBatch () with
+        | ms when ms.Length <> 15 -> Error $"Insufficient magic states ({ms.Length}/15)"
+        | ms ->
+            match MagicStateDistillation.distill15to1 random ms with
+            | Ok distR when distR.Accepted -> Ok(distR, attempt)
+            | Ok _ when attempt < maxAttempts -> distillUntilAccepted (attempt + 1)
+            | Ok _ -> Error $"No batch passed the syndrome check in {maxAttempts} attempts"
+            | Error err -> Error $"Distillation failed: {err.Message}"
 
-                jsonResults <-
-                    ("4_t_gate",
-                     box
-                         {|
-                             gateFidelity = tGateR.GateFidelity
-                             magicFidelity = distR.PurifiedState.Fidelity
-                         |})
-                    :: jsonResults
+    match distillUntilAccepted 1 with
+    | Ok(distR, attempts) ->
+        pr "Purified magic state fidelity: %s (batches tried: %d)" (fmt distR.PurifiedState.Fidelity) attempts
 
-                csvRows <-
-                    [ "4_t_gate"; fmt tGateR.GateFidelity; fmt distR.PurifiedState.Fidelity ]
-                    :: csvRows
-            | Error err -> pr "T-gate failed: %s" err.Message
-        | Error err -> pr "Distillation failed: %s" err.Message
-    | ms -> pr "Insufficient magic states (%d/15)" ms.Length
+        match MagicStateDistillation.applyTGate random dataQubit distR.PurifiedState with
+        | Ok tGateR ->
+            pr "T-gate applied — gate fidelity: %s" (fmt tGateR.GateFidelity)
+            pr ""
+            pr "Clifford + T-gate = universal quantum computation!"
+
+            jsonResults <-
+                ("4_t_gate",
+                 box
+                     {|
+                         gateFidelity = tGateR.GateFidelity
+                         magicFidelity = distR.PurifiedState.Fidelity
+                     |})
+                :: jsonResults
+
+            csvRows <-
+                [ "4_t_gate"; fmt tGateR.GateFidelity; fmt distR.PurifiedState.Fidelity ]
+                :: csvRows
+        | Error err -> pr "T-gate failed: %s" err.Message
+    | Error msg -> pr "%s" msg
 
 // ---------------------------------------------------------------------------
 // Output

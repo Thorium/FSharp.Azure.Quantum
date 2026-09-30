@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.QuantumChemistry
 
 open System
+open System.IO
 open System.Numerics
 open System.Threading
 open FSharp.Azure.Quantum.Core
@@ -372,6 +373,38 @@ module Molecule =
 
         // Subtract charge (positive charge = fewer electrons)
         nuclearElectrons - molecule.Charge
+
+    /// Bohr radii per Ångström (CODATA 2018: a₀ = 0.529177210903 Å).
+    [<Literal>]
+    let BohrPerAngstrom = 1.8897261246257702
+
+    /// Nuclear repulsion energy Σ_{i<j} Z_i Z_j / r_ij in Hartree, r_ij in bohr.
+    /// Unknown elements and coincident nuclei are Errors.
+    let nuclearRepulsion (molecule: Molecule) : Result<float, QuantumError> =
+        match
+            molecule.Atoms
+            |> List.tryFind (fun atom -> (AtomicNumbers.fromSymbol atom.Element).IsNone)
+        with
+        | Some atom ->
+            Error(QuantumError.ValidationError("Molecule", $"Unknown element '{atom.Element}' in '{molecule.Name}'"))
+        | None ->
+            let nuclei =
+                molecule.Atoms
+                |> List.map (fun atom -> atom, float (AtomicNumbers.fromSymbol atom.Element).Value)
+                |> Array.ofList
+
+            let pairs =
+                [
+                    for i in 0 .. nuclei.Length - 2 do
+                        for j in i + 1 .. nuclei.Length - 1 -> nuclei.[i], nuclei.[j]
+                ]
+
+            match pairs |> List.tryFind (fun ((a, _), (b, _)) -> calculateBondLength a b < 1e-8) with
+            | Some _ -> Error(QuantumError.ValidationError("Molecule", $"Coincident nuclei in '{molecule.Name}'"))
+            | None ->
+                pairs
+                |> List.sumBy (fun ((a, za), (b, zb)) -> za * zb / (calculateBondLength a b * BohrPerAngstrom))
+                |> Ok
 
     /// Create H2 molecule at specified bond length
     let createH2 (bondLength: float) : Molecule =
@@ -951,7 +984,7 @@ module Molecule =
         task {
             try
                 let content = toXyz molecule
-                do! System.IO.File.WriteAllTextAsync(filePath, content, ct)
+                do! File.WriteAllTextAsync(filePath, content, ct)
                 return Ok()
             with ex ->
                 return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
@@ -963,7 +996,7 @@ module Molecule =
         async {
             try
                 let content = toXyz molecule
-                do! System.IO.File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
+                do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
                 return Ok()
             with ex ->
                 return Error(QuantumError.IOError("WriteXYZ", filePath, ex.Message))
@@ -975,6 +1008,63 @@ module Molecule =
         saveToXyzFileTask filePath molecule CancellationToken.None
         |> Async.AwaitTask
         |> Async.RunSynchronously
+
+/// One peak of a quantum phase estimation outcome distribution: an eigenvalue of the
+/// (Trotterised) Hamiltonian that the prepared state overlaps.
+[<Struct>]
+type PhaseEstimationPeak =
+    {
+        /// Eigenvalue estimate in Hartree, nuclear repulsion included, refined between the
+        /// peak's two most probable bins
+        Energy: float
+        /// Probability of the peak's bins (the most probable one and two either side): an
+        /// estimate of |⟨ψ|E⟩|² for the prepared state ψ
+        Probability: float
+    }
+
+/// Parameters and outcome of a chemistry QPE run (QPE.run).
+type PhaseEstimationDetails =
+    {
+        /// Counting (phase) qubits m: 2^m outcome bins
+        CountingQubits: int
+        /// Evolution time t of U = e^(-i(H - EnergyShift)t), atomic units (ħ/Eh)
+        EvolutionTime: float
+        /// Upper bound on the electronic spectrum subtracted from H, Hartree; phase φ maps to
+        /// E = -2πφ/t + EnergyShift (+ nuclear repulsion)
+        EnergyShift: float
+        /// Trotter-Suzuki order of each U factor (1 or 2)
+        TrotterOrder: int
+        /// Trotter steps per U; controlled-U^(2^j) repeats the same steps 2^j times
+        TrotterStepsPerEvolution: int
+        /// Width of one outcome bin in Hartree, 2π/(t·2^m)
+        BinWidth: float
+        /// Bin-centre energy of the most probable outcome, nuclear repulsion included
+        PeakBinEnergy: float
+        /// Peaks of the outcome distribution holding at least 1% probability, most probable first
+        Peaks: PhaseEstimationPeak list
+        /// The backend's shots per circuit when it samples (IShotSamplingBackend); None when
+        /// the returned state gives exact probabilities
+        ShotsPerCircuit: int option
+    }
+
+/// How a VQE energy was estimated from the quantum state.
+type EnergyEstimation =
+    /// Exact expectation values from state-vector amplitudes, simulated gate by gate.
+    | ExactExpectation
+    /// Gate-by-gate simulation on a backend whose states are not state vectors: each
+    /// expectation value is estimated from `shots` samples of the state.
+    | SampledGateByGate of shots: int
+    /// Whole circuits submitted to the backend (cloud hardware, which cannot apply gates one
+    /// at a time): one circuit per qubit-wise commuting group of Pauli terms for every energy,
+    /// `circuitsPerEnergy` in all, and `circuitsExecuted` over the whole run. `shotsPerCircuit`
+    /// is the backend's shot count (IShotSamplingBackend); None when the backend does not
+    /// report one, in which case its returned probabilities are used as they are.
+    | SampledCircuits of circuitsPerEnergy: int * shotsPerCircuit: int option * circuitsExecuted: int
+    /// Quantum phase estimation of e^(-iHt): the energy is an eigenvalue read from the
+    /// outcome distribution of the counting register.
+    | PhaseEstimation of PhaseEstimationDetails
+    /// No quantum estimate: a tabulated value.
+    | NotEstimated
 
 // ============================================================================
 // FERMION-TO-QUBIT MAPPINGS
@@ -2065,20 +2155,64 @@ module FermionMapping =
                 Iterations: int
                 /// Whether optimization converged
                 Converged: bool
-                /// Final quantum state
+                /// Final quantum state; on the whole-circuit path, what the backend returned for
+                /// the UCCSD circuit at OptimalParameters (measured frequencies on hardware)
                 FinalState: QuantumState
+                /// How the energies were estimated: exactly, or from samples (shots, circuits)
+                Estimation: EnergyEstimation
+                /// Caveats on Energy the other fields do not show (e.g. why a sampled run did
+                /// not converge); empty when there are none
+                Notes: string list
             }
 
-        /// Internal optimization state for tail-recursive VQE loop
+        /// BFGS state of the UCCSD-VQE optimization loop
         type private OptimizationState =
             {
                 Parameters: float array
+                Energy: float
+                Gradient: float array
+                /// Inverse-Hessian approximation
+                InverseHessian: float[,]
+                /// InverseHessian is the identity (no curvature information yet)
+                FreshHessian: bool
                 Iteration: int
-                PrevEnergy: float
-                CurrentEnergy: float
                 FinalState: QuantumState
                 Converged: bool
             }
+
+        /// Jordan-Wigner image of the UCCSD cluster operator T - T† at the given amplitudes
+        /// (singles first, then doubles, in the pool's order); the ansatz applies one Pauli
+        /// rotation per term, in this order.
+        let private clusterOperator (pool: UCCSD.ExcitationPool) (parameters: float[]) : QubitHamiltonian =
+            let updatedPool: UCCSD.ExcitationPool =
+                {
+                    Singles = pool.Singles |> List.mapi (fun i s -> { s with Amplitude = parameters.[i] })
+                    Doubles =
+                        pool.Doubles
+                        |> List.mapi (fun i d ->
+                            { d with
+                                Amplitude = parameters.[pool.Singles.Length + i]
+                            })
+                }
+
+            let numOrbitals =
+                if pool.Singles.IsEmpty && pool.Doubles.IsEmpty then
+                    0
+                else
+                    let maxOrbital =
+                        [
+                            yield! pool.Singles |> List.map (fun s -> max s.VirtualOrbital s.OccupiedOrbital)
+                            yield!
+                                pool.Doubles
+                                |> List.map (fun d ->
+                                    [ d.VirtualOrbital1; d.VirtualOrbital2; d.OccupiedOrbital1; d.OccupiedOrbital2 ]
+                                    |> List.max)
+                        ]
+                        |> List.max
+
+                    maxOrbital + 1
+
+            UCCSD.toQubitHamiltonian updatedPool numOrbitals true // Jordan-Wigner
 
         /// Build UCCSD ansatz circuit and apply to state
         ///
@@ -2110,50 +2244,7 @@ module FermionMapping =
                             )
                         )
                 else
-                    // Update excitation amplitudes in the pool
-                    let updatedSingles =
-                        pool.Singles |> List.mapi (fun i s -> { s with Amplitude = parameters.[i] })
-
-                    let updatedDoubles =
-                        pool.Doubles
-                        |> List.mapi (fun i d ->
-                            { d with
-                                Amplitude = parameters.[pool.Singles.Length + i]
-                            })
-
-                    let updatedPool: UCCSD.ExcitationPool =
-                        {
-                            Singles = updatedSingles
-                            Doubles = updatedDoubles
-                        }
-
-                    // Build fermionic Hamiltonian from pool
-                    let numOrbitals =
-                        if pool.Singles.IsEmpty && pool.Doubles.IsEmpty then
-                            0
-                        else
-                            let maxOrbital =
-                                [
-                                    yield! pool.Singles |> List.map (fun s -> max s.VirtualOrbital s.OccupiedOrbital)
-                                    yield!
-                                        pool.Doubles
-                                        |> List.map (fun d ->
-                                            [
-                                                d.VirtualOrbital1
-                                                d.VirtualOrbital2
-                                                d.OccupiedOrbital1
-                                                d.OccupiedOrbital2
-                                            ]
-                                            |> List.max)
-                                ]
-                                |> List.max
-
-                            maxOrbital + 1
-
-                    let fermionHam = UCCSD.buildUCCSDHamiltonian updatedPool numOrbitals
-
-                    // Convert to qubit Hamiltonian
-                    let qubitHam = UCCSD.toQubitHamiltonian updatedPool numOrbitals true // Jordan-Wigner
+                    let qubitHam = clusterOperator pool parameters
 
                     // Apply UCCSD circuit using Pauli rotation gates
                     // For each Pauli string P with coefficient c, apply exp(i*c*P)
@@ -2173,9 +2264,9 @@ module FermionMapping =
                                     // The UCCSD cluster operator T − T† is anti-Hermitian, so its
                                     // Jordan–Wigner image has PURELY IMAGINARY Pauli coefficients
                                     // (c = i·θ, θ real = c.Imaginary). The CNOT-ladder + RZ(angle)
-                                    // block below realises exp(−i·angle/2·P), so to get exp(i·θ·P)
-                                    // we set angle = −2·θ = −2·c.Imaginary. (Using c.Real here was a
-                                    // bug: it is always 0, leaving the ansatz stuck at Hartree–Fock.)
+                                    // block below realises exp(−i·angle/2·P) (X by H, Y by RX(π/2),
+                                    // both mapping to Z), so angle = −2·θ gives exp(i·θ·P) = e^(cP):
+                                    // the amplitudes follow the standard U = e^(T − T†) convention.
                                     let angle = -2.0 * pauliTerm.Coefficient.Imaginary
 
                                     // For multi-qubit Pauli strings, we need to:
@@ -2222,10 +2313,10 @@ module FermionMapping =
                                                                 (QuantumOperation.Gate(H qubitIdx))
                                                                 st
                                                     | QaoaCircuit.PauliOperator.PauliY ->
-                                                        // Change to Z basis: S†H gates (RX(-π/2))
+                                                        // Change to Z basis: RX(π/2) Y RX(-π/2) = Z
                                                         let! afterRX =
                                                             backend.ApplyOperation
-                                                                (QuantumOperation.Gate(RX(qubitIdx, -Math.PI / 2.0)))
+                                                                (QuantumOperation.Gate(RX(qubitIdx, Math.PI / 2.0)))
                                                                 st
 
                                                         return afterRX
@@ -2295,7 +2386,7 @@ module FermionMapping =
                                                     | QaoaCircuit.PauliOperator.PauliY ->
                                                         return!
                                                             backend.ApplyOperation
-                                                                (QuantumOperation.Gate(RX(qubitIdx, Math.PI / 2.0)))
+                                                                (QuantumOperation.Gate(RX(qubitIdx, -Math.PI / 2.0)))
                                                                 st
                                                     | QaoaCircuit.PauliOperator.PauliI
                                                     | QaoaCircuit.PauliOperator.PauliZ -> return st
@@ -2307,13 +2398,22 @@ module FermionMapping =
                     return finalState
             }
 
+        /// Samples per Pauli term when a gate-by-gate backend's states are not state vectors.
+        [<Literal>]
+        let private shotsPerTerm = 1000
+
         /// Measure energy expectation value ⟨ψ|H|ψ⟩
         ///
         /// Measures each Pauli term separately by:
-        /// 1. Applying basis-change gates (H for X, S†H for Y)
+        /// 1. Applying basis-change gates (H for X, RX(π/2) for Y)
         /// 2. Measuring in computational basis
         /// 3. Computing expectation value from measurement statistics
+        ///
+        /// On a statevector the expectation is exact and there is no readout to mitigate.
+        /// Otherwise it is sampled, and `errorMitigation` corrects each term's histogram;
+        /// a strategy that fails or performs no correction is an Error.
         let private measureEnergy
+            (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
             (hamiltonian: QubitHamiltonian)
             (state: QuantumState)
             (backend: IQuantumBackend)
@@ -2340,10 +2440,10 @@ module FermionMapping =
                                             // Measure X: apply H before measurement
                                             return! backend.ApplyOperation (QuantumOperation.Gate(H qubitIdx)) st
                                         | QaoaCircuit.PauliOperator.PauliY ->
-                                            // Measure Y: apply S†H (equivalent to RX(-π/2))
+                                            // Measure Y: apply RX(π/2), which maps Y to Z
                                             return!
                                                 backend.ApplyOperation
-                                                    (QuantumOperation.Gate(RX(qubitIdx, -Math.PI / 2.0)))
+                                                    (QuantumOperation.Gate(RX(qubitIdx, Math.PI / 2.0)))
                                                     st
                                         | QaoaCircuit.PauliOperator.PauliI
                                         | QaoaCircuit.PauliOperator.PauliZ ->
@@ -2368,22 +2468,73 @@ module FermionMapping =
                             // is fatal to the finite-difference VQE gradients (noise/ε dominates
                             // the true gradient), so only fall back to sampling for backends that
                             // are not full statevector simulators (e.g. real hardware).
-                            let expectation =
+                            let! expectation =
                                 match basisChangedState with
                                 | QuantumState.StateVector sv ->
                                     Measurement.getProbabilityDistribution sv
                                     |> Array.mapi (fun i p -> p * parityOf i)
                                     |> Array.sum
+                                    |> Ok
                                 | _ ->
-                                    let shots = 1000
+                                    let shots = shotsPerTerm
 
-                                    measure basisChangedState shots
-                                    |> Array.map (fun bitstring ->
+                                    // Bitstring key in ReadoutErrorMitigation's convention: most
+                                    // significant qubit first, so qubit q is character n-1-q.
+                                    let n = numQubits basisChangedState
+
+                                    let histogram =
+                                        measure basisChangedState shots
+                                        |> Array.countBy (fun bits ->
+                                            bits |> Array.rev |> Array.map string |> String.concat "")
+                                        |> Map.ofArray
+
+                                    let parityOfKey (key: string) =
                                         qubitIndices
                                         |> List.fold
-                                            (fun acc q -> acc * (if bitstring.[q] = 0 then 1.0 else -1.0))
-                                            1.0)
-                                    |> Array.average
+                                            (fun acc q -> acc * (if key.[n - 1 - q] = '0' then 1.0 else -1.0))
+                                            1.0
+
+                                    // An expectation value needs the whole corrected distribution:
+                                    // no clipping of negative quasi-probabilities, no small-count filter.
+                                    let unbiased =
+                                        { ReadoutErrorMitigation.defaultConfig with
+                                            ClipNegative = false
+                                            MinProbability = 0.0
+                                        }
+
+                                    let weighted =
+                                        match errorMitigation with
+                                        | None -> Ok(histogram |> Map.map (fun _ count -> float count))
+                                        | Some strategy ->
+                                            match
+                                                ErrorMitigationStrategy.applyStrategyWith unbiased histogram strategy
+                                            with
+                                            | Ok mitigated when mitigated.CorrectionApplied -> Ok mitigated.Histogram
+                                            | Ok _ ->
+                                                Error(
+                                                    QuantumError.ValidationError(
+                                                        "ErrorMitigation",
+                                                        "the strategy performed no correction (readout mitigation without a calibration matrix)"
+                                                    )
+                                                )
+                                            | Error err -> Error err
+
+                                    weighted
+                                    |> Result.bind (fun counts ->
+                                        let total = counts |> Map.toSeq |> Seq.sumBy snd
+
+                                        if total <= 0.0 then
+                                            Error(
+                                                QuantumError.OperationError(
+                                                    "ChemistryVQE",
+                                                    "mitigated histogram has no positive weight"
+                                                )
+                                            )
+                                        else
+                                            Ok(
+                                                (counts |> Map.toSeq |> Seq.sumBy (fun (k, c) -> c * parityOfKey k))
+                                                / total
+                                            ))
 
                             return pauliTerm.Coefficient.Real * expectation
                         })
@@ -2392,17 +2543,642 @@ module FermionMapping =
                 return energyContributions |> List.sum
             }
 
-        /// Run UCCSD-VQE to find molecular ground state
+        // ================================================================
+        // WHOLE-CIRCUIT (SAMPLED) PATH: backends that cannot apply gates one at a time
+        // ================================================================
+
+        /// Gates of e^(cP) = exp(i·θ·P) for one Pauli string c·P of the cluster operator T − T†
+        /// (c = i·θ), in program order: the same rotation the gate-by-gate path applies. X and Y
+        /// are mapped to Z by H and RX(π/2) (RX(π/2) Y RX(-π/2) = Z) around the CNOT ladder and RZ.
+        let private pauliRotationGates (term: PauliString) : Gate list =
+            let angle = -2.0 * term.Coefficient.Imaginary
+
+            let qubits =
+                term.Operators
+                |> Map.toList
+                |> List.filter (fun (_, p) -> p <> QaoaCircuit.PauliOperator.PauliI)
+                |> List.sortBy fst
+
+            match qubits with
+            | [] -> []
+            | [ (q, QaoaCircuit.PauliOperator.PauliX) ] -> [ RX(q, angle) ]
+            | [ (q, QaoaCircuit.PauliOperator.PauliY) ] -> [ RY(q, angle) ]
+            | [ (q, _) ] -> [ RZ(q, angle) ]
+            | _ ->
+                let toZ =
+                    qubits
+                    |> List.choose (fun (q, p) ->
+                        match p with
+                        | QaoaCircuit.PauliOperator.PauliX -> Some(H q)
+                        | QaoaCircuit.PauliOperator.PauliY -> Some(RX(q, Math.PI / 2.0))
+                        | QaoaCircuit.PauliOperator.PauliI
+                        | QaoaCircuit.PauliOperator.PauliZ -> None)
+
+                let fromZ =
+                    qubits
+                    |> List.rev
+                    |> List.choose (fun (q, p) ->
+                        match p with
+                        | QaoaCircuit.PauliOperator.PauliX -> Some(H q)
+                        | QaoaCircuit.PauliOperator.PauliY -> Some(RX(q, -Math.PI / 2.0))
+                        | QaoaCircuit.PauliOperator.PauliI
+                        | QaoaCircuit.PauliOperator.PauliZ -> None)
+
+                let indices = qubits |> List.map fst |> Array.ofList
+
+                let ladder =
+                    [ for i in 0 .. indices.Length - 2 -> CNOT(indices.[i], indices.[i + 1]) ]
+
+                toZ
+                @ ladder
+                @ [ RZ(indices.[indices.Length - 1], angle) ]
+                @ List.rev ladder
+                @ fromZ
+
+        /// The complete UCCSD circuit for `numElectrons` electrons in `numSpinOrbitals` spin
+        /// orbitals (one qubit each, Jordan-Wigner): X on the occupied orbitals (the Hartree-Fock
+        /// reference), then one Trotterised Pauli-string rotation e^(cP) per term of T − T†
+        /// (basis change, CNOT ladder, RZ, uncompute): a first-order Trotter product of
+        /// U = e^(T − T†), so amplitudes follow the usual coupled-cluster sign convention (e.g.
+        /// MP2 or CCSD amplitudes from a chemistry package). Parameters are the excitation
+        /// amplitudes, singles first; a wrong count is an Error. Gates are H, X, RX, RY, RZ and CNOT, which
+        /// every cloud target and the OpenQASM exporter accept.
+        let uccsdCircuit
+            (numElectrons: int)
+            (numSpinOrbitals: int)
+            (parameters: float[])
+            : Result<CircuitBuilder.Circuit, QuantumError> =
+            UCCSD.generateExcitationPool numElectrons numSpinOrbitals parameters
+            |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
+            |> Result.bind (fun pool ->
+                let expected = pool.Singles.Length + pool.Doubles.Length
+
+                if parameters.Length <> expected then
+                    Error(
+                        QuantumError.ValidationError(
+                            "parameters",
+                            $"Expected {expected} parameters, got {parameters.Length}"
+                        )
+                    )
+                else
+                    let reference = [ for i in 0 .. numElectrons - 1 -> X i ]
+
+                    let rotations =
+                        (clusterOperator pool parameters).Terms |> List.collect pauliRotationGates
+
+                    Ok(
+                        CircuitBuilder.empty numSpinOrbitals
+                        |> CircuitBuilder.addGates (reference @ rotations)
+                    ))
+
+        /// Pauli terms measured together from one circuit: they are qubit-wise commuting, so a
+        /// single basis rotation per qubit diagonalises all of them.
+        type MeasurementGroup =
+            {
+                /// Measured Pauli per qubit (X, Y or Z); qubits no term acts on are absent
+                Basis: Map<int, QaoaCircuit.PauliOperator>
+                /// Terms estimated from this group's circuit
+                Terms: PauliString list
+            }
+
+        /// Qubit-wise commuting groups of the Hamiltonian's terms, first fit with the terms taken
+        /// widest first (most non-identity qubits; ties in term order): each term joins the
+        /// first group whose basis agrees with it on every qubit both act on. Every term is in
+        /// exactly one group; identity terms go to the first group. Terms whose coefficient is
+        /// below 1e-10 in magnitude (symmetry-forbidden terms that are zero up to rounding)
+        /// change no energy measurably and are left out rather than given circuits of their
+        /// own. For H2/STO-3G that leaves 15 terms in 5 groups: the Z terms, and each of the
+        /// four XXYY-type terms.
+        let measurementGroups (hamiltonian: QubitHamiltonian) : MeasurementGroup list =
+            let actsOn (term: PauliString) =
+                term.Operators |> Map.filter (fun _ p -> p <> QaoaCircuit.PauliOperator.PauliI)
+
+            let fits (group: MeasurementGroup) (term: PauliString) =
+                actsOn term
+                |> Map.forall (fun q p ->
+                    match group.Basis.TryFind q with
+                    | Some b -> b = p
+                    | None -> true)
+
+            hamiltonian.Terms
+            |> List.filter (fun term -> term.Coefficient.Magnitude >= 1e-10)
+            |> List.sortBy (fun term -> -(actsOn term).Count)
+            |> List.fold
+                (fun (groups: MeasurementGroup list) term ->
+                    match groups |> List.tryFindIndex (fun g -> fits g term) with
+                    | Some index ->
+                        groups
+                        |> List.mapi (fun i g ->
+                            if i = index then
+                                {
+                                    Basis = actsOn term |> Map.fold (fun basis q p -> Map.add q p basis) g.Basis
+                                    Terms = g.Terms @ [ term ]
+                                }
+                            else
+                                g)
+                    | None ->
+                        groups
+                        @ [
+                            {
+                                Basis = actsOn term
+                                Terms = [ term ]
+                            }
+                        ])
+                []
+
+        /// `preparation` followed by the rotations that map the group's basis to Z: H for X,
+        /// RX(π/2) for Y (RX(π/2) Y RX(-π/2) = Z).
+        let measurementCircuit
+            (preparation: CircuitBuilder.Circuit)
+            (group: MeasurementGroup)
+            : CircuitBuilder.Circuit =
+            let rotations =
+                group.Basis
+                |> Map.toList
+                |> List.choose (fun (q, p) ->
+                    match p with
+                    | QaoaCircuit.PauliOperator.PauliX -> Some(H q)
+                    | QaoaCircuit.PauliOperator.PauliY -> Some(RX(q, Math.PI / 2.0))
+                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> None)
+
+            preparation |> CircuitBuilder.addGates rotations
+
+        /// An energy estimated from whole circuits.
+        type SampledEnergy =
+            {
+                /// Σ c·⟨P⟩ over the Hamiltonian's terms (real parts of the coefficients)
+                Energy: float
+                /// Shot-noise standard error of Energy, when the backend reports its shot count
+                /// and no readout correction was applied; None otherwise
+                StandardError: float option
+                /// Circuits executed for this estimate: one per measurement group
+                Circuits: int
+                /// The backend's shots per circuit (IShotSamplingBackend), when it reports them
+                ShotsPerCircuit: int option
+            }
+
+        /// Outcome probabilities of a returned state: (basis index with bit q = qubit q, p).
+        /// Basis indices are Int32, so a measured histogram wider than 31 qubits is an Error.
+        let internal outcomeDistribution (state: QuantumState) : Result<(int * float)[], QuantumError> =
+            match state with
+            | QuantumState.StateVector sv ->
+                Measurement.getProbabilityDistribution sv
+                |> Array.mapi (fun i p -> i, p)
+                |> Array.filter (fun (_, p) -> p > 0.0)
+                |> Ok
+            | QuantumState.DensityMatrix(rho, n) ->
+                Array.init (1 <<< n) (fun i -> i, rho.[i, i].Real)
+                |> Array.filter (fun (_, p) -> p > 0.0)
+                |> Ok
+            | QuantumState.SparseState(amplitudes, _) ->
+                amplitudes
+                |> Map.toArray
+                |> Array.map (fun (i, a) -> i, a.Magnitude * a.Magnitude)
+                |> Ok
+            | QuantumState.MeasurementHistogram(_, n) when n > 31 ->
+                Error(
+                    QuantumError.ValidationError(
+                        "MeasurementHistogram",
+                        $"{n} measured qubits do not fit a 31-bit basis index; expectation values here index outcomes as Int32"
+                    )
+                )
+            | QuantumState.MeasurementHistogram(histogram, _) ->
+                // Keys: character q = qubit q.
+                let total = histogram |> Map.fold (fun acc _ c -> acc + max 0 c) 0 |> float
+
+                histogram
+                |> Map.toArray
+                |> Array.map (fun (key, count) ->
+                    let index = key |> Seq.mapi (fun q c -> if c = '1' then 1 <<< q else 0) |> Seq.sum
+
+                    index, float (max 0 count) / max 1.0 total)
+                |> Ok
+            | other ->
+                Error(
+                    QuantumError.NotImplemented(
+                        "UCCSD-VQE on whole circuits",
+                        Some
+                            $"the backend returned a {QuantumState.stateType other} state, which has no outcome distribution"
+                    )
+                )
+
+        /// Energy from one executed circuit per measurement group (see sampledExpectation),
+        /// calling `guard` before each circuit (an Error stops the estimate), and the shot-noise
+        /// standard error of the raw (uncorrected) counts: 0 when the backend reports no shots.
+        let private estimateGroups
+            (guard: unit -> Result<unit, QuantumError>)
+            (backend: IQuantumBackend)
+            (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+            (preparation: CircuitBuilder.Circuit)
+            (groups: MeasurementGroup list)
+            : Result<SampledEnergy * float, QuantumError> =
+            let shots =
+                match backend with
+                | :? IShotSamplingBackend as sampling when sampling.Shots > 0 -> Some sampling.Shots
+                | _ -> None
+
+            let n = preparation.QubitCount
+
+            // Readout correction needs integer counts: the backend's own when it reports its
+            // shots, otherwise the returned probabilities scaled to 10^6 counts.
+            let countScale = shots |> Option.defaultValue 1_000_000 |> float
+
+            let unbiased =
+                { ReadoutErrorMitigation.defaultConfig with
+                    ClipNegative = false
+                    MinProbability = 0.0
+                }
+
+            let key (index: int) =
+                Convert.ToString(index, 2).PadLeft(n, '0')
+
+            let parity (term: PauliString) (index: int) =
+                term.Operators
+                |> Map.fold
+                    (fun acc q p ->
+                        if p <> QaoaCircuit.PauliOperator.PauliI && ((index >>> q) &&& 1) = 1 then
+                            -acc
+                        else
+                            acc)
+                    1.0
+
+            /// (weights by basis index, whether a correction ran) for one group's outcomes.
+            let weightsOf (distribution: (int * float)[]) : Result<(int * float)[] * bool, QuantumError> =
+                match errorMitigation with
+                | None -> Ok(distribution, false)
+                | Some strategy ->
+                    let histogram =
+                        distribution
+                        |> Array.map (fun (i, p) -> key i, int (Math.Round(p * countScale)))
+                        |> Array.filter (fun (_, c) -> c > 0)
+                        |> Map.ofArray
+
+                    match ErrorMitigationStrategy.applyStrategyWith unbiased histogram strategy with
+                    | Ok mitigated when mitigated.CorrectionApplied ->
+                        let total = mitigated.Histogram |> Map.toSeq |> Seq.sumBy snd
+
+                        Ok(
+                            mitigated.Histogram
+                            |> Map.toArray
+                            |> Array.map (fun (k, c) -> Convert.ToInt32(k, 2), c / total),
+                            true
+                        )
+                    | Ok _ ->
+                        Error(
+                            QuantumError.ValidationError(
+                                "ErrorMitigation",
+                                "the strategy performed no correction (readout mitigation without a calibration matrix)"
+                            )
+                        )
+                    | Error err -> Error err
+
+            let moments (group: MeasurementGroup) (weights: (int * float)[]) =
+                let valueAt index =
+                    group.Terms |> List.sumBy (fun t -> t.Coefficient.Real * parity t index)
+
+                let mean = weights |> Array.sumBy (fun (i, w) -> w * valueAt i)
+                let second = weights |> Array.sumBy (fun (i, w) -> w * (valueAt i) ** 2.0)
+                mean, max 0.0 (second - mean * mean)
+
+            groups
+            |> List.map (fun group ->
+                guard ()
+                |> Result.bind (fun () ->
+                    backend.ExecuteToState(CircuitAbstraction.wrapCircuit (measurementCircuit preparation group)))
+                |> Result.bind outcomeDistribution
+                |> Result.bind (fun distribution ->
+                    weightsOf distribution
+                    |> Result.map (fun (weights, corrected) ->
+                        let mean, _ = moments group weights
+                        let _, rawVariance = moments group distribution
+                        mean, rawVariance, corrected)))
+            |> ResultHelpers.sequence
+            |> Result.map (fun perGroup ->
+                let anyCorrected = perGroup |> List.exists (fun (_, _, c) -> c)
+
+                let noise =
+                    match shots with
+                    | Some s -> sqrt ((perGroup |> List.sumBy (fun (_, v, _) -> v)) / float s)
+                    | None -> 0.0
+
+                {
+                    Energy = perGroup |> List.sumBy (fun (e, _, _) -> e)
+                    StandardError =
+                        match shots with
+                        | Some _ when not anyCorrected -> Some noise
+                        | _ -> None
+                    Circuits = groups.Length
+                    ShotsPerCircuit = shots
+                },
+                noise)
+
+        /// ⟨H⟩ in the state `preparation` leaves, estimated from whole circuits: one circuit per
+        /// qubit-wise commuting group of terms (measurementGroups), each executed with
+        /// ExecuteToState, the backend's returned outcome frequencies weighting every term's
+        /// parity. With `errorMitigation`, each group's counts are corrected with the unbiased
+        /// readout inverse (negative quasi-probabilities kept); a strategy that cannot correct
+        /// counts is an Error.
+        let sampledExpectation
+            (backend: IQuantumBackend)
+            (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+            (preparation: CircuitBuilder.Circuit)
+            (hamiltonian: QubitHamiltonian)
+            : Result<SampledEnergy, QuantumError> =
+            estimateGroups (fun () -> Ok()) backend errorMitigation preparation (measurementGroups hamiltonian)
+            |> Result.map fst
+
+        /// Most circuits one whole-circuit UCCSD-VQE run may submit. Each is a separate job on
+        /// cloud hardware; the run is refused up front when its plan needs more.
+        [<Literal>]
+        let MaxWholeCircuitJobs = 20_000
+
+        /// Longest projected wall-clock time, in seconds, of a whole-circuit UCCSD-VQE run on a
+        /// backend that reports no shot count (a local whole-circuit simulator such as
+        /// NoisyLocalBackend): the run is refused after its first circuit when the plan, at
+        /// that circuit's time, would take longer.
+        [<Literal>]
+        let MaxWholeCircuitSimulationSeconds = 3600.0
+
+        /// UCCSD-VQE on a backend that runs only whole circuits, by SPSA (simultaneous
+        /// perturbation stochastic approximation, Spall 1998).
+        ///
+        /// Why SPSA: every energy costs one submitted circuit per measurement group, and on
+        /// hardware that submission (queueing, per-job cost) dominates. SPSA needs two energies
+        /// per iteration whatever the parameter count, and tolerates the shot noise in them.
+        /// Parameter-shift gradients need two energies per Pauli rotation, hundreds per
+        /// iteration for a (4e,4o) space, and a line search on noisy energies stalls.
+        ///
+        /// Gains (Spall's rules): a_k = a/(k+1+A)^0.602, c_k = c/(k+1)^0.101, A = MaxIterations/10,
+        /// c = min(0.1, 0.35/√n), and `a` calibrated from four gradient samples at the start so
+        /// that the first step changes each of the n amplitudes by 0.05/√n: small enough that a
+        /// 52-amplitude (4e,4o) ansatz does not leap uphill, large enough for H2's 0.1 amplitude.
+        ///
+        /// Convergence: every 10 iterations the energy is estimated at the average of those
+        /// iterates (a checkpoint), with its shot-noise standard error σ. Converged means three
+        /// checkpoints in a row did not improve on the best one by more than
+        /// max(Tolerance, 2√(σ² + σ_best²)): no improvement above the noise for 30 iterations.
+        /// Otherwise the run stops at MaxIterations, not Converged. The result is the best
+        /// checkpoint's parameters with a fresh energy estimate there (the best of several
+        /// noisy estimates is biased low); if that is significantly above the starting energy,
+        /// the starting amplitudes are returned instead. Notes say which.
+        ///
+        /// Budget: the plan's circuit count, groups × (8 calibration + 2 per iteration + one
+        /// per checkpoint + start + final) + 1, must not exceed MaxWholeCircuitJobs; on a
+        /// backend without a shot count the first circuit's time projects the run against
+        /// MaxWholeCircuitSimulationSeconds. The progress reporter's cancellation is checked
+        /// before every circuit.
+        let private runSampled
+            (initialParameters: float[])
+            (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+            (config: ChemistryVQEConfig)
+            (numElectrons: int)
+            (numOrbitals: int)
+            : Result<ChemistryVQEResult, QuantumError> =
+            let groups = measurementGroups config.Hamiltonian
+            let n = initialParameters.Length
+            let maxIterations = max 0 config.MaxIterations
+            let checkEvery = 10
+            let calibrationSamples = 4
+
+            let circuitsFor iterations =
+                groups.Length
+                * (2 * calibrationSamples + 2 * iterations + iterations / checkEvery + 2)
+                + 1
+
+            let plannedCircuits = circuitsFor maxIterations
+
+            let executed = ref 0
+            let clock = Diagnostics.Stopwatch()
+
+            let sampling =
+                match config.Backend with
+                | :? IShotSamplingBackend as b -> b.Shots > 0
+                | _ -> false
+
+            /// Cancellation, and the time projection after the first circuit.
+            let guard () =
+                if config.ProgressReporter |> Option.exists (fun r -> r.IsCancellationRequested) then
+                    Error(QuantumError.OperationError("UCCSD-VQE", "cancelled by the progress reporter"))
+                else
+                    let projected =
+                        if executed.Value = 1 then
+                            clock.Elapsed.TotalSeconds * float plannedCircuits
+                        else
+                            0.0
+
+                    if not sampling && projected > MaxWholeCircuitSimulationSeconds then
+                        Error(
+                            QuantumError.ValidationError(
+                                "MaxIterations",
+                                $"the first circuit took {clock.Elapsed.TotalSeconds:F1} s, so the {plannedCircuits} planned circuits would take about {projected / 3600.0:F1} h (limit {MaxWholeCircuitSimulationSeconds / 3600.0:F1} h on a local whole-circuit simulator). Lower MaxIterations or use a smaller active space."
+                            )
+                        )
+                    else
+                        if executed.Value = 0 then
+                            clock.Start()
+
+                        executed.Value <- executed.Value + 1
+                        Ok()
+
+            let estimate (parameters: float[]) =
+                uccsdCircuit numElectrons numOrbitals parameters
+                |> Result.bind (fun circuit -> estimateGroups guard config.Backend errorMitigation circuit groups)
+
+            let energyAt parameters =
+                estimate parameters |> Result.map (fst >> fun e -> e.Energy)
+
+            let report iteration energy =
+                config.ProgressReporter
+                |> Option.iter (fun r ->
+                    r.Report(Progress.IterationUpdate(iteration, config.MaxIterations, Some energy)))
+
+            let rng = Random 42
+
+            /// SPSA gradient estimate and the mean of the two energies.
+            let gradientAt (parameters: float[]) (c: float) =
+                let delta = Array.init n (fun _ -> if rng.Next 2 = 0 then -1.0 else 1.0)
+
+                let shifted sign =
+                    Array.map2 (fun x d -> x + sign * c * d) parameters delta
+
+                energyAt (shifted 1.0)
+                |> Result.bind (fun plus ->
+                    energyAt (shifted -1.0)
+                    |> Result.map (fun minus ->
+                        delta |> Array.map (fun d -> (plus - minus) / (2.0 * c) * d), 0.5 * (plus + minus)))
+
+            let alpha, gamma = 0.602, 0.101
+            let stability = float maxIterations / 10.0
+            let c0 = min 0.1 (0.35 / sqrt (float (max 1 n)))
+            let firstStep = 0.05 / sqrt (float (max 1 n))
+
+            /// (energy, σ, parameters) of a checkpoint.
+            let checkpoint (parameters: float[]) =
+                estimate parameters
+                |> Result.map (fun (e, noise) -> e.Energy, noise, parameters)
+
+            let significant (e: float, s: float) (best: float, sBest: float) =
+                e < best - max config.Tolerance (2.0 * sqrt (s * s + sBest * sBest))
+
+            let finish (startEnergy, startNoise, _) (_: float, _: float, best: float[]) iterations converged =
+                estimate best
+                |> Result.bind (fun (final, finalNoise) ->
+                    let uphill =
+                        iterations > 0
+                        && final.Energy > startEnergy + 2.0 * sqrt (finalNoise * finalNoise + startNoise * startNoise)
+
+                    let parameters, energy, notes =
+                        if uphill then
+                            initialParameters,
+                            startEnergy,
+                            [
+                                $"SPSA ended above the starting energy ({final.Energy:F6} vs {startEnergy:F6} Ha, beyond the shot noise): the starting amplitudes and their energy are returned. Raise MaxIterations or start from better amplitudes."
+                            ]
+                        elif converged then
+                            best, final.Energy, []
+                        elif iterations > 0 && obj.ReferenceEquals(best, initialParameters) then
+                            best,
+                            final.Energy,
+                            [
+                                $"SPSA found no checkpoint below the starting energy within MaxIterations ({iterations}): the starting amplitudes are returned."
+                            ]
+                        elif iterations > 0 then
+                            best,
+                            final.Energy,
+                            [
+                                $"SPSA stopped at MaxIterations ({iterations}) while still improving above the shot noise: Energy may lie well above the minimum."
+                            ]
+                        else
+                            best, final.Energy, []
+
+                    uccsdCircuit numElectrons numOrbitals parameters
+                    |> Result.bind (fun circuit ->
+                        guard ()
+                        |> Result.bind (fun () ->
+                            config.Backend.ExecuteToState(CircuitAbstraction.wrapCircuit circuit)))
+                    |> Result.map (fun state ->
+                        {
+                            Energy = energy
+                            OptimalParameters = parameters
+                            Iterations = iterations
+                            Converged = converged && not uphill
+                            FinalState = state
+                            Estimation = SampledCircuits(groups.Length, final.ShotsPerCircuit, executed.Value)
+                            Notes = notes
+                        }))
+
+            let rec iterate
+                k
+                (parameters: float[])
+                (window: float[] list)
+                start
+                (best: float * float * float[])
+                stale
+                a
+                =
+                if stale >= 3 then
+                    finish start best k true
+                elif k >= maxIterations then
+                    finish start best k false
+                else
+                    let ak = a / (float (k + 1) + stability) ** alpha
+                    let ck = c0 / float (k + 1) ** gamma
+
+                    match gradientAt parameters ck with
+                    | Error e -> Error e
+                    | Ok(gradient, energy) ->
+                        report (k + 1) energy
+                        let next = Array.map2 (fun x g -> x - ak * g) parameters gradient
+                        let window = next :: window
+
+                        if (k + 1) % checkEvery <> 0 then
+                            iterate (k + 1) next window start best stale a
+                        else
+                            let averaged = Array.init n (fun i -> window |> List.averageBy (fun p -> p.[i]))
+
+                            match checkpoint averaged with
+                            | Error e -> Error e
+                            | Ok((e, s, _) as candidate) ->
+                                let bestEnergy, bestNoise, _ = best
+                                let improved = significant (e, s) (bestEnergy, bestNoise)
+                                let best = if e < bestEnergy then candidate else best
+                                iterate (k + 1) next [] start best (if improved then 0 else stale + 1) a
+
+            if plannedCircuits > MaxWholeCircuitJobs then
+                let perIteration = 2 * groups.Length
+
+                let fits =
+                    Seq.initInfinite id
+                    |> Seq.takeWhile (fun k -> circuitsFor k <= MaxWholeCircuitJobs)
+                    |> Seq.fold (fun _ k -> k) 0
+
+                Error(
+                    QuantumError.ValidationError(
+                        "MaxIterations",
+                        $"whole-circuit UCCSD-VQE would submit {plannedCircuits} circuits ({groups.Length} per energy, {perIteration} per SPSA iteration) for {maxIterations} iterations; the limit is ChemistryVQE.MaxWholeCircuitJobs = {MaxWholeCircuitJobs}. Use MaxIterations <= {fits} or a smaller active space."
+                    )
+                )
+            else
+                checkpoint initialParameters
+                |> Result.bind (fun start ->
+                    let startEnergy, _, _ = start
+                    report 0 startEnergy
+
+                    if n = 0 || maxIterations = 0 then
+                        finish start start 0 (n = 0)
+                    else
+                        [ 1..calibrationSamples ]
+                        |> List.map (fun _ -> gradientAt initialParameters c0)
+                        |> ResultHelpers.sequence
+                        |> Result.bind (fun samples ->
+                            let magnitude = samples |> List.averageBy (fun (g, _) -> g |> Array.averageBy abs)
+
+                            let a =
+                                if magnitude > 1e-12 then
+                                    firstStep * (1.0 + stability) ** alpha / magnitude
+                                else
+                                    firstStep * (1.0 + stability) ** alpha
+
+                            iterate 0 initialParameters [] start start 0 a))
+
+        /// Run UCCSD-VQE to find molecular ground state, starting from the given
+        /// excitation amplitudes.
         ///
         /// **Parameters**:
+        ///   initialParameters - Starting UCCSD amplitudes (singles first, then doubles);
+        ///                       None starts from small seeded random values near zero.
+        ///                       A length other than the ansatz's parameter count is an Error.
+        ///   errorMitigation - Correction applied to sampled measurement histograms (backends
+        ///                     whose states are not statevectors); unused on statevectors,
+        ///                     whose expectations are exact.
         ///   config - VQE configuration with UCCSD ansatz
+        ///
+        /// Backends that apply gates one at a time run the exact path: BFGS on central-difference
+        /// gradients, energies exact on state vectors. Backends that refuse incremental
+        /// ApplyOperation (cloud hardware, NoisyLocalBackend) run whole circuits instead
+        /// (uccsdCircuit, measurementGroups, sampledExpectation) optimised by SPSA; see
+        /// ChemistryVQEResult.Estimation.
         ///
         /// **Returns**:
         ///   Async<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
-        let run (config: ChemistryVQEConfig) : Async<Result<ChemistryVQEResult, QuantumError>> =
+        let runWith
+            (initialParameters: float[] option)
+            (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+            (config: ChemistryVQEConfig)
+            : Async<Result<ChemistryVQEResult, QuantumError>> =
             async {
                 match config.Ansatz with
                 | UCCSD(numElectrons, numOrbitals) ->
+
+                    // UCCSD excitation pool size
+                    let numSingles = numElectrons * (numOrbitals - numElectrons)
+                    let numDoublesOccPairs = numElectrons * (numElectrons - 1) / 2
+
+                    let numDoublesVirtPairs =
+                        (numOrbitals - numElectrons) * (numOrbitals - numElectrons - 1) / 2
+
+                    let numDoubles = numDoublesOccPairs * numDoublesVirtPairs
+                    let totalParams = numSingles + numDoubles
 
                     // Step 1: Prepare initial state (Hartree-Fock or |0⟩)
                     let! initialStateResult =
@@ -2413,117 +3189,212 @@ module FermionMapping =
                                 return config.Backend.InitializeState numOrbitals
                         }
 
-                    match initialStateResult with
-                    | Error err -> return Error err
-                    | Ok initialState ->
-
-                        // Step 2: Generate UCCSD excitation pool
-                        let numSingles = numElectrons * (numOrbitals - numElectrons)
-                        let numDoublesOccPairs = numElectrons * (numElectrons - 1) / 2
-
-                        let numDoublesVirtPairs =
-                            (numOrbitals - numElectrons) * (numOrbitals - numElectrons - 1) / 2
-
-                        let numDoubles = numDoublesOccPairs * numDoublesVirtPairs
-                        let totalParams = numSingles + numDoubles
-
-                        // Initialize parameters (small random values near zero)
-                        let rng = Random(42)
-
-                        let initialParameters =
+                    // Initial UCCSD amplitudes: provided, or small seeded random values near zero.
+                    let startingParameters () =
+                        match initialParameters with
+                        | Some provided -> Array.copy provided
+                        | None ->
+                            let rng = Random(42)
                             Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
 
-                        let learningRate = 0.01
-                        let epsilon = 0.001
+                    match initialStateResult with
+                    | _ when
+                        initialParameters
+                        |> Option.exists (fun provided -> provided.Length <> totalParams)
+                        ->
+                        return
+                            Error(
+                                QuantumError.ValidationError(
+                                    "InitialParameters",
+                                    $"UCCSD({numElectrons} electrons, {numOrbitals} spin orbitals) takes {totalParams} parameters "
+                                    + $"({numSingles} singles + {numDoubles} doubles), got {initialParameters.Value.Length}"
+                                )
+                            )
+                    // A backend that cannot apply gates one at a time (cloud hardware) runs
+                    // whole circuits: sampled energies, SPSA.
+                    | Error err when config.UseHFInitialState && UnifiedBackend.isIncrementalUnsupported err ->
+                        return runSampled (startingParameters ()) errorMitigation config numElectrons numOrbitals
+                    | Error err -> return Error err
+                    | Ok initialState ->
+                        let initialParameters = startingParameters ()
 
-                        // Compute gradient for a single parameter using finite differences
-                        let computeGradient (paramIdx: int) (baseEnergy: float) (parameters: float array) =
-                            let perturbedParams = Array.copy parameters
-                            perturbedParams.[paramIdx] <- perturbedParams.[paramIdx] + epsilon
+                        // BFGS with a backtracking (Armijo) line search on central-difference
+                        // gradients. Converged when every gradient component is below
+                        // 0.1·√Tolerance, which bounds the remaining energy error near Tolerance.
+                        // One iteration = one line search plus the gradient at the new point.
+                        let epsilon = 1e-4
+                        let gradientTolerance = 0.1 * sqrt config.Tolerance
+                        let armijo = 1e-4
+                        let minStep = 1e-8
+                        let n = totalParams
+                        let energyOf = measureEnergy errorMitigation config.Hamiltonian
 
-                            UCCSD.generateExcitationPool numElectrons numOrbitals perturbedParams
+                        /// Ansatz state and energy at the given amplitudes.
+                        let evaluate (parameters: float array) : Result<QuantumState * float, QuantumError> =
+                            UCCSD.generateExcitationPool numElectrons numOrbitals parameters
                             |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
-                            |> Result.bind (fun pool ->
-                                buildUCCSDCircuit pool perturbedParams initialState config.Backend)
-                            |> Result.bind (fun state -> measureEnergy config.Hamiltonian state config.Backend)
-                            |> Result.map (fun perturbedEnergy -> (perturbedEnergy - baseEnergy) / epsilon)
-                            |> Result.defaultValue 0.0 // Skip parameter on error
+                            |> Result.bind (fun pool -> buildUCCSDCircuit pool parameters initialState config.Backend)
+                            |> Result.bind (fun state ->
+                                energyOf state config.Backend |> Result.map (fun energy -> (state, energy)))
 
-                        // Single optimization step: evaluate energy and compute gradient descent update
-                        let optimizationStep (state: OptimizationState) : Result<OptimizationState, QuantumError> =
-                            UCCSD.generateExcitationPool numElectrons numOrbitals state.Parameters
-                            |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
-                            |> Result.bind (fun pool ->
-                                buildUCCSDCircuit pool state.Parameters initialState config.Backend)
-                            |> Result.bind (fun ansatzState ->
-                                measureEnergy config.Hamiltonian ansatzState config.Backend
-                                |> Result.map (fun energy -> (ansatzState, energy)))
-                            |> Result.map (fun (ansatzState, energy) ->
-                                // Report progress
-                                config.ProgressReporter
-                                |> Option.iter (fun r ->
-                                    r.Report(
-                                        Progress.IterationUpdate(
-                                            state.Iteration + 1,
-                                            config.MaxIterations,
-                                            Some energy
-                                        )
-                                    ))
+                        /// Central-difference gradient; an evaluation error is returned.
+                        let gradientAt (parameters: float array) : Result<float array, QuantumError> =
+                            List.init (FSharp.Core.Operators.max 0 n) (fun i ->
+                                let shifted delta =
+                                    let p = Array.copy parameters
+                                    p.[i] <- p.[i] + delta
+                                    evaluate p |> Result.map snd
 
-                                // Check convergence
-                                if abs (energy - state.PrevEnergy) < config.Tolerance then
-                                    { state with
-                                        CurrentEnergy = energy
-                                        FinalState = ansatzState
-                                        Converged = true
-                                    }
-                                else
-                                    // Compute gradients and update parameters
-                                    let gradients =
-                                        [|
-                                            for i in 0 .. state.Parameters.Length - 1 ->
-                                                computeGradient i energy state.Parameters
-                                        |]
+                                match shifted epsilon, shifted -epsilon with
+                                | Ok plus, Ok minus -> Ok((plus - minus) / (2.0 * epsilon))
+                                | Error e, _
+                                | _, Error e -> Error e)
+                            |> ResultHelpers.sequence
+                            |> Result.map Array.ofList
 
-                                    let updatedParams =
-                                        Array.mapi (fun i p -> p - learningRate * gradients.[i]) state.Parameters
+                        let dot (a: float array) (b: float array) =
+                            Array.fold2 (fun acc x y -> acc + x * y) 0.0 a b
 
-                                    {
-                                        Parameters = updatedParams
-                                        Iteration = state.Iteration + 1
-                                        PrevEnergy = energy
-                                        CurrentEnergy = energy
-                                        FinalState = ansatzState
-                                        Converged = false
-                                    })
-
-                        // Tail-recursive optimization loop
-                        let rec optimizeLoop (state: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
-                            if state.Iteration >= config.MaxIterations || state.Converged then
-                                Ok
-                                    {
-                                        Energy = state.CurrentEnergy
-                                        OptimalParameters = state.Parameters
-                                        Iterations = state.Iteration
-                                        Converged = state.Converged
-                                        FinalState = state.FinalState
-                                    }
+                        let largest (v: float array) =
+                            if v.Length = 0 then
+                                0.0
                             else
-                                (optimizationStep state) |> Result.bind (fun newState -> optimizeLoop newState)
+                                v |> Array.map abs |> Array.max
 
-                        // Start optimization from initial state
-                        let initialOptState: OptimizationState =
-                            {
-                                Parameters = initialParameters
-                                Iteration = 0
-                                PrevEnergy = Double.MaxValue
-                                CurrentEnergy = 0.0
-                                FinalState = initialState
-                                Converged = false
-                            }
+                        let identity () =
+                            Array2D.init n n (fun i j -> if i = j then 1.0 else 0.0)
 
-                        return optimizeLoop initialOptState
+                        let apply (m: float[,]) (v: float array) =
+                            Array.init n (fun i -> Seq.sum (seq { for j in 0 .. n - 1 -> m.[i, j] * v.[j] }))
+
+                        /// BFGS inverse-Hessian update for step s and gradient change y (sy = sᵀy > 0).
+                        let bfgsUpdate (h: float[,]) (s: float array) (y: float array) (sy: float) =
+                            let rho = 1.0 / sy
+                            let hy = apply h y
+                            let scale = rho * rho * dot y hy + rho
+
+                            Array2D.init n n (fun i j ->
+                                h.[i, j] - rho * (s.[i] * hy.[j] + hy.[i] * s.[j]) + scale * s.[i] * s.[j])
+
+                        let report iteration energy =
+                            config.ProgressReporter
+                            |> Option.iter (fun r ->
+                                r.Report(Progress.IterationUpdate(iteration, config.MaxIterations, Some energy)))
+
+                        let finish (s: OptimizationState) =
+                            Ok
+                                {
+                                    Energy = s.Energy
+                                    OptimalParameters = s.Parameters
+                                    Iterations = s.Iteration
+                                    Converged = s.Converged
+                                    FinalState = s.FinalState
+                                    Estimation =
+                                        match s.FinalState with
+                                        | QuantumState.StateVector _ -> ExactExpectation
+                                        | _ -> SampledGateByGate shotsPerTerm
+                                    Notes = []
+                                }
+
+                        /// Largest step (halving from 1) along `direction` meeting the Armijo condition.
+                        let rec lineSearch
+                            (s: OptimizationState)
+                            (direction: float array)
+                            (slope: float)
+                            (step: float)
+                            =
+                            if step < minStep then
+                                Ok None
+                            else
+                                let candidate = Array.map2 (fun x d -> x + step * d) s.Parameters direction
+
+                                evaluate candidate
+                                |> Result.bind (fun (state, energy) ->
+                                    if energy <= s.Energy + armijo * step * slope then
+                                        Ok(Some(candidate, state, energy, step))
+                                    else
+                                        lineSearch s direction slope (step * 0.5))
+
+                        let rec optimize (s: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
+                            if largest s.Gradient < gradientTolerance then
+                                finish { s with Converged = true }
+                            elif s.Iteration >= config.MaxIterations then
+                                finish s
+                            else
+                                let quasiNewton = apply s.InverseHessian s.Gradient |> Array.map (~-)
+
+                                let direction, inverseHessian, fresh =
+                                    if dot quasiNewton s.Gradient < 0.0 then
+                                        quasiNewton, s.InverseHessian, s.FreshHessian
+                                    else
+                                        Array.map (~-) s.Gradient, identity (), true
+
+                                lineSearch s direction (dot direction s.Gradient) 1.0
+                                |> Result.bind (function
+                                    | None when not fresh ->
+                                        // No decrease along the quasi-Newton direction: restart from steepest descent.
+                                        optimize
+                                            { s with
+                                                InverseHessian = identity ()
+                                                FreshHessian = true
+                                                Iteration = s.Iteration + 1
+                                            }
+                                    | None -> finish { s with Iteration = s.Iteration + 1 }
+                                    | Some(parameters, state, energy, step) ->
+                                        gradientAt parameters
+                                        |> Result.bind (fun gradient ->
+                                            report (s.Iteration + 1) energy
+                                            let stepVector = direction |> Array.map (fun d -> step * d)
+                                            let y = Array.map2 (-) gradient s.Gradient
+                                            let sy = dot stepVector y
+
+                                            let updated, stillFresh =
+                                                if sy > 1e-12 then
+                                                    bfgsUpdate inverseHessian stepVector y sy, false
+                                                else
+                                                    inverseHessian, fresh
+
+                                            optimize
+                                                {
+                                                    Parameters = parameters
+                                                    Energy = energy
+                                                    Gradient = gradient
+                                                    InverseHessian = updated
+                                                    FreshHessian = stillFresh
+                                                    Iteration = s.Iteration + 1
+                                                    FinalState = state
+                                                    Converged = false
+                                                }))
+
+                        return
+                            evaluate initialParameters
+                            |> Result.bind (fun (state, energy) ->
+                                report 0 energy
+
+                                gradientAt initialParameters
+                                |> Result.bind (fun gradient ->
+                                    optimize
+                                        {
+                                            Parameters = initialParameters
+                                            Energy = energy
+                                            Gradient = gradient
+                                            InverseHessian = identity ()
+                                            FreshHessian = true
+                                            Iteration = 0
+                                            FinalState = state
+                                            Converged = false
+                                        }))
             }
+
+        /// Run UCCSD-VQE to find molecular ground state
+        ///
+        /// **Parameters**:
+        ///   config - VQE configuration with UCCSD ansatz
+        ///
+        /// **Returns**:
+        ///   Async<Result<ChemistryVQEResult, QuantumError>> - Ground state energy and parameters
+        let run (config: ChemistryVQEConfig) : Async<Result<ChemistryVQEResult, QuantumError>> =
+            runWith None None config
 
 // ============================================================================
 // MOLECULAR INTEGRALS (Pluggable Provider Interface)
@@ -2578,7 +3449,7 @@ module FermionMapping =
 // └─────────────────────────────────────────────────────────────────────────┘
 //
 // FAILURE MODES:
-// - Provider returns Error: VQE falls back to empirical integrals
+// - Provider returns Error: VQE returns Error (ValidationError "IntegralProvider")
 // - Dimension mismatch: IndexOutOfRangeException during Hamiltonian build
 // - Wrong notation: Incorrect energies (may converge to wrong value)
 // - AO basis integrals: Incorrect energies (integrals not properly transformed)
@@ -2656,6 +3527,596 @@ type MolecularIntegrals =
 /// - File-based: Parse FCIDump or HDF5 files with pre-computed integrals
 type IntegralProvider = Molecule -> Result<MolecularIntegrals, string>
 
+/// Molecular integrals from FCIDUMP files, the interchange format written by PySCF
+/// (pyscf.tools.fcidump), Psi4, Molpro, OpenMolcas and others. An FCIDUMP carries no
+/// geometry: the file must describe the molecule it is used for.
+module FciDumpIntegrals =
+
+    /// MolecularIntegrals of parsed FCIDUMP integrals; the core energy becomes NuclearRepulsion.
+    let ofParsed (parsed: MoleculeFormats.FciDump.Integrals) : MolecularIntegrals =
+        let n = parsed.Header.NumOrbitals
+
+        {
+            NumOrbitals = n
+            NumElectrons = parsed.Header.NumElectrons
+            NuclearRepulsion = parsed.CoreEnergy
+            OneElectron =
+                {
+                    NumOrbitals = n
+                    Integrals = parsed.OneElectron
+                }
+            TwoElectron =
+                {
+                    NumOrbitals = n
+                    Integrals = parsed.TwoElectron
+                }
+            ReferenceEnergy = None
+        }
+
+    /// Parse FCIDUMP content into MolecularIntegrals. MS2 (2·Sz) must be the lowest for the
+    /// electron count (0 for even, 1 for odd): VQE starts from a Hartree-Fock reference of
+    /// that spin and cannot honour a higher-spin state.
+    let parse (content: string) : Result<MolecularIntegrals, QuantumError> =
+        MoleculeFormats.FciDump.parseIntegrals content
+        |> Result.bind (fun parsed ->
+            match parsed.Header.MS2 with
+            | Some ms2 when ms2 <> parsed.Header.NumElectrons % 2 ->
+                Error(
+                    QuantumError.ValidationError(
+                        "FciDump",
+                        $"MS2={ms2} with NELEC={parsed.Header.NumElectrons}: only the lowest spin state (MS2={parsed.Header.NumElectrons % 2}) is supported"
+                    )
+                )
+            | _ -> Ok(ofParsed parsed))
+
+    /// Read an FCIDUMP file into MolecularIntegrals.
+    let readFile (path: string) : Result<MolecularIntegrals, QuantumError> =
+        try
+            if not (File.Exists path) then
+                Error(QuantumError.IOError("ReadFciDump", path, "File not found"))
+            else
+                File.ReadAllText path
+                |> parse
+                |> Result.mapError (fun err -> QuantumError.OperationError("ReadFciDump", $"{path}: {err.Message}"))
+        with ex ->
+            Error(QuantumError.IOError("ReadFciDump", path, ex.Message))
+
+    /// IntegralProvider that returns the integrals of the FCIDUMP file at `path` for any molecule.
+    let fromFile (path: string) : IntegralProvider =
+        fun _ -> readFile path |> Result.mapError (fun err -> err.Message)
+
+    /// IntegralProvider that reads `<directory>/<molecule.Name>.fcidump`.
+    let fromDirectory (directory: string) : IntegralProvider =
+        fun molecule ->
+            readFile (Path.Combine(directory, molecule.Name + ".fcidump"))
+            |> Result.mapError (fun err -> err.Message)
+
+/// Molecular-orbital integrals for molecules made only of H and He atoms, in the STO-3G or
+/// 6-31G basis. For these elements both bases hold only s-type contracted Gaussians, so the
+/// overlap, kinetic, nuclear-attraction and electron-repulsion integrals have closed forms in
+/// the Boys function F0. Restricted Hartree-Fock turns them into molecular-orbital integrals.
+module Sto3gIntegrals =
+
+    open MathNet.Numerics.LinearAlgebra
+    open MathNet.Numerics.LinearAlgebra.Factorization
+
+    /// Contracted s shells, (exponents in bohr⁻², coefficients of normalised primitives),
+    /// per basis and element: STO-3G (Hehre, Stewart, Pople 1969) and 6-31G (Ditchfield,
+    /// Hehre, Pople 1971), as distributed by the Basis Set Exchange.
+    let private shells: Map<string, Map<string, (float[] * float[]) list>> =
+        let sto3g = [| 0.15432897; 0.53532814; 0.44463454 |]
+
+        Map
+            [
+                "STO-3G",
+                Map
+                    [
+                        "H", [ [| 3.42525091; 0.62391373; 0.16885540 |], sto3g ]
+                        "HE", [ [| 6.36242139; 1.15892300; 0.31364979 |], sto3g ]
+                    ]
+                "6-31G",
+                Map
+                    [
+                        "H",
+                        [
+                            [| 18.7311370; 2.8253937; 0.6401217 |], [| 0.03349460; 0.23472695; 0.81375733 |]
+                            [| 0.1612778 |], [| 1.0 |]
+                        ]
+                        "HE",
+                        [
+                            [| 38.4216340; 5.7780300; 1.2417740 |], [| 0.0237660; 0.1546790; 0.4696300 |]
+                            [| 0.2979640 |], [| 1.0 |]
+                        ]
+                    ]
+            ]
+
+    /// Bases computed here, by the names `computeInBasis` accepts (case-insensitive).
+    let supportedBases = [ "STO-3G"; "6-31G" ]
+
+    /// A normalised s-type primitive: coefficient × (2α/π)^¾, exponent α, centre (bohr).
+    type private Primitive =
+        {
+            Weight: float
+            Alpha: float
+            Centre: float * float * float
+        }
+
+    let private dist2 (x1, y1, z1) (x2, y2, z2) =
+        (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2) + (z1 - z2) * (z1 - z2)
+
+    /// Boys function F0(t) = ½·√(π/t)·erf(√t), with its series near t = 0.
+    let private boysF0 (t: float) =
+        if t < 1e-8 then
+            1.0 - t / 3.0
+        else
+            0.5 * sqrt (Math.PI / t) * MathNet.Numerics.SpecialFunctions.Erf(sqrt t)
+
+    let private gaussianCentre (a: Primitive) (b: Primitive) =
+        let p = a.Alpha + b.Alpha
+        let (ax, ay, az) = a.Centre
+        let (bx, by, bz) = b.Centre
+        ((a.Alpha * ax + b.Alpha * bx) / p, (a.Alpha * ay + b.Alpha * by) / p, (a.Alpha * az + b.Alpha * bz) / p)
+
+    let private overlap (a: Primitive) (b: Primitive) =
+        let p = a.Alpha + b.Alpha
+        let mu = a.Alpha * b.Alpha / p
+        (Math.PI / p) ** 1.5 * exp (-mu * dist2 a.Centre b.Centre)
+
+    let private kinetic (a: Primitive) (b: Primitive) =
+        let p = a.Alpha + b.Alpha
+        let mu = a.Alpha * b.Alpha / p
+        let r2 = dist2 a.Centre b.Centre
+        mu * (3.0 - 2.0 * mu * r2) * (Math.PI / p) ** 1.5 * exp (-mu * r2)
+
+    let private attraction (nuclei: (float * (float * float * float)) array) (a: Primitive) (b: Primitive) =
+        let p = a.Alpha + b.Alpha
+        let mu = a.Alpha * b.Alpha / p
+        let centre = gaussianCentre a b
+        let prefactor = 2.0 * Math.PI / p * exp (-mu * dist2 a.Centre b.Centre)
+
+        nuclei
+        |> Array.sumBy (fun (z, c) -> -z * prefactor * boysF0 (p * dist2 centre c))
+
+    let private repulsion (a: Primitive) (b: Primitive) (c: Primitive) (d: Primitive) =
+        let p = a.Alpha + b.Alpha
+        let q = c.Alpha + d.Alpha
+        let muAB = a.Alpha * b.Alpha / p
+        let muCD = c.Alpha * d.Alpha / q
+        let pq = dist2 (gaussianCentre a b) (gaussianCentre c d)
+
+        2.0 * Math.PI ** 2.5 / (p * q * sqrt (p + q))
+        * exp (-muAB * dist2 a.Centre b.Centre - muCD * dist2 c.Centre d.Centre)
+        * boysF0 (p * q / (p + q) * pq)
+
+    let private contract2 (f: Primitive -> Primitive -> float) (u: Primitive[]) (v: Primitive[]) =
+        Array.sum
+            [|
+                for a in u do
+                    for b in v -> a.Weight * b.Weight * f a b
+            |]
+
+    /// Molecular-orbital integrals in `basis` ("STO-3G" or "6-31G", case-insensitive).
+    /// Closed shells (even electron count, multiplicity 1) use restricted Hartree-Fock
+    /// orbitals and ReferenceEnergy is the RHF total energy: the lowest solution reached from
+    /// several starting guesses (core, GWH, HOMO-LUMO mixed, seeded perturbations) with DIIS,
+    /// plain and damped Roothaan iterations, then followed down any negative mode of the
+    /// orbital Hessian. When no SCF converges, core-Hamiltonian orbitals are used and
+    /// ReferenceEnergy is None (the Hamiltonian's spectrum is orbital-invariant; only the
+    /// VQE starting determinant is poorer). A single electron (multiplicity 2) uses
+    /// core-Hamiltonian orbitals, which are exact for it, and ReferenceEnergy is None.
+    /// Other open shells are an Error: UCCSD-VQE does not conserve spin, so it could not
+    /// honour the requested state. Other Errors: another basis, elements other than H and He,
+    /// no electrons, more electrons than 2 × basis functions, or coincident nuclei.
+    let computeInBasis (basis: string) (molecule: Molecule) : Result<MolecularIntegrals, QuantumError> =
+        let invalid reason =
+            Error(QuantumError.ValidationError("Sto3gIntegrals", $"{molecule.Name}: {reason}"))
+
+        let basisName = basis.Trim().ToUpperInvariant()
+
+        let unsupported =
+            molecule.Atoms
+            |> List.tryFind (fun a ->
+                let e = a.Element.ToUpperInvariant()
+                e <> "H" && e <> "HE")
+
+        let numElectrons = Molecule.countElectrons molecule
+
+        let functionCount (elementShells: Map<string, (float[] * float[]) list>) =
+            molecule.Atoms
+            |> List.sumBy (fun a -> elementShells.[a.Element.ToUpperInvariant()].Length)
+
+        match shells.TryFind basisName, unsupported, Molecule.nuclearRepulsion molecule with
+        | None, _, _ ->
+            invalid (
+                $"basis '{basis}' is not computed by the library (supported for H and He: "
+                + String.Join(", ", supportedBases)
+                + "); integrals from an IntegralProvider or an FCIDUMP file carry their own basis"
+            )
+        | _ when molecule.Atoms.IsEmpty -> invalid "no atoms"
+        | _, Some atom, _ -> invalid $"{basisName} integrals are computed for H and He only, found '{atom.Element}'"
+        | _, None, Error err -> Error err
+        | _, None, Ok _ when
+            numElectrons <= 0
+            || (numElectrons % 2 = 0 && molecule.Multiplicity <> 1)
+            || (numElectrons % 2 = 1 && (numElectrons <> 1 || molecule.Multiplicity <> 2))
+            ->
+            invalid
+                $"supported are closed shells (even electron count, multiplicity 1) and one-electron doublets; got {numElectrons} electrons, multiplicity {molecule.Multiplicity}"
+        | Some elementShells, None, Ok _ when numElectrons > 2 * functionCount elementShells ->
+            invalid $"{numElectrons} electrons exceed {functionCount elementShells} {basisName} orbitals"
+        | Some elementShells, None, Ok nuclearRepulsion ->
+            let toBohr (x, y, z) =
+                (x * Molecule.BohrPerAngstrom, y * Molecule.BohrPerAngstrom, z * Molecule.BohrPerAngstrom)
+
+            let basis =
+                molecule.Atoms
+                |> List.collect (fun atom ->
+                    elementShells.[atom.Element.ToUpperInvariant()]
+                    |> List.map (fun (exponents, coefficients) ->
+                        let primitives =
+                            exponents
+                            |> Array.mapi (fun k alpha ->
+                                {
+                                    Weight = coefficients.[k] * (2.0 * alpha / Math.PI) ** 0.75
+                                    Alpha = alpha
+                                    Centre = toBohr atom.Position
+                                })
+                        // Normalise the contracted function.
+                        let norm = sqrt (contract2 overlap primitives primitives)
+                        primitives |> Array.map (fun p -> { p with Weight = p.Weight / norm })))
+                |> Array.ofList
+
+            let n = basis.Length
+
+            let nuclei =
+                molecule.Atoms
+                |> List.map (fun atom -> float (AtomicNumbers.fromSymbol atom.Element).Value, toBohr atom.Position)
+                |> Array.ofList
+
+            let s =
+                Matrix<float>.Build.Dense(n, n, fun i j -> contract2 overlap basis.[i] basis.[j])
+
+            let hCore =
+                Matrix<float>
+                    .Build.Dense(
+                        n,
+                        n,
+                        fun i j ->
+                            contract2 kinetic basis.[i] basis.[j]
+                            + contract2 (attraction nuclei) basis.[i] basis.[j]
+                    )
+
+            let eri = Array4D.zeroCreate n n n n
+
+            for i in 0 .. n - 1 do
+                for j in 0..i do
+                    for k in 0 .. n - 1 do
+                        for l in 0..k do
+                            if i * (i + 1) / 2 + j >= k * (k + 1) / 2 + l then
+                                let v =
+                                    Array.sum
+                                        [|
+                                            for a in basis.[i] do
+                                                for b in basis.[j] do
+                                                    for c in basis.[k] do
+                                                        for d in basis.[l] ->
+                                                            a.Weight
+                                                            * b.Weight
+                                                            * c.Weight
+                                                            * d.Weight
+                                                            * repulsion a b c d
+                                        |]
+
+                                for (w, x, y, z) in
+                                    [
+                                        (i, j, k, l)
+                                        (j, i, k, l)
+                                        (i, j, l, k)
+                                        (j, i, l, k)
+                                        (k, l, i, j)
+                                        (l, k, i, j)
+                                        (k, l, j, i)
+                                        (l, k, j, i)
+                                    ] do
+                                    eri.[w, x, y, z] <- v
+
+            // Symmetric orthogonalisation X = S^-1/2
+            let sEvd = s.Evd Symmetricity.Symmetric
+
+            let x =
+                sEvd.EigenVectors
+                * Matrix<float>
+                    .Build.DiagonalOfDiagonalArray(sEvd.EigenValues.ToArray() |> Array.map (fun v -> 1.0 / sqrt v.Real))
+                * sEvd.EigenVectors.Transpose()
+
+            let occupied = numElectrons / 2
+
+            /// MO coefficients (columns, ascending orbital energy) of the Fock matrix f.
+            let solve (f: Matrix<float>) =
+                let evd = (x.Transpose() * f * x).Evd Symmetricity.Symmetric
+                let order = Array.init n id |> Array.sortBy (fun k -> evd.EigenValues.[k].Real)
+
+                let cPrime =
+                    Matrix<float>.Build.Dense(n, n, fun i j -> evd.EigenVectors.[i, order.[j]])
+
+                x * cPrime
+
+            /// Closed-shell density of occupied orbitals cOcc (columns, not necessarily
+            /// orthonormal): P = 2 C (Cᵀ S C)⁻¹ Cᵀ.
+            let densityOfOccupied (cOcc: Matrix<float>) =
+                2.0 * cOcc * (cOcc.Transpose() * s * cOcc).Inverse() * cOcc.Transpose()
+
+            /// Closed-shell density of the lowest `occupied` columns of c.
+            let density (c: Matrix<float>) =
+                densityOfOccupied (c.SubMatrix(0, n, 0, occupied))
+
+            let fock (p: Matrix<float>) =
+                let pa = p.ToArray()
+
+                Matrix<float>
+                    .Build.Dense(
+                        n,
+                        n,
+                        fun i j ->
+                            let mutable sum = hCore.[i, j]
+
+                            for k in 0 .. n - 1 do
+                                for l in 0 .. n - 1 do
+                                    sum <- sum + pa.[k, l] * (eri.[i, j, k, l] - 0.5 * eri.[i, k, j, l])
+
+                            sum
+                    )
+
+            /// (pq|rs) over the columns of c: Σ C_μp C_νq C_λr C_σs (μν|λσ), one index at a time.
+            let toMolecularOrbitals (c: Matrix<float>) =
+                let ca = c.ToArray()
+
+                let transform (g: float[,,,]) (axis: int) =
+                    let t = Array4D.zeroCreate n n n n
+
+                    for a in 0 .. n - 1 do
+                        for b in 0 .. n - 1 do
+                            for r in 0 .. n - 1 do
+                                for q in 0 .. n - 1 do
+                                    let mutable sum = 0.0
+
+                                    for m in 0 .. n - 1 do
+                                        sum <-
+                                            sum
+                                            + (match axis with
+                                               | 0 -> ca.[m, a] * g.[m, b, r, q]
+                                               | 1 -> ca.[m, b] * g.[a, m, r, q]
+                                               | 2 -> ca.[m, r] * g.[a, b, m, q]
+                                               | _ -> ca.[m, q] * g.[a, b, r, m])
+
+                                    t.[a, b, r, q] <- sum
+
+                    t
+
+                [ 0..3 ] |> List.fold transform eri
+
+            let electronicEnergy (p: Matrix<float>) (f: Matrix<float>) =
+                0.5 * (p.PointwiseMultiply(hCore + f).Enumerate() |> Seq.sum)
+
+            /// Pulay DIIS extrapolation of the Fock matrix over the stored (F, error) pairs.
+            let diis (history: (Matrix<float> * Matrix<float>) list) (f: Matrix<float>) =
+                match history with
+                | []
+                | [ _ ] -> f
+                | _ ->
+                    let m = history.Length
+                    let errors = history |> List.map snd |> Array.ofList
+
+                    let b =
+                        Matrix<float>
+                            .Build.Dense(
+                                m + 1,
+                                m + 1,
+                                fun i j ->
+                                    if i = m && j = m then
+                                        0.0
+                                    elif i = m || j = m then
+                                        -1.0
+                                    else
+                                        errors.[i].PointwiseMultiply(errors.[j]).Enumerate() |> Seq.sum
+                            )
+
+                    let rhs = Vector<float>.Build.Dense(m + 1, fun i -> if i = m then -1.0 else 0.0)
+
+                    try
+                        let weights = b.Solve rhs
+
+                        if
+                            weights.Enumerate()
+                            |> Seq.exists (fun w -> Double.IsNaN w || Double.IsInfinity w)
+                        then
+                            f
+                        else
+                            history |> List.mapi (fun i (fi, _) -> fi * weights.[i]) |> List.reduce (+)
+                    with _ ->
+                        f
+
+            /// RHF from the starting density p0 with Pulay DIIS, or with Roothaan steps whose new
+            /// density is mixed with `damping` of the old one. Some(orbitals, electronic energy)
+            /// at self-consistency, None when 1000 iterations do not reach it.
+            let runScf (useDiis: bool) (damping: float) (p0: Matrix<float>) =
+                let rec loop iteration (p: Matrix<float>) (previousEnergy: float) history =
+                    let f = fock p
+                    let energy = electronicEnergy p f
+                    // Commutator FPS - SPF in the orthonormal basis vanishes at self-consistency.
+                    let error = x.Transpose() * (f * p * s - s * p * f) * x
+
+                    if abs (energy - previousEnergy) < 1e-12 && error.FrobeniusNorm() < 1e-9 then
+                        Some(solve f, energy)
+                    elif iteration >= 1000 then
+                        None
+                    else
+                        let history = (f, error) :: history |> List.truncate 8
+                        let next = density (solve (if useDiis then diis history f else f))
+
+                        let mixed =
+                            if damping > 0.0 then
+                                (1.0 - damping) * next + damping * p
+                            else
+                                next
+
+                        loop (iteration + 1) mixed energy history
+
+                loop 1 p0 Double.MaxValue []
+
+            /// Every SCF strategy from one starting density: DIIS, plain Roothaan, damped Roothaan.
+            let strategies (p0: Matrix<float>) =
+                [ runScf true 0.0 p0; runScf false 0.0 p0; runScf false 0.5 p0 ]
+
+            /// The lowest-energy converged solution; the first one on ties.
+            let lowest (solutions: (Matrix<float> * float) option list) =
+                match List.choose id solutions with
+                | [] -> None
+                | converged -> Some(List.minBy snd converged)
+
+            let virtuals = n - occupied
+
+            /// Lowest eigenpair of the real RHF orbital Hessian over occupied-virtual rotations
+            /// at canonical orbitals c: δ_ij F_ab - δ_ab F_ij + 4(ia|jb) - (ib|ja) - (ij|ab).
+            /// A negative eigenvalue means c is a saddle point of the RHF energy.
+            let lowestHessianMode (c: Matrix<float>) =
+                let g = toMolecularOrbitals c
+                let fMo = c.Transpose() * fock (density c) * c
+                let dimension = occupied * virtuals
+
+                let hessian =
+                    Matrix<float>
+                        .Build.Dense(
+                            dimension,
+                            dimension,
+                            fun row column ->
+                                let i, a = row / virtuals, occupied + row % virtuals
+                                let j, b = column / virtuals, occupied + column % virtuals
+
+                                (if i = j then fMo.[a, b] else 0.0) - (if a = b then fMo.[i, j] else 0.0)
+                                + 4.0 * g.[i, a, j, b]
+                                - g.[i, b, j, a]
+                                - g.[i, j, a, b]
+                        )
+
+                let evd = hessian.Evd Symmetricity.Symmetric
+                let k = [ 0 .. dimension - 1 ] |> List.minBy (fun k -> evd.EigenValues.[k].Real)
+                evd.EigenValues.[k].Real, evd.EigenVectors.Column k
+
+            /// Density after rotating the occupied orbitals of c by `step` along a Hessian mode.
+            let rotatedDensity (c: Matrix<float>) (mode: Vector<float>) (step: float) =
+                let t =
+                    Matrix<float>.Build.Dense(virtuals, occupied, fun a i -> mode.[i * virtuals + a])
+
+                densityOfOccupied (
+                    c.SubMatrix(0, n, 0, occupied)
+                    + step * c.SubMatrix(0, n, occupied, virtuals) * t
+                )
+
+            /// Follows negative orbital-Hessian modes downhill (up to 5 times) while that
+            /// reaches a lower converged RHF solution.
+            let rec descend (c: Matrix<float>, energy: float) round =
+                if round >= 5 || virtuals = 0 then
+                    (c, energy)
+                else
+                    match lowestHessianMode c with
+                    | eigenvalue, mode when eigenvalue < -1e-6 ->
+                        let downhill =
+                            [ 0.3; -0.3; 0.8; -0.8 ]
+                            |> List.collect (rotatedDensity c mode >> strategies)
+                            |> lowest
+
+                        match downhill with
+                        | Some(c', energy') when energy' < energy - 1e-9 -> descend (c', energy') (round + 1)
+                        | _ -> (c, energy)
+                    | _ -> (c, energy)
+
+            // Starting densities: core Hamiltonian, generalised Wolfsberg-Helmholz, the core
+            // guess with HOMO and LUMO mixed, and three seeded random perturbations of the core
+            // Hamiltonian. Different starts can converge to different RHF solutions.
+            let startingDensities () =
+                let core = solve hCore
+
+                let gwh =
+                    Matrix<float>
+                        .Build.Dense(
+                            n,
+                            n,
+                            fun i j ->
+                                if i = j then
+                                    hCore.[i, i]
+                                else
+                                    0.875 * s.[i, j] * (hCore.[i, i] + hCore.[j, j])
+                        )
+
+                let homoLumoMixed =
+                    if virtuals = 0 then
+                        []
+                    else
+                        let mixed = core.Clone()
+                        let angle = Math.PI / 6.0
+
+                        mixed.SetColumn(
+                            occupied - 1,
+                            cos angle * core.Column(occupied - 1) + sin angle * core.Column occupied
+                        )
+
+                        [ densityOfOccupied (mixed.SubMatrix(0, n, 0, occupied)) ]
+
+                let scale = 0.2 * (Seq.init n (fun i -> abs hCore.[i, i]) |> Seq.max)
+
+                let perturbed =
+                    [ 1..3 ]
+                    |> List.map (fun seed ->
+                        let rng = Random seed
+                        let r = Matrix<float>.Build.Dense(n, n, fun _ _ -> rng.NextDouble() - 0.5)
+                        density (solve (hCore + scale * (r + r.Transpose()))))
+
+                [ density core; density (solve gwh) ] @ homoLumoMixed @ perturbed
+
+            // Closed shells: the lowest RHF solution found from every start and strategy, then
+            // followed down any orbital-Hessian instability. When no SCF converges (e.g. some
+            // stretched chains), the core-Hamiltonian orbitals are used and ReferenceEnergy is
+            // None: the Hamiltonian's spectrum does not depend on the orbitals, only the VQE
+            // starting determinant does. One electron: core-Hamiltonian orbitals are exact.
+            let c, referenceEnergy =
+                if numElectrons % 2 = 1 then
+                    solve hCore, None
+                else
+                    match startingDensities () |> List.collect strategies |> lowest with
+                    | Some best ->
+                        let c, electronic = descend best 0
+                        c, Some(electronic + nuclearRepulsion)
+                    | None -> solve hCore, None
+
+            Ok
+                {
+                    NumOrbitals = n
+                    NumElectrons = numElectrons
+                    NuclearRepulsion = nuclearRepulsion
+                    OneElectron =
+                        {
+                            NumOrbitals = n
+                            Integrals = (c.Transpose() * hCore * c).ToArray()
+                        }
+                    TwoElectron =
+                        {
+                            NumOrbitals = n
+                            Integrals = toMolecularOrbitals c
+                        }
+                    ReferenceEnergy = referenceEnergy
+                }
+
+    /// Molecular-orbital integrals in the STO-3G basis (see computeInBasis).
+    let compute (molecule: Molecule) : Result<MolecularIntegrals, QuantumError> = computeInBasis "STO-3G" molecule
+
+    /// IntegralProvider computing integrals in `basis` (H and He only) for the molecule it is given.
+    let providerInBasis (basis: string) : IntegralProvider =
+        fun molecule -> computeInBasis basis molecule |> Result.mapError (fun err -> err.Message)
+
+    /// IntegralProvider computing STO-3G integrals (H and He only) for the molecule it is given.
+    let provider: IntegralProvider = providerInBasis "STO-3G"
+
 // ============================================================================
 // GROUND STATE ENERGY ESTIMATION
 // ============================================================================
@@ -2665,13 +4126,16 @@ type GroundStateMethod =
     /// Variational Quantum Eigensolver (quantum algorithm)
     | VQE
 
-    /// Quantum Phase Estimation (requires larger quantum resources)
+    /// Quantum phase estimation of the Trotterised e^(-iHt) from the Hartree-Fock state
+    /// (QPE.run): an eigenvalue per peak of the outcome distribution, needing system +
+    /// counting qubits (12 for H2/STO-3G)
     | QPE
 
-    /// Classical DFT fallback for validation
+    /// Tabulated classical reference energy (ClassicalDFT.run); runs no circuit.
+    /// Used only when requested explicitly.
     | ClassicalDFT
 
-    /// Automatically select best method based on molecule size
+    /// Quantum method chosen by the library: currently VQE. Never selects ClassicalDFT.
     | Automatic
 
 /// Configuration for ground state energy solver
@@ -2701,8 +4165,8 @@ type SolverConfig =
         ErrorMitigation: ErrorMitigationStrategy.RecommendedStrategy option
 
         /// Optional custom integral provider (e.g., from PySCF, Psi4)
-        /// When provided, uses real molecular integrals instead of empirical values
-        /// This enables research-grade accuracy for VQE calculations
+        /// When provided, VQE builds the Jordan-Wigner Hamiltonian from the provider's
+        /// integrals and runs UCCSD-VQE on it; a provider Error is returned as Error.
         IntegralProvider: IntegralProvider option
     }
 
@@ -3033,10 +4497,10 @@ module MolecularHamiltonian =
         {
             NumOrbitals = 2
             NumElectrons = 2
-            NuclearRepulsion = 0.713696 // 1/R, R = 0.7414 Å = 1.401156 bohr
+            NuclearRepulsion = 0.713754 // 1/R, R = 0.7414 Å = 1.401045 bohr
             OneElectron = { NumOrbitals = 2; Integrals = h1 }
             TwoElectron = { NumOrbitals = 2; Integrals = g2 }
-            ReferenceEnergy = Some -1.116765
+            ReferenceEnergy = Some -1.116707
         } // Hartree-Fock energy (2·h00 + (00|00) + Enuc)
 
     /// Build molecular Hamiltonian from molecule structure
@@ -3190,7 +4654,7 @@ module MolecularHamiltonian =
                                     "IntegralProvider",
                                     $"Integral provider failed for molecule '{molecule.Name}': {msg}. "
                                     + "Check the provider (e.g. PySCF/Psi4 wrapper) or load integrals from "
-                                    + "an FCIDUMP file via Molecule.fromFciDumpFileTask."
+                                    + "an FCIDUMP file via FciDumpIntegrals.fromFile."
                                 )
                             )
                     | None ->
@@ -3199,8 +4663,9 @@ module MolecularHamiltonian =
                                 "IntegralProvider",
                                 $"The %A{mapping} fermionic mapping requires real molecular integrals, "
                                 + "but no IntegralProvider was supplied. Pass an IntegralProvider "
-                                + "(PySCF/Psi4/FCIDUMP), or call buildFromIntegrals with integrals you "
-                                + "already hold (e.g. h2Sto3gIntegrals). Use the Empirical mapping for a "
+                                + "(PySCF/Psi4, FciDumpIntegrals.fromFile, or Sto3gIntegrals.provider for H/He), "
+                                + "or call buildFromIntegrals with integrals you already hold "
+                                + "(e.g. h2Sto3gIntegrals). Use the Empirical mapping for a "
                                 + "provider-free prototype Hamiltonian."
                             )
                         )
@@ -3208,25 +4673,85 @@ module MolecularHamiltonian =
 
 
 
-/// Classical DFT fallback - provides empirical energy values
+/// What produced the energy of a ground-state result.
+type EnergySource =
+    /// UCCSD-VQE on the Jordan-Wigner Hamiltonian of the SolverConfig.IntegralProvider's integrals.
+    | ProviderIntegrals
+    /// UCCSD-VQE on the Jordan-Wigner Hamiltonian of the STO-3G integrals the library computes
+    /// itself (Sto3gIntegrals: RHF, molecules of H and He atoms only).
+    | ComputedSto3gIntegrals
+    /// UCCSD-VQE on the Jordan-Wigner Hamiltonian of the 6-31G integrals the library computes
+    /// itself (Sto3gIntegrals.computeInBasis "6-31G": RHF, molecules of H and He atoms only).
+    | Computed631gIntegrals
+    /// Hardware-efficient VQE on the empirical prototype Hamiltonian of MolecularHamiltonian.build;
+    /// not a physical molecular energy.
+    | EmpiricalHamiltonian
+    /// Quantum phase estimation (QPE.run) of the Trotterised time evolution e^(-iHt) of the
+    /// Jordan-Wigner Hamiltonian of the provider's or the library's own integrals; see
+    /// VQEResult.Estimation for t, Trotter steps, counting qubits and the outcome peaks.
+    | QpeTrotterEvolution
+    /// ClassicalDFT.run's tabulated reference value; no quantum circuit ran.
+    | TabulatedReference
+
+/// Tabulated classical reference energies for H2, H2O and LiH near equilibrium, matched by
+/// atomic composition (not by name or geometry). Runs no circuit; callable on its own or
+/// through GroundStateMethod.ClassicalDFT, never as a substitute for VQE.
 module ClassicalDFT =
 
     let private empiricalEnergies =
         Map [ ("H2", -1.174); ("H2O", -76.0); ("LiH", -8.0) ]
 
+    /// True when the molecule is the state the table describes: neutral, singlet, and within
+    /// 0.05 Å of the equilibrium bond lengths (H-H 0.741, Li-H 1.595, O-H 0.958 Å) and, for
+    /// water, 5° of the 104.5° H-O-H angle.
+    let private isTabulatedState (name: string) (molecule: Molecule) =
+        let atomsOf (element: string) =
+            molecule.Atoms |> List.filter (fun a -> a.Element.ToUpperInvariant() = element)
+
+        let near (expected: float) (actual: float) = abs (actual - expected) <= 0.05
+
+        molecule.Charge = 0
+        && molecule.Multiplicity = 1
+        && (match name, atomsOf "H" with
+            | "H2", [ a; b ] -> near 0.741 (Molecule.calculateBondLength a b)
+            | "LiH", [ h ] -> near 1.595 (Molecule.calculateBondLength (atomsOf "LI").Head h)
+            | "H2O", [ h1; h2 ] ->
+                let o = (atomsOf "O").Head
+                let d1 = Molecule.calculateBondLength o h1
+                let d2 = Molecule.calculateBondLength o h2
+                let d12 = Molecule.calculateBondLength h1 h2
+
+                let angle =
+                    acos ((d1 * d1 + d2 * d2 - d12 * d12) / (2.0 * d1 * d2)) * 180.0 / Math.PI
+
+                near 0.958 d1 && near 0.958 d2 && abs (angle - 104.5) <= 5.0
+            | _ -> false)
+
+    /// The tabulated energy of a neutral singlet H2, H2O or LiH near its equilibrium
+    /// geometry (matched by composition and geometry, not by name). Other charges, spin
+    /// states and geometries are an Error: the table has no value for them.
     let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, QuantumError>> =
         async {
-            // First try by name, then by composition
-            let knownName =
-                match empiricalEnergies.TryFind molecule.Name with
-                | Some _ -> Some molecule.Name
-                | None -> MoleculeIdentification.identify molecule
-
-            match knownName |> Option.bind empiricalEnergies.TryFind with
-            | Some energy ->
-                let perturbation = 0.01 * (1.0 - 2.0 * Random().NextDouble())
-                return Ok(energy + perturbation)
-            | None -> return Error(QuantumError.ValidationError("Molecule", $"No empirical data for: {molecule.Name}"))
+            match MoleculeIdentification.identify molecule with
+            | Some name when not (isTabulatedState name molecule) ->
+                return
+                    Error(
+                        QuantumError.ValidationError(
+                            "Molecule",
+                            $"'{molecule.Name}' ({name}, charge {molecule.Charge}, multiplicity {molecule.Multiplicity}) is not the "
+                            + "state the table describes: a neutral singlet within 0.05 Å of the equilibrium bond lengths "
+                            + "(H-H 0.741, Li-H 1.595, O-H 0.958 Å; H-O-H 104.5° ± 5°). Use VQE with integrals for its geometry."
+                        )
+                    )
+            | Some name when empiricalEnergies.ContainsKey name -> return Ok empiricalEnergies.[name]
+            | _ ->
+                return
+                    Error(
+                        QuantumError.ValidationError(
+                            "Molecule",
+                            $"No tabulated reference for the composition of '{molecule.Name}' (tabulated: H2, H2O, LiH)"
+                        )
+                    )
         }
 
 /// VQE (Variational Quantum Eigensolver) implementation
@@ -3252,7 +4777,30 @@ module VQE =
             Converged: bool
             /// Energy history for convergence plotting (iteration -> energy)
             EnergyHistory: (int * float) list
+            /// What produced Energy
+            Source: EnergySource
+            /// True when SolverConfig.ErrorMitigation corrected sampled measurements. False when
+            /// no strategy was given, or when the backend's statevector gave exact expectation
+            /// values with no readout to correct.
+            ErrorMitigationApplied: bool
+            /// How Energy was estimated: exact expectation values, or samples (shots per
+            /// circuit, circuits executed); NotEstimated for tabulated and proxy values
+            Estimation: EnergyEstimation
+            /// Caveats on how Energy was obtained that the other fields do not show, e.g. that
+            /// no RHF solution converged and the VQE started from core-Hamiltonian orbitals.
+            /// Empty when there are none.
+            Notes: string list
         }
+
+    /// Gates of the hardware-efficient ansatz, in program order: per layer of numQubits
+    /// parameters, an RY on every qubit and a CNOT chain.
+    let private ansatzGates (numQubits: int) (parameters: float[]) : Gate list =
+        parameters
+        |> Array.chunkBySize numQubits
+        |> Array.toList
+        |> List.collect (fun layerParams ->
+            (layerParams |> Array.mapi (fun i theta -> RY(i, theta)) |> Array.toList)
+            @ [ for i in 0 .. numQubits - 2 -> CNOT(i, i + 1) ])
 
     /// Build and apply parameterized ansatz circuit through backend
     ///
@@ -3264,24 +4812,15 @@ module VQE =
         (initialState: QuantumState)
         : Result<QuantumState, QuantumError> =
 
-        // Build list of gate operations for the ansatz
-        let gateOperations =
-            parameters
-            |> Array.chunkBySize numQubits
-            |> Array.collect (fun layerParams ->
-                // RY rotation layer
-                let ryGates =
-                    layerParams |> Array.mapi (fun i theta -> QuantumOperation.Gate(RY(i, theta)))
-
-                // CNOT entangling layer
-                let cnotGates =
-                    [| for i in 0 .. numQubits - 2 -> QuantumOperation.Gate(CNOT(i, i + 1)) |]
-
-                Array.append ryGates cnotGates)
-            |> Array.toList
-
         // Apply all gates sequentially through the backend
-        UnifiedBackend.applySequence backend gateOperations initialState
+        UnifiedBackend.applySequence
+            backend
+            (ansatzGates numQubits parameters |> List.map QuantumOperation.Gate)
+            initialState
+
+    /// Samples per energy on the empirical-Hamiltonian path.
+    [<Literal>]
+    let private empiricalShots = 1000
 
     /// Measure energy expectation value through backend
     ///
@@ -3289,90 +4828,84 @@ module VQE =
     /// NOTE: Negates result because Hamiltonian coefficients are positive
     /// but we want to minimize energy (occupied orbitals lower energy)
     ///
-    /// When errorMitigation is provided, applies mitigation strategy to measurement counts
-    /// before computing expectation values. This reduces systematic errors from noisy backends.
+    /// When errorMitigation is provided, corrects the measured histogram (keys most
+    /// significant qubit first, the ReadoutErrorMitigation convention) before computing the
+    /// expectation value; a strategy that fails or corrects nothing is an Error.
     let private measureExpectation
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
         (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
         (state: QuantumState)
-        : float =
+        : Result<float, QuantumError> =
 
-        let shots = 1000
-        let measurements = QuantumState.measure state shots
+        let shots = empiricalShots
 
-        // Count occurrences of each bitstring
-        let rawCounts =
-            measurements
-            |> Array.groupBy id
-            |> Array.map (fun (bitstring, occurrences) ->
-                // Convert bitstring array to string key (e.g., "001", "110")
-                let key = bitstring |> Array.map string |> String.concat ""
-                // Also compute integer index for Hamiltonian term evaluation
-                let basisIndex =
-                    bitstring
-                    |> Array.rev
-                    |> Array.fold (fun (acc, power) bit -> (acc + bit * power, power * 2)) (0, 1)
-                    |> fst
+        // Measurement arrays are least significant qubit first: bits.[q] is qubit q.
+        let histogram =
+            QuantumState.measure state shots
+            |> Array.countBy (Array.rev >> Array.map string >> String.concat "")
+            |> Map.ofArray
 
-                (key, basisIndex, Array.length occurrences))
+        let basisIndexOf (key: string) = Convert.ToInt32(key, 2)
 
-        // Apply error mitigation if configured
-        let mitigatedCounts =
+        let weighted =
             match errorMitigation with
-            | None ->
-                // No mitigation - use raw counts directly
-                rawCounts
-                |> Array.map (fun (_, basisIndex, count) -> (basisIndex, float count))
-                |> Map.ofArray
+            | None -> Ok(histogram |> Map.map (fun _ count -> float count))
             | Some strategy ->
-                // Build histogram for mitigation (string key -> int count)
-                let histogram =
-                    rawCounts |> Array.map (fun (key, _, count) -> (key, count)) |> Map.ofArray
+                let unbiased =
+                    { ReadoutErrorMitigation.defaultConfig with
+                        ClipNegative = false
+                        MinProbability = 0.0
+                    }
 
-                // Apply error mitigation strategy
-                match ErrorMitigationStrategy.applyStrategy histogram strategy with
-                | Ok mitigated ->
-                    // Convert back to (basisIndex, float count) format
-                    rawCounts
-                    |> Array.choose (fun (key, basisIndex, _) ->
-                        mitigated.Histogram
-                        |> Map.tryFind key
-                        |> Option.map (fun correctedCount -> (basisIndex, correctedCount)))
-                    |> Map.ofArray
-                | Error _ ->
-                    // Fallback to raw counts if mitigation fails
-                    rawCounts
-                    |> Array.map (fun (_, basisIndex, count) -> (basisIndex, float count))
-                    |> Map.ofArray
+                match ErrorMitigationStrategy.applyStrategyWith unbiased histogram strategy with
+                | Ok mitigated when mitigated.CorrectionApplied -> Ok mitigated.Histogram
+                | Ok _ ->
+                    Error(
+                        QuantumError.ValidationError(
+                            "ErrorMitigation",
+                            "the strategy performed no correction (readout mitigation without a calibration matrix)"
+                        )
+                    )
+                | Error err -> Error err
 
-        // Compute total shots (may differ after mitigation due to negative quasi-probabilities)
-        let totalWeight = mitigatedCounts |> Map.toSeq |> Seq.sumBy snd |> max 1.0
+        weighted
+        |> Result.map (fun counts ->
+            // Total weight may differ from the shot count after mitigation (quasi-probabilities)
+            let totalWeight = counts |> Map.toSeq |> Seq.sumBy snd |> max 1e-12
 
-        let positiveExpectation =
-            hamiltonian.Terms
-            |> Array.sumBy (fun (term: QaoaCircuit.HamiltonianTerm) ->
-                let expectation =
-                    mitigatedCounts
-                    |> Map.toSeq
-                    |> Seq.sumBy (fun (basisIndex, count) ->
-                        let eigenvalue =
-                            term.QubitsIndices
-                            |> Array.map (fun qubitIdx ->
-                                let bitIsSet = (basisIndex &&& (1 <<< qubitIdx)) <> 0
-                                if bitIsSet then -1.0 else 1.0)
-                            |> Array.fold (*) 1.0
+            let positiveExpectation =
+                hamiltonian.Terms
+                |> Array.sumBy (fun (term: QaoaCircuit.HamiltonianTerm) ->
+                    let expectation =
+                        counts
+                        |> Map.toSeq
+                        |> Seq.sumBy (fun (key, count) ->
+                            let basisIndex = basisIndexOf key
 
-                        eigenvalue * (count / totalWeight))
+                            let eigenvalue =
+                                term.QubitsIndices
+                                |> Array.fold
+                                    (fun acc qubitIdx ->
+                                        if (basisIndex &&& (1 <<< qubitIdx)) <> 0 then -acc else acc)
+                                    1.0
 
-                term.Coefficient * expectation)
+                            eigenvalue * (count / totalWeight))
 
-        // Negate to make occupied orbitals (|1⟩) contribute negatively
-        -positiveExpectation
+                    term.Coefficient * expectation)
+
+            // Negate to make occupied orbitals (|1⟩) contribute negatively
+            -positiveExpectation)
 
     /// Optimize VQE parameters using gradient descent
     ///
     /// RULE1: Uses backend for all quantum operations
     /// Supports optional error mitigation for noisy backends
+    ///
+    /// Each energy runs the ansatz gate by gate and samples the state (SampledGateByGate). A
+    /// backend that refuses gate-by-gate application (cloud hardware) gets the ansatz as whole
+    /// circuits instead, one per qubit-wise commuting group of terms
+    /// (ChemistryVQE.sampledExpectation), and the energy comes from the job's outcome
+    /// frequencies (SampledCircuits).
     let private optimizeParameters
         (backend: IQuantumBackend)
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
@@ -3383,127 +4916,370 @@ module VQE =
         (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
         : Result<VQEResult, QuantumError> =
 
+        let numQubits = hamiltonian.NumQubits
+        let wholeCircuit = ref false
+        let circuitsExecuted = ref 0
+
+        let qubitHamiltonian = lazy (FermionMapping.fromQaoaHamiltonian hamiltonian)
+
+        /// Energy from whole circuits. measureExpectation negates Σ c·⟨Z…⟩, so this does too.
+        let wholeCircuitEnergy (parameters: float[]) =
+            let circuit: Circuit =
+                {
+                    QubitCount = numQubits
+                    Gates = List.rev (ansatzGates numQubits parameters)
+                }
+
+            FermionMapping.ChemistryVQE.sampledExpectation backend errorMitigation circuit qubitHamiltonian.Value
+            |> Result.map (fun sampled ->
+                circuitsExecuted.Value <- circuitsExecuted.Value + sampled.Circuits
+                -sampled.Energy)
+
+        let energyAt (parameters: float[]) : Result<float, QuantumError> =
+            if wholeCircuit.Value then
+                wholeCircuitEnergy parameters
+            else
+                match
+                    backend.InitializeState numQubits
+                    |> Result.bind (buildAndApplyAnsatz backend numQubits parameters)
+                with
+                | Error err when UnifiedBackend.isIncrementalUnsupported err ->
+                    wholeCircuit.Value <- true
+                    wholeCircuitEnergy parameters
+                | Error err -> Error err
+                | Ok state -> measureExpectation hamiltonian errorMitigation state
+
+        let estimation () =
+            if wholeCircuit.Value then
+                let shots =
+                    match backend with
+                    | :? IShotSamplingBackend as sampling when sampling.Shots > 0 -> Some sampling.Shots
+                    | _ -> None
+
+                SampledCircuits(
+                    FermionMapping.ChemistryVQE.measurementGroups qubitHamiltonian.Value
+                    |> List.length,
+                    shots,
+                    circuitsExecuted.Value
+                )
+            else
+                SampledGateByGate empiricalShots
+
         let rec loop iteration currentParameters prevEnergy energyHistory =
             if iteration > maxIterations then
-                // Initialize final state through backend
-                match backend.InitializeState hamiltonian.NumQubits with
+                energyAt currentParameters
+                |> Result.map (fun finalEnergy ->
+                    {
+                        Energy = finalEnergy
+                        OptimalParameters = currentParameters
+                        Iterations = iteration
+                        Converged = false // Hit max iterations without converging
+                        EnergyHistory = List.rev energyHistory
+                        Source = EmpiricalHamiltonian
+                        ErrorMitigationApplied = errorMitigation.IsSome
+                        Estimation = estimation ()
+                        Notes = []
+                    })
+            else
+                match energyAt currentParameters with
                 | Error err -> Error err
-                | Ok initState ->
-                    match buildAndApplyAnsatz backend hamiltonian.NumQubits currentParameters initState with
-                    | Error err -> Error err
-                    | Ok finalState ->
-                        let finalEnergy = measureExpectation hamiltonian errorMitigation finalState
+                | Ok energy ->
 
+                    // Record energy for convergence plotting
+                    let energyHistory' = (iteration, energy) :: energyHistory
+
+                    // Report progress
+                    progressReporter
+                    |> Option.iter (fun r -> r.Report(Progress.IterationUpdate(iteration, maxIterations, Some energy)))
+
+                    if abs (energy - prevEnergy) < tolerance then
                         Ok
                             {
-                                Energy = finalEnergy
+                                Energy = energy
                                 OptimalParameters = currentParameters
                                 Iterations = iteration
-                                Converged = false // Hit max iterations without converging
-                                EnergyHistory = List.rev energyHistory
+                                Converged = true // Converged within tolerance
+                                EnergyHistory = List.rev energyHistory'
+                                Source = EmpiricalHamiltonian
+                                ErrorMitigationApplied = errorMitigation.IsSome
+                                Estimation = estimation ()
+                                Notes = []
                             }
-            else
-                // Initialize state through backend
-                match backend.InitializeState hamiltonian.NumQubits with
-                | Error err -> Error err
-                | Ok initState ->
-                    match buildAndApplyAnsatz backend hamiltonian.NumQubits currentParameters initState with
-                    | Error err -> Error err
-                    | Ok state ->
-                        let energy = measureExpectation hamiltonian errorMitigation state
+                    else
+                        let learningRate = 0.1
+                        let epsilon = 0.01
 
-                        // Record energy for convergence plotting
-                        let energyHistory' = (iteration, energy) :: energyHistory
+                        // Compute gradients (with potential errors)
+                        let gradientsResult =
+                            currentParameters
+                            |> Array.mapi (fun i paramValue ->
+                                let perturbedParameters = Array.copy currentParameters
+                                perturbedParameters.[i] <- paramValue + epsilon
 
-                        // Report progress
-                        progressReporter
-                        |> Option.iter (fun r ->
-                            r.Report(Progress.IterationUpdate(iteration, maxIterations, Some energy)))
+                                energyAt perturbedParameters
+                                |> Result.map (fun energyForward ->
+                                    let gradient = (energyForward - energy) / epsilon
+                                    paramValue - learningRate * gradient))
+                            |> Array.fold
+                                (fun acc r ->
+                                    match acc, r with
+                                    | Error e, _ -> Error e
+                                    | _, Error e -> Error e
+                                    | Ok paramList, Ok newParam -> Ok(newParam :: paramList))
+                                (Ok [])
+                            |> Result.map (List.rev >> Array.ofList)
 
-                        if abs (energy - prevEnergy) < tolerance then
-                            Ok
-                                {
-                                    Energy = energy
-                                    OptimalParameters = currentParameters
-                                    Iterations = iteration
-                                    Converged = true // Converged within tolerance
-                                    EnergyHistory = List.rev energyHistory'
-                                }
-                        else
-                            let learningRate = 0.1
-                            let epsilon = 0.01
-
-                            // Compute gradients (with potential errors)
-                            let gradientsResult =
-                                currentParameters
-                                |> Array.mapi (fun i paramValue ->
-                                    let perturbedParameters = Array.copy currentParameters
-                                    perturbedParameters.[i] <- paramValue + epsilon
-
-                                    match backend.InitializeState hamiltonian.NumQubits with
-                                    | Error err -> Error err
-                                    | Ok initStateForward ->
-                                        match
-                                            buildAndApplyAnsatz
-                                                backend
-                                                hamiltonian.NumQubits
-                                                perturbedParameters
-                                                initStateForward
-                                        with
-                                        | Error err -> Error err
-                                        | Ok stateForward ->
-                                            let energyForward =
-                                                measureExpectation hamiltonian errorMitigation stateForward
-
-                                            let gradient = (energyForward - energy) / epsilon
-                                            Ok(paramValue - learningRate * gradient))
-                                |> Array.fold
-                                    (fun acc r ->
-                                        match acc, r with
-                                        | Error e, _ -> Error e
-                                        | _, Error e -> Error e
-                                        | Ok paramList, Ok newParam -> Ok(newParam :: paramList))
-                                    (Ok [])
-                                |> Result.map (List.rev >> Array.ofList)
-
-                            gradientsResult
-                            |> Result.bind (fun updatedParameters ->
-                                loop (iteration + 1) updatedParameters energy energyHistory')
+                        gradientsResult
+                        |> Result.bind (fun updatedParameters ->
+                            loop (iteration + 1) updatedParameters energy energyHistory')
 
         loop 1 initialParameters Double.MaxValue []
+
+    /// True when every atom is H or He, the elements Sto3gIntegrals computes integrals for.
+    let private isHydrogenHelium (molecule: Molecule) =
+        molecule.Atoms
+        |> List.forall (fun a ->
+            let e = a.Element.ToUpperInvariant()
+            e = "H" || e = "HE")
+
+    /// Records the energies UCCSD-VQE reports per iteration and forwards every event.
+    type private EnergyHistoryReporter(inner: Progress.IProgressReporter option) =
+        let history = ResizeArray<int * float>()
+
+        member _.History = List.ofSeq history
+
+        interface Progress.IProgressReporter with
+            member _.Report event =
+                match event with
+                | Progress.IterationUpdate(iteration, _, Some energy) -> history.Add((iteration, energy))
+                | _ -> ()
+
+                inner |> Option.iter (fun r -> r.Report event)
+
+            member _.IsCancellationRequested =
+                inner |> Option.exists (fun r -> r.IsCancellationRequested)
+
+    /// Largest UCCSD parameter count VQE.run admits, checked before the qubit Hamiltonian is
+    /// built. Each optimisation iteration evaluates the energy twice per parameter; 52
+    /// parameters (a (4e,4o) active space, 8 qubits) took 3 to 4 minutes on the local
+    /// simulator, and the count grows as the fourth power of the active-space size.
+    [<Literal>]
+    let MaxUccsdParameters = 64
+
+    /// UCCSD parameter count for `electrons` in `spinOrbitals`: singles + doubles.
+    let uccsdParameterCount (electrons: int) (spinOrbitals: int) =
+        let virtuals = spinOrbitals - electrons
+
+        electrons * virtuals
+        + (electrons * (electrons - 1) / 2) * (virtuals * (virtuals - 1) / 2)
+
+    /// Molecular integrals for VQE: the IntegralProvider's when one is configured, else the
+    /// library's integrals in `basis` for molecules of H and He atoms, else None. Provider
+    /// integrals must describe a closed shell (even electron count, molecule multiplicity 1)
+    /// or a single electron (multiplicity 2), the states UCCSD-VQE from a Hartree-Fock
+    /// reference can honour.
+    let internal resolveIntegrals
+        (basis: string)
+        (molecule: Molecule)
+        (config: SolverConfig)
+        : Result<(MolecularIntegrals * EnergySource) option, QuantumError> =
+        result {
+            do! Molecule.validate molecule
+
+            // The electron count comes from the integrals when a provider supplies them
+            // (an FCIDUMP-loaded molecule has placeholder atoms).
+            do!
+                if molecule.Atoms.IsEmpty then
+                    Error(QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
+                elif config.IntegralProvider.IsNone && Molecule.countElectrons molecule <= 0 then
+                    Error(QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
+                else
+                    Ok()
+
+            match config.IntegralProvider with
+            | Some provider ->
+                let provided =
+                    try
+                        provider molecule
+                    with ex ->
+                        Error ex.Message
+
+                match provided with
+                | Ok integrals when
+                    (integrals.NumElectrons % 2 = 0 && molecule.Multiplicity <> 1)
+                    || (integrals.NumElectrons % 2 = 1
+                        && (integrals.NumElectrons <> 1 || molecule.Multiplicity <> 2))
+                    ->
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "Multiplicity",
+                                $"'{molecule.Name}': {integrals.NumElectrons} active electrons with multiplicity {molecule.Multiplicity}; "
+                                + "UCCSD-VQE supports closed shells (even electron count, multiplicity 1) and one-electron "
+                                + "doublets, since its ansatz does not conserve spin"
+                            )
+                        )
+                | Ok integrals -> return Some(integrals, ProviderIntegrals)
+                | Error msg ->
+                    return!
+                        Error(
+                            QuantumError.ValidationError(
+                                "IntegralProvider",
+                                $"Integral provider failed for molecule '{molecule.Name}': {msg}"
+                            )
+                        )
+            | None when isHydrogenHelium molecule ->
+                let! integrals = Sto3gIntegrals.computeInBasis basis molecule
+
+                let source =
+                    if String.Equals(basis.Trim(), "6-31G", StringComparison.OrdinalIgnoreCase) then
+                        Computed631gIntegrals
+                    else
+                        ComputedSto3gIntegrals
+
+                return Some(integrals, source)
+            | None -> return None
+        }
+
+    /// UCCSD-VQE on the Jordan-Wigner Hamiltonian of the given integrals. Energy includes the
+    /// integrals' nuclear repulsion. A Hamiltonian wider than the backend can run, or an ansatz
+    /// with more than MaxUccsdParameters parameters, is an Error, found before the
+    /// Hamiltonian is built. `notes` become VQEResult.Notes.
+    let private runOnIntegrals
+        (backend: IQuantumBackend)
+        (integrals: MolecularIntegrals)
+        (source: EnergySource)
+        (notes: string list)
+        (config: SolverConfig)
+        : Async<Result<VQEResult, QuantumError>> =
+        async {
+            // Jordan-Wigner: one qubit per spin orbital.
+            let numQubits = 2 * integrals.NumOrbitals
+            let parameters = uccsdParameterCount integrals.NumElectrons numQubits
+
+            match UnifiedBackend.getRunnableQubits backend with
+            | Some limit when numQubits > limit ->
+                return
+                    Error(
+                        QuantumError.ValidationError(
+                            "MoleculeSize",
+                            $"UCCSD-VQE needs {numQubits} qubits ({integrals.NumOrbitals} spatial orbitals); "
+                            + $"backend '{backend.Name}' runs at most {limit}"
+                        )
+                    )
+            // Wider than the NISQ budget: buildFromIntegrals refuses it before building anything.
+            | _ when parameters > MaxUccsdParameters && numQubits <= Types.NisqPracticalQubits ->
+                return
+                    Error(
+                        QuantumError.ValidationError(
+                            "MoleculeSize",
+                            $"UCCSD for {integrals.NumElectrons} electrons in {integrals.NumOrbitals} spatial orbitals has "
+                            + $"{parameters} parameters (VQE.MaxUccsdParameters = {MaxUccsdParameters}). Choose a smaller "
+                            + "active space in a chemistry package and pass it as an IntegralProvider or FCIDUMP file "
+                            + "(FciDumpIntegrals.fromFile)"
+                        )
+                    )
+            | _ ->
+                match MolecularHamiltonian.buildFromIntegrals integrals MolecularHamiltonian.JordanWigner with
+                | Error err -> return Error err
+                | Ok(hamiltonian, nuclearRepulsion) ->
+                    config.ProgressReporter
+                    |> Option.iter (fun r ->
+                        r.Report(
+                            Progress.PhaseChanged(
+                                "VQE Optimization",
+                                Some $"UCCSD on a {numQubits}-qubit Hamiltonian..."
+                            )
+                        ))
+
+                    let historyReporter = EnergyHistoryReporter(config.ProgressReporter)
+
+                    let vqeConfig: FermionMapping.ChemistryVQE.ChemistryVQEConfig =
+                        {
+                            Hamiltonian = FermionMapping.fromQaoaHamiltonian hamiltonian
+                            Ansatz = FermionMapping.ChemistryVQE.UCCSD(integrals.NumElectrons, numQubits)
+                            MaxIterations = config.MaxIterations
+                            Tolerance = config.Tolerance
+                            UseHFInitialState = true
+                            Backend = backend
+                            ProgressReporter = Some(historyReporter :> Progress.IProgressReporter)
+                        }
+
+                    let! vqeResult =
+                        FermionMapping.ChemistryVQE.runWith config.InitialParameters config.ErrorMitigation vqeConfig
+
+                    return
+                        vqeResult
+                        |> Result.map (fun r ->
+                            {
+                                Energy = r.Energy + nuclearRepulsion
+                                OptimalParameters = r.OptimalParameters
+                                Iterations = r.Iterations
+                                Converged = r.Converged
+                                EnergyHistory =
+                                    historyReporter.History
+                                    |> List.map (fun (iteration, energy) -> (iteration, energy + nuclearRepulsion))
+                                Source = source
+                                // Exact expectations have no readout to correct.
+                                ErrorMitigationApplied =
+                                    config.ErrorMitigation.IsSome && r.Estimation <> ExactExpectation
+                                Estimation = r.Estimation
+                                Notes = notes @ r.Notes
+                            })
+        }
 
     /// Run VQE to estimate ground state energy
     ///
     /// RULE1 COMPLIANT: Requires IQuantumBackend parameter
     /// All quantum operations go through the backend abstraction.
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, QuantumError>> =
+    ///
+    /// Hamiltonian, in order of precedence:
+    /// - SolverConfig.IntegralProvider's integrals → UCCSD-VQE (Source = ProviderIntegrals);
+    /// - molecules of H and He atoms → integrals in `basis` ("STO-3G" or "6-31G") from
+    ///   Sto3gIntegrals.computeInBasis, UCCSD-VQE (Source = ComputedSto3gIntegrals or
+    ///   Computed631gIntegrals); closed shells and one-electron doublets only;
+    /// - H2O or LiH → Error: they need an IntegralProvider;
+    /// - any other molecule → hardware-efficient VQE on the empirical prototype Hamiltonian
+    ///   (Source = EmpiricalHamiltonian).
+    /// UCCSD with more than MaxUccsdParameters parameters is an Error. Never substitutes a
+    /// tabulated energy; ClassicalDFT.run returns those on request. `basis` applies only to
+    /// the library's own H/He integrals: provider integrals carry their own basis.
+    let runInBasis
+        (basis: string)
+        (molecule: Molecule)
+        (config: SolverConfig)
+        : Async<Result<VQEResult, QuantumError>> =
         async {
             // Get backend (RULE1: backend is required)
             let backend =
                 config.Backend
                 |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
 
-            // For known molecules, use empirical values for accuracy
-            // Full VQE requires Jordan-Wigner transformation and proper ansatz
-            // Use composition-based identification to handle molecules loaded from files
-            let knownMolecule = MoleculeIdentification.identify molecule
+            match resolveIntegrals basis molecule config, MoleculeIdentification.identify molecule with
+            | Error err, _ -> return Error err
+            | Ok(Some(integrals, source)), _ ->
+                let notes =
+                    match source with
+                    | ComputedSto3gIntegrals
+                    | Computed631gIntegrals when integrals.NumElectrons % 2 = 0 && integrals.ReferenceEnergy.IsNone ->
+                        [
+                            "No RHF solution converged; the integrals use core-Hamiltonian orbitals and UCCSD-VQE starts from their determinant. The Hamiltonian's spectrum does not depend on the orbitals."
+                        ]
+                    | _ -> []
 
-            match knownMolecule with
-            | Some _ ->
-                // Delegate to ClassicalDFT for known molecules (by composition)
-                let! energyResult = ClassicalDFT.run molecule config
-
+                return! runOnIntegrals backend integrals source notes config
+            | Ok None, Some knownName ->
                 return
-                    energyResult
-                    |> Result.map (fun energy ->
-                        {
-                            Energy = energy
-                            OptimalParameters = [||] // ClassicalDFT doesn't use parameters
-                            Iterations = 0 // ClassicalDFT is direct calculation
-                            Converged = true // Always "converged" for empirical data
-                            EnergyHistory = [ (0, energy) ] // Single point for empirical
-                        })
-            | None ->
+                    Error(
+                        QuantumError.ValidationError(
+                            "IntegralProvider",
+                            $"VQE for '{molecule.Name}' ({knownName}) needs molecular integrals for its geometry. "
+                            + "Supply SolverConfig.IntegralProvider (a PySCF/Psi4 wrapper, or FciDumpIntegrals.fromFile "
+                            + "for an FCIDUMP file); the library computes integrals itself only for H and He atoms. "
+                            + "ClassicalDFT.run returns a tabulated reference energy without running a circuit."
+                        )
+                    )
+            | Ok None, None ->
                 // Generic VQE for unknown molecules (may be less accurate)
                 match MolecularHamiltonian.build molecule with
                 | Error err -> return Error err
@@ -3542,21 +5318,21 @@ module VQE =
                     with
                     | Error err -> return Error err
                     | Ok vqeResult ->
-                        // Add nuclear repulsion
-                        let nuclearRepulsion =
-                            if molecule.Atoms.Length = 2 then
-                                let atom1 = molecule.Atoms[0]
-                                let atom2 = molecule.Atoms[1]
-                                let z1 = AtomicNumbers.fromSymbol atom1.Element |> Option.defaultValue 1 |> float
-                                let z2 = AtomicNumbers.fromSymbol atom2.Element |> Option.defaultValue 1 |> float
-                                let r = Molecule.calculateBondLength atom1 atom2
-                                z1 * z2 / r
-                            else
-                                0.0
-
-                        let totalEnergy = vqeResult.Energy + nuclearRepulsion
-                        return Ok { vqeResult with Energy = totalEnergy }
+                        return
+                            Molecule.nuclearRepulsion molecule
+                            |> Result.map (fun nuclearRepulsion ->
+                                { vqeResult with
+                                    Energy = vqeResult.Energy + nuclearRepulsion
+                                    EnergyHistory =
+                                        vqeResult.EnergyHistory
+                                        |> List.map (fun (iteration, energy) -> (iteration, energy + nuclearRepulsion))
+                                })
         }
+
+    /// Run VQE to estimate ground state energy; H/He molecules without a provider use
+    /// STO-3G integrals (see runInBasis).
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, QuantumError>> =
+        runInBasis "STO-3G" molecule config
 
 /// Hamiltonian Simulation using Trotter-Suzuki decomposition
 ///
@@ -3582,6 +5358,168 @@ module HamiltonianSimulation =
             Backend: IQuantumBackend option
         }
 
+    /// How simulateFromPreparation ran its circuit.
+    type SimulationRoute =
+        /// Gate by gate on a backend that applies gates one at a time: FinalState is the
+        /// evolved state with its phases and Probabilities are exact.
+        | GateByGate
+        /// As one whole circuit (preparation + Trotter gates) on a backend that refuses
+        /// gate-by-gate application, as cloud hardware does: only the measured outcome
+        /// probabilities come back. `shots` is the backend's shot count when it samples
+        /// (IShotSamplingBackend); None when it does not report one and its returned
+        /// probabilities are used as they are.
+        | WholeCircuit of shots: int option
+
+    /// Result of simulateFromPreparation.
+    type SimulationResult =
+        {
+            /// Probability of every computational basis state after the evolution (index i:
+            /// qubit q = bit q of i); sampled frequencies on the WholeCircuit route
+            Probabilities: float[]
+
+            /// The evolved state with phases; None on the WholeCircuit route, where the backend
+            /// returns measurement outcomes only
+            FinalState: QuantumState option
+
+            /// How the circuit ran
+            Route: SimulationRoute
+        }
+
+    let private validate (config: SimulationConfig) : Result<unit, QuantumError> =
+        if config.TrotterSteps <= 0 then
+            Error(QuantumError.ValidationError("TrotterSteps", "must be positive"))
+        elif config.TrotterOrder <> 1 && config.TrotterOrder <> 2 then
+            Error(QuantumError.ValidationError("TrotterOrder", "Only Trotter order 1 and 2 are supported"))
+        else
+            Ok()
+
+    let private backendOf (config: SimulationConfig) : IQuantumBackend =
+        config.Backend
+        |> Option.defaultValue (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+
+    /// Gate operations of exp(-iHt) by Trotter-Suzuki decomposition, in program order.
+    let private trotterOperations
+        (hamiltonian: QaoaCircuit.ProblemHamiltonian)
+        (config: SimulationConfig)
+        : QuantumOperation list =
+
+        let deltaT = config.Time / float config.TrotterSteps
+
+        /// Build gate operations for a single Hamiltonian term evolution exp(-iH_k * dt)
+        ///
+        /// Supports arbitrary Pauli strings (1, 2, 3+ qubits) using CNOT ladder decomposition:
+        /// 1. Change of basis: X → H, Y → S†H, Z → I (no change)
+        /// 2. CNOT ladder to concentrate parity on target qubit
+        /// 3. RZ rotation by 2*coefficient*dt
+        /// 4. Inverse CNOT ladder
+        /// 5. Inverse change of basis
+        let buildTermEvolutionGates (term: QaoaCircuit.HamiltonianTerm) (dt: float) : QuantumOperation list =
+            let angle = term.Coefficient * dt
+
+            // Find qubits with non-identity Pauli operators
+            let nonIdentityQubits =
+                Array.zip term.QubitsIndices term.PauliOperators
+                |> Array.filter (fun (_, op) -> op <> QaoaCircuit.PauliI)
+
+            match nonIdentityQubits.Length with
+            | 0 ->
+                // All identity - global phase, skip
+                []
+
+            | 1 ->
+                // Single-qubit term: apply rotation gates directly
+                let (qubit, pauli) = nonIdentityQubits[0]
+
+                match pauli with
+                | QaoaCircuit.PauliZ -> [ QuantumOperation.Gate(RZ(qubit, 2.0 * angle)) ]
+                | QaoaCircuit.PauliX -> [ QuantumOperation.Gate(RX(qubit, 2.0 * angle)) ]
+                | QaoaCircuit.PauliY -> [ QuantumOperation.Gate(RY(qubit, 2.0 * angle)) ]
+                | QaoaCircuit.PauliI -> []
+
+            | _ ->
+                // Multi-qubit term (2, 3, or more qubits): use CNOT ladder decomposition
+                // Algorithm: Change basis → CNOT ladder → RZ → inverse CNOT → inverse basis
+
+                // Step 1: Change of basis gates (X→H, Y→S†H to convert to Z basis)
+                let basisChangeGates =
+                    nonIdentityQubits
+                    |> Array.collect (fun (qubit, pauli) ->
+                        match pauli with
+                        | QaoaCircuit.PauliX -> [| QuantumOperation.Gate(H qubit) |]
+                        | QaoaCircuit.PauliY -> [| QuantumOperation.Gate(SDG qubit); QuantumOperation.Gate(H qubit) |]
+                        | QaoaCircuit.PauliI
+                        | QaoaCircuit.PauliZ -> [||] // Z and I need no change
+                    )
+                    |> Array.toList
+
+                // Step 2: CNOT ladder to concentrate parity on last qubit
+                let targetQubit = fst nonIdentityQubits[nonIdentityQubits.Length - 1]
+
+                let cnotLadderGates =
+                    Array.init (max 0 ((nonIdentityQubits.Length - 2) + 1)) (fun i ->
+                        let controlQubit = fst nonIdentityQubits[i]
+                        QuantumOperation.Gate(CNOT(controlQubit, targetQubit)))
+                    |> Array.toList
+
+                // Step 3: RZ rotation on target qubit
+                let rotationGate = [ QuantumOperation.Gate(RZ(targetQubit, 2.0 * angle)) ]
+
+                // Step 4: Inverse CNOT ladder (same gates, reverse order)
+                let inverseCnotLadderGates = List.rev cnotLadderGates
+
+                // Step 5: Inverse basis change (reverse order, conjugate gates)
+                let inverseBasisChangeGates =
+                    nonIdentityQubits
+                    |> Array.rev
+                    |> Array.collect (fun (qubit, pauli) ->
+                        match pauli with
+                        | QaoaCircuit.PauliX -> [| QuantumOperation.Gate(H qubit) |] // H† = H
+                        | QaoaCircuit.PauliY ->
+                            [|
+                                QuantumOperation.Gate(H qubit) // H† = H
+                                QuantumOperation.Gate(S qubit)
+                            |] // (S†)† = S
+                        | QaoaCircuit.PauliI
+                        | QaoaCircuit.PauliZ -> [||])
+                    |> Array.toList
+
+                // Combine all gates in order
+                basisChangeGates
+                @ cnotLadderGates
+                @ rotationGate
+                @ inverseCnotLadderGates
+                @ inverseBasisChangeGates
+
+        /// Build gates for one Trotter step (forward evolution through all terms)
+        let buildForwardStepGates (dt: float) : QuantumOperation list =
+            hamiltonian.Terms
+            |> Array.toList
+            |> List.collect (fun term -> buildTermEvolutionGates term dt)
+
+        /// Build gates for one Trotter step (backward evolution through all terms - for 2nd order)
+        let buildBackwardStepGates (dt: float) : QuantumOperation list =
+            hamiltonian.Terms
+            |> Array.rev
+            |> Array.toList
+            |> List.collect (fun term -> buildTermEvolutionGates term dt)
+
+        /// Build all gates for a complete Trotter step based on order
+        let buildTrotterStepGates () : QuantumOperation list =
+            match config.TrotterOrder with
+            | 1 ->
+                // 1st order: forward evolution with full time step
+                buildForwardStepGates deltaT
+
+            | 2 ->
+                // 2nd order: symmetric splitting (forward half + backward half)
+                let halfDt = deltaT / 2.0
+                buildForwardStepGates halfDt @ buildBackwardStepGates halfDt
+
+            | _ -> []
+
+        // Build all gates for all Trotter steps
+        [ 1 .. config.TrotterSteps ] |> List.collect (fun _ -> buildTrotterStepGates ())
+
     /// Apply time evolution exp(-iHt) to a quantum state using Trotter decomposition
     ///
     /// Trotter-Suzuki formula (1st order):
@@ -3591,6 +5529,11 @@ module HamiltonianSimulation =
     /// For 2nd order Trotter (symmetric):
     /// exp(-iHt) ≈ [exp(-iH₁Δt/2) ... exp(-iHₙΔt/2) exp(-iHₙΔt/2) ... exp(-iH₁Δt/2)]^r
     ///
+    /// Runs gate by gate and returns the evolved state with its phases. A backend that refuses
+    /// gate-by-gate application (cloud hardware) cannot take an arbitrary input state nor return
+    /// one: that is an Error naming simulateFromPreparation, which starts from a gate
+    /// preparation and returns the measured outcome probabilities.
+    ///
     /// RULE1: All quantum operations go through IQuantumBackend
     let simulate
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
@@ -3598,156 +5541,191 @@ module HamiltonianSimulation =
         (config: SimulationConfig)
         : Result<QuantumState, QuantumError> =
 
-        if config.TrotterSteps <= 0 then
-            Error(QuantumError.ValidationError("TrotterSteps", "must be positive"))
-        elif config.TrotterOrder <> 1 && config.TrotterOrder <> 2 then
-            Error(QuantumError.ValidationError("TrotterOrder", "Only Trotter order 1 and 2 are supported"))
-        else
-            let backend =
-                config.Backend
-                |> Option.defaultValue (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+        validate config
+        |> Result.bind (fun () ->
+            let backend = backendOf config
 
-            let deltaT = config.Time / float config.TrotterSteps
+            match UnifiedBackend.applySequence backend (trotterOperations hamiltonian config) initialState with
+            | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                Error(
+                    QuantumError.OperationError(
+                        "HamiltonianSimulation",
+                        $"Backend '{backend.Name}' runs whole circuits only, so it can neither start from an arbitrary state nor return the evolved state. Use HamiltonianSimulation.simulateFromPreparation with a gate preparation of the initial state; it returns the measured outcome probabilities."
+                    )
+                )
+            | result -> result)
 
-            /// Build gate operations for a single Hamiltonian term evolution exp(-iH_k * dt)
-            ///
-            /// Supports arbitrary Pauli strings (1, 2, 3+ qubits) using CNOT ladder decomposition:
-            /// 1. Change of basis: X → H, Y → S†H, Z → I (no change)
-            /// 2. CNOT ladder to concentrate parity on target qubit
-            /// 3. RZ rotation by 2*coefficient*dt
-            /// 4. Inverse CNOT ladder
-            /// 5. Inverse change of basis
-            let buildTermEvolutionGates (term: QaoaCircuit.HamiltonianTerm) (dt: float) : QuantumOperation list =
-                let angle = term.Coefficient * dt
+    /// Time evolution exp(-iHt) of the state `preparation` prepares from |0…0⟩, by the Trotter
+    /// decomposition of `simulate`, returning the outcome probabilities.
+    ///
+    /// Gate by gate where the backend applies gates one at a time (Route = GateByGate, exact
+    /// probabilities and the final state). A backend that refuses that (cloud hardware) gets the
+    /// preparation and the Trotter gates as one whole circuit (UnifiedBackend.submitAsCircuit),
+    /// and the result holds its measured outcome probabilities only (Route = WholeCircuit).
+    let simulateFromPreparation
+        (hamiltonian: QaoaCircuit.ProblemHamiltonian)
+        (preparation: Circuit)
+        (config: SimulationConfig)
+        : Result<SimulationResult, QuantumError> =
 
-                // Find qubits with non-identity Pauli operators
-                let nonIdentityQubits =
-                    Array.zip term.QubitsIndices term.PauliOperators
-                    |> Array.filter (fun (_, op) -> op <> QaoaCircuit.PauliI)
+        let probabilitiesOf (state: QuantumState) : Result<float[], QuantumError> =
+            match state with
+            | QuantumState.StateVector sv ->
+                Ok(
+                    Array.init (1 <<< LocalSimulator.StateVector.numQubits sv) (fun i ->
+                        let a = LocalSimulator.StateVector.getAmplitude i sv
+                        a.Real * a.Real + a.Imaginary * a.Imaginary)
+                )
+            | QuantumState.SparseState(amplitudes, n) ->
+                let probabilities = Array.zeroCreate (1 <<< n)
 
-                match nonIdentityQubits.Length with
-                | 0 ->
-                    // All identity - global phase, skip
-                    []
+                for KeyValue(i, a) in amplitudes do
+                    probabilities.[i] <- a.Real * a.Real + a.Imaginary * a.Imaginary
 
-                | 1 ->
-                    // Single-qubit term: apply rotation gates directly
-                    let (qubit, pauli) = nonIdentityQubits[0]
+                Ok probabilities
+            | QuantumState.DensityMatrix(rho, n) -> Ok(Array.init (1 <<< n) (fun i -> rho.[i, i].Real))
+            | _ ->
+                Error(
+                    QuantumError.OperationError(
+                        "HamiltonianSimulation",
+                        "the backend returned a state without basis-state probabilities"
+                    )
+                )
 
-                    match pauli with
-                    | QaoaCircuit.PauliZ -> [ QuantumOperation.Gate(RZ(qubit, 2.0 * angle)) ]
-                    | QaoaCircuit.PauliX -> [ QuantumOperation.Gate(RX(qubit, 2.0 * angle)) ]
-                    | QaoaCircuit.PauliY -> [ QuantumOperation.Gate(RY(qubit, 2.0 * angle)) ]
-                    | QaoaCircuit.PauliI -> []
+        validate config
+        |> Result.bind (fun () ->
+            if preparation.QubitCount <> hamiltonian.NumQubits then
+                Error(
+                    QuantumError.ValidationError(
+                        "preparation",
+                        $"acts on {preparation.QubitCount} qubits, the Hamiltonian on {hamiltonian.NumQubits}"
+                    )
+                )
+            else
+                let backend = backendOf config
+                let numQubits = hamiltonian.NumQubits
 
-                | _ ->
-                    // Multi-qubit term (2, 3, or more qubits): use CNOT ladder decomposition
-                    // Algorithm: Change basis → CNOT ladder → RZ → inverse CNOT → inverse basis
+                let operations =
+                    (getGates preparation |> List.map QuantumOperation.Gate)
+                    @ trotterOperations hamiltonian config
 
-                    // Step 1: Change of basis gates (X→H, Y→S†H to convert to Z basis)
-                    let basisChangeGates =
-                        nonIdentityQubits
-                        |> Array.collect (fun (qubit, pauli) ->
-                            match pauli with
-                            | QaoaCircuit.PauliX -> [| QuantumOperation.Gate(H qubit) |]
-                            | QaoaCircuit.PauliY ->
-                                [| QuantumOperation.Gate(SDG qubit); QuantumOperation.Gate(H qubit) |]
-                            | QaoaCircuit.PauliI
-                            | QaoaCircuit.PauliZ -> [||] // Z and I need no change
-                        )
-                        |> Array.toList
+                match
+                    backend.InitializeState numQubits
+                    |> Result.bind (UnifiedBackend.applySequence backend operations)
+                with
+                | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                    let shots =
+                        match backend with
+                        | :? IShotSamplingBackend as sampling when sampling.Shots > 0 -> Some sampling.Shots
+                        | _ -> None
 
-                    // Step 2: CNOT ladder to concentrate parity on last qubit
-                    let targetQubit = fst nonIdentityQubits[nonIdentityQubits.Length - 1]
+                    UnifiedBackend.submitAsCircuit backend numQubits operations
+                    |> Result.bind probabilitiesOf
+                    |> Result.map (fun probabilities ->
+                        {
+                            Probabilities = probabilities
+                            FinalState = None
+                            Route = WholeCircuit shots
+                        })
+                | Error e -> Error e
+                | Ok state ->
+                    probabilitiesOf state
+                    |> Result.map (fun probabilities ->
+                        {
+                            Probabilities = probabilities
+                            FinalState = Some state
+                            Route = GateByGate
+                        }))
 
-                    let cnotLadderGates =
-                        Array.init (max 0 ((nonIdentityQubits.Length - 2) + 1)) (fun i ->
-                            let controlQubit = fst nonIdentityQubits[i]
-                            QuantumOperation.Gate(CNOT(controlQubit, targetQubit)))
-                        |> Array.toList
-
-                    // Step 3: RZ rotation on target qubit
-                    let rotationGate = [ QuantumOperation.Gate(RZ(targetQubit, 2.0 * angle)) ]
-
-                    // Step 4: Inverse CNOT ladder (same gates, reverse order)
-                    let inverseCnotLadderGates = List.rev cnotLadderGates
-
-                    // Step 5: Inverse basis change (reverse order, conjugate gates)
-                    let inverseBasisChangeGates =
-                        nonIdentityQubits
-                        |> Array.rev
-                        |> Array.collect (fun (qubit, pauli) ->
-                            match pauli with
-                            | QaoaCircuit.PauliX -> [| QuantumOperation.Gate(H qubit) |] // H† = H
-                            | QaoaCircuit.PauliY ->
-                                [|
-                                    QuantumOperation.Gate(H qubit) // H† = H
-                                    QuantumOperation.Gate(S qubit)
-                                |] // (S†)† = S
-                            | QaoaCircuit.PauliI
-                            | QaoaCircuit.PauliZ -> [||])
-                        |> Array.toList
-
-                    // Combine all gates in order
-                    basisChangeGates
-                    @ cnotLadderGates
-                    @ rotationGate
-                    @ inverseCnotLadderGates
-                    @ inverseBasisChangeGates
-
-            /// Build gates for one Trotter step (forward evolution through all terms)
-            let buildForwardStepGates (dt: float) : QuantumOperation list =
-                hamiltonian.Terms
-                |> Array.toList
-                |> List.collect (fun term -> buildTermEvolutionGates term dt)
-
-            /// Build gates for one Trotter step (backward evolution through all terms - for 2nd order)
-            let buildBackwardStepGates (dt: float) : QuantumOperation list =
-                hamiltonian.Terms
-                |> Array.rev
-                |> Array.toList
-                |> List.collect (fun term -> buildTermEvolutionGates term dt)
-
-            /// Build all gates for a complete Trotter step based on order
-            let buildTrotterStepGates () : QuantumOperation list =
-                match config.TrotterOrder with
-                | 1 ->
-                    // 1st order: forward evolution with full time step
-                    buildForwardStepGates deltaT
-
-                | 2 ->
-                    // 2nd order: symmetric splitting (forward half + backward half)
-                    let halfDt = deltaT / 2.0
-                    buildForwardStepGates halfDt @ buildBackwardStepGates halfDt
-
-                | _ -> []
-
-            // Build all gates for all Trotter steps
-            let allGates =
-                [ 1 .. config.TrotterSteps ] |> List.collect (fun _ -> buildTrotterStepGates ())
-
-            // Apply all gates through the backend
-            UnifiedBackend.applySequence backend allGates initialState
-
-/// QPE (Quantum Phase Estimation) for ground state energy
+/// Quantum phase estimation of molecular energies.
 ///
-/// Uses quantum phase estimation with Hamiltonian time evolution to estimate
-/// the ground state energy of molecular systems.
+/// The Jordan-Wigner Hamiltonian H = Σ c_k P_k of the molecule's integrals (the sources
+/// VQE uses: SolverConfig.IntegralProvider or an FCIDUMP, else the library's STO-3G or
+/// 6-31G integrals for H and He) is shifted by an upper bound on its spectrum, so that
+/// U = e^(-i(H - shift)t) has eigenphases φ = -(E - shift)t/2π in [0, 1) without aliasing:
 ///
-/// Algorithm:
-/// 1. Convert molecular Hamiltonian to Pauli decomposition
-/// 2. Use Trotter-Suzuki to create circuit for exp(-iHt)
-/// 3. Apply QPE to estimate phase φ (related to energy eigenvalue)
-/// 4. Extract ground state energy E from phase
+///   shift = c_I + λ,  λ = Σ_{non-identity} |c_k|,  every eigenvalue lies in [c_I - λ, c_I + λ]
+///   t = 2π(1 - 2/2^m) / 2λ    (two empty bins below φ = 1)
+///   E = -2πφ/t + shift        (+ nuclear repulsion for the total energy)
+///
+/// Controlled-U^(2^j) repeats the same Trotter-Suzuki circuit for U 2^j times
+/// (TrotterSuzuki.synthesizeControlledHamiltonianEvolution), so QPE measures the
+/// eigenvalues of the Trotterised U: the Trotter error does not grow with 2^j. The
+/// counting register is read with the inverse QFT of Algorithms.QPE, and the whole circuit
+/// is submitted at once (UnifiedBackend.submitAsCircuit), so simulators and cloud backends
+/// run the same circuit.
+///
+/// QPE returns eigenvalue E_k with probability |⟨ψ|E_k⟩|² for the prepared state ψ (the
+/// Hartree-Fock determinant, or a UCCSD state): the result reports every peak of the
+/// outcome distribution, and its Energy is the most probable one, which is the ground
+/// state only when ψ overlaps the ground state most.
 module QPE =
 
     open System.Numerics
+    open FSharp.Azure.Quantum.Algorithms
     open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
-    open FSharp.Azure.Quantum.Algorithms.QPE
-    open FSharp.Azure.Quantum
+    open FSharp.Azure.Quantum.CircuitBuilder
 
-    /// Convert ProblemHamiltonian to TrotterSuzuki.PauliHamiltonian
-    let private toPauliHamiltonian (hamiltonian: Core.QaoaCircuit.ProblemHamiltonian) : PauliHamiltonian =
+    /// Largest circuit (system + counting qubits) QPE.run builds.
+    [<Literal>]
+    let MaxTotalQubits = 16
+
+    /// State the system register is prepared in before phase estimation.
+    type InitialState =
+        /// The Hartree-Fock determinant: the lowest spin orbitals occupied
+        | HartreeFockState
+        /// The UCCSD state at these amplitudes (singles first, then doubles), e.g. a VQE
+        /// result's OptimalParameters; closer to the ground state than Hartree-Fock where
+        /// correlation is strong
+        | UccsdState of amplitudes: float[]
+
+    /// Settings of a chemistry QPE run.
+    type Settings =
+        {
+            /// Counting (phase) qubits; None takes min(8, MaxTotalQubits - system qubits)
+            CountingQubits: int option
+            /// Trotter-Suzuki order of the circuit for U: 1 or 2
+            TrotterOrder: int
+            /// Trotter steps in the circuit for U
+            TrotterSteps: int
+            /// Preparation of the system register
+            InitialState: InitialState
+            /// Basis of the library's own integrals for H/He molecules ("STO-3G" or "6-31G");
+            /// provider and FCIDUMP integrals carry their own
+            Basis: string
+        }
+
+    /// First-order Trotter with 4 steps per U and 8 counting qubits (where they fit). For
+    /// H2/STO-3G at 0.7414 Å (12 qubits) the Trotter error of the ground eigenvalue is
+    /// 0.7 mHa and the peak refinement recovers the phase between bins, so the energy is
+    /// within chemical accuracy (1.6 mHa) of FCI; second order needs twice the gates per
+    /// step for a similar error here (3 steps: 1.3 mHa).
+    let defaultSettings =
+        {
+            CountingQubits = None
+            TrotterOrder = 1
+            TrotterSteps = 4
+            InitialState = HartreeFockState
+            Basis = "STO-3G"
+        }
+
+    /// The time evolution a QPE run applies and how its phases map to energies.
+    type EvolutionPlan =
+        {
+            /// H - Shift: the identity coefficient carries -Shift
+            ShiftedHamiltonian: PauliHamiltonian
+            /// Evolution time t of U = e^(-i(H - Shift)t)
+            Time: float
+            /// Spectral upper bound c_I + λ subtracted from H
+            Shift: float
+            /// Counting qubits m
+            CountingQubits: int
+            /// Trotter configuration of one U (Time = t)
+            Trotter: TrotterConfig
+        }
+
+    /// Pauli form of a qubit Hamiltonian (qubit q = spin orbital q).
+    let toPauliHamiltonian (hamiltonian: Core.QaoaCircuit.ProblemHamiltonian) : PauliHamiltonian =
         let convertPauliOp (op: Core.QaoaCircuit.PauliOperator) : char =
             match op with
             | Core.QaoaCircuit.PauliI -> 'I'
@@ -3755,101 +5733,368 @@ module QPE =
             | Core.QaoaCircuit.PauliY -> 'Y'
             | Core.QaoaCircuit.PauliZ -> 'Z'
 
-        let pauliTerms =
-            hamiltonian.Terms
-            |> Array.map (fun term ->
-                // Build full operator string for all qubits
-                let operators = Array.create hamiltonian.NumQubits 'I'
-
-                // Set Pauli operators for specified qubits
-                Array.iter2
-                    (fun qIdx pauliOp -> operators[qIdx] <- convertPauliOp pauliOp)
-                    term.QubitsIndices
-                    term.PauliOperators
-
-                {
-                    Operators = operators
-                    Coefficient = Complex(term.Coefficient, 0.0)
-                })
-            |> Array.toList
-
         {
-            Terms = pauliTerms
+            Terms =
+                hamiltonian.Terms
+                |> Array.map (fun term ->
+                    let operators = Array.create hamiltonian.NumQubits 'I'
+
+                    Array.iter2
+                        (fun qIdx pauliOp -> operators[qIdx] <- convertPauliOp pauliOp)
+                        term.QubitsIndices
+                        term.PauliOperators
+
+                    {
+                        Operators = operators
+                        Coefficient = Complex(term.Coefficient, 0.0)
+                    })
+                |> Array.toList
             NumQubits = hamiltonian.NumQubits
         }
 
-    /// Estimate ground state energy using QPE
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
-        async {
-            // Build molecular Hamiltonian
-            match MolecularHamiltonian.build molecule with
-            | Error err -> return Error err
-            | Ok hamiltonian ->
+    let private isIdentity (term: PauliString) =
+        term.Operators |> Array.forall (fun op -> op = 'I')
 
-                // Convert to Pauli form for Trotter-Suzuki
-                let pauliHamiltonian = toPauliHamiltonian hamiltonian
+    /// The evolution for `countingQubits` counting qubits: shift = c_I + λ and
+    /// t = 2π(1 - 2/2^m)/(2λ), so every eigenvalue maps to a phase in [0, 1 - 2/2^m].
+    let evolutionPlan
+        (hamiltonian: PauliHamiltonian)
+        (countingQubits: int)
+        (trotterOrder: int)
+        (trotterSteps: int)
+        : EvolutionPlan =
+        let identity =
+            hamiltonian.Terms
+            |> List.filter isIdentity
+            |> List.sumBy (fun t -> t.Coefficient.Real)
 
-                // Get backend (RULE1 compliance)
-                let backend =
-                    config.Backend
-                    |> Option.defaultValue (
-                        Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
-                    )
+        let others = hamiltonian.Terms |> List.filter (isIdentity >> not)
+        let lambda = others |> List.sumBy (fun t -> abs t.Coefficient.Real)
+        let shift = identity + lambda
+        let bins = float (1 <<< countingQubits)
+        // A Hamiltonian of identity terms only has one eigenvalue: any t resolves it.
+        let time = 2.0 * Math.PI * (1.0 - 2.0 / bins) / (2.0 * max lambda 1e-12)
 
-                // For quantum chemistry, we need Hamiltonian evolution which requires
-                // implementing Trotter decomposition. This is complex, so for now we
-                // use a simplified approach: estimate using the dominant eigenvalue
-
-                // Extract the largest coefficient as approximation of energy scale
-                let energyScale =
-                    pauliHamiltonian.Terms
-                    |> List.map (fun term -> abs term.Coefficient.Real)
-                    |> List.max
-
-                // Use a simple phase gate as proxy for the Hamiltonian
-                // This is a pedagogical simplification - real implementation would need Trotter
-                let qpeConfig =
-                    {
-                        Algorithms.QPE.CountingQubits = 8
-                        Algorithms.QPE.TargetQubits = 1
-                        Algorithms.QPE.UnitaryOperator = Algorithms.QPE.PhaseGate(energyScale)
-                        Algorithms.QPE.EigenVector = None
-                    }
-
-                // Execute QPE with new unified API.
-                // We default to Exact to preserve existing behavior, but this call site now
-                // participates in the exactness-aware execution path.
-                match Algorithms.QPE.executeWithExactness qpeConfig backend false Algorithms.QPE.Exactness.Exact with
-                | Error err -> return Error err
-                | Ok qpeResult ->
-                    // Convert phase to energy estimate
-                    let phase = qpeResult.EstimatedPhase
-                    let energy = phase * energyScale * 2.0 * Math.PI
-
-                    // Add nuclear repulsion energy
-                    let nuclearRepulsion =
-                        if molecule.Atoms.Length = 2 then
-                            let atom1 = molecule.Atoms[0]
-                            let atom2 = molecule.Atoms[1]
-                            let z1 = AtomicNumbers.fromSymbol atom1.Element |> Option.defaultValue 1 |> float
-                            let z2 = AtomicNumbers.fromSymbol atom2.Element |> Option.defaultValue 1 |> float
-                            let r = Molecule.calculateBondLength atom1 atom2
-                            z1 * z2 / r
-                        else
-                            0.0
-
-                    let totalEnergy = energy + nuclearRepulsion
-
-                    return
-                        Ok
+        ({
+            ShiftedHamiltonian =
+                { hamiltonian with
+                    Terms =
+                        others
+                        @ [
                             {
-                                Energy = totalEnergy
-                                OptimalParameters = [||]
-                                Iterations = 0
-                                Converged = true
-                                EnergyHistory = [ (0, totalEnergy) ]
+                                Operators = Array.create hamiltonian.NumQubits 'I'
+                                Coefficient = Complex(identity - shift, 0.0)
                             }
+                        ]
+                }
+            Time = time
+            Shift = shift
+            CountingQubits = countingQubits
+            Trotter =
+                {
+                    NumSteps = trotterSteps
+                    Time = time
+                    Order = trotterOrder
+                }
         }
+        : EvolutionPlan)
+
+    /// Electronic energy of phase φ: E = -2πφ/t + shift.
+    let phaseToEnergy (plan: EvolutionPlan) (phase: float) : float =
+        -2.0 * Math.PI * phase / plan.Time + plan.Shift
+
+    /// Phase in [0, 1) of electronic energy E: φ = -(E - shift)t/2π mod 1.
+    let energyToPhase (plan: EvolutionPlan) (energy: float) : float =
+        let phase = -(energy - plan.Shift) * plan.Time / (2.0 * Math.PI)
+        phase - floor phase
+
+    /// The phase-estimation circuit: the system register on qubits 0 .. n-1 (prepared by
+    /// `preparation`), counting qubits n .. n+m-1 in |+⟩, controlled-U^(2^j) from counting
+    /// qubit n+j, then the inverse QFT on the counting register (read it with
+    /// Algorithms.QPE.countingOutcome on `countingQubitsOf`).
+    let circuit (plan: EvolutionPlan) (preparation: Gate list) : Circuit =
+        let n = plan.ShiftedHamiltonian.NumQubits
+        let counting = [| n .. n + plan.CountingQubits - 1 |]
+        let system = [| 0 .. n - 1 |]
+
+        let start =
+            CircuitBuilder.empty (n + plan.CountingQubits)
+            |> CircuitBuilder.addGates (preparation @ [ for q in counting -> H q ])
+
+        let evolved =
+            counting
+            |> Array.indexed
+            |> Array.fold
+                (fun circ (j, control) ->
+                    let repetitions = 1 <<< j
+
+                    synthesizeControlledHamiltonianEvolution
+                        control
+                        plan.ShiftedHamiltonian
+                        { plan.Trotter with
+                            NumSteps = plan.Trotter.NumSteps * repetitions
+                            Time = plan.Time * float repetitions
+                        }
+                        system
+                        circ)
+                start
+
+        evolved |> CircuitBuilder.addGates (Algorithms.QPE.inverseQftGates counting)
+
+    /// Counting-qubit indices of `circuit`'s layout for a system of `systemQubits` qubits.
+    let countingQubitsOf (systemQubits: int) (countingQubits: int) : int[] =
+        [| systemQubits .. systemQubits + countingQubits - 1 |]
+
+    /// Probability of each outcome k (φ = k/2^m) of the counting register in a state the
+    /// backend returned for `circuit`.
+    let outcomeProbabilities (plan: EvolutionPlan) (state: QuantumState) : Result<float[], QuantumError> =
+        let counting =
+            countingQubitsOf plan.ShiftedHamiltonian.NumQubits plan.CountingQubits
+
+        FermionMapping.ChemistryVQE.outcomeDistribution state
+        |> Result.map (fun distribution ->
+            let probabilities = Array.zeroCreate (1 <<< plan.CountingQubits)
+
+            for index, p in distribution do
+                let k = Algorithms.QPE.countingOutcome counting index
+                probabilities.[k] <- probabilities.[k] + p
+
+            let total = Array.sum probabilities
+
+            if total > 0.0 then
+                probabilities |> Array.map (fun p -> p / total)
+            else
+                probabilities)
+
+    /// Phase of an eigenvalue whose peak is at outcome k, refined with the more probable
+    /// neighbour: for a single eigenphase φ = (k + δ)/N the bins hold
+    /// P(k+d) = sin²(πδ)/(N² sin²(π(δ-d)/N)), so the ratio R of the neighbour to the peak gives
+    /// tan(πδ/N) = √R sin(π/N) / (1 + √R cos(π/N)).
+    let refinedPhase (probabilities: float[]) (k: int) : float =
+        let bins = probabilities.Length
+        let a = Math.PI / float bins
+        let peak = probabilities.[k]
+        let above = probabilities.[(k + 1) % bins]
+        let below = probabilities.[(k - 1 + bins) % bins]
+
+        let offset neighbour =
+            if peak <= 0.0 then
+                0.0
+            else
+                let root = sqrt (neighbour / peak)
+                atan2 (root * sin a) (1.0 + root * cos a) / a
+
+        let phase =
+            if above >= below then
+                (float k + offset above) / float bins
+            else
+                (float k - offset below) / float bins
+
+        phase - floor phase
+
+    /// Local maxima of the outcome distribution with at least `minimum` probability in their
+    /// five bins (the maximum and two either side), strongest first; a maximum within two bins
+    /// of a stronger one belongs to that peak. Returns (bin, probability of the five bins).
+    let peaks (minimum: float) (probabilities: float[]) : (int * float) list =
+        let bins = probabilities.Length
+
+        let at k =
+            probabilities.[((k % bins) + bins) % bins]
+
+        let window k =
+            [ -2 .. 2 ] |> List.sumBy (fun d -> at (k + d))
+
+        let distance a b =
+            min ((a - b + bins) % bins) ((b - a + bins) % bins)
+
+        [ 0 .. bins - 1 ]
+        |> List.filter (fun k ->
+            probabilities.[k] > 0.0
+            && probabilities.[k] >= at (k - 1)
+            && probabilities.[k] >= at (k + 1))
+        |> List.map (fun k -> k, window k)
+        |> List.sortByDescending (fun (k, w) -> w, probabilities.[k])
+        |> List.fold
+            (fun (kept: (int * float) list) (k, w) ->
+                if kept |> List.exists (fun (j, _) -> distance j k <= 2) then
+                    kept
+                else
+                    kept @ [ (k, w) ])
+            []
+        |> List.filter (fun (_, w) -> w >= minimum)
+
+    /// QPE of the molecule's electronic Hamiltonian (see the module summary): the energy of
+    /// the most probable peak, every peak in Estimation, and the overlap caveat in Notes.
+    /// Errors: no integrals (a molecule other than H/He without SolverConfig.IntegralProvider),
+    /// spin states UCCSD-VQE also refuses, more than MaxTotalQubits qubits, fewer than 3
+    /// counting qubits, a Trotter order other than 1 or 2, or fewer than one Trotter step.
+    let runWith
+        (settings: Settings)
+        (molecule: Molecule)
+        (config: SolverConfig)
+        : Async<Result<VQE.VQEResult, QuantumError>> =
+        async {
+            let backend =
+                config.Backend
+                |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
+
+            let invalid field (message: string) =
+                Error(QuantumError.ValidationError(field, message))
+
+            return
+                result {
+                    let! resolved = VQE.resolveIntegrals settings.Basis molecule config
+
+                    let! integrals =
+                        match resolved with
+                        | Some(integrals, _) -> Ok integrals
+                        | None ->
+                            invalid
+                                "IntegralProvider"
+                                $"QPE for '{molecule.Name}' needs molecular integrals: supply SolverConfig.IntegralProvider (a PySCF/Psi4 wrapper, or FciDumpIntegrals.fromFile); the library computes integrals itself only for molecules of H and He atoms."
+
+                    let systemQubits = 2 * integrals.NumOrbitals
+
+                    let countingQubits =
+                        settings.CountingQubits
+                        |> Option.defaultValue (min 8 (MaxTotalQubits - systemQubits))
+
+                    do!
+                        if settings.TrotterOrder <> 1 && settings.TrotterOrder <> 2 then
+                            invalid "TrotterOrder" $"must be 1 or 2, got {settings.TrotterOrder}"
+                        elif settings.TrotterSteps < 1 then
+                            invalid "TrotterSteps" $"must be at least 1, got {settings.TrotterSteps}"
+                        elif countingQubits < 3 then
+                            invalid
+                                "CountingQubits"
+                                $"{systemQubits} system qubits leave {MaxTotalQubits - systemQubits} of the {MaxTotalQubits} for counting; QPE needs at least 3. Choose a smaller active space (IntegralProvider or FCIDUMP)."
+                        elif systemQubits + countingQubits > MaxTotalQubits then
+                            invalid
+                                "CountingQubits"
+                                $"{systemQubits} system + {countingQubits} counting qubits exceed {MaxTotalQubits}"
+                        else
+                            match Core.BackendAbstraction.UnifiedBackend.getRunnableQubits backend with
+                            | Some limit when systemQubits + countingQubits > limit ->
+                                invalid
+                                    "MoleculeSize"
+                                    $"QPE needs {systemQubits + countingQubits} qubits; backend '{backend.Name}' runs at most {limit}"
+                            | _ -> Ok()
+
+                    let! (hamiltonian, nuclearRepulsion) =
+                        MolecularHamiltonian.buildFromIntegrals integrals MolecularHamiltonian.JordanWigner
+
+                    let plan =
+                        evolutionPlan
+                            (toPauliHamiltonian hamiltonian)
+                            countingQubits
+                            settings.TrotterOrder
+                            settings.TrotterSteps
+
+                    let! preparation =
+                        match settings.InitialState with
+                        | HartreeFockState -> Ok [ for q in 0 .. integrals.NumElectrons - 1 -> X q ]
+                        | UccsdState amplitudes ->
+                            FermionMapping.ChemistryVQE.uccsdCircuit integrals.NumElectrons systemQubits amplitudes
+                            |> Result.map CircuitBuilder.getGates
+
+                    let qpeCircuit = circuit plan preparation
+
+                    let! state =
+                        Core.BackendAbstraction.UnifiedBackend.submitAsCircuit
+                            backend
+                            qpeCircuit.QubitCount
+                            (CircuitBuilder.getGates qpeCircuit
+                             |> List.map Core.BackendAbstraction.QuantumOperation.Gate)
+
+                    let! probabilities = outcomeProbabilities plan state
+                    let bins = probabilities.Length
+
+                    let energyOf phase =
+                        phaseToEnergy plan phase + nuclearRepulsion
+
+                    let found =
+                        peaks 0.01 probabilities
+                        |> List.map (fun (k, weight) ->
+                            ({
+                                Energy = energyOf (refinedPhase probabilities k)
+                                Probability = weight
+                            }
+                            : PhaseEstimationPeak))
+
+                    let top = probabilities |> Array.indexed |> Array.maxBy snd |> fst
+
+                    let! strongest =
+                        match found with
+                        | head :: _ -> Ok head
+                        | [] ->
+                            Error(
+                                QuantumError.OperationError(
+                                    "QPE",
+                                    "the outcome distribution has no peak with 1% probability"
+                                )
+                            )
+
+                    let details: PhaseEstimationDetails =
+                        {
+                            CountingQubits = countingQubits
+                            EvolutionTime = plan.Time
+                            EnergyShift = plan.Shift
+                            TrotterOrder = settings.TrotterOrder
+                            TrotterStepsPerEvolution = settings.TrotterSteps
+                            BinWidth = 2.0 * Math.PI / (plan.Time * float bins)
+                            PeakBinEnergy = energyOf (float top / float bins)
+                            Peaks = found
+                            ShotsPerCircuit =
+                                match backend with
+                                | :? Core.BackendAbstraction.IShotSamplingBackend as sampling when sampling.Shots > 0 ->
+                                    Some sampling.Shots
+                                | _ -> None
+                        }
+
+                    let others = found |> List.tail
+
+                    let lower = others |> List.filter (fun p -> p.Energy < strongest.Energy)
+
+                    let notes =
+                        [
+                            yield
+                                $"QPE returns eigenvalue E with probability |<psi|E>|^2 for the prepared state psi: Energy is the eigenvalue of the most probable peak (probability {strongest.Probability:F3}), the ground state only if psi overlaps it most."
+                            if not others.IsEmpty then
+                                yield
+                                    "Other peaks: "
+                                    + (others
+                                       |> List.map (fun p -> $"E = {p.Energy:F6} Ha (probability {p.Probability:F3})")
+                                       |> String.concat "; ")
+                            if not lower.IsEmpty then
+                                let lowest = lower |> List.minBy (fun p -> p.Energy)
+
+                                yield
+                                    $"A lower eigenvalue, {lowest.Energy:F6} Ha, has probability {lowest.Probability:F3}: the reported Energy is not the lowest eigenvalue found."
+                        ]
+
+                    let outcome: VQE.VQEResult =
+                        {
+                            Energy = strongest.Energy
+                            OptimalParameters =
+                                match settings.InitialState with
+                                | UccsdState amplitudes -> Array.copy amplitudes
+                                | HartreeFockState -> [||]
+                            Iterations = 0
+                            Converged = true
+                            EnergyHistory = [ (0, strongest.Energy) ]
+                            Source = QpeTrotterEvolution
+                            ErrorMitigationApplied = false
+                            Estimation = PhaseEstimation details
+                            Notes = notes
+                        }
+
+                    return outcome
+                }
+        }
+
+    /// QPE with defaultSettings (Hartree-Fock state, STO-3G for H/He molecules).
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
+        runWith defaultSettings molecule config
 
 /// Ground state energy estimation
 module GroundStateEnergy =
@@ -3878,29 +6123,16 @@ module GroundStateEnergy =
                             VQE.Iterations = 0
                             VQE.Converged = true
                             VQE.EnergyHistory = [ (0, energy) ]
+                            VQE.Source = TabulatedReference
+                            VQE.ErrorMitigationApplied = false
+                            VQE.Estimation = NotEstimated
+                            VQE.Notes = []
                         })
             }
 
-        | GroundStateMethod.Automatic ->
-            let numElectrons = Molecule.countElectrons molecule
-
-            if numElectrons <= 4 then
-                VQE.run molecule config
-            else
-                async {
-                    let! energyResult = ClassicalDFT.run molecule config
-
-                    return
-                        energyResult
-                        |> Result.map (fun energy ->
-                            {
-                                VQE.Energy = energy
-                                VQE.OptimalParameters = [||]
-                                VQE.Iterations = 0
-                                VQE.Converged = true
-                                VQE.EnergyHistory = [ (0, energy) ]
-                            })
-                }
+        // Quantum-first: Automatic never substitutes the tabulated classical reference;
+        // VQE.run returns Error when the molecule cannot run.
+        | GroundStateMethod.Automatic -> VQE.run molecule config
 
     let estimateEnergy (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
 
@@ -4112,6 +6344,11 @@ module QuantumChemistryBuilder =
             MaxIterations: int
             /// Initial VQE parameters (warm start)
             InitialParameters: float[] option
+            /// Molecular integrals for VQE (None: molecule_from_fcidump's file, else VQE.run's own selection)
+            IntegralProvider: IntegralProvider option
+            /// Ground-state method: GroundStateMethod.QPE runs QPE.runWith; anything else (or
+            /// None) runs UCCSD-VQE
+            Method: GroundStateMethod option
         }
 
     /// <summary>Chemistry-specific calculation result.</summary>
@@ -4129,6 +6366,13 @@ module QuantumChemistryBuilder =
             BondLengths: Map<string, float>
             /// Dipole moment (if computed)
             DipoleMoment: float option
+            /// What produced GroundStateEnergy
+            Source: EnergySource
+            /// How GroundStateEnergy was estimated (for QPE: evolution, Trotter, counting
+            /// qubits and every peak of the outcome distribution)
+            Estimation: EnergyEstimation
+            /// Caveats on GroundStateEnergy (for QPE: the overlap of the prepared state)
+            Notes: string list
         }
 
     // ========================================================================
@@ -4155,6 +6399,8 @@ module QuantumChemistryBuilder =
                 Optimizer = None
                 MaxIterations = 100
                 InitialParameters = None
+                IntegralProvider = None
+                Method = None
             }
 
         /// <summary>
@@ -4172,7 +6418,7 @@ module QuantumChemistryBuilder =
             if problem.Basis.IsNone then
                 failwith "Quantum chemistry validation: 'basis' is required. Example: basis \"sto-3g\""
 
-            if problem.Ansatz.IsNone then
+            if problem.Ansatz.IsNone && problem.Method <> Some GroundStateMethod.QPE then
                 failwith "Quantum chemistry validation: 'ansatz' is required. Example: ansatz UCCSD"
 
             // Apply defaults
@@ -4214,6 +6460,8 @@ module QuantumChemistryBuilder =
                     else
                         config1.MaxIterations
                 InitialParameters = config2.InitialParameters |> Option.orElse config1.InitialParameters
+                IntegralProvider = config2.IntegralProvider |> Option.orElse config1.IntegralProvider
+                Method = config2.Method |> Option.orElse config1.Method
             }
 
         /// <summary>Empty/no-op value for conditional branches.</summary>
@@ -4283,6 +6531,24 @@ module QuantumChemistryBuilder =
                 InitialParameters = Some params'
             }
 
+        /// <summary>Supply molecular integrals for VQE (PySCF/Psi4 wrapper, FciDumpIntegrals, Sto3gIntegrals).</summary>
+        /// <param name="provider">Integral provider called with the loaded molecule</param>
+        [<CustomOperation("integralProvider")>]
+        member _.IntegralProvider(problem: ChemistryProblem, provider: IntegralProvider) : ChemistryProblem =
+            { problem with
+                IntegralProvider = Some provider
+            }
+
+        /// <summary>Choose the ground-state method: GroundStateMethod.QPE runs quantum phase
+        /// estimation of the Trotterised e^(-iHt) (QPE.runWith defaultSettings in the problem's
+        /// basis; no ansatz needed); VQE, Automatic or no method runs UCCSD-VQE.</summary>
+        /// <param name="groundStateMethod">The method</param>
+        [<CustomOperation("groundStateMethod")>]
+        member _.GroundStateMethod(problem: ChemistryProblem, groundStateMethod: GroundStateMethod) : ChemistryProblem =
+            { problem with
+                Method = Some groundStateMethod
+            }
+
         // ====================================================================
         // FILE LOADING CUSTOM OPERATIONS - Deferred I/O
         // ====================================================================
@@ -4312,7 +6578,8 @@ module QuantumChemistryBuilder =
         /// <param name="filePath">Path to FCIDump file</param>
         /// <remarks>
         /// FCIDump files contain molecular integrals but typically not geometry.
-        /// The resulting molecule will have placeholder atoms for metadata purposes.
+        /// The resulting molecule has placeholder atoms; solve runs VQE on the file's
+        /// integrals (FciDumpIntegrals.fromFile) unless integralProvider is set.
         /// </remarks>
         [<CustomOperation("molecule_from_fcidump")>]
         member _.MoleculeFromFciDump(problem: ChemistryProblem, filePath: string) : ChemistryProblem =
@@ -4429,8 +6696,24 @@ module QuantumChemistryBuilder =
                 return result
 
             | FciDumpFile path ->
-                let! result = Molecule.fromFciDumpFileAsync path
-                return result
+                // An FCIDUMP has no geometry: the molecule is a named placeholder and VQE
+                // takes the file's integrals (see solve).
+                return
+                    FciDumpIntegrals.readFile path
+                    |> Result.map (fun integrals ->
+                        {
+                            Name = Path.GetFileNameWithoutExtension path
+                            Atoms =
+                                [
+                                    {
+                                        Element = "X"
+                                        Position = (0.0, 0.0, 0.0)
+                                    }
+                                ]
+                            Bonds = []
+                            Charge = 0
+                            Multiplicity = 1 + integrals.NumElectrons % 2
+                        })
 
             | FromProvider(provider, name) -> return Molecule.fromProvider provider name
 
@@ -4469,11 +6752,29 @@ module QuantumChemistryBuilder =
                         Backend = None // Use default LocalBackend
                         ProgressReporter = None
                         ErrorMitigation = None // No error mitigation by default
-                        IntegralProvider = None // Use empirical integrals by default
+                        IntegralProvider =
+                            problem.IntegralProvider
+                            |> Option.orElse (
+                                match problem.Molecule, problem.MoleculeSource with
+                                | None, Some(FciDumpFile path) -> Some(FciDumpIntegrals.fromFile path)
+                                | _ -> None
+                            )
                     }
 
-                // Execute VQE (uses existing VQE module - TKT-95 framework)
-                let! vqeResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
+                // `basis` selects the library's own integrals for H/He molecules; provider and
+                // FCIDUMP integrals carry their own basis.
+                let! vqeResult =
+                    match problem.Method with
+                    | Some GroundStateMethod.QPE ->
+                        QPE.runWith
+                            { QPE.defaultSettings with
+                                Basis = problem.Basis.Value
+                            }
+                            molecule
+                            { vqeConfig with
+                                Method = GroundStateMethod.QPE
+                            }
+                    | _ -> VQE.runInBasis problem.Basis.Value molecule vqeConfig
 
                 // Transform result: Framework → Domain
                 let result =
@@ -4487,6 +6788,9 @@ module QuantumChemistryBuilder =
                                 Convergence = vqe.Converged
                                 BondLengths = computeBondLengths molecule
                                 DipoleMoment = computeDipoleMoment molecule
+                                Source = vqe.Source
+                                Estimation = vqe.Estimation
+                                Notes = vqe.Notes
                             }
                     | Error err -> Error err
 

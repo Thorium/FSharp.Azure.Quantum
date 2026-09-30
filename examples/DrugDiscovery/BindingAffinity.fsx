@@ -1,39 +1,47 @@
 ﻿// ==============================================================================
 // Protein-Ligand Binding Affinity Comparison
 // ==============================================================================
-// Compares multiple drug-protein binding systems by computing VQE interaction
-// energies via a fragment molecular orbital (FMO) approach.
-//
-// Accepts multiple binding systems (built-in presets or --input CSV), runs VQE
-// on each system's ligand, protein fragment, and complex, then outputs a ranked
-// comparison table showing which drug candidate binds most strongly.
+// Compares hydrogen-bonded donor-acceptor pairs, the interaction that anchors
+// drugs in binding sites, by VQE interaction energy
+//     dE = E(complex) - E(donor) - E(acceptor)
+// (negative = bound). Each system is a real closed-shell complex: hydrogen
+// fluoride donating a hydrogen bond to F, S, Cl or O acceptors, models of
+// fluorinated ligands meeting backbone, cysteine, halogen and water sites.
 //
 // Background:
-// Binding affinity (dE = E_complex - E_protein - E_ligand) is the fundamental
-// measure of drug-target interaction strength. Classical force fields approximate
-// electrostatics + van der Waals but miss electron correlation, charge transfer,
-// and partial covalent character — exactly the effects VQE captures.
+// Binding affinity is the fundamental measure of drug-target interaction
+// strength. Classical force fields approximate electrostatics and dispersion;
+// hydrogen bonds also involve charge transfer and polarisation, which a
+// correlated calculation on the complex captures.
 //
-// IMPORTANT LIMITATION:
-// This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
-// Calculated energies are ILLUSTRATIVE. For production use, molecular integral
-// calculation (via PySCF, Psi4, or similar) would be needed.
+// HAMILTONIAN SOURCE:
+// By default every species runs on bundled FCIDUMP integrals
+// (examples/_data/chemistry/fcidump: RHF/STO-3G geometries of monomers and
+// complexes optimised with PySCF, CASSCF active spaces; README.md there gives
+// the method). Each monomer is CAS(2,2) and each complex
+// CAS(4,4), so both sides of dE correlate the same number of orbitals.
+// Energies are STO-3G totals: dE has the right sign and rough size for
+// hydrogen bonds, but a minimal basis carries a large basis-set superposition
+// error, and dE is an electronic energy, not a free energy.
+//   --fcidump-dir DIR  use your own FCIDUMP files (<species-slug>.fcidump)
+//   --empirical        run on the library's EMPIRICAL prototype Hamiltonian
+//                      instead (illustrative only, clearly labelled)
+// Each VQE is capped at 16 qubits (8 active orbitals).
 //
 // Usage:
 //   dotnet fsi BindingAffinity.fsx
 //   dotnet fsi BindingAffinity.fsx -- --help
-//   dotnet fsi BindingAffinity.fsx -- --systems aspirin,thiol
-//   dotnet fsi BindingAffinity.fsx -- --input systems.csv
+//   dotnet fsi BindingAffinity.fsx -- --systems hf-dimer,hf-h2o
 //   dotnet fsi BindingAffinity.fsx -- --output results.json --csv results.csv --quiet
 //
 // References:
 //   [1] Shirts & Mobley, "Free Energy Calculations" Methods Mol. Biol. (2017)
 //   [2] Cao et al., "Quantum Chemistry in the Age of Quantum Computing" Chem. Rev. (2019)
-//   [3] Wikipedia: Binding_affinity
-//   [4] Harper's Illustrated Biochemistry, 28th Ed., Ch. 7-8
+//   [3] Wikipedia: Binding_affinity; Hydrogen_fluoride (dimer)
 // ==============================================================================
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
+#r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -43,11 +51,10 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "../_common/ChemistryIntegrals.fs"
 
 open System
 open FSharp.Azure.Quantum.QuantumChemistry
-open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
-open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
@@ -61,16 +68,11 @@ let args = Cli.parse argv
 
 Cli.exitIfHelp
     "BindingAffinity.fsx"
-    "Compare protein-ligand binding affinities by VQE fragment molecular orbital approach"
+    "Compare hydrogen-bonded donor-acceptor pairs by VQE interaction energy"
     [
         {
-            Cli.OptionSpec.Name = "input"
-            Description = "CSV file with custom binding systems"
-            Default = Some "built-in presets"
-        }
-        {
             Cli.OptionSpec.Name = "systems"
-            Description = "Comma-separated preset names to run (default: all)"
+            Description = "Comma-separated system names to run (default: all)"
             Default = Some "all"
         }
         {
@@ -85,8 +87,18 @@ Cli.exitIfHelp
         }
         {
             Cli.OptionSpec.Name = "temperature"
-            Description = "Temperature for Kd estimation (Kelvin)"
+            Description = "Temperature for the Kd estimate (Kelvin)"
             Default = Some "300"
+        }
+        {
+            Cli.OptionSpec.Name = "fcidump-dir"
+            Description = "Directory with one FCIDUMP per species (<species-slug>.fcidump)"
+            Default = Some "bundled examples/_data/chemistry/fcidump"
+        }
+        {
+            Cli.OptionSpec.Name = "empirical"
+            Description = "Use the EMPIRICAL prototype Hamiltonian instead of integrals (flag; illustrative only)"
+            Default = None
         }
         {
             Cli.OptionSpec.Name = "output"
@@ -107,47 +119,21 @@ Cli.exitIfHelp
     args
 
 let quiet = Cli.hasFlag "quiet" args
-let inputFile = args |> Cli.tryGet "input"
 let systemFilter = args |> Cli.getCommaSeparated "systems"
 let maxIterations = Cli.getIntOr "max-iterations" 50 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
 let temperature = Cli.getFloatOr "temperature" 300.0 args
 
-// ==============================================================================
-// TYPES
-// ==============================================================================
+let integralDirectory =
+    ChemistryIntegrals.integralDirectory
+        (args
+         |> Cli.tryGet "fcidump-dir"
+         |> Option.map (Data.resolveRelative __SOURCE_DIRECTORY__))
+        (Cli.hasFlag "empirical" args)
 
-/// A protein-ligand binding system defined by three molecular species:
-/// ligand (drug fragment), protein (binding site fragment), and their complex.
-type BindingSystem =
-    {
-        Name: string
-        Ligand: Molecule
-        ProteinFragment: Molecule
-        InteractionType: string
-        Description: string
-    }
-
-/// Result of computing one binding system's energy profile via VQE.
-type BindingResult =
-    {
-        System: BindingSystem
-        LigandEnergy: float
-        ProteinEnergy: float
-        ComplexEnergy: float
-        BindingEnergyHartree: float
-        BindingEnergyKcal: float
-        BindingEnergyKJ: float
-        EstimatedKd: float
-        KdStr: string
-        Interpretation: string
-        ComputeTimeSeconds: float
-        HasVqeFailure: bool
-    }
-
-// ==============================================================================
-// PHYSICAL CONSTANTS
-// ==============================================================================
+/// Widest VQE this example runs: 2 qubits per active spatial orbital.
+[<Literal>]
+let maxVqeQubits = 16
 
 [<Literal>]
 let hartreeToKcalMol = 627.509
@@ -155,429 +141,88 @@ let hartreeToKcalMol = 627.509
 [<Literal>]
 let hartreeToKJMol = 2625.5
 
-/// Gas constant in kcal/(mol*K)
+/// Gas constant (kcal/(mol K))
 [<Literal>]
 let gasR_kcal = 1.987e-3
 
 // ==============================================================================
-// BUILT-IN BINDING SYSTEM PRESETS
-// ==============================================================================
-// Each system models a different non-covalent interaction type using
-// NISQ-tractable model fragments (<=3 atoms per fragment, <=5 atom complex).
-// Complexes >5 atoms cause VQE timeouts on LocalBackend.
-
-/// HF dimer: classic hydrogen bond benchmark.
-/// F-H...F-H is the simplest, strongest neutral H-bond.
-/// Literature: ~4.6 kcal/mol binding energy (CCSD(T)/CBS).
-let private hfDimerSystem: BindingSystem =
-    let ligand: Molecule =
-        {
-            Name = "HF (donor)"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "F"
-                        Position = (0.92, 0.0, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let protein: Molecule =
-        {
-            Name = "HF (acceptor)"
-            Atoms =
-                [
-                    {
-                        Element = "F"
-                        Position = (2.72, 0.0, 0.0)
-                    } // F...H distance ~1.8 A
-                    {
-                        Element = "H"
-                        Position = (3.64, 0.0, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    {
-        Name = "HF-Dimer"
-        Ligand = ligand
-        ProteinFragment = protein
-        InteractionType = "F-H...F"
-        Description = "Hydrogen fluoride dimer (classic H-bond benchmark)"
-    }
-
-/// Water...HF: water as H-bond donor to fluoride.
-/// Models OH...F interaction found in fluorinated drug binding.
-let private waterHfSystem: BindingSystem =
-    let ligand: Molecule =
-        {
-            Name = "Water (donor)"
-            Atoms =
-                [
-                    {
-                        Element = "O"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (0.96, 0.0, 0.0)
-                    } // donor H
-                    {
-                        Element = "H"
-                        Position = (-0.24, 0.93, 0.0)
-                    }
-                ] // spectator H
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                    {
-                        Atom1 = 0
-                        Atom2 = 2
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let protein: Molecule =
-        {
-            Name = "HF (acceptor)"
-            Atoms =
-                [
-                    {
-                        Element = "F"
-                        Position = (2.76, 0.0, 0.0)
-                    } // O-H...F distance ~1.8 A
-                    {
-                        Element = "H"
-                        Position = (3.68, 0.0, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    {
-        Name = "Water-HF"
-        Ligand = ligand
-        ProteinFragment = protein
-        InteractionType = "O-H...F"
-        Description = "Water...HF H-bond (fluorinated drug binding model)"
-    }
-
-/// H2S...HF: sulfur as H-bond acceptor.
-/// Models cysteine thiol interactions — weaker than O-H donor.
-let private h2sHfSystem: BindingSystem =
-    let ligand: Molecule =
-        {
-            Name = "HF (donor)"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "F"
-                        Position = (0.92, 0.0, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let protein: Molecule =
-        {
-            Name = "H2S (acceptor)"
-            Atoms =
-                [
-                    {
-                        Element = "S"
-                        Position = (2.80, 0.0, 0.0)
-                    } // F-H...S distance ~1.88 A
-                    {
-                        Element = "H"
-                        Position = (3.60, 0.75, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (3.60, -0.75, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                    {
-                        Atom1 = 0
-                        Atom2 = 2
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    {
-        Name = "HF-H2S"
-        Ligand = ligand
-        ProteinFragment = protein
-        InteractionType = "F-H...S"
-        Description = "HF...H2S H-bond (cysteine thiol interaction model)"
-    }
-
-/// HCl...HF: chlorine as H-bond acceptor.
-/// Models halogen interactions in drug-receptor binding.
-let private hclHfSystem: BindingSystem =
-    let ligand: Molecule =
-        {
-            Name = "HF (donor)"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "F"
-                        Position = (0.92, 0.0, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let protein: Molecule =
-        {
-            Name = "HCl (acceptor)"
-            Atoms =
-                [
-                    {
-                        Element = "Cl"
-                        Position = (2.90, 0.0, 0.0)
-                    } // F-H...Cl distance ~1.98 A
-                    {
-                        Element = "H"
-                        Position = (4.18, 0.0, 0.0)
-                    }
-                ]
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    {
-        Name = "HF-HCl"
-        Ligand = ligand
-        ProteinFragment = protein
-        InteractionType = "F-H...Cl"
-        Description = "HF...HCl halogen H-bond (halogenated drug model)"
-    }
-
-/// All built-in presets keyed by lowercase name.
-let private builtinPresets: Map<string, BindingSystem> =
-    [ hfDimerSystem; waterHfSystem; h2sHfSystem; hclHfSystem ]
-    |> List.map (fun s -> s.Name.ToLowerInvariant().Replace(" ", "-"), s)
-    |> Map.ofList
-
-let private presetNames =
-    builtinPresets |> Map.toList |> List.map fst |> String.concat ", "
-
-// ==============================================================================
-// CSV INPUT PARSING
+// BINDING SYSTEMS
 // ==============================================================================
 
-/// Parse atom list from compact string format:
-///   "C:0,0,0|O:0,0,1.21|H:0.94,0,-0.54"
-let private parseAtoms (s: string) : Atom list =
-    s.Split '|'
-    |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split ':'
+/// A hydrogen-bond donor, an acceptor and their complex.
+type BindingSystem =
+    {
+        Name: string
+        Donor: Molecule
+        Acceptor: Molecule
+        Complex: Molecule
+        InteractionType: string
+        /// Literature interaction energy De (kcal/mol), where well established
+        ReferenceDe: float option
+        Description: string
+    }
 
-        if parts.Length = 2 then
-            let coords = parts.[1].Split ','
+let private species = ChemistryIntegrals.loadSpecies
+let private hydrogenFluoride = species "Hydrogen fluoride [CAS(2,2)]"
 
-            if coords.Length = 3 then
-                match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
-                | (true, x), (true, y), (true, z) ->
-                    Some
-                        {
-                            Element = parts.[0].Trim()
-                            Position = (x, y, z)
-                        }
-                | _ -> None
-            else
-                None
-        else
-            None)
-    |> Array.toList
-
-/// Infer single bonds between adjacent atom pairs (simple fallback).
-let private inferBonds (atoms: Atom list) : Bond list =
+let private builtinSystems: BindingSystem list =
     [
-        for i in 0 .. atoms.Length - 2 do
-            {
-                Atom1 = i
-                Atom2 = i + 1
-                BondOrder = 1.0
-            }
+        {
+            Name = "HF-Dimer"
+            Donor = hydrogenFluoride
+            Acceptor = hydrogenFluoride
+            Complex = species "HF dimer (F-H...F) [CAS(4,4)]"
+            InteractionType = "F-H...F"
+            ReferenceDe = Some -4.6
+            Description = "Hydrogen fluoride dimer (classic H-bond benchmark)"
+        }
+        {
+            Name = "HF-H2S"
+            Donor = hydrogenFluoride
+            Acceptor = species "Hydrogen sulfide [CAS(2,2)]"
+            Complex = species "HF-H2S (F-H...S) [CAS(4,4)]"
+            InteractionType = "F-H...S"
+            ReferenceDe = None
+            Description = "HF...H2S H-bond (cysteine thiol acceptor model)"
+        }
+        {
+            Name = "HF-HCl"
+            Donor = hydrogenFluoride
+            Acceptor = species "Hydrogen chloride [CAS(2,2)]"
+            Complex = species "HF-HCl (F-H...Cl) [CAS(4,4)]"
+            InteractionType = "F-H...Cl"
+            ReferenceDe = None
+            Description = "HF...HCl H-bond (halogen acceptor model)"
+        }
+        {
+            Name = "HF-H2O"
+            Donor = hydrogenFluoride
+            Acceptor = species "Water [CAS(2,2)]"
+            Complex = species "HF-H2O (F-H...O) [CAS(4,4)]"
+            InteractionType = "F-H...O"
+            ReferenceDe = Some -8.7
+            Description = "HF...H2O H-bond (fluorinated ligand meeting a bound water)"
+        }
     ]
 
-/// Build a Molecule from an atom string, inferring bonds.
-let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
-    let atoms = parseAtoms atomStr
+let private key (name: string) = ChemistryIntegrals.speciesSlug name
 
-    {
-        Name = name
-        Atoms = atoms
-        Bonds = inferBonds atoms
-        Charge = 0
-        Multiplicity = 1
-    }
-
-/// Load binding systems from a CSV file.
-/// Expected columns: name, interaction_type, description, ligand_atoms, protein_atoms
-/// OR: name, preset (to reference a built-in preset by name)
-let private loadSystemsFromCsv (path: string) : BindingSystem list =
-    let rows, errors = Data.readCsvWithHeaderWithErrors path
-
-    if not ((List.isEmpty errors) || quiet) then
-        for err in errors do
-            eprintfn "  Warning (CSV): %s" err
-
-    rows
-    |> List.choose (fun row ->
-        let get key = row.Values |> Map.tryFind key
-        let name = get "name" |> Option.defaultValue "Unknown"
-
-        match get "preset" with
-        | Some presetKey ->
-            let key = presetKey.Trim().ToLowerInvariant()
-
-            match builtinPresets |> Map.tryFind key with
-            | Some system -> Some { system with Name = name }
-            | None ->
-                if not quiet then
-                    eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
-
-                None
-        | None ->
-            match get "ligand_atoms", get "protein_atoms" with
-            | Some lAtoms, Some pAtoms ->
-                let interType = get "interaction_type" |> Option.defaultValue "Unknown"
-                let desc = get "description" |> Option.defaultValue ""
-                let ligand = moleculeFromAtomString (name + " ligand") lAtoms
-                let protein = moleculeFromAtomString (name + " protein") pAtoms
-
-                Some
-                    {
-                        Name = name
-                        Ligand = ligand
-                        ProteinFragment = protein
-                        InteractionType = interType
-                        Description = desc
-                    }
-            | _ ->
-                if not quiet then
-                    eprintfn "  Warning: row '%s' missing required columns" name
-
-                None)
-
-// ==============================================================================
-// SYSTEM SELECTION
-// ==============================================================================
-
-let systems: BindingSystem list =
-    let allSystems =
-        match inputFile with
-        | Some path ->
-            let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
-
-            if not quiet then
-                printfn "Loading binding systems from: %s" resolved
-
-            loadSystemsFromCsv resolved
-        | None -> builtinPresets |> Map.toList |> List.map snd
-
+let systems =
     match systemFilter with
-    | [] -> allSystems
+    | [] -> builtinSystems
     | filters ->
-        let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
-
-        allSystems
-        |> List.filter (fun s ->
-            let key = s.Name.ToLowerInvariant().Replace(" ", "-")
-            filterSet |> Set.exists (fun f -> key.Contains f))
+        builtinSystems
+        |> List.filter (fun s -> filters |> List.exists (fun f -> (key s.Name).Contains(f.ToLowerInvariant())))
 
 if List.isEmpty systems then
-    eprintfn "Error: No binding systems selected. Available presets: %s" presetNames
+    eprintfn
+        "Error: no systems selected. Available: %s"
+        (builtinSystems |> List.map (fun s -> key s.Name) |> String.concat ", ")
+
     exit 1
 
 // ==============================================================================
-// QUANTUM BACKEND (Rule 1: all VQE via IQuantumBackend)
+// VQE
 // ==============================================================================
 
 let backend: IQuantumBackend = LocalBackend() :> IQuantumBackend
@@ -592,196 +237,123 @@ if not quiet then
     printfn "  Systems:      %d" systems.Length
     printfn "  VQE iters:    %d (tol: %g Ha)" maxIterations tolerance
     printfn "  Temperature:  %.1f K (%.1f C)" temperature (temperature - 273.15)
+    printfn "  Integrals:    %s" (ChemistryIntegrals.describeDirectory integralDirectory)
+    printfn "  Measure:      dE = E(complex) - E(donor) - E(acceptor)"
     printfn ""
 
-// ==============================================================================
-// VQE COMPUTATION
-// ==============================================================================
+let energies =
+    ChemistryIntegrals.EnergyCache(backend, maxIterations, tolerance, maxVqeQubits, integralDirectory)
 
-/// VQE solver configuration.
-let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) : SolverConfig =
-    {
-        Method = GroundStateMethod.VQE
-        Backend = Some backend
-        MaxIterations = maxIter
-        Tolerance = tol
-        InitialParameters = None
-        ProgressReporter = None
-        ErrorMitigation = None
-        IntegralProvider = None
-    }
-
-/// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
-/// Returns (Ok energy | Error message, elapsed seconds).
-let private computeEnergy
-    (backend: IQuantumBackend)
-    (maxIter: int)
-    (tol: float)
-    (molecule: Molecule)
-    : Result<float, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
-
-    let result =
-        GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
-
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
-
-    match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
-    | Error err ->
-        if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
-
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
-
-/// Build a complex molecule from ligand + protein fragments.
-let private buildComplex (system: BindingSystem) : Molecule =
-    let offsetBonds =
-        system.ProteinFragment.Bonds
-        |> List.map (fun b ->
-            { b with
-                Atom1 = b.Atom1 + system.Ligand.Atoms.Length
-                Atom2 = b.Atom2 + system.Ligand.Atoms.Length
-            })
-
-    {
-        Name = $"%s{system.Name} complex"
-        Atoms = system.Ligand.Atoms @ system.ProteinFragment.Atoms
-        Bonds = system.Ligand.Bonds @ offsetBonds
-        Charge = 0
-        Multiplicity = 1
-    }
-
-/// Interpret binding energy for drug discovery context.
+/// Interpret an interaction energy.
 let private interpretBinding (dEKcal: float) : string =
-    if dEKcal < -10.0 then "Strong binding (drug-like affinity)"
-    elif dEKcal < -5.0 then "Moderate binding (lead compound)"
-    elif dEKcal < -1.0 then "Weak binding (hit compound)"
-    elif dEKcal < 0.0 then "Very weak binding"
-    else "Unfavorable (no binding)"
+    if dEKcal < -10.0 then "Strong H-bond"
+    elif dEKcal < -5.0 then "Moderate H-bond"
+    elif dEKcal < -1.0 then "Weak H-bond"
+    elif dEKcal < 0.0 then "Very weak"
+    else "Unbound"
 
-/// Estimate dissociation constant Kd from binding energy.
-/// dG ~ dE (neglecting entropy), Kd = exp(dG / RT).
-let private estimateKd (dEKcal: float) (tempK: float) : float * string =
-    let rt = gasR_kcal * tempK // kcal/mol
-
+/// Dissociation-constant estimate exp(dE / RT), treating dE as a free energy (entropy neglected).
+let private estimateKd (dEKcal: float) : string =
     if dEKcal < 0.0 then
-        let kd = exp (dEKcal / rt) // dimensionless ratio; interpret as molar
+        let kd = exp (dEKcal / (gasR_kcal * temperature))
 
-        let kdStr =
-            if kd < 1e-9 then $"%.2e{kd} M (picomolar)"
-            elif kd < 1e-6 then $"%.2e{kd} M (nanomolar)"
-            elif kd < 1e-3 then $"%.2e{kd} M (micromolar)"
-            else $"%.2e{kd} M (millimolar)"
-
-        (kd, kdStr)
+        if kd < 1e-9 then $"%.2e{kd} M (pM)"
+        elif kd < 1e-6 then $"%.2e{kd} M (nM)"
+        elif kd < 1e-3 then $"%.2e{kd} M (uM)"
+        else $"%.2e{kd} M (mM)"
     else
-        (infinity, "N/A (unfavorable)")
+        "N/A (unbound)"
 
-/// Compute the full binding energy profile for one system.
-let private computeSystem
-    (backend: IQuantumBackend)
-    (maxIter: int)
-    (tol: float)
-    (temp: float)
-    (idx: int)
-    (total: int)
-    (system: BindingSystem)
-    : BindingResult =
+/// Result of one system.
+type BindingResult =
+    {
+        System: BindingSystem
+        /// Interaction energy in Hartree; None when a species failed
+        BindingEnergy: float option
+        Sources: EnergySource list
+        Failures: string list
+    }
+
+let private computeSystem (index: int) (system: BindingSystem) : BindingResult =
     if not quiet then
-        printfn "  [%d/%d] %s (%s)" (idx + 1) total system.Name system.InteractionType
+        printfn "  [%d/%d] %s (%s)" (index + 1) systems.Length system.Name system.InteractionType
         printfn "         %s" system.Description
 
-    let startTime = DateTime.Now
-    let mutable anyFailure = false
+    let energyOf (role: string) (molecule: Molecule) =
+        let result = energies.Energy molecule
 
-    /// Unwrap a VQE result, logging failures and tracking error state.
-    let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
-        match res with
-        | Ok e ->
-            if not quiet then
-                printfn "         %-10s %-22s  E = %10.6f Ha  (%.1fs)" label name e elapsed
+        if not quiet then
+            match result with
+            | Ok e ->
+                printfn
+                    "         %-9s %-32s E = %14.6f Ha  [%s]%s"
+                    role
+                    molecule.Name
+                    e.Energy
+                    (ChemistryIntegrals.describeSource e.Source)
+                    (if e.Converged then "" else " not converged")
+            | Error msg -> printfn "         %-9s %-32s E = FAILED  (%s)" role molecule.Name msg
 
-            (e, elapsed)
-        | Error _ ->
-            anyFailure <- true
+        result
 
-            if not quiet then
-                printfn "         %-10s %-22s  E = FAILED         (%.1fs)" label name elapsed
+    let donor = energyOf "donor" system.Donor
+    let acceptor = energyOf "acceptor" system.Acceptor
+    let complex = energyOf "complex" system.Complex
+    let all = [ donor; acceptor; complex ]
 
-            (0.0, elapsed)
+    let failures =
+        all
+        |> List.choose (function
+            | Error msg -> Some msg
+            | Ok _ -> None)
 
-    let (ligandE, _) =
-        unwrapEnergy "ligand" system.Ligand.Name (computeEnergy backend maxIter tol system.Ligand)
+    let computed =
+        all
+        |> List.choose (function
+            | Ok e -> Some e
+            | Error _ -> None)
 
-    let (proteinE, _) =
-        unwrapEnergy "protein" system.ProteinFragment.Name (computeEnergy backend maxIter tol system.ProteinFragment)
-
-    let complex = buildComplex system
-
-    let (complexE, _) =
-        unwrapEnergy "complex" complex.Name (computeEnergy backend maxIter tol complex)
-
-    let totalTime = (DateTime.Now - startTime).TotalSeconds
-
-    // Binding energy: E_complex - E_protein - E_ligand
-    let dEHartree = complexE - proteinE - ligandE
-    let dEKcal = dEHartree * hartreeToKcalMol
-    let dEKJ = dEHartree * hartreeToKJMol
-
-    let interp = if anyFailure then "VQE FAILED" else interpretBinding dEKcal
-
-    let (kd, kdStr) =
-        if anyFailure then
-            (infinity, "N/A (VQE failed)")
-        else
-            estimateKd dEKcal temp
+    let bindingEnergy =
+        match donor, acceptor, complex with
+        | Ok d, Ok a, Ok c -> Some(c.Energy - d.Energy - a.Energy)
+        | _ -> None
 
     if not quiet then
-        if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
-        else
-            printfn "         => dE = %.2f kcal/mol  |  Kd ~ %s" dEKcal kdStr
+        match bindingEnergy with
+        | Some dE ->
+            printfn
+                "         => dE = %.2f kcal/mol  |  Kd ~ %s"
+                (dE * hartreeToKcalMol)
+                (estimateKd (dE * hartreeToKcalMol))
+        | None -> printfn "         => INCOMPLETE (a species failed VQE: no interaction energy)"
 
         printfn ""
 
     {
         System = system
-        LigandEnergy = ligandE
-        ProteinEnergy = proteinE
-        ComplexEnergy = complexE
-        BindingEnergyHartree = dEHartree
-        BindingEnergyKcal = dEKcal
-        BindingEnergyKJ = dEKJ
-        EstimatedKd = kd
-        KdStr = kdStr
-        Interpretation = interp
-        ComputeTimeSeconds = totalTime
-        HasVqeFailure = anyFailure
+        BindingEnergy = bindingEnergy
+        Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
+        Failures = failures
     }
 
-// --- Run all systems ---
-
 if not quiet then
-    printfn "Computing binding energies..."
+    printfn "Computing interaction energies..."
     printfn ""
 
-let results =
-    systems
-    |> List.mapi (fun i system -> computeSystem backend maxIterations tolerance temperature i systems.Length system)
+let results = systems |> List.mapi computeSystem
 
-// Sort: most negative binding energy first (strongest binder).
-// Failed systems sink to bottom.
+// Strongest binder first; incomplete systems last.
 let ranked =
     results
     |> List.sortBy (fun r ->
-        if r.HasVqeFailure then
-            (2, infinity)
-        elif r.BindingEnergyKcal >= 0.0 then
-            (1, r.BindingEnergyKcal)
-        else
-            (0, r.BindingEnergyKcal))
+        match r.BindingEnergy with
+        | Some dE -> (0, dE)
+        | None -> (1, 0.0))
+
+let private sourceLabel (r: BindingResult) =
+    match r.Sources with
+    | [] -> "none"
+    | sources -> sources |> List.map ChemistryIntegrals.describeSource |> String.concat " + "
 
 // ==============================================================================
 // RANKED COMPARISON TABLE
@@ -789,60 +361,80 @@ let ranked =
 
 let printTable () =
     printfn "=================================================================="
-    printfn "  Ranked Binding Affinities (by binding energy)"
+    printfn "  Ranked Interaction Energies (strongest first)"
     printfn "=================================================================="
     printfn ""
-    printfn "  %-4s  %-20s  %-10s  %13s  %13s  %s" "#" "System" "Type" "dE (kcal/mol)" "dE (kJ/mol)" "Interpretation"
-    printfn "  %s" (String('=', 95))
-
-    ranked
-    |> List.iteri (fun i r ->
-        printfn
-            "  %-4d  %-20s  %-10s  %13.2f  %13.2f  %s"
-            (i + 1)
-            r.System.Name
-            r.System.InteractionType
-            r.BindingEnergyKcal
-            r.BindingEnergyKJ
-            r.Interpretation)
-
-    printfn ""
-
-    // Dissociation constants
-    printfn "  %-4s  %-20s  %-10s  %20s  %10s" "#" "System" "Type" "Estimated Kd" "Time (s)"
-    printfn "  %s" (String('-', 75))
-
-    ranked
-    |> List.iteri (fun i r ->
-        printfn
-            "  %-4d  %-20s  %-10s  %20s  %10.1f"
-            (i + 1)
-            r.System.Name
-            r.System.InteractionType
-            r.KdStr
-            r.ComputeTimeSeconds)
-
-    printfn ""
-
-// Always print the ranked comparison table — that's the primary output of this tool,
-// even in --quiet mode (which only suppresses per-system progress output).
-printTable ()
-
-// ==============================================================================
-// SUMMARY
-// ==============================================================================
-
-if not quiet then
-    let best = ranked |> List.head
-    let totalTime = results |> List.sumBy (fun r -> r.ComputeTimeSeconds)
 
     printfn
-        "  Strongest binder:  %s (%s, dE = %.2f kcal/mol)"
-        best.System.Name
-        best.System.InteractionType
-        best.BindingEnergyKcal
+        "  %-4s  %-10s  %-10s  %13s  %13s  %13s  %-16s  %s"
+        "#"
+        "System"
+        "Type"
+        "dE (kcal/mol)"
+        "dE (kJ/mol)"
+        "ref De"
+        "Interpretation"
+        "Hamiltonian"
 
-    printfn "  Total time:        %.1f seconds" totalTime
+    printfn "  %s" (String('=', 110))
+
+    ranked
+    |> List.iteri (fun i r ->
+        let reference =
+            r.System.ReferenceDe |> Option.map (sprintf "%.1f") |> Option.defaultValue "-"
+
+        match r.BindingEnergy with
+        | Some dE ->
+            let kcal = dE * hartreeToKcalMol
+
+            printfn
+                "  %-4d  %-10s  %-10s  %13.2f  %13.2f  %13s  %-16s  %s"
+                (i + 1)
+                r.System.Name
+                r.System.InteractionType
+                kcal
+                (dE * hartreeToKJMol)
+                reference
+                (interpretBinding kcal)
+                (sourceLabel r)
+        | None ->
+            printfn
+                "  %-4d  %-10s  %-10s  %13s  %13s  %13s  %-16s  %s"
+                (i + 1)
+                r.System.Name
+                r.System.InteractionType
+                "INCOMPLETE"
+                "-"
+                reference
+                "-"
+                (sourceLabel r))
+
+    printfn ""
+
+    ranked
+    |> List.filter (fun r -> not r.Failures.IsEmpty)
+    |> List.iter (fun r -> printfn "  %s: %s" r.System.Name (String.concat "; " (List.distinct r.Failures)))
+
+    if ranked |> List.exists (fun r -> r.Sources |> List.contains EmpiricalHamiltonian) then
+        ChemistryIntegrals.empiricalNote |> List.iter (printfn "%s")
+
+    printfn "  ref De: literature interaction energies (kcal/mol) where well established."
+    printfn "  STO-3G interaction energies carry a large basis-set superposition error."
+    printfn ""
+
+printTable ()
+
+if not quiet then
+    match ranked |> List.tryFind (fun r -> r.BindingEnergy.IsSome) with
+    | Some best ->
+        printfn
+            "  Strongest binder:  %s (%s, dE = %.2f kcal/mol; %s)"
+            best.System.Name
+            best.System.InteractionType
+            (best.BindingEnergy.Value * hartreeToKcalMol)
+            (sourceLabel best)
+    | None -> printfn "  Strongest binder:  none (no system completed)"
+
     printfn "  Quantum:           all VQE via IQuantumBackend [Rule 1 compliant]"
     printfn ""
 
@@ -853,24 +445,40 @@ if not quiet then
 let resultMaps =
     ranked
     |> List.mapi (fun i r ->
+        let value format =
+            match r.BindingEnergy with
+            | Some dE -> format dE
+            | None -> "INCOMPLETE"
+
         [
             "rank", string (i + 1)
             "system", r.System.Name
             "interaction_type", r.System.InteractionType
             "description", r.System.Description
-            "binding_energy_hartree", $"%.6f{r.BindingEnergyHartree}"
-            "binding_energy_kcal_mol", $"%.2f{r.BindingEnergyKcal}"
-            "binding_energy_kj_mol", $"%.2f{r.BindingEnergyKJ}"
-            "estimated_kd", r.KdStr
-            "interpretation", r.Interpretation
-            "ligand_energy_ha", $"%.6f{r.LigandEnergy}"
-            "protein_energy_ha", $"%.6f{r.ProteinEnergy}"
-            "complex_energy_ha", $"%.6f{r.ComplexEnergy}"
-            "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
-            "temperature_k", $"%.1f{temperature}"
-            "has_vqe_failure", string r.HasVqeFailure
+            "binding_energy_hartree", value (sprintf "%.6f")
+            "binding_energy_kcal_mol", value (fun dE -> sprintf "%.2f" (dE * hartreeToKcalMol))
+            "binding_energy_kj_mol", value (fun dE -> sprintf "%.2f" (dE * hartreeToKJMol))
+            "reference_de_kcal_mol", r.System.ReferenceDe |> Option.map (sprintf "%.1f") |> Option.defaultValue ""
+            "estimated_kd", value (fun dE -> estimateKd (dE * hartreeToKcalMol))
+            "temperature_k", sprintf "%.1f" temperature
+            "hamiltonian", sourceLabel r
         ]
         |> Map.ofList)
+
+let header =
+    [
+        "rank"
+        "system"
+        "interaction_type"
+        "description"
+        "binding_energy_hartree"
+        "binding_energy_kcal_mol"
+        "binding_energy_kj_mol"
+        "reference_de_kcal_mol"
+        "estimated_kd"
+        "temperature_k"
+        "hamiltonian"
+    ]
 
 match Cli.tryGet "output" args with
 | Some path ->
@@ -882,25 +490,6 @@ match Cli.tryGet "output" args with
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header =
-        [
-            "rank"
-            "system"
-            "interaction_type"
-            "description"
-            "binding_energy_hartree"
-            "binding_energy_kcal_mol"
-            "binding_energy_kj_mol"
-            "estimated_kd"
-            "interpretation"
-            "ligand_energy_ha"
-            "protein_energy_ha"
-            "complex_energy_ha"
-            "compute_time_s"
-            "temperature_k"
-            "has_vqe_failure"
-        ]
-
     let rows =
         resultMaps
         |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
@@ -912,9 +501,8 @@ match Cli.tryGet "csv" args with
 | None -> ()
 
 if argv.Length = 0 && not quiet then
-    printfn ""
     printfn "Tip: Run with --help to see all options."
-    printfn "     --systems hf-dimer,water-hf               Run specific systems"
-    printfn "     --input systems.csv                       Load custom binding systems from CSV"
-    printfn "     --csv results.csv                         Export ranked table as CSV"
+    printfn "     --systems hf-dimer,hf-h2o          Run specific systems"
+    printfn "     --fcidump-dir ./fcidumps           Your own FCIDUMP integrals"
+    printfn "     --csv results.csv                  Export ranked table as CSV"
     printfn ""

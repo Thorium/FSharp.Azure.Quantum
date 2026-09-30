@@ -683,12 +683,11 @@ module HybridSolver =
     // SOLVER ROUTING - PORTFOLIO
     // ================================================================================
 
-    /// Solve Portfolio optimization using hybrid solver with optional backend override.
-    ///
-    /// This is an additive API that enables using HybridSolver with gate-based backends
-    /// (e.g., LocalBackend) and topological backends (e.g., TopologicalUnifiedBackend).
-    let solvePortfolioWithBackend
+    /// Portfolio routing shared by the public entry points. The covariance, when given, is
+    /// validated first and passed to both the classical and the quantum solver.
+    let private solvePortfolioCore
         (assets: PortfolioSolver.Asset list)
+        (covariance: float[,] option)
         (constraints: PortfolioSolver.Constraints)
         (budget: float option)
         (timeout: float option)
@@ -700,22 +699,30 @@ module HybridSolver =
         let config = PortfolioSolver.defaultConfig
 
         let solveClassical () =
-            PortfolioSolver.solveGreedyByRatio assets constraints config
+            PortfolioSolver.solveGreedyByRatioWithCovariance assets covariance constraints config
 
-        match forceMethod with
-        | Some Classical ->
-            solveClassical () |> createClassicalSolution
-            <| "Classical solver forced by user override. Quantum Advisor bypassed."
-            <| startTime
-            <| None
-            |> Ok
-
-        | Some Quantum ->
-            // Execute quantum portfolio solver using provided backend (or default LocalBackend)
+        let solveQuantum (actualBackend: IQuantumBackend) =
             let quantumConfig = QuantumPortfolioSolver.defaultConfig
-            let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
 
-            match QuantumPortfolioSolver.solve actualBackend assets constraints quantumConfig with
+            let run =
+                match covariance with
+                | Some sigma ->
+                    QuantumPortfolioSolver.solveWithCovarianceAsync
+                        actualBackend
+                        assets
+                        sigma
+                        constraints
+                        quantumConfig
+                        Threading.CancellationToken.None
+                | None ->
+                    QuantumPortfolioSolver.solveAsync
+                        actualBackend
+                        assets
+                        constraints
+                        quantumConfig
+                        Threading.CancellationToken.None
+
+            match run |> Async.AwaitTask |> Async.RunSynchronously with
             | Error err -> Error(QuantumError.OperationError("Quantum portfolio solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 // Convert quantum result to classical portfolio solution format
@@ -729,16 +736,38 @@ module HybridSolver =
                         ElapsedMs = quantumResult.ElapsedMs
                     }
 
+                Ok(classicalSolution, quantumResult.ElapsedMs)
+
+        let covarianceCheck =
+            match covariance with
+            | Some sigma -> PortfolioTypes.validateCovariance (List.length assets) sigma
+            | None -> Ok()
+
+        match covarianceCheck, forceMethod with
+        | Error err, _ -> Error err
+
+        | Ok(), Some Classical ->
+            solveClassical () |> createClassicalSolution
+            <| "Classical solver forced by user override. Quantum Advisor bypassed."
+            <| startTime
+            <| None
+            |> Ok
+
+        | Ok(), Some Quantum ->
+            // Execute quantum portfolio solver using provided backend (or default LocalBackend)
+            let actualBackend = backend |> Option.defaultValue (defaultHybridBackend ())
+
+            solveQuantum actualBackend
+            |> Result.map (fun (classicalSolution, elapsedMs) ->
                 {
                     Method = Quantum
                     Result = classicalSolution
                     Reasoning = "Quantum portfolio solver forced by user override."
-                    ElapsedMs = quantumResult.ElapsedMs
+                    ElapsedMs = elapsedMs
                     Recommendation = None
-                }
-                |> Ok
+                })
 
-        | None ->
+        | Ok(), None ->
             // Create problem representation for Quantum Advisor
             // Use asset count as approximation of problem complexity
             let numAssets = List.length assets
@@ -776,30 +805,13 @@ module HybridSolver =
                             |> Ok
 
                         | _ ->
-                            let quantumConfig = QuantumPortfolioSolver.defaultConfig
-
-                            match QuantumPortfolioSolver.solve actualBackend assets constraints quantumConfig with
-                            | Error err ->
-                                Error(
-                                    QuantumError.OperationError("Quantum portfolio solver", QuantumResult.toString err)
-                                )
-                            | Ok quantumResult ->
-                                let classicalSolution: PortfolioSolver.PortfolioSolution =
-                                    {
-                                        Allocations = quantumResult.Allocations
-                                        TotalValue = quantumResult.TotalValue
-                                        ExpectedReturn = quantumResult.ExpectedReturn
-                                        Risk = quantumResult.Risk
-                                        SharpeRatio = quantumResult.SharpeRatio
-                                        ElapsedMs = quantumResult.ElapsedMs
-                                    }
-
+                            solveQuantum actualBackend
+                            |> Result.map (fun (classicalSolution, _) ->
                                 createQuantumSolution
                                     classicalSolution
                                     $"{recommendation.Reasoning} Routing to quantum backend."
                                     startTime
-                                    (Some recommendation)
-                                |> Ok
+                                    (Some recommendation))
 
                 | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
                 | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
@@ -811,7 +823,54 @@ module HybridSolver =
                     <| Some recommendation
                     |> Ok)
 
+    /// Solve Portfolio optimization using hybrid solver with optional backend override.
+    ///
+    /// This is an additive API that enables using HybridSolver with gate-based backends
+    /// (e.g., LocalBackend) and topological backends (e.g., TopologicalUnifiedBackend).
+    /// The assets are treated as independent: Risk = sqrt(Σ (wᵢσᵢ)²). Use
+    /// solvePortfolioWithCovariance to account for correlations.
+    let solvePortfolioWithBackend
+        (assets: PortfolioSolver.Asset list)
+        (constraints: PortfolioSolver.Constraints)
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        (backend: IQuantumBackend option)
+        : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
+        solvePortfolioCore assets None constraints budget timeout forceMethod backend
+
+    /// Solve mean-variance Portfolio optimization with a covariance matrix of the asset returns.
+    ///
+    /// The covariance (rows and columns in asset order) is validated - square, one row per
+    /// asset, symmetric and positive semidefinite, otherwise ValidationError - and passed to
+    /// the chosen path:
+    /// - Classical: greedy by return/risk ratio; the reported Risk is sqrt(wᵀΣw).
+    /// - Quantum: QAOA on a QUBO with the full covariance (see QuantumPortfolioSolver.toQubo);
+    ///   the reported Risk is sqrt(wᵀΣw).
+    ///
+    /// Parameters:
+    ///   assets - List of assets to optimize
+    ///   covariance - Covariance matrix Σ of the asset returns
+    ///   constraints - Portfolio constraints (budget, min/max holding)
+    ///   budget - Optional budget limit for quantum execution (USD)
+    ///   timeout - Optional timeout for classical solver (milliseconds)
+    ///   forceMethod - Optional override to force specific solver method
+    ///   backend - Optional quantum backend (a forced quantum run defaults to LocalBackend)
+    let solvePortfolioWithCovariance
+        (assets: PortfolioSolver.Asset list)
+        (covariance: float[,])
+        (constraints: PortfolioSolver.Constraints)
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        (backend: IQuantumBackend option)
+        : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
+        solvePortfolioCore assets (Some covariance) constraints budget timeout forceMethod backend
+
     /// Solve Portfolio optimization using hybrid solver with automatic quantum vs classical selection
+    ///
+    /// The assets are treated as independent: Risk = sqrt(Σ (wᵢσᵢ)²). Use
+    /// solvePortfolioWithCovariance to account for correlations.
     ///
     /// Parameters:
     ///   assets - List of assets to optimize
@@ -829,7 +888,7 @@ module HybridSolver =
         (timeout: float option)
         (forceMethod: SolverMethod option)
         : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
-        solvePortfolioWithBackend assets constraints budget timeout forceMethod None
+        solvePortfolioCore assets None constraints budget timeout forceMethod None
 
 
     // ================================================================================
@@ -1111,6 +1170,21 @@ module HybridSolver =
         let solveClassical () =
             QuantumGraphColoringSolver.solveClassical problem
 
+        // A graph without edges is colored without a circuit: report it as classical
+        let quantumPathSolution
+            (result: QuantumGraphColoringSolver.GraphColoringSolution)
+            (reasoning: string)
+            (recommendation: QuantumAdvisor.Recommendation option)
+            =
+            if result.BackendName = QuantumGraphColoringSolver.NoCircuitBackendName then
+                createClassicalSolution
+                    result
+                    $"{reasoning} No circuit ran because the graph has no edges: the vertices were colored directly by the classical greedy coloring."
+                    startTime
+                    recommendation
+            else
+                createQuantumSolution result reasoning startTime recommendation
+
         match forceMethod with
         | Some Classical ->
             solveClassical ()
@@ -1130,13 +1204,7 @@ module HybridSolver =
             | Error err ->
                 Error(QuantumError.OperationError("Quantum Graph Coloring solver", QuantumResult.toString err))
             | Ok quantumResult ->
-                {
-                    Method = Quantum
-                    Result = quantumResult
-                    Reasoning = "Quantum Graph Coloring solver forced by user override."
-                    ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-                    Recommendation = None
-                }
+                quantumPathSolution quantumResult "Quantum Graph Coloring solver forced by user override." None
                 |> Ok
 
         | None ->
@@ -1184,10 +1252,9 @@ module HybridSolver =
                                     )
                                 )
                             | Ok quantumResult ->
-                                createQuantumSolution
+                                quantumPathSolution
                                     quantumResult
                                     $"{recommendation.Reasoning} Routing to quantum backend."
-                                    startTime
                                     (Some recommendation)
                                 |> Ok
 

@@ -857,3 +857,136 @@ module ReadoutErrorMitigationTests =
             | Error msg -> Assert.True(false, $"3-qubit REM should succeed: %s{msg}")
         }
         :> Task
+
+    let private unclipped =
+        ReadoutErrorMitigation.defaultConfig
+        |> ReadoutErrorMitigation.withClipNegative false
+        |> ReadoutErrorMitigation.withMinProbability 0.0
+
+    [<Fact>]
+    let ``correctReadoutErrors without clipping keeps negative quasi-probabilities unrenormalised`` () =
+        // p(1|0) = 0.05, p(0|1) = 0.25: M^-1 × (1, 0) = (0.75, -0.05) / 0.7
+        let calibration: ReadoutErrorMitigation.CalibrationMatrix =
+            {
+                Matrix = array2D [ [ 0.95; 0.25 ]; [ 0.05; 0.75 ] ]
+                Qubits = 1
+                Timestamp = DateTime.UtcNow
+                Backend = "test"
+                CalibrationShots = 100000
+            }
+
+        match ReadoutErrorMitigation.correctReadoutErrors (Map [ "0", 1000 ]) calibration unclipped with
+        | Ok corrected ->
+            Assert.Equal(2, corrected.Histogram.Count)
+            Assert.Equal(1000.0 * 0.75 / 0.7, corrected.Histogram.["0"], 9)
+            Assert.Equal(-1000.0 * 0.05 / 0.7, corrected.Histogram.["1"], 9)
+        | Error msg -> Assert.Fail msg
+
+    [<Fact>]
+    let ``Without clipping MinProbability still drops small and negative entries`` () =
+        let calibration: ReadoutErrorMitigation.CalibrationMatrix =
+            {
+                Matrix = array2D [ [ 0.95; 0.25 ]; [ 0.05; 0.75 ] ]
+                Qubits = 1
+                Timestamp = DateTime.UtcNow
+                Backend = "test"
+                CalibrationShots = 100000
+            }
+
+        let filtered =
+            ReadoutErrorMitigation.defaultConfig
+            |> ReadoutErrorMitigation.withClipNegative false
+            |> ReadoutErrorMitigation.withMinProbability 0.01
+
+        match ReadoutErrorMitigation.correctReadoutErrors (Map [ "0", 1000 ]) calibration filtered with
+        | Ok corrected ->
+            // "1" (-71.4) is dropped; "0" keeps its unrenormalised 1071.4.
+            Assert.Equal<string list>([ "0" ], corrected.Histogram |> Map.toList |> List.map fst)
+            Assert.Equal(1000.0 * 0.75 / 0.7, corrected.Histogram.["0"], 9)
+        | Error msg -> Assert.Fail msg
+
+    [<Fact>]
+    let ``Unclipped readout correction gives an unbiased parity expectation`` () =
+        // Two qubits with asymmetric readout errors (p(1|0) = 0.05, p(0|1) = 0.25 on qubit 0).
+        let p10, p01 = 0.25, 0.05
+        let dimension = 4
+        let m = Array2D.zeroCreate dimension dimension
+
+        for j in 0 .. dimension - 1 do
+            let flip = j ^^^ 1
+            let pFlip = if j &&& 1 = 1 then p10 else p01
+            m.[j, j] <- m.[j, j] + 1.0 - pFlip
+            m.[flip, j] <- m.[flip, j] + pFlip
+
+        let calibration: ReadoutErrorMitigation.CalibrationMatrix =
+            {
+                Matrix = m
+                Qubits = 2
+                Timestamp = DateTime.UtcNow
+                Backend = "test"
+                CalibrationShots = 100000
+            }
+
+        let strategy: ErrorMitigationStrategy.RecommendedStrategy =
+            {
+                Primary = ErrorMitigationStrategy.ReadoutErrorMitigation(Some calibration)
+                Fallback = None
+                Reasoning = "test"
+                EstimatedCostMultiplier = 1.0
+                EstimatedAccuracy = 1.0
+            }
+
+        let truth = [| 0.96; 0.005; 0.005; 0.03 |]
+
+        let noisy =
+            Array.init dimension (fun i -> Array.init dimension (fun j -> m.[i, j] * truth.[j]) |> Array.sum)
+
+        let parity (i: int) =
+            if Numerics.BitOperations.PopCount(uint32 i) % 2 = 0 then
+                1.0
+            else
+                -1.0
+
+        let exact = truth |> Array.mapi (fun i p -> p * parity i) |> Array.sum
+        let cumulative = noisy |> Array.scan (+) 0.0 |> Array.tail
+        let rng = Random 5
+        let repetitions, shots = 2000, 1000
+
+        let estimates =
+            Array.init repetitions (fun _ ->
+                let counts = Array.zeroCreate dimension
+
+                for _ in 1..shots do
+                    let u = rng.NextDouble()
+
+                    let k =
+                        defaultArg (cumulative |> Array.tryFindIndex (fun c -> u < c)) (dimension - 1)
+
+                    counts.[k] <- counts.[k] + 1
+
+                let histogram =
+                    counts
+                    |> Array.mapi (fun i c -> Convert.ToString(i, 2).PadLeft(2, '0'), c)
+                    |> Array.filter (fun (_, c) -> c > 0)
+                    |> Map.ofArray
+
+                match ErrorMitigationStrategy.applyStrategyWith unclipped histogram strategy with
+                | Ok r ->
+                    let total = r.Histogram |> Map.toSeq |> Seq.sumBy snd
+                    Assert.Equal(float shots, total, 6)
+
+                    (r.Histogram
+                     |> Map.toSeq
+                     |> Seq.sumBy (fun (key, c) -> c * parity (Convert.ToInt32(key, 2))))
+                    / total
+                | Error e -> failwith e.Message)
+
+        let mean = Array.average estimates
+
+        let standardError =
+            sqrt ((estimates |> Array.averageBy (fun x -> (x - mean) ** 2.0)) / float repetitions)
+
+        Assert.True(
+            abs (mean - exact) < 4.0 * standardError,
+            $"<Z0 Z1>: mitigated mean {mean} vs exact {exact} ({(mean - exact) / standardError:F1} standard errors)"
+        )

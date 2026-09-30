@@ -687,3 +687,251 @@ module TaskSchedulingTests =
             | Ok _ -> Assert.Fail("8 tasks with a 5-task chain need 40 qubits; the local simulator cannot hold them")
         }
         :> Task
+
+    // ============================================================================
+    // TEST: Resource availability windows and earliest starts
+    // ============================================================================
+
+    let private windowedResource (id: string) (windows: (float * float) list) : Resource<unit> =
+        let single: Resource<unit> =
+            resource {
+                resourceId id
+                capacity 1.0
+            }
+
+        { single with
+            AvailableWindows = windows
+        }
+
+    [<Fact>]
+    let ``Classical solver starts a task in the earliest availability window that fits`` () =
+        let specialistTask =
+            scheduledTask {
+                taskId "Review"
+                duration (minutes 90.0)
+                requires "Specialist" 1.0
+            }
+
+        let problem =
+            scheduling {
+                tasks [ specialistTask ]
+                // The 60-minute morning window is too short for a 90-minute task
+                resources [ windowedResource "Specialist" [ (0.0, 60.0); (480.0, 960.0) ] ]
+                objective MinimizeMakespan
+            }
+
+        match ClassicalSolver.solve problem with
+        | Error err -> Assert.Fail($"Scheduling failed: %A{err}")
+        | Ok solution ->
+            let review = solution.Assignments |> List.exactlyOne
+            Assert.Equal(480.0, review.StartTime.TotalMinutes)
+            Assert.Equal(570.0, review.EndTime.TotalMinutes)
+
+    [<Fact>]
+    let ``Classical solver moves a dependent task into the resource window`` () =
+        let prep =
+            scheduledTask {
+                taskId "Prep"
+                duration (minutes 30.0)
+            }
+
+        let review =
+            scheduledTask {
+                taskId "Review"
+                duration (minutes 60.0)
+                after "Prep"
+                requires "Specialist" 1.0
+            }
+
+        let problem =
+            scheduling {
+                tasks [ prep; review ]
+                resources [ windowedResource "Specialist" [ (0.0, 60.0); (120.0, 240.0) ] ]
+                objective MinimizeMakespan
+            }
+
+        match ClassicalSolver.solve problem with
+        | Error err -> Assert.Fail($"Scheduling failed: %A{err}")
+        | Ok solution ->
+            // Ready at 30, but 30-90 leaves the first window; the next window opens at 120
+            let r = solution.Assignments |> List.find (fun a -> a.TaskId = "Review")
+            Assert.Equal(120.0, r.StartTime.TotalMinutes)
+
+    [<Fact>]
+    let ``Classical solver reports a task that fits in no availability window`` () =
+        let longTask =
+            scheduledTask {
+                taskId "Long"
+                duration (minutes 120.0)
+                requires "Specialist" 1.0
+            }
+
+        let problem =
+            scheduling {
+                tasks [ longTask ]
+                resources [ windowedResource "Specialist" [ (0.0, 60.0) ] ]
+                objective MinimizeMakespan
+            }
+
+        match ClassicalSolver.solve problem with
+        | Error(QuantumError.ValidationError(field, reason)) ->
+            Assert.Equal("AvailableWindows", field)
+            Assert.Contains("Long", reason)
+        | other -> Assert.Fail($"expected an availability-window validation error, got %A{other}")
+
+    [<Fact>]
+    let ``QUBO forbids start slots outside availability windows and before earliest start`` () =
+        // 4 slots of 60 minutes; variables are task-major (A: 0-3, B: 4-7)
+        let taskA =
+            scheduledTask {
+                taskId "A"
+                duration (minutes 60.0)
+                requires "R" 1.0
+            }
+
+        let taskB =
+            scheduledTask {
+                taskId "B"
+                duration (minutes 60.0)
+                earliestStart (minutes 60.0)
+            }
+
+        let problem =
+            scheduling {
+                tasks [ taskA; taskB ]
+                // A may start at 120 or 180 only (it must end by 240)
+                resources [ windowedResource "R" [ (120.0, 240.0) ] ]
+                objective MinimizeMakespan
+            }
+
+        let slots, slotMinutes = 4, 60.0
+
+        let forbidden =
+            FSharp.Azure.Quantum.TaskScheduling.QuboEncoding.forbiddenStartVariables problem slots slotMinutes
+
+        Assert.Equal<Set<int>>(Set.ofList [ 0; 1; 4 ], forbidden)
+
+        match FSharp.Azure.Quantum.TaskScheduling.QuboEncoding.toQubo problem slots slotMinutes with
+        | Error err -> Assert.Fail($"toQubo failed: %A{err}")
+        | Ok qubo ->
+            // The lowest-energy one-hot assignment must use allowed slots only
+            let energy (bits: int[]) =
+                qubo.Q
+                |> Map.fold (fun acc (i, j) w -> acc + w * float (bits.[i] * bits.[j])) 0.0
+
+            let best =
+                [
+                    for a in 0 .. slots - 1 do
+                        for b in 0 .. slots - 1 do
+                            let bits = Array.zeroCreate qubo.NumVariables
+                            bits.[a] <- 1
+                            bits.[slots + b] <- 1
+                            yield (a, b), energy bits
+                ]
+                |> List.minBy snd
+                |> fst
+
+            Assert.Equal((2, 1), best)
+
+    [<Fact>]
+    let ``solveQuantum schedules a task inside its resource availability window`` () =
+        task {
+            let taskA =
+                scheduledTask {
+                    taskId "A"
+                    duration (minutes 10.0)
+                }
+
+            let taskB =
+                scheduledTask {
+                    taskId "B"
+                    duration (minutes 10.0)
+                    requires "R" 1.0
+                }
+
+            // 2 tasks x 4 slots of 10 minutes = 8 qubits
+            let problem =
+                scheduling {
+                    tasks [ taskA; taskB ]
+                    resources [ windowedResource "R" [ (20.0, 30.0) ] ]
+                    objective MinimizeMakespan
+                    timeHorizon (minutes 40.0)
+                }
+
+            let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            | Error msg -> Assert.Fail($"solveQuantum failed: %A{msg}")
+            | Ok solution ->
+                let b = solution.Assignments |> List.find (fun x -> x.TaskId = "B")
+                Assert.Equal(20.0, b.StartTime.TotalMinutes, 6)
+                Assert.Equal(30.0, b.EndTime.TotalMinutes, 6)
+        }
+        :> Task
+
+    [<Fact>]
+    let ``solveQuantum honours earliestStart`` () =
+        task {
+            let taskA =
+                scheduledTask {
+                    taskId "A"
+                    duration (minutes 10.0)
+                    earliestStart (minutes 20.0)
+                }
+
+            let taskB =
+                scheduledTask {
+                    taskId "B"
+                    duration (minutes 10.0)
+                }
+
+            // 2 tasks x 4 slots of 10 minutes = 8 qubits
+            let problem =
+                scheduling {
+                    tasks [ taskA; taskB ]
+                    resources []
+                    objective MinimizeMakespan
+                    timeHorizon (minutes 40.0)
+                }
+
+            let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            | Error msg -> Assert.Fail($"solveQuantum failed: %A{msg}")
+            | Ok solution ->
+                let a = solution.Assignments |> List.find (fun x -> x.TaskId = "A")
+
+                Assert.True(
+                    a.StartTime.TotalMinutes >= 20.0 - 1e-6,
+                    $"A starts at %.1f{a.StartTime.TotalMinutes} min, before its earliest start of 20 min"
+                )
+        }
+        :> Task
+
+    [<Fact>]
+    let ``solveQuantum refuses a task no grid slot can place`` () =
+        task {
+            let late =
+                scheduledTask {
+                    taskId "Late"
+                    duration (minutes 10.0)
+                    earliestStart (minutes 500.0)
+                }
+
+            let problem =
+                scheduling {
+                    tasks [ late ]
+                    resources []
+                    objective MinimizeMakespan
+                    timeHorizon (minutes 40.0)
+                }
+
+            let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+            match! solveQuantum backend problem |> Async.StartImmediateAsTask with
+            | Error(QuantumError.ValidationError(field, reason)) ->
+                Assert.Equal("AvailableWindows", field)
+                Assert.Contains("Late", reason)
+            | other -> Assert.Fail($"expected a validation error for an unplaceable task, got %A{other}")
+        }
+        :> Task

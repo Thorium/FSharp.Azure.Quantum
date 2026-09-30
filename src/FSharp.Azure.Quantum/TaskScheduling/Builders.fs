@@ -223,7 +223,8 @@ module Builders =
         [<CustomOperation("costPerUnit")>]
         member _.CostPerUnit(resource: Resource<'T>, cost: float) = { resource with CostPerUnit = cost }
 
-        /// Set availability window
+        /// Set availability window (start, end) in minutes from schedule start;
+        /// tasks that require this resource are scheduled inside it
         [<CustomOperation("availableWindow")>]
         member _.AvailableWindow(resource: Resource<'T>, startTime: float, endTime: float) =
             { resource with

@@ -91,6 +91,9 @@ module TreeSearch =
 
             /// All solutions found (for debugging)
             AllSolutions: int list
+
+            /// Grover iterations the search ran
+            GroverIterations: int
         }
 
     // ========================================================================
@@ -272,6 +275,20 @@ module TreeSearch =
     // QUANTUM TREE SEARCH EXECUTION
     // ========================================================================
 
+    /// Largest explicit Grover iteration count accepted. The optimum is π/4·√(N/M), about 200
+    /// for the widest (16-qubit) search.
+    [<Literal>]
+    let MaxGroverIterations = 1000
+
+    /// Shots per Grover run when the caller does not set them, on every backend.
+    [<Literal>]
+    let DefaultShots = 100
+
+    /// Solution threshold (fraction of shots) when the caller does not set one. Grover.search
+    /// lowers it to 1/N, since every candidate is verified against the oracle.
+    [<Literal>]
+    let DefaultSolutionThreshold = 0.05
+
     /// Execute tree search using Grover's algorithm with LAZY evaluation
     ///
     /// Finds best move in game tree using quantum amplitude amplification.
@@ -282,13 +299,15 @@ module TreeSearch =
     /// - config: Tree search configuration
     /// - backend: IQuantumBackend instance
     /// - topPercentile: Fraction of best moves to mark (default: 0.2 = top 20%)
-    /// - numShots: Optional number of measurement shots (None = auto-scale)
-    /// - solutionThreshold: Optional threshold for solution detection (None = auto-scale)
-    /// - successThreshold: Optional threshold for success probability (None = auto-scale)
+    /// - numShots: Optional number of measurement shots (None = DefaultShots)
+    /// - solutionThreshold: Optional threshold for solution detection (None = DefaultSolutionThreshold)
+    /// - successThreshold: Optional threshold for success probability (None = Grover.defaultConfig)
     /// - maxPaths: Optional limit on search space size (None = use full tree up to 2^16)
+    /// - groverIterations: Grover iterations to run (None = Grover's unknown-M schedule, from 1);
+    ///   Some k outside 1..MaxGroverIterations is an Error
     ///
     /// Returns: TreeSearchResult with best move
-    let searchGameTree<'T>
+    let searchGameTreeWithIterations<'T>
         (rootState: 'T)
         (config: TreeSearchConfig<'T>)
         (backend: IQuantumBackend)
@@ -297,19 +316,35 @@ module TreeSearch =
         (solutionThreshold: float option)
         (successThreshold: float option)
         (maxPaths: int option)
+        (groverIterations: int option)
         : Result<TreeSearchResult, QuantumError> =
 
         result {
+            do!
+                match groverIterations with
+                | Some k when k < 1 ->
+                    Error(QuantumError.ValidationError("MaxIterations", $"must be at least 1, got {k}"))
+                | Some k when k > MaxGroverIterations ->
+                    Error(
+                        QuantumError.ValidationError(
+                            "MaxIterations",
+                            $"must be at most {MaxGroverIterations}, got {k} (the optimum for a 16-qubit search is about 200)"
+                        )
+                    )
+                | _ -> Ok()
+
             // Step 1: Calculate score threshold from top percentile
             let sampledThreshold = calculateScoreThreshold rootState config topPercentile 100
 
+            // Mark exactly the sampled top percentile. Lowering the bar below it marks most of
+            // the tree, and once more than half the search space is marked a Grover iteration
+            // lowers the probability of a marked path below uniform sampling.
             let scoreThreshold =
                 if sampledThreshold = 0.0 then
                     // Fallback: use negative infinity to accept any valid path
                     Double.NegativeInfinity
                 else
-                    // Use the lower of sampled or a percentile-adjusted value (more forgiving)
-                    min sampledThreshold (sampledThreshold * 0.5)
+                    sampledThreshold
 
             // Step 2: Create LAZY tree search oracle (no classical enumeration!)
             let! oracle = createTreeSearchOracleLazy rootState config scoreThreshold maxPaths
@@ -322,54 +357,21 @@ module TreeSearch =
                 | Some limit -> min limit fullSearchSpace
                 | None -> fullSearchSpace
 
-            let numSolutions = max 1 (int (topPercentile * float searchSpaceSize))
-
-            // Calculate optimal iterations
-            let optimalIters =
-                let n = float searchSpaceSize
-                let m = float numSolutions
-                int (Math.PI / 4.0 * Math.Sqrt(n / m))
-
-            let numIterations = max 1 optimalIters
-
-            // Step 4: Determine shots and thresholds (use provided or auto-scale)
-            let backendTypeName = backend.GetType().Name
-
-            let actualShots =
-                numShots
-                |> Option.defaultWith (fun () -> if backendTypeName.Contains "Local" then 50 else 250 // IonQ, Rigetti, or other cloud backends
-                )
-
-            let actualSolutionThreshold =
-                solutionThreshold
-                |> Option.defaultWith (fun () ->
-                    if backendTypeName.Contains "Local" then
-                        0.05 // 5%
-                    else
-                        0.05 // 5%
-                )
-
-            let actualSuccessThreshold =
-                successThreshold
-                |> Option.defaultWith (fun () ->
-                    if backendTypeName.Contains "Local" then
-                        0.50 // 50%
-                    else
-                        0.60 // 60%
-                )
-
-            // Step 5: Execute Grover search with new unified API
+            // Step 4: Execute Grover search. The number of marked paths is not known: the
+            // threshold comes from a sample, ties at it are all marked, and illegal paths are
+            // not. So unless the caller fixes the count, Grover's unknown-M schedule chooses
+            // it, starting at one iteration and stopping at the first verified solution.
             let groverConfig =
                 { Grover.defaultConfig with
-                    Iterations = Some numIterations
-                    Shots = actualShots
-                    SolutionThreshold = actualSolutionThreshold
-                    SuccessThreshold = actualSuccessThreshold
+                    Iterations = groverIterations
+                    Shots = numShots |> Option.defaultValue DefaultShots
+                    SolutionThreshold = solutionThreshold |> Option.defaultValue DefaultSolutionThreshold
+                    SuccessThreshold = successThreshold |> Option.defaultValue Grover.defaultConfig.SuccessThreshold
                 }
 
             let! searchResult = Grover.search oracle backend groverConfig
 
-            // Step 6: Decode best move from result
+            // Step 5: Decode best move from result
             let! bestEncoded =
                 match List.tryHead searchResult.Solutions with
                 | None -> Error(QuantumError.OperationError("TreeSearch", "no solution found"))
@@ -383,7 +385,7 @@ module TreeSearch =
 
             // Calculate quantum advantage
             let classicalComplexity = searchSpaceSize
-            let quantumComplexity = numIterations // Grover iterations
+            let quantumComplexity = searchResult.Iterations
             let quantumAdvantage = quantumComplexity < classicalComplexity
 
             return
@@ -393,14 +395,38 @@ module TreeSearch =
                     NodesExplored = searchSpaceSize
                     QuantumAdvantage = quantumAdvantage
                     AllSolutions = searchResult.Solutions
+                    GroverIterations = searchResult.Iterations
                 }
         }
+
+    /// Execute tree search using Grover's algorithm with the optimal iteration count.
+    /// Same as searchGameTreeWithIterations with groverIterations = None.
+    let searchGameTree<'T>
+        (rootState: 'T)
+        (config: TreeSearchConfig<'T>)
+        (backend: IQuantumBackend)
+        (topPercentile: float)
+        (numShots: int option)
+        (solutionThreshold: float option)
+        (successThreshold: float option)
+        (maxPaths: int option)
+        : Result<TreeSearchResult, QuantumError> =
+        searchGameTreeWithIterations
+            rootState
+            config
+            backend
+            topPercentile
+            numShots
+            solutionThreshold
+            successThreshold
+            maxPaths
+            None
 
     // ========================================================================
     // CONVENIENCE FUNCTIONS
     // ========================================================================
 
-    /// Search with default top percentile (20%) and auto-scaled parameters
+    /// Search with default top percentile (20%) and default shots and thresholds
     let searchGameTreeDefault<'T>
         (rootState: 'T)
         (config: TreeSearchConfig<'T>)

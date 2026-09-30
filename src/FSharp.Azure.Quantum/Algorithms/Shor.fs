@@ -394,6 +394,72 @@ module Shor =
             ModularMultiplications: int
         }
 
+    /// The modular-exponentiation QPE circuit submitted as one job, for a backend that runs
+    /// complete circuits only. Fully expanded to gates (submission refuses algorithm intents),
+    /// the same circuit `buildModExpQpe` gives the gate-by-gate route, and started from |0…0⟩
+    /// as a job always is; the circuit prepares the target register itself.
+    let private submitModExpCircuit
+        (baseNum: int)
+        (modulus: int)
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        : Result<QuantumState, QuantumError> =
+        ModularExponentiationCircuit.buildModExpQpeAsGates baseNum modulus countingQubits false
+        |> Result.bind (
+            UnifiedBackend.submitAsCircuit backend (ModularExponentiationCircuit.totalQubitsFor modulus countingQubits)
+        )
+
+    /// Final state of the modular-exponentiation QPE circuit: gate by gate where the backend
+    /// allows it, one submitted circuit where it refuses incremental application. Every other
+    /// error surfaces unchanged.
+    let private modExpCircuitState
+        (baseNum: int)
+        (modulus: int)
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        : Result<QuantumState, QuantumError> =
+        result {
+            // Hadamards on the counting register, target prepared in |1⟩, the controlled
+            // modular multiplications and the inverse QFT come from the shared lowering, so
+            // this circuit has one construction. `applySwaps = false` leaves the counting
+            // register bit-reversed; `readPhase` undoes that classically.
+            let! ops =
+                ModularExponentiationCircuit.buildModExpQpe baseNum modulus countingQubits false
+
+            let totalQubits = ModularExponentiationCircuit.totalQubitsFor modulus countingQubits
+
+            let! initialState = backend.InitializeState totalQubits
+
+            match UnifiedBackend.applySequence backend ops initialState with
+            | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                return! submitModExpCircuit baseNum modulus countingQubits backend
+            | other -> return! other
+        }
+
+    /// One QPE shot: measure the counting register of the period-finding circuit's final
+    /// state and read the phase. ApplySwaps is false on every route, so the inverse QFT
+    /// leaves the counting register bit-reversed and it is undone here rather than in gates.
+    ///
+    /// Each call is a fresh sample of the same final state, so retries take further shots of
+    /// one run: on a whole-circuit backend that is one job, not one job per attempt.
+    let private readPhase (countingQubits: int) (totalQubits: int) (finalState: QuantumState) : ModExpPhaseResult =
+        let measurements = UnifiedBackend.measureState finalState 1
+
+        let measurementOutcome =
+            measurements.[0]
+            |> Array.take countingQubits
+            |> Array.rev
+            |> Array.indexed
+            |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+
+        {
+            EstimatedPhase = float measurementOutcome / float (1 <<< countingQubits)
+            MeasurementOutcome = measurementOutcome
+            CountingQubits = countingQubits
+            TotalQubits = totalQubits
+            ModularMultiplications = countingQubits
+        }
+
     /// Estimate the phase of modular exponentiation U_a: |x⟩ → |ax mod N⟩
     /// using full Beauregard (2003) quantum arithmetic circuits.
     ///
@@ -457,50 +523,8 @@ module Shor =
                     )
                 )
             else
-                result {
-                    // Steps 1-5 — Hadamards on the counting register, target prepared in |1⟩,
-                    // the controlled modular multiplications, and the inverse QFT — come from
-                    // the shared lowering rather than being assembled here.
-                    //
-                    // They used to be built inline, which meant this circuit had two
-                    // constructions: this one and ModularExponentiationCircuit's. They agreed,
-                    // but agreeing is not the same as being one thing, and every other
-                    // duplicate in this area has eventually drifted. `applySwaps = false`
-                    // leaves the counting register bit-reversed, undone classically below.
-                    let! ops =
-                        ModularExponentiationCircuit.buildModExpQpe baseNum modulus countingQubits false
-
-                    let! initialState = backend.InitializeState totalQubits
-                    let! stateAfterQft = UnifiedBackend.applySequence backend ops initialState
-
-                    // Step 6: Measure counting register and extract phase.
-                    // We consume exactly one shot (measurements.[0]); QPE is inherently probabilistic
-                    // and findPeriodQuantum already retries on failure, so sampling 1000 full states
-                    // and discarding 999 was pure waste.
-                    let measurements = UnifiedBackend.measureState stateAfterQft 1
-
-                    // Extract counting register bits (qubits 0..c-1)
-                    // Inverse QFT without bit-reversal swaps produces bit-reversed output;
-                    // reverse classically to get canonical order.
-                    let measuredCountingBits =
-                        measurements.[0] |> Array.take countingQubits |> Array.rev // undo bit-reversal (no swaps applied)
-
-                    let measurementOutcome =
-                        measuredCountingBits
-                        |> Array.indexed
-                        |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
-
-                    let estimatedPhase = float measurementOutcome / float (1 <<< countingQubits)
-
-                    return
-                        {
-                            EstimatedPhase = estimatedPhase
-                            MeasurementOutcome = measurementOutcome
-                            CountingQubits = countingQubits
-                            TotalQubits = totalQubits
-                            ModularMultiplications = countingQubits
-                        }
-                }
+                modExpCircuitState baseNum modulus countingQubits backend
+                |> Result.map (readPhase countingQubits totalQubits)
     // ========================================================================
     // INTENT -> PLAN -> EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
@@ -571,45 +595,41 @@ module Shor =
             else
                 Ok(ShorPeriodFindingPlan.ExecuteViaModExpCircuit(a, n, countingQubits))
 
-    /// Run a period-finding plan and return the estimated phase.
+    /// Run a period-finding plan once: the final state, its counting-register width and its
+    /// total width. Route order: the native intent where the plan chose it, otherwise the
+    /// circuit gate by gate; either one refused as incremental application falls back to the
+    /// whole circuit submitted as one job. Every other error surfaces unchanged.
     let private executePeriodFindingPlan
         (backend: IQuantumBackend)
         (plan: ShorPeriodFindingPlan)
-        : Result<ModExpPhaseResult, QuantumError> =
+        : Result<QuantumState * int * int, QuantumError> =
 
         match plan with
         | ShorPeriodFindingPlan.ExecuteViaModExpCircuit(a, n, countingQubits) ->
-            estimateModExpPhase a n countingQubits backend
+            modExpCircuitState a n countingQubits backend
+            |> Result.map (fun state ->
+                state, countingQubits, ModularExponentiationCircuit.totalQubitsFor n countingQubits)
 
         | ShorPeriodFindingPlan.ExecuteNatively qpeIntent ->
             result {
                 let totalQubits = qpeIntent.CountingQubits + qpeIntent.TargetQubits
                 let! initialState = backend.InitializeState totalQubits
 
-                let! preparedState =
+                match
                     backend.ApplyOperation (QuantumOperation.Algorithm(AlgorithmOperation.QPE qpeIntent)) initialState
+                with
+                | Ok preparedState -> return (preparedState, qpeIntent.CountingQubits, totalQubits)
+                | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                    match qpeIntent.Unitary with
+                    | QpeUnitary.ModularExponentiation(a, n) ->
+                        let! submitted = submitModExpCircuit a n qpeIntent.CountingQubits backend
 
-                let measurements = UnifiedBackend.measureState preparedState 1
-
-                let countingBits = measurements.[0] |> Array.take qpeIntent.CountingQubits
-
-                // ApplySwaps is false above, so the inverse QFT leaves the counting
-                // register bit-reversed and it is undone here rather than in gates.
-                let canonicalBits = Array.rev countingBits
-
-                let measurementOutcome =
-                    canonicalBits
-                    |> Array.indexed
-                    |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
-
-                return
-                    {
-                        EstimatedPhase = float measurementOutcome / float (1 <<< qpeIntent.CountingQubits)
-                        MeasurementOutcome = measurementOutcome
-                        CountingQubits = qpeIntent.CountingQubits
-                        TotalQubits = totalQubits
-                        ModularMultiplications = qpeIntent.CountingQubits
-                    }
+                        return
+                            (submitted,
+                             qpeIntent.CountingQubits,
+                             ModularExponentiationCircuit.totalQubitsFor n qpeIntent.CountingQubits)
+                    | _ -> return! Error e
+                | Error e -> return! Error e
             }
 
     // ========================================================================
@@ -640,8 +660,9 @@ module Shor =
     /// r satisfying a^r ≡ 1 (mod N). Counting qubits are clamped so the circuit fits the
     /// simulator's qubit budget.
     ///
-    /// The plan is made once and reused across attempts: which backend path runs cannot
-    /// change between shots, only the measurement outcome does.
+    /// The plan is made and run once, and each attempt is a further shot of that run: which
+    /// backend path runs cannot change between shots, only the measurement outcome does, and
+    /// on a backend that runs complete circuits one run is one job.
     let findPeriodQuantum
         (a: int)
         (n: int)
@@ -654,8 +675,8 @@ module Shor =
         if maxCounting < registerBitsFor n then
             // With fewer counting qubits than register bits the phase grid 2^c < N, so the
             // continued-fraction step can only ever return the dyadic denominator 2^c — the
-            // retries below would burn maxAttempts full-width simulations and then fail
-            // anyway (for any period that is not a power of two ≤ 2^c). Fail fast instead.
+            // circuit would run at full width and every retry would then fail anyway (for
+            // any period that is not a power of two ≤ 2^c). Fail fast instead.
             Error(unfittableCircuitError n)
         else
 
@@ -671,29 +692,31 @@ module Shor =
                         CountingQubits = countingQubits
                     }
 
-            let rec attempt tries =
-                match periodFindingPlan |> Result.bind (executePeriodFindingPlan backend) with
-                | Error e -> Error e
-                | Ok phaseResult ->
-                    match continuedFractionConvergent phaseResult.EstimatedPhase n with
-                    | Some(_, r) when r > 0 && r < n && modPow a r n = 1 ->
-                        Ok
-                            {
-                                Period = r
-                                Base = a
-                                PhaseEstimate = phaseResult.EstimatedPhase
-                                Attempts = tries
-                            }
-                    | _ when tries < maxAttempts -> attempt (tries + 1)
-                    | _ ->
-                        Error(
-                            QuantumError.OperationError(
-                                "Period finding",
-                                $"QPE did not yield a valid period for a={a}, N={n} within {maxAttempts} attempts"
-                            )
-                        )
+            let rec attempt (run: QuantumState * int * int) tries =
+                let (finalState, countingQubits, totalQubits) = run
+                let phaseResult = readPhase countingQubits totalQubits finalState
 
-            attempt 1
+                match continuedFractionConvergent phaseResult.EstimatedPhase n with
+                | Some(_, r) when r > 0 && r < n && modPow a r n = 1 ->
+                    Ok
+                        {
+                            Period = r
+                            Base = a
+                            PhaseEstimate = phaseResult.EstimatedPhase
+                            Attempts = tries
+                        }
+                | _ when tries < maxAttempts -> attempt run (tries + 1)
+                | _ ->
+                    Error(
+                        QuantumError.OperationError(
+                            "Period finding",
+                            $"QPE did not yield a valid period for a={a}, N={n} within {maxAttempts} attempts"
+                        )
+                    )
+
+            periodFindingPlan
+            |> Result.bind (executePeriodFindingPlan backend)
+            |> Result.bind (fun run -> attempt run 1)
 
     /// Find the period of a^x mod N by QPE on modular exponentiation.
     ///
@@ -749,6 +772,13 @@ module Shor =
         {
             Number = n
             Factors = factors
+            // Factors with a measured period came from period finding; factors without one were
+            // settled before any circuit ran.
+            FactorSource =
+                match factors, period with
+                | Some _, Some _ -> FactorSource.QuantumPeriodFinding
+                | Some _, None -> FactorSource.ClassicalPreprocessing
+                | None, _ -> FactorSource.NotFactored
             PeriodResult = period
             Success = success
             Message = message
@@ -817,7 +847,17 @@ module Shor =
             Ok(ShorPlan.ReturnResult(mkResult n None None false "Number too small (must be ≥ 4)" config))
         // Check if N is even (trivial case).
         elif isEven n then
-            Ok(ShorPlan.ReturnResult(mkResult n (Some(2, n / 2)) None true "Number is even (trivial factor 2)" config))
+            Ok(
+                ShorPlan.ReturnResult(
+                    mkResult
+                        n
+                        (Some(2, n / 2))
+                        None
+                        true
+                        "Found classically in preprocessing: N is even (factor 2); no quantum period finding ran"
+                        config
+                )
+            )
         // Check if N is prime (no factors).
         elif isPrime n then
             Ok(ShorPlan.ReturnResult(mkResult n None None false "Number is prime (no non-trivial factors)" config))
@@ -834,7 +874,7 @@ module Shor =
                             (Some(gcdResult, n / gcdResult))
                             None
                             true
-                            $"Lucky! gcd({a}, {n}) = {gcdResult} (non-trivial factor)"
+                            $"Found classically in preprocessing: gcd({a}, {n}) = {gcdResult} is a non-trivial factor; no quantum period finding ran"
                             config
                     )
                 )
@@ -892,7 +932,7 @@ module Shor =
                                 (Some(g, modulus / g))
                                 None
                                 true
-                                $"Lucky! gcd({a}, {modulus}) = {g} (non-trivial factor)"
+                                $"Found classically in preprocessing: gcd({a}, {modulus}) = {g} is a non-trivial factor; no quantum period finding ran"
                                 config
                         )
                     else

@@ -139,20 +139,21 @@ module QaoaSimulator =
 
     /// Apply mixer Hamiltonian layer for QAOA
     ///
-    /// Standard mixer: B = Σ Xᵢ
-    /// Applies e^(-iβB) ≈ Π Rx(2β)
+    /// Standard mixer: B = -Σ Xᵢ (ground state |+⟩^n, the initial state)
+    /// Applies e^(-iβB) = Π Rx(-2β)
     ///
     /// This drives transitions between computational basis states,
-    /// exploring the solution space.
+    /// exploring the solution space. With this sign, positive (γ, β) minimise the
+    /// cost, the same convention as Core.QaoaCircuit.
     ///
     /// Parameters:
     /// - beta: QAOA angle parameter for mixer layer
     /// - state: Current quantum state
     let applyMixerLayer (beta: float) (state: StateVector.StateVector) : StateVector.StateVector =
         let numQubits = StateVector.numQubits state
-        let angle = 2.0 * beta
+        let angle = -2.0 * beta
 
-        // Apply Rx(2*beta) to each qubit
+        // Apply Rx(-2*beta) to each qubit
         [ 0 .. numQubits - 1 ]
         |> List.fold (fun currentState i -> Gates.applyRx i angle currentState) state
 
@@ -164,7 +165,7 @@ module QaoaSimulator =
     ///
     /// One QAOA layer consists of:
     /// 1. Cost Hamiltonian evolution: e^(-iγC)
-    /// 2. Mixer Hamiltonian evolution: e^(-iβB)
+    /// 2. Mixer Hamiltonian evolution: e^(-iβB), B = -Σ Xᵢ
     let applyQaoaLayer
         (gamma: float)
         (beta: float)

@@ -38,10 +38,16 @@ module MagicStateDistillation =
     /// Result of distillation protocol
     type DistillationResult =
         {
-            /// Purified magic state (higher fidelity)
+            /// Output magic state. When Accepted, its fidelity is the distilled fidelity;
+            /// when rejected, it keeps the average input fidelity (a rejected round
+            /// improves nothing, and distillIterative discards it).
             PurifiedState: MagicState
 
-            /// Acceptance probability (some protocols reject bad states)
+            /// Whether the syndrome check passed (all syndrome bits zero)
+            Accepted: bool
+
+            /// 1 - 35 p_in when Accepted, 0 when rejected. This is not the chance of
+            /// passing the syndrome check, which is (1 - p_in)^14.
             AcceptanceProbability: float
 
             /// Number of input states consumed
@@ -128,14 +134,16 @@ module MagicStateDistillation =
     /// Uses a [[15,1,3]] quantum error correcting code.
     ///
     /// Error suppression: p_out ≈ 35 * p_in^3
-    /// Acceptance probability: ~1 - 35*p_in (rejects if errors detected)
+    /// Syndrome check: 14 bits, each set with probability p_in (the average input error
+    /// rate), so a batch passes with probability (1 - p_in)^14
     ///
     /// Steps:
     /// 1. Prepare 15 noisy |T⟩ states
     /// 2. Encode into [[15,1,3]] code
     /// 3. Measure syndrome (detect errors)
     /// 4. If syndrome = 0: Accept purified state
-    ///    If syndrome ≠ 0: Reject (errors detected)
+    ///    If syndrome ≠ 0: Reject (errors detected): Accepted = false and the
+    ///    returned state keeps the average input fidelity
     let distill15to1 (random: Random) (inputStates: MagicState list) : TopologicalResult<DistillationResult> =
 
         // Validate inputs using pattern matching (idiomatic F#)
@@ -175,16 +183,23 @@ module MagicStateDistillation =
                 else
                     0.0
 
-            // Create purified state (safe - we matched firstState above)
+            // A rejected round purifies nothing: it keeps the input fidelity.
+            let resultFidelity =
+                if allSyndromesZero then
+                    outputFidelity
+                else
+                    avgInputFidelity
+
             let purifiedState =
                 { firstState with
-                    Fidelity = outputFidelity
-                    ErrorRate = 1.0 - outputFidelity
+                    Fidelity = resultFidelity
+                    ErrorRate = 1.0 - resultFidelity
                 }
 
             Ok
                 {
                     PurifiedState = purifiedState
+                    Accepted = allSyndromesZero
                     AcceptanceProbability = max 0.0 (min 1.0 acceptanceProbability)
                     InputStatesConsumed = 15
                     Syndromes = syndromes
@@ -200,6 +215,11 @@ module MagicStateDistillation =
     /// - Round 1: 15 noisy states → 1 state (p^3 suppression)
     /// - Round 2: 15 round-1 states → 1 state (p^9 suppression)
     /// - Round 3: 15 round-2 states → 1 state (p^27 suppression)
+    ///
+    /// Each round distils every full batch of 15 states and keeps only the outputs
+    /// of accepted batches; states left over after the last full batch are unused.
+    /// Supplying more than 15^rounds states lets the protocol absorb rejections.
+    /// Returns an Error when too few batches pass to complete the remaining rounds.
     let distillIterative
         (random: Random)
         (rounds: int)
@@ -217,7 +237,7 @@ module MagicStateDistillation =
             if states.Length < requiredStates then
                 TopologicalResult.validationError
                     "states"
-                    $"Need {requiredStates} initial states for {r} rounds, got {states.Length}"
+                    $"Need at least {requiredStates} initial states for {r} rounds, got {states.Length}; a batch passes the syndrome check with probability (1 - p)^14, so a reliable run needs several times more"
             else
                 // Recursively apply distillation
                 let rec distillRounds (roundNum: int) (stateList: MagicState list) : TopologicalResult<MagicState> =
@@ -225,18 +245,29 @@ module MagicStateDistillation =
                     | 0, firstState :: _ -> Ok firstState // Base case: return first state (safe)
                     | 0, [] -> TopologicalResult.validationError "field" "No states left"
                     | _, states ->
-                        // Group states into batches of 15 and distill each batch
-                        states
-                        |> List.chunkBySize 15
+                        // Distill each full batch of 15; rejected batches yield nothing
+                        let batches = states |> List.chunkBySize 15 |> List.filter (fun b -> b.Length = 15)
+
+                        batches
                         |> List.map (distill15to1 random)
                         |> List.fold
                             (fun acc result ->
                                 match acc, result with
                                 | Error err, _ -> Error err // Propagate first error
                                 | _, Error err -> Error err
-                                | Ok purified, Ok distResult -> Ok(distResult.PurifiedState :: purified))
+                                | Ok purified, Ok distResult when distResult.Accepted ->
+                                    Ok(distResult.PurifiedState :: purified)
+                                | Ok purified, Ok _ -> Ok purified)
                             (Ok [])
-                        |> Result.bind (List.rev >> distillRounds (roundNum - 1))
+                        |> Result.bind (fun purified ->
+                            let stillNeeded = pown 15 (roundNum - 1)
+
+                            if purified.Length < stillNeeded then
+                                TopologicalResult.computationError
+                                    "distillIterative"
+                                    $"Round {rounds - roundNum + 1}: {purified.Length} of {batches.Length} batches passed the syndrome check, but {stillNeeded} states are needed for the remaining {roundNum - 1} round(s). Supply more input states."
+                            else
+                                distillRounds (roundNum - 1) (List.rev purified))
 
                 distillRounds rounds initialStates
 
@@ -246,7 +277,7 @@ module MagicStateDistillation =
 
     /// Synthesize a T-gate using a distilled magic state
     ///
-    /// T-gate: T|ψ⟩ = e^(iπ/8 σ_z)|ψ⟩
+    /// T-gate: T|0⟩ = |0⟩, T|1⟩ = e^(iπ/4)|1⟩
     ///
     /// Protocol (gate teleportation):
     /// 1. Start with |ψ⟩ (data qubit) and |T⟩ (magic state)
@@ -261,8 +292,8 @@ module MagicStateDistillation =
     /// - S-gate via additional braiding
     type TGateResult =
         {
-            /// Output state after T-gate
-            OutputState: FusionTree.State
+            /// Output state after T-gate: the exact T rotation of the input
+            OutputState: TopologicalOperations.Superposition
 
             /// Whether S-gate correction was needed
             CorrectionApplied: bool
@@ -271,15 +302,22 @@ module MagicStateDistillation =
             GateFidelity: float
         }
 
-    /// Apply T-gate to a topological qubit using magic state injection
-    let applyTGate
+    /// Apply T-gate to qubit `qubitIndex` of a superposition using magic state injection
+    ///
+    /// OutputState is the exact T rotation (TopologicalOperations.tGate). This module
+    /// tracks magic-state quality only as a fidelity number, so an imperfect magic state
+    /// is reported through GateFidelity (= the magic state's fidelity) and is not applied
+    /// to the amplitudes. CorrectionApplied is the sampled X-measurement outcome; with the
+    /// S correction the teleported output is T|ψ⟩ for either outcome.
+    let applyTGateToQubit
         (random: Random)
-        (dataQubit: FusionTree.State)
+        (qubitIndex: int)
+        (data: TopologicalOperations.Superposition)
         (magicState: MagicState)
         : TopologicalResult<TGateResult> =
 
         // Validation using pattern matching (idiomatic F#)
-        match dataQubit.AnyonType, magicState.Fidelity with
+        match data.AnyonType, magicState.Fidelity with
         | anyonType, _ when anyonType <> AnyonSpecies.AnyonType.Ising ->
             TopologicalResult.validationError "field" "T-gate only applicable to Ising anyons"
         | _, fidelity when fidelity < 0.99 ->
@@ -287,19 +325,27 @@ module MagicStateDistillation =
                 "fidelity"
                 $"Magic state fidelity too low ({fidelity:F4}). Distill further."
         | _ ->
-            // Simplified implementation:
-            // In reality would perform full gate teleportation circuit
-
-            // Simulate measurement outcome (50/50 for ideal state)
+            // X-basis measurement of the magic qubit (50/50 for ideal state)
             let measurementOutcome = random.NextDouble() < 0.5
 
-            // Return T-rotated state
-            Ok
+            TopologicalOperations.tGate qubitIndex data
+            |> Result.map (fun rotated ->
                 {
-                    OutputState = dataQubit // State is rotated by T (simplified)
+                    OutputState = rotated
                     CorrectionApplied = measurementOutcome
                     GateFidelity = magicState.Fidelity
-                }
+                })
+
+    /// Apply T-gate to a topological qubit (qubit 0 of a basis state) using magic state injection
+    ///
+    /// See applyTGateToQubit: the output is the exact T rotation, and the magic state's
+    /// fidelity is reported as GateFidelity.
+    let applyTGate
+        (random: Random)
+        (dataQubit: FusionTree.State)
+        (magicState: MagicState)
+        : TopologicalResult<TGateResult> =
+        applyTGateToQubit random 0 (TopologicalOperations.pureState dataQubit) magicState
 
     // ========================================================================
     // RESOURCE ESTIMATION

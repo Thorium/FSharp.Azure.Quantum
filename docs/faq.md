@@ -43,7 +43,7 @@ FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial
 
 ### Is this production-ready?
 
-The current package version is **1.4.12**. It is suitable for:
+The current package version is **1.4.14**. It is suitable for:
 - ✅ Development and prototyping
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
@@ -268,7 +268,7 @@ match HybridSolver.solveTsp distances None None None with
 - QAOA for optimization problems (GraphColoring, MaxCut, Knapsack, TSP, Portfolio, NetworkFlow, Task Scheduling)
 - VQE for quantum chemistry
 - QFT-based algorithms (Shor's, Phase Estimation, Quantum Arithmetic)
-- Runs on LocalBackend (free, memory-derived width) or cloud backends
+- Runs on LocalBackend (free, memory-derived width) or cloud backends, where each algorithm submits complete circuits as whole-circuit jobs (every job billed; a `JobBudget` caps them)
 
 **HybridSolver:** Chooses a classical solver for problems below the advisor's thresholds (50 variables by default), where quantum circuit overhead isn't beneficial.
 
@@ -279,13 +279,14 @@ match HybridSolver.solveTsp distances None None None with
 - MaxCut: QAOA with graph cut maximization
 - Knapsack: QAOA with 0/1 knapsack constraints
 - TSP: QAOA with tour feasibility constraints
-- Portfolio: QAOA with budget and risk constraints  
+- Portfolio: QAOA on the mean-variance QUBO −μᵀw + λ wᵀΣw (off-diagonal covariance terms when a covariance is given)
 - NetworkFlow: QAOA with flow conservation
 
 **Quantum Chemistry (VQE):**
 - Variational Quantum Eigensolver for molecular ground state energies
 - Supports custom Hamiltonians
-- Hardware-efficient ansatz circuits
+- UCCSD ansatz: exact expectation values on a simulator; on a cloud backend, sampled whole circuits (one per commuting group of terms) optimised by SPSA
+- Ground-state energies by quantum phase estimation (`GroundStateMethod.QPE`); the circuit is deep, so it is for simulators today
 
 **QFT-Based Applications:**
 - Shor's Algorithm: Period finding for integer factorization
@@ -294,7 +295,7 @@ match HybridSolver.solveTsp distances None None None with
 
 **Classical Fallback (HybridSolver only):**
 - TSP: Nearest Neighbor + 2-opt local search
-- Portfolio: Greedy selection by return/risk ratio
+- Portfolio: Greedy selection by return/risk ratio (risk reported as sqrt(wᵀΣw) when a covariance is given)
 
 ### Can I add my own optimization problems?
 

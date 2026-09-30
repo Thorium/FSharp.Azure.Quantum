@@ -230,10 +230,19 @@ module ErrorMitigationStrategyTests =
         // Act
         let result = ErrorMitigationStrategy.applyStrategy histogram strategy
 
-        // Assert
+        // Assert: a primary with a ZNE/PEC component cannot be applied to a histogram, so a
+        // readout-only fallback is used instead of reporting a partial correction as complete.
+        let rec circuitLevel technique =
+            match technique with
+            | ErrorMitigationStrategy.ZeroNoiseExtrapolation _
+            | ErrorMitigationStrategy.ProbabilisticErrorCancellation _ -> true
+            | ErrorMitigationStrategy.Combined techniques -> techniques |> List.exists circuitLevel
+            | ErrorMitigationStrategy.ReadoutErrorMitigation _ -> false
+
         match result with
         | Ok mitigated ->
-            Assert.False(mitigated.UsedFallback)
+            Assert.Equal(circuitLevel strategy.Primary, mitigated.UsedFallback)
+            Assert.False(circuitLevel mitigated.AppliedTechnique)
             Assert.Equal(2, Map.count mitigated.Histogram)
         | Error msg -> Assert.Fail($"Strategy application failed: %s{msg.Message}")
 

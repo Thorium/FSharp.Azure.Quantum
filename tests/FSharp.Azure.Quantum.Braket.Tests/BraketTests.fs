@@ -4,6 +4,7 @@ open System.Text.Json
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Braket
+open FSharp.Azure.Quantum.Core
 
 /// Tests for the pure AWS Braket helpers (action wrapping, result parsing, device ARNs).
 /// The submission flow (BraketExecution) needs AWS credentials and isn't CI-testable.
@@ -49,3 +50,43 @@ module BraketTests =
         Assert.Equal("arn:aws:braket:us-east-1::device/qpu/infleqtion/Sqale", Braket.Devices.infleqtionSqale)
         Assert.Equal("arn:aws:braket:us-east-1::device/qpu/quera/Aquila", Braket.Devices.queraAquila)
         Assert.Contains("quantum-simulator/amazon/sv1", Braket.Devices.sv1)
+
+    [<Fact>]
+    let ``BraketBackend transpiles composite gates for each device before submission`` () =
+        // A zero-job budget refuses at submission, after transpilation and OpenQASM 3.0 export,
+        // so no AWS client is touched: QuotaExceeded proves the circuit exported.
+        let circuit =
+            CircuitBuilder.empty 4
+            |> CircuitBuilder.addGates
+                [
+                    CircuitBuilder.H 0
+                    CircuitBuilder.H 1
+                    CircuitBuilder.H 2
+                    CircuitBuilder.MCZ([ 0; 1; 2 ], 3)
+                    CircuitBuilder.CCX(0, 1, 2)
+                    CircuitBuilder.CP(0, 3, 0.4)
+                    CircuitBuilder.CRZ(1, 2, 0.7)
+                    CircuitBuilder.T 3
+                    CircuitBuilder.TDG 2
+                ]
+
+        for device in [ Braket.Devices.sv1; Braket.Devices.ionqAria1; Braket.Devices.oqcLucy ] do
+            let budget = FSharp.Azure.Quantum.Backends.CloudBackendHelpers.JobBudget.Limit 0
+
+            let backend =
+                BraketExecution.BraketBackend(
+                    null,
+                    null,
+                    { Bucket = "b"; KeyPrefix = "k" },
+                    device,
+                    100,
+                    jobBudget = budget
+                )
+                :> BackendAbstraction.IQuantumBackend
+
+            match backend.ExecuteToState(CircuitAbstraction.wrapCircuit circuit) with
+            | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) ->
+                ()
+            | other -> Assert.Fail($"%s{device}: expected the job-budget refusal, got %A{other}")
+
+            Assert.Equal(0, budget.Submitted)

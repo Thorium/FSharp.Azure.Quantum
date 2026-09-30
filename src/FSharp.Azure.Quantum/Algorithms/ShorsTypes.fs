@@ -45,6 +45,19 @@ module ShorsTypes =
             Attempts: int
         }
 
+    /// How the factors of a Shor's algorithm result were obtained.
+    [<RequireQualifiedAccess>]
+    type FactorSource =
+        /// From a period measured by quantum period finding (QPE on modular exponentiation).
+        | QuantumPeriodFinding
+
+        /// By classical preprocessing, before any period finding: N is even, or the drawn base
+        /// shares a factor with N (gcd(a, N) > 1). No quantum circuit ran for this result.
+        | ClassicalPreprocessing
+
+        /// No factors: N is prime or too small, or every attempt failed.
+        | NotFactored
+
     /// Result of Shor's algorithm execution
     type ShorsResult =
         {
@@ -53,6 +66,10 @@ module ShorsTypes =
 
             /// Found factors (p, q) such that N = p × q
             Factors: (int * int) option
+
+            /// How the factors were obtained. Factors from classical preprocessing come with
+            /// no PeriodResult: no period was measured for them.
+            FactorSource: FactorSource
 
             /// Period-finding result
             PeriodResult: PeriodFindingResult option

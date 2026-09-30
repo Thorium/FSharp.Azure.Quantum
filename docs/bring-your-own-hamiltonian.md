@@ -5,7 +5,7 @@ title: Bring Your Own Hamiltonian
 
 # Bring Your Own Hamiltonian
 
-**Plug external quantum chemistry packages into the library** — the built-in chemistry stack ships with empirical Hamiltonians for small molecules (H₂, H₂O, LiH), but the Hamiltonian builders and the VQE layers below them accept externally computed data. This page maps out where to plug in, depending on what your external tool produces.
+**Plug external quantum chemistry packages into the library** — the built-in chemistry stack computes STO-3G integrals itself only for molecules made of hydrogen and helium atoms; for everything else the Hamiltonian builders and the VQE layers accept externally computed data. This page maps out where to plug in, depending on what your external tool produces.
 
 The library deliberately has **no dependency on any chemistry package**. Instead it exposes typed seams at every level of the chemistry pipeline:
 
@@ -20,8 +20,8 @@ Molecule geometry ──► Integrals ──► Fermionic Hamiltonian ──► 
 
 | You have... | Plug in at | API |
 |---|---|---|
-| Molecular integrals from PySCF / Psi4 / NWChem | Integral level | `MolecularIntegrals` → `MolecularHamiltonian.buildFromIntegrals`, or an `IntegralProvider` → `MolecularHamiltonian.buildWithMapping` |
-| An FCIDUMP file (standard interchange format) | Integral level, after parsing it yourself | `Molecule.fromFciDumpFileTask` reads only the header (see below) |
+| Molecular integrals from PySCF / Psi4 / NWChem | Integral level | An `IntegralProvider` in `SolverConfig.IntegralProvider` (VQE via `GroundStateEnergy.estimateEnergy`), or `MolecularIntegrals` → `MolecularHamiltonian.buildFromIntegrals` |
+| An FCIDUMP file (standard interchange format) | Integral level | `FciDumpIntegrals.fromFile` (an `IntegralProvider`) or `FciDumpIntegrals.readFile` (see below) |
 | Second-quantized fermionic operators | Fermion level | `FermionMapping.FermionHamiltonian` + Jordan-Wigner / Bravyi-Kitaev |
 | Already-mapped Pauli terms (e.g. OpenFermion / Qiskit Nature output) | Pauli level | `TrotterSuzuki.PauliHamiltonian` → `AdaptVqe.run`, `Primitives.observe`, Trotter evolution |
 | Molecule structures in external databases / formats | Data level | `IMoleculeDatasetProvider`, `IGeometryProvider`, XYZ/MOL2/PDB/SMILES parsers |
@@ -42,10 +42,10 @@ let myProvider : IntegralProvider =
         Ok {
             NumOrbitals = 2
             NumElectrons = 2
-            NuclearRepulsion = 0.713696
+            NuclearRepulsion = 0.713754
             OneElectron = { NumOrbitals = 2; Integrals = reference.OneElectron.Integrals }  // float[,]
             TwoElectron = { NumOrbitals = 2; Integrals = reference.TwoElectron.Integrals }  // float[,,,]
-            ReferenceEnergy = Some -1.116765                                                // Hartree-Fock
+            ReferenceEnergy = Some -1.116707                                                // Hartree-Fock
         }
 
 let molecule = Molecule.createH2 0.7414
@@ -79,7 +79,39 @@ match MolecularHamiltonian.buildFromIntegrals MolecularHamiltonian.h2Sto3gIntegr
     | Error err -> eprintfn "VQE failed: %s" err.Message
 ```
 
-**`SolverConfig.IntegralProvider`:** `SolverConfig` (used by `GroundStateEnergy.estimateEnergy`) also has an `IntegralProvider` field, but the current version of `estimateEnergy` does not read it. With `Method = GroundStateMethod.VQE`, molecules recognised as H₂, H₂O or LiH return tabulated reference energies, and other molecules use the empirical Hamiltonian. Build the Hamiltonian as shown above until that field is honoured.
+**`SolverConfig.IntegralProvider`:** `GroundStateEnergy.estimateEnergy` with `Method = GroundStateMethod.VQE` (or `Automatic`) does the steps above for you. It calls the provider, builds the Jordan-Wigner Hamiltonian from the integrals and runs UCCSD-VQE on the configured backend, adding the nuclear repulsion to the energy. A provider `Error` comes back as an `Error`. Without a provider:
+
+- molecules made only of H and He atoms, at any geometry, use integrals the library computes itself. `Sto3gIntegrals.computeInBasis` supports STO-3G, the default, and 6-31G (`VQE.runInBasis`, or `basis` in the `quantumChemistry` builder). It uses the lowest RHF solution it finds (several starting guesses, DIIS and damped Roothaan iterations, orbital-Hessian stability check), or core-Hamiltonian orbitals for a single electron. If no SCF converges it also uses core-Hamiltonian orbitals, sets `ReferenceEnergy = None` and says so in `VQEResult.Notes`;
+- H₂O and LiH return an `Error` asking for an `IntegralProvider`;
+- other molecules run a hardware-efficient VQE on the empirical prototype Hamiltonian, whose energies are not physical.
+
+The result's `Source` field (`EnergySource`) records which of these produced the energy: `ProviderIntegrals`, `ComputedSto3gIntegrals`, `Computed631gIntegrals`, `EmpiricalHamiltonian`, or `TabulatedReference`. `TabulatedReference` is the fixed reference value of `GroundStateMethod.ClassicalDFT`, returned only when that method is asked for.
+
+`Estimation` records how the energy was measured. `ExactExpectation` means state-vector amplitudes on a simulator that applies gates one at a time. `SampledCircuits(circuitsPerEnergy, shotsPerCircuit, circuitsExecuted)` means a backend that runs only whole circuits (cloud hardware, `NoisyLocalBackend`). There the UCCSD circuit, one measurement circuit per qubit-wise commuting group of terms, and an SPSA optimiser replace the gate-by-gate BFGS. `Converged` there means no improvement above the shot noise for 30 iterations. A run over the circuit budget is refused up front. See [Hardware Selection](Hardware-Selection-Guide.md) for the budget and measured accuracy. `FermionMapping.ChemistryVQE.uccsdCircuit`, `measurementGroups`, `measurementCircuit` and `sampledExpectation` expose the same steps for your own use. The circuit applies U = e^(T − T†) by Trotterised Pauli rotations, so amplitudes follow the usual coupled-cluster sign convention. MP2 or CCSD amplitudes from a chemistry package can seed `InitialParameters` once they are put in the excitation pool's order (singles, then doubles; `UCCSD.generateExcitationPool`).
+
+Some requests are an `Error` rather than a silent approximation:
+
+- The UCCSD ansatz starts from a Hartree-Fock reference and does not conserve spin, so it supports closed shells (even electron count, multiplicity 1) and one-electron doublets only. Other multiplicities, and FCIDUMP files with `MS2` above the lowest value for their `NELEC`, are refused.
+- UCCSD with more than `VQE.MaxUccsdParameters` (64) parameters is refused before it runs. That covers 4 electrons in 4 orbitals, but not an H6 chain in STO-3G (261 parameters); choose a smaller active space in your chemistry package.
+- On backends that sample measurements, `SolverConfig.ErrorMitigation` corrects each histogram with the inverse readout calibration, without clipping or filtering. A strategy that cannot be applied to a histogram (ZNE or PEC, alone or combined) or that corrects nothing is an `Error`. `ErrorMitigationApplied` on the result says whether a correction ran; it is false when `Estimation = ExactExpectation`, since exact expectations have no readout to correct.
+
+```fsharp
+let config =
+    { Method = GroundStateMethod.VQE
+      MaxIterations = 100
+      Tolerance = 1e-6
+      InitialParameters = None
+      Backend = None                       // LocalBackend
+      ProgressReporter = None
+      ErrorMitigation = None
+      IntegralProvider = Some myProvider }
+
+match GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously with
+| Ok result -> printfn "%.6f Ha from %A after %d iterations" result.Energy result.Source result.Iterations
+| Error err -> eprintfn "VQE failed: %s" err.Message
+```
+
+The `quantumChemistry` computation expression takes a provider through its `integralProvider` operation.
 
 **Requirements for the integrals** (see the full preconditions block in `Solvers/Quantum/QuantumChemistry.fs`):
 
@@ -92,15 +124,21 @@ match MolecularHamiltonian.buildFromIntegrals MolecularHamiltonian.h2Sto3gIntegr
 
 ## 2. FCIDUMP files
 
-Most quantum chemistry packages (Molpro, PySCF, Q-Chem, ...) export FCIDUMP. The library can read the file's header:
+Most quantum chemistry packages (PySCF's `pyscf.tools.fcidump`, Psi4, Molpro, OpenMolcas, Q-Chem, ...) export FCIDUMP. `FciDumpIntegrals` reads the whole file, header and integrals, into `MolecularIntegrals`:
 
 ```fsharp
-open System.Threading
+// An IntegralProvider for VQE: the file's integrals, whatever molecule it is called with
+let config = { config with IntegralProvider = Some(FciDumpIntegrals.fromFile "h2o-cas.fcidump") }
 
-let fromFile = Molecule.fromFciDumpFileTask "h2.fcidump" CancellationToken.None   // Task<Result<Molecule, QuantumError>>
+// Or the integrals themselves
+match FciDumpIntegrals.readFile "h2o-cas.fcidump" with
+| Ok integrals -> printfn "%d orbitals, %d electrons, core energy %.6f Ha" integrals.NumOrbitals integrals.NumElectrons integrals.NuclearRepulsion
+| Error err -> eprintfn "%s" err.Message
 ```
 
-`fromFciDumpFileTask` currently parses only the header (`NORB`, `NELEC`, `MS2`, ...). The integral values in the file are not read, and FCIDUMP files carry no 3D geometry, so the resulting `Molecule` has placeholder atoms and records the orbital and electron counts in its metadata. Energy calculations on that `Molecule` therefore do not use the file's integrals. To use them, parse the integral lines yourself into a `MolecularIntegrals` value and call `MolecularHamiltonian.buildFromIntegrals` (section 1). The `quantumChemistry` computation expression accepts an FCIDUMP path (`molecule_from_fcidump`) with the same limitation.
+The reader takes the standard restricted-orbital format: an `&FCI NORB=…, NELEC=…, MS2=…, ORBSYM=…, ISYM=…` header ended by `&END` or `/`, then `value i j k l` lines with 1-based orbital indices in chemists' notation. `i j k l > 0` is the two-electron integral `(ij|kl)`, and all eight permutationally equivalent entries are filled. `k = l = 0` is the one-electron integral `h_ij`, and `i = j = k = l = 0` is the core energy (nuclear repulsion plus any frozen-core energy), which becomes `NuclearRepulsion`. Fortran `D` exponents are accepted. A malformed line, an index above `NORB`, a missing header end or an unrestricted file (`IUHF=1`) is an `Error` naming the problem. `MoleculeFormats.FciDump.parseIntegrals` gives the same data before conversion.
+
+FCIDUMP files carry no geometry. The integrals must belong to the molecule you pass alongside them, and an active space chosen in the external package keeps the qubit count down (2 qubits per active orbital). `quantumChemistry { molecule_from_fcidump path; ... }` runs VQE on the file's integrals. `Molecule.fromFciDumpFileTask` and the `FciDump*DatasetProvider` types still read only the header, for metadata.
 
 ## 3. Fermionic Hamiltonians (second quantization)
 
@@ -131,6 +169,27 @@ let problemH = toQaoaHamiltonian qubitH
 
 `qubitH` is a `QubitHamiltonian`, the input `ChemistryVQE.run` takes (section 1); `toQaoaHamiltonian` converts it to the `ProblemHamiltonian` form used by the QAOA and Hamiltonian-builder code.
 
+`HamiltonianSimulation` evolves a state under a `ProblemHamiltonian` by Trotter-Suzuki decomposition. `simulateFromPreparation` starts from a gate circuit that prepares the initial state, so it runs on every backend: gate by gate on a simulator (`Route = GateByGate`, exact probabilities and the final state), and on a cloud backend as one whole circuit, preparation plus Trotter gates (`Route = WholeCircuit shots`, measured probabilities only):
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// Occupy spin orbitals 0 and 1, then evolve under problemH for t = 1.0
+let preparation =
+    CircuitBuilder.empty problemH.NumQubits
+    |> CircuitBuilder.addGate (CircuitBuilder.X 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.X 1)
+
+let evolutionConfig : HamiltonianSimulation.SimulationConfig =
+    { Time = 1.0; TrotterSteps = 10; TrotterOrder = 2; Backend = None }   // None = local simulator
+
+match HamiltonianSimulation.simulateFromPreparation problemH preparation evolutionConfig with
+| Ok evolved -> printfn "%A: P(orbitals 0 and 1 occupied) = %.3f" evolved.Route evolved.Probabilities.[3]
+| Error err -> printfn "%s" err.Message
+```
+
+Probabilities are indexed with qubit q as bit q of the index. `HamiltonianSimulation.simulate` takes an arbitrary `QuantumState` instead and returns it evolved, phases included; a cloud job cannot load or return such a state, so on a cloud backend `simulate` is an `Error` that names `simulateFromPreparation`.
+
 ## 4. Pauli Hamiltonians (already mapped)
 
 If the external stack already did the fermion-to-qubit mapping, hand the Pauli sum directly to the algorithm layer via `TrotterSuzuki.PauliHamiltonian`. `Operators.[i]` is the Pauli on qubit i:
@@ -156,8 +215,7 @@ Everything downstream consumes this type:
 - **ADAPT-VQE**: `AdaptVqe.run backend hamiltonian pool numQubits config` — grows a problem-tailored ansatz; see [examples/Algorithms/AdaptVqe.fsx](../examples/Algorithms/AdaptVqe.fsx).
 - **Expectation values**: `Primitives.observe backend circuit hamiltonian` runs a circuit and returns ⟨H⟩; `Primitives.expectation hamiltonian state` evaluates it on a state you already have.
 - **Time evolution**: `TrotterSuzuki.synthesizeHamiltonianEvolution` — circuit for e^(−iHt).
-
-The chemistry QPE path (`GroundStateMethod.QPE`) does not take a Pauli Hamiltonian: it builds the empirical Hamiltonian itself and currently estimates the energy with a simplified single-phase-gate proxy rather than Trotterised phase estimation, so use VQE or ADAPT-VQE for energies.
+- **Phase estimation**: `QPE.evolutionPlan` and `QPE.circuit` (in `QuantumChemistry`) build the controlled-e^(−iHt) phase-estimation circuit for a `PauliHamiltonian`; see [Quantum phase estimation of a molecular energy](#quantum-phase-estimation-of-a-molecular-energy) below.
 
 For small dense matrices there is also `TrotterSuzuki.decomposeMatrixToPauli` (and `decomposeDiagonalMatrixToPauli`), which computes the Pauli decomposition for you.
 
@@ -182,6 +240,55 @@ let toPauliHamiltonian (h: QaoaCircuit.ProblemHamiltonian) : TrotterSuzuki.Pauli
             { Operators = ops; Coefficient = Complex(t.Coefficient, 0.0) } ] }
 ```
 
+### Quantum phase estimation of a molecular energy
+
+`GroundStateMethod.QPE` (`QPE.run`, or `QPE.runWith settings`) estimates an energy by quantum phase estimation. It uses the same integral sources as VQE: an `IntegralProvider` or FCIDUMP file, else the library's STO-3G or 6-31G integrals for H and He. It needs no ansatz. The design:
+
+- **Unitary.** U = e^(−i(H − shift)t) for the Jordan-Wigner Hamiltonian H = Σ c_k P_k. Every eigenvalue lies within λ = Σ|c_k| (non-identity terms) of the identity coefficient c_I. With shift = c_I + λ and t = 2π(1 − 2/2^m)/(2λ), each eigenvalue has its own phase φ ∈ [0, 1), and E = −2πφ/t + shift, plus nuclear repulsion.
+- **Controlled powers.** Controlled-U^(2^j) repeats the same Trotter-Suzuki circuit for U 2^j times (`TrotterSuzuki.synthesizeControlledHamiltonianEvolution`; first order and 4 steps by default). QPE therefore measures the eigenvalues of the Trotterised U, and the Trotter error does not grow with j.
+- **Readout.** The counting register gets `Algorithms.QPE.inverseQftGates`. The whole circuit is one job (`UnifiedBackend.submitAsCircuit`), so the local simulator and cloud backends run the same circuit. On a simulator the outcome probabilities are exact; a sampling backend returns frequencies (`ShotsPerCircuit`).
+- **Energy.** Each peak of the outcome distribution is an eigenvalue. Its phase is refined between the peak's two highest bins with the exact QPE line shape, which recovers phases between bins. `Energy` is the most probable peak.
+- **Result.** `Source = QpeTrotterEvolution`. `Estimation = PhaseEstimation` records t, the shift, the Trotter order and steps, the counting qubits, the bin width and every peak with its probability.
+
+QPE returns eigenvalue E_k with probability |⟨ψ|E_k⟩|² for the prepared state ψ. By default ψ is the Hartree-Fock determinant; `UccsdState amplitudes` (for example a VQE result's `OptimalParameters`) is another choice. The reported energy is therefore the ground state only when ψ overlaps it most. `Notes` states the overlap and lists the other peaks.
+```fsharp
+open FSharp.Azure.Quantum.QuantumChemistry
+
+let qpeConfig =
+    { Method = GroundStateMethod.QPE
+      MaxIterations = 100
+      Tolerance = 1e-6
+      InitialParameters = None
+      Backend = None                  // local simulator; a cloud backend runs the same circuit
+      ProgressReporter = None
+      ErrorMitigation = None
+      IntegralProvider = None }       // H2: the library's STO-3G integrals
+
+let stretched = QPE.runWith { QPE.defaultSettings with CountingQubits = Some 6 } (Molecule.createH2 2.0) qpeConfig
+
+match stretched |> Async.RunSynchronously with
+| Ok r ->
+    match r.Estimation with
+    | PhaseEstimation d -> d.Peaks |> List.iter (fun p -> printfn "E = %.6f Ha, probability %.2f" p.Energy p.Probability)
+    | _ -> ()
+    r.Notes |> List.iter (printfn "%s")
+| Error e -> printfn "%s" e.Message
+```
+
+For H₂/STO-3G the defaults use 4 system and 8 counting qubits:
+
+| Bond | Peaks (energy, probability) | vs FCI | Runtime |
+|---|---|---|---|
+| 0.7414 Å | −1.136546 Ha (0.98); 0.4791 Ha (0.01) | +0.72 mHa | about 7 s |
+| 2.0 Å, 6 counting qubits | −0.948354 Ha (0.70); −0.3767 Ha (0.27, a doubly excited singlet) | +0.29 mHa | under 1 s |
+
+What limits the accuracy:
+
+- **Trotter error.** First order, 4 steps: 0.7 mHa at equilibrium. 8 steps give 0.3 mHa. Second order needs twice the gates per step for a similar error (1.3 mHa at 3 steps).
+- **Phase resolution.** The bin width is 2π/(t·2^m): 14.8 mHa with 8 counting qubits. The refinement recovers the phase within a bin when one eigenvalue dominates the peak.
+
+Both together stay within chemical accuracy (1.6 mHa) for H₂. The circuit holds (2^m − 1) × (gates per U) gates, about 146,000 here. Each extra counting qubit doubles it. A cloud backend accepts it as one job, but a circuit this deep is far beyond what today's hardware runs coherently, so hardware runs of chemistry QPE are impractical for now; UCCSD-VQE is the route for current devices.
+
 ## 5. Molecule data and geometry providers
 
 To source molecular *structures* (rather than Hamiltonians) from external systems, implement the provider interfaces in `Data/ChemistryDataProviders.fs`:
@@ -199,7 +306,7 @@ let mol' = Molecule.fromXyzFileTask "conformer42.xyz" CancellationToken.None   /
 
 ## Scale honestly
 
-The built-in VQE/QPE path is validated on small molecules (H₂, H₂O, LiH), and the chemistry Hamiltonian builders refuse anything wider than 20 qubits (`Types.NisqPracticalQubits`). That is a fixed limit on every backend, not the local simulator's memory limit. "Bring your own Hamiltonian" does not remove that ceiling — it removes the *accuracy* ceiling (empirical vs research-grade integrals) and lets your external package do what it is good at (integrals, active-space selection, orbital localization) while this library does what it is good at (typed circuit construction, backend routing, error mitigation, Azure Quantum execution). For molecules beyond the qubit budget, reduce to an active space externally before handing over. A Pauli Hamiltonian passed straight to `AdaptVqe.run` or `Primitives.observe` is limited by the backend instead.
+The built-in VQE path is validated against exact STO-3G energies for H₂ (the result's `Source` says which Hamiltonian ran), and the chemistry Hamiltonian builders refuse anything wider than 20 qubits (`Types.NisqPracticalQubits`). That is a fixed limit on every backend, not the local simulator's memory limit. "Bring your own Hamiltonian" does not remove that ceiling — it removes the *accuracy* ceiling (empirical vs research-grade integrals) and lets your external package do what it is good at (integrals, active-space selection, orbital localization) while this library does what it is good at (typed circuit construction, backend routing, error mitigation, Azure Quantum execution). For molecules beyond the qubit budget, reduce to an active space externally before handing over. A Pauli Hamiltonian passed straight to `AdaptVqe.run` or `Primitives.observe` is limited by the backend instead.
 
 ## See also
 

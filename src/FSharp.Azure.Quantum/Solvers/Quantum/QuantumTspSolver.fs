@@ -50,90 +50,11 @@ open FSharp.Azure.Quantum.Core
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumTspSolver =
 
-    /// Objective function for QAOA parameter optimization
-    /// Evaluates tour quality for given (gamma, beta) parameters
-    /// Returns: Best tour length found (lower is better)
-    let private evaluateTourCost
-        (backend: BackendAbstraction.IQuantumBackend)
-        (problemHam: QaoaCircuit.ProblemHamiltonian)
-        (mixerHam: QaoaCircuit.MixerHamiltonian)
-        (problem: GraphOptimization.GraphOptimizationProblem<int, unit>)
-        (distances: float[,])
-        (numCities: int)
-        (numShots: int)
-        (parameters: float[]) // [gamma; beta] for p=1 layer
-        : float =
-
-        // No catch-all here: `solve` already turns an exception into an Error. A
-        // penalty for "any error" made a decoding bug look like a bad tour, and the
-        // optimizer then steered around it silently.
-        // Extract gamma and beta
-        let gamma = parameters.[0]
-        let beta = parameters.[1]
-
-        // Build QAOA circuit with these parameters and execute
-        match QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam [| (gamma, beta) |] numShots with
-        | Error _ ->
-            // Return large penalty if execution fails
-            Double.MaxValue
-        | Ok measurements ->
-
-            // Decode all measurements and find best tour cost
-            let tourResults =
-                measurements
-                |> Array.choose (fun measurement ->
-                    // Convert measurement to QUBO solution (int list)
-                    let quboSolution = Array.toList measurement
-
-                    // Decode to graph solution
-                    let graphSolution = GraphOptimization.decodeSolution problem quboSolution
-
-                    // Extract tour from selected edges
-                    match graphSolution.SelectedEdges with
-                    | Some edges when edges.Length > 0 ->
-                        // Build tour from edges (simplified - just compute length)
-                        let rec buildTour currentCity visited path =
-                            if List.length visited = numCities then
-                                List.rev path
-                            else
-                                let nextEdge =
-                                    edges
-                                    |> List.tryFind (fun e ->
-                                        (e.Source = string currentCity || e.Target = string currentCity)
-                                        && not (
-                                            List.contains (int e.Source) visited
-                                            && List.contains (int e.Target) visited
-                                        ))
-
-                                match nextEdge with
-                                | Some edge ->
-                                    let nextCity =
-                                        if edge.Source = string currentCity then
-                                            int edge.Target
-                                        else
-                                            int edge.Source
-
-                                    buildTour nextCity (nextCity :: visited) (nextCity :: path)
-                                | None ->
-                                    let missing =
-                                        [ 0 .. numCities - 1 ] |> List.filter (fun c -> not (List.contains c visited))
-
-                                    List.rev path @ missing
-
-                        let tour = buildTour 0 [ 0 ] [ 0 ] |> Array.ofList
-                        let tourLength = TspSolver.calculateTourLength distances tour
-                        Some tourLength
-                    | _ -> None)
-
-            if tourResults.Length = 0 then
-                Double.MaxValue // No valid tours - large penalty
-            else
-                Array.min tourResults // Return best (minimum) tour length
-
     /// Configuration for quantum TSP solving
     type QuantumTspConfig =
         {
-            /// Number of shots for parameter optimization (low for speed)
+            /// Number of shots per optimization step when the backend returns no state
+            /// vector (a state-vector backend gives the exact expected energy instead)
             OptimizationShots: int
 
             /// Number of shots for final execution (high for accuracy)
@@ -142,7 +63,9 @@ module QuantumTspSolver =
             /// Enable QAOA parameter optimization via classical optimizer
             EnableOptimization: bool
 
-            /// Initial parameters (gamma, beta) if optimization disabled
+            /// Parameters (gamma, beta) when optimization is disabled, and the optimizer's
+            /// starting point when it is enabled. Units: QaoaExecutionHelpers' normalised
+            /// Hamiltonian, minimisation convention (see Core.QaoaCircuit).
             InitialParameters: float * float
 
             /// Upper bound on Nelder-Mead iterations when EnableOptimization is true.
@@ -302,22 +225,22 @@ module QuantumTspSolver =
                 // Step 4: Optimize QAOA parameters (gamma, beta) using classical optimizer
                 let (finalGamma, finalBeta), optimizationInfo =
                     if config.EnableOptimization then
-                        // Define objective function for optimization
+                        // Expected QUBO energy of the p = 1 state (exact on a state-vector
+                        // backend), shared with the other QAOA solvers
                         let objectiveFn =
-                            evaluateTourCost
+                            QaoaExecutionHelpers.createObjectiveFunction
                                 backend
+                                quboArray
                                 problemHam
                                 mixerHam
-                                problem
-                                distances
-                                numCities
+                                1
                                 config.OptimizationShots
 
-                        // Initial parameters and bounds
+                        // Initial parameters and bounds: γ ∈ [0, π], β ∈ [0, π/2]
                         let (initGamma, initBeta) = config.InitialParameters
                         let initialGuess = [| initGamma; initBeta |]
                         let lowerBounds = [| 0.0; 0.0 |]
-                        let upperBounds = [| 2.0 * Math.PI; 2.0 * Math.PI |]
+                        let upperBounds = [| Math.PI; Math.PI / 2.0 |]
 
                         // Run classical optimizer to find best parameters
                         // (default tolerance; iteration budget from the config)

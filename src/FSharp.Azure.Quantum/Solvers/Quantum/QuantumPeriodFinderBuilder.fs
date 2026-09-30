@@ -114,6 +114,10 @@ module QuantumPeriodFinder =
             /// None if factorization failed or N is prime
             Factors: (int * int) option
 
+            /// How the factors were obtained. ClassicalPreprocessing means no quantum circuit
+            /// ran: N was even or the drawn base shared a factor with N, and Period is 0.
+            FactorSource: FactorSource
+
             /// QPE phase estimate (s/r where s is measured phase)
             PhaseEstimate: float
 
@@ -330,6 +334,7 @@ module QuantumPeriodFinder =
                     Period = period
                     Base = baseUsed
                     Factors = shorsResult.Factors
+                    FactorSource = shorsResult.FactorSource
                     PhaseEstimate = phaseEst
                     QubitsUsed = qubitsUsed
                     Attempts = attempts

@@ -438,9 +438,10 @@ module QuantumPeriodFinderBuilderTests =
                 Assert.Contains("Simulator", result.BackendName)
                 Assert.NotEmpty(result.Message)
 
-                // With an auto-selected random base, a lucky gcd(a, N) > 1 factors N
-                // classically without any period finding, in which case Period is 0.
-                let luckyGcdHit = result.Message.StartsWith "Lucky!"
+                // With an auto-selected random base, gcd(a, N) > 1 factors N in classical
+                // preprocessing without any period finding, in which case Period is 0.
+                let luckyGcdHit =
+                    result.FactorSource = ShorsTypes.FactorSource.ClassicalPreprocessing
 
                 if luckyGcdHit then
                     Assert.Equal(0, result.Period)

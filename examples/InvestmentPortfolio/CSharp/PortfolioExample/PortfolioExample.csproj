@@ -18,6 +18,11 @@
     <_SkipUpgradeNetAnalyzersNuGetWarning>true</_SkipUpgradeNetAnalyzersNuGetWarning>
   </PropertyGroup>
 
+  <!-- Bundled market figures (see ../../data/README.md), read from the output folder. -->
+  <ItemGroup>
+    <None Include="..\..\data\market-stats-2019-2023.json" Link="data\market-stats-2019-2023.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Copied out of the repository the sources above are missing, so use the NuGet packages. -->
   <ItemGroup Condition="!Exists('..\..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj')">
     <PackageReference Include="FSharp.Azure.Quantum" Version="*" />

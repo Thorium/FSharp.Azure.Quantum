@@ -5,12 +5,23 @@
 // market regimes (Bull/Bear) and apply regime-specific strategies with
 // quantum-ready HybridSolver optimization.
 //
+// Data (default): a two-state Gaussian HMM fitted to SPY daily returns
+// 2019-2023 gives the regime on the last trading day of 2023; each asset's
+// mean and risk over its last 30 trading days feed the optimizer; the 2023-12-29
+// adjusted close is the buy price and 2024 is the hold-out year. The figures are
+// in data/market-stats-2019-2023.json; --live recomputes them from Yahoo Finance.
+//
+// Synthetic mode (--synthetic, or --days/--seed): simulates a Markov chain of
+// regimes with the fitted transition probabilities and per-asset Bull/Bear
+// return statistics, then detects the regime of the simulated path.
+//
 // Usage:
 //   dotnet fsi RegimeAwarePortfolio.fsx                                       (defaults)
 //   dotnet fsi RegimeAwarePortfolio.fsx -- --help                             (show options)
 //   dotnet fsi RegimeAwarePortfolio.fsx -- --symbols AAPL,MSFT,GLD,TLT       (select stocks)
 //   dotnet fsi RegimeAwarePortfolio.fsx -- --input custom-stocks.csv
-//   dotnet fsi RegimeAwarePortfolio.fsx -- --budget 200000 --days 500
+//   dotnet fsi RegimeAwarePortfolio.fsx -- --live --from 2015-01-01 --to 2019-12-31
+//   dotnet fsi RegimeAwarePortfolio.fsx -- --budget 200000 --days 500        (synthetic)
 //   dotnet fsi RegimeAwarePortfolio.fsx -- --quiet --output results.json --csv out.csv
 //
 // References:
@@ -30,6 +41,7 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "_marketData.fsx"
 
 open System
 open FSharp.Azure.Quantum.Core
@@ -38,6 +50,7 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Examples.Common
+open _marketData
 
 // ==============================================================================
 // CLI ARGUMENT PARSING
@@ -52,12 +65,12 @@ Cli.exitIfHelp
     [
         {
             Cli.OptionSpec.Name = "symbols"
-            Description = "Comma-separated stock symbols to include"
-            Default = None
+            Description = "Comma-separated symbols (any Yahoo ticker with --live)"
+            Default = Some "TQQQ,AAPL,MSFT,JNJ,XLP,GLD,TLT,SH"
         }
         {
             Cli.OptionSpec.Name = "input"
-            Description = "CSV file with custom stock definitions"
+            Description = "CSV: symbol[,name,price] or preset"
             Default = None
         }
         {
@@ -66,13 +79,33 @@ Cli.exitIfHelp
             Default = Some "100000"
         }
         {
+            Cli.OptionSpec.Name = "live"
+            Description = "Recompute the figures from Yahoo Finance adjusted closes"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "from"
+            Description = "Estimation window start with --live (yyyy-MM-dd)"
+            Default = Some "2019-01-01"
+        }
+        {
+            Cli.OptionSpec.Name = "to"
+            Description = "Estimation window end with --live; the next year is the hold-out"
+            Default = Some "2023-12-31"
+        }
+        {
+            Cli.OptionSpec.Name = "synthetic"
+            Description = "Simulate returns from the fitted regime model"
+            Default = None
+        }
+        {
             Cli.OptionSpec.Name = "days"
-            Description = "Days of market data to generate"
+            Description = "Days to simulate (implies --synthetic)"
             Default = Some "252"
         }
         {
             Cli.OptionSpec.Name = "seed"
-            Description = "Random seed for data generation"
+            Description = "Random seed for the simulation (implies --synthetic)"
             Default = Some "42"
         }
         {
@@ -99,6 +132,11 @@ let csvPath = Cli.tryGet "csv" args
 let budget = Cli.getFloatOr "budget" 100000.0 args
 let days = Cli.getIntOr "days" 252 args
 let seed = Cli.getIntOr "seed" 42 args
+
+let synthetic =
+    Cli.hasFlag "synthetic" args
+    || (Cli.tryGet "days" args).IsSome
+    || (Cli.tryGet "seed" args).IsSome
 
 // ==============================================================================
 // DOMAIN TYPES
@@ -127,8 +165,9 @@ type StockResult =
         ExpectedReturn: float
         Risk: float
         DetectedRegime: string
-        TrueRegime: string
-        RegimeAccurate: bool
+        /// Simulated regime on the last day (synthetic mode only).
+        TrueRegime: string option
+        RegimeAccurate: bool option
         Strategy: string
         PortfolioReturn: float
         PortfolioRisk: float
@@ -140,82 +179,25 @@ type StockResult =
 // ==============================================================================
 // BUILT-IN STOCK PRESETS
 // ==============================================================================
+// Symbols only: names, prices and return statistics come from the bundled
+// statistics or from --live.
 
-let private presetTqqq =
+let private presetSymbols =
+    [ "TQQQ"; "AAPL"; "MSFT"; "JNJ"; "XLP"; "GLD"; "TLT"; "SH" ]
+
+/// A stock to include; Price is set when the CSV supplies it.
+type private StockSpec =
     {
-        Symbol = "TQQQ"
-        Name = "Tech Aggressive"
-        Price = 50.0
+        Symbol: string
+        Name: string option
+        Price: float option
     }
-
-let private presetAapl =
-    {
-        Symbol = "AAPL"
-        Name = "Apple"
-        Price = 175.0
-    }
-
-let private presetMsft =
-    {
-        Symbol = "MSFT"
-        Name = "Microsoft"
-        Price = 380.0
-    }
-
-let private presetJnj =
-    {
-        Symbol = "JNJ"
-        Name = "Johnson&Johnson"
-        Price = 160.0
-    }
-
-let private presetXlp =
-    {
-        Symbol = "XLP"
-        Name = "Consumer Staples"
-        Price = 75.0
-    }
-
-let private presetGld =
-    {
-        Symbol = "GLD"
-        Name = "Gold"
-        Price = 190.0
-    }
-
-let private presetTlt =
-    {
-        Symbol = "TLT"
-        Name = "Treasury Bonds"
-        Price = 95.0
-    }
-
-let private presetSh =
-    {
-        Symbol = "SH"
-        Name = "Short S&P500"
-        Price = 15.0
-    }
-
-let private builtInStocks =
-    [
-        presetTqqq
-        presetAapl
-        presetMsft
-        presetJnj
-        presetXlp
-        presetGld
-        presetTlt
-        presetSh
-    ]
-    |> List.map (fun s -> s.Symbol.ToUpperInvariant(), s)
-    |> Map.ofList
 
 // ==============================================================================
 // CSV LOADING
 // ==============================================================================
 
-let private loadStocksFromCsv (filePath: string) : StockInfo list =
+let private loadSpecsFromCsv (filePath: string) : StockSpec list =
     let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
     let rows, errors = Data.readCsvWithHeaderWithErrors resolved
 
@@ -233,72 +215,160 @@ let private loadStocksFromCsv (filePath: string) : StockInfo list =
 
         match get "preset" with
         | p when not (String.IsNullOrWhiteSpace p) ->
-            match builtInStocks |> Map.tryFind (p.Trim().ToUpperInvariant()) with
-            | Some s -> s
-            | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
-        | _ ->
             {
-                Symbol =
-                    let s = get "symbol" in
+                Symbol = p.Trim().ToUpperInvariant()
+                Name = None
+                Price = None
+            }
+        | _ ->
+            let symbol = get "symbol"
 
-                    if s = "" then
-                        failwithf "Missing symbol in CSV row %d" (i + 1)
-                    else
-                        s.ToUpperInvariant()
-                Name = let n = get "name" in if n = "" then get "symbol" else n
+            if symbol = "" then
+                failwithf "Missing symbol in CSV row %d" (i + 1)
+
+            {
+                Symbol = symbol.ToUpperInvariant()
+                Name =
+                    (match get "name" with
+                     | "" -> None
+                     | n -> Some n)
                 Price =
-                    get "price"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 100.0
+                    match get "price" with
+                    | "" -> None
+                    | s ->
+                        match
+                            Double.TryParse(
+                                s,
+                                Globalization.NumberStyles.Float,
+                                Globalization.CultureInfo.InvariantCulture
+                            )
+                        with
+                        | true, v -> Some v
+                        | _ -> failwithf "CSV row %d (%s): price '%s' is not a number" (i + 1) symbol s
             })
 
 // ==============================================================================
 // STOCK SELECTION
 // ==============================================================================
 
-let selectedStocks =
-    let base' =
-        match Cli.tryGet "input" args with
-        | Some csvFile -> loadStocksFromCsv csvFile
-        | None -> builtInStocks |> Map.toList |> List.map snd
+let private selectedSpecs =
+    let symbolsArg =
+        Cli.getCommaSeparated "symbols" args |> List.map (fun s -> s.ToUpperInvariant())
 
-    match Cli.getCommaSeparated "symbols" args with
-    | [] -> base'
-    | filter ->
-        let filterSet = filter |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
-        base' |> List.filter (fun s -> filterSet.Contains(s.Symbol.ToUpperInvariant()))
+    match Cli.tryGet "input" args with
+    | Some csvFile ->
+        let specs = loadSpecsFromCsv csvFile
 
-if selectedStocks.IsEmpty then
+        match symbolsArg with
+        | [] -> specs
+        | filter -> specs |> List.filter (fun s -> List.contains s.Symbol filter)
+    | None ->
+        (if symbolsArg.IsEmpty then presetSymbols else symbolsArg)
+        |> List.map (fun s ->
+            {
+                Symbol = s
+                Name = None
+                Price = None
+            })
+
+if selectedSpecs.IsEmpty then
     eprintfn "ERROR: No stocks selected. Check --symbols filter or --input CSV."
     exit 1
+
+// ==============================================================================
+// MARKET FIGURES (bundled, or --live from Yahoo Finance)
+// ==============================================================================
+
+let liveDataEnabled = Cli.hasFlag "live" args
+
+let private dateArg (name: string) (fallback: DateTime) =
+    match Cli.tryGet name args with
+    | None -> fallback
+    | Some s ->
+        match MarketData.tryParseIsoDate s with
+        | Some d when liveDataEnabled -> d
+        | Some _ ->
+            eprintfn "ERROR: --%s needs --live; the bundled figures cover 2019-01-01..2023-12-31." name
+            exit 1
+        | None ->
+            eprintfn "ERROR: --%s must be yyyy-MM-dd, got '%s'" name s
+            exit 1
+
+let windowFrom = dateArg "from" MarketData.defaultWindowFrom
+let windowTo = dateArg "to" MarketData.defaultWindowTo
+
+let marketStats, liveUsed =
+    let info (msg: string) =
+        if not quiet then
+            printfn "%s" msg
+
+    if liveDataEnabled then
+        let symbols = selectedSpecs |> List.map (fun s -> s.Symbol)
+
+        match MarketData.computeFromYahoo info symbols windowFrom windowTo (Some MarketData.defaultRegimeProxy) with
+        | Ok(stats, dropped) ->
+            for (s, reason) in dropped do
+                printfn "  Dropped %s: %s" s reason
+
+            stats, true
+        | Error e ->
+            eprintfn "Live fetch failed (%s); using the bundled figures." e
+            MarketData.loadBundled (), false
+    else
+        MarketData.loadBundled (), false
+
+let regimeModel =
+    match marketStats.RegimeModel with
+    | Some m -> m
+    | None ->
+        eprintfn "ERROR: no regime model: the market proxy %s has no data for the window." MarketData.defaultRegimeProxy
+        exit 1
+
+let selectedStocks =
+    selectedSpecs
+    |> List.choose (fun spec ->
+        let figures = MarketData.tryAsset marketStats spec.Symbol
+
+        match spec.Price |> Option.orElse (figures |> Option.map (fun a -> a.BuyPrice)) with
+        | Some price when synthetic || figures.IsSome ->
+            Some
+                {
+                    StockInfo.Symbol = spec.Symbol
+                    Name =
+                        spec.Name
+                        |> Option.orElse (figures |> Option.map (fun a -> a.Name))
+                        |> Option.defaultValue spec.Symbol
+                    Price = price
+                }
+        | _ ->
+            eprintfn "  Skipping %s: no figures for it (not in the bundled data; try --live)" spec.Symbol
+            None)
+
+if selectedStocks.IsEmpty then
+    eprintfn "ERROR: No stocks with figures."
+    exit 1
+
+if not quiet then
+    printfn "%s" (MarketData.describeSource marketStats liveUsed)
 
 // ==============================================================================
 // SYNTHETIC DATA GENERATION (Markov chain — inherently stateful)
 // ==============================================================================
 
-/// Per-asset return parameters: (bullMu, bullSigma), (bearMu, bearSigma)
-let private assetReturnParams =
-    [
-        ("TQQQ", ((0.0015, 0.02), (-0.003, 0.05)))
-        ("AAPL", ((0.001, 0.012), (-0.001, 0.025)))
-        ("MSFT", ((0.0009, 0.011), (-0.001, 0.022)))
-        ("JNJ", ((0.0003, 0.008), (-0.0005, 0.01)))
-        ("XLP", ((0.0002, 0.007), (-0.0002, 0.008)))
-        ("GLD", ((0.0002, 0.009), (0.0006, 0.012)))
-        ("TLT", ((0.0001, 0.006), (0.0004, 0.008)))
-        ("SH", ((-0.0005, 0.012), (0.0015, 0.025)))
-    ]
-    |> Map.ofList
+/// Daily (mean, std) on Bull and Bear days: the asset's own figures, else the market proxy's.
+let private regimeReturnParams (symbol: string) =
+    let proxy =
+        (regimeModel.BullMean, regimeModel.BullStd), (regimeModel.BearMean, regimeModel.BearStd)
 
-/// Default params for stocks not in the built-in param table
-let private defaultReturnParams = ((0.0005, 0.012), (-0.0005, 0.020))
+    MarketData.tryAsset marketStats symbol
+    |> Option.bind (fun a -> a.Regime)
+    |> Option.map (fun r -> (r.BullDailyMean, r.BullDailyStd), (r.BearDailyMean, r.BearDailyStd))
+    |> Option.defaultValue proxy
 
 let private generateMarketData (numDays: int) (rngSeed: int) (stockList: StockInfo list) =
     let rng = Random(rngSeed)
-    let p_bull_bear = 0.05
-    let p_bear_bull = 0.10
+    let p_bull_bear = regimeModel.PBullToBear
+    let p_bear_bull = regimeModel.PBearToBull
 
     let mutable state = Bull
     let marketReturns = Array.zeroCreate numDays
@@ -317,7 +387,12 @@ let private generateMarketData (numDays: int) (rngSeed: int) (stockList: StockIn
 
         regimes.[i] <- state
 
-        let (m_mu, m_sigma) = if state = Bull then (0.0005, 0.01) else (-0.001, 0.03)
+        let (m_mu, m_sigma) =
+            if state = Bull then
+                (regimeModel.BullMean, regimeModel.BullStd)
+            else
+                (regimeModel.BearMean, regimeModel.BearStd)
+
         let u1 = rng.NextDouble()
         let u2 = rng.NextDouble()
         let z = sqrt (-2.0 * log u1) * cos (2.0 * Math.PI * u2)
@@ -325,10 +400,7 @@ let private generateMarketData (numDays: int) (rngSeed: int) (stockList: StockIn
 
         stockList
         |> List.iter (fun asset ->
-            let (bullP, bearP) =
-                assetReturnParams
-                |> Map.tryFind asset.Symbol
-                |> Option.defaultValue defaultReturnParams
+            let (bullP, bearP) = regimeReturnParams asset.Symbol
 
             let (mu, sigma) = if state = Bull then bullP else bearP
             let u1_a = rng.NextDouble()
@@ -344,55 +416,11 @@ let private generateMarketData (numDays: int) (rngSeed: int) (stockList: StockIn
 
 module MarketHMM =
 
-    let private gaussianPdf x mu sigma =
-        let coeff = 1.0 / (sigma * sqrt (2.0 * Math.PI))
-        let exponent = -0.5 * ((x - mu) / sigma) ** 2.0
-        coeff * exp exponent
+    /// Regime on the last day of the Viterbi path under the fitted model (state 0 = Bull).
+    let detectRegime (model: MarketData.RegimeModel) (marketReturns: float[]) =
+        let path = MarketData.viterbiPath (MarketData.hmmParamsOf model) marketReturns
 
-    let detectRegime (marketReturns: float[]) =
-        let bullMu, bullSigma = 0.0005, 0.01
-        let bearMu, bearSigma = -0.002, 0.03
-        let trans = array2D [ [ 0.95; 0.05 ]; [ 0.10; 0.90 ] ]
-        let startP = [| 0.7; 0.3 |]
-
-        let T = marketReturns.Length
-        let nStates = 2
-
-        let V = Array2D.create T nStates Double.NegativeInfinity
-        let path = Array2D.create T nStates 0
-
-        let x0 = marketReturns.[0]
-        V.[0, 0] <- log (startP.[0]) + log (gaussianPdf x0 bullMu bullSigma)
-        V.[0, 1] <- log (startP.[1]) + log (gaussianPdf x0 bearMu bearSigma)
-
-        for t in 1 .. T - 1 do
-            let xt = marketReturns.[t]
-            let emitBull = log (gaussianPdf xt bullMu bullSigma)
-            let emitBear = log (gaussianPdf xt bearMu bearSigma)
-
-            let fromBull0 = V.[t - 1, 0] + log (trans.[0, 0])
-            let fromBear0 = V.[t - 1, 1] + log (trans.[1, 0])
-
-            if fromBull0 > fromBear0 then
-                V.[t, 0] <- fromBull0 + emitBull
-                path.[t, 0] <- 0
-            else
-                V.[t, 0] <- fromBear0 + emitBull
-                path.[t, 0] <- 1
-
-            let fromBull1 = V.[t - 1, 0] + log (trans.[0, 1])
-            let fromBear1 = V.[t - 1, 1] + log (trans.[1, 1])
-
-            if fromBull1 > fromBear1 then
-                V.[t, 1] <- fromBull1 + emitBear
-                path.[t, 1] <- 0
-            else
-                V.[t, 1] <- fromBear1 + emitBear
-                path.[t, 1] <- 1
-
-        let lastState = if V.[T - 1, 0] > V.[T - 1, 1] then 0 else 1
-
-        match lastState with
+        match path.[path.Length - 1] with
         | 0 -> Bull
         | _ -> Bear
 
@@ -402,19 +430,16 @@ module MarketHMM =
 
 module RegimeAwareOptimizer =
 
-    let private calculateStats (returns: float[]) =
-        let mean = Array.average returns
-        let sumSq = returns |> Array.sumBy (fun r -> pown (r - mean) 2)
-        let vol = sqrt (sumSq / float returns.Length)
+    /// Daily mean and standard deviation of the last 30 simulated returns.
+    let recentStats (returns: float[]) =
+        let recent = returns |> Array.skip (max 0 (returns.Length - 30))
+        let mean = Array.average recent
+        let sumSq = recent |> Array.sumBy (fun r -> pown (r - mean) 2)
+        let vol = sqrt (sumSq / float recent.Length)
         (mean, vol)
 
-    let private toSolverAsset (history: Map<string, float[]>) (s: StockInfo) : PortfolioSolver.Asset =
-        let recentReturns =
-            match history.TryFind s.Symbol with
-            | Some r -> r |> Array.skip (max 0 (r.Length - 30))
-            | None -> [| 0.0 |]
-
-        let (mu, sigma) = calculateStats recentReturns
+    let private toSolverAsset (recent: StockInfo -> float * float) (s: StockInfo) : PortfolioSolver.Asset =
+        let (mu, sigma) = recent s
 
         {
             Symbol = s.Symbol
@@ -423,15 +448,16 @@ module RegimeAwareOptimizer =
             Price = s.Price
         }
 
+    /// `recent` gives each stock's daily (mean, std) over its last 30 trading days.
     let optimize
         (regime: MarketRegime)
         (investBudget: float)
         (qBackend: IQuantumBackend)
         (stockList: StockInfo list)
-        (assetHistory: Map<string, float[]>)
+        (recent: StockInfo -> float * float)
         : Result<PortfolioSolver.Allocation list * float * float * float * float * string, string> =
 
-        let solverAssets = stockList |> List.map (toSolverAsset assetHistory)
+        let solverAssets = stockList |> List.map (toSolverAsset recent)
 
         let constraints =
             match regime with
@@ -453,11 +479,23 @@ module RegimeAwareOptimizer =
             | :? LocalBackend -> Some HybridSolver.SolverMethod.Classical
             | _ -> Some HybridSolver.SolverMethod.Quantum
 
-        match HybridSolver.solvePortfolio solverAssets constraints None None method with
+        // Daily covariance S_ij = rho_ij * sigma_i * sigma_j: the window correlations with the
+        // same recent daily volatilities the solver's assets carry.
+        let dailyCovariance =
+            MarketData.covariance marketStats (solverAssets |> List.map (fun a -> a.Symbol, a.Risk))
+
+        let solved =
+            match dailyCovariance with
+            | Some sigma ->
+                HybridSolver.solvePortfolioWithCovariance solverAssets sigma constraints None None method None
+            | None -> HybridSolver.solvePortfolio solverAssets constraints None None method
+
+        match solved with
         | Ok solution ->
+            // Inputs are daily, so the return/risk ratio is annualised by sqrt 252.
             let sharpe =
                 if solution.Result.Risk > 0.0 then
-                    solution.Result.ExpectedReturn / solution.Result.Risk
+                    solution.Result.ExpectedReturn / solution.Result.Risk * sqrt 252.0
                 else
                     0.0
 
@@ -478,31 +516,76 @@ module RegimeAwareOptimizer =
 // ==============================================================================
 
 if not quiet then
+    if synthetic then
+        printfn
+            "Regime-aware portfolio: %d assets, budget $%s, synthetic %d days, seed %d"
+            selectedStocks.Length
+            (budget.ToString "N0")
+            days
+            seed
+    else
+        printfn "Regime-aware portfolio: %d assets, budget $%s" selectedStocks.Length (budget.ToString "N0")
+
     printfn
-        "Regime-aware portfolio: %d assets, budget $%s, %d days, seed %d"
-        selectedStocks.Length
-        (budget.ToString "N0")
-        days
-        seed
+        "  Regime model (%s daily returns): Bull mean %.3f%% sd %.3f%%, Bear mean %.3f%% sd %.3f%%, P(Bull->Bear) %.4f, P(Bear->Bull) %.4f"
+        regimeModel.MarketProxy
+        (regimeModel.BullMean * 100.0)
+        (regimeModel.BullStd * 100.0)
+        (regimeModel.BearMean * 100.0)
+        (regimeModel.BearStd * 100.0)
+        regimeModel.PBullToBear
+        regimeModel.PBearToBull
 
     printfn ""
 
 let backend = LocalBackend() :> IQuantumBackend
 
-// 1. Generate synthetic market data
-if not quiet then
-    printfn "Generating %d days of market data (seed %d)..." days seed
+// 1. Market returns: simulated from the fitted model, or the real regime from the bundled/live fit
+let (detectedRegime, trueRegime, recent) =
+    if synthetic then
+        if not quiet then
+            printfn "Simulating %d days from the fitted regime model (seed %d)..." days seed
 
-let (marketData, trueRegimes, assetHistory) =
-    generateMarketData days seed selectedStocks
+        let (marketData, trueRegimes, assetHistory) =
+            generateMarketData days seed selectedStocks
 
-// 2. Detect regime via HMM Viterbi
-if not quiet then
-    printfn "Detecting market regime (HMM Viterbi)..."
+        // 2. Detect regime via HMM Viterbi
+        if not quiet then
+            printfn "Detecting market regime (HMM Viterbi)..."
 
-let detectedRegime = MarketHMM.detectRegime marketData
-let trueRegime = trueRegimes.[days - 1]
-let regimeAccurate = detectedRegime = trueRegime
+        let recentOf (s: StockInfo) =
+            RegimeAwareOptimizer.recentStats assetHistory.[s.Symbol]
+
+        MarketHMM.detectRegime regimeModel marketData, Some trueRegimes.[days - 1], recentOf
+    else
+        let lastDay =
+            MarketData.tryAsset marketStats regimeModel.MarketProxy
+            |> Option.map (fun a -> a.BuyDate)
+            |> Option.defaultValue marketStats.WindowTo
+
+        if not quiet then
+            printfn
+                "HMM Viterbi over %s..%s: %d Bull days, %d Bear days; regime on %s: %s"
+                marketStats.WindowFrom
+                marketStats.WindowTo
+                regimeModel.BullDays
+                regimeModel.BearDays
+                lastDay
+                regimeModel.RegimeAtWindowEnd
+
+        let recentOf (s: StockInfo) =
+            match MarketData.tryAsset marketStats s.Symbol with
+            | Some a -> (a.Recent30DailyMean, a.Recent30DailyStd)
+            | None -> failwithf "no figures for %s" s.Symbol
+
+        (if regimeModel.RegimeAtWindowEnd = "Bear" then
+             Bear
+         else
+             Bull),
+        None,
+        recentOf
+
+let regimeAccurate = trueRegime |> Option.map (fun t -> t = detectedRegime)
 
 let strategy =
     match detectedRegime with
@@ -510,18 +593,17 @@ let strategy =
     | Bear -> "Capital Preservation"
 
 if not quiet then
-    printfn
-        "  Detected: %A  |  True: %A  |  %s"
-        detectedRegime
-        trueRegime
-        (if regimeAccurate then "Accurate" else "Mismatch")
+    match trueRegime, regimeAccurate with
+    | Some t, Some ok ->
+        printfn "  Detected: %A  |  Simulated: %A  |  %s" detectedRegime t (if ok then "Accurate" else "Mismatch")
+    | _ -> printfn "  Detected: %A" detectedRegime
 
     printfn "  Strategy: %s" strategy
     printfn ""
 
 // 3. Optimize portfolio
 let sortedResults =
-    match RegimeAwareOptimizer.optimize detectedRegime budget backend selectedStocks assetHistory with
+    match RegimeAwareOptimizer.optimize detectedRegime budget backend selectedStocks recent with
     | Ok(allocations, totalValue, pReturn, pRisk, pSharpe, methodStr) ->
         selectedStocks
         |> List.map (fun stock ->
@@ -530,17 +612,13 @@ let sortedResults =
             let value = alloc |> Option.map (fun a -> a.Value) |> Option.defaultValue 0.0
             let pct = if totalValue > 0.0 then value / totalValue * 100.0 else 0.0
 
-            let assetReturn =
-                alloc |> Option.map (fun a -> a.Asset.ExpectedReturn) |> Option.defaultValue 0.0
-
-            let assetRisk =
-                alloc |> Option.map (fun a -> a.Asset.Risk) |> Option.defaultValue 0.0
-            // Sharpe uses EXCESS return over the risk-free rate, not raw return.
-            let riskFreeRate = 0.02 // annualized; ~short-term T-bill proxy
+            let (assetReturn, assetRisk) = recent stock
+            // Sharpe uses EXCESS return over the risk-free rate; both are daily here.
+            let riskFreeRate = 0.02 / 252.0 // 2% a year; ~short-term T-bill proxy
 
             let sharpe =
                 if assetRisk > 0.0 then
-                    (assetReturn - riskFreeRate) / assetRisk
+                    (assetReturn - riskFreeRate) / assetRisk * sqrt 252.0
                 else
                     0.0
 
@@ -553,7 +631,7 @@ let sortedResults =
                 ExpectedReturn = assetReturn
                 Risk = assetRisk
                 DetectedRegime = $"%A{detectedRegime}"
-                TrueRegime = $"%A{trueRegime}"
+                TrueRegime = trueRegime |> Option.map (sprintf "%A")
                 RegimeAccurate = regimeAccurate
                 Strategy = strategy
                 PortfolioReturn = pReturn
@@ -579,7 +657,7 @@ let sortedResults =
                 ExpectedReturn = 0.0
                 Risk = 0.0
                 DetectedRegime = $"%A{detectedRegime}"
-                TrueRegime = $"%A{trueRegime}"
+                TrueRegime = trueRegime |> Option.map (sprintf "%A")
                 RegimeAccurate = regimeAccurate
                 Strategy = strategy
                 PortfolioReturn = 0.0
@@ -588,6 +666,20 @@ let sortedResults =
                 SolverMethod = "Error"
                 HasOptimizationFailure = true
             })
+
+let chosenWeights = sortedResults |> List.map (fun r -> r.Stock.Symbol, r.Value)
+let equalWeights = selectedStocks |> List.map (fun s -> s.Symbol, 1.0)
+
+let private fmtOption (x: float option) =
+    x
+    |> Option.map (fun v -> v.ToString("F4", Globalization.CultureInfo.InvariantCulture))
+    |> Option.defaultValue ""
+
+let private holdoutFor (weights: (string * float) list) =
+    if synthetic then
+        None
+    else
+        MarketData.holdoutReturn marketStats weights
 
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
@@ -620,8 +712,8 @@ let printTable () =
         "  %-6s %-18s %8s %8s %8s %10s %7s %7s %8s"
         "Symbol"
         "Name"
-        "Return"
-        "Risk"
+        "Ret/day"
+        "Risk/day"
         "Sharpe"
         "Value"
         "Shares"
@@ -652,11 +744,21 @@ let printTable () =
     printfn ""
 
     printfn
-        "  Portfolio: Return=%.4f%%  Risk=%.4f%%  Sharpe=%.2f  Method=%s"
+        "  Portfolio: Return=%.4f%%/day  Risk=%.4f%%/day  Sharpe=%.2f (annualised)  Method=%s"
         (pReturn * 100.0)
         (pRisk * 100.0)
         pSharpe
         (first |> Option.map (fun r -> r.SolverMethod) |> Option.defaultValue "N/A")
+
+    printfn "  Ret/day and Risk/day: mean and standard deviation of the last 30 daily returns."
+    printfn "  Portfolio Risk/day: sqrt(w' S w) with S = window correlations x these daily deviations."
+
+    let failed = sortedResults |> List.exists (fun r -> r.HasOptimizationFailure)
+
+    if synthetic then
+        printfn "  Synthetic mode: returns are simulated, so there is no hold-out comparison."
+    elif not failed then
+        MarketData.printComparison marketStats chosenWeights (selectedStocks |> List.map (fun s -> s.Symbol)) None
 
 printTable ()
 
@@ -678,17 +780,30 @@ let resultMaps: Map<string, string> list =
             "value", $"%.2f{r.Value}"
             "pct_of_portfolio", $"%.2f{r.PctOfPortfolio}"
             "detected_regime", r.DetectedRegime
-            "true_regime", r.TrueRegime
-            "regime_accurate", $"%b{r.RegimeAccurate}"
+            "true_regime", r.TrueRegime |> Option.defaultValue ""
+            "regime_accurate", r.RegimeAccurate |> Option.map (sprintf "%b") |> Option.defaultValue ""
             "strategy", r.Strategy
             "portfolio_return", $"%.6f{r.PortfolioReturn}"
             "portfolio_risk", $"%.6f{r.PortfolioRisk}"
             "portfolio_sharpe", $"%.4f{r.PortfolioSharpe}"
             "solver_method", r.SolverMethod
             "budget", $"%.2f{budget}"
-            "days", $"%d{days}"
-            "seed", $"%d{seed}"
+            "days", (if synthetic then $"%d{days}" else "")
+            "seed", (if synthetic then $"%d{seed}" else "")
             "has_optimization_failure", $"%b{r.HasOptimizationFailure}"
+            "data_mode", (if synthetic then "synthetic" else "real")
+            "holdout_return",
+            (if synthetic then
+                 ""
+             else
+                 fmtOption (
+                     MarketData.tryAsset marketStats r.Stock.Symbol
+                     |> Option.bind (fun a -> a.HoldoutReturn)
+                 ))
+            "portfolio_holdout_return", fmtOption (holdoutFor chosenWeights)
+            "equal_weight_holdout_return", fmtOption (holdoutFor equalWeights)
+            "estimation_window", $"%s{marketStats.WindowFrom}..%s{marketStats.WindowTo}"
+            "holdout_window", $"%s{marketStats.HoldoutFrom}..%s{marketStats.HoldoutTo}"
         ]
         |> Map.ofList)
 
@@ -725,6 +840,12 @@ match csvPath with
             "days"
             "seed"
             "has_optimization_failure"
+            "data_mode"
+            "holdout_return"
+            "portfolio_holdout_return"
+            "equal_weight_holdout_return"
+            "estimation_window"
+            "holdout_window"
         ]
 
     let rows =

@@ -9,6 +9,69 @@ open FSharp.Azure.Quantum.Backends
 open System.Threading.Tasks
 open FSharp.Azure.Quantum.LocalSimulator
 
+/// A backend shaped like cloud hardware, for pinning whole-circuit routes: ApplyOperation is
+/// refused with the incremental error, ExecuteToState runs the circuit on the local simulator,
+/// draws `shots` seeded samples and returns CloudBackendHelpers.histogramToQuantumState, a
+/// phase-less state of outcome frequencies, and the backend reports Shots.
+module SampledWholeCircuit =
+
+    type Backend(shots: int, seed: int) =
+        let inner = LocalBackend.LocalBackend() :> IQuantumBackend
+        let rng = System.Random seed
+
+        let incremental: Result<QuantumState, QuantumError> =
+            Error(
+                QuantumError.OperationError(
+                    "ApplyOperation",
+                    "Sampled test backend does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."
+                )
+            )
+
+        member val Executed = 0 with get, set
+
+        interface IShotSamplingBackend with
+            member _.Shots = shots
+
+        interface IQuantumBackend with
+            member this.ExecuteToState circuit =
+                this.Executed <- this.Executed + 1
+
+                match inner.ExecuteToState circuit with
+                | Ok(QuantumState.StateVector sv) ->
+                    let p = Measurement.getProbabilityDistribution sv
+                    let n = StateVector.numQubits sv
+                    let cumulative = Array.scan (+) 0.0 p |> Array.tail
+                    let counts = Array.zeroCreate p.Length
+
+                    for _ in 1..shots do
+                        let u = rng.NextDouble()
+                        let k = defaultArg (Array.tryFindIndex (fun c -> u < c) cumulative) (p.Length - 1)
+                        counts.[k] <- counts.[k] + 1
+
+                    // Azure histogram keys: rightmost character = qubit 0.
+                    let histogram =
+                        counts
+                        |> Array.mapi (fun i c -> System.Convert.ToString(i, 2).PadLeft(n, '0'), c)
+                        |> Array.filter (fun (_, c) -> c > 0)
+                        |> Map.ofArray
+
+                    Ok(CloudBackendHelpers.histogramToQuantumState histogram n)
+                | other -> other
+
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation _ _ = incremental
+
+            member _.SupportsOperation op =
+                CloudBackendHelpers.isCloudSupportedOperation op
+
+            member _.Name = "sampled whole-circuit test backend"
+            member _.InitializeState n = inner.InitializeState n
+
+            member this.ExecuteToStateAsync circuit _ =
+                Task.FromResult((this :> IQuantumBackend).ExecuteToState circuit)
+
+            member _.ApplyOperationAsync _ _ _ = Task.FromResult incremental
+
 module QuantumMonteCarloTests =
 
     let private createBackend () =
@@ -291,3 +354,120 @@ module QuantumMonteCarloTests =
             | Error e -> failwith $"Expected Ok, got Error: {e}"
         }
         :> Task
+
+    // ========================================================================
+    // ROUTES: exact gate by gate locally, whole circuits on a sampling backend
+    // ========================================================================
+
+    /// P(qubit 0 = 1) = 0.3 on two qubits, marked by a Z on qubit 0.
+    let private knownConfig () =
+        let theta = 2.0 * asin (sqrt 0.3)
+
+        {
+            NumQubits = 2
+            StatePreparation =
+                CircuitBuilder.empty 2
+                |> CircuitBuilder.addGate (CircuitBuilder.RY(0, theta))
+                |> CircuitBuilder.addGate (CircuitBuilder.H 1)
+            Oracle = CircuitBuilder.empty 2 |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
+            GroverIterations = 4
+            Shots = 1000
+        }
+
+    [<Fact>]
+    let ``estimateExpectation on a whole-circuit sampling backend estimates from measured frequencies`` () =
+        task {
+            let backend = SampledWholeCircuit.Backend(4000, 11)
+
+            match! estimateExpectation (knownConfig ()) backend |> Async.StartImmediateAsTask with
+            | Ok qmc ->
+                // Sampled states carry no phases: the marked set must come from the oracle's
+                // definition, or the estimate collapses to 0.
+                Assert.True(abs (qmc.ExpectationValue - 0.3) < 0.03, $"expected ≈ 0.3, got {qmc.ExpectationValue}")
+                Assert.True(backend.Executed >= 4, $"expected one job per Grover power, got {backend.Executed}")
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        } :> Task
+
+    [<Fact>]
+    let ``estimateExpectation on the local simulator stays exact`` () =
+        task {
+            match!
+                estimateExpectation (knownConfig ()) (createBackend ())
+                 |> Async.StartImmediateAsTask
+            with
+            | Ok qmc -> Assert.True(abs (qmc.ExpectationValue - 0.3) < 1e-4, $"expected 0.3, got {qmc.ExpectationValue}")
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        } :> Task
+
+    [<Fact>]
+    let ``estimateExpectation refuses an oracle that is not a phase oracle`` () =
+        task {
+            let config =
+                { knownConfig () with
+                    Oracle = CircuitBuilder.empty 2 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+                }
+
+            match! estimateExpectation config (createBackend ()) |> Async.StartImmediateAsTask with
+            | Error(QuantumError.ValidationError("Oracle", _)) -> ()
+            | other -> failwith $"Expected an Oracle validation error, got {other}"
+        } :> Task
+
+    /// p = [0.1; 0.2; 0.3; 0.4] on two qubits.
+    let private fourBinPreparation () =
+        let amplitudes =
+            [| 0.1; 0.2; 0.3; 0.4 |]
+            |> Array.map (fun p -> System.Numerics.Complex(sqrt p, 0.0))
+
+        FSharp.Azure.Quantum.Algorithms.MottonenStatePreparation.prepareStateFromAmplitudes
+            amplitudes
+            [| 0; 1 |]
+            (CircuitBuilder.empty 2)
+
+    [<Fact>]
+    let ``estimateBoundedExpectation is exact gate by gate on the local simulator`` () =
+        // E[f] = 0.1·0 + 0.2·0.5 + 0.3·0.25 + 0.4·1 = 0.575
+        task {
+            match!
+                estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 0.5; 0.25; 1.0 |] 4 1000 (createBackend ())
+                 |> Async.StartImmediateAsTask
+            with
+            | Ok r ->
+                Assert.True(abs (r.Expectation - 0.575) < 1e-4, $"expected 0.575, got {r.Expectation}")
+                Assert.False(r.WholeCircuit)
+                Assert.Equal(None, r.ShotsPerCircuit)
+                Assert.Equal<int list>([ 0; 1; 2; 4 ], r.GroverPowers)
+                Assert.True(r.StandardError > 0.0)
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        } :> Task
+
+    [<Fact>]
+    let ``estimateBoundedExpectation submits whole circuits to a sampling backend`` () =
+        task {
+            let backend = SampledWholeCircuit.Backend(4000, 5)
+
+            match!
+                estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 0.5; 0.25; 1.0 |] 4 1000 backend
+                 |> Async.StartImmediateAsTask
+            with
+            | Ok r ->
+                Assert.True(r.WholeCircuit)
+                Assert.Equal(Some 4000, r.ShotsPerCircuit)
+                Assert.Equal(4, backend.Executed)
+
+                Assert.True(
+                    abs (r.Expectation - 0.575) < 4.0 * r.StandardError + 0.005,
+                    $"expected ≈ 0.575, got {r.Expectation} ± {r.StandardError}"
+                )
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        } :> Task
+
+    [<Fact>]
+    let ``estimateBoundedExpectation refuses values outside the unit interval`` () =
+        task {
+            match!
+                estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 1.5; 0.25; 1.0 |] 2 1000 (createBackend ())
+                 |> Async.StartImmediateAsTask
+            with
+            | Error(QuantumError.ValidationError("values", _)) -> ()
+            | other -> failwith $"Expected a values validation error, got {other}"
+        } :> Task

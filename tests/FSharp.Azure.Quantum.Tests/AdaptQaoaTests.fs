@@ -143,3 +143,63 @@ module AdaptQaoaTests =
         (FSharp.Azure.Quantum.MaxCut.solveWithAdaptQaoa square None)
         |> Result.map (fun solution -> Assert.Equal(4.0, solution.CutValue, 3))
         |> Result.defaultWith (fun e -> failwith $"solveWithAdaptQaoa failed: {e.Message}")
+
+    // ========================================================================
+    // Shot-sampling (cloud) backends: measured energies, parameter-shift gradients
+    // ========================================================================
+
+    let private triangle: TrotterSuzuki.PauliHamiltonian =
+        {
+            Terms =
+                [
+                    ps [| 'Z'; 'Z'; 'I' |] 1.0
+                    ps [| 'I'; 'Z'; 'Z' |] 1.0
+                    ps [| 'Z'; 'I'; 'Z' |] 1.0
+                ]
+            NumQubits = 3
+        }
+
+    let private triangleMixers =
+        [
+            ps [| 'X'; 'I'; 'I' |] 1.0
+            ps [| 'I'; 'X'; 'I' |] 1.0
+            ps [| 'I'; 'I'; 'X' |] 1.0
+            ps [| 'Y'; 'I'; 'I' |] 1.0
+            ps [| 'I'; 'Y'; 'I' |] 1.0
+            ps [| 'I'; 'I'; 'Y' |] 1.0
+        ]
+
+    [<Fact>]
+    let ``ADAPT-QAOA on a shot-sampling backend reaches the frustrated triangle's ground energy`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(4000, 21)
+
+        match AdaptQaoa.run cloud triangle triangleMixers 3 AdaptQaoa.defaultConfig with
+        | Error e -> failwith $"ADAPT-QAOA failed: {e.Message}"
+        | Ok result ->
+            Assert.True(abs (result.Energy - -1.0) < 0.05, $"sampled energy {result.Energy}")
+            Assert.True(result.Layers >= 1)
+            Assert.True(cloud.Jobs > 0)
+            Assert.Equal(0, cloud.ApplyOperationCalls)
+
+    [<Fact>]
+    let ``solveQubo on a shot-sampling backend samples with the backend's own shots`` () =
+        // Triangle MaxCut as a QUBO: cut value 2 is the optimum (cost -2).
+        let qubo =
+            Map.ofList
+                [
+                    (0, 0), -2.0
+                    (1, 1), -2.0
+                    (2, 2), -2.0
+                    (0, 1), 2.0
+                    (1, 2), 2.0
+                    (0, 2), 2.0
+                ]
+
+        let cloud = CloudStyleBackends.ShotSamplingCloud(1000, 8)
+
+        match AdaptQaoa.solveQubo cloud 3 qubo AdaptQaoa.defaultConfig with
+        | Error e -> failwith $"solveQubo failed: {e.Message}"
+        | Ok solution ->
+            Assert.Equal(-2.0, solution.QuboCost)
+            // The final sample is the last job, measured with the backend's 1000 shots.
+            Assert.Equal(1000, cloud.Histograms |> List.last |> Map.toSeq |> Seq.sumBy snd)

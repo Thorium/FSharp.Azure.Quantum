@@ -205,6 +205,41 @@ module QPE =
 
         config.CountingQubits + eigenPrep + controlled + inverseQft + swaps
 
+    /// Gates of the inverse QFT that QPE applies to its counting register, without the
+    /// bit-reversal swaps: `countingQubits.[j]` is the qubit of counting bit j, the control of
+    /// U^(2^j). Controlled phases whose angle fails `keep` are left out (approximate QPE).
+    /// Read the result with `countingOutcome`.
+    let inverseQftGatesWhere (keep: float -> bool) (countingQubits: int[]) : CircuitBuilder.Gate list =
+        let m = countingQubits.Length
+
+        [ (m - 1) .. -1 .. 0 ]
+        |> List.collect (fun target ->
+            let phases =
+                [ target + 1 .. m - 1 ]
+                |> List.choose (fun k ->
+                    let angle = -2.0 * Math.PI / float (1 <<< (k - target + 1))
+
+                    if keep angle then
+                        Some(CircuitBuilder.CP(countingQubits.[k], countingQubits.[target], angle))
+                    else
+                        None)
+
+            phases @ [ CircuitBuilder.H countingQubits.[target] ])
+
+    /// `inverseQftGatesWhere` keeping every controlled phase (exact QPE).
+    let inverseQftGates (countingQubits: int[]) : CircuitBuilder.Gate list =
+        inverseQftGatesWhere (fun _ -> true) countingQubits
+
+    /// The integer k a QPE measurement reads, φ ≈ k / 2^m, from a computational basis index
+    /// (bit q = qubit q) of a circuit built with `inverseQftGates` on `countingQubits`: without
+    /// the bit-reversal swaps, counting bit j carries bit m-1-j of k.
+    let countingOutcome (countingQubits: int[]) (basisIndex: int) : int =
+        let m = countingQubits.Length
+
+        countingQubits
+        |> Array.mapi (fun j q -> ((basisIndex >>> q) &&& 1) <<< (m - 1 - j))
+        |> Array.sum
+
     let private buildLoweringOps (intent: QpeExecutionIntent) : Result<QuantumOperation list, QuantumError> =
         let config = intent.Config
 
@@ -296,21 +331,8 @@ module QPE =
         // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)
         // For each qubit: controlled phases FIRST, then Hadamard LAST
         let inverseQftOps =
-            [ (config.CountingQubits - 1) .. -1 .. 0 ]
-            |> List.collect (fun targetQubit ->
-                let controlledPhaseOps =
-                    [ targetQubit + 1 .. config.CountingQubits - 1 ]
-                    |> List.choose (fun k ->
-                        let power = k - targetQubit + 1
-                        let angle = -2.0 * Math.PI / float (1 <<< power)
-
-                        if shouldIncludeControlledPhase angle then
-                            Some(QuantumOperation.Gate(CircuitBuilder.CP(k, targetQubit, angle)))
-                        else
-                            None)
-
-                let hadamardOp = QuantumOperation.Gate(CircuitBuilder.H targetQubit)
-                controlledPhaseOps @ [ hadamardOp ])
+            inverseQftGatesWhere shouldIncludeControlledPhase [| 0 .. config.CountingQubits - 1 |]
+            |> List.map QuantumOperation.Gate
 
         // Apply bit-reversal swaps to counting qubits (optional)
         let swapOps =

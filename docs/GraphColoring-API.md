@@ -135,8 +135,8 @@ let criticalVar = coloredNode {
     nodeId "R1"
     conflictsWith ["R2"; "R3"]
     fixedColor "EAX"        // Pre-assign to a specific register
-    priority 100.0          // Stored on the node (see note below)
-    avoidColors ["EDX"]     // Stored on the node (see note below)
+    priority 100.0          // Tie-break: colored first (see below)
+    avoidColors ["EDX"]     // Soft: prefer any other register
     property "spill_cost" 1000.0
     property "live_range_start" 0
     property "live_range_end" 500
@@ -152,12 +152,26 @@ let problem = graphColoring {
     nodes [criticalVar; normalVar]
     node "R3" ["R1"]
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
-    maxColors 3             // Must be between 1 and the number of colors
+    maxColors 3             // Only EAX, EBX, ECX may be assigned
     objective MinimizeColors
 }
 ```
 
-**What the current solver uses:** `solve` reads node IDs, conflicts and `fixedColor` (a fixed node is pinned to that color). `priority`, `avoidColors`, `property`, `objective` and `conflictPenalty` are stored on the problem for your own use but do not change the result, and `maxColors` is only validated (1 ≤ `maxColors` ≤ number of colors). The number of colors the solver uses is the `numColors` argument of `solve`.
+**How `solve` uses each option** (P is the solver's penalty weight, 10.0; n is the number of nodes):
+
+| Option | Effect |
+|--------|--------|
+| `fixedColor` | The node always gets that color. |
+| `conflictPenalty` | Multiplies the conflict penalty: an edge whose ends share a color costs `conflictPenalty` × P. Must be positive. See the guarantee below. |
+| `maxColors` | Only the first `maxColors` entries of `colors` are encoded, so no other color can be assigned. A `fixedColor` outside them is a validation error. |
+| `avoidColors` | Soft penalty of 0.3 × P / n when the node gets an avoided color (at most 0.3 × P over the whole graph), so another color is preferred when one is free. Must be in `colors`. |
+| `objective MinimizeColors` | Cost that grows with the color index (0.2 × P × index / (n × (colors − 1)) per node, at most 0.2 × P over the whole graph); among valid samples the fewest colors wins. |
+| `objective BalanceColors` | Penalty 0.2 × P / n² × Σ (nodes per color)², at most 0.2 × P, which is smallest for even class sizes; among valid samples the most even one wins. |
+| `objective MinimizeConflicts` | No color-count preference; samples are ranked by conflict count. |
+| `priority` | Tie-break only: among samples that rank equal on the objective and QUBO energy, the one giving higher-priority nodes earlier colors wins; the greedy coloring (graphs without conflicts, `approximateChromaticNumber`) visits nodes in descending priority. |
+| `property` | Metadata for your own use; not read by the solver. |
+
+**Guarantee:** the soft terms are never negative and total at most 0.5 × P on any valid coloring, while breaking a constraint costs at least P (one color per node), 10 × P (a fixed color) or `conflictPenalty` × P (a conflict). So with `conflictPenalty` ≥ 1 (the default), and generally above 0.5, the lowest-energy state of the QUBO is a valid coloring whenever one exists with the encoded colors. At 0.5 or below, a coloring with conflicts can have lower energy than every valid one; use that with `MinimizeConflicts` when conflicts are acceptable. A conflict listed from both ends (`A` lists `B` and `B` lists `A`) is one edge. The number of colors the solver encodes is the `numColors` argument of `solve`, capped by the number of colors and `maxColors`.
 
 ---
 
@@ -176,8 +190,8 @@ type ColoredNode = {
     Id: string                      // Unique identifier
     ConflictsWith: string list      // Nodes that cannot have same color
     FixedColor: string option       // Pre-assigned color (optional)
-    Priority: float                 // Metadata (default 0.0)
-    AvoidColors: string list        // Metadata
+    Priority: float                 // Tie-break, higher = first (default 0.0)
+    AvoidColors: string list        // Soft: colors to avoid if possible
     Properties: Map<string, obj>    // Custom metadata
 }
 ```
@@ -188,9 +202,9 @@ type ColoredNode = {
 type GraphColoringProblem = {
     Nodes: ColoredNode list         // All nodes in graph
     AvailableColors: string list    // Colors to assign
-    Objective: ColoringObjective    // Stored; not used by solve
-    MaxColors: int option           // Validated only
-    ConflictPenalty: float          // Stored; not used by solve (default 1.0)
+    Objective: ColoringObjective    // Soft goal (default MinimizeColors)
+    MaxColors: int option           // Only the first MaxColors colors are used
+    ConflictPenalty: float          // Conflict penalty multiplier (default 1.0)
 }
 ```
 
@@ -212,9 +226,9 @@ type ColoringSolution = {
     ConflictCount: int                  // Number of conflicts (0 = valid)
     IsValid: bool                       // No conflicts
     ColorDistribution: Map<string, int> // Color usage counts
-    Cost: float                         // QUBO energy of the chosen sample
-    BackendName: string                 // Backend that ran the circuit
-    IsQuantum: bool                     // true for solve
+    Cost: float                         // QUBO energy of the returned coloring
+    BackendName: string                 // Backend name, or QuantumGraphColoringSolver.NoCircuitBackendName
+    IsQuantum: bool                     // false when no circuit ran (no conflicts)
 }
 ```
 
@@ -229,11 +243,11 @@ type ColoringSolution = {
 | `node "A" ["B"; "C"]` | Inline node with conflicts | `node "R1" ["R2"; "R3"]` |
 | `nodes [n1; n2; n3]` | Add pre-built nodes | `nodes [criticalVar; normalVar]` |
 | `colors ["A"; "B"]` | Set available colors (required) | `colors ["Red"; "Green"; "Blue"]` |
-| `objective MinimizeColors` | Store an objective (not used by `solve`) | `objective MinimizeColors` |
-| `maxColors 3` | Upper bound, validated against `colors` | `maxColors 3` |
-| `conflictPenalty 100.0` | Store a penalty weight (not used by `solve`) | `conflictPenalty 100.0` |
+| `objective MinimizeColors` | Soft goal (see the table above) | `objective BalanceColors` |
+| `maxColors 3` | Use only the first 3 colors | `maxColors 3` |
+| `conflictPenalty 2.0` | Conflict penalty multiplier (positive) | `conflictPenalty 2.0` |
 
-The builder validates the problem when the expression is evaluated and **throws** (`failwith`) if it is invalid: no nodes, no colors, empty or duplicate node IDs, a conflict naming an unknown node, a fixed color not in `colors`, or `maxColors` outside 1..number of colors.
+The builder validates the problem when the expression is evaluated and **throws** (`failwith`) if it is invalid: no nodes, no colors, empty or duplicate node IDs, a conflict naming an unknown node, a fixed or avoided color not in `colors`, `maxColors` outside 1..number of colors, a fixed color beyond the first `maxColors` colors, or a `conflictPenalty` that is not a positive finite number.
 
 #### `coloredNode { }` - Advanced Node Builder
 
@@ -244,8 +258,8 @@ The builder validates the problem when the expression is evaluated and **throws*
 | `nodeId "R1"` | Set node ID (required) | `nodeId "Variable1"` |
 | `conflictsWith ["R2"]` | Set conflicts | `conflictsWith ["R2"; "R3"]` |
 | `fixedColor "Red"` | Pre-assign color | `fixedColor "EAX"` |
-| `priority 10.0` | Metadata (default 0.0) | `priority 100.0` |
-| `avoidColors ["Blue"]` | Metadata | `avoidColors ["EDX"]` |
+| `priority 10.0` | Tie-break, higher = colored first (default 0.0) | `priority 100.0` |
+| `avoidColors ["Blue"]` | Soft: prefer other colors | `avoidColors ["EDX"]` |
 | `property "key" value` | Add metadata | `property "spill_cost" 500.0` |
 
 ### Functions
@@ -263,8 +277,8 @@ val frequencyAssignment : towers:string list -> interferences:(string * string) 
 val examScheduling : exams:string list -> studentConflicts:(string * string) list -> timeSlots:string list -> GraphColoringProblem
 ```
 
-- `solve problem numColors backend` uses `min numColors (number of colors)` colors. `None` for the backend means `LocalBackend`. Errors (validation, a graph with no conflicts at all, backend failures) come back as `Error`.
-- `approximateChromaticNumber` runs a classical greedy coloring and returns the number of colors it used (an upper bound, not the exact chromatic number); it falls back to the number of available colors if greedy fails.
+- `solve problem numColors backend` uses `numColors` colors, capped by the number of colors and `maxColors`. `None` for the backend means `LocalBackend`. A graph with no conflicts at all runs no circuit: each node gets its fixed color; otherwise it prefers a color it does not avoid, and among those, under `MinimizeColors`, a color already in use (a new color only when none is), under `BalanceColors` the smallest class so far. The solution has `IsQuantum = false` and `BackendName = QuantumGraphColoringSolver.NoCircuitBackendName`. Errors (validation, backend failures) come back as `Error`.
+- `approximateChromaticNumber` runs a classical greedy coloring (fixed colors first, then nodes in descending priority, each reusing a free color already in use before opening a new one; `avoidColors`, `objective` and `maxColors` are ignored here) and returns the number of colors it used (an upper bound, not the exact chromatic number); it falls back to the number of available colors if greedy fails.
 - `registerAllocation`, `frequencyAssignment` and `examScheduling` build a problem from a list of IDs and a list of conflicting pairs, without going through the builder's validation. `registerAllocation` also sets `MaxColors` to the number of registers.
 - `describeSolution` formats a solution as readable text.
 
@@ -526,13 +540,13 @@ let problem = graphColoring {
 
 ## Problem Size and Performance
 
-**Algorithm:** `solve` builds a QUBO with one variable per (node, color) pair and runs a single QAOA layer with fixed angles (γ = β = 0.5) and 1000 shots. It decodes every shot and returns the best one: valid colorings first (fewest colors), otherwise the fewest conflicts. There is no angle optimisation, so small, sparse graphs give the best results.
+**Algorithm:** `solve` builds a QUBO with one variable per (node, color) pair and runs a single QAOA layer with fixed angles (γ = β = 0.5) and 1000 shots. It decodes every shot and returns the best one for the objective: under `MinimizeColors` valid colorings first (fewest colors), under `BalanceColors` valid colorings first (most even classes), under `MinimizeConflicts` the fewest conflicts; ties go to the lowest QUBO energy, then to `priority`. There is no angle optimisation, so small, sparse graphs give the best results.
 
-**Qubits:** nodes × `min numColors (number of colors)`. On `LocalBackend` this must fit `StateVector.maxQubits`, which is derived from available memory and capped at 30; the state vector needs 16 bytes × 2^qubits. In practice keep problems around 20 qubits or fewer (for example 6 nodes × 3 colors, or 5 nodes × 4 colors). Larger problems need a cloud backend or a classical method.
+**Qubits:** nodes × the encoded color count (`numColors` capped by the number of colors and `maxColors`). On `LocalBackend` this must fit `StateVector.maxQubits`, which is derived from available memory and capped at 30; the state vector needs 16 bytes × 2^qubits. In practice keep problems around 20 qubits or fewer (for example 6 nodes × 3 colors, or 5 nodes × 4 colors). Larger problems need a cloud backend or a classical method.
 
-**Other limits:** a graph must have at least one conflict edge, otherwise `solve` returns an `Error`.
+**Graphs without conflicts:** no circuit runs; see `solve` above.
 
-**Classical alternative:** for graphs too large to simulate, `HybridSolver.solveGraphColoring` with a forced `Classical` method runs a greedy coloring. It takes the lower-level `QuantumGraphColoringSolver.GraphColoringProblem` (color indices instead of names):
+**Classical alternative:** for graphs too large to simulate, `HybridSolver.solveGraphColoring` with a forced `Classical` method runs a greedy coloring (fixed colors placed first, then vertices in order, each taking a color no neighbor uses, preferring one already in use, then the lowest index). A graph without edges runs no circuit even when `Quantum` is forced, so the solution reports `Method = Classical` and says why in `Reasoning`. It takes the lower-level `QuantumGraphColoringSolver.GraphColoringProblem` (color indices instead of names):
 
 ```fsharp
 open FSharp.Azure.Quantum
@@ -556,7 +570,7 @@ match HybridSolver.solveGraphColoring bigProblem 3 None None (Some HybridSolver.
 
 1. **Use inline syntax for simple problems** - `node "A" ["B"; "C"]`.
 2. **Load from data for dynamic problems** - build the list outside the builder and pass it with `nodes`.
-3. **Use `coloredNode { }` when a node is pinned** - `fixedColor` is the builder option the solver honours.
+3. **Use `coloredNode { }` for per-node options** - `fixedColor` pins a node, `avoidColors` and `priority` steer it softly.
 4. **Expect build-time exceptions** - the `graphColoring { }` builder throws on an invalid problem. Build the `GraphColoringProblem` record yourself and call `validate` if you need a `Result` instead.
 5. **Always specify colors** - a problem without `colors` fails validation.
 6. **Keep the qubit count small** - nodes × colors; check `IsValid` on every result.

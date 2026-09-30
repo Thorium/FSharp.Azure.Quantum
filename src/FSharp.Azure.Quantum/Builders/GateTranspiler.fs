@@ -644,6 +644,28 @@ module GateTranspiler =
 
         { circuit with Gates = transpiledGates }
 
+    /// Most passes of `transpileForBackend` that `transpileForBackendFully` runs. One pass can
+    /// emit gates that need another (MCZ → CCX → CNOT/T → RZ); none needs more than four.
+    [<Literal>]
+    let MaxTranspilePasses = 8
+
+    /// `circuit` rewritten into `backendName`'s native gates: `transpileForBackend` repeated
+    /// until a pass changes nothing (at most MaxTranspilePasses). Gates are decomposed in
+    /// program order (CircuitBuilder.getGates) and the result is stored most-recent-first like
+    /// every CircuitBuilder.Circuit, so it runs the same unitary up to global phase.
+    let transpileForBackendFully (backendName: string) (circuit: Circuit) : Circuit =
+        let rec toFixpoint remaining (gates: Gate list) =
+            let next = (transpileForBackend backendName { circuit with Gates = gates }).Gates
+
+            if remaining <= 1 || next = gates then
+                next
+            else
+                toFixpoint (remaining - 1) next
+
+        { circuit with
+            Gates = toFixpoint MaxTranspilePasses (getGates circuit) |> List.rev
+        }
+
     /// Decompose MCZ gate with optional ancilla qubits for linear gate count
     ///
     /// **Public API for advanced users who have ancilla qubits available.**

@@ -103,10 +103,12 @@ module MagicStateDistillationTests =
                 (MagicStateDistillation.prepareNoisyMagicState 0.01 AnyonSpecies.AnyonType.Ising)
                 |> Result.defaultWith (fun _ -> failwith "Failed to prepare state"))
 
-        match MagicStateDistillation.distill15to1 (Random()) inputStates with
+        // Seed 0 passes the syndrome check
+        match MagicStateDistillation.distill15to1 (Random(0)) inputStates with
         | Error err -> failwith $"Distillation failed: {err.Message}"
         | Ok result ->
             Assert.Equal(15, result.InputStatesConsumed)
+            Assert.True(result.Accepted)
             Assert.True(result.PurifiedState.Fidelity > 0.99)
             Assert.Equal(14, result.Syndromes.Length) // 14 syndrome bits
 
@@ -133,10 +135,12 @@ module MagicStateDistillationTests =
                 (MagicStateDistillation.prepareNoisyMagicState (1.0 - inputFidelity) AnyonSpecies.AnyonType.Ising)
                 |> Result.defaultWith (fun _ -> failwith "Failed to prepare state"))
 
-        match MagicStateDistillation.distill15to1 (Random()) inputStates with
+        // Seed 0 passes the syndrome check
+        match MagicStateDistillation.distill15to1 (Random(0)) inputStates with
         | Error err -> failwith $"Distillation failed: {err.Message}"
         | Ok result ->
             // Output should be better than input
+            Assert.True(result.Accepted)
             Assert.True(result.PurifiedState.Fidelity > inputFidelity)
 
             // Acceptance probability should be reasonable
@@ -173,9 +177,42 @@ module MagicStateDistillationTests =
                 (MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonSpecies.AnyonType.Ising)
                 |> Result.defaultWith (fun _ -> failwith "Failed to prepare state"))
 
-        (MagicStateDistillation.distillIterative (Random()) 1 inputStates)
+        // Seed 0 passes the syndrome check
+        (MagicStateDistillation.distillIterative (Random(0)) 1 inputStates)
         |> Result.map (fun finalState -> Assert.True(finalState.Fidelity > 0.95))
         |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
+
+    let private noisyStates (count: int) (errorRate: float) =
+        [ 1..count ]
+        |> List.map (fun _ ->
+            (MagicStateDistillation.prepareNoisyMagicState errorRate AnyonSpecies.AnyonType.Ising)
+            |> Result.defaultWith (fun _ -> failwith "Failed to prepare state"))
+
+    [<Fact>]
+    let ``A rejected distillation round does not return an improved state`` () =
+        // Seed 1 sets a syndrome bit in the first 14 draws at 5% error
+        match MagicStateDistillation.distill15to1 (Random(1)) (noisyStates 15 0.05) with
+        | Error err -> failwith $"Distillation failed: {err.Message}"
+        | Ok result ->
+            Assert.False(result.Accepted)
+            Assert.Contains(true, result.Syndromes)
+            Assert.Equal(0.95, result.PurifiedState.Fidelity, 10)
+            Assert.Equal(0.05, result.PurifiedState.ErrorRate, 10)
+            Assert.Equal(0.0, result.AcceptanceProbability)
+
+    [<Fact>]
+    let ``Iterative distillation fails when every batch of a round is rejected`` () =
+        // Seed 1 rejects the only batch
+        match MagicStateDistillation.distillIterative (Random(1)) 1 (noisyStates 15 0.05) with
+        | Ok state -> failwith $"A rejected round must not yield a state, got fidelity {state.Fidelity}"
+        | Error err -> Assert.Contains("0 of 1 batches passed", err.Message)
+
+    [<Fact>]
+    let ``Iterative distillation discards rejected batches and uses surplus states`` () =
+        // Seed 1 rejects the first batch and accepts the second; the 7 leftover states are unused
+        match MagicStateDistillation.distillIterative (Random(1)) 1 (noisyStates 37 0.05) with
+        | Error err -> failwith $"Failed: {err.Message}"
+        | Ok state -> Assert.Equal(MagicStateDistillation.calculateDistilledFidelity 0.95, state.Fidelity, 10)
 
     [<Fact>]
     let ``Should reject insufficient states for iterative distillation`` () =
@@ -272,6 +309,55 @@ module MagicStateDistillationTests =
             |> Result.map (fun _ -> failwith "Should have rejected Fibonacci qubit")
             |> Result.defaultWith (fun err -> Assert.Contains("only applicable to Ising anyons", err.Message)))
         |> Result.defaultWith (fun err -> failwith $"Failed: {err.Message}")
+
+    let private basisState (bits: int list) =
+        FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising
+        |> Result.map (fun tree -> FusionTree.create tree AnyonSpecies.AnyonType.Ising)
+        |> Result.defaultWith (fun err -> failwith $"Failed to build basis state: {err.Message}")
+
+    let private distilledMagicState () =
+        MagicStateDistillation.prepareNoisyMagicState 0.001 AnyonSpecies.AnyonType.Ising
+        |> Result.defaultWith (fun err -> failwith $"Failed to prepare magic state: {err.Message}")
+
+    [<Fact>]
+    let ``applyTGate rotates the state exactly as TopologicalOperations.tGate`` () =
+        let one = basisState [ 1 ]
+
+        let expected =
+            TopologicalOperations.tGate 0 (TopologicalOperations.pureState one)
+            |> Result.defaultWith (fun err -> failwith $"tGate failed: {err.Message}")
+
+        match MagicStateDistillation.applyTGate (Random(0)) one (distilledMagicState ()) with
+        | Error err -> failwith $"T-gate failed: {err.Message}"
+        | Ok result ->
+            let (amplitude, state) = List.exactlyOne result.OutputState.Terms
+            let (expectedAmplitude, expectedState) = List.exactlyOne expected.Terms
+            let tPhase = System.Numerics.Complex.FromPolarCoordinates(1.0, Math.PI / 4.0)
+
+            Assert.Equal(expectedState.Tree, state.Tree)
+            Assert.Equal(expectedAmplitude.Real, amplitude.Real, 10)
+            Assert.Equal(expectedAmplitude.Imaginary, amplitude.Imaginary, 10)
+            Assert.Equal(tPhase.Real, amplitude.Real, 10)
+            Assert.Equal(tPhase.Imaginary, amplitude.Imaginary, 10)
+
+    [<Fact>]
+    let ``H then injected T then H gives P(1) = sin^2(pi/8)`` () =
+        let result =
+            topologicalResult {
+                let initial = TopologicalOperations.pureState (basisState [ 0 ])
+                let! afterH = TopologicalOperations.hadamard 0 initial
+
+                let! injected =
+                    MagicStateDistillation.applyTGateToQubit (Random(0)) 0 afterH (distilledMagicState ())
+
+                return! TopologicalOperations.hadamard 0 injected.OutputState
+            }
+
+        match result with
+        | Error err -> failwith $"Circuit failed: {err.Message}"
+        | Ok finalState ->
+            let p1 = TopologicalOperations.probabilityOfBitstring [| 1 |] finalState
+            Assert.Equal(sin (Math.PI / 8.0) ** 2.0, p1, 10)
 
     // ========================================================================
     // RESOURCE ESTIMATION TESTS

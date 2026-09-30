@@ -555,3 +555,130 @@ module QuantumTreeSearchBuilderTests =
         | Ok solution ->
             // Or succeed with minimal result
             Assert.True(solution.PathsExplored >= 0)
+
+    // ========================================================================
+    // GROVER ITERATION COUNT (maxIterations)
+    // ========================================================================
+
+    /// Counts the Grover diffusion operators applied, i.e. the Grover iterations run.
+    type private DiffusionCountingBackend(inner: IQuantumBackend) =
+        let mutable diffusions = 0
+        member _.Diffusions = diffusions
+
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+
+            member _.ApplyOperation operation state =
+                match operation with
+                | QuantumOperation.Algorithm(AlgorithmOperation.GroverDiffusion _) -> diffusions <- diffusions + 1
+                | _ -> ()
+
+                inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation = inner.SupportsOperation operation
+            member _.Name = inner.Name + " (counting)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+
+            member _.ApplyOperationAsync operation state ct =
+                inner.ApplyOperationAsync operation state ct
+
+    // depth 2, branching 4: 16 paths, top 20% -> optimal Grover iterations = 1
+    let private treeConfig: TreeSearch.TreeSearchConfig<int> =
+        {
+            MaxDepth = 2
+            BranchingFactor = 4
+            EvaluationFunction = simpleEval
+            MoveGenerator = simpleMoveGen
+        }
+
+    [<Fact>]
+    let ``QuantumTreeSearch.solve runs the maxIterations Grover iterations`` () =
+        let counting = DiffusionCountingBackend(LocalBackend.LocalBackend())
+
+        let problem =
+            QuantumTreeSearch.quantumTreeSearch {
+                initialState 1
+                maxDepth 2
+                branchingFactor 4
+                evaluateWith simpleEval
+                generateMovesWith simpleMoveGen
+                shots 200
+                solutionThreshold 0.01
+                maxIterations 3
+                backend (counting :> IQuantumBackend)
+            }
+
+        match QuantumTreeSearch.solve problem with
+        | Ok _ -> Assert.Equal(3, counting.Diffusions)
+        | Error err -> Assert.Fail($"solve failed: {err.Message}")
+
+    [<Fact>]
+    let ``QuantumTreeSearch.solve without maxIterations runs the calculated optimum`` () =
+        let counting = DiffusionCountingBackend(LocalBackend.LocalBackend())
+
+        let problem =
+            QuantumTreeSearch.quantumTreeSearch {
+                initialState 1
+                maxDepth 2
+                branchingFactor 4
+                evaluateWith simpleEval
+                generateMovesWith simpleMoveGen
+                shots 200
+                solutionThreshold 0.01
+                backend (counting :> IQuantumBackend)
+            }
+
+        match QuantumTreeSearch.solve problem with
+        | Ok _ -> Assert.Equal(1, counting.Diffusions)
+        | Error err -> Assert.Fail($"solve failed: {err.Message}")
+
+    [<Fact>]
+    let ``Builder should reject maxIterations < 1`` () =
+        let ex =
+            Assert.Throws<Exception>(fun () ->
+                QuantumTreeSearch.quantumTreeSearch {
+                    initialState 0
+                    maxDepth 2
+                    branchingFactor 4
+                    evaluateWith simpleEval
+                    generateMovesWith simpleMoveGen
+                    maxIterations 0
+                }
+                |> ignore)
+
+        Assert.Contains("MaxIterations", ex.Message)
+
+    [<Fact>]
+    let ``Builder should reject maxIterations above the Grover bound`` () =
+        let ex =
+            Assert.Throws<Exception>(fun () ->
+                QuantumTreeSearch.quantumTreeSearch {
+                    initialState 0
+                    maxDepth 2
+                    branchingFactor 4
+                    evaluateWith simpleEval
+                    generateMovesWith simpleMoveGen
+                    maxIterations (TreeSearch.MaxGroverIterations + 1)
+                }
+                |> ignore)
+
+        Assert.Contains($"at most {TreeSearch.MaxGroverIterations}", ex.Message)
+
+    [<Fact>]
+    let ``searchGameTreeWithIterations reports the iteration count it ran`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let search k =
+            TreeSearch.searchGameTreeWithIterations 1 treeConfig backend 0.2 (Some 200) (Some 0.01) None None k
+
+        match search (Some 3), search None with
+        | Ok explicitCount, Ok calculated ->
+            Assert.Equal(3, explicitCount.GroverIterations)
+            Assert.Equal(1, calculated.GroverIterations)
+        | a, b -> Assert.Fail($"both searches should succeed: %A{a} / %A{b}")
+
+        match search (Some 0) with
+        | Ok _ -> Assert.Fail("0 Grover iterations must be rejected")
+        | Error err -> Assert.Contains("at least 1", err.Message)

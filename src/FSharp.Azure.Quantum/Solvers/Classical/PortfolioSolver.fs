@@ -10,6 +10,8 @@ open FSharp.Azure.Quantum
 /// - Algorithms: Greedy return/risk ratio optimization
 /// - Speed: Fast (milliseconds for <100 assets)
 /// - Cost: Free (local computation)
+/// - Risk: sqrt(wᵀΣw) when a covariance matrix is supplied; without one the assets are
+///   taken as independent, sqrt(Σ (wᵢσᵢ)²)
 ///
 /// Example:
 ///   let result = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
@@ -166,24 +168,28 @@ module PortfolioSolver =
         else
             asset.ExpectedReturn / asset.Risk
 
-    /// Calculate portfolio metrics from allocations
-    let private calculatePortfolioMetrics (allocations: Allocation list) (totalValue: float) : float * float * float =
+    /// Calculate portfolio metrics from allocations paired with their index in the asset list.
+    /// Risk is sqrt(wᵀΣw) with a covariance matrix, otherwise sqrt(Σ (wᵢσᵢ)²) (independent assets).
+    let private calculatePortfolioMetrics
+        (assets: Asset list)
+        (covariance: float[,] option)
+        (allocations: (int * Allocation) list)
+        (totalValue: float)
+        : float * float * float =
         if List.isEmpty allocations || totalValue = 0.0 then
             (0.0, 0.0, 0.0) // (expectedReturn, risk, sharpeRatio)
         else
             // Weighted average expected return
             let expectedReturn =
                 allocations
-                |> List.sumBy (fun alloc -> alloc.Asset.ExpectedReturn * alloc.Percentage)
+                |> List.sumBy (fun (_, alloc) -> alloc.Asset.ExpectedReturn * alloc.Percentage)
 
-            // Simplified risk calculation (assumes no correlation between assets)
-            // Risk = sqrt(sum of (weight_i * risk_i)^2)
-            let risk =
-                allocations
-                |> List.sumBy (fun alloc ->
-                    let weightedRisk = alloc.Percentage * alloc.Asset.Risk
-                    weightedRisk * weightedRisk)
-                |> sqrt
+            let weights = Array.zeroCreate<float> assets.Length
+
+            for (i, alloc) in allocations do
+                weights.[i] <- weights.[i] + alloc.Percentage
+
+            let risk = PortfolioTypes.portfolioRisk assets weights covariance
 
             // Sharpe ratio (simplified without risk-free rate)
             let sharpeRatio = if risk = 0.0 then 0.0 else expectedReturn / risk
@@ -195,9 +201,15 @@ module PortfolioSolver =
     // ================================================================================
 
     /// Solve portfolio optimization using greedy-by-ratio algorithm
-    /// Allocates budget to assets with highest return/risk ratio first
-    let internal solveGreedyByRatio
+    /// Allocates budget to assets with highest return/risk ratio first.
+    ///
+    /// The selection ranks assets by their own return/risk ratio only. The reported
+    /// Risk is sqrt(wᵀΣw) when a covariance matrix is given (validated by the caller
+    /// with PortfolioTypes.validateCovariance, rows in asset order), otherwise
+    /// sqrt(Σ (wᵢσᵢ)²), which assumes independent assets.
+    let internal solveGreedyByRatioWithCovariance
         (assets: Asset list)
+        (covariance: float[,] option)
         (constraints: Constraints)
         (config: PortfolioConfig)
         : PortfolioSolution =
@@ -209,16 +221,21 @@ module PortfolioSolver =
         // leftover budget would still be spent on them at the end of the loop).
         let sortedAssets =
             assets
-            |> List.filter (fun asset -> asset.ExpectedReturn >= 0.0)
-            |> List.map (fun asset -> (asset, calculateRatio asset))
+            |> List.indexed
+            |> List.filter (fun (_, asset) -> asset.ExpectedReturn >= 0.0)
+            |> List.map (fun (i, asset) -> ((i, asset), calculateRatio asset))
             |> List.sortByDescending snd
             |> List.map fst
 
         // Greedy allocation
-        let rec allocateGreedy (remainingAssets: Asset list) (remainingBudget: float) (allocations: Allocation list) =
+        let rec allocateGreedy
+            (remainingAssets: (int * Asset) list)
+            (remainingBudget: float)
+            (allocations: (int * Allocation) list)
+            =
             match remainingAssets with
             | [] -> allocations
-            | asset :: rest ->
+            | (index, asset) :: rest ->
                 if remainingBudget <= 0.0 then
                     allocations
                 else
@@ -245,18 +262,19 @@ module PortfolioSolver =
                             }
 
                         let newBudget = remainingBudget - actualValue
-                        allocateGreedy rest newBudget (allocation :: allocations)
+                        allocateGreedy rest newBudget ((index, allocation) :: allocations)
 
         // Perform greedy allocation
         let rawAllocations = allocateGreedy sortedAssets constraints.Budget []
 
         // Calculate total value
-        let totalValue = rawAllocations |> List.sumBy (fun a -> a.Value)
+        let totalValue = rawAllocations |> List.sumBy (fun (_, a) -> a.Value)
 
         // Update percentages
-        let allocations =
+        let indexedAllocations =
             rawAllocations
-            |> List.map (fun alloc ->
+            |> List.map (fun (i, alloc) ->
+                i,
                 { alloc with
                     Percentage = if totalValue > 0.0 then alloc.Value / totalValue else 0.0
                 })
@@ -264,19 +282,28 @@ module PortfolioSolver =
 
         // Calculate portfolio metrics
         let (expectedReturn, risk, sharpeRatio) =
-            calculatePortfolioMetrics allocations totalValue
+            calculatePortfolioMetrics assets covariance indexedAllocations totalValue
 
         let endTime = DateTime.UtcNow
         let elapsedMs = (endTime - startTime).TotalMilliseconds
 
         {
-            Allocations = allocations
+            Allocations = indexedAllocations |> List.map snd
             TotalValue = totalValue
             ExpectedReturn = expectedReturn
             Risk = risk
             SharpeRatio = sharpeRatio
             ElapsedMs = elapsedMs
         }
+
+    /// Solve portfolio optimization using greedy-by-ratio algorithm, treating the assets
+    /// as independent: Risk = sqrt(Σ (wᵢσᵢ)²).
+    let internal solveGreedyByRatio
+        (assets: Asset list)
+        (constraints: Constraints)
+        (config: PortfolioConfig)
+        : PortfolioSolution =
+        solveGreedyByRatioWithCovariance assets None constraints config
 
     // ================================================================================
     // MEAN-VARIANCE OPTIMIZATION ALGORITHM
@@ -288,9 +315,12 @@ module PortfolioSolver =
         expectedReturn - (0.5 * riskAversion * risk * risk)
 
     /// Solve portfolio optimization using simplified mean-variance approach
-    /// Uses iterative search to find allocation that maximizes utility function
-    let internal solveMeanVariance
+    /// Uses iterative search to find allocation that maximizes utility function.
+    /// Risk is sqrt(wᵀΣw) when a covariance matrix is given (rows in asset order),
+    /// otherwise sqrt(Σ (wᵢσᵢ)²), which assumes independent assets.
+    let internal solveMeanVarianceWithCovariance
         (assets: Asset list)
+        (covariance: float[,] option)
         (constraints: Constraints)
         (config: PortfolioConfig)
         : PortfolioSolution =
@@ -382,10 +412,12 @@ module PortfolioSolver =
                 None
             else
                 // Create allocations with percentages
-                let allocations =
+                let indexedAllocations =
                     allocData
-                    |> List.filter (fun (_, shares, _) -> shares > 0.0)
-                    |> List.map (fun (asset, shares, value) ->
+                    |> List.indexed
+                    |> List.filter (fun (_, (_, shares, _)) -> shares > 0.0)
+                    |> List.map (fun (i, (asset, shares, value)) ->
+                        i,
                         {
                             Asset = asset
                             Shares = shares
@@ -395,12 +427,12 @@ module PortfolioSolver =
 
                 // Calculate portfolio metrics
                 let (expectedReturn, risk, sharpeRatio) =
-                    calculatePortfolioMetrics allocations totalValue
+                    calculatePortfolioMetrics assets covariance indexedAllocations totalValue
 
                 // Calculate utility score
                 let utility = calculateUtility expectedReturn risk riskAversion
 
-                Some(allocations, totalValue, expectedReturn, risk, sharpeRatio, utility)
+                Some(indexedAllocations |> List.map snd, totalValue, expectedReturn, risk, sharpeRatio, utility)
 
         // Find best allocation among candidates
         let candidates = generateCandidates ()
@@ -410,7 +442,7 @@ module PortfolioSolver =
         let bestSolution =
             if evaluatedCandidates.IsEmpty then
                 // Fallback: use greedy if mean-variance fails
-                let greedy = solveGreedyByRatio assets constraints config
+                let greedy = solveGreedyByRatioWithCovariance assets covariance constraints config
                 (greedy.Allocations, greedy.TotalValue, greedy.ExpectedReturn, greedy.Risk, greedy.SharpeRatio)
             else
                 let (allocations, totalValue, expectedReturn, risk, sharpeRatio, _utility) =
@@ -431,3 +463,12 @@ module PortfolioSolver =
             SharpeRatio = sharpeRatio
             ElapsedMs = elapsedMs
         }
+
+    /// Solve portfolio optimization using simplified mean-variance approach, treating the
+    /// assets as independent: Risk = sqrt(Σ (wᵢσᵢ)²).
+    let internal solveMeanVariance
+        (assets: Asset list)
+        (constraints: Constraints)
+        (config: PortfolioConfig)
+        : PortfolioSolution =
+        solveMeanVarianceWithCovariance assets None constraints config

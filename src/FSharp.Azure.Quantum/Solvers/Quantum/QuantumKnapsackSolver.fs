@@ -261,8 +261,8 @@ module QuantumKnapsackSolver =
             /// Number of measurement shots
             NumShots: int
 
-            /// Initial QAOA parameters (gamma, beta) for single layer
-            /// Typical values: (0.5, 0.5) or (π/4, π/2)
+            /// QAOA angles (gamma, beta) of the single layer, in units of the normalised cost
+            /// Hamiltonian (minimisation convention, see Core.QaoaCircuit). Default (0.5, 0.5).
             InitialParameters: float * float
         }
 
@@ -588,7 +588,8 @@ module QuantumKnapsackSolver =
             /// Number of measurement shots per QAOA iteration
             NumShots: int
 
-            /// Initial QAOA parameters (gamma, beta)
+            /// QAOA angles (gamma, beta), in units of the normalised cost Hamiltonian
+            /// (minimisation convention, see Core.QaoaCircuit)
             InitialParameters: float * float
 
             /// Maximum number of QAOA iterations before giving up finding new solutions

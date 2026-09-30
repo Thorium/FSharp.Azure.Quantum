@@ -340,6 +340,10 @@ module QuantumDistributions =
     /// **Note:** Uses 10 qubits (2^10 = 1,024 precision levels) for good balance
     /// between precision and performance. This provides sufficient
     /// precision for most statistical applications while keeping execution fast.
+    ///
+    /// **Randomness source:** QRNG.generateWithBackend. On a shot-sampling (cloud) backend,
+    /// which must be created with shots = 1, the uniform draw is one measured 10-qubit shot:
+    /// one billed job per sample. On a simulator it is simulated (classical) randomness.
     let sampleWithBackend (dist: Distribution) (backend: IQuantumBackend) : Async<QuantumResult<SampleResult>> =
 
         async {
@@ -354,8 +358,10 @@ module QuantumDistributions =
     ///
     /// **RULE1 Compliance:** Requires explicit backend parameter (no default)
     ///
-    /// **Performance Note:** Generates samples sequentially. For large counts (>1000),
-    /// consider using classical sampling after initial quantum seed generation.
+    /// **Cost:** samples are generated sequentially, one QRNG.generateWithBackend call each.
+    /// On a shot-sampling (cloud) backend, created with shots = 1, that is one billed job per
+    /// sample, so `count` samples are `count` jobs (up to 10,000): bound them with the
+    /// backend's JobBudget. No sample is derived from another by classical resampling.
     let sampleManyWithBackend
         (dist: Distribution)
         (count: int)

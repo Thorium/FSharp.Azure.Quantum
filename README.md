@@ -1,6 +1,6 @@
 # FSharp.Azure.Quantum
 
-**Quantum-First F# Library** - Solve combinatorial optimization problems using quantum algorithms (QAOA - Quantum Approximate Optimization Algorithm) with automatic cloud/local backend selection.
+**Quantum-First F# Library** - Solve combinatorial optimization problems using quantum algorithms (QAOA - Quantum Approximate Optimization Algorithm), on a local simulator by default or on cloud backends when you pass one.
 
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
@@ -95,19 +95,20 @@ flowchart TD
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** 1.4.2 (core) / 0.4.2 (Topological plugin) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
+**Current Version:** 1.4.14 (core) / 0.4.14 (Topological and Braket plugins) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
-- Multiple Backends: LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Atom Computing, Quantinuum), D-Wave quantum annealers (2000+ qubits)
+- Multiple Backends: LocalBackend (simulation), NoisyLocalBackend (density-matrix noise), Azure Quantum (IonQ, Rigetti, Quantinuum, Atom Computing, IQM), D-Wave quantum annealers (1200-5640 qubits), AWS Braket (separate plugin)
+- Cloud execution: the QAOA solvers, UCCSD-VQE and QPE chemistry, Grover and its builders, amplitude amplification, QFT, QPE, Shor, HHL, quantum arithmetic, ADAPT-VQE/ADAPT-QAOA, QML, quantum Monte Carlo pricing and risk, `Primitives` and the textbook protocols (Bell, teleportation, superdense coding, Deutsch-Jozsa, Bernstein-Vazirani, Simon, BB84, E91, bit- and phase-flip codes) build complete circuits and submit them as whole-circuit jobs, transpiled to each provider's native gates. Every job is billed; a `JobBudget` caps how many a run may submit
 - Topological Quantum Computing: Anyon braiding simulator (Ising, Fibonacci & SU(2)_k anyons) with error correction (toric code, surface codes, anyonic charge correction) - Microsoft Majorana architecture
 - Quantum Machine Learning: VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
 - Business Problem Builders: Social Network Analysis, Constraint Scheduling, AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
 - OpenQASM 2.0: Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
 - QAOA Implementation: Quantum Approximate Optimization Algorithm with advanced parameter optimization
 - 7 Quantum Optimization Builders: Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow, Task Scheduling
-- 6 Advanced QFT-Based Builders: Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation, Tree Search, Constraint Solver, Pattern Matcher
-- VQE Implementation: Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
-- Error Mitigation: ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
+- 6 Advanced Builders: Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation (QFT/QPE-based); Tree Search, Constraint Solver, Pattern Matcher (Grover-based)
+- VQE Implementation: Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry), plus ground-state energies by quantum phase estimation (`GroundStateMethod.QPE`)
+- Error Mitigation: ZNE (typically 30-50% error reduction), PEC (typically 50-80% error reduction), REM (typically 50-90% readout error reduction), strategy selection. The percentages are typical ranges reported in the literature, not guarantees.
 - F# Computation Expressions: Idiomatic, type-safe problem specification with builders
 - C# Interop: Fluent API extensions for C# developers
 - Circuit Building: Low-level quantum circuit construction and optimization possible
@@ -136,6 +137,7 @@ repository needed. See [Running Examples](https://github.com/Thorium/FSharp.Azur
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 // Graph Coloring: Register Allocation
 let problem = graphColoring {
@@ -201,6 +203,7 @@ if (result.IsOk) {
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 let problem = graphColoring {
     node "Task1" ["Task2"; "Task3"]
@@ -314,6 +317,21 @@ match Portfolio.solve problem None with
 | Error err -> printfn "Error: %s" err.Message
 ```
 
+Without a covariance the assets are treated as independent: risk = sqrt(Σ (wᵢσᵢ)²). Give the covariance (or a correlation matrix, scaled by each asset's risk) for mean-variance with correlations: the QAOA objective includes the covariance terms and the reported risk is sqrt(wᵀΣw).
+
+```fsharp
+let correlation = array2D [ [ 1.0; 0.6; 0.7 ]; [ 0.6; 1.0; 0.8 ]; [ 0.7; 0.8; 1.0 ] ]
+
+match Portfolio.createProblemWithCorrelation assets 10000.0 correlation with
+| Ok correlated ->
+    match Portfolio.solve correlated None with
+    | Ok allocation -> printfn "Risk with correlations: %.2f" allocation.Risk
+    | Error err -> printfn "Error: %s" err.Message
+| Error err -> printfn "Invalid correlation matrix: %s" err.Message
+```
+
+A covariance that is not square, not one row per asset, not symmetric or not positive semidefinite gives a `ValidationError`. `Portfolio.createProblemWithCovariance assets budget covariance` takes the covariance directly.
+
 ### Network Flow
 
 **Use Case:** Supply chain optimization, logistics, distribution planning
@@ -352,23 +370,26 @@ match NetworkFlow.solve problem None with
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
-// Define tasks with dependencies
-let taskA = scheduledTask {
+// Define tasks with dependencies (durations and deadlines are TimeSpan values)
+let taskA : ScheduledTask<unit> = scheduledTask {
     taskId "TaskA"
     duration (hours 2.0)
     priority 10.0
 }
 
-let taskB = scheduledTask {
+let taskB : ScheduledTask<unit> = scheduledTask {
     taskId "TaskB"
     duration (hours 1.5)
     after "TaskA"  // Dependency
     requires "Worker" 2.0
-    deadline 180.0
+    deadline (minutes 240.0)
 }
 
-let taskC = scheduledTask {
+let taskC : ScheduledTask<unit> = scheduledTask {
     taskId "TaskC"
     duration (minutes 30.0)
     after "TaskA"
@@ -376,12 +397,12 @@ let taskC = scheduledTask {
 }
 
 // Define resources
-let worker = resource {
+let worker : Resource<unit> = resource {
     resourceId "Worker"
     capacity 3.0
 }
 
-let machine = resource {
+let machine : Resource<unit> = resource {
     resourceId "Machine"
     capacity 2.0
 }
@@ -391,17 +412,17 @@ let problem = scheduling {
     tasks [taskA; taskB; taskC]
     resources [worker; machine]
     objective MinimizeMakespan
-    timeHorizon 500.0
+    timeHorizon (hours 4.0)   // Keep close to the expected makespan; it sets the time-slot grid
 }
 
-// Solve with quantum backend for resource constraints
+// Solve with a quantum backend (qubits = tasks x time slots)
 let backend = LocalBackend() :> IQuantumBackend
-match solveQuantum backend problem with
+match solveQuantum backend problem |> Async.RunSynchronously with
 | Ok solution ->
-    printfn "Makespan: %.2f hours" solution.Makespan
-    solution.Schedule 
+    printfn "Makespan: %.2f hours" solution.Makespan.TotalHours
+    solution.Assignments
     |> List.iter (fun assignment ->
-        printfn "%s: starts %.2f, ends %.2f" 
+        printfn "%s: starts %O, ends %O"
             assignment.TaskId assignment.StartTime assignment.EndTime)
 | Error err -> printfn "Error: %s" err.Message
 ```
@@ -409,16 +430,14 @@ match solveQuantum backend problem with
 **Features:**
 - Dependency Management - Precedence constraints (task A before task B)
 - Resource Constraints - Limited workers, machines, budget
-- Quantum Optimization - QAOA for resource-constrained scheduling
-- Classical Fallback - Topological sort for dependency-only problems
-- Gantt Chart Export - Visualize schedules
-- Business ROI - Validated $25,000/hour savings in powerplant optimization
+- Quantum Optimization - QAOA for resource-constrained scheduling (`solveQuantum`)
+- Classical scheduler - `ClassicalSolver.solve` for dependency-only problems (ignores resource capacity)
+- Gantt Chart Export - `exportGanttChart solution "schedule.txt"`
 
 **API Documentation:** [TaskScheduling-API.md](docs/TaskScheduling-API.md)
 
 **Examples:** 
 - [JobScheduling](examples/JobScheduling/) - Manufacturing workflow scheduling
-- [ProjectManagement](examples/ProjectManagement/) - Team task allocation (if exists)
 
 ---
 
@@ -426,7 +445,7 @@ match solveQuantum backend problem with
 
 **High-level builders for specialized quantum algorithms using computation expression syntax.**
 
-Beyond the optimization and QFT-based builders, the library provides five advanced builders for specialized quantum computing tasks:
+Beyond the optimization builders, the library provides six advanced builders for specialized quantum computing tasks:
 
 ### Quantum Tree Search Builder
 
@@ -435,7 +454,7 @@ Beyond the optimization and QFT-based builders, the library provides five advanc
 ```fsharp
 open FSharp.Azure.Quantum
 
-// Search a decision tree with quantum parallelism
+// Search a decision tree with Grover search (quantum search speedup)
 let searchProblem = QuantumTreeSearch.quantumTreeSearch {
     initialState [0]                                        // Root state
     maxDepth 5                                              // Tree depth
@@ -455,7 +474,7 @@ match QuantumTreeSearch.solve searchProblem with
 ```
 
 **Features:**
-- Quantum parallelism for tree exploration
+- Grover search over tree paths
 - Amplitude amplification for target finding
 - F# computation expression: `QuantumTreeSearch.quantumTreeSearch { }`
 - Applications: Game AI, route planning, decision analysis
@@ -491,8 +510,8 @@ match QuantumConstraintSolver.solve satProblem with
 ```
 
 **Features:**
-- Grover-based SAT solving
-- CNF (Conjunctive Normal Form) constraint encoding
+- Grover-based constraint satisfaction
+- Constraints given as ordinary F# predicates (`satisfies`)
 - F# computation expression: `QuantumConstraintSolver.constraintSolver { }`
 - Applications: Circuit verification, scheduling, logic puzzles
 
@@ -505,7 +524,7 @@ match QuantumConstraintSolver.solve satProblem with
 ```fsharp
 open FSharp.Azure.Quantum
 
-// Find the items matching a predicate, with quantum search speedup
+// Find the items matching a predicate, with quantum search speedup (Grover)
 let matchProblem = QuantumPatternMatcher.patternMatcher {
     searchSpace [1; 2; 3; 4; 5; 6; 7; 8]   // Candidate items
     matchPattern (fun x -> x % 3 = 0)      // Pattern: multiples of 3
@@ -522,8 +541,8 @@ match QuantumPatternMatcher.solve matchProblem with
 ```
 
 **Features:**
-- Quantum search for pattern matching
-- Approximate matching with tolerance
+- Grover search for items matching a predicate
+- Return the top matches (`findTop`)
 - F# computation expression: `QuantumPatternMatcher.patternMatcher { }`
 - Applications: Bioinformatics, data mining, signal processing
 
@@ -606,6 +625,7 @@ match shorsProblem with
 **Features:**
 - Quantum Period Finding (QPF) for Shor's algorithm
 - Quantum Phase Estimation (QPE) integration
+- `FactorSource` says how the factors were found: `QuantumPeriodFinding` (from the measured period) or `ClassicalPreprocessing` (N even, or the base shares a factor with N, so no circuit ran)
 - F# computation expression: `QuantumPeriodFinder.periodFinder { }`
 - Applications: Cryptanalysis, number theory, discrete logarithm
 
@@ -618,7 +638,8 @@ match shorsProblem with
 ```fsharp
 open System
 open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.Algorithms.QPE   // UnitaryOperator (RotationZ, PhaseGate, ...)
+// UnitaryOperator (RotationZ, PhaseGate, ...)
+open FSharp.Azure.Quantum.Algorithms.QPE
 
 // Estimate the eigenphase of a unitary operator
 let qpeProblem = QuantumPhaseEstimator.phaseEstimator {
@@ -635,7 +656,7 @@ match qpeProblem with
         printfn "Estimated phase: %.6f" result.Phase
         printfn "Eigenvalue: %A" result.Eigenvalue
         printfn "Measurement outcome: %d" result.MeasurementOutcome
-        printfn "Molecular energy ~ %.4f Hartree" (result.Phase * 2.0 * Math.PI)
+        printfn "Eigenphase angle: %.4f rad" (result.Phase * 2.0 * Math.PI)
     | Error err -> printfn "Error: %A" err
 | Error err -> printfn "Error: %A" err
 ```
@@ -652,7 +673,7 @@ match qpeProblem with
 
 **Common Capabilities:**
 - Computation Expression Syntax - Idiomatic F# DSL for all builders
-- Backend Switching - LocalBackend (simulation) or Cloud (IonQ, Rigetti)
+- Backend Switching - LocalBackend (simulation) or Cloud (IonQ, Rigetti, Quantinuum, Atom Computing, IQM): on a cloud backend each run is submitted as one whole-circuit job, and the results come from measured shots
 - Type Safety - F# type system prevents invalid quantum circuits
 - C# Interop - Fluent API extensions for all builders
 - Circuit Export - Export to OpenQASM 2.0 for cross-platform execution
@@ -660,26 +681,25 @@ match qpeProblem with
 
 **Current Status:** 
 - Educational/Research Focus - Suitable for algorithm learning and prototyping
-- NISQ Limitations - Toy problems only (< 20 qubits) on current hardware
+- NISQ Limitations - Toy problems only (about 20 qubits) on current hardware and the local simulator
 - Production-Quality Code - Well-tested, documented, and production-quality implementation
 - Hardware Bottleneck - Waiting for fault-tolerant quantum computers for real-world scale
 
 **Use Cases by Builder:**
 
-| Builder | Primary Application | Quantum Advantage | Hardware Readiness |
+| Builder | Primary Application | Underlying Algorithm | Theoretical Speedup |
 |---------|-------------------|-------------------|-------------------|
-| **Tree Search** | Game AI, Route Planning | O(√N) speedup | 2028+ (requires 50+ qubits) |
-| **Constraint Solver** | SAT, Logic Puzzles | O(√2^n) speedup | 2030+ (requires 100+ qubits) |
-| **Pattern Matcher** | DNA Alignment, Data Mining | O(√N) speedup | 2027+ (requires 30+ qubits) |
-| **Arithmetic** | Cryptography, RSA | Polynomial vs exponential | 2026+ (requires 4096+ qubits for RSA-2048) |
-| **Period Finder** | Shor's Algorithm, Cryptanalysis | Exponential speedup | 2029+ (requires 4096+ qubits) |
-| **Phase Estimator** | Quantum Chemistry, VQE | Polynomial speedup | 2025+ (10-20 qubits sufficient for small molecules) |
+| **Tree Search** | Game AI, Route Planning | Grover search over paths | O(√N) |
+| **Constraint Solver** | SAT, Logic Puzzles | Grover search over assignments | O(√2^n) |
+| **Pattern Matcher** | DNA Alignment, Data Mining | Grover search over candidates | O(√N) |
+| **Arithmetic** | Cryptography, RSA | QFT-based arithmetic | None on its own (QFT-based adders are the building block of Shor's modular exponentiation) |
+| **Period Finder** | Shor's Algorithm, Cryptanalysis | Quantum phase estimation | Exponential |
+| **Phase Estimator** | Quantum Chemistry, VQE | Quantum phase estimation | Polynomial |
 
 **Recommendation:**
 - Use for **learning quantum algorithms** and understanding quantum advantage
 - Use for **prototyping** future quantum applications
-- Use **Phase Estimator for small molecules** on current NISQ hardware
-- For **production optimization**, use the [7 problem builders](#-problem-builders) instead
+- For **production optimization**, use the [7 problem builders](#problem-builders) instead
 
 ---
 
@@ -734,7 +754,7 @@ if (qpe.IsOk)
 }
 ```
 
-**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (as of 2025)
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms, but current hardware is insufficient for real-world sizes (fault-tolerant hardware needed)
 
 ---
 
@@ -742,24 +762,24 @@ if (qpe.IsOk)
 
 **Primary Focus: QAOA-Based Combinatorial Optimization**
 
-This library is designed for **NISQ-era practical quantum advantage** in optimization:
+This library is designed for QAOA-based combinatorial optimization:
 - ✅ 7 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow, Task Scheduling)
 - ✅ QAOA implementation with automatic parameter tuning
 - ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
-- ✅ Production-ready solvers with cloud backend integration
+- ✅ Production-ready solvers with cloud backend integration (local simulator by default)
 
 **Secondary Focus: Quantum Algorithm Education & Research**
 
 The `Algorithms/` directory contains foundational quantum algorithms for learning:
 - ✅ Grover's Search (quantum search, O(√N) speedup)
 - ✅ Amplitude Amplification (generalization of Grover)
-- ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
+- ✅ Quantum Fourier Transform (O(n²) gates vs O(n·2^n) for the classical FFT)
 
 **Why F# for Quantum?**
 - Type-safe quantum circuit construction
 - Functional programming matches quantum mathematics
 - Interop with .NET ecosystem (C#, Azure, ML.NET)
-- Higher level abstraction than Python (Qiskit) and Q#
+- Higher level abstraction than Python (Qiskit) and Q#: problem builders and computation expressions instead of hand-built circuits
 
 ---
 
@@ -772,7 +792,8 @@ The `Algorithms/` directory contains foundational quantum algorithms for learnin
 Train quantum neural networks for classification tasks:
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.MachineLearning
 
 // Setup backend and architecture
@@ -789,20 +810,20 @@ let trainFeatures = [|
 |]
 let trainLabels = [| 0; 1; 0; 1 |]
 
-// Configure training
-let config = {
-    LearningRate = 0.1
-    MaxEpochs = 100
-    ConvergenceThreshold = 0.001
-    Shots = 1000
-    Verbose = false
-    Optimizer = VQC.SGD
+// Configure training (start from the defaults and override what you need)
+let config : VQC.TrainingConfig = {
+    VQC.defaultConfig with
+        LearningRate = 0.1
+        MaxEpochs = 100
+        ConvergenceThreshold = 0.001
+        Shots = 1000
+        Verbose = false
+        Optimizer = VQC.SGD
 }
 
-// Initialize parameters
+// Initialize parameters (one qubit per feature)
 let numQubits = trainFeatures.[0].Length
-let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
-let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
+let initialParams = VariationalForms.randomParameters variationalForm numQubits (Some 42)
 
 // Train the classifier
 match VQC.train backend featureMap variationalForm initialParams trainFeatures trainLabels config with
@@ -822,23 +843,25 @@ match VQC.train backend featureMap variationalForm initialParams trainFeatures t
 Use quantum feature spaces for support vector machines:
 
 ```fsharp
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.MachineLearning
 
 // Setup backend and quantum feature map
 let backend = LocalBackend() :> IQuantumBackend
-let featureMap = ZZFeatureMap  // Quantum feature map with entanglement
+let featureMap = ZZFeatureMap 2  // Depth-2 entangling feature map
 
 // Training data
 let trainData = [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.3; 0.1 |]; [| 0.8; 0.9 |] |]
 let trainLabels = [| 0; 1; 0; 1 |]
 
 // SVM configuration
-let config = {
-    C = 1.0
-    Tolerance = 1e-3
-    MaxIterations = 100
-    Verbose = false
+let config : QuantumKernelSVM.SVMConfig = {
+    QuantumKernelSVM.defaultConfig with
+        C = 1.0
+        Tolerance = 1e-3
+        MaxIterations = 100
+        Verbose = false
 }
 
 // Train SVM with quantum kernel
@@ -863,6 +886,8 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
 - Model Serialization - Save/load trained models
 - Data Preprocessing - Normalization, encoding, splits
 
+The same code runs on a cloud backend: every forward pass and every kernel entry is one circuit submitted with `ExecuteToState`, so training is many billed jobs (a kernel matrix of n samples is n(n+1)/2 circuits). Kernel matrices keep at most `QuantumKernel.MaxConcurrentSampledJobs` (8) circuits in flight on a cloud backend; cap the total with a `JobBudget`.
+
 **Examples:** 
 - `examples/QML/VQCExample.fsx` - Complete VQC training pipeline
 - `examples/QML/FeatureMapExample.fsx` - Feature encoding demonstrations
@@ -880,6 +905,7 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
 
 ```fsharp
 open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // Define social network
@@ -903,7 +929,7 @@ let network = SocialNetworkAnalyzer.socialNetwork {
     // Find communities of at least 3 people
     findCommunities 3
     
-    // Use quantum acceleration (optional)
+    // Backend is optional; the local simulator is used when omitted
     backend (LocalBackend() :> IQuantumBackend)
     shots 1000
 }
@@ -928,15 +954,16 @@ match network with
 
 **Quantum Advantage:**
 - Classical clique finding: O(2^n) exponential time complexity
-- Grover's algorithm: O(√(2^n)) quadratic speedup
-- Most beneficial for networks with 20+ people
-- Real-time fraud detection at scale
+- Grover's algorithm: O(√(2^n)) quadratic speedup (theoretical; about √(2^n) oracle queries)
+
+**How it works:**
+- Clique search is encoded as a Grover search over subsets of people (`useQaoa` switches to a QAOA formulation where supported)
+- Networks of up to 100 people are accepted; the qubit budget of the backend is the practical limit
 
 **Features:**
 - F# computation expression: `socialNetwork { }`
-- Quantum backend support (LocalBackend, IonQ, Rigetti)
+- Quantum backend support (LocalBackend by default, or any gate-based cloud backend: every Grover or QAOA circuit is submitted as one whole-circuit job)
 - Configurable shots for measurement accuracy
-- Classical fallback for small networks
 - Community strength metrics (connectivity percentage)
 
 **Example:** `examples/GraphAnalytics/SocialNetworkAnalyzer_Example.fsx`
@@ -949,6 +976,7 @@ match network with
 
 ```fsharp
 open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // Workforce scheduling with constraints
@@ -979,7 +1007,7 @@ let schedule = ConstraintScheduler.constraintScheduler {
     optimizeFor ConstraintScheduler.MinimizeCost
     maxBudget 100.0
     
-    // Use quantum optimization (optional)
+    // Backend is optional; the local simulator is used when omitted
     backend (LocalBackend() :> IQuantumBackend)
     shots 1500
 }
@@ -1016,25 +1044,24 @@ match schedule with
 
 **Quantum Advantage:**
 - Classical constraint solving: NP-hard (exponential time)
-- Quantum optimization: Quadratic speedup with Grover search
-- Most beneficial for 10+ tasks with complex constraints
+- Quantum optimization: Quadratic speedup with Grover search (theoretical)
 
 **Optimization Goals:**
-- `MinimizeCost`: Uses Weighted Graph Coloring oracle
+- `MinimizeCost`: Uses Weighted Graph Coloring oracle (QAOA bin packing when resources have capacities)
 - `MaximizeSatisfaction`: Uses Max-SAT oracle for constraint satisfaction
 - `Balanced`: Combines both cost and satisfaction criteria
 
 **Constraint Types:**
-- **Hard Constraints** (must satisfy): `conflict`, `require`, `precedence`
+- **Hard Constraints** (must satisfy): `conflict`, `require`. `precedence` is rejected with an error: this scheduler assigns tasks to resources and has no time dimension (use [Task Scheduling](#task-scheduling) for ordering).
 - **Soft Constraints** (preferences): `prefer` with configurable weights
 - **Budget Constraints**: `maxBudget` for cost optimization
 
 **Features:**
 - F# computation expression: `constraintScheduler { }`
 - Dual oracle support (Max-SAT and Weighted Graph Coloring)
-- Quantum backend support (LocalBackend, IonQ, Rigetti)
+- Quantum backend support (LocalBackend by default, or any gate-based cloud backend: every Grover or QAOA circuit is submitted as one whole-circuit job)
 - Configurable shots for accuracy vs. speed tradeoff
-- Classical fallback for small problems
+- Up to 50 tasks accepted; when the quantum search finds no schedule, `BestSchedule` is `None` (no classical search runs in its place)
 - Detailed constraint satisfaction metrics
 
 **Example:** `examples/JobScheduling/ConstraintScheduler_Example.fsx`
@@ -1177,12 +1204,12 @@ neighbours with `SimilaritySearch.findSimilar queryItem queryFeatures topN index
 **Business Builder Features:**
 - Social Network Analyzer - Community detection, fraud rings, influencer identification (Grover's algorithm)
 - Constraint Scheduler - Workforce scheduling, resource allocation with constraints (Max-SAT & Graph Coloring)
-- AutoML - Automated hyperparameter tuning, model selection, ensemble methods
+- AutoML - Automated model and architecture search with hyperparameter trials
 - Anomaly Detection - Outlier detection for security, fraud, quality control
 - Binary Classification - Two-class problems (fraud, spam, churn)
-- Predictive Modeling - Time-series forecasting, demand prediction
+- Predictive Modeling - Regression and multi-class prediction (demand, churn)
 - Similarity Search - Recommendations, semantic search, clustering
-- Quantum-Enhanced - Leverages Grover's search, quantum kernels, and feature maps
+- Quantum-Enhanced - Uses Grover's search, quantum kernels, and feature maps
 - Ready for Production - Model serialization, evaluation metrics, validation
 
 **Examples:**
@@ -1201,54 +1228,51 @@ neighbours with `SimilaritySearch.findSimilar queryItem queryFeatures topN index
 **Smart solver that automatically chooses between classical and quantum execution based on problem analysis.**
 
 The HybridSolver provides a unified API that:
-- Analyzes problem size, structure, and complexity
-- Estimates quantum advantage potential
-- Routes to classical solver (fast, free) OR quantum backend (scalable, expensive)
-- Provides reasoning for solver selection
-- Optionally compares both methods for validation
+- Analyzes problem size (`ProblemAnalysis`)
+- Estimates quantum advantage potential (`QuantumAdvisor`: estimated speedup and classical/quantum solving times)
+- Routes to a classical solver (fast, free) or to a quantum solver on the backend you pass
+- Records the reasoning for its choice in the result
+- Accepts an optional budget (USD) that sends a problem back to the classical solver when the estimated quantum cost exceeds it
 
-**Decision Framework:**
-- Small problems (< 50 variables) → Classical solver (milliseconds, $0)
-- Large problems (> 100 variables) → Quantum solver (seconds-minutes, ~$10-100)
-- Automatic cost guards and recommendations
+**Decision Framework** (`QuantumAdvisor.defaultThresholds`):
+- Small problems (below 50 variables) → classical solver (milliseconds, $0)
+- Large problems (50 variables or more) → quantum solver (seconds to minutes, provider pricing), **only** if you passed a backend (the `...WithBackend` functions) and the estimated cost is within the budget; otherwise the classical solver runs and `Reasoning` says why
+- Automatic cost guards and recommendations: the cost of a QAOA run is estimated with `CostEstimation` from the backend name (IonQ: $12.42 base per job, $97.50 with error mitigation, plus per-gate-per-shot charges; Rigetti: $0.02 per 10 ms of QPU time; Quantinuum: subscription-priced; simulators: free). For the one-layer, 1000-shot QAOA circuit HybridSolver prices, a 10-variable problem estimates at about $60 on IonQ and a 50-variable problem at about $1,230, so set a budget before routing large problems to paid hardware.
+- `forceMethod = Some Classical` / `Some Quantum` bypasses the advisor (forced quantum uses the given backend, or a new LocalBackend)
 
 ### Supported Problems
 
-The HybridSolver supports all 5 main optimization problems:
+The HybridSolver supports five optimization problems: TSP, Portfolio, MaxCut, Knapsack and Graph Coloring. MaxCut, Knapsack and Graph Coloring take the solver-level problem records from `FSharp.Azure.Quantum.Quantum`.
 
 ```fsharp
-open FSharp.Azure.Quantum.HybridSolver
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // TSP with automatic routing
 let distances = array2D [[0.0; 10.0; 15.0]; 
                           [10.0; 0.0; 20.0]; 
                           [15.0; 20.0; 0.0]]
 
-match solveTsp distances None None None with
+match HybridSolver.solveTsp distances None None None with
 | Ok solution ->
     printfn "Method used: %A" solution.Method           // Classical or Quantum
     printfn "Reasoning: %s" solution.Reasoning          // Why this method?
     printfn "Time: %.2f ms" solution.ElapsedMs
-    printfn "Route: %A" solution.Result.Route
-    printfn "Distance: %.2f" solution.Result.TotalDistance
+    printfn "Tour: %A" solution.Result.Tour
+    printfn "Length: %.2f" solution.Result.TourLength
 | Error err -> printfn "Error: %s" err.Message
 
-// MaxCut with quantum backend config
-let vertices = ["A"; "B"; "C"; "D"]
-let edges = [("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)]
-let problem = MaxCut.createProblem vertices edges
+// MaxCut: convert the builder problem to the solver-level record
+let maxCutProblem = MaxCut.createProblem ["A"; "B"; "C"; "D"] [("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)]
+let hybridMaxCut : QuantumMaxCutSolver.MaxCutProblem =
+    { Vertices = maxCutProblem.Vertices; Edges = maxCutProblem.Edges }
 
-let quantumConfig = {
-    Backend = IonQ "ionq.simulator"
-    WorkspaceId = "your-workspace-id"
-    Location = "eastus"
-    ResourceGroup = "quantum-rg"
-    SubscriptionId = "sub-id"
-    MaxCostUSD = Some 50.0          // Cost guard
-    EnableComparison = true         // Compare with classical
-}
-
-match solveMaxCut problem (Some quantumConfig) None None with
+// Pass a backend so that large problems can run on it; budget = Some 50.0 USD
+let backend = LocalBackend() :> IQuantumBackend
+match HybridSolver.solveMaxCutWithBackend hybridMaxCut (Some 50.0) None None (Some backend) with
 | Ok solution ->
     printfn "Method: %A" solution.Method
     printfn "Cut Value: %.2f" solution.Result.CutValue
@@ -1258,47 +1282,70 @@ match solveMaxCut problem (Some quantumConfig) None None with
 | Error err -> printfn "Error: %s" err.Message
 
 // Knapsack
-match solveKnapsack knapsackProblem None None None with
+let knapsack = Knapsack.createProblem [("laptop", 3.0, 1000.0); ("phone", 0.5, 500.0); ("tablet", 1.5, 700.0)] 4.0
+let knapsackProblem : QuantumKnapsackSolver.KnapsackProblem =
+    { Items = knapsack.Items; Capacity = knapsack.Capacity }
+
+match HybridSolver.solveKnapsack knapsackProblem None None None with
 | Ok solution ->
     printfn "Total Value: %.2f" solution.Result.TotalValue
-    printfn "Items: %A" solution.Result.SelectedItems
+    printfn "Items: %A" (solution.Result.SelectedItems |> List.map (fun i -> i.Id))
 | Error err -> printfn "Error: %s" err.Message
 
 // Graph Coloring
-match solveGraphColoring graphProblem 3 None None None with
+let graphProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
+    Vertices = ["R1"; "R2"; "R3"]
+    Edges = [ GraphOptimization.edge "R1" "R2" 1.0; GraphOptimization.edge "R2" "R3" 1.0 ]
+    NumColors = 3
+    FixedColors = Map.empty
+}
+
+match HybridSolver.solveGraphColoring graphProblem 3 None None None with
 | Ok solution ->
     printfn "Colors Used: %d/3" solution.Result.ColorsUsed
     printfn "Valid: %b" solution.Result.IsValid
 | Error err -> printfn "Error: %s" err.Message
 
 // Portfolio Optimization
-match solvePortfolio portfolioProblem None None None with
+let assets : PortfolioSolver.Asset list = [
+    { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.15; Price = 150.0 }
+    { Symbol = "MSFT"; ExpectedReturn = 0.11; Risk = 0.14; Price = 350.0 }
+]
+let constraints : PortfolioSolver.Constraints = { Budget = 10000.0; MinHolding = 0.0; MaxHolding = 6000.0 }
+
+match HybridSolver.solvePortfolio assets constraints None None None with
 | Ok solution ->
     printfn "Portfolio Value: $%.2f" solution.Result.TotalValue
     printfn "Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
+| Error err -> printfn "Error: %s" err.Message
+
+// With a covariance matrix (validated) both paths report risk as sqrt(wᵀΣw)
+let covariance = array2D [ [ 0.0225; 0.0126 ]; [ 0.0126; 0.0196 ] ]
+
+match HybridSolver.solvePortfolioWithCovariance assets covariance constraints None None None None with
+| Ok solution -> printfn "Risk: %.2f%%" (solution.Result.Risk * 100.0)
 | Error err -> printfn "Error: %s" err.Message
 ```
 
 ### Features
 
 - Unified API: Single function call for any problem size
-- Smart Routing: Automatic classical/quantum decision
-- Cost Guards: `MaxCostUSD` prevents runaway quantum costs
-- Validation Mode: `EnableComparison = true` runs both methods
-- Transparent Reasoning: Explains why each method was chosen
-- Quantum Advisor: Provides recommendations on quantum readiness
+- Smart Routing: Automatic classical/quantum decision (`QuantumAdvisor` recommendation, applied when a backend is supplied)
+- Cost Guards: the `budget` argument (USD) prevents runaway quantum costs by keeping expensive runs classical
+- Transparent Reasoning: `Solution.Reasoning` explains why each method was chosen
+- Quantum Advisor: `Solution.Recommendation` carries the advisor's recommendation, confidence and estimated speedup
+- Forced method: `Some HybridSolver.Classical` / `Some HybridSolver.Quantum`
 
 ### When to Use HybridSolver vs Direct Builders
 
 **Use HybridSolver when:**
 - Problem size varies (sometimes small, sometimes large)
-- You want automatic cost optimization
-- You need validation/comparison between classical and quantum
+- You want automatic cost optimization (small problems solved classically for free, a budget guard on quantum cost)
 - You're prototyping and unsure which approach is better
 
 **Use Direct Builders when:**
 - You always want quantum (for research/learning)
-- Problem size is consistently in quantum range (10-20 qubits)
+- The problem fits the backend's qubit budget (LocalBackend: memory-derived, about 20 qubits for QAOA by default)
 - You need fine-grained control over backend configuration
 - You're integrating with specific QAOA parameter tuning
 
@@ -1342,15 +1389,15 @@ graph TB
         QTS["QuantumTspSolver<br/>(QAOA)"]
         QPO["QuantumPortfolioSolver<br/>(QAOA)"]
         QNF["QuantumNetworkFlowSolver<br/>(QAOA)"]
-        QSCHED["QuantumSchedulingSolver<br/>(QAOA)"]
+        QSCHED["TaskScheduling.QuantumSolver<br/>(QAOA)"]
     end
     
     subgraph "Layer 3: Quantum Backends"
         LOCAL["LocalBackend<br/>(memory-derived width)"]
-        IONQ["IonQBackend<br/>(Azure Quantum)"]
-        RIGETTI["RigettiBackend<br/>(Azure Quantum)"]
-        ATOM["AtomComputingBackend<br/>(Azure Quantum, 100+ qubits)"]
-        QUANTINUUM["QuantinuumBackend<br/>(Azure Quantum, 99.9%+ fidelity)"]
+        IONQ["IonQ cloud backend<br/>(Azure Quantum)"]
+        RIGETTI["Rigetti cloud backend<br/>(Azure Quantum)"]
+        ATOM["Atom Computing cloud backend<br/>(Azure Quantum, 100 qubits)"]
+        QUANTINUUM["Quantinuum cloud backend<br/>(Azure Quantum, 99.9%+ fidelity)"]
     end
     
     GC --> QGC
@@ -1461,10 +1508,10 @@ GraphColoring.solve problem 2 None
 **Example:**
 ```fsharp
 // Called internally by GraphColoring.solve
-QuantumGraphColoringSolver.solve 
-    backend          // IQuantumBackend
-    problem          // GraphColoringProblem
-    quantumConfig    // QAOA parameters
+QuantumGraphColoringSolver.solve
+    backend                                       // IQuantumBackend
+    graphProblem                                  // QuantumGraphColoringSolver.GraphColoringProblem
+    (QuantumGraphColoringSolver.defaultConfig 3)  // QAOA parameters (shots, colors, penalty weight)
 ```
 
 #### **Layer 3: Quantum Backends** 🔵
@@ -1473,108 +1520,91 @@ QuantumGraphColoringSolver.solve
 
 **Backend Types:**
 
-| Backend | Qubits | Speed | Cost | Use Case |
-|---------|--------|-------|------|----------|
-| **LocalBackend** | ≤20 | Fast (ms) | Free | Development, testing, small problems |
-| **IonQBackend** | 29+ (sim), 11 (QPU) | Moderate (seconds) | Paid | Production, large problems |
-| **RigettiBackend** | 40+ (sim), 80 (QPU) | Moderate (seconds) | Paid | Production, large problems |
-| **AtomComputingBackend** | 100+ (sim/QPU Phoenix) | Moderate (seconds) | Paid | Large-scale problems, all-to-all connectivity |
-| **QuantinuumBackend** | 20-32 (sim), 20-32 (QPU) | Moderate (seconds) | Paid | High-fidelity (99.9%+), trapped-ion |
+| Backend | Created with | Qubits (library limit) | Speed | Cost | Use Case |
+|---------|--------------|------------------------|-------|------|----------|
+| **LocalBackend** | `LocalBackend()` | Memory-derived, at most 30 (`StateVector.maxQubits`); about 20 practical for QAOA (`FSAQ_MAX_CIRCUIT_QUBITS`) | Fast (ms) | Free | Development, testing, small problems |
+| **IonQ** | `CloudBackendFactory.createIonQ` | 20 (`ionq.simulator`), 25 (`ionq.qpu.aria-1`), 36 (Forte) | Moderate (seconds) | Paid | Production, large problems (trapped-ion) |
+| **Rigetti** | `CloudBackendFactory.createRigetti` / `createRigettiRouted` | 20 (`rigetti.sim.qvm`), 84 (`rigetti.qpu.ankaa-3`) | Moderate (seconds) | Paid | Production, large problems (superconducting) |
+| **Quantinuum** | `CloudBackendFactory.createQuantinuum` | 32 (H1: `quantinuum.sim.h1-1sc`, `quantinuum.qpu.h1-1`), 56 (H2: `quantinuum.qpu.h2-1`) | Moderate (seconds) | Paid (premium) | High-fidelity (99.9%+), trapped-ion |
+| **Atom Computing** | `CloudBackendFactory.createAtomComputing` | 20 (`atom-computing.sim`), 100 (`atom-computing.qpu.phoenix`) | Moderate (seconds) | Paid | Large-scale problems, all-to-all connectivity |
+| **IQM** | `CloudBackendFactory.createIqm` | 20 (`iqm.sim`, `iqm.qpu.garnet`) | Moderate (seconds) | Paid | Superconducting QPU |
 
 **Example:**
 ```fsharp
-// Local simulation (default)
-let backend = LocalBackend() :> IQuantumBackend
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-// Azure Quantum (cloud)
-let connectionString = "InstrumentationKey=..."
+// Local simulation (the default when a solver gets None)
+let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-// Using Azure Quantum Workspace (Recommended for cloud backends)
-open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
+// Azure Quantum (cloud): authenticated HttpClient + workspace URL
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
+let workspaceUrl = "https://eastus.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
 
-let workspace = createDefault "subscription-id" "resource-group" "workspace-name" "eastus"
-
-// Using Azure Quantum Workspace (Recommended)
-open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
-
-let workspace = createDefault "subscription-id" "resource-group" "workspace-name" "eastus"
-
-// IonQ Backend
-let backend_ionq = BackendAbstraction.createFromWorkspace workspace "ionq.simulator"
-
-// Rigetti Backend  
-let backend_rigetti = BackendAbstraction.createFromWorkspace workspace "rigetti.sim.qvm"
-
-// Quantinuum Backend (trapped-ion, highest fidelity)
-let backend_quantinuum = BackendAbstraction.createFromWorkspace workspace "quantinuum.sim.h1-1sc"
-
-// Atom Computing Backend (neutral atoms, 100+ qubits, all-to-all connectivity)
-let backend_atom = BackendAbstraction.createFromWorkspace workspace "atom-computing.sim"
-
+// Each factory takes the client, the workspace URL, a target and a shot count
+let backend_ionq = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
 // Rigetti Backend (superconducting, fast gates)
-let backend_rigetti = BackendAbstraction.createRigettiBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "rigetti.sim.qvm"  // or "rigetti.qpu.*" for hardware
-)
-
-// Atom Computing Backend (neutral atoms, 100+ qubits, all-to-all connectivity)
-let backend_atom = BackendAbstraction.createAtomComputingBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "atom-computing.sim"  // or "atom-computing.qpu.phoenix" for hardware
-)
-
+let backend_rigetti = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.sim.qvm" 1000
 // Quantinuum Backend (trapped-ion, highest fidelity)
-let backend_quantinuum = BackendAbstraction.createQuantinuumBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "quantinuum.sim.h1-1sc"  // See available targets below
-)
+let backend_quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.sim.h1-1sc" 1000
+// Atom Computing Backend (neutral atoms, 100 qubits on the QPU, all-to-all connectivity)
+let backend_atom = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atom-computing.sim" 1000
+let backend_iqm = CloudBackendFactory.createIqm httpClient workspaceUrl "iqm.sim" 1000
 
 // Pass to solver
 match GraphColoring.solve problem 3 (Some backend_quantinuum) with
 | Ok solution -> 
     printfn "Backend used: %s" solution.BackendName
+| Error err ->
+    printfn "Error: %s" err.Message
 ```
 
-**Quantinuum Targets:**
-- `quantinuum.sim.h1-1sc` - H1-1 System Model SC simulator (20 qubits)
-- `quantinuum.sim.h1-1e` - H1-1 System Model E simulator (20 qubits)
-- `quantinuum.qpu.h1-1` - H1-1 hardware (20 qubits, 99.9%+ fidelity)
-- `quantinuum.qpu.h2-1` - H2-1 hardware (32 qubits, 99.9%+ fidelity)
+Hardware targets follow the same pattern; check your workspace for the targets it offers.
+
+**Quantinuum Targets** (qubit limits as enforced by the library):
+- `quantinuum.sim.h1-1sc` - H1-1 syntax-checker simulator (32 qubits)
+- `quantinuum.qpu.h1-1` - H1-1 hardware (32 qubits, 99.9%+ fidelity)
+- `quantinuum.qpu.h2-1` - H2-1 hardware (56 qubits, 99.9%+ fidelity)
 
 **Quantinuum Features:**
 - ✅ **All-to-all connectivity** - No SWAP routing needed (trapped-ion architecture)
-- ✅ **99.9%+ gate fidelity** - Highest quality quantum gates commercially available
-- ✅ **Native gates**: H, X, Y, Z, S, T, RX, RY, RZ, CZ (no transpilation for phase gates!)
+- ✅ **99.9%+ gate fidelity** - Among the highest-fidelity gates commercially available (provider specification)
+- ✅ **Native gates**: H, X, Y, Z, S, T, RX, RY, RZ, CZ (no transpilation for phase gates)
 - ✅ **OpenQASM 2.0 format** - Standard quantum circuit language
-- ✅ **Mid-circuit measurement** - Advanced quantum features
-- ⚠️ **Premium pricing** - Higher cost per shot than IonQ/Rigetti
+- ✅ **Mid-circuit measurement** - Supported by the hardware (provider specification)
+- ⚠️ **Premium pricing** - Subscription (HQC) pricing, typically higher per shot than IonQ/Rigetti
 
 
 ### D-Wave Quantum Annealer
 
 ```fsharp
-open FSharp.Azure.Quantum.Backends.DWaveBackend
-open FSharp.Azure.Quantum.Backends.RealDWaveBackend
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Backends.DWaveTypes
 
 // Option 1: Mock D-Wave backend (testing, no credentials needed)
-let mockBackend = createMockDWaveBackend Advantage_System6_1 (Some 42)
+let mockBackend = DWaveBackend.createMockDWaveBackend Advantage_System6_1 (Some 42)
 
-// Option 2: Real D-Wave backend (production, requires API token)
-let dwaveConfig = {
+// Option 2: Real D-Wave backend (requires API token)
+let dwaveConfig : RealDWaveBackend.DWaveConfig = {
     ApiToken = "YOUR_DWAVE_TOKEN"  // Get from https://cloud.dwavesys.com/leap/
     Endpoint = "https://cloud.dwavesys.com/sapi/v2/"
-    Solver = "Advantage_system6.1"  // 5640 qubits, Pegasus topology
+    Solver = "Advantage_system6.1"
     TimeoutMs = Some 300000  // 5 minutes
 }
 let dwaveBackend = RealDWaveBackend.create dwaveConfig
 
-// Option 3: From environment variables (DWAVE_API_TOKEN, DWAVE_SOLVER)
-match RealDWaveBackend.createFromEnv() with
-| Ok backend -> printfn "D-Wave backend ready: %s" backend.Name
+// Option 3: From environment variables (DWAVE_API_TOKEN, optional DWAVE_ENDPOINT / DWAVE_SOLVER)
+match RealDWaveBackend.createFromEnv () with
+| Ok backend -> printfn "D-Wave backend ready: %s" (backend :> IQuantumBackend).Name
 | Error err -> printfn "No D-Wave credentials: %s" err.Message
 
-// Build QAOA circuit for MaxCut (automatically converted to QUBO/Ising)
+// MaxCut problem (the QAOA circuit is converted to QUBO/Ising for annealing)
 let vertices = ["A"; "B"; "C"; "D"; "E"]
 let edges = [
     ("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)
@@ -1583,9 +1613,9 @@ let edges = [
 
 let problem = MaxCut.createProblem vertices edges
 
-// Solve using D-Wave backend (implements IQuantumBackend)
-// D-Wave automatically extracts QUBO from QAOA circuit and uses quantum annealing
-match MaxCut.solve problem (Some dwaveBackend) with
+// Solve using the D-Wave backend (implements IQuantumBackend)
+// The backend extracts the QUBO from the QAOA circuit and anneals it
+match MaxCut.solve problem (Some (mockBackend :> IQuantumBackend)) with
 | Ok solution ->
     printfn "Cut value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
@@ -1594,38 +1624,38 @@ match MaxCut.solve problem (Some dwaveBackend) with
 ```
 
 **D-Wave Features:**
-- 2000-5640 qubits - Far larger than gate-based quantum computers (Advantage series)
+- 1200-5640 qubits - Far larger than gate-based quantum computers (Advantage series: 5000-5640)
 - Implements IQuantumBackend - Seamless integration with QAOA solvers
 - Automatic QUBO extraction - Converts QAOA circuits to native Ising format
 - Quantum annealing - Different paradigm than gate-based (finds ground states via annealing)
 - Mock backend - Test without credentials using classical simulated annealing
-- Real backend - Production D-Wave Leap Cloud API integration (pure .NET, no Python)
+- Real backend - Production D-Wave Leap Cloud API integration over HTTP (SAPI; pure .NET, no Python)
 - Production hardware - Available now (Advantage_system6.1: 5640 qubits)
 - Specialized - Best for optimization problems (not universal quantum computing)
 
-**Available D-Wave Solvers:**
+**Available D-Wave Solvers** (`DWaveTypes.DWaveSolver`, qubit counts from `DWaveTypes.getMaxQubits`):
 - `Advantage_System6_1`: 5640 qubits (Pegasus topology, latest)
 - `Advantage_System4_1`: 5000 qubits (Pegasus topology)
+- `Advantage_System1_1`: 5000 qubits (Pegasus topology, legacy)
 - `Advantage2_Prototype`: 1200 qubits (Zephyr topology, next-gen)
 - `DW_2000Q_6`: 2048 qubits (Chimera topology, legacy)
 
-**Example:** `examples/DWaveMaxCutExample.fsx`
+**Example:** `examples/MaxCut/DWaveMaxCutExample.fsx`
 
 ### Backend Comparison
 
 ```fsharp
 // Small problem: Use local simulation
 let smallProblem = MaxCut.createProblem ["A"; "B"; "C"] [("A","B",1.0)]
-let result1 = MaxCut.solve smallProblem None  // Fast, free
+let result1 = MaxCut.solve smallProblem None  // LocalBackend
 
-// Medium problem: Use Azure Quantum
+// Medium problem: Use Azure Quantum (backend_ionq from the Layer 3 example above)
 let mediumProblem = 
     MaxCut.createProblem 
         [for i in 1..20 -> sprintf "V%d" i]
         [for i in 1..19 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
-let azureBackend = BackendAbstraction.createIonQBackend(conn, "ionq.simulator")
-let result2 = MaxCut.solve mediumProblem (Some azureBackend)  // 20-29 qubits
+let result2 = MaxCut.solve mediumProblem (Some backend_ionq)  // 20 qubits
 
 // Large problem: Use D-Wave quantum annealer
 let largeProblem =
@@ -1633,34 +1663,26 @@ let largeProblem =
         [for i in 1..100 -> sprintf "V%d" i]  // 100 vertices!
         [for i in 1..99 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
-// Create D-Wave backend (mock for testing or real for production)
-let dwaveBackend = 
-    // Option 1: Mock backend (no credentials)
-    DWaveBackend.createMockDWaveBackend Advantage_System6_1 None
-    
-    // Option 2: Real backend (requires DWAVE_API_TOKEN env var)
-    // match RealDWaveBackend.createFromEnv() with
-    // | Ok backend -> backend
-    // | Error _ -> DWaveBackend.createDefaultMockBackend()
+// Create D-Wave backend (mock for testing; RealDWaveBackend.createFromEnv () for production)
+let annealer = DWaveBackend.createMockDWaveBackend Advantage_System6_1 None :> IQuantumBackend
 
-let result3 = MaxCut.solve largeProblem (Some dwaveBackend)  // 2000+ qubits
+let result3 = MaxCut.solve largeProblem (Some annealer)  // 100 variables on a 5640-qubit annealer
 ```
 
 **Backend Selection Guide:**
 
-| Problem Size | Backend | Qubits | Speed | Cost | Best For |
-|--------------|---------|--------|-------|------|----------|
-| **Small** (≤20 variables) | LocalBackend | ≤20 | Milliseconds | Free | Development, testing, prototyping |
-| **Medium** (20-29 variables) | IonQ/Rigetti | 29-80 | Seconds | ~$10-50/run | Gate-based quantum algorithms (QAOA, VQE) |
-| **Medium-High Fidelity** (20-32 variables) | Quantinuum | 20-32 | Seconds | ~$50-100/run | High-precision quantum chemistry, error-sensitive algorithms |
-| **Large** (30-100+ variables) | Atom Computing | 100+ | Seconds | ~$20-80/run | Large-scale optimization, all-to-all connectivity benefits |
-| **Very Large** (100+ variables) | D-Wave | 2000+ | Seconds | ~$1-10/run | Optimization problems (MaxCut, TSP, scheduling) |
+| Problem Size | Backend | Qubits (library limit) | Speed | Cost | Best For |
+|--------------|---------|------------------------|-------|------|----------|
+| **Small** (up to about 20 variables) | LocalBackend | Memory-derived, at most 30 | Milliseconds | Free | Development, testing, prototyping |
+| **Medium** (20-36 variables) | IonQ / Rigetti / IQM | IonQ 25 (Aria) / 36 (Forte), Rigetti 84, IQM 20 | Seconds | IonQ: $12.42 base per job plus per-gate charges, about $200 for a 20-variable QAOA run (`CostEstimation`); Rigetti: $0.02 per 10 ms | Gate-based quantum algorithms (QAOA, VQE) |
+| **Medium-High Fidelity** (20-56 variables) | Quantinuum | 32 (H1) / 56 (H2) | Seconds | Subscription (HQC) | High-precision quantum chemistry, error-sensitive algorithms |
+| **Large** (up to 100 variables) | Atom Computing | 100 | Seconds | ~$20-80/run (approximate provider pricing) | Large-scale optimization, all-to-all connectivity benefits |
+| **Very Large** (100+ variables) | D-Wave | 1200-5640 | Seconds | ~$1-10/run (approximate provider pricing) | Optimization problems (MaxCut, TSP, scheduling) |
 
 **When to use D-Wave:**
 - Optimization problems with 50+ variables
-- QUBO/Ising problems (MaxCut, Knapsack, Graph Coloring)
+- QUBO/Ising problems (MaxCut, Knapsack, Graph Coloring) too large for gate-based backends
 - Production workloads needing large problem sizes
-- Cost-sensitive applications (D-Wave cheaper per qubit)
 - NOT for: QFT-based algorithms, Grover's search, quantum chemistry (use gate-based)
 
 ### Unified Backend Architecture
@@ -1669,165 +1691,166 @@ All quantum backends implement the **`IQuantumBackend`** interface, providing a 
 
 **Core Interface** (`src/FSharp.Azure.Quantum/Core/BackendAbstraction.fs`):
 
-```fsharp
+```text
 type IQuantumBackend =
-    /// Execute circuit and return quantum state (not just measurements)
-    abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
-    
-    /// Apply single operation to existing state
-    abstract member ApplyOperation: QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
-    
-    /// Check if backend supports a specific operation
-    abstract member SupportsOperation: QuantumOperation -> bool
-    
-    /// Initialize quantum state for n qubits
-    abstract member InitializeState: int -> Result<QuantumState, QuantumError>
-    
-    /// Backend's native state representation
-    abstract member NativeStateType: QuantumStateType
-    
-    /// Backend identifier
-    abstract member Name: string
+    abstract ExecuteToState      : ICircuit -> Result<QuantumState, QuantumError>
+    abstract NativeStateType     : QuantumStateType
+    abstract ApplyOperation      : QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
+    abstract SupportsOperation   : QuantumOperation -> bool
+    abstract Name                : string
+    abstract InitializeState     : int -> Result<QuantumState, QuantumError>
+    abstract ExecuteToStateAsync : ICircuit -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+    abstract ApplyOperationAsync : QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
 ```
 
-**State Types:**
-- `StateVector` - Full complex amplitude representation (LocalBackend, most gate-based)
-- `TopologicalBraiding` - Anyon braiding representation (TopologicalBackend)
-- `Sparse` - Sparse matrix representation (for large systems)
-- `Mixed` - Density matrix representation (noisy simulations)
+**State Types** (`QuantumStateType` → `QuantumState` case):
+- `GateBased` → `StateVector` - Full complex amplitude representation (LocalBackend; cloud gate backends fill it with √(count/shots) from their measured counts, without phases)
+- `TopologicalBraiding` → `FusionSuperposition` - Anyon fusion-tree representation (topological backends)
+- `Sparse` → `SparseState` - Sparse amplitude map
+- `Mixed` → `DensityMatrix` - Density matrix representation (noisy simulation)
+
+Cloud and annealing backends can also return `MeasurementHistogram` or `IsingSamples` states.
 
 **Key Benefits:**
 
-1. **State-Based Execution**: Get quantum states for inspection and manipulation, not just shot-based measurements
-   ```fsharp
-   let! state = backend.ExecuteToState circuit
-   let amplitudes = state.GetAmplitudes()  // Inspect quantum state directly
-   ```
+**1. State-Based Execution**: Get quantum states for inspection, not just shot-based measurements (full amplitudes on a simulator; a cloud backend returns a state rebuilt from its measured counts, without phases)
 
-2. **Backend-Agnostic Code**: Write algorithms once, run on any backend
-   ```fsharp
-   // Works with LocalBackend, IonQBackend, DWaveBackend, etc.
-   let runQFT (backend: IQuantumBackend) n =
-       result {
-           let circuit = CircuitBuilder.create n |> QFT.apply
-           let! state = backend.ExecuteToState circuit
-           return state
-       }
-   ```
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
-3. **Multi-Stage Algorithms**: Chain operations across multiple backends
-   ```fsharp
-   // QFT → QPE → Measurement on different backends
-   let! qftState = localBackend.ExecuteToState qftCircuit
-   let! qpeState = cloudBackend.ApplyOperation qpeOperation qftState
-   let! final = cloudBackend.ApplyOperation measurement qpeState
-   ```
+let backend = LocalBackend() :> IQuantumBackend
+let bell =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
 
-4. **Capability Checking**: Verify backend support before execution
-   ```fsharp
-   if backend.SupportsOperation (Gate (Toffoli (0, 1, 2))) then
-       // Use native Toffoli
-   else
-       // Fall back to decomposed version
-   ```
+match backend.ExecuteToState (CircuitWrapper(bell) :> ICircuit) with
+| Ok state -> printfn "P(11) = %.3f" (QuantumState.probability [| 1; 1 |] state)
+| Error err -> printfn "Error: %s" err.Message
+```
+
+**2. Backend-Agnostic Code**: Write algorithms once, run on any gate-based backend
+
+```fsharp
+open FSharp.Azure.Quantum.Algorithms
+
+// Works with LocalBackend and the cloud gate backends alike: a cloud backend
+// gets the complete QFT circuit as one job
+let runQft (backend: IQuantumBackend) (numQubits: int) =
+    QFT.execute numQubits backend QFT.defaultConfig
+```
+
+**3. Multi-Stage Algorithms**: Continue from a returned state with further operations. This needs a backend that applies operations incrementally (LocalBackend and the other simulators); cloud backends run complete circuits only, so their `ApplyOperation` returns an `Error` — put every stage into one circuit for them
+
+```fsharp
+let twoStage =
+    backend.ExecuteToState (CircuitWrapper(bell) :> ICircuit)
+    |> Result.bind (backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.X 0)))
+```
+
+**4. Capability Checking**: Verify backend support before execution
+
+```fsharp
+let toffoli = QuantumOperation.Gate (CircuitBuilder.CCX (0, 1, 2))
+if backend.SupportsOperation toffoli then
+    printfn "Native Toffoli"
+else
+    printfn "Decompose Toffoli first"
+```
 
 **Example - Backend Switching:**
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
 // Step 1: Develop locally
-let localBackend = LocalBackend()
-let circuit = CircuitBuilder.create 3
-              |> addGate (H 0)
-              |> addGate (CNOT (0,1))
-              |> addGate (CNOT (1,2))
+let ghz =
+    CircuitBuilder.empty 3
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (1, 2))
 
-match localBackend.ExecuteToState circuit with
-| Ok state -> 
-    printfn "Local test passed: %d amplitudes" (state.GetAmplitudes().Length)
-| Error e -> 
-    printfn "Error: %A" e
+let runOn (backend: IQuantumBackend) =
+    match Primitives.sample backend ghz 1000 with
+    | Ok counts -> printfn "%s: %A" backend.Name counts
+    | Error e -> printfn "Error: %s" e.Message
 
-// Step 2: Same code on cloud backend (no changes needed!)
-let workspace = AzureQuantumWorkspace.createDefault "sub-id" "rg" "workspace" "eastus"
-let cloudBackend = createFromWorkspace workspace "ionq.simulator"
+runOn (LocalBackend.LocalBackend() :> IQuantumBackend)
 
-match cloudBackend.ExecuteToState circuit with  // Identical call!
-| Ok state -> 
-    printfn "Cloud execution passed: Backend=%s" cloudBackend.Name
-| Error e -> 
-    printfn "Error: %A" e
+// Step 2: Same code on a cloud backend
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
+let workspaceUrl = "https://eastus.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+
+runOn (CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000)
 ```
 
-**All Backends Implement IQuantumBackend:**
+**Backends Implementing IQuantumBackend:**
 - ✅ **LocalBackend** - Local state-vector simulation
-- ✅ **IonQBackend** - IonQ gate-based quantum computers
-- ✅ **RigettiBackend** - Rigetti superconducting QPUs
-- ✅ **QuantinuumBackend** - Quantinuum trapped-ion systems
-- ✅ **AtomComputingBackend** - Atom Computing neutral atom QPUs
-- ✅ **DWaveBackend** - D-Wave quantum annealer (converts QAOA to QUBO)
-- ✅ **TopologicalBackend** - Topological quantum simulation
+- ✅ **NoisyLocalBackend** (`DensityMatrixSimulator`) - Local density-matrix simulation with depolarizing noise
+- ✅ **IonQ / Rigetti / Quantinuum / Atom Computing / IQM** - Cloud backends in `CloudBackends` (created with `CloudBackendFactory`)
+- ✅ **MockDWaveBackend / RealDWaveBackend** - D-Wave quantum annealer (converts QAOA to QUBO)
+- ✅ **TopologicalUnifiedBackend** - Topological quantum simulation (Topological plugin)
+- ✅ **BraketBackend** - AWS Braket gate devices (Braket plugin)
 
-This unified interface enables seamless integration of the library's high-level solvers (QAOA, QFT, Grover) with any supported quantum hardware or simulator.
+The high-level solvers (QAOA, QFT, Grover) take any of these through the same interface; a backend that cannot run an operation returns an `Error`. On the gate-based cloud backends they build the complete circuit and submit it with `ExecuteToState`, and the backend transpiles it to its provider's native gates first. Every submission is a separately billed job, and iterative algorithms submit many: cap them with a `JobBudget` (see the [Backend Switching Guide](docs/backend-switching.md)).
 
 ### Azure Quantum Workspace Management
 
-**Production-ready hybrid approach: Workspace quota management + proven HTTP backends**
+**Production-ready hybrid approach: Workspace quota management (Microsoft.Azure.Quantum.Client) + proven HTTP cloud backends for job execution**
 
 ```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
-open FSharp.Azure.Quantum.Core.BackendAbstraction
-open System.Net.Http
+open FSharp.Azure.Quantum.Backends.CloudBackends
 
-// Step 1: Check quota with workspace
-use workspace = 
-    createDefault 
+// Step 1: Workspace client for quota checks (IDisposable)
+let workspace =
+    createDefault
         "your-subscription-id"
         "your-resource-group"
         "your-workspace-name"
         "eastus"
 
+let bellCircuit =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+
 async {
     // Check remaining quota before execution
     let! quota = workspace.GetTotalQuotaAsync()
-    
+
     match quota.Remaining with
     | Some remaining when remaining < 10.0 ->
-        printfn "⚠️  Low quota - stopping"
-    | Some remaining ->
-        printfn "✅ Sufficient quota: %.2f credits" remaining
-        
-        // Step 2: Use HTTP backend for proven execution
-        use httpClient = new HttpClient()
-        let backend = createIonQBackend
-            httpClient
-            "https://your-workspace.quantum.azure.com"
-            "ionq.simulator"
-        
-        // Step 3: Convert circuit and execute
-        let circuit = quantumCircuit { H 0; CNOT 0 1 }
-        let wrapper = CircuitWrapper(circuit) :> ICircuit
-        
-        match convertCircuitToProviderFormat wrapper "ionq.simulator" with
-        | Ok json ->
-            match backend.Execute wrapper 1000 with
-            | Ok result -> printfn "Success!"
-            | Error msg -> printfn "Error: %s" msg
-        | Error msg -> 
-            printfn "Circuit conversion failed: %s" msg
-    | None -> 
-        printfn "✅ Unlimited quota"
+        printfn "Low quota (%.2f) - stopping" remaining
+    | _ ->
+        // Step 2: Execute through a cloud backend (authenticated HttpClient + workspace URL)
+        let credential = Authentication.CredentialProviders.createDefaultCredential ()
+        let httpClient = Authentication.createAuthenticatedClient credential
+        let workspaceUrl = "https://eastus.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+        let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+
+        // The backend converts the circuit to IonQ JSON, submits, polls and parses the histogram
+        match Primitives.sample backend bellCircuit 1000 with
+        | Ok counts -> printfn "Counts: %A" counts
+        | Error err -> printfn "Error: %s" err.Message
 } |> Async.RunSynchronously
 ```
 
 **What you get:**
-- Workspace Features: Quota checking, provider discovery, credential management
-- Circuit Conversion: Automatic provider-specific format conversion (IonQ JSON, Rigetti Quil)
-- Proven Backends: Full HTTP-based job submission, polling, and result parsing
-- Resource Safety: IDisposable pattern for proper cleanup
+- Workspace client: quota checks (`ListQuotasAsync`, `GetTotalQuotaAsync`, `GetProviderQuotaAsync`) and provider discovery (`ListProvidersAsync`); IDisposable
+- Cloud backends: HTTP job submission, polling and histogram parsing, with automatic circuit conversion (IonQ JSON, Rigetti Quil, OpenQASM 2.0 for Quantinuum / Atom Computing / IQM)
 
 **Environment-Based Configuration:**
 ```fsharp
@@ -1837,135 +1860,36 @@ async {
 // export AZURE_QUANTUM_WORKSPACE_NAME="..."
 // export AZURE_QUANTUM_LOCATION="eastus"
 
-match createFromEnvironment() with
+match createFromEnvironment () with
 | Ok workspace -> 
-    printfn "✅ Workspace loaded: %s" workspace.Config.WorkspaceName
+    printfn "Workspace loaded: %s" workspace.Config.WorkspaceName
 | Error err -> 
-    printfn "⚠️  Environment not configured: %s" err.Message
+    printfn "Environment not configured: %s" err.Message
 ```
 
-**Circuit Format Conversion:**
+**Circuit Format Conversion** (what the cloud backends do internally):
 ```fsharp
-// Convert circuits to provider-specific formats
-let circuit = quantumCircuit { H 0; CNOT 0 1; RX (0, Math.PI / 4.0) }
-let wrapper = CircuitWrapper(circuit) :> ICircuit
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+
+let rotated =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.RX (0, System.Math.PI / 4.0))
+let wrapper = CircuitWrapper(rotated) :> ICircuit
 
 // To IonQ JSON
-match convertCircuitToProviderFormat wrapper "ionq.simulator" with
-| Ok ionqJson -> printfn "IonQ: %s" ionqJson
-| Error msg -> printfn "Error: %s" msg
+match CircuitAdapter.toIonQCircuit wrapper with
+| Ok ionqCircuit -> printfn "IonQ: %s" (IonQBackend.serializeCircuit ionqCircuit)
+| Error err -> printfn "Error: %s" err.Message
 
 // To Rigetti Quil
-match convertCircuitToProviderFormat wrapper "rigetti.sim.qvm" with
-| Ok quilProgram -> printfn "Quil: %s" quilProgram
-| Error msg -> printfn "Error: %s" msg
+match CircuitAdapter.toQuilProgram wrapper with
+| Ok quilProgram -> printfn "Quil: %s" (RigettiBackend.serializeProgram quilProgram)
+| Error err -> printfn "Error: %s" err.Message
 ```
-
-**Benefits:**
-- Workspace management without SDK complexity
-- Automatic gate transpilation for backend compatibility
-- Support for CircuitWrapper and QaoaCircuitWrapper
-- IonQ, Rigetti, Atom Computing, and Quantinuum providers
 
 **Example:** See `examples/AzureQuantumWorkspace/WorkspaceExample.fsx`
-
-### SDK Backend - Full Azure Quantum Integration
-
-**Complete SDK-powered backend using Microsoft.Azure.Quantum.Client**
-
-```fsharp
-open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
-open FSharp.Azure.Quantum.Core.BackendAbstraction
-
-// Step 1: Create workspace
-use workspace = 
-    createDefault 
-        "your-subscription-id"
-        "your-resource-group"
-        "your-workspace-name"
-        "eastus"
-
-// Step 2: Create SDK backend (NEW!)
-let backend = createFromWorkspace workspace "ionq.simulator"
-
-// Step 3: Build circuit
-let circuit = quantumCircuit {
-    H 0
-    CNOT 0 1
-    MEASURE_ALL
-}
-
-let wrapper = CircuitWrapper(circuit) :> ICircuit
-
-// Step 4: Execute on Azure Quantum
-match backend.Execute wrapper 1000 with
-| Ok result ->
-    printfn "✅ Job completed!"
-    printfn "   Backend: %s" result.BackendName
-    printfn "   Shots: %d" result.NumShots
-    printfn "   Job ID: %s" (result.Metadata.["job_id"] :?> string)
-    
-    // Analyze measurements
-    let counts = result.Measurements |> Array.countBy id
-    counts |> Array.iter (fun (bitstring, count) ->
-        printfn "   %A: %d times" bitstring count)
-| Error msg ->
-    printfn "❌ Error: %s" msg
-```
-
-**SDK Backend Features:**
-- Full Job Lifecycle: Submit → Poll → Retrieve results (all automated)
-- Automatic Circuit Conversion: IonQ JSON / Rigetti Quil format
-- Smart Polling: Exponential backoff (1s → 30s max delay)
-- Rich Metadata: job_id, provider, target, status in results
-- Histogram Parsing: Automatic extraction of measurement distributions
-- Resource Safety: IDisposable workspace for cleanup
-- Workspace Integration: Uses Microsoft.Azure.Quantum SDK internally
-
-**SDK Backend with Quota Check:**
-```fsharp
-async {
-    // Check quota before execution
-    let! quota = workspace.GetTotalQuotaAsync()
-    
-    match quota.Remaining with
-    | Some remaining when remaining < 10.0 ->
-        printfn "⚠️  Low quota: %.2f credits - stopping" remaining
-    | Some remaining ->
-        printfn "✅ Quota available: %.2f credits" remaining
-        
-        // Create backend and execute
-        let backend = createFromWorkspace workspace "ionq.simulator"
-        match backend.Execute circuit 1000 with
-        | Ok result -> printfn "Success!"
-        | Error msg -> printfn "Error: %s" msg
-    | None ->
-        printfn "✅ Unlimited quota"
-        // Execute...
-} |> Async.RunSynchronously
-```
-
-**Backend Comparison:**
-
-| Feature | LocalBackend | HTTP Backend | SDK Backend |
-|---------|-------------|--------------|-------------------|
-| **Setup** | None | HttpClient + URL | Workspace object |
-| **Quota Checking** | ❌ | ❌ | ✅ |
-| **Provider Discovery** | ❌ | ❌ | ✅ |
-| **Job Polling** | ❌ (instant) | Manual | ✅ Automatic |
-| **Resource Cleanup** | ❌ | Manual | ✅ IDisposable |
-| **Circuit Conversion** | ❌ | Manual | ✅ Automatic |
-| **Max Qubits** | 20 | 29 (IonQ) / 40 (Rigetti) | 29 (IonQ) / 40 (Rigetti) |
-| **Cost** | Free | Paid | Paid |
-| **Production Ready** | ✅ | ✅ | ✅ |
-| **Best For** | Testing | Manual control | Full integration |
-
-**When to use each backend:**
-- **LocalBackend:** Development, testing, small circuits (<20 qubits), free tier
-- **HTTP Backend:** Production workloads, proven stability, fine-grained control
-- **SDK Backend:** Full workspace features, quota management, easier setup, complete integration
-
-**Example:** See `examples/AzureQuantumWorkspace/WorkspaceExample.fsx` (Examples 7-9)
 
 ---
 
@@ -1976,8 +1900,8 @@ async {
 ### Why OpenQASM?
 
 OpenQASM (Open Quantum Assembly Language) is the **industry-standard text format** for quantum circuits:
-- IBM Qiskit - Primary format (6.7k GitHub stars)
-- Amazon Braket - Native support
+- IBM Qiskit - Primary format
+- Amazon Braket - Native support (OpenQASM 3.0 via `OpenQasm.exportV3`)
 - Google Cirq - Import/export compatibility
 - Interoperability - Share circuits between platforms
 
@@ -1985,15 +1909,14 @@ OpenQASM (Open Quantum Assembly Language) is the **industry-standard text format
 
 **F# API:**
 ```fsharp
-// open FSharp.Azure.Quantum
-// open FSharp.Azure.Quantum.CircuitBuilder
+open FSharp.Azure.Quantum
 
 // Build circuit using F# circuit builder
 let circuit = 
     CircuitBuilder.empty 2
-    |> CircuitBuilder.addGate (H 0)
-    |> CircuitBuilder.addGate (CNOT (0, 1))
-    |> CircuitBuilder.addGate (RZ (0, System.Math.PI / 4.0))
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.RZ (0, System.Math.PI / 4.0))
 
 // Export to OpenQASM 2.0 string
 let qasmCode = OpenQasm.export circuit
@@ -2017,8 +1940,7 @@ rz(0.7853981634) q[0];
 
 **F# API:**
 ```fsharp
-// open FSharp.Azure.Quantum
-// open System.IO
+open FSharp.Azure.Quantum
 
 // Parse OpenQASM string
 let qasmCode = """
@@ -2047,15 +1969,16 @@ match OpenQasmImport.parseFromFile "grover.qasm" with
 ### C# API
 
 ```csharp
+using System;
+using System.IO;
 using FSharp.Azure.Quantum;
-using FSharp.Azure.Quantum.CircuitBuilder;
 
 // Export circuit to OpenQASM
-var circuit = CircuitBuilder.empty(2)
-    .AddGate(Gate.NewH(0))
-    .AddGate(Gate.NewCNOT(0, 1));
+var circuit = CircuitBuilder.empty(2);
+circuit = CircuitBuilder.addGate(CircuitBuilder.Gate.NewH(0), circuit);
+circuit = CircuitBuilder.addGate(CircuitBuilder.Gate.NewCNOT(0, 1), circuit);
 
-var qasmCode = OpenQasm.export(circuit);
+var qasmCode = OpenQasmExport.export(circuit);
 File.WriteAllText("circuit.qasm", qasmCode);
 
 // Import from OpenQASM
@@ -2085,28 +2008,29 @@ if (result.IsOk) {
 **Full interoperability workflow:**
 
 ```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+
 // 1. Load circuit from Qiskit
 let qiskitCircuit = OpenQasmImport.parseFromFile "qiskit_algorithm.qasm"
 
 match qiskitCircuit with
 | Ok circuit ->
     // 2. Run on LocalBackend for testing
-    let localBackend = LocalBackend() :> IQuantumBackend
-    let testResult = LocalSimulator.QaoaSimulator.simulate circuit 1000
-    
-    printfn "Local test: %d samples" testResult.Shots
+    let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+    match Primitives.sample localBackend circuit 1000 with
+    | Ok counts -> printfn "Local test: %A" counts
+    | Error err -> printfn "Local test failed: %s" err.Message
     
     // 3. Transpile for IonQ hardware
-    let transpiled = GateTranspiler.transpileForBackend "ionq.qpu" circuit
+    let transpiled = GateTranspiler.transpileForBackend "ionq.qpu.aria-1" circuit
     
-    // 4. Execute on IonQ
-    let ionqBackend = BackendAbstraction.createIonQBackend(
-        connectionString,
-        "ionq.qpu"
-    )
+    // 4. Execute on IonQ (backend_ionq from the Layer 3 example above)
+    let ionqResult = Primitives.sample backend_ionq transpiled 1000
     
-    // 5. Export results back to Qiskit format
-    OpenQasm.exportToFile transpiled "results_ionq.qasm"
+    // 5. Export the transpiled circuit back to OpenQASM
+    OpenQasm.exportToFile transpiled "transpiled_ionq.qasm"
 | Error msg -> 
     printfn "Import failed: %s" msg
 ```
@@ -2117,7 +2041,9 @@ match qiskitCircuit with
 
 ```fsharp
 // Original circuit
-let original = { QubitCount = 3; Gates = [H 0; CNOT (0, 1); RZ (1, 1.5708)] }
+let original =
+    CircuitBuilder.empty 3
+    |> CircuitBuilder.addGates [ CircuitBuilder.H 0; CircuitBuilder.CNOT (0, 1); CircuitBuilder.RZ (1, 1.5708) ]
 
 // Export → Import → Compare
 let qasm = OpenQasm.export original
@@ -2140,7 +2066,7 @@ match imported with
 4. **Education** - Students learn quantum with type-safe F#, export to standard format
 5. **Validation** - Cross-check results between F# LocalBackend and IBM simulators
 
-**See:** `tests/OpenQasmIntegrationTests.fs` for comprehensive examples.
+**See:** `tests/FSharp.Azure.Quantum.Tests/OpenQasmIntegrationTests.fs` for more examples.
 `tests/FSharp.Azure.Quantum.PropertyTests` is an FsCheck suite over random
 circuits: a circuit survives export and import in every OpenQASM version,
 the exported text is a fixed point of import-then-export, comments never
@@ -2159,7 +2085,7 @@ transpiles to itself a second time.
 Beyond circuit construction and execution, the library ships a hardware-aware
 compilation and estimation toolchain (all in `Builders/`):
 
-- **`QubitRouting`** — inserts SWAPs so two-qubit gates respect a device's `CouplingMap` (grid / linear / `fromPairs`) and tracks the logical→physical qubit permutation. `CloudBackends.Factory.createRigettiRouted` wires this into a Rigetti backend automatically.
+- **`QubitRouting`** — inserts SWAPs so two-qubit gates respect a device's `CouplingMap` (grid / linear / `fromPairs`) and tracks the logical→physical qubit permutation. `CloudBackends.CloudBackendFactory.createRigettiRouted` wires this into a Rigetti backend automatically.
 - **`NoiseModel`** — `DeviceNoiseProfile` plus noise-aware routing (`routeNoiseAware`) and success-probability estimation.
 - **`ResourceEstimation`** — logical resource estimates (qubits / gates / T-count / depth) via `estimateLogical` and physical surface-code estimates via `estimatePhysical`.
 - **`QirEmitter`** — emit circuits as QIR base-profile textual LLVM IR for Azure Quantum submission.
@@ -2173,17 +2099,25 @@ These are exercised by the tests under `tests/` (e.g. `QubitRoutingTests`, `Reso
 
 ## Error Mitigation
 
-**Reduce quantum noise and improve result accuracy by 30-90% with production-ready error mitigation techniques.**
+**Reduce quantum noise and improve result accuracy with production-ready error mitigation techniques (typical reported error reductions of 30-90%, depending on the technique).**
 
 ### Why Error Mitigation?
 
-Quantum computers are noisy (NISQ era). Error mitigation improves results **without** requiring error-corrected qubits:
+Quantum computers are noisy (NISQ era). Error mitigation reduces the effect of noise **without** requiring error-corrected qubits, at the cost of extra circuit executions:
 
-- **Gate errors** - Imperfect quantum gates introduce noise (~0.1-1% per gate)
+- **Gate errors** - Imperfect quantum gates introduce noise
 - **Decoherence** - Qubits lose quantum information over time
-- **Readout errors** - Measurement outcomes have ~1-5% error rate
+- **Readout errors** - Measurements are sometimes misclassified
 
-**Error mitigation achieves near-ideal results on noisy hardware** - critical for real-world quantum advantage.
+| Technique | Typical error reduction | Extra executions |
+|-----------|-------------------------|------------------|
+| ZNE | 30-50% | One per noise level (3 by default) |
+| PEC | 50-80% | `Samples` + 1 (10-100x is common) |
+| REM | 50-90% of readout errors | 2ⁿ calibration circuits, once |
+
+The percentages are typical ranges reported in the literature, not guarantees: the actual improvement depends on the circuit, the device and how well the noise matches each technique's assumptions.
+
+All three techniques work on `CircuitBuilder.Circuit` values and take an **executor** function you supply, which runs a circuit on the backend of your choice and returns an expectation value (ZNE, PEC) or a histogram (REM). See [docs/error-mitigation.md](docs/error-mitigation.md) for the full guide.
 
 ---
 
@@ -2191,7 +2125,7 @@ Quantum computers are noisy (NISQ era). Error mitigation improves results **with
 
 #### 1️⃣ Zero-Noise Extrapolation (ZNE)
 
-**Richardson extrapolation to estimate error-free result.**
+**Polynomial extrapolation to estimate the zero-noise result.**
 
 **How it works:**
 1. Run circuit at different noise levels (1.0x, 1.5x, 2.0x)
@@ -2199,16 +2133,39 @@ Quantum computers are noisy (NISQ era). Error mitigation improves results **with
 3. Extrapolate to zero noise (λ=0)
 
 **Performance:**
-- 30-50% error reduction
-- 3x cost overhead (3 noise scaling levels)
-- Works on any backend (IonQ, Rigetti, Local)
+- Typically 30-50% error reduction (reported range)
+- One execution per noise level (3x cost with the default configurations)
+- Works on any gate-based backend (noise is amplified by inserting identity pairs)
 
 **F# Example:**
 ```fsharp
-open FSharp.Azure.Quantum.ErrorMitigation
+open System.Numerics
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.DensityMatrixSimulator
+
+// A noisy local backend (1% / 2% depolarizing error) so there is noise to mitigate;
+// on hardware, use a cloud backend instead
+let noisyBackend = NoisyLocalBackend(depolarizing 0.01 0.02) :> IQuantumBackend
+
+// Observable Z⊗Z and a small ansatz circuit
+let zz : TrotterSuzuki.PauliHamiltonian =
+    { NumQubits = 2
+      Terms = [ { Operators = [| 'Z'; 'Z' |]; Coefficient = Complex.One } ] }
+
+let ansatz =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.RY (0, 0.4))
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+    |> CircuitBuilder.addGate (CircuitBuilder.RY (1, 0.4))
+
+// Executor for ZNE and PEC: circuit -> expectation value
+let executor (c: CircuitBuilder.Circuit) : Async<Result<float, string>> =
+    async { return Primitives.observe noisyBackend c zz |> Result.mapError (fun e -> e.Message) }
 
 // Configure ZNE
-let zneConfig = {
+let zneConfig : ZeroNoiseExtrapolation.ZNEConfig = {
     NoiseScalings = [
         ZeroNoiseExtrapolation.IdentityInsertion 0.0    // baseline (1.0x)
         ZeroNoiseExtrapolation.IdentityInsertion 0.5    // 1.5x noise
@@ -2218,29 +2175,21 @@ let zneConfig = {
     MinSamples = 1000
 }
 
-// Apply ZNE to circuit expectation value
-// Mock circuit and observable for demonstration
-let circuit = QuantumCircuit.empty()  // Mock circuit
-let observable = PauliOperator.Z(0)   // Mock observable
-
-async {
-    let! result = ZeroNoiseExtrapolation.mitigate circuit observable zneConfig backend
-    
-    match result with
-    | Ok zneResult ->
-        printfn "Zero-noise value: %f" zneResult.ZeroNoiseValue
-        printfn "R² goodness of fit: %f" zneResult.GoodnessOfFit
-        printfn "Measured values:"
-        zneResult.MeasuredValues 
-        |> List.iter (fun (noise, value) -> printfn "  λ=%.1f: %f" noise value)
-    | Error msg -> 
-        printfn "ZNE failed: %s" msg
-}
+match ZeroNoiseExtrapolation.mitigate ansatz zneConfig executor |> Async.RunSynchronously with
+| Ok zneResult ->
+    printfn "Zero-noise value: %f" zneResult.ZeroNoiseValue
+    printfn "R² goodness of fit: %f" zneResult.GoodnessOfFit
+    printfn "Measured values:"
+    zneResult.MeasuredValues 
+    |> List.iter (fun (noise, value) -> printfn "  λ=%.1f: %f" noise value)
+| Error msg -> 
+    printfn "ZNE failed: %s" msg
 ```
 
 **When to use:**
-- Medium-depth circuits (20-50 gates)
-- Cost-constrained (3x affordable)
+- Expectation-value workloads (VQE, QAOA energies) on noisy hardware
+- Medium-depth circuits where gate errors matter
+- Budget for a few extra executions (3x affordable)
 - Need 30-50% error reduction
 
 ---
@@ -2255,44 +2204,41 @@ async {
 3. Reweight samples to cancel noise
 
 **Performance:**
-- 2-3x accuracy improvement
-- 10-100x cost overhead (Monte Carlo sampling)
+- Typically 50-80% error reduction (reported range)
+- `Samples` + 1 executions, 10-100x cost overhead (Monte Carlo sampling)
 - Powerful for high-accuracy requirements
+- The correction is only as good as the depolarizing noise model you supply
 
-**F# Example:**
+**F# Example** (reuses `ansatz` and `executor` from the ZNE example):
 ```fsharp
-open FSharp.Azure.Quantum.ErrorMitigation
-
-// Configure PEC with noise model
-let pecConfig = {
+// Configure PEC with a depolarizing noise model (matches the noisy backend above)
+let pecConfig : ProbabilisticErrorCancellation.PECConfig = {
     NoiseModel = {
-        SingleQubitDepolarizing = 0.001  // 0.1% per single-qubit gate
-        TwoQubitDepolarizing = 0.01      // 1% per two-qubit gate
-        ReadoutError = 0.02              // 2% readout error
+        SingleQubitDepolarizing = 0.01   // 1% per single-qubit gate
+        TwoQubitDepolarizing = 0.02      // 2% per two-qubit gate
+        ReadoutError = 0.0               // not used by PEC; handle readout with REM
     }
     Samples = 1000
     Seed = Some 42
 }
 
-// Apply PEC to circuit
-async {
-    let! result = ProbabilisticErrorCancellation.mitigate circuit observable pecConfig backend
-    
-    match result with
-    | Ok pecResult ->
-        printfn "Corrected expectation: %f" pecResult.CorrectedExpectation
-        printfn "Uncorrected (noisy): %f" pecResult.UncorrectedExpectation
-        printfn "Error reduction: %.1f%%" (pecResult.ErrorReduction * 100.0)
-        printfn "Overhead: %.1fx" pecResult.Overhead
-    | Error msg -> 
-        printfn "PEC failed: %s" msg
-}
+match ProbabilisticErrorCancellation.mitigate ansatz pecConfig executor |> Async.RunSynchronously with
+| Ok pecResult ->
+    printfn "Corrected expectation: %f" pecResult.CorrectedExpectation
+    printfn "Uncorrected (noisy): %f" pecResult.UncorrectedExpectation
+    printfn "Relative change: %.1f%%" (pecResult.ErrorReduction * 100.0)
+    printfn "Overhead: %.1fx" pecResult.Overhead
+| Error msg -> 
+    printfn "PEC failed: %s" msg
 ```
+
+`ErrorReduction` is the relative difference between the corrected and uncorrected values; without the ideal value the library cannot measure the true error reduction.
 
 **When to use:**
 - High-accuracy requirements (research, benchmarking)
+- Shallow circuits (sampling overhead grows with every gate)
 - Budget available for 10-100x overhead
-- Need 2-3x accuracy improvement
+- Need 50-80% error reduction
 
 ---
 
@@ -2306,74 +2252,85 @@ async {
 3. **Result** - Corrected histogram with confidence intervals
 
 **Performance:**
-- 50-90% readout error reduction
-- ~0x runtime overhead (one-time calibration, then free!)
-- Works on all backends
+- Typically 50-90% readout error reduction (reported range)
+- Calibration: 2ⁿ circuits, one time (1-10 qubits accepted)
+- Correction: no extra executions (post-processing)
 
-**F# Example:**
+**F# Example** (reuses `noisyBackend` from the ZNE example):
 ```fsharp
-open FSharp.Azure.Quantum.ErrorMitigation
+// REM executor: circuit -> shots -> histogram. REM reads bitstrings with the highest
+// qubit first, while Primitives.sample writes qubit 0 first, so each key is reversed.
+let sampleExecutor (c: CircuitBuilder.Circuit) (shots: int) : Async<Result<Map<string, int>, string>> =
+    async {
+        return
+            Primitives.sample noisyBackend c shots
+            |> Result.map (fun histogram ->
+                histogram
+                |> Map.toList
+                |> List.map (fun (bits, count) -> System.String(Array.rev (bits.ToCharArray())), count)
+                |> Map.ofList)
+            |> Result.mapError (fun e -> e.Message)
+    }
 
-// Step 1: Calibrate (one-time cost per backend)
 let remConfig = 
     ReadoutErrorMitigation.defaultConfig
     |> ReadoutErrorMitigation.withCalibrationShots 10000
     |> ReadoutErrorMitigation.withConfidenceLevel 0.95
 
-async {
-    // Calibrate confusion matrix (run once, cache result)
-    let! calibrationResult = ReadoutErrorMitigation.calibrate remConfig backend
-    
-    match calibrationResult with
-    | Ok calibMatrix ->
-        printfn "Calibration complete:"
-        printfn "  Qubits: %d" calibMatrix.Qubits
-        printfn "  Shots: %d" calibMatrix.CalibrationShots
-        printfn "  Backend: %s" calibMatrix.Backend
-        
-        // Step 2: Correct measurement histogram (zero overhead!)
-        let noisyHistogram = Map.ofList [("00", 0.9); ("01", 0.05); ("10", 0.03); ("11", 0.02)]  // Mock noisy results
-        let correctedResult = ReadoutErrorMitigation.correctHistogram noisyHistogram calibMatrix remConfig
-        
-        match correctedResult with
+// Step 1: Calibrate the confusion matrix (run once, reuse the result)
+match ReadoutErrorMitigation.measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor |> Async.RunSynchronously with
+| Error msg -> 
+    printfn "Calibration failed: %s" msg
+| Ok calibMatrix ->
+    printfn "Calibration complete: %d qubits, %d shots, backend %s"
+        calibMatrix.Qubits calibMatrix.CalibrationShots calibMatrix.Backend
+
+    // Step 2: Correct a measured histogram (no extra executions)
+    let bellState =
+        CircuitBuilder.empty 2
+        |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+        |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+
+    match sampleExecutor bellState 10000 |> Async.RunSynchronously with
+    | Error msg -> printfn "Execution failed: %s" msg
+    | Ok noisyHistogram ->
+        match ReadoutErrorMitigation.correctReadoutErrors noisyHistogram calibMatrix remConfig with
         | Ok corrected ->
             printfn "\nCorrected histogram:"
             corrected.Histogram 
-            |> Map.iter (fun state prob -> printfn "  |%s⟩: %.4f" state prob)
+            |> Map.iter (fun state count -> printfn "  |%s⟩: %.1f" state count)
             
             printfn "\nConfidence intervals (95%%):"
             corrected.ConfidenceIntervals
             |> Map.iter (fun state (lower, upper) -> 
-                printfn "  |%s⟩: [%.4f, %.4f]" state lower upper)
+                printfn "  |%s⟩: [%.1f, %.1f]" state lower upper)
         | Error msg -> 
             printfn "Correction failed: %s" msg
-    | Error msg -> 
-        printfn "Calibration failed: %s" msg
-}
 ```
 
 **When to use:**
-- Shallow circuits (readout errors dominate)
-- Cost-constrained (free after calibration)
-- All quantum applications (always beneficial)
+- Nearly every run on real hardware (the cheapest technique: free after calibration)
+- Sampling-based algorithms (Grover, QAOA sampling) with high shot counts
+- Not needed on the noiseless `LocalBackend`
 
 ---
 
 #### 4️⃣ Automatic Strategy Selection
 
-**Let the library choose the best technique for your circuit.**
+**Let the library recommend a technique for your circuit.**
 
 **F# Example:**
 ```fsharp
-open FSharp.Azure.Quantum.ErrorMitigation
+open FSharp.Azure.Quantum.Core
 
 // Define selection criteria
-let criteria = {
+let criteria : ErrorMitigationStrategy.SelectionCriteria = {
     CircuitDepth = 25
-    QubitCount = 6
-    Backend = Types.Backend.IonQBackend
-    MaxCostUSD = Some 10.0
-    RequiredAccuracy = Some 0.95
+    QubitCount = 2
+    Backend = { Id = "ionq.simulator"; Provider = "IonQ"; Name = "IonQ Simulator"; Status = "Available" }
+    MaxCostUSD = Some 50.0
+    RequiredAccuracy = None
+    Calibration = None   // or Some calibration from measureCalibrationMatrix
 }
 
 // Get recommended strategy
@@ -2381,114 +2338,90 @@ let recommendation = ErrorMitigationStrategy.selectStrategy criteria
 
 printfn "Recommended: %s" (
     match recommendation.Primary with
-    | ZeroNoiseExtrapolation _ -> "Zero-Noise Extrapolation (ZNE)"
-    | ProbabilisticErrorCancellation _ -> "Probabilistic Error Cancellation (PEC)"
-    | ReadoutErrorMitigation _ -> "Readout Error Mitigation (REM)"
-    | Combined _ -> "Combined Techniques"
+    | ErrorMitigationStrategy.ZeroNoiseExtrapolation _ -> "Zero-Noise Extrapolation (ZNE)"
+    | ErrorMitigationStrategy.ProbabilisticErrorCancellation _ -> "Probabilistic Error Cancellation (PEC)"
+    | ErrorMitigationStrategy.ReadoutErrorMitigation _ -> "Readout Error Mitigation (REM)"
+    | ErrorMitigationStrategy.Combined _ -> "Combined Techniques"
 )
 printfn "Reasoning: %s" recommendation.Reasoning
 printfn "Estimated cost multiplier: %.1fx" recommendation.EstimatedCostMultiplier
-printfn "Estimated accuracy: %.1f%%" (recommendation.EstimatedAccuracy * 100.0)
 
-// Apply recommended strategy
-let noisyHistogram = Map.ofList [("00", 0.9); ("01", 0.05); ("10", 0.03); ("11", 0.02)]  // Mock noisy results
-let mitigatedResult = ErrorMitigationStrategy.applyStrategy noisyHistogram recommendation.Primary
+// Apply the readout part of the recommendation to a finished histogram
+let measuredCounts = Map.ofList [("00", 4700); ("01", 260); ("10", 240); ("11", 4800)]
 
-match mitigatedResult with
+match ErrorMitigationStrategy.applyStrategy measuredCounts recommendation with
 | Ok result ->
-    printfn "\nMitigation successful:"
     printfn "  Technique: %A" result.AppliedTechnique
     printfn "  Used fallback: %b" result.UsedFallback
-    printfn "  Actual cost: %.1fx" result.ActualCostMultiplier
+    printfn "  Correction applied: %b" result.CorrectionApplied
     result.Histogram |> Map.iter (fun k v -> printfn "    %s: %f" k v)
-| Error msg ->
-    printfn "Mitigation failed: %s" msg
+| Error err ->
+    printfn "Mitigation failed: %s" err.Message
 ```
 
-**Strategy selection logic:**
-- **Shallow (depth < 20)**: Readout errors dominate → REM
-- **Medium (20-50)**: Gate errors significant → ZNE
-- **Deep (> 50)**: High gate errors → PEC or Combined (ZNE + REM)
-- **High accuracy**: PEC (if budget allows)
-- **Cost-constrained**: REM (free) or ZNE (3x)
+`applyStrategy` can only apply the readout (REM) part after the fact, and only when the criteria carried a calibration matrix; otherwise the counts pass through unchanged with `CorrectionApplied = false`. ZNE and PEC re-execute the circuit, so run them with their own `mitigate` functions.
+
+**What `selectStrategy` picks:**
+
+| Situation | Primary technique | Fallback |
+|-----------|-------------------|----------|
+| Budget below $1 | REM | none |
+| Circuit depth below 10 | REM | none |
+| Required accuracy above 0.9 and budget above $100 | PEC + ZNE + REM | ZNE + REM |
+| Depth 10-49 and budget above $10 | ZNE + REM | REM |
+| Depth 50 or more | ZNE + REM | REM |
+| Budget below $10 | REM | none |
+| Otherwise | ZNE + REM | REM |
 
 ---
 
-### Decision Matrix
+### Combining REM and ZNE
 
-| **Circuit Type** | **Best Technique** | **Error Reduction** | **Cost** | **Why** |
-|------------------|-------------------|---------------------|----------|---------|
-| Shallow (< 20 gates) | REM | 50-90% | ~0x | Readout dominates |
-| Medium (20-50 gates) | ZNE | 30-50% | 3x | Balanced gate/readout |
-| Deep (> 50 gates) | PEC or ZNE+REM | 40-70% | 10-100x | High gate errors |
-| Cost-constrained | REM | 50-90% | ~0x | Free after calibration |
-| High accuracy | PEC | 2-3x | 10-100x | Research/benchmarking |
-
----
-
-### Real-World Example: MaxCut with ZNE
+Techniques are combined by composing executors: the ZNE executor below samples the circuit, corrects the histogram with REM, and computes ⟨Z⊗Z⟩ from the corrected counts.
 
 ```fsharp
-open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.ErrorMitigation
+/// ⟨Z⊗Z...⟩ from a histogram: +1 for even parity, -1 for odd parity
+let parityExpectation (histogram: Map<string, float>) =
+    let total = histogram |> Map.fold (fun acc _ count -> acc + count) 0.0
 
-// Define MaxCut problem
-let vertices = ["A"; "B"; "C"; "D"]
-let edges = [
-    ("A", "B", 1.0)
-    ("B", "C", 2.0)
-    ("C", "D", 1.0)
-    ("D", "A", 1.0)
-]
+    histogram
+    |> Map.fold
+        (fun acc bits count ->
+            let ones = bits |> Seq.filter ((=) '1') |> Seq.length
+            let sign = if ones % 2 = 0 then 1.0 else -1.0
+            acc + sign * count / total)
+        0.0
 
-let problem = MaxCut.problem vertices edges
+let remCorrectedExecutor (calibration: ReadoutErrorMitigation.CalibrationMatrix) (c: CircuitBuilder.Circuit) =
+    async {
+        let! counts = sampleExecutor c 4000
 
-// Solve with ZNE error mitigation
-let zneConfig = {
-    NoiseScalings = [
-        ZeroNoiseExtrapolation.IdentityInsertion 0.0
-        ZeroNoiseExtrapolation.IdentityInsertion 0.5
-        ZeroNoiseExtrapolation.IdentityInsertion 1.0
-    ]
-    PolynomialDegree = 2
-    MinSamples = 1000
-}
+        return
+            counts
+            |> Result.bind (fun measured -> ReadoutErrorMitigation.correctReadoutErrors measured calibration remConfig)
+            |> Result.map (fun corrected -> parityExpectation corrected.Histogram)
+    }
 
-async {
-    // Standard solve (noisy)
-    let! noisyResult = MaxCut.solve problem None
-    
-    // Solve with ZNE (error-mitigated)
-    let! mitigatedResult = MaxCut.solveWithErrorMitigation problem (Some zneConfig) None
-    
-    match noisyResult, mitigatedResult with
-    | Ok noisy, Ok mitigated ->
-        printfn "Noisy cut value: %.2f" noisy.CutValue
-        printfn "ZNE-mitigated cut value: %.2f" mitigated.CutValue
-        printfn "Improvement: %.1f%%" ((mitigated.CutValue - noisy.CutValue) / noisy.CutValue * 100.0)
-    | _ -> 
-        printfn "Error occurred"
-}
+let remZne =
+    async {
+        match! ReadoutErrorMitigation.measureCalibrationMatrix "noisy-local" 2 remConfig sampleExecutor with
+        | Error msg -> return Error msg
+        | Ok calibration ->
+            return! ZeroNoiseExtrapolation.mitigate ansatz zneConfig (remCorrectedExecutor calibration)
+    }
+
+match Async.RunSynchronously remZne with
+| Ok result -> printfn "Mitigated value: %.4f" result.ZeroNoiseValue
+| Error msg -> eprintfn "Error: %s" msg
 ```
-
-**Expected improvement**: 30-50% better cut value on noisy hardware.
 
 ---
 
 ### Testing & Validation
 
-Error mitigation includes comprehensive testing:
+Error mitigation includes comprehensive testing: each technique has its own test suite (`ZeroNoiseExtrapolationTests.fs`, `ProbabilisticErrorCancellationTests.fs`, `ReadoutErrorMitigationTests.fs`, `ErrorMitigationStrategyTests.fs`).
 
-- **1804 total test cases** (1353 main + 451 topological)
-  - Error Mitigation: 534 tests
-    - ZNE: 111 tests (Richardson extrapolation, noise scaling, goodness-of-fit)
-    - PEC: 222 tests (quasi-probability, Monte Carlo, integration)
-    - REM: 161 tests (calibration, matrix inversion, confidence intervals)
-    - Strategy: 40 tests (selection logic, cost estimation, fallbacks)
-  - Topological: 451 tests (anyon systems, braiding, fusion)
-  - Core & Algorithms: 819 tests (circuits, gates, QAOA, QFT, Grover, etc.)
-
-**See:** `tests/FSharp.Azure.Quantum.Tests/*ErrorMitigation*.fs`
+**See:** `tests/FSharp.Azure.Quantum.Tests/`
 
 ---
 
@@ -2519,10 +2452,10 @@ Error mitigation includes comprehensive testing:
    ```
 
 3. **Parameter Optimization**: Find optimal (γ, β) using Nelder-Mead
-   ```fsharp
-   for iteration in 1..maxIterations do
-       let cost = evaluateCost(gamma, beta)
-       optimizer.Update(cost)
+   ```text
+   repeat until converged or out of iterations:
+       cost = expected QUBO energy of the circuit at (γ, β)
+       (γ, β) = next Nelder-Mead step
    ```
 
 4. **Solution Extraction**: Decode measurement results → problem solution
@@ -2533,6 +2466,11 @@ Error mitigation includes comprehensive testing:
 ### QAOA Configuration
 
 ```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+
 // Custom QAOA parameters
 let quantumConfig : QuantumGraphColoringSolver.QaoaConfig = {
     NumShots = 1000                // Measurement shots
@@ -2541,9 +2479,17 @@ let quantumConfig : QuantumGraphColoringSolver.QaoaConfig = {
     PenaltyWeight = 10.0           // Constraint-violation penalty
 }
 
+// Solver-level problem: vertices, edges and the number of colors
+let coloringProblem : QuantumGraphColoringSolver.GraphColoringProblem = {
+    Vertices = ["R1"; "R2"; "R3"]
+    Edges = [ GraphOptimization.edge "R1" "R2" 1.0; GraphOptimization.edge "R2" "R3" 1.0 ]
+    NumColors = 3
+    FixedColors = Map.empty
+}
+
 // Use custom config
 let backend = LocalBackend() :> IQuantumBackend
-match QuantumGraphColoringSolver.solve backend problem quantumConfig with
+match QuantumGraphColoringSolver.solve backend coloringProblem quantumConfig with
 | Ok result -> printfn "Colors used: %d" result.ColorsUsed
 | Error err -> printfn "Error: %s" err.Message
 ```
@@ -2594,8 +2540,16 @@ Primitives.observe backend bell zz             // Result<float>  → +1.0 for a 
 
 `observe` computes ⟨H⟩ for a Pauli Hamiltonian across every state representation: an exact
 ⟨ψ|H|ψ⟩ on a state vector, topological superposition, or sparse state, and `Tr(ρH)` on the
-density-matrix (noisy) backend — so a *noisy* ⟨H⟩ (noisy VQE/VaR) just works. It returns
-`Error` only for annealing samples, where an expectation value isn't defined.
+density-matrix (noisy) backend — so a *noisy* ⟨H⟩ (noisy VQE/VaR) just works. On a cloud
+backend, which returns measured counts without phases, it is estimated from shots instead:
+one circuit per qubit-wise commuting group of terms, each measured in its rotated basis
+(`Primitives.sampledExpectation`, which also reports the standard error). It returns
+`Error` for annealing samples, where an expectation value isn't defined.
+
+On a cloud backend, `sample` and `run` return the backend's own measured shots, so the
+requested shot count must equal the backend's (the `shots` it was created with); any other
+count is an `Error`. `run` gets counts back, so equal outcomes come grouped rather than in
+measurement order.
 
 **Batch / multi-QPU** — `Primitives.sampleBatchAsync` / `observeBatchAsync` run many circuits
 concurrently on one backend (parameter sweeps); `sampleDistributedAsync` fans a list of
@@ -2608,7 +2562,7 @@ and runs it on the local simulator — returning the histogram plus any `Constra
 Catch "won't fit this device" locally before paying for a hardware job.
 
 ```fsharp
-match Emulation.emulate "rigetti.qpu.aspen-m-3" 1000 circuit with
+match Emulation.emulate "rigetti.qpu.aspen-m-3" 1000 bell with
 | Ok report ->
     if report.ConstraintViolations.IsEmpty then printfn "would run cleanly"
     else report.ConstraintViolations |> List.iter (printfn "  ⚠ %s")
@@ -2623,7 +2577,7 @@ its noisy statistics directly:
 ```fsharp
 open FSharp.Azure.Quantum.Backends.DensityMatrixSimulator
 let noisy = NoisyLocalBackend(depolarizing 0.05 0.05) :> IQuantumBackend   // 5% single/two-qubit error
-Primitives.sample noisy bellCircuit 4000   // a Bell state now leaks a little into |01⟩/|10⟩
+Primitives.sample noisy bell 4000   // a Bell state now leaks a little into |01⟩/|10⟩
 ```
 
 Intended for small circuits (≤ 8 qubits — a 2ⁿ×2ⁿ matrix). ▶ Runnable examples:
@@ -2638,8 +2592,8 @@ Intended for small circuits (≤ 8 qubits — a 2ⁿ×2ⁿ matrix). ▶ Runnable
 form: each round it screens an operator pool by the energy gradient each operator would
 contribute, appends the highest-gradient operator as a new `e^(-iθP)` block, re-optimises
 all angles, and stops when no pool operator has a meaningful gradient left. The result is
-a compact, problem-tailored ansatz — often far shallower than a fixed hardware-efficient
-form for the same accuracy.
+a compact, problem-tailored ansatz, typically shallower than a fixed hardware-efficient
+form.
 
 ```fsharp
 open System.Numerics
@@ -2661,19 +2615,25 @@ match AdaptVqe.run backend h pool 2 AdaptVqe.defaultConfig with
 | Error e   -> eprintfn "%s" e.Message
 ```
 
-`AdaptVqe.run` is state-vector exact (uses `Primitives.expectation` for ⟨H⟩ and gradients),
-so it needs a state-vector simulator backend. `AdaptResult` reports the final `Energy`, the
-`SelectedOperators`/`Parameters`, and the `EnergyHistory` (monotonically non-increasing).
+On a state-vector simulator `AdaptVqe.run` is exact (`Primitives.expectation` for ⟨H⟩,
+central-difference gradients, Nelder-Mead). On a cloud backend every energy is measured
+(`Primitives.sampledExpectation`, one job per commuting group of terms), gradients use the
+parameter-shift rule and the angles are re-optimised by Adam steps; a round of screening and
+re-optimisation submits many jobs, so give the backend a `JobBudget`. `AdaptResult` reports the final `Energy`, the
+`SelectedOperators`/`Parameters`, and the `EnergyHistory` (monotonically non-increasing on a
+simulator; measured energies carry shot noise).
 
 **ADAPT-QAOA** (`AdaptQaoa.run`) applies the same idea to QAOA: instead of a fixed mixer it
 selects, at each layer, the mixer from a pool with the largest gradient — each layer being a
 cost evolution `e^(-iγH)` followed by the chosen mixer `e^(-iβA)`, starting from `|+…+⟩`. It
 solves MaxCut on a frustrated triangle to the optimal `min ⟨H⟩ = -1` in a single adaptive layer.
+On a cloud backend it takes the same measured route as ADAPT-VQE (sampled energies,
+parameter-shift gradients).
 
 It's wired into the business layer too: `AdaptQaoa.solveQubo backend numQubits quboMap config`
 solves any QUBO end-to-end (Ising mapping → adaptive ansatz → best sampled assignment), and
-**`MaxCut.solveWithAdaptQaoa problem backend`** offers ADAPT-QAOA as a drop-in alternative to the
-fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value), shallower ansatz.
+**`MaxCut.solveWithAdaptQaoa problem backendOption`** (`None` = local simulator) offers ADAPT-QAOA as a
+drop-in alternative to the fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value).
 
 ▶ Runnable examples: [`examples/Algorithms/AdaptVqe.fsx`](examples/Algorithms/AdaptVqe.fsx) ·
 [`examples/MaxCut/AdaptQaoaMaxCut.fsx`](examples/MaxCut/AdaptQaoaMaxCut.fsx)
@@ -2684,7 +2644,7 @@ fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value), shal
 
 - **[Quantum Computing Introduction](docs/quantum-computing-introduction.md)** - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
-- **[C# Usage Guide](CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md)** - Complete C# interop guide
+- **[C# Consumer Example](examples/CSharpConsumer/)** - Calling the library from C#
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
 - **[Computation Expressions Reference](docs/computation-expressions-reference.md)** - Complete CE reference table with all custom operations (when IntelliSense fails)
 - **[Architecture Overview](docs/architecture-overview.md)** - Deep dive into library design
@@ -2697,17 +2657,17 @@ fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value), shal
 
 ## Problem Size Guidelines
 
-| Problem Type | Small (LocalBackend) | Medium | Large (Cloud Required) |
-|--------------|---------------------|--------|----------------------|
-| **Graph Coloring** | ≤20 nodes | 20-30 nodes | 30+ nodes |
-| **MaxCut** | ≤20 vertices | 20-30 vertices | 30+ vertices |
-| **Knapsack** | ≤20 items | 20-30 items | 30+ items |
-| **TSP** | ≤8 cities | 8-12 cities | 12+ cities |
-| **Portfolio** | ≤20 assets | 20-30 assets | 30+ assets |
-| **Network Flow** | ≤15 nodes | 15-25 nodes | 25+ nodes |
-| **Task Scheduling** | ≤15 tasks | 15-25 tasks | 25+ tasks |
+| Problem Type | Qubits needed | Fits about 20 qubits (practical LocalBackend size) |
+|--------------|---------------|----------------------------------------|
+| **Graph Coloring** | nodes × colors | e.g. 6 nodes × 3 colors = 18 |
+| **MaxCut** | one per vertex | up to 20 vertices |
+| **Knapsack** | one per item | up to 20 items |
+| **TSP** | cities² | 4 cities = 16 |
+| **Portfolio** | one per asset | up to 20 assets |
+| **Network Flow** | one per route | up to 20 routes |
+| **Task Scheduling** | tasks × time slots | e.g. 3 tasks × 6 slots = 18 |
 
-**Note:** LocalBackend limited to 20 qubits. Larger problems require Azure Quantum backends.
+**Note:** The local simulator's width is derived from available memory (`StateVector.maxQubits`, at most 30; override with `FSAQ_MAX_QUBITS`). QAOA is practical up to about 20 qubits; TSP and task scheduling refuse wider problems on the local simulator (wall-clock budget, raise it with `FSAQ_MAX_CIRCUIT_QUBITS`). A problem that is too wide returns an `Error`; run it on a cloud backend, on D-Wave (QUBO problems), or through the classical path of `HybridSolver`.
 
 ---
 
@@ -2720,8 +2680,16 @@ classical result.** If a quantum run cannot produce an answer it returns `Error`
 does not quietly hand back a classical approximation dressed up as a quantum result.
 
 ```fsharp
-// ✅ QUANTUM: QAOA-based optimization on a real backend
-GraphColoring.solve problem 3 None
+open FSharp.Azure.Quantum.GraphColoring
+
+let registers = graphColoring {
+    node "R1" ["R2"]
+    node "R2" ["R1"]
+    colors ["Red"; "Blue"; "Green"]
+}
+
+// ✅ QUANTUM: QAOA-based optimization on a real backend (None = local simulator)
+GraphColoring.solve registers 3 None
 
 // ❌ NO SILENT FALLBACK: if the quantum path fails, you get Error — not a hidden
 //    classical answer. Reach for a dedicated classical library when you want one.
@@ -2731,7 +2699,7 @@ Classical code that *does* ship is deliberately scoped and never the default pro
 - **Comparison baselines** inside `Solvers/Classical` (e.g. `TspSolver`, `PortfolioSolver`) exist so you can benchmark quantum vs classical on the same problem.
 - **`HybridSolver`** can *explicitly* route to a classical solver (and reports `Method = Classical`) when you ask it to, or when the `QuantumAdvisor` judges a problem too small to benefit from quantum. This is an opt-in router, not a fallback hidden inside a quantum solver.
 
-Every business builder and quantum solver defaults to a **real quantum backend** — the local simulator when you don't pass one, any cloud backend (IonQ / Rigetti / Quantinuum / Atom Computing / D-Wave) when you do. There is no "classical mode" of the quantum solvers.
+Every business builder and quantum solver defaults to a **real quantum backend** — the local simulator when you don't pass one, any gate-based cloud backend (IonQ / Rigetti / Quantinuum / Atom Computing / IQM) when you do, where each circuit is submitted as a whole-circuit job, and D-Wave for the QUBO-based solvers. There is no "classical mode" of the quantum solvers.
 
 ### Two design decisions worth knowing
 
@@ -2790,13 +2758,14 @@ match Oracle.fromPredicate predicate 3 with
 **Features:**
 - Automatic optimal iteration calculation
 - Amplitude amplification for multiple solutions
-- Direct LocalSimulator integration (no IBackend)
+- Runs on any gate-based `IQuantumBackend` (local simulator or cloud): a cloud backend gets the whole circuit (preparation plus every oracle and diffusion step) as one job
+- Oracles limited to 20 qubits (`Types.NisqPracticalQubits`)
 - Educational/research tool (not production optimizer)
 
 **Location:** `src/FSharp.Azure.Quantum/Algorithms/`  
 **Status:** Experimental - Research and education purposes
 
-**Note:** Grover's algorithm is a standalone quantum search primitive, separate from the QAOA-based optimization builders. It does not use the `IBackend` abstraction and is optimized for specific search problems rather than general combinatorial optimization.
+**Note:** Grover's algorithm is a standalone quantum search primitive, separate from the QAOA-based optimization builders. It is aimed at specific search problems rather than general combinatorial optimization.
 
 ---
 
@@ -2851,15 +2820,14 @@ match Oracle.forValue 5 3 with              // mark the basis state |101⟩ (val
 
 **Features:**
 - Custom state preparation (W-states, partial superpositions, arbitrary states)
-- Cloud backend execution (IonQ, Rigetti, LocalBackend)
+- Runs on any gate-based `IQuantumBackend` (LocalBackend, IonQ, Rigetti, ...): a cloud backend gets A and every iteration (oracle, then reflection) as one whole-circuit job
 - Automatic reflection operator generation (circuit-based A†)
 - Grover equivalence verification (shows Grover as special case)
 - Optimal iteration calculation for arbitrary initial success probability
 - Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- Backend execution returns measurement statistics only (not full amplitudes)
-- Quantum phases are lost during measurement (fundamental limitation)
+- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases); `UnifiedBackend.measureState` on it draws new samples from those counts, while `Primitives.sample` returns the job's own counts
 - Suitable for algorithms that measure amplification results
 - For amplitude/phase analysis, use local simulation
 
@@ -2881,9 +2849,9 @@ match Oracle.forValue 5 3 with              // mark the basis state |101⟩ (val
 
 [![Quantum Fourier transform](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/Algorithms/_images/quantum-fourier-transform.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Algorithms/QuantumFourierTransform.fsx)
 
-The QFT transforms computational basis states into frequency basis with exponential speedup over classical FFT:
-- **Classical FFT**: O(n·2^n) operations
-- **Quantum QFT**: O(n²) quantum gates
+The QFT transforms computational basis states into the frequency basis with exponential speedup over the classical FFT. On n qubits (N = 2^n amplitudes):
+- **Classical FFT**: O(n·2^n) operations on the amplitude vector
+- **Quantum QFT**: O(n²) quantum gates (the amplitudes are not readable directly; they are sampled by measurement)
 
 **Mathematical Transform:**
 ```
@@ -2915,8 +2883,8 @@ match QFT.execute 5 backend QFT.defaultConfig with
 ```
 
 **Features:**
-- O(n²) gate complexity (exponential speedup over classical)
-- Cloud backend execution (IonQ, Rigetti, LocalBackend)
+- O(n²) gate complexity (exponential speedup over the classical O(n·2^n) FFT)
+- Runs on any gate-based `IQuantumBackend` (LocalBackend, IonQ, Rigetti, ...): a cloud backend gets the complete QFT circuit as one job, from |0…0⟩ or, with `QFT.transformBasisState`, from a basis state prepared in the same circuit. `executeOnState` with any other prepared state needs a simulator and is an `Error` on cloud
 - Controlled phase gates (CP) with correct decomposition
 - Bit-reversal SWAP gates (optional for QPE)
 - Inverse QFT (QFT†) for result decoding
@@ -2924,8 +2892,7 @@ match QFT.execute 5 backend QFT.defaultConfig with
 - Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- Backend execution returns measurement statistics only (not full state vector)
-- Amplitudes and phases are lost during measurement (fundamental quantum limitation)
+- Cloud backends return a state rebuilt from the measurement histogram (no amplitudes or phases); `UnifiedBackend.measureState` on it draws new samples from those counts, while `Primitives.sample` returns the job's own counts
 - Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
 - For amplitude/phase analysis, use local simulation
 
@@ -2935,10 +2902,10 @@ match QFT.execute 5 backend QFT.defaultConfig with
 - **Period Finding**: Hidden subgroup problems
 - **Quantum Signal Processing**: Frequency domain analysis
 
-**Performance:**
-- 3 qubits: 12 gates (3 H + 6 CPhase + 1 SWAP)
-- 5 qubits: 27 gates (5 H + 20 CPhase + 2 SWAP)
-- 10 qubits: 105 gates (10 H + 90 CPhase + 5 SWAP)
+**Gate counts** (`QFT.estimateGateCount`: n H + n(n-1)/2 controlled phases + ⌊n/2⌋ SWAPs):
+- 3 qubits: 7 gates (3 H + 3 CPhase + 1 SWAP)
+- 5 qubits: 17 gates (5 H + 10 CPhase + 2 SWAP)
+- 10 qubits: 60 gates (10 H + 45 CPhase + 5 SWAP)
 
 **Location:** `Algorithms/QFT.fs` (`QFT.execute` / `executeOnState` / `executeInverse` / `executeNoSwaps`)
 
@@ -3014,15 +2981,19 @@ let factorResult =
 
 match factorResult with
 | Ok result ->
-    match result.Factors with
-    | Some (p, q) -> 
-        printfn "Factors: %d × %d" p q
-        printfn "⚠️  RSA Security Broken!"
-    | None -> 
+    match result.Factors, result.FactorSource with
+    | Some (p, q), FSharp.Azure.Quantum.Algorithms.ShorsTypes.FactorSource.QuantumPeriodFinding ->
+        printfn "Factors: %d × %d (period %d measured by quantum period finding)" p q result.Period
+    | Some (p, q), _ ->
+        // N was even, or the drawn base shared a factor with N: no circuit ran
+        printfn "Factors: %d × %d (classical preprocessing)" p q
+    | None, _ ->
         printfn "Try again (probabilistic)"
 | Error err -> 
     printfn "Error: %s" err.Message
 ```
+
+`FactorSource` says where the factors came from, so a lucky gcd is never reported as a quantum result. The period finding runs gate by gate on the local simulator, as one native intent on the topological backend, and as one whole-circuit job per base tried on a cloud backend. Even N = 15 is a deep circuit, far beyond what today's hardware runs without errors.
 
 **C# API:**
 ```csharp
@@ -3046,22 +3017,23 @@ var result = ExecutePeriodFinder(problem);
 [![Quantum phase estimation reading the phase of a one-qubit gate](https://raw.githubusercontent.com/Thorium/FSharp.Azure.Quantum/main/examples/PhaseEstimation/_images/phase-estimation.svg)](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/PhaseEstimation/MolecularEnergy.fsx)
 
 ```fsharp
+open System
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
+open FSharp.Azure.Quantum.Algorithms.QPE
 
-// Estimate molecular ground state energy
+// Estimate the eigenphase of a unitary (the core step of QPE-based energy estimation)
 // The builder validates and returns a Result; bind it into estimate
 let energyResult =
     phaseEstimator {
-        unitary (RotationZ (Math.PI / 3.0))  // Molecular Hamiltonian
-        precision 12                          // 12-bit energy precision
+        unitary (RotationZ (Math.PI / 3.0))  // Unitary operator U
+        precision 12                          // 12-bit phase precision
     }
     |> Result.bind estimate
 
 match energyResult with
 | Ok result ->
     printfn "Phase: %.6f" result.Phase
-    printfn "Energy: %.4f a.u." (result.Phase * 2.0 * Math.PI)
-    printfn "Application: Drug binding affinity prediction"
+    printfn "Eigenphase angle: %.4f rad" (result.Phase * 2.0 * Math.PI)
 | Error err ->
     printfn "Error: %s" err.Message
 ```
@@ -3086,10 +3058,11 @@ var result = ExecutePhaseEstimator(problem);
 - F# computation expressions + C# fluent API
 - Comprehensive examples with real-world scenarios
 - Educational value for quantum algorithm learning
-- NISQ limitations: Toy examples only (< 20 qubits)
-- Requires fault-tolerant quantum computers for production use
+- Run on the local simulator or, as whole-circuit jobs, on the gate-based cloud backends
+- NISQ limitations: Toy examples only (about 20 qubits)
+- Requires fault-tolerant quantum computers for production use (e.g. RSA key lengths)
 
-**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (as of 2025)
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms, but current hardware is insufficient for real-world applications
 
 ---
 
@@ -3122,7 +3095,7 @@ var result = ExecutePhaseEstimator(problem);
 | Similarity Search | ✅ Built-in | ❌ Manual | ❌ No | ❌ No | ❌ No |
 | | | | | | |
 | **🔬 QUANTUM ALGORITHMS** | | | | | |
-| QAOA | ✅ Production-ready, auto-optimized | ✅ Qiskit Optimization | ✅ Q# samples | ✅ Manual | ✅ Built-in |
+| QAOA | ✅ Production-ready, auto-optimized (Nelder-Mead) | ✅ Qiskit Optimization | ✅ Q# samples | ✅ Manual | ✅ Built-in |
 | VQE | ✅ Built-in (chemistry) | ✅ Qiskit Nature | ✅ Q# samples | ✅ Built-in | ✅ Built-in |
 | Grover's Algorithm | ✅ Educational | ✅ Built-in | ✅ Q# samples | ✅ Built-in | ✅ Built-in |
 | Shor's Algorithm | ✅ Educational (period finder) | ✅ Built-in | ✅ Q# samples | ✅ Built-in | ✅ Built-in |
@@ -3132,8 +3105,8 @@ var result = ExecutePhaseEstimator(problem);
 | | | | | | |
 | **🖥️ LOCAL SIMULATION** | | | | | |
 | Local Simulator | ✅ Built-in (memory-derived, ≤30) | ✅ Aer (≤30 qubits) | ✅ Full-state (≤30 qubits) | ✅ Built-in (≤20 qubits) | ✅ Local simulator |
-| Noise Simulation | ❌ Some | ✅ AerSimulator noise models | ✅ Open/Closed systems | ✅ Built-in | ✅ Built-in |
-| GPU Acceleration | ❌ No | ✅ Aer GPU | ✅ Yes | ✅ Yes | ✅ Yes |
+| Noise Simulation | ✅ Density matrix (`NoisyLocalBackend`, ≤ 8 qubits) | ✅ AerSimulator noise models | ✅ Open/Closed systems | ✅ Built-in | ✅ Built-in |
+| GPU Acceleration | ⚠️ Via CUDA-Q source hand-off (`CudaQBridge`) | ✅ Aer GPU | ✅ Yes | ✅ Yes | ✅ Yes |
 | State Vector | ✅ Pure F# implementation | ✅ C++ backend | ✅ C++ backend | ✅ C++ backend | ✅ C++ backend |
 | | | | | | |
 | **☁️ CLOUD BACKENDS** | | | | | |
@@ -3141,18 +3114,18 @@ var result = ExecutePhaseEstimator(problem);
 | Azure Quantum (Rigetti) | ✅ Native | ✅ Via Qiskit Runtime | ✅ Native | ❌ No | ❌ No |
 | IBM Quantum | ❌ Via OpenQASM export | ✅ Native | ❌ No | ❌ No | ❌ No |
 | D-Wave Quantum Annealer | ✅ Native | ✅ Via Ocean SDK | ✅ Native | ❌ No | ✅ Native |
-| AWS Braket | ❌ Via OpenQASM export | ✅ Via plugin | ❌ No | ❌ No | ✅ Native |
+| AWS Braket | ✅ Via `FSharp.Azure.Quantum.Braket` plugin | ✅ Via plugin | ❌ No | ❌ No | ✅ Native |
 | Google Quantum | ❌ Via OpenQASM export | ✅ Via plugin | ❌ No | ✅ Native | ❌ No |
 | | | | | | |
 | **🔄 INTEROPERABILITY** | | | | | |
 | OpenQASM 2.0 Import | ✅ Full support | ✅ Native | ✅ Via conversion | ✅ Full support | ✅ Full support |
 | OpenQASM 2.0 Export | ✅ Full support | ✅ Native | ✅ Via conversion | ✅ Full support | ✅ Full support |
-| QUIL | ❌ No | ❌ Via plugin | ✅ Rigetti native | ❌ No | ✅ Rigetti support |
+| QUIL | ✅ Export (Rigetti backend) | ❌ Via plugin | ✅ Rigetti native | ❌ No | ✅ Rigetti support |
 | | | | | | |
 | **🛡️ ERROR MITIGATION** | | | | | |
-| Zero-Noise Extrapolation | ✅ Built-in (30-50% reduction) | ✅ Qiskit Experiments | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
-| Probabilistic Error Cancellation | ✅ Built-in (2-3x accuracy) | ✅ Via Mitiq | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
-| Readout Error Mitigation | ✅ Built-in (50-90% reduction) | ✅ Qiskit Experiments | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
+| Zero-Noise Extrapolation | ✅ Built-in (typically 30-50% reduction) | ✅ Qiskit Experiments | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
+| Probabilistic Error Cancellation | ✅ Built-in (typically 50-80% reduction) | ✅ Via Mitiq | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
+| Readout Error Mitigation | ✅ Built-in (typically 50-90% reduction) | ✅ Qiskit Experiments | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
 | Automatic Strategy Selection | ✅ Built-in | ❌ Manual | ❌ No | ❌ Manual | ❌ No |
 | | | | | | |
 | **💻 API DESIGN** | | | | | |
@@ -3164,9 +3137,9 @@ var result = ExecutePhaseEstimator(problem);
 | | | | | | |
 | **🤖 HYBRID CLASSICAL-QUANTUM** | | | | | |
 | Automatic Problem Routing | ✅ HybridSolver (optional) | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
-| Classical Fallback | ✅ Built-in (small problems) | ❌ Manual | ❌ No | ❌ No | ❌ No |
-| Cost Guards | ✅ MaxCostUSD limits | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
-| Quantum Advantage Analysis | ✅ Built-in reasoning | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| Classical Fallback | ✅ Built-in via HybridSolver (small problems, below 50 variables; opt-in) | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| Cost Guards | ✅ HybridSolver `budget` limits (`CostEstimation`), `JobBudget` job caps on cloud backends | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
+| Quantum Advantage Analysis | ✅ Built-in reasoning (QuantumAdvisor) | ❌ Manual | ❌ No | ❌ No | ❌ No |
 | | | | | | |
 | **🧪 QUANTUM CHEMISTRY** | | | | | |
 | VQE for Molecules | ✅ Built-in (H₂, H₂O) | ✅ Qiskit Nature | ✅ Q# Chemistry | ✅ OpenFermion integration | ✅ Built-in |
@@ -3175,11 +3148,9 @@ var result = ExecutePhaseEstimator(problem);
 | | | | | | |
 | **📚 ECOSYSTEM** | | | | | |
 | Circuit Visualization | ❌ Mermaid, or Export to OpenQASM → Qiskit | ✅ Native (matplotlib) | ✅ Q# visualizer | ✅ Native (matplotlib) | ✅ Native (matplotlib) |
-| Documentation Quality | ✅ Comprehensive (MD docs) | ✅ Extensive (tutorials) | ✅ Microsoft Docs | ✅ Google Docs | ✅ AWS Docs |
-| Example Projects | ✅ 30+ working examples | ✅ 100+ tutorials | ⚠️ Limited examples | ✅ 50+ tutorials | ✅ 40+ examples |
-| Community Size | ⚠️ Small (new library) | ✅ Large (6.7k stars) | ⚠️ Medium | ✅ Medium (Google) | ⚠️ Medium |
-| GitHub Stars | ⚠️ New project | ✅ 6,700+ | ⚠️ Not standalone repo | ✅ 4,000+ | ✅ 800+ |
-| Stack Overflow Support | ⚠️ Limited (F# quantum niche) | ✅ Extensive | ⚠️ Medium | ⚠️ Medium | ⚠️ Limited |
+| Documentation Quality | ✅ Comprehensive (MD docs) | ✅ Tutorials | ✅ Microsoft Docs | ✅ Google Docs | ✅ AWS Docs |
+| Example Projects | ✅ 30+ working examples | ✅ Tutorials | ✅ Samples | ✅ Tutorials | ✅ Examples |
+| Community Size | ⚠️ Small (new library) | ✅ Large | ⚠️ Medium | ✅ Medium | ⚠️ Medium |
 | | | | | | |
 | **🔧 DEVELOPMENT EXPERIENCE** | | | | | |
 | IDE Support | ✅ Visual Studio, VS Code | ✅ Jupyter, VS Code | ✅ Visual Studio, VS Code | ✅ Jupyter, VS Code | ✅ Jupyter, VS Code |
@@ -3187,21 +3158,16 @@ var result = ExecutePhaseEstimator(problem);
 | Package Manager | ✅ NuGet | ✅ pip | ✅ NuGet, pip | ✅ pip | ✅ pip |
 | Installation | ✅ dotnet add package | ✅ pip install qiskit | ✅ pip install azure-quantum | ✅ pip install cirq | ✅ pip install amazon-braket-sdk |
 | | | | | | |
-| **⚡ PERFORMANCE** | | | | | |
-| Small Problems (<10 qubits) | ✅ LocalBackend (ms) | ✅ Aer (ms) | ✅ Full-state (ms) | ✅ Cirq (ms) | ✅ Local (ms) |
-| Medium Problems (10-20 qubits) | ✅ LocalBackend (<1s) | ✅ Aer (<1s) | ✅ Full-state (<1s) | ✅ Cirq (<10s) | ✅ Local (<1s) |
-| Large Problems (20+ qubits) | ⚠️ Cloud required | ✅ Aer GPU (30 qubits) | ✅ Cloud | ⚠️ Cloud required | ✅ Cloud |
-| | | | | | |
 | **💰 COST** | | | | | |
 | Local Development | ✅ Free | ✅ Free | ✅ Free | ✅ Free | ✅ Free |
 | Cloud QPU Access | 💰 Azure Quantum pricing | 💰 IBM Quantum pricing | 💰 Azure Quantum pricing | 💰 Google Quantum pricing | 💰 AWS Braket pricing |
-| D-Wave Quantum | 💰 ~-10/run | 💰 Via Ocean SDK | 💰 Azure marketplace | ❌ N/A | 💰 AWS Braket |
+| D-Wave Quantum | 💰 D-Wave Leap pricing | 💰 Via Ocean SDK | 💰 Azure marketplace | ❌ N/A | 💰 AWS Braket |
 
 ---
 
 ## Topological Quantum Computing
 
-**NEW:** Simulate topological quantum computers using anyon braiding - the approach behind Microsoft's Majorana quantum computing program.
+Simulate topological quantum computers using anyon braiding - the approach behind Microsoft's Majorana quantum computing program.
 
 Unlike gate-based quantum computing (which uses qubits and gates), topological quantum computing encodes information in **anyons** (exotic quasiparticles) and performs operations by **braiding** their worldlines. This provides inherent fault-tolerance through **topological protection**.
 
@@ -3212,22 +3178,27 @@ Unlike gate-based quantum computing (which uses qubits and gates), topological q
 ```fsharp
 open FSharp.Azure.Quantum.Topological
 
-// Create backend for Ising anyons (Microsoft's approach)
+// Create backend for Ising anyons (Microsoft's approach), up to 10 anyons
 let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Create entangled state via braiding
-let! result = topological backend {
-    // Initialize 4 sigma anyons
-    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+let program = topological backend {
+    // Initialize 2 logical qubits (6 sigma anyons)
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 2
     
     // Braiding creates entanglement geometrically
     do! TopologicalBuilder.braid 0  // Braid anyons 0-1
     do! TopologicalBuilder.braid 2  // Braid anyons 2-3
+    do! TopologicalBuilder.braid 1  // Braid anyons 1-2 (entangles the qubits)
     
     // Measure fusion outcome
-    let! (outcome, _) = TopologicalBuilder.measure 0
+    let! outcome = TopologicalBuilder.measure 0
     return outcome
 }
+
+let result =
+    TopologicalBuilder.execute backend program
+    |> Async.AwaitTask |> Async.RunSynchronously
 
 match result with
 | Ok particle ->
@@ -3249,10 +3220,10 @@ match result with
 - **F-moves**: Change fusion tree basis (advanced)
 - **Error Correction**: Toric code (MWPM), surface codes (planar, color), anyonic charge correction
 
-**Advantages:**
-- Topological protection: Error rates ~10⁻¹² (vs 10⁻³ for gate-based)
-- Passive error correction: Immunity to local noise
-- Scalability: Potentially 1:1 physical-to-logical qubit ratio
+**Why topological qubits are studied:**
+- Topological protection: information is stored non-locally, so local noise does not change it
+- Passive error suppression: errors need a non-local process to affect the encoded state
+- This is a simulator; topological hardware is still experimental
 
 **Comparison: Gate-Based vs Topological**
 
@@ -3293,7 +3264,12 @@ topological braids — it **Trotterizes the analog Hamiltonian into a gate circu
 `RX`, detuning → `P`, interaction → `CP`), so a Rydberg program runs on *any* `IQuantumBackend`.
 
 ```fsharp
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.NeutralAtom
+
+let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 // 3-atom path A–B–C; neighbours blockade, so the max independent set is {A, C} = "101".
 let register = [ { X = 0.0; Y = 0.0 }; { X = 1.0; Y = 0.0 }; { X = 2.0; Y = 0.0 } ]
 let program = maximumIndependentSetProgram register 30.0 1.0 3.0 12.0   // adiabatic detuning sweep
@@ -3344,8 +3320,12 @@ circuit and anneal it), a QUBO problem targets **annealing hardware** through th
 API — just pass a D-Wave backend:
 
 ```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.DWaveBackend
 open FSharp.Azure.Quantum.Backends.DWaveTypes
+
+let triangle = MaxCut.createProblem ["A"; "B"; "C"] [("A", "B", 1.0); ("B", "C", 1.0); ("C", "A", 1.0)]
 let annealer = MockDWaveBackend(Advantage_System6_1, seed = 42) :> IQuantumBackend
 MaxCut.solve triangle (Some annealer)   // solved by simulated/real annealing, not QAOA gates
 ```
@@ -3357,7 +3337,7 @@ MaxCut.solve triangle (Some annealer)   // solved by simulated/real annealing, n
 Contributions welcome! 
 
 **Development principles:**
-- Maintain quantum-only architecture (no classical algorithms)
+- Keep solvers quantum-first (no silent classical fallback; classical code only as baselines or through `HybridSolver`)
 - Follow F# coding conventions
 - Provide C# interop for new builders
 - Include comprehensive tests

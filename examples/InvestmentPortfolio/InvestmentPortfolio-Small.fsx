@@ -4,6 +4,12 @@
 // Direct quantum portfolio optimization using QuantumPortfolioSolver with a
 // minimal asset set that fits within LocalSimulator constraints (<10 qubits).
 // QUBO encoding + QAOA execution for mean-variance portfolio problems.
+// One qubit per asset; the local simulator run is capped at 16 assets.
+//
+// Figures: annual return and volatility estimated from Yahoo Finance daily
+// adjusted closes 2019-2023 (data/market-stats-2019-2023.json); the buy price
+// is the 2023-12-29 adjusted close and 2024 is the hold-out year.
+// --live recomputes the same figures from Yahoo Finance for any symbols/dates.
 //
 // Usage:
 //   dotnet fsi InvestmentPortfolio-Small.fsx                                  (defaults)
@@ -11,6 +17,7 @@
 //   dotnet fsi InvestmentPortfolio-Small.fsx -- --symbols AAPL,MSFT           (select stocks)
 //   dotnet fsi InvestmentPortfolio-Small.fsx -- --input custom-stocks.csv
 //   dotnet fsi InvestmentPortfolio-Small.fsx -- --budget 20000 --risk-aversion 0.7
+//   dotnet fsi InvestmentPortfolio-Small.fsx -- --live --symbols KO,PEP,JNJ --from 2014-01-01 --to 2018-12-31
 //   dotnet fsi InvestmentPortfolio-Small.fsx -- --quiet --output results.json --csv out.csv
 //
 // References:
@@ -30,8 +37,10 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "_marketData.fsx"
 
 open System
+open System.Globalization
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Classical.PortfolioSolver
 open FSharp.Azure.Quantum.Quantum
@@ -39,6 +48,7 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
+open _marketData
 
 // ==============================================================================
 // CLI ARGUMENT PARSING
@@ -53,13 +63,28 @@ Cli.exitIfHelp
     [
         {
             Cli.OptionSpec.Name = "symbols"
-            Description = "Comma-separated stock symbols to include"
-            Default = None
+            Description = "Comma-separated symbols, at most 16 (any Yahoo ticker with --live)"
+            Default = Some "AAPL,MSFT,GOOGL"
         }
         {
             Cli.OptionSpec.Name = "input"
-            Description = "CSV file with custom stock definitions"
+            Description = "CSV: symbol[,name,expected_return,risk,price] or preset"
             Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "live"
+            Description = "Recompute the figures from Yahoo Finance adjusted closes"
+            Default = None
+        }
+        {
+            Cli.OptionSpec.Name = "from"
+            Description = "Estimation window start with --live (yyyy-MM-dd)"
+            Default = Some "2019-01-01"
+        }
+        {
+            Cli.OptionSpec.Name = "to"
+            Description = "Estimation window end with --live; the next year is the hold-out"
+            Default = Some "2023-12-31"
         }
         {
             Cli.OptionSpec.Name = "shots"
@@ -135,44 +160,32 @@ type StockResult =
 // ==============================================================================
 // BUILT-IN STOCK PRESETS
 // ==============================================================================
+// Symbols only: their figures come from the bundled statistics or from --live.
 
-let private presetAapl =
+let private presetSymbols = [ "AAPL"; "MSFT"; "GOOGL" ]
+
+/// One qubit per asset; larger problems do not fit the local state-vector simulator.
+[<Literal>]
+let private maxAssets = 16
+
+/// A stock to include; Figures = (expected return, risk, price) when the CSV supplies them.
+type private StockSpec =
     {
-        Symbol = "AAPL"
-        Name = "Apple Inc."
-        ExpectedReturn = 0.15
-        Risk = 0.20
-        Price = 175.0
+        Symbol: string
+        Name: string option
+        Figures: (float * float * float) option
     }
-
-let private presetMsft =
-    {
-        Symbol = "MSFT"
-        Name = "Microsoft Corp."
-        ExpectedReturn = 0.18
-        Risk = 0.22
-        Price = 380.0
-    }
-
-let private presetGoogl =
-    {
-        Symbol = "GOOGL"
-        Name = "Alphabet Inc."
-        ExpectedReturn = 0.12
-        Risk = 0.25
-        Price = 140.0
-    }
-
-let private builtInStocks =
-    [ presetAapl; presetMsft; presetGoogl ]
-    |> List.map (fun s -> s.Symbol.ToUpperInvariant(), s)
-    |> Map.ofList
 
 // ==============================================================================
 // CSV LOADING
 // ==============================================================================
 
-let private loadStocksFromCsv (filePath: string) : StockInfo list =
+let private tryParseInvariant (s: string) =
+    match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
+    | true, v -> Some v
+    | _ -> None
+
+let private loadSpecsFromCsv (filePath: string) : StockSpec list =
     let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
     let rows, errors = Data.readCsvWithHeaderWithErrors resolved
 
@@ -190,58 +203,149 @@ let private loadStocksFromCsv (filePath: string) : StockInfo list =
 
         match get "preset" with
         | p when not (String.IsNullOrWhiteSpace p) ->
-            match builtInStocks |> Map.tryFind (p.Trim().ToUpperInvariant()) with
-            | Some s -> s
-            | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
-        | _ ->
             {
-                Symbol =
-                    let s = get "symbol" in
+                Symbol = p.Trim().ToUpperInvariant()
+                Name = None
+                Figures = None
+            }
+        | _ ->
+            let symbol = get "symbol"
 
-                    if s = "" then
-                        failwithf "Missing symbol in CSV row %d" (i + 1)
-                    else
-                        s.ToUpperInvariant()
-                Name = let n = get "name" in if n = "" then get "symbol" else n
-                ExpectedReturn =
-                    get "expected_return"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 0.15
-                Risk =
-                    get "risk"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 0.20
-                Price =
-                    get "price"
-                    |> fun s ->
-                        match Double.TryParse s with
-                        | true, v -> v
-                        | _ -> 100.0
+            if symbol = "" then
+                failwithf "Missing symbol in CSV row %d" (i + 1)
+
+            let figures =
+                match get "expected_return", get "risk", get "price" with
+                | "", "", "" -> None
+                | r, v, p ->
+                    match tryParseInvariant r, tryParseInvariant v, tryParseInvariant p with
+                    | Some r, Some v, Some p -> Some(r, v, p)
+                    | _ ->
+                        failwithf
+                            "CSV row %d (%s): give all of expected_return, risk, price, or none of them"
+                            (i + 1)
+                            symbol
+
+            {
+                Symbol = symbol.ToUpperInvariant()
+                Name =
+                    (match get "name" with
+                     | "" -> None
+                     | n -> Some n)
+                Figures = figures
             })
 
 // ==============================================================================
 // STOCK SELECTION
 // ==============================================================================
 
-let selectedStocks =
-    let base' =
-        match Cli.tryGet "input" args with
-        | Some csvFile -> loadStocksFromCsv csvFile
-        | None -> builtInStocks |> Map.toList |> List.map snd
+let private selectedSpecs =
+    let symbolsArg =
+        Cli.getCommaSeparated "symbols" args |> List.map (fun s -> s.ToUpperInvariant())
 
-    match Cli.getCommaSeparated "symbols" args with
-    | [] -> base'
-    | filter ->
-        let filterSet = filter |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
-        base' |> List.filter (fun s -> filterSet.Contains(s.Symbol.ToUpperInvariant()))
+    match Cli.tryGet "input" args with
+    | Some csvFile ->
+        let specs = loadSpecsFromCsv csvFile
 
-if selectedStocks.IsEmpty then
+        match symbolsArg with
+        | [] -> specs
+        | filter -> specs |> List.filter (fun s -> List.contains s.Symbol filter)
+    | None ->
+        (if symbolsArg.IsEmpty then presetSymbols else symbolsArg)
+        |> List.map (fun s ->
+            {
+                Symbol = s
+                Name = None
+                Figures = None
+            })
+
+if selectedSpecs.IsEmpty then
     eprintfn "ERROR: No stocks selected. Check --symbols filter or --input CSV."
     exit 1
+
+if selectedSpecs.Length > maxAssets then
+    eprintfn
+        "ERROR: %d assets need %d qubits; this example simulates at most %d."
+        selectedSpecs.Length
+        selectedSpecs.Length
+        maxAssets
+
+    exit 1
+
+// ==============================================================================
+// MARKET FIGURES (bundled, or --live from Yahoo Finance)
+// ==============================================================================
+
+let liveDataEnabled = Cli.hasFlag "live" args
+
+let private dateArg (name: string) (fallback: DateTime) =
+    match Cli.tryGet name args with
+    | None -> fallback
+    | Some s ->
+        match MarketData.tryParseIsoDate s with
+        | Some d when liveDataEnabled -> d
+        | Some _ ->
+            eprintfn "ERROR: --%s needs --live; the bundled figures cover 2019-01-01..2023-12-31." name
+            exit 1
+        | None ->
+            eprintfn "ERROR: --%s must be yyyy-MM-dd, got '%s'" name s
+            exit 1
+
+let windowFrom = dateArg "from" MarketData.defaultWindowFrom
+let windowTo = dateArg "to" MarketData.defaultWindowTo
+
+let marketStats, liveUsed =
+    let info (msg: string) =
+        if not quiet then
+            printfn "%s" msg
+
+    if liveDataEnabled then
+        match
+            MarketData.computeFromYahoo info (selectedSpecs |> List.map (fun s -> s.Symbol)) windowFrom windowTo None
+        with
+        | Ok(stats, dropped) ->
+            for (s, reason) in dropped do
+                printfn "  Dropped %s: %s" s reason
+
+            stats, true
+        | Error e ->
+            eprintfn "Live fetch failed (%s); using the bundled figures." e
+            MarketData.loadBundled (), false
+    else
+        MarketData.loadBundled (), false
+
+let selectedStocks =
+    selectedSpecs
+    |> List.choose (fun spec ->
+        match spec.Figures, MarketData.tryAsset marketStats spec.Symbol with
+        | Some(r, v, p), _ ->
+            Some
+                {
+                    Symbol = spec.Symbol
+                    Name = spec.Name |> Option.defaultValue spec.Symbol
+                    ExpectedReturn = r
+                    Risk = v
+                    Price = p
+                }
+        | None, Some a ->
+            Some
+                {
+                    Symbol = a.Symbol
+                    Name = spec.Name |> Option.defaultValue a.Name
+                    ExpectedReturn = a.AnnualReturn
+                    Risk = a.AnnualVolatility
+                    Price = a.BuyPrice
+                }
+        | None, None ->
+            eprintfn "  Skipping %s: no figures for it (not in the bundled data; try --live)" spec.Symbol
+            None)
+
+if selectedStocks.IsEmpty then
+    eprintfn "ERROR: No stocks with figures."
+    exit 1
+
+if not quiet then
+    printfn "%s" (MarketData.describeSource marketStats liveUsed)
 
 // ==============================================================================
 // QUANTUM PORTFOLIO OPTIMIZATION
@@ -283,8 +387,28 @@ let config: QuantumPortfolioSolver.QuantumPortfolioConfig =
         InitialParameters = (0.5, 0.5)
     }
 
+/// Covariance of the selected stocks from the window correlations; None when a symbol has none.
+let portfolioCovariance =
+    MarketData.covariance marketStats (selectedStocks |> List.map (fun s -> s.Symbol, s.Risk))
+
+let solved =
+    let run =
+        match portfolioCovariance with
+        | Some sigma ->
+            QuantumPortfolioSolver.solveWithCovarianceAsync
+                backend
+                assets
+                sigma
+                constraints
+                config
+                System.Threading.CancellationToken.None
+        | None ->
+            QuantumPortfolioSolver.solveAsync backend assets constraints config System.Threading.CancellationToken.None
+
+    run.GetAwaiter().GetResult()
+
 let sortedResults =
-    match QuantumPortfolioSolver.solve backend assets constraints config with
+    match solved with
     | Ok solution ->
         let totalValue = solution.Allocations |> List.sumBy (fun a -> a.Value)
 
@@ -357,6 +481,14 @@ let sortedResults =
                 HasQuantumFailure = true
             })
 
+let chosenWeights = sortedResults |> List.map (fun r -> r.Stock.Symbol, r.Value)
+let equalWeights = selectedStocks |> List.map (fun s -> s.Symbol, 1.0)
+
+let private fmtOption (x: float option) =
+    x
+    |> Option.map (fun v -> v.ToString("F4", CultureInfo.InvariantCulture))
+    |> Option.defaultValue ""
+
 // ==============================================================================
 // COMPARISON TABLE (unconditional)
 // ==============================================================================
@@ -426,6 +558,15 @@ let printTable () =
         energy
         backendName
 
+    if not (sortedResults |> List.exists (fun r -> r.HasQuantumFailure)) then
+        MarketData.printComparison
+            marketStats
+            chosenWeights
+            (selectedStocks |> List.map (fun s -> s.Symbol))
+            (match portfolioCovariance, sortedResults with
+             | Some _, r :: _ when not r.HasQuantumFailure -> Some r.PortfolioRisk
+             | _ -> None)
+
 printTable ()
 
 // ==============================================================================
@@ -455,6 +596,15 @@ let resultMaps: Map<string, string> list =
             "shots", $"%d{shots}"
             "risk_aversion", $"%.2f{riskAversion}"
             "has_quantum_failure", $"%b{r.HasQuantumFailure}"
+            "holdout_return",
+            fmtOption (
+                MarketData.tryAsset marketStats r.Stock.Symbol
+                |> Option.bind (fun a -> a.HoldoutReturn)
+            )
+            "portfolio_holdout_return", fmtOption (MarketData.holdoutReturn marketStats chosenWeights)
+            "equal_weight_holdout_return", fmtOption (MarketData.holdoutReturn marketStats equalWeights)
+            "estimation_window", $"%s{marketStats.WindowFrom}..%s{marketStats.WindowTo}"
+            "holdout_window", $"%s{marketStats.HoldoutFrom}..%s{marketStats.HoldoutTo}"
         ]
         |> Map.ofList)
 
@@ -489,6 +639,11 @@ match csvPath with
             "shots"
             "risk_aversion"
             "has_quantum_failure"
+            "holdout_return"
+            "portfolio_holdout_return"
+            "equal_weight_holdout_return"
+            "estimation_window"
+            "holdout_window"
         ]
 
     let rows =

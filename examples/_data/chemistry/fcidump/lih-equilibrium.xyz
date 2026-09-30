@@ -1,0 +1,4 @@
+2
+LiH (equilibrium) | RHF/STO-3G optimised (max gradient 1.1e-07 Ha/bohr) | PySCF 2.14.0
+Li     0.04459407    -0.00000000    -0.00000000
+H      1.55540593     0.00000000     0.00000000

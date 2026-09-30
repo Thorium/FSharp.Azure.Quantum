@@ -7,7 +7,7 @@ The Task Scheduling domain builder defines and solves task scheduling problems w
 1. **F# computation expression builders** (`scheduledTask { }`, `resource { }`, `scheduling { }`) - dependencies are declared on the task that has them (`after "TaskA"`)
 2. **C# helpers** (the `Scheduling` module: `Scheduling.task`, `Scheduling.SchedulingBuilder`) - method chaining for C#
 
-Both produce the same `SchedulingProblem<'TTask, 'TResource>` record, which you solve with `solveQuantum` (QUBO + QAOA on an `IQuantumBackend`). A dependency-only classical scheduler, `ClassicalSolver.solve`, is also public.
+Both produce the same `SchedulingProblem<'TTask, 'TResource>` record, which you solve with `solveQuantum` (QUBO + QAOA on an `IQuantumBackend`). A classical scheduler that ignores resource capacities, `ClassicalSolver.solve`, is also public.
 
 ---
 
@@ -170,7 +170,9 @@ Define individual tasks with duration, dependencies and constraints.
 | `deadline` | `TimeSpan` | Latest completion time, as an offset from the schedule start | `deadline (minutes 180.0)` |
 | `earliestStart` | `TimeSpan` | Earliest allowed start time, as an offset | `earliestStart (minutes 60.0)` |
 
-Missed deadlines are reported in `Solution.DeadlineViolations`; they do not make `solveQuantum` fail. `priority` and `earliestStart` are honoured by `ClassicalSolver.solve` only; the quantum encoding ignores them.
+Missed deadlines are reported in `Solution.DeadlineViolations`; they do not make `solveQuantum` fail.
+
+`earliestStart` is a hard constraint for both solvers. `priority` only breaks ties: `solveQuantum` picks, among sampled schedules that are equally good by the objective, the one with the smallest Σ priority × end time, so higher-priority tasks finish first. `ClassicalSolver.solve` starts every task at its own earliest feasible time, so priority does not change its result.
 
 **Examples:**
 
@@ -221,9 +223,11 @@ Define resources with capacity and cost.
 | `resourceId` | `string` | ✅ **Required** - Unique resource identifier | `resourceId "Worker"` |
 | `capacity` | `float` | ✅ **Required** - Units available at any moment | `capacity 3.0` |
 | `costPerUnit` | `float` | Cost per unit per minute (default 0.0) | `costPerUnit 50.0` |
-| `availableWindow` | `float, float` | Availability window (start, end); stored, not used by the solvers | `availableWindow 0.0 480.0` |
+| `availableWindow` | `float, float` | Availability window (start, end) in minutes from the schedule start, bounds inclusive (default: always available) | `availableWindow 0.0 480.0` |
 
 Total cost is Σ `costPerUnit` × quantity × task duration in minutes, over every task's requirements.
+
+A task that `requires` a resource must run entirely inside one of that resource's availability windows; both solvers enforce this. The `availableWindow` operation sets a single window (a second use replaces the first). For several windows, set the record field directly: `{ specialist with AvailableWindows = [ (0.0, 240.0); (480.0, 960.0) ] }`.
 
 **Examples:**
 
@@ -241,7 +245,8 @@ let machine : Resource<unit> = resource {
     costPerUnit 100.0
 }
 
-// Resource with an availability window (metadata)
+// Resource available from minute 480 to minute 960 of the schedule;
+// tasks that require it are placed inside that window
 let specialist : Resource<unit> = resource {
     resourceId "Specialist"
     capacity 1.0
@@ -431,9 +436,10 @@ Circular dependencies are not rejected up front: `solveQuantum` then finds no fe
 #### How `solveQuantum` works
 
 1. **Time slots.** Time is split into a small grid of equal slots. The window is `max timeHorizon (total task duration)`. The slot count starts from window ÷ shortest task duration, is capped so that tasks × slots stays near 18 (at most 10 slots, at least 2), and is never below the length of the longest dependency chain. Slot length = window ÷ slot count, and every task starts on a slot boundary.
-2. **QUBO.** One binary variable per (task, slot) - so **qubits = tasks × slots** - with penalty terms for "start exactly once", dependencies and resource capacity, plus the objective.
-3. **QAOA.** One layer with fixed angles (γ = β = 0.5), 1000 shots.
-4. **Decode and check.** Each shot is decoded to start times; shots that break a dependency or overload a resource are discarded, and the best remaining schedule by the objective is returned.
+2. **Allowed start slots.** A (task, slot) pair is forbidden when the slot starts before the task's `earliestStart`, or when a task started there would not fit inside an availability window of every resource it requires. If some task has no allowed slot on the grid, `solveQuantum` returns a `ValidationError` on `"AvailableWindows"` naming the task, before running any circuit.
+3. **QUBO.** One binary variable per (task, slot) - so **qubits = tasks × slots** - with penalty terms for "start exactly once", dependencies, resource capacity and forbidden start slots, plus the objective. Forbidden slots stay in the QUBO (with a penalty), so they still count towards the qubits.
+4. **QAOA.** One layer with fixed angles (γ = β = 0.5), 1000 shots.
+5. **Decode and check.** In each shot the bits of forbidden slots are cleared, and each task takes its earliest remaining set slot. Shots that leave a task without a start, break a dependency, overload a resource, start a task before its `earliestStart` or outside a resource window are discarded. The best remaining schedule by the objective is returned, with ties broken by priority.
 
 Consequences:
 - **Set `timeHorizon` close to the expected makespan.** With the default 1000-minute window, a short problem gets slots of well over an hour, so tasks can only start at those coarse boundaries and the makespan is padded accordingly.
@@ -447,7 +453,7 @@ val ClassicalSolver.solve :
     problem:SchedulingProblem<'TTask, 'TResource> -> QuantumResult<Solution>
 ```
 
-A dependency-only greedy scheduler (in `FSharp.Azure.Quantum.TaskScheduling`): tasks are taken in dependency order and each starts as early as its predecessors and `earliestStart` allow. It has no size limit and gives the exact earliest-start schedule when resources don't matter, but it **ignores resource capacities**: tasks competing for the same resource may overlap.
+A greedy scheduler (in `FSharp.Azure.Quantum.TaskScheduling`): tasks are taken in dependency order and each starts as early as its predecessors, `earliestStart` and the availability windows of the resources it requires allow (in the earliest window that fits). If a task fits in no window, it returns a `ValidationError` on `"AvailableWindows"`. It has no size limit and gives the exact earliest-start schedule when resource capacities don't matter, but it **ignores resource capacities**: tasks competing for the same resource may overlap.
 
 ```fsharp
 match ClassicalSolver.solve problem with
@@ -776,7 +782,7 @@ let startupProblem : SchedulingProblem<unit, unit> = scheduling {
     timeHorizon (minutes 180.0)
 }
 
-// No shared resources, so the dependency-only classical scheduler is exact here
+// No shared resources, so the capacity-blind classical scheduler is exact here
 match ClassicalSolver.solve startupProblem with
 | Ok solution ->
     printfn "Powerplant Startup Schedule"
@@ -917,9 +923,15 @@ let orphan : ScheduledTask<unit> = scheduledTask {
 
 **Solution:** Split the problem, shorten long dependency chains, use a larger backend, or - when resources don't matter - use `ClassicalSolver.solve`.
 
+### Issue: `ValidationError` on "AvailableWindows"
+
+**Cause:** A task cannot start anywhere that satisfies its `earliestStart` and fits inside an availability window of every resource it requires. With `ClassicalSolver.solve` no window is long enough after the task becomes ready. With `solveQuantum` no slot boundary of the grid qualifies, for example because `earliestStart` lies beyond the scheduling window or a window is shorter than the slot spacing allows.
+
+**Solution:** Widen or add windows, shorten the task, or with `solveQuantum` set `timeHorizon` so that the grid reaches the window and has a slot boundary inside it.
+
 ### Issue: "No valid solutions found from quantum measurements"
 
-**Cause:** None of the 1000 samples decoded to a schedule that respects every dependency and resource limit. This is more likely with tight horizons and many constraints.
+**Cause:** None of the 1000 samples decoded to a schedule that respects every dependency, resource limit, earliest start and availability window. This is more likely with tight horizons and many constraints.
 
 **Solution:** Run again, give the problem a little more room in `timeHorizon`, or reduce the problem size.
 
@@ -947,9 +959,9 @@ let second : ScheduledTask<unit> = scheduledTask {
 ## Limitations
 
 - `solveQuantum` handles small problems only (tasks × slots within the backend's qubit budget; about 20 qubits on `LocalBackend` by default).
-- `solveQuantum` ignores `earliestStart` and `priority`; start times fall on slot boundaries.
+- `solveQuantum` start times fall on slot boundaries, so an `earliestStart` or window opening between two boundaries moves the task to the next boundary; a coarse grid can leave a short window with no allowed slot.
 - `ClassicalSolver.solve` ignores resource capacities.
-- `availableWindow` is stored on resources but not used by either solver.
+- `priority` only breaks ties between equally good schedules.
 - Circular dependencies are not detected up front.
 
 ---

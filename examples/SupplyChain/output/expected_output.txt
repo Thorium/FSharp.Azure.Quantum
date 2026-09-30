@@ -10,8 +10,8 @@
   Demand:       1250 units
   Shots:        1000
 
-  Completed in 36 ms
-  Samples:      685 distinct, 7 valid flows
+  Completed in 53 ms
+  Samples:      916 distinct, 53 valid flows
 
   Suppliers -> Warehouses:
     S1_Shanghai -> W1_Singapore  $20.00/unit
@@ -48,8 +48,8 @@
   Customers reached: 3 of 3
   Total cost:        139.00 (one unit on each open route)
   Demand fill rate:  0.2% (3 of 1250 units delivered)
-  Cheapest valid sample: cost 93.00, 2 of 3 customers reached
-  Exhaustive search (2^14 route sets, 133 ms): best valid flow reaches 3 of 3 customers at cost 139.00
+  Cheapest valid sample: cost 45.00, 1 of 3 customers reached
+  Exhaustive search (2^14 route sets, 90 ms): best valid flow reaches 3 of 3 customers at cost 139.00
 
 
 Tip: Run with --help to see all options.

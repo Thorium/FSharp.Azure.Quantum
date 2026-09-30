@@ -82,6 +82,7 @@ References:
 *)
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
+#r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -230,8 +231,10 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
 
         if not quiet then
             printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
-            printfn "  Expected (experimental): -1.174 Hartree"
-            printfn "  Error: %.6f Hartree" error
+            printfn "  Energy source: %A" vqeResult.Source
+            printfn "  Expected (experimental, complete basis): -1.174 Hartree"
+            printfn "  (STO-3G FCI, this basis's exact limit, at 0.74 A: -1.137 Hartree)"
+            printfn "  Error vs experiment: %.6f Hartree" error
             printfn "  In electron volts: %.6f eV" eV
             printfn "  Iterations: %d" vqeResult.Iterations
             printfn "  Converged: %b" vqeResult.Converged
@@ -245,6 +248,7 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
             "Error_Hartree", $"%.6f{error}"
             "Iterations", $"%d{vqeResult.Iterations}"
             "Converged", $"%b{vqeResult.Converged}"
+            "Source", $"%A{vqeResult.Source}"
         ]
         |> Map.ofList
         |> Some
@@ -387,7 +391,13 @@ let scanResults =
         match scanResult with
         | Ok vqeResult ->
             if not quiet then
-                printfn "  Distance %.2f A: %.6f Hartree (%d iterations)" d vqeResult.Energy vqeResult.Iterations
+                printfn
+                    "  Distance %.2f A: %.6f Hartree (%d iterations%s) [%A]"
+                    d
+                    vqeResult.Energy
+                    vqeResult.Iterations
+                    (if vqeResult.Converged then "" else ", not converged")
+                    vqeResult.Source
 
             [
                 "Label", $"Scan_%.2f{d}"
@@ -397,6 +407,7 @@ let scanResults =
                 "Energy_eV", sprintf "%.6f" (vqeResult.Energy * 27.2114)
                 "Iterations", $"%d{vqeResult.Iterations}"
                 "Converged", $"%b{vqeResult.Converged}"
+                "Source", $"%A{vqeResult.Source}"
             ]
             |> Map.ofList
             |> Some
@@ -503,6 +514,7 @@ match Cli.tryGet "csv" args with
             "Error_Hartree"
             "Iterations"
             "Converged"
+            "Source"
         ]
 
     let rows =

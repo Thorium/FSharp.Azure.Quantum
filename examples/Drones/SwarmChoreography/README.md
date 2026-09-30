@@ -8,8 +8,8 @@ This example demonstrates quantum optimization using QAOA to solve the Quadratic
 
 This example is **fully quantum compliant**:
 - All optimization uses QAOA via `IQuantumBackend`
-- Classical greedy is only used as internal fallback if quantum solver fails
-- A transition whose QAOA assignment would bring two drones too close in flight is replaced by the minimum-squared-distance assignment (the safety gate, see MAVLink Export)
+- No classical fallback: a transition with no valid, safe QAOA sample is retried (more shots, then other angles) and otherwise fails the run
+- The safety gate (see MAVLink Export) filters the QAOA samples: only an assignment that keeps every pair apart in flight is taken
 - No standalone classical solver exposed in public API
 
 ## Key Features
@@ -136,8 +136,8 @@ The show is drawn in a vertical plane, but a room has a 2 m ceiling, and indoors
 
 - **Every airborne formation is rotated into the horizontal plane** (the picture is seen from above) and flown at 1.8 m, 0.2 m under `MAX_HEIGHT`. The ground formations are flown at the 0.5 m take-off height.
 - **Each formation is scaled on its own** (unless `--scale` is given) to the smallest size that keeps its closest slots, and every synchronised transit, at 1.2 × the indoor limit (0.6). This show uses 0.212 / 0.066 / 0.085 / 0.106 / 0.212.
-- **The optimiser's assignments are re-checked by the safety gate in this layout.** An assignment that is safe in the drawn plane need not be safe once the formations are flat and sized differently.
-- **The show closes on each drone's own start slot.** Every drone flies at show height to above its slot, then all descend together. A drone that never got past take-off (lost radio) or that dropped out is on its own slot, and nobody else lands there.
+- **The optimiser's assignments are re-checked by the safety gate in this layout**, in the downwash-weighted space. An assignment that is safe in the drawn plane need not be safe once the formations are flat and sized differently. One that fails is re-solved by QAOA on the weighted distances, with the same escalation (more shots, other angle sets), taking only a sample that passes. When none does, the automatic scale grows (×1.25) and every transition is checked and re-solved again, up to 10 rounds; after that, or at a fixed `--scale`, the run fails (exit 1) and no indoor show is written. No classical assignment stands in. A `--mavlink`-only run does not build the indoor layout.
+- **The show closes on each drone's own start slot.** Every drone flies at show height to above its slot, then all descend together. A drone that never got past take-off (lost radio) or that dropped out is on its own slot, and nobody else lands there. This move is fixed: when it fails the gate, the scale grows as above, and the run fails if it still does.
 - `--room-x` / `--room-y` (default 4 × 4 m, centred on the origin) bound the show. The evidence pack checks every point is at least 0.5 m from each wall.
 
 ## Running on Real Drones
@@ -204,7 +204,7 @@ The `--mavlink` flag generates mission files compatible with ArduPilot and PX4 f
 - **Lands on its own slot** (`NAV_LAND` with a position: it flies there at its current height, then descends).
 - Altitudes are **relative to home** (`MAV_FRAME_GLOBAL_RELATIVE_ALT`, QGC AltitudeMode 1). `--home-alt` used to be added to them, which put every waypoint `--home-alt` metres too high.
 
-The optimiser's assignments pass a **transition safety gate**: an assignment whose synchronised straight lines bring two drones closer than min(start spacing, end spacing)/√2 is replaced by the assignment that minimises the sum of squared distances. That assignment meets the bound by construction (Turpin, Michael & Kumar, "CAPT", 2014). The QAOA sample often misses it, so the gate typically replaces 1-2 of the 4 transitions, labelled `Classical (safety fallback)`.
+The optimiser's assignments pass a **transition safety gate**: only a sampled QAOA assignment whose synchronised straight lines keep every pair at least min(start spacing, end spacing)/√2 apart (the bound of Turpin, Michael & Kumar, "CAPT", 2014) is taken, the lowest-distance one among the samples. When no sample passes, QAOA is re-run with four times the shots, then with two other angle sets; when none passes then either, the run fails and nothing is exported. The drop-out re-plans (DynamicBehavior) pass the same gate the same way, and a re-plan QAOA cannot find fails that contingency check. The indoor layout re-checks the transitions in its downwash-weighted space and re-solves a failing one by QAOA the same way (see Indoor layout).
 
 ### Generated Files
 
@@ -394,7 +394,7 @@ The `--scale` parameter converts outdoor show dimensions to indoor-safe dimensio
 ║  Elapsed Time: 7841 ms                           ║
 ╠══════════════════════════════════════════════════╣
 ║  Quantum compliant: Quantum solver via IBackend  ║
-║  Quantum solved: 4 | Fallback used: 0            ║
+║  Quantum solved: 4 of 4                          ║
 ╚══════════════════════════════════════════════════╝
 
 ╔══════════════════════════════════════════════════╗
@@ -507,26 +507,27 @@ The pack is decision support for a safety case, not a substitute for one.
 ### Quantum Architecture
 
 ```fsharp
-let solve (backend: IQuantumBackend) (shots: int) (distanceMatrix: float[,]) 
-    : Result<Assignment[], string> =
-    
+let solve (backend: IQuantumBackend) (shots: int) (accept: Assignment[] -> bool) (distanceMatrix: float[,])
+    : Result<Assignment[] * string, string> =
+
     // 1. Build QUBO from distance matrix
     let qubo = QapQubo.buildQubo distanceMatrix penaltyWeight
-    
+
     // 2. Convert to problem Hamiltonian
-    let problemHam = ProblemHamiltonian.fromQubo qubo
+    let problemHam = ProblemHamiltonian.fromQubo qubo |> ProblemHamiltonian.normalize
     let mixerHam = MixerHamiltonian.create numVars
-    
-    // 3. Build and execute QAOA circuit via backend
-    let circuit = QaoaCircuit.build problemHam mixerHam parameters
-    match backend.ExecuteToState circuit with
-    | Ok state -> 
-        // Sample and decode
-        let measurements = QuantumState.measure state shots
-        decodeBestSolution measurements
-    | Error err -> 
-        // Internal classical fallback (private)
-        Ok (classicalGreedy distanceMatrix)
+
+    // 3. Build and execute QAOA circuit via backend; take the lowest-distance valid
+    //    sample the safety gate accepts
+    let attempt attemptShots angles =
+        let circuit = QaoaCircuit.build problemHam mixerHam angles
+        match backend.ExecuteToState circuit with
+        | Ok state -> Ok(bestAcceptedSample (QuantumState.measure state attemptShots))
+        | Error err -> Error err.Message
+
+    // 4. No accepted sample: more shots, then other angles; then an Error, never a
+    //    classical assignment
+    DynamicBehavior.QaoaAttempts.firstSolved shots parameters attempt
 ```
 
 ### QUBO Encoding
@@ -624,7 +625,7 @@ let constraints =
 
 1. **No collisions detected**: Returns direct paths immediately (no QAOA needed)
 2. **Collisions detected**: Uses QAOA to find safe timing offsets
-3. **Quantum fails**: Falls back to greedy sequential timing
+3. **No valid QAOA sample**: retried with more shots and other angles, then an Error (no classical fallback)
 
 ### Output
 

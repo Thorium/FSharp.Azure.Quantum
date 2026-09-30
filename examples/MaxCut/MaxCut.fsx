@@ -38,6 +38,9 @@ Key Equations:
   - Mixer Hamiltonian: H_B = Σᵢ Xᵢ (induces transitions between configurations)
   - QAOA depth-p ansatz: |γ,β⟩ = Πₖ₌₁ᵖ e^{-iβₖH_B} e^{-iγₖH_C} |+⟩ⁿ
   - Expected cut value: ⟨γ,β|H_C|γ,β⟩ (maximized over parameters)
+  - The library minimises the QUBO -H_C with the mixer -Σᵢ Xᵢ: the complex conjugate
+    of the circuit above, so the same measurement probabilities at the same (γ,β)
+    (γ in units of the cost Hamiltonian scaled to a largest coefficient of 1)
 
 Quantum Advantage:
   QAOA provides a quantum-native approach to NP-hard optimization. At depth p→∞,

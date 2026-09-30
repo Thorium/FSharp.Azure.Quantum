@@ -93,7 +93,7 @@ let vqeCircuit =
     }
 ```
 
-On real hardware, replace `backend` with a cloud backend (see [Backend Switching](backend-switching)) and keep the rest. The noisy simulator holds a full density matrix, so it is meant for small circuits (it refuses more than 8 qubits).
+On real hardware, replace `backend` with a cloud backend (see [Backend Switching](backend-switching)) and keep the rest: `Primitives.observe` then estimates ⟨Z⊗Z⟩ from measured shots, one job per commuting group of terms, so every executor call is at least one billed job. The noisy simulator holds a full density matrix, so it is meant for small circuits (it refuses more than 8 qubits).
 
 ---
 
@@ -320,7 +320,7 @@ REM reduces measurement errors by calibrating a **confusion matrix** that maps p
 
 ### API Reference
 
-REM executors take a circuit and a shot count and return a histogram. `ReadoutErrorMitigation` reads bitstrings with the **highest qubit first** (the rightmost character is qubit 0), while `Primitives.sample` writes qubit 0 first, so the executor below reverses each key.
+REM executors take a circuit and a shot count and return a histogram. `ReadoutErrorMitigation` reads bitstrings with the **highest qubit first** (the rightmost character is qubit 0), while `Primitives.sample` writes qubit 0 first, so the executor below reverses each key. On a cloud backend `Primitives.sample` returns the job's own counts and accepts only the shot count the backend was created with, so create it with the shots REM asks for (`withCalibrationShots`), or one backend per shot count.
 
 ```fsharp
 open FSharp.Azure.Quantum.ReadoutErrorMitigation
@@ -403,11 +403,12 @@ let cal3 = measureCalibrationMatrix "noisy-local" 3 remConfig sampleExecutor
 // Clip to zero (default): negative values become 0, then the vector is renormalized
 let clipping = remConfig |> withClipNegative true
 
-// Keep negative values (for analysis); the vector is still renormalized
+// Keep the quasi-probabilities M^-1 × measured unchanged, negative entries included:
+// the unbiased estimate that expectation values need
 let unclipped = remConfig |> withClipNegative false
 ```
 
-After correction, entries below `MinProbability` (default 1% of shots) are dropped from the histogram; lower it with `withMinProbability` if you need small probabilities.
+Entries below `MinProbability` (default 1% of shots) are dropped from the histogram, negative ones included; lower it with `withMinProbability` if you need small probabilities. Only clipping renormalises. For an unbiased quasi-distribution, as expectation values need, set both `withClipNegative false` and `withMinProbability 0.0`: then nothing is dropped or renormalised.
 
 ### Cost Analysis
 

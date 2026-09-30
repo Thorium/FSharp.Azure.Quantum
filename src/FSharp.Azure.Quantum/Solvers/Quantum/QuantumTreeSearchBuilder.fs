@@ -74,15 +74,15 @@ module QuantumTreeSearch =
             TopPercentile: float
             /// Quantum backend to use (None = LocalBackend)
             Backend: BackendAbstraction.IQuantumBackend option
-            /// Number of measurements to perform (None = auto-scale based on search space)
+            /// Number of measurements to perform (None = TreeSearch.DefaultShots, on every backend)
             Shots: int option
-            /// Solution threshold: min fraction of shots to consider a state as solution (None = auto-scale, typical: 0.01-0.05)
+            /// Solution threshold: min fraction of shots to consider a state as solution (None = TreeSearch.DefaultSolutionThreshold)
             SolutionThreshold: float option
-            /// Success threshold: min total probability for search success (None = auto-scale, typical: 0.05-0.15)
+            /// Success threshold: min total probability for search success (None = Grover.defaultConfig.SuccessThreshold)
             SuccessThreshold: float option
             /// Maximum paths to search (None = use full tree, Some(n) = limit to n paths to prevent explosion)
             MaxPaths: int option
-            /// Maximum Grover iterations for amplitude amplification (None = auto-calculate optimal iterations)
+            /// Grover iterations the search runs, at least 1 (None = auto-calculate optimal iterations)
             /// Higher iterations = stronger amplification but risk of over-rotation
             MaxIterations: int option
             /// Optional progress reporter for search iterations
@@ -137,6 +137,20 @@ module QuantumTreeSearch =
                     $"must be in range (0.0, 1.0], got {problem.TopPercentile}"
                 )
             )
+        elif problem.MaxIterations |> Option.exists (fun k -> k < 1) then
+            Error(
+                QuantumError.ValidationError("MaxIterations", $"must be at least 1, got {problem.MaxIterations.Value}")
+            )
+        elif
+            problem.MaxIterations
+            |> Option.exists (fun k -> k > GroverSearch.TreeSearch.MaxGroverIterations)
+        then
+            Error(
+                QuantumError.ValidationError(
+                    "MaxIterations",
+                    $"must be at most {GroverSearch.TreeSearch.MaxGroverIterations}, got {problem.MaxIterations.Value}"
+                )
+            )
         else
             let qubitsNeeded =
                 GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor
@@ -169,9 +183,9 @@ module QuantumTreeSearch =
                 MoveGenerator = fun _ -> []
                 TopPercentile = 0.2
                 Backend = None
-                Shots = None // Auto-scale: 50 (Local) or 250 (Cloud) - reduced after bug fixes
-                SolutionThreshold = None // Auto-scale: 5% (both Local/Cloud) - increased after bug fixes
-                SuccessThreshold = None // Auto-scale: 50% (Local) or 60% (Cloud) - increased after bug fixes
+                Shots = None // TreeSearch.DefaultShots
+                SolutionThreshold = None // TreeSearch.DefaultSolutionThreshold
+                SuccessThreshold = None // Grover.defaultConfig.SuccessThreshold
                 MaxPaths = None // Auto-recommend based on tree size
                 MaxIterations = None // Auto-calculate optimal Grover iterations
                 ProgressReporter = None
@@ -311,7 +325,7 @@ module QuantumTreeSearch =
         /// Set the maximum number of Grover iterations for amplitude amplification.
         /// Controls the strength of quantum search amplification.
         /// </summary>
-        /// <param name="iterations">Number of Grover iterations (typical: 1-10)</param>
+        /// <param name="iterations">Number of Grover iterations the search runs (at least 1; typical: 1-10)</param>
         /// <remarks>
         /// If not specified, automatically calculates optimal iterations based on search space size.
         /// Too few iterations = weak amplification, too many = over-rotation past optimal state.
@@ -408,7 +422,7 @@ module QuantumTreeSearch =
 
                 // Call quantum tree search algorithm with user-provided parameters (including maxPaths)
                 match
-                    GroverSearch.TreeSearch.searchGameTree
+                    GroverSearch.TreeSearch.searchGameTreeWithIterations
                         initialState
                         config
                         actualBackend
@@ -417,6 +431,7 @@ module QuantumTreeSearch =
                         problem.SolutionThreshold
                         problem.SuccessThreshold
                         problem.MaxPaths
+                        problem.MaxIterations
                 with
                 | Error err ->
                     Error(
@@ -469,9 +484,9 @@ module QuantumTreeSearch =
             MoveGenerator = moveGen
             TopPercentile = 0.2
             Backend = None
-            Shots = None // Auto-scale
-            SolutionThreshold = None // Auto-scale
-            SuccessThreshold = None // Auto-scale
+            Shots = None // defaults: see TreeSearch
+            SolutionThreshold = None // defaults: see TreeSearch
+            SuccessThreshold = None // defaults: see TreeSearch
             MaxPaths = None // Auto-recommend
             MaxIterations = None // Auto-calculate optimal iterations
             ProgressReporter = None
@@ -560,9 +575,9 @@ Qubits Required: %d%s"""
             MoveGenerator = legalMoves
             TopPercentile = 0.2
             Backend = None
-            Shots = None // Auto-scale
-            SolutionThreshold = None // Auto-scale
-            SuccessThreshold = None // Auto-scale
+            Shots = None // defaults: see TreeSearch
+            SolutionThreshold = None // defaults: see TreeSearch
+            SuccessThreshold = None // defaults: see TreeSearch
             MaxPaths = GroverSearch.TreeSearch.recommendMaxPaths depth branching
             MaxIterations = None // Auto-calculate optimal iterations
             ProgressReporter = None
@@ -584,9 +599,9 @@ Qubits Required: %d%s"""
             MoveGenerator = nextOptions
             TopPercentile = 0.15 // More selective for decision problems
             Backend = None
-            Shots = None // Auto-scale
-            SolutionThreshold = None // Auto-scale
-            SuccessThreshold = None // Auto-scale
+            Shots = None // defaults: see TreeSearch
+            SolutionThreshold = None // defaults: see TreeSearch
+            SuccessThreshold = None // defaults: see TreeSearch
             MaxPaths = GroverSearch.TreeSearch.recommendMaxPaths steps optionsPerStep
             MaxIterations = None // Auto-calculate optimal iterations
             ProgressReporter = None

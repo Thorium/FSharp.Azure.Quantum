@@ -217,6 +217,7 @@ let trefoil = KnotConstructors.trefoil true
 let jones = KauffmanBracket.Planar.jonesPolynomial trefoil KauffmanBracket.Planar.standardA
 
 // Magic state distillation: exactly 15 noisy Ising magic states in, one purified state out
+// when the batch passes its syndrome check (result.Accepted)
 let random = Random(42)
 let purified =
     topologicalResult {
@@ -389,5 +390,5 @@ This documentation and the FSharp.Azure.Quantum.Topological library are released
 ---
 
 **Last Updated:** September 2026  
-**Library Version:** 0.4.12  
+**Library Version:** 0.4.14  
 **F# Version:** 10.0

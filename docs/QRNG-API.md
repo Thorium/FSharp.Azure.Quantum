@@ -4,12 +4,12 @@
 
 The Quantum Random Number Generator (QRNG) models random number generation via quantum measurement. On real quantum hardware, measurements are fundamentally non-deterministic and yield true (quantum) randomness.
 
-> **⚠️ Important — local simulation is not quantum randomness.** By default this module simulates the measurements classically. The unseeded local path draws its outcomes from the OS cryptographically secure RNG (`System.Security.Cryptography.RandomNumberGenerator`) — CSPRNG-quality, suitable for cryptographic key material, but still classical randomness. True quantum randomness requires executing the circuit on a hardware backend that returns per-shot measurement results.
+> **⚠️ Important — local simulation is not quantum randomness.** By default this module simulates the measurements classically. The unseeded local path draws its outcomes from the OS cryptographically secure RNG (`System.Security.Cryptography.RandomNumberGenerator`) — CSPRNG-quality, suitable for cryptographic key material, but still classical randomness. True quantum randomness comes from `generateWithBackend` on a cloud QPU target created with `shots = 1`: the bits are then the one measured shot of that job.
 
 **Key Features:**
 - Quantum-measurement model of randomness (local simulation is CSPRNG-backed, not quantum)
 - Multiple output formats (bits, integers, floats, bytes)
-- Backend integration: run the H-superposition circuit through any gate-based `IQuantumBackend`
+- Backend integration: run the H-superposition circuit through any gate-based `IQuantumBackend`; on a cloud QPU the bits are one measured hardware shot
 - Statistical quality testing
 
 **When to Use:**
@@ -195,9 +195,11 @@ val generateWithBackend :
 
 Generates random bits by executing a `numBits`-qubit H-superposition circuit through the specified backend.
 
-**⚠️ Randomness source:** this path obtains a quantum *state* from the backend (`ExecuteToState`) and then samples it once locally with a classical PRNG (`System.Random`). With `LocalBackend` — and any backend that returns a simulated state vector — the resulting bits are classical pseudo-randomness, not hardware quantum randomness. Cloud backends return a state rebuilt from their measurement histogram, which is then also sampled locally. For cryptographic key material prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
+**⚠️ Randomness source** depends on the backend:
+- **Cloud backends** (IonQ, Rigetti, Quantinuum, Atom Computing, IQM, Braket; anything implementing `IShotSamplingBackend`) must be created with `shots = 1`. Each call is then one job of one shot, and the `numBits` bits are that measured shot, read as returned: no classical randomness is involved, and on a QPU target they are hardware quantum randomness. A backend created with more shots returns only outcome counts, from which one shot could be picked only by classical sampling, so it is an `Error`.
+- **Simulators** (`LocalBackend` and the other exact backends) return a simulated state, which is sampled once locally with a classical PRNG (`QuantumState.measure`): classical pseudo-randomness, not quantum randomness. For cryptographic key material off hardware prefer `generateBits`/`generateBytes` (unseeded → OS CSPRNG).
 
-**⚠️ Cost Warning:** Most real quantum backends charge per circuit execution.
+**⚠️ Cost Warning:** On a cloud backend every call is one billed job, so n draws are n jobs. Cap them with a `JobBudget` (see [Backend Switching](backend-switching.md)).
 
 **Parameters:**
 - `numBits` - Number of bits, 1 to 1000. The whole circuit is one `numBits`-qubit register, so the backend must also hold that many qubits: on `LocalBackend` the limit is `StateVector.maxQubits` (derived from available memory, at most 30).
@@ -224,6 +226,26 @@ async {
         printfn "Error: %s" err.Message
 }
 |> Async.RunSynchronously
+```
+
+On hardware, create the backend with one shot per job:
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends.CloudBackends
+
+let credential = Authentication.CredentialProviders.createDefaultCredential ()
+let httpClient = Authentication.createAuthenticatedClient credential
+let workspaceUrl =
+    "https://<location>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+
+// shots = 1: the 16 bits are the one measured shot of one billed job
+let qpu = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.qpu.aria-1" 1
+
+match QRNG.generateWithBackend 16 qpu |> Async.RunSynchronously with
+| Ok qrng -> printfn "Hardware bits: %A" qrng.Bits
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ---
@@ -278,7 +300,7 @@ QRNG models the simplest quantum circuit for randomness:
 3. **Measure** in computational basis → Each qubit collapses to 0 or 1 with exactly 50% probability
 4. **Extract bits** from measurement outcomes
 
-On quantum hardware the measurement outcome is physically non-deterministic, unlike a pseudo-random number generator (PRNG), which is deterministic given its seed. The functions in this module do not run on hardware, though: `generate`, `generateBits`, `generateInt`, `generateFloat` and `generateBytes` simulate the measurement locally, and `generateWithBackend` samples the returned state locally (see above).
+On quantum hardware the measurement outcome is physically non-deterministic, unlike a pseudo-random number generator (PRNG), which is deterministic given its seed. `generate`, `generateBits`, `generateInt`, `generateFloat` and `generateBytes` simulate the measurement locally. `generateWithBackend` on a one-shot cloud backend returns the bits the hardware measured; on a simulator it samples the returned state locally (see above).
 
 ### Entropy Calculation
 
@@ -296,7 +318,7 @@ Perfect randomness: `H = 1.0` (maximum entropy for binary)
 
 ### Memory Use
 
-The local functions never build a multi-qubit state vector. Qubits in this circuit are independent, so the seeded path simulates one single-qubit measurement per bit, and the unseeded path draws one CSPRNG bit per measurement. Memory grows linearly with `numBits`, which is why up to 1,000,000 bits per call is practical. `generateWithBackend` is different: it runs one `numBits`-qubit circuit, so its cost depends on the backend.
+The local functions never build a multi-qubit state vector. Qubits in this circuit are independent, so the seeded path simulates one single-qubit measurement per bit, and the unseeded path draws one CSPRNG bit per measurement. Memory grows linearly with `numBits`, which is why up to 1,000,000 bits per call is practical. `generateWithBackend` is different: it runs one `numBits`-qubit circuit, so its cost depends on the backend (on a cloud backend, one billed job per call).
 
 ---
 

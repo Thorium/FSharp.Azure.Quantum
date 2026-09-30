@@ -1,43 +1,48 @@
 ﻿// ==============================================================================
-// Electron Transport Chain — Redox Pair Comparison
+// Electron Transport Chain — Redox Couple Comparison
 // ==============================================================================
-// Compares electron transfer energetics across multiple redox pairs using VQE,
-// ranking them by Marcus theory electron transfer rate.
+// Ranks model redox couples of the respiratory chain by VQE reduction energy
+// and compares the ranking with the chain's order of standard potentials.
 //
-// For each redox pair, VQE computes ground state energies of the reduced and
-// oxidized forms. The ionization energy (IE = E_ox - E_red) feeds into Marcus
-// theory to predict ET rate constants. The comparison reveals which electron
-// transfer step is kinetically fastest under given conditions.
+// The chain moves electrons from NADH (E0' = -0.32 V) through flavins and
+// ubiquinone (~0 V) to oxygen (+0.82 V); each carrier is reduced by the one
+// before it. Most of its couples are two-electron, two-proton steps, so each
+// couple here is modelled by a small closed-shell molecule A and its reduced
+// form AH2, and scored by the reduction energy
+//     dE_red = E(AH2) - E(A) - E(H2)
+// (more negative = stronger oxidant = later in the chain). Real heme and
+// flavin cofactors are far too large for this; the models keep the chemistry
+// of the reduced bond (aromatic ring, C=C, quinone, peroxide).
 //
-// Biological context: the mitochondrial respiratory chain shuttles electrons
-// through Fe2+/Fe3+ cytochromes, Fe-S clusters, and quinones. Real heme-iron
-// complexes are far too large for NISQ hardware, so we model the electron
-// transfer concept using small (<=4 atom) molecules whose ionization mirrors
-// the 1-electron redox process in biology. (The H2O preset models water
-// oxidation, which biologically belongs to Photosystem II, not the
-// mitochondrial chain -- see the note on that preset below.)
-//
-// IMPORTANT LIMITATION:
-// This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
-// Calculated energies are ILLUSTRATIVE. For production use, molecular integral
-// calculation (via PySCF, Psi4, or similar) would be needed.
+// HAMILTONIAN SOURCE:
+// By default every species runs on bundled FCIDUMP integrals
+// (examples/_data/chemistry/fcidump: RHF/STO-3G geometries optimised with PySCF,
+// CASSCF active spaces; README.md there gives the method).
+// Each couple keeps the same total active space on both sides: A and H2 are
+// CAS(2,2), AH2 is CAS(4,4), and each water of the peroxide couple is CAS(2,2).
+// Energies are STO-3G totals, so dE_red is close to an RHF/STO-3G reaction
+// energy plus the active-space correlation. It gives signs and trends; a
+// minimal basis is known to be poor for peroxides, and gas-phase reaction
+// energies are not solution redox potentials.
+//   --fcidump-dir DIR  use your own FCIDUMP files (<species-slug>.fcidump)
+//   --empirical        run on the library's EMPIRICAL prototype Hamiltonian
+//                      instead (illustrative only, clearly labelled)
+// Each VQE is capped at 16 qubits (8 active orbitals).
 //
 // Usage:
 //   dotnet fsi ElectronTransportChain.fsx
 //   dotnet fsi ElectronTransportChain.fsx -- --help
-//   dotnet fsi ElectronTransportChain.fsx -- --systems lih,hf
-//   dotnet fsi ElectronTransportChain.fsx -- --input redox-pairs.csv
+//   dotnet fsi ElectronTransportChain.fsx -- --systems nad,ubiquinone
 //   dotnet fsi ElectronTransportChain.fsx -- --output results.json --csv results.csv --quiet
 //
 // References:
-//   [1] Marcus, R.A. "Electron transfer reactions in chemistry" Rev. Mod. Phys. (1993)
-//   [2] Gray & Winkler "Electron tunneling through proteins" Q. Rev. Biophys. (2003)
-//   [3] Harper's Illustrated Biochemistry, 28th Ed., Chapters 12-13
-//   [4] Wikipedia: Electron_transport_chain
-//   [5] Wikipedia: Marcus_theory
+//   [1] Harper's Illustrated Biochemistry, 28th Ed., Chapters 12-13 (standard potentials)
+//   [2] Wikipedia: Electron_transport_chain
+//   [3] NIST Chemistry WebBook (gas-phase enthalpies of formation)
 // ==============================================================================
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
+#r "nuget: MathNet.Numerics, 5.0.0"
 // The library comes from NuGet; `dotnet fsi --define:LOCAL_BUILD <script>` uses the repo's Debug build.
 #if LOCAL_BUILD
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -47,11 +52,10 @@
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
+#load "../_common/ChemistryIntegrals.fs"
 
 open System
 open FSharp.Azure.Quantum.QuantumChemistry
-open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
-open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
@@ -65,16 +69,11 @@ let args = Cli.parse argv
 
 Cli.exitIfHelp
     "ElectronTransportChain.fsx"
-    "Compare redox pair electron transfer rates via VQE + Marcus theory"
+    "Rank electron transport chain redox couples by VQE reduction energy"
     [
         {
-            Cli.OptionSpec.Name = "input"
-            Description = "CSV file with custom redox pairs"
-            Default = Some "built-in presets"
-        }
-        {
             Cli.OptionSpec.Name = "systems"
-            Description = "Comma-separated preset names to run (default: all)"
+            Description = "Comma-separated couple names to run (default: all)"
             Default = Some "all"
         }
         {
@@ -88,19 +87,14 @@ Cli.exitIfHelp
             Default = Some "1e-4"
         }
         {
-            Cli.OptionSpec.Name = "temperature"
-            Description = "Temperature in Kelvin"
-            Default = Some "310"
+            Cli.OptionSpec.Name = "fcidump-dir"
+            Description = "Directory with one FCIDUMP per species (<species-slug>.fcidump)"
+            Default = Some "bundled examples/_data/chemistry/fcidump"
         }
         {
-            Cli.OptionSpec.Name = "lambda"
-            Description = "Reorganization energy (eV)"
-            Default = Some "0.7"
-        }
-        {
-            Cli.OptionSpec.Name = "coupling"
-            Description = "Electronic coupling H_AB (eV)"
-            Default = Some "0.01"
+            Cli.OptionSpec.Name = "empirical"
+            Description = "Use the EMPIRICAL prototype Hamiltonian instead of integrals (flag; illustrative only)"
+            Default = None
         }
         {
             Cli.OptionSpec.Name = "output"
@@ -121,432 +115,104 @@ Cli.exitIfHelp
     args
 
 let quiet = Cli.hasFlag "quiet" args
-let inputFile = args |> Cli.tryGet "input"
 let systemFilter = args |> Cli.getCommaSeparated "systems"
 let maxIterations = Cli.getIntOr "max-iterations" 50 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
-let temperature = Cli.getFloatOr "temperature" 310.0 args
-let reorganizationEnergy_eV = Cli.getFloatOr "lambda" 0.7 args
-let electronicCoupling_eV = Cli.getFloatOr "coupling" 0.01 args
 
-// ==============================================================================
-// TYPES
-// ==============================================================================
+let integralDirectory =
+    ChemistryIntegrals.integralDirectory
+        (args
+         |> Cli.tryGet "fcidump-dir"
+         |> Option.map (Data.resolveRelative __SOURCE_DIRECTORY__))
+        (Cli.hasFlag "empirical" args)
 
-/// A redox pair: a molecule in its reduced (neutral) and oxidized (cation) forms.
-/// VQE computes both states; the ionization energy feeds Marcus theory.
-type RedoxPair =
-    {
-        Name: string
-        ReducedMolecule: Molecule
-        OxidizedMolecule: Molecule
-        BiologicalAnalogue: string
-        Description: string
-    }
-
-/// Result of computing one redox pair's energetics via VQE.
-type RedoxResult =
-    {
-        Pair: RedoxPair
-        ReducedEnergy: float
-        OxidizedEnergy: float
-        IonizationEnergyHartree: float
-        IonizationEnergyEv: float
-        MarcusRate: float
-        HalfLife: string
-        RateAssessment: string
-        ComputeTimeSeconds: float
-        HasVqeFailure: bool
-    }
-
-// ==============================================================================
-// PHYSICAL CONSTANTS
-// ==============================================================================
-
-/// Boltzmann constant (J/K)
+/// Widest VQE this example runs: 2 qubits per active spatial orbital.
 [<Literal>]
-let kB = 1.380649e-23
+let maxVqeQubits = 16
 
-/// Reduced Planck constant (J*s)
-[<Literal>]
-let hbar = 1.054571817e-34
-
-/// eV to Joules
-[<Literal>]
-let eV_to_J = 1.60218e-19
-
-/// 1 Hartree = 27.2114 eV
-[<Literal>]
-let hartreeToEV = 27.2114
-
-/// 1 Hartree in kcal/mol
 [<Literal>]
 let hartreeToKcalMol = 627.509
 
 // ==============================================================================
-// BUILT-IN REDOX PAIR PRESETS
-// ==============================================================================
-// Each pair models a 1-electron oxidation: neutral molecule → cation + e-.
-// Real ETC carriers (cytochrome Fe2+→Fe3+, ubiquinone, Fe-S clusters) are too
-// large for NISQ. These small-molecule analogues capture the same physics:
-// VQE on two charge states to get the ionization energy.
-
-/// LiH: simplest heteronuclear diatomic. Ionization removes the valence
-/// electron from the Li-H bond, modelling 1-electron metal-ligand redox
-/// (analogous to Fe-N bond in cytochrome heme).
-let private lihPair: RedoxPair =
-    let reduced: Molecule =
-        {
-            Name = "LiH (neutral)"
-            Atoms =
-                [
-                    {
-                        Element = "Li"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (1.60, 0.0, 0.0)
-                    }
-                ] // Li-H bond ~1.60 A
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let oxidized: Molecule =
-        {
-            Name = "LiH+ (cation)"
-            Atoms = reduced.Atoms
-            Bonds = reduced.Bonds
-            Charge = 1
-            Multiplicity = 2
-        }
-
-    {
-        Name = "LiH"
-        ReducedMolecule = reduced
-        OxidizedMolecule = oxidized
-        BiologicalAnalogue = "Metal-ligand bond (Fe-N in heme)"
-        Description = "Lithium hydride ionization — metal-ligand 1e- transfer model"
-    }
-
-/// HF: strongly polar bond with high ionization energy. Models electron
-/// transfer in high-potential carriers like cytochrome a3 (E0 = +0.55 V).
-let private hfPair: RedoxPair =
-    let reduced: Molecule =
-        {
-            Name = "HF (neutral)"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "F"
-                        Position = (0.92, 0.0, 0.0)
-                    }
-                ] // H-F bond ~0.92 A
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let oxidized: Molecule =
-        {
-            Name = "HF+ (cation)"
-            Atoms = reduced.Atoms
-            Bonds = reduced.Bonds
-            Charge = 1
-            Multiplicity = 2
-        }
-
-    {
-        Name = "HF"
-        ReducedMolecule = reduced
-        OxidizedMolecule = oxidized
-        BiologicalAnalogue = "High-potential carrier (cyt a3, E0 +0.55V)"
-        Description = "Hydrogen fluoride ionization — high-potential 1e- transfer model"
-    }
-
-/// H2: homonuclear diatomic, lowest ionization energy among presets.
-/// Models low-potential carriers like NADH (E0 = -0.32 V) where electrons
-/// are easily donated.
-let private h2Pair: RedoxPair =
-    let reduced: Molecule =
-        {
-            Name = "H2 (neutral)"
-            Atoms =
-                [
-                    {
-                        Element = "H"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (0.74, 0.0, 0.0)
-                    }
-                ] // H-H bond ~0.74 A
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let oxidized: Molecule =
-        {
-            Name = "H2+ (cation)"
-            Atoms = reduced.Atoms
-            Bonds = reduced.Bonds
-            Charge = 1
-            Multiplicity = 2
-        }
-
-    {
-        Name = "H2"
-        ReducedMolecule = reduced
-        OxidizedMolecule = oxidized
-        BiologicalAnalogue = "Low-potential donor (NADH, E0 -0.32V)"
-        Description = "Hydrogen ionization — low-potential 1e- donor model"
-    }
-
-/// H2O: lone-pair ionization removes a non-bonding electron. Models
-/// water oxidation (2H2O -> O2 + 4H+ + 4e-), the electron-donating half-reaction
-/// carried out by the oxygen-evolving complex of Photosystem II in photosynthesis.
-/// NOTE: this is NOT mitochondrial Complex IV -- that complex does the reverse,
-/// reducing O2 to water as the terminal electron acceptor of the respiratory chain.
-let private h2oPair: RedoxPair =
-    let reduced: Molecule =
-        {
-            Name = "H2O (neutral)"
-            Atoms =
-                [
-                    {
-                        Element = "O"
-                        Position = (0.0, 0.0, 0.0)
-                    }
-                    {
-                        Element = "H"
-                        Position = (0.96, 0.0, 0.0)
-                    } // O-H bond ~0.96 A
-                    {
-                        Element = "H"
-                        Position = (-0.24, 0.93, 0.0)
-                    }
-                ] // H-O-H angle ~104.5
-            Bonds =
-                [
-                    {
-                        Atom1 = 0
-                        Atom2 = 1
-                        BondOrder = 1.0
-                    }
-                    {
-                        Atom1 = 0
-                        Atom2 = 2
-                        BondOrder = 1.0
-                    }
-                ]
-            Charge = 0
-            Multiplicity = 1
-        }
-
-    let oxidized: Molecule =
-        {
-            Name = "H2O+ (cation)"
-            Atoms = reduced.Atoms
-            Bonds = reduced.Bonds
-            Charge = 1
-            Multiplicity = 2
-        }
-
-    {
-        Name = "H2O"
-        ReducedMolecule = reduced
-        OxidizedMolecule = oxidized
-        BiologicalAnalogue = "Water oxidation (Photosystem II, O2-evolving complex)"
-        Description = "Water ionization - lone-pair 1e- removal model"
-    }
-
-/// All built-in presets keyed by lowercase name.
-let private builtinPresets: Map<string, RedoxPair> =
-    [ lihPair; hfPair; h2Pair; h2oPair ]
-    |> List.map (fun p -> p.Name.ToLowerInvariant(), p)
-    |> Map.ofList
-
-let private presetNames =
-    builtinPresets |> Map.toList |> List.map fst |> String.concat ", "
-
-// ==============================================================================
-// CSV INPUT PARSING
+// REDOX COUPLES
 // ==============================================================================
 
-/// Parse atom list from compact string format:
-///   "Li:0,0,0|H:1.6,0,0"
-let private parseAtoms (s: string) : Atom list =
-    s.Split '|'
-    |> Array.choose (fun entry ->
-        let parts = entry.Trim().Split ':'
+/// A two-electron, two-proton couple: Oxidized + H2 -> Reduced.
+type RedoxCouple =
+    {
+        Name: string
+        Oxidized: Molecule list
+        Reduced: Molecule list
+        /// Biological couple the model stands for
+        Biology: string
+        /// Standard potential of that couple at pH 7 (V)
+        E0Prime: float
+        /// Gas-phase reaction enthalpy of the model reaction from tabulated enthalpies of formation (kcal/mol)
+        ReferenceDeltaH: float option
+        Description: string
+    }
 
-        if parts.Length = 2 then
-            let coords = parts.[1].Split ','
+let private species = ChemistryIntegrals.loadSpecies
+let private hydrogen = species "Hydrogen (H2) [CAS(2,2)]"
 
-            if coords.Length = 3 then
-                match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
-                | (true, x), (true, y), (true, z) ->
-                    Some
-                        {
-                            Element = parts.[0].Trim()
-                            Position = (x, y, z)
-                        }
-                | _ -> None
-            else
-                None
-        else
-            None)
-    |> Array.toList
-
-/// Infer single bonds between adjacent atom pairs (simple fallback).
-let private inferBonds (atoms: Atom list) : Bond list =
+let private builtinCouples: RedoxCouple list =
     [
-        for i in 0 .. atoms.Length - 2 do
-            {
-                Atom1 = i
-                Atom2 = i + 1
-                BondOrder = 1.0
-            }
+        {
+            Name = "NAD+/NADH"
+            Oxidized = [ species "Pyridine [CAS(2,2)]" ]
+            Reduced = [ species "1,4-Dihydropyridine [CAS(4,4)]" ]
+            Biology = "NAD+/NADH (complex I donor)"
+            E0Prime = -0.32
+            ReferenceDeltaH = None
+            Description = "Pyridine -> 1,4-dihydropyridine, the nicotinamide ring reduction"
+        }
+        {
+            Name = "Fumarate/Succinate"
+            Oxidized = [ species "Ethylene [CAS(2,2)]" ]
+            Reduced = [ species "Ethane [CAS(4,4)]" ]
+            Biology = "Fumarate/succinate (complex II)"
+            E0Prime = 0.03
+            ReferenceDeltaH = Some -32.6
+            Description = "Ethylene -> ethane, the C=C reduction of fumarate"
+        }
+        {
+            Name = "Ubiquinone/Ubiquinol"
+            Oxidized = [ species "p-Benzoquinone [CAS(2,2)]" ]
+            Reduced = [ species "Hydroquinone [CAS(4,4)]" ]
+            Biology = "Ubiquinone/ubiquinol (Q cycle, complexes I-III)"
+            E0Prime = 0.045
+            ReferenceDeltaH = None
+            Description = "p-Benzoquinone -> hydroquinone, the quinone head group"
+        }
+        {
+            Name = "H2O2/H2O"
+            Oxidized = [ species "Hydrogen peroxide [CAS(2,2)]" ]
+            Reduced = [ species "Water [CAS(2,2)]"; species "Water [CAS(2,2)]" ]
+            Biology = "Peroxide/water (complex IV, O2 -> H2O)"
+            E0Prime = 1.36
+            ReferenceDeltaH = Some -83.0
+            Description = "H2O2 -> 2 H2O, the second half of oxygen reduction"
+        }
     ]
 
-/// Build a Molecule from an atom string, inferring bonds.
-let private moleculeFromAtomString (name: string) (atomStr: string) (charge: int) (mult: int) : Molecule =
-    let atoms = parseAtoms atomStr
+let private key (name: string) = ChemistryIntegrals.speciesSlug name
 
-    {
-        Name = name
-        Atoms = atoms
-        Bonds = inferBonds atoms
-        Charge = charge
-        Multiplicity = mult
-    }
-
-/// Load redox pairs from a CSV file.
-/// Expected columns: name, biological_analogue, description, atoms, charge_oxidized, multiplicity_oxidized
-/// OR: name, preset (to reference a built-in preset by name)
-let private loadPairsFromCsv (path: string) : RedoxPair list =
-    let rows, errors = Data.readCsvWithHeaderWithErrors path
-
-    if not ((List.isEmpty errors) || quiet) then
-        for err in errors do
-            eprintfn "  Warning (CSV): %s" err
-
-    rows
-    |> List.choose (fun row ->
-        let get key = row.Values |> Map.tryFind key
-        let name = get "name" |> Option.defaultValue "Unknown"
-
-        match get "preset" with
-        | Some presetKey ->
-            let key = presetKey.Trim().ToLowerInvariant()
-
-            match builtinPresets |> Map.tryFind key with
-            | Some pair -> Some { pair with Name = name }
-            | None ->
-                if not quiet then
-                    eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
-
-                None
-        | None ->
-            match get "atoms" with
-            | Some atomStr ->
-                let bio = get "biological_analogue" |> Option.defaultValue ""
-                let desc = get "description" |> Option.defaultValue ""
-
-                let chargeOx =
-                    get "charge_oxidized"
-                    |> Option.bind (fun s ->
-                        match Int32.TryParse s with
-                        | true, v -> Some v
-                        | _ -> None)
-                    |> Option.defaultValue 1
-
-                let multOx =
-                    get "multiplicity_oxidized"
-                    |> Option.bind (fun s ->
-                        match Int32.TryParse s with
-                        | true, v -> Some v
-                        | _ -> None)
-                    |> Option.defaultValue 2
-
-                let reduced = moleculeFromAtomString (name + " (neutral)") atomStr 0 1
-                let oxidized = moleculeFromAtomString (name + " (cation)") atomStr chargeOx multOx
-
-                Some
-                    {
-                        Name = name
-                        ReducedMolecule = reduced
-                        OxidizedMolecule = oxidized
-                        BiologicalAnalogue = bio
-                        Description = desc
-                    }
-            | None ->
-                if not quiet then
-                    eprintfn "  Warning: row '%s' missing required 'atoms' column" name
-
-                None)
-
-// ==============================================================================
-// SYSTEM SELECTION
-// ==============================================================================
-
-let systems: RedoxPair list =
-    let allSystems =
-        match inputFile with
-        | Some path ->
-            let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
-
-            if not quiet then
-                printfn "Loading redox pairs from: %s" resolved
-
-            loadPairsFromCsv resolved
-        | None -> builtinPresets |> Map.toList |> List.map snd
-
+let couples =
     match systemFilter with
-    | [] -> allSystems
+    | [] -> builtinCouples
     | filters ->
-        let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+        builtinCouples
+        |> List.filter (fun c -> filters |> List.exists (fun f -> (key c.Name).Contains(f.ToLowerInvariant())))
 
-        allSystems
-        |> List.filter (fun p ->
-            let key = p.Name.ToLowerInvariant()
-            filterSet |> Set.exists (fun f -> key.Contains f))
+if List.isEmpty couples then
+    eprintfn
+        "Error: no couples selected. Available: %s"
+        (builtinCouples |> List.map (fun c -> key c.Name) |> String.concat ", ")
 
-if List.isEmpty systems then
-    eprintfn "Error: No systems selected. Available presets: %s" presetNames
     exit 1
 
 // ==============================================================================
-// QUANTUM BACKEND (Rule 1: all VQE via IQuantumBackend)
+// VQE
 // ==============================================================================
 
 let backend: IQuantumBackend = LocalBackend() :> IQuantumBackend
@@ -554,195 +220,114 @@ let backend: IQuantumBackend = LocalBackend() :> IQuantumBackend
 if not quiet then
     printfn ""
     printfn "=================================================================="
-    printfn "  Electron Transport Chain: Redox Pair Comparison"
+    printfn "  Electron Transport Chain: Redox Couple Comparison"
     printfn "=================================================================="
     printfn ""
     printfn "  Backend:      %s" backend.Name
-    printfn "  Systems:      %d" systems.Length
+    printfn "  Couples:      %d" couples.Length
     printfn "  VQE iters:    %d (tol: %g Ha)" maxIterations tolerance
-    printfn "  Temperature:  %.1f K" temperature
-    printfn "  Lambda:       %.2f eV  |  H_AB: %.3f eV" reorganizationEnergy_eV electronicCoupling_eV
+    printfn "  Integrals:    %s" (ChemistryIntegrals.describeDirectory integralDirectory)
+    printfn "  Measure:      dE_red = E(reduced) - E(oxidized) - E(H2)"
     printfn ""
 
-// ==============================================================================
-// VQE COMPUTATION
-// ==============================================================================
+let energies =
+    ChemistryIntegrals.EnergyCache(backend, maxIterations, tolerance, maxVqeQubits, integralDirectory)
 
-/// VQE solver configuration.
-let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) : SolverConfig =
+/// Result of one couple.
+type CoupleResult =
     {
-        Method = GroundStateMethod.VQE
-        Backend = Some backend
-        MaxIterations = maxIter
-        Tolerance = tol
-        InitialParameters = None
-        ProgressReporter = None
-        ErrorMitigation = None
-        IntegralProvider = None
+        Couple: RedoxCouple
+        /// Reduction energy in Hartree; None when a species failed
+        ReductionEnergy: float option
+        Sources: EnergySource list
+        Failures: string list
     }
 
-/// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
-/// Returns (Ok energy | Error message, elapsed seconds).
-let private computeEnergy
-    (backend: IQuantumBackend)
-    (maxIter: int)
-    (tol: float)
-    (molecule: Molecule)
-    : Result<float, string> * float =
-    let startTime = DateTime.Now
-    let config = solverConfig backend maxIter tol
+let private computeCouple (index: int) (couple: RedoxCouple) : CoupleResult =
+    if not quiet then
+        printfn "  [%d/%d] %s — %s" (index + 1) couples.Length couple.Name couple.Biology
+        printfn "         %s" couple.Description
 
-    let result =
-        GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
+    let energyOf (role: string) (molecule: Molecule) =
+        let result = energies.Energy molecule
 
-    let elapsed = (DateTime.Now - startTime).TotalSeconds
-
-    match result with
-    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
-    | Error err ->
         if not quiet then
-            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+            match result with
+            | Ok e ->
+                printfn
+                    "         %-9s %-32s E = %14.6f Ha  [%s]%s"
+                    role
+                    molecule.Name
+                    e.Energy
+                    (ChemistryIntegrals.describeSource e.Source)
+                    (if e.Converged then "" else " not converged")
+            | Error msg -> printfn "         %-9s %-32s E = FAILED  (%s)" role molecule.Name msg
 
-        (Error $"VQE failed for %s{molecule.Name}: %s{err.Message}", elapsed)
+        result
 
-/// Marcus theory ET rate: k = (2pi/hbar) |H_AB|^2 (4pi*lambda*kT)^(-1/2) exp(-(dG+lambda)^2 / 4*lambda*kT).
-/// Here dG is the ionization energy used as the driving force.
-let private marcusRate (dG_eV: float) (lambda_eV: float) (coupling_eV: float) (tempK: float) : float =
-    let lambda_J = lambda_eV * eV_to_J
-    let hab_J = coupling_eV * eV_to_J
-    let dg_J = dG_eV * eV_to_J
-    let kBT = kB * tempK
-    let prefactor = 2.0 * Math.PI / hbar * hab_J * hab_J
-    let density = 1.0 / sqrt (4.0 * Math.PI * lambda_J * kBT)
-    let exponent = -((dg_J + lambda_J) ** 2.0) / (4.0 * lambda_J * kBT)
-    prefactor * density * exp exponent
+    let oxidized =
+        (couple.Oxidized |> List.map (energyOf "oxidized"))
+        @ [ energyOf "reductant" hydrogen ]
 
-/// Format a half-life from a rate constant.
-let private formatHalfLife (k: float) : string =
-    if k > 1e-30 && k < 1e30 then
-        let hl = 0.693 / k
+    let reduced = couple.Reduced |> List.map (energyOf "reduced")
+    let all = oxidized @ reduced
 
-        if hl < 1e-9 then sprintf "%.1e ns" (hl * 1e9)
-        elif hl < 1e-6 then sprintf "%.1e us" (hl * 1e6)
-        elif hl < 1e-3 then sprintf "%.1e ms" (hl * 1e3)
-        elif hl < 1.0 then $"%.2f{hl} s"
-        elif hl < 60.0 then $"%.1f{hl} s"
-        elif hl < 3600.0 then sprintf "%.1f min" (hl / 60.0)
-        else sprintf "%.1f h" (hl / 3600.0)
-    else
-        "N/A"
+    let failures =
+        all
+        |> List.choose (function
+            | Error msg -> Some msg
+            | Ok _ -> None)
 
-/// Interpret an ET rate.
-let private assessRate (k: float) : string =
-    if k <= 0.0 || k > 1e30 then "Invalid"
-    elif k > 1e12 then "Ultrafast (sub-ps)"
-    elif k > 1e9 then "Very fast (ns)"
-    elif k > 1e6 then "Fast (us)"
-    elif k > 1e3 then "Moderate (ms)"
-    elif k > 1.0 then "Slow (s)"
-    else "Very slow"
+    let computed =
+        all
+        |> List.choose (function
+            | Ok e -> Some e
+            | Error _ -> None)
 
-/// Compute the full redox energetics for one pair.
-let private computeSystem
-    (backend: IQuantumBackend)
-    (maxIter: int)
-    (tol: float)
-    (lambda_eV: float)
-    (coupling_eV: float)
-    (tempK: float)
-    (idx: int)
-    (total: int)
-    (pair: RedoxPair)
-    : RedoxResult =
-    if not quiet then
-        printfn "  [%d/%d] %s" (idx + 1) total pair.Name
-        printfn "         %s" pair.Description
+    let total (results: Result<ChemistryIntegrals.SpeciesEnergy, string> list) =
+        results
+        |> List.sumBy (function
+            | Ok e -> e.Energy
+            | Error _ -> 0.0)
 
-    let startTime = DateTime.Now
-    let mutable anyFailure = false
-
-    /// Unwrap a VQE result, logging failures and tracking error state.
-    let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
-        match res with
-        | Ok e ->
-            if not quiet then
-                printfn "         %-10s %-22s  E = %10.6f Ha  (%.1fs)" label name e elapsed
-
-            (e, elapsed)
-        | Error _ ->
-            anyFailure <- true
-
-            if not quiet then
-                printfn "         %-10s %-22s  E = FAILED         (%.1fs)" label name elapsed
-
-            (0.0, elapsed)
-
-    let (redE, _) =
-        unwrapEnergy "reduced" pair.ReducedMolecule.Name (computeEnergy backend maxIter tol pair.ReducedMolecule)
-
-    let (oxE, _) =
-        unwrapEnergy "oxidized" pair.OxidizedMolecule.Name (computeEnergy backend maxIter tol pair.OxidizedMolecule)
-
-    let totalTime = (DateTime.Now - startTime).TotalSeconds
-
-    // Ionization energy
-    let ieHartree = oxE - redE
-    let ieEv = ieHartree * hartreeToEV
-
-    // Marcus rate using IE as driving force (negative = spontaneous electron loss)
-    let drivingForce_eV = -abs ieEv // Electron transfer is thermodynamically driven
-    let rate = marcusRate drivingForce_eV lambda_eV coupling_eV tempK
-
-    if not quiet then
-        if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
+    let reductionEnergy =
+        if failures.IsEmpty then
+            Some(total reduced - total oxidized)
         else
-            printfn "         => IE = %.4f eV  |  k_ET = %.2e /s" ieEv rate
+            None
+
+    if not quiet then
+        match reductionEnergy with
+        | Some dE -> printfn "         => dE_red = %.6f Ha = %.1f kcal/mol" dE (dE * hartreeToKcalMol)
+        | None -> printfn "         => INCOMPLETE (a species failed VQE: no reduction energy)"
 
         printfn ""
 
     {
-        Pair = pair
-        ReducedEnergy = redE
-        OxidizedEnergy = oxE
-        IonizationEnergyHartree = ieHartree
-        IonizationEnergyEv = ieEv
-        MarcusRate = rate
-        HalfLife = if anyFailure then "N/A" else formatHalfLife rate
-        RateAssessment = if anyFailure then "VQE FAILED" else assessRate rate
-        ComputeTimeSeconds = totalTime
-        HasVqeFailure = anyFailure
+        Couple = couple
+        ReductionEnergy = reductionEnergy
+        Sources = computed |> List.map (fun e -> e.Source) |> List.distinct
+        Failures = failures
     }
 
-// --- Run all systems ---
-
 if not quiet then
-    printfn "Computing redox pair energies..."
+    printfn "Computing reduction energies..."
     printfn ""
 
-let results =
-    systems
-    |> List.mapi (fun i pair ->
-        computeSystem
-            backend
-            maxIterations
-            tolerance
-            reorganizationEnergy_eV
-            electronicCoupling_eV
-            temperature
-            i
-            systems.Length
-            pair)
+let results = couples |> List.mapi computeCouple
 
-// Sort by Marcus rate descending (fastest ET first).
-// Failed systems sink to bottom.
+// Weakest oxidant first (least negative dE_red), as the chain orders its carriers.
 let ranked =
     results
     |> List.sortBy (fun r ->
-        if r.HasVqeFailure then
-            (2, infinity)
-        else
-            (0, -r.MarcusRate))
+        match r.ReductionEnergy with
+        | Some dE -> (0, -dE)
+        | None -> (1, 0.0))
+
+let private sourceLabel (r: CoupleResult) =
+    match r.Sources with
+    | [] -> "none"
+    | sources -> sources |> List.map ChemistryIntegrals.describeSource |> String.concat " + "
 
 // ==============================================================================
 // RANKED COMPARISON TABLE
@@ -750,66 +335,81 @@ let ranked =
 
 let printTable () =
     printfn "=================================================================="
-    printfn "  Ranked Redox Pairs (by Marcus ET rate)"
+    printfn "  Redox Couples by Reduction Energy (weakest oxidant first)"
     printfn "=================================================================="
     printfn ""
-    printfn "  %-4s  %-10s  %12s  %12s  %10s  %s" "#" "System" "IE (eV)" "Rate (/s)" "Half-life" "Assessment"
-    printfn "  %s" (String('=', 78))
+
+    printfn
+        "  %-4s  %-22s  %16s  %16s  %9s  %s"
+        "#"
+        "Couple"
+        "dE_red (kcal/mol)"
+        "ref dH (kcal/mol)"
+        "E0' (V)"
+        "Hamiltonian"
+
+    printfn "  %s" (String('=', 100))
 
     ranked
     |> List.iteri (fun i r ->
-        if r.HasVqeFailure then
-            printfn "  %-4d  %-10s  %12s  %12s  %10s  %s" (i + 1) r.Pair.Name "FAILED" "FAILED" "N/A" "VQE FAILED"
-        else
-            printfn
-                "  %-4d  %-10s  %12.4f  %12.2e  %10s  %s"
-                (i + 1)
-                r.Pair.Name
-                r.IonizationEnergyEv
-                r.MarcusRate
-                r.HalfLife
-                r.RateAssessment)
+        let reference =
+            r.Couple.ReferenceDeltaH
+            |> Option.map (sprintf "%.1f")
+            |> Option.defaultValue "-"
 
-    printfn ""
-
-    // Biological analogues
-    printfn "  %-4s  %-10s  %11s  %s" "#" "System" "Time (s)" "Biological Analogue"
-    printfn "  %s" (String('-', 70))
-
-    ranked
-    |> List.iteri (fun i r ->
-        printfn "  %-4d  %-10s  %11.1f  %s" (i + 1) r.Pair.Name r.ComputeTimeSeconds r.Pair.BiologicalAnalogue)
-
-    printfn ""
-
-// Always print the ranked comparison table — that's the primary output of this tool,
-// even in --quiet mode (which only suppresses per-system progress output).
-printTable ()
-
-// ==============================================================================
-// SUMMARY
-// ==============================================================================
-
-if not quiet then
-    let successful = ranked |> List.filter (fun r -> not r.HasVqeFailure)
-
-    match successful with
-    | best :: _ ->
-        let totalTime = results |> List.sumBy (fun r -> r.ComputeTimeSeconds)
-        printfn "  Fastest ET:    %s (k = %.2e /s, IE = %.4f eV)" best.Pair.Name best.MarcusRate best.IonizationEnergyEv
-        printfn "  Total time:    %.1f seconds" totalTime
+        let computed =
+            r.ReductionEnergy
+            |> Option.map (fun dE -> sprintf "%.1f" (dE * hartreeToKcalMol))
+            |> Option.defaultValue "INCOMPLETE"
 
         printfn
-            "  Marcus params: lambda = %.2f eV, H_AB = %.3f eV, T = %.1f K"
-            reorganizationEnergy_eV
-            electronicCoupling_eV
-            temperature
+            "  %-4d  %-22s  %16s  %16s  %9.2f  %s"
+            (i + 1)
+            r.Couple.Name
+            computed
+            reference
+            r.Couple.E0Prime
+            (sourceLabel r))
 
-        printfn "  Quantum:       all VQE via IQuantumBackend [Rule 1 compliant]"
-        printfn ""
-    | [] ->
-        printfn "  All systems failed VQE computation."
-        printfn ""
+    printfn ""
+
+    ranked
+    |> List.filter (fun r -> not r.Failures.IsEmpty)
+    |> List.iter (fun r -> printfn "  %s: %s" r.Couple.Name (String.concat "; " (List.distinct r.Failures)))
+
+    let complete = ranked |> List.filter (fun r -> r.ReductionEnergy.IsSome)
+    let computedOrder = complete |> List.map (fun r -> r.Couple.Name)
+
+    let biologicalOrder =
+        complete
+        |> List.sortBy (fun r -> r.Couple.E0Prime)
+        |> List.map (fun r -> r.Couple.Name)
+
+    if complete.Length > 1 then
+        printfn "  Computed order:    %s" (String.concat " < " computedOrder)
+        printfn "  Biological order:  %s (by E0')" (String.concat " < " biologicalOrder)
+
+        printfn
+            "  %s"
+            (if computedOrder = biologicalOrder then
+                 "The computed ranking reproduces the chain's order."
+             else
+                 "The computed ranking differs from the chain's order; see the notes below.")
+
+    if ranked |> List.exists (fun r -> r.Sources |> List.contains EmpiricalHamiltonian) then
+        ChemistryIntegrals.empiricalNote |> List.iter (printfn "%s")
+
+    printfn ""
+    printfn "  Notes: gas-phase reaction energies of small models, not solution potentials. STO-3G"
+    printfn "  with a small active space misses measured reaction enthalpies (ref dH column) by tens"
+    printfn "  of kcal/mol, and badly underestimates the energy released by the peroxide couple."
+    printfn ""
+
+printTable ()
+
+if not quiet then
+    printfn "  Quantum:  all VQE via IQuantumBackend [Rule 1 compliant]"
+    printfn ""
 
 // ==============================================================================
 // STRUCTURED OUTPUT
@@ -818,41 +418,39 @@ if not quiet then
 let resultMaps =
     ranked
     |> List.mapi (fun i r ->
+        let value format =
+            match r.ReductionEnergy with
+            | Some dE -> format dE
+            | None -> "INCOMPLETE"
+
         [
             "rank", string (i + 1)
-            "system", r.Pair.Name
-            "biological_analogue", r.Pair.BiologicalAnalogue
-            "description", r.Pair.Description
-            "reduced_energy_ha",
-            (if r.HasVqeFailure then
-                 "FAILED"
-             else
-                 $"%.6f{r.ReducedEnergy}")
-            "oxidized_energy_ha",
-            (if r.HasVqeFailure then
-                 "FAILED"
-             else
-                 $"%.6f{r.OxidizedEnergy}")
-            "ie_hartree",
-            (if r.HasVqeFailure then
-                 "FAILED"
-             else
-                 $"%.6f{r.IonizationEnergyHartree}")
-            "ie_ev",
-            (if r.HasVqeFailure then
-                 "FAILED"
-             else
-                 $"%.4f{r.IonizationEnergyEv}")
-            "marcus_rate_per_s", (if r.HasVqeFailure then "FAILED" else $"%.2e{r.MarcusRate}")
-            "half_life", r.HalfLife
-            "rate_assessment", r.RateAssessment
-            "lambda_ev", $"%.2f{reorganizationEnergy_eV}"
-            "coupling_ev", $"%.3f{electronicCoupling_eV}"
-            "temperature_k", $"%.1f{temperature}"
-            "compute_time_s", $"%.1f{r.ComputeTimeSeconds}"
-            "has_vqe_failure", string r.HasVqeFailure
+            "couple", r.Couple.Name
+            "biology", r.Couple.Biology
+            "description", r.Couple.Description
+            "reduction_energy_ha", value (sprintf "%.6f")
+            "reduction_energy_kcal_mol", value (fun dE -> sprintf "%.2f" (dE * hartreeToKcalMol))
+            "reference_dh_kcal_mol",
+            r.Couple.ReferenceDeltaH
+            |> Option.map (sprintf "%.1f")
+            |> Option.defaultValue ""
+            "e0_prime_v", sprintf "%.3f" r.Couple.E0Prime
+            "hamiltonian", sourceLabel r
         ]
         |> Map.ofList)
+
+let header =
+    [
+        "rank"
+        "couple"
+        "biology"
+        "description"
+        "reduction_energy_ha"
+        "reduction_energy_kcal_mol"
+        "reference_dh_kcal_mol"
+        "e0_prime_v"
+        "hamiltonian"
+    ]
 
 match Cli.tryGet "output" args with
 | Some path ->
@@ -864,26 +462,6 @@ match Cli.tryGet "output" args with
 
 match Cli.tryGet "csv" args with
 | Some path ->
-    let header =
-        [
-            "rank"
-            "system"
-            "biological_analogue"
-            "description"
-            "reduced_energy_ha"
-            "oxidized_energy_ha"
-            "ie_hartree"
-            "ie_ev"
-            "marcus_rate_per_s"
-            "half_life"
-            "rate_assessment"
-            "lambda_ev"
-            "coupling_ev"
-            "temperature_k"
-            "compute_time_s"
-            "has_vqe_failure"
-        ]
-
     let rows =
         resultMaps
         |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
@@ -895,10 +473,8 @@ match Cli.tryGet "csv" args with
 | None -> ()
 
 if argv.Length = 0 && not quiet then
-    printfn ""
     printfn "Tip: Run with --help to see all options."
-    printfn "     --systems lih,hf                Run specific redox pairs"
-    printfn "     --input redox-pairs.csv         Load custom pairs from CSV"
-    printfn "     --lambda 1.0 --coupling 0.05    Adjust Marcus theory parameters"
-    printfn "     --csv results.csv               Export ranked table as CSV"
+    printfn "     --systems nad,ubiquinone          Run specific couples"
+    printfn "     --fcidump-dir ./fcidumps          Your own FCIDUMP integrals"
+    printfn "     --csv results.csv                 Export the table as CSV"
     printfn ""

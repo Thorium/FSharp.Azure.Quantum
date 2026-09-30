@@ -14,9 +14,20 @@ open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki // brings PauliString record 
 ///
 ///   |ψₚ⟩ = e^(-iβₚ Aₚ) e^(-iγₚ H) … e^(-iβ₁ A₁) e^(-iγ₁ H) |+…+⟩
 ///
-/// Like ADAPT-VQE this is state-vector exact — it reuses `Primitives.expectation` for the
-/// energy ⟨H⟩, `TrotterSuzuki.synthesizePauliEvolution` for each `e^(-iθP)` block, and the
-/// shared Nelder-Mead optimiser. It requires a state-vector (gate-based simulator) backend.
+/// Like ADAPT-VQE it has two routes, with `TrotterSuzuki.synthesizePauliEvolution` for each
+/// `e^(-iθP)` block. On an exact backend the energy is `Primitives.expectation`, gradients are
+/// central differences with `FiniteDiffEps`, and the angles are re-optimised by Nelder-Mead. On
+/// a shot-sampling backend (IShotSamplingBackend) every energy is
+/// `Primitives.sampledExpectation` (whole-circuit jobs), gradients use the parameter-shift rule
+/// (dE/dγₖ as the sum of one shift per cost term, since γₖ drives every cost block of layer k),
+/// and the angles are re-optimised by `AdaptVqe.SampledOptimizerSteps` Adam steps. Jobs per
+/// layer, with T cost terms, L layers and G measurement groups (1 for a Z/ZZ Ising cost):
+/// G·(2·|pool| + 2·L·(T + 1)·SampledOptimizerSteps + 1) — cap them with the backend's JobBudget.
+///
+/// The angles are unconstrained and each new β starts at 0, so the sign of a pool generator
+/// does not matter: +X here and the standard QAOA mixer -Σ Xᵢ (Core.QaoaCircuit) reach the
+/// same states. γ multiplies the Hamiltonian as given, without QaoaExecutionHelpers'
+/// normalisation.
 module AdaptQaoa =
 
     // ========================================================================
@@ -71,14 +82,14 @@ module AdaptQaoa =
     // ANSATZ + ENERGY
     // ========================================================================
 
-    /// Build the ADAPT-QAOA ansatz: |+…+⟩ then, per layer k, the cost evolution
-    /// e^(-iγₖ H) (first-order Trotter over the Hamiltonian terms) followed by the mixer
-    /// e^(-iβₖ Aₖ). `parameters` is interleaved [γ₁; β₁; γ₂; β₂; …] with length 2·|mixers|.
-    let buildAnsatz
+    /// The ADAPT-QAOA ansatz with each block's time given separately: cost block t of layer k
+    /// runs for costTime k t, the mixer of layer k for mixerTime k.
+    let private ansatzWithTimes
         (numQubits: int)
         (costHamiltonian: TrotterSuzuki.PauliHamiltonian)
         (mixers: TrotterSuzuki.PauliString list)
-        (parameters: float[])
+        (costTime: int -> int -> float)
+        (mixerTime: int -> float)
         : CircuitBuilder.Circuit =
         let qubits = [| 0 .. numQubits - 1 |]
 
@@ -91,15 +102,29 @@ module AdaptQaoa =
         |> List.mapi (fun k m -> (k, m))
         |> List.fold
             (fun circ (k, mixer) ->
-                let gamma = parameters.[2 * k]
-                let beta = parameters.[2 * k + 1]
-                // Cost evolution e^(-iγ H) = ∏ e^(-iγ cₜ Pₜ) (first-order Trotter).
+                // Cost evolution e^(-iγ H) = ∏ e^(-iγ cₜ Pₜ) (first-order Trotter); block t of
+                // layer k runs for costTime k t (γₖ for every t, except in a parameter shift).
                 let afterCost =
                     costHamiltonian.Terms
-                    |> List.fold (fun c term -> TrotterSuzuki.synthesizePauliEvolution term gamma qubits c) circ
+                    |> List.indexed
+                    |> List.fold
+                        (fun c (t, term) -> TrotterSuzuki.synthesizePauliEvolution term (costTime k t) qubits c)
+                        circ
                 // Mixer e^(-iβ A).
-                TrotterSuzuki.synthesizePauliEvolution mixer beta qubits afterCost)
+                TrotterSuzuki.synthesizePauliEvolution mixer (mixerTime k) qubits afterCost)
             plus
+
+    /// Build the ADAPT-QAOA ansatz: |+…+⟩ then, per layer k, the cost evolution
+    /// e^(-iγₖ H) (first-order Trotter over the Hamiltonian terms) followed by the mixer
+    /// e^(-iβₖ Aₖ). `parameters` is interleaved [γ₁; β₁; γ₂; β₂; …] with length 2·|mixers|.
+    let buildAnsatz
+        (numQubits: int)
+        (costHamiltonian: TrotterSuzuki.PauliHamiltonian)
+        (mixers: TrotterSuzuki.PauliString list)
+        (parameters: float[])
+        : CircuitBuilder.Circuit =
+        ansatzWithTimes numQubits costHamiltonian mixers (fun k _ -> parameters.[2 * k]) (fun k ->
+            parameters.[2 * k + 1])
 
     let private stateEnergy
         (backend: IQuantumBackend)
@@ -147,6 +172,139 @@ module AdaptQaoa =
                 (init, objective init)
 
     // ========================================================================
+    // SHOT-SAMPLING BACKENDS (measured energies, parameter-shift gradients)
+    // ========================================================================
+
+    /// ADAPT-QAOA on a shot-sampling backend (see the module notes).
+    let private runSampled
+        (backend: IQuantumBackend)
+        (costHamiltonian: TrotterSuzuki.PauliHamiltonian)
+        (pool: MixerPool)
+        (numQubits: int)
+        (config: AdaptQaoaConfig)
+        : QuantumResult<AdaptQaoaResult> =
+        let terms = costHamiltonian.Terms |> Array.ofList
+
+        let energyOf (circuit: CircuitBuilder.Circuit) =
+            Primitives.sampledExpectation backend circuit costHamiltonian
+            |> Result.map (fun e -> e.Value, e.StandardError)
+
+        /// Energy with every block at its parameter's time except `overrideTime` (block, time).
+        let energyWith (mixers: TrotterSuzuki.PauliString list) (parameters: float[]) overrideTime =
+            let costTime k t =
+                match overrideTime with
+                | Some(Choice1Of2(layer, term), time) when layer = k && term = t -> time
+                | _ -> parameters.[2 * k]
+
+            let mixerTime k =
+                match overrideTime with
+                | Some(Choice2Of2 layer, time) when layer = k -> time
+                | _ -> parameters.[2 * k + 1]
+
+            energyOf (ansatzWithTimes numQubits costHamiltonian mixers costTime mixerTime)
+
+        /// dE/dβₖ: the mixer is one Pauli block.
+        let mixerGradient (mixers: TrotterSuzuki.PauliString list) (parameters: float[]) k =
+            AdaptVqe.parameterShift mixers.[k].Coefficient.Real parameters.[2 * k + 1] (fun time ->
+                energyWith mixers parameters (Some(Choice2Of2 k, time)))
+
+        /// dE/dγₖ: γₖ drives every cost block of layer k, so the derivative is the sum of each
+        /// block's parameter shift.
+        let costGradient (mixers: TrotterSuzuki.PauliString list) (parameters: float[]) k =
+            let rec sum t (total, variance) =
+                if t >= terms.Length then
+                    Ok(total, sqrt variance)
+                elif terms.[t].Operators |> Array.forall (fun p -> p = 'I' || p = 'i') then
+                    sum (t + 1) (total, variance) // a global phase: no dependence on γ
+                else
+                    match
+                        AdaptVqe.parameterShift terms.[t].Coefficient.Real parameters.[2 * k] (fun time ->
+                            energyWith mixers parameters (Some(Choice1Of2(k, t), time)))
+                    with
+                    | Error err -> Error err
+                    | Ok(g, e) -> sum (t + 1) (total + g, variance + e * e)
+
+            sum 0 (0.0, 0.0)
+
+        let fullGradient (mixers: TrotterSuzuki.PauliString list) (parameters: float[]) =
+            let rec collect i (acc: float list) =
+                if i >= parameters.Length then
+                    Ok(acc |> List.rev |> Array.ofList)
+                else
+                    let k = i / 2
+
+                    match
+                        (if i % 2 = 0 then
+                             costGradient mixers parameters k
+                         else
+                             mixerGradient mixers parameters k)
+                    with
+                    | Error err -> Error err
+                    | Ok(g, _) -> collect (i + 1) (g :: acc)
+
+            collect 0 []
+
+        let energy mixers parameters = energyWith mixers parameters None
+
+        let rec screen (mixers: TrotterSuzuki.PauliString list) (parameters: float[]) remaining acc =
+            match remaining with
+            | [] -> Ok(List.rev acc)
+            | (mixer: TrotterSuzuki.PauliString) :: rest ->
+                let mixersWith = mixers @ [ mixer ]
+                let seeded = Array.append parameters [| config.GammaInit; 0.0 |]
+
+                match mixerGradient mixersWith seeded mixers.Length with
+                | Error err -> Error err
+                | Ok estimate -> screen mixers parameters rest ((mixer, estimate) :: acc)
+
+        let rec loop layer mixers parameters history ((current, currentError): float * float) =
+            let finish converged =
+                Ok
+                    {
+                        Energy = current
+                        SelectedMixers = mixers
+                        Parameters = parameters
+                        Layers = layer
+                        Converged = converged
+                        EnergyHistory = List.rev history
+                    }
+
+            if layer >= config.MaxLayers then
+                finish false
+            else
+                match screen mixers parameters pool [] with
+                | Error err -> Error err
+                | Ok grads ->
+                    let (bestMixer, (bestGrad, bestError)) =
+                        grads |> List.maxBy (fun (_, (g, _)) -> abs g)
+
+                    if
+                        abs bestGrad
+                        <= max config.GradientThreshold (AdaptVqe.SampledGradientSigmas * bestError)
+                    then
+                        finish true
+                    else
+                        let newMixers = mixers @ [ bestMixer ]
+                        let init = Array.append parameters [| config.GammaInit; 0.0 |]
+
+                        match AdaptVqe.adamDescent (fullGradient newMixers) init with
+                        | Error err -> Error err
+                        | Ok optimised ->
+                            match energy newMixers optimised with
+                            | Error err -> Error err
+                            | Ok(fresh, freshError) ->
+                                // Keep the layer unless the fresh estimate is significantly worse.
+                                let noise = 2.0 * sqrt (freshError * freshError + currentError * currentError)
+
+                                if fresh > current + max 1e-9 noise then
+                                    finish false
+                                else
+                                    loop (layer + 1) newMixers optimised (fresh :: history) (fresh, freshError)
+
+        energy [] [||]
+        |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
+
+    // ========================================================================
     // RUN
     // ========================================================================
 
@@ -176,6 +334,8 @@ module AdaptQaoa =
             match badHamTerm, badPoolOp with
             | Some t, _ -> widthError "costHamiltonian" t.Operators.Length numQubits
             | _, Some p -> widthError "pool" p.Operators.Length numQubits
+            | None, None when (Primitives.shotsPerCircuit backend).IsSome ->
+                runSampled backend costHamiltonian pool numQubits config
             | None, None ->
 
                 // Reference energy ⟨+…+|H|+…+⟩ — also validates the backend supports expectation.
@@ -343,8 +503,9 @@ module AdaptQaoa =
     /// adaptive ansatz with the standard X/Y mixer pool, sample the final state, and return
     /// the lowest-cost assignment observed.
     ///
-    /// State-vector backends only (ADAPT-QAOA needs exact expectation values). Suitable for
-    /// small problems (a handful of qubits) — the same regime as exact QAOA simulation.
+    /// Suitable for small problems (a handful of qubits). On a shot-sampling backend `run`
+    /// takes the measured route (see the module notes) and the final sample is the backend's
+    /// own shots; every energy there is a paid job, so set a JobBudget.
     let solveQubo
         (backend: IQuantumBackend)
         (numQubits: int)
@@ -375,7 +536,10 @@ module AdaptQaoa =
                 let circuit =
                     buildAnsatz numQubits hamiltonian adapt.SelectedMixers adapt.Parameters
 
-                Primitives.sample backend circuit 2048
+                // A shot-sampling backend measures its own fixed number of shots per job.
+                let shots = Primitives.shotsPerCircuit backend |> Option.defaultValue 2048
+
+                Primitives.sample backend circuit shots
                 |> Result.map (fun histogram ->
                     let best =
                         histogram

@@ -460,6 +460,16 @@ module BackendAbstraction =
         /// Widest circuit worth running, as opposed to the widest state that fits.
         abstract member PracticalQubits: int
 
+    /// A backend whose ExecuteToState returns the measured outcome frequencies of a fixed
+    /// number of shots rather than an exact state: cloud hardware and cloud simulators. The
+    /// returned amplitudes are √(count/shots) with no phase. Algorithms that estimate
+    /// expectation values read Shots to size their statistics and to recover integer counts
+    /// (for readout mitigation) from the returned state.
+    type IShotSamplingBackend =
+        inherit IQuantumBackend
+        /// Shots per submitted circuit.
+        abstract member Shots: int
+
     /// Backend capabilities descriptor
     ///
     /// Describes what features a backend supports.
@@ -726,9 +736,7 @@ module BackendAbstraction =
         let rec private opToGates (op: QuantumOperation) : Result<CircuitBuilder.Gate list, QuantumError> =
             match op with
             | QuantumOperation.Gate g -> Ok [ g ]
-            | QuantumOperation.Sequence ops ->
-                (Ok [], ops)
-                ||> List.fold (fun acc o -> acc |> Result.bind (fun gs -> opToGates o |> Result.map (fun g -> gs @ g)))
+            | QuantumOperation.Sequence ops -> gatesOf ops
             | QuantumOperation.Measure _ -> Ok [] // terminal measurement is implicit in ExecuteToState
             | QuantumOperation.Extension ext ->
                 match ext with
@@ -756,10 +764,23 @@ module BackendAbstraction =
                     )
                 )
 
+        /// Gates of `operations` in program order. Collects newest-first and reverses once:
+        /// appending each operation's gates to the whole list so far made lowering quadratic,
+        /// minutes for the 10^5-gate circuits of Trotterised phase estimation.
+        and private gatesOf (operations: QuantumOperation list) : Result<CircuitBuilder.Gate list, QuantumError> =
+            let rec collect (reversed: CircuitBuilder.Gate list) (remaining: QuantumOperation list) =
+                match remaining with
+                | [] -> Ok(List.rev reversed)
+                | op :: rest ->
+                    match opToGates op with
+                    | Error e -> Error e
+                    | Ok gates -> collect (List.rev gates @ reversed) rest
+
+            collect [] operations
+
         /// Flatten gate-level operations into a single gate list.
         let lowerOpsToGates (operations: QuantumOperation list) : Result<CircuitBuilder.Gate list, QuantumError> =
-            (Ok [], operations)
-            ||> List.fold (fun acc o -> acc |> Result.bind (fun gs -> opToGates o |> Result.map (fun g -> gs @ g)))
+            gatesOf operations
 
         /// Build a complete gate circuit from gate-level operations and execute it via
         /// ExecuteToState (whole-circuit submission). Works on every backend type.

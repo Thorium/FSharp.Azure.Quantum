@@ -188,22 +188,10 @@ module SuperdenseCoding =
 
         match plan with
         | SuperdensePlan.ExecuteViaOps(bellOps, encodeOps, decodeOps) ->
-            result {
-                // Step 1: Create Bell pair
-                let! afterBell = UnifiedBackend.applySequence backend bellOps state
-
-                // Step 2: Alice encodes her 2-bit message
-                let! afterEncode =
-                    if List.isEmpty encodeOps then
-                        Ok afterBell
-                    else
-                        UnifiedBackend.applySequence backend encodeOps afterBell
-
-                // Step 3: Bob decodes (Bell measurement)
-                let! afterDecode = UnifiedBackend.applySequence backend decodeOps afterEncode
-
-                return afterDecode
-            }
+            // Create the Bell pair, Alice encodes her 2-bit message, Bob decodes (Bell
+            // measurement). Gate by gate where the backend allows it; a backend that runs
+            // complete circuits only gets the same gates as one circuit.
+            WholeCircuit.applyOrSubmit "SuperdenseCoding" backend (bellOps @ encodeOps @ decodeOps) state
 
     // ========================================================================
     // MAIN PROTOCOL

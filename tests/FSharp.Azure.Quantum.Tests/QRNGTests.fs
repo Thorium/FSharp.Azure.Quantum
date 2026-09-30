@@ -870,3 +870,79 @@ module QuantumDistributionsTests =
         result
         |> Result.map (fun _ -> Assert.True(false, "Should fail with throwing transform"))
         |> Result.defaultWith (fun msg -> Assert.Contains("Custom transform failed", msg))
+
+    // ========================================================================
+    // SHOT-SAMPLING (CLOUD) BACKENDS: bits are the measured shot itself
+    // ========================================================================
+
+    [<Fact>]
+    let ``generateWithBackend reads the single measured shot of a one-shot cloud job`` () =
+        let cloud = CloudStyleBackends.ShotSamplingCloud(1, 17)
+
+        for _ in 1..5 do
+            match generateWithBackend 12 cloud |> Async.RunSynchronously with
+            | Error e -> Assert.Fail($"one-shot QRNG failed: {e}")
+            | Ok qrng ->
+                // The job's one outcome, in the Azure convention (rightmost = qubit 0).
+                let measured = cloud.Histograms |> List.last |> Map.toList
+
+                match measured with
+                | [ (key, 1) ] ->
+                    let expected = key.ToCharArray() |> Array.rev |> Array.map ((=) '1')
+                    Assert.Equal<bool[]>(expected, qrng.Bits)
+                | other -> Assert.Fail($"expected one measured shot, got {other}")
+
+        // One job per call.
+        Assert.Equal(5, cloud.Jobs)
+
+    [<Fact>]
+    let ``generateWithBackend never picks among measured outcomes classically`` () =
+        // A job that reports two outcomes: choosing one of them would need classical randomness.
+        let twoOutcomes =
+            CloudStyleBackends.FixedHistogramCloud(Map.ofList [ "0", 1; "1", 1 ], 1, 1)
+
+        match generateWithBackend 1 twoOutcomes |> Async.RunSynchronously with
+        | Error(QuantumError.BackendError("QRNG", _)) -> ()
+        | other -> Assert.Fail($"expected a BackendError, got {other}")
+
+        // A many-shot backend returns only counts, so it is refused before any job runs.
+        let manyShots = CloudStyleBackends.ShotSamplingCloud(1000, 1)
+
+        match generateWithBackend 8 manyShots |> Async.RunSynchronously with
+        | Error(QuantumError.ValidationError("backend", message)) -> Assert.Contains("shots = 1", message)
+        | other -> Assert.Fail($"expected a ValidationError, got {other}")
+
+        Assert.Equal(0, manyShots.Jobs)
+
+    [<Fact>]
+    let ``QuantumDistributions on a one-shot cloud backend costs one job per sample`` () =
+        task {
+            let cloud = CloudStyleBackends.ShotSamplingCloud(1, 4)
+
+            match
+                FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleManyWithBackend
+                    (FSharp.Azure.Quantum.Algorithms.QuantumDistributions.Uniform(0.0, 1.0))
+                    6
+                    cloud
+                    None
+                |> Async.RunSynchronously
+            with
+            | Error e -> Assert.Fail($"sampling failed: {e}")
+            | Ok samples ->
+                Assert.Equal(6, samples.Length)
+                Assert.Equal(6, cloud.Jobs)
+
+                for s in samples do
+                    Assert.InRange(s.Value, 0.0, 1.0)
+
+            let manyShots = CloudStyleBackends.ShotSamplingCloud(1000, 4)
+
+            match!
+                FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleWithBackend
+                     FSharp.Azure.Quantum.Algorithms.QuantumDistributions.StandardNormal
+                     manyShots
+                 |> Async.StartImmediateAsTask
+            with
+            | Error(QuantumError.ValidationError("backend", _)) -> ()
+            | other -> Assert.Fail($"expected a ValidationError, got {other}")
+        } :> Task

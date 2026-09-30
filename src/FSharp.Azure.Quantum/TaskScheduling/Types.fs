@@ -40,7 +40,7 @@ module Types =
             /// Task duration (a real-time span; build with minutes/hours/days)
             Duration: TimeSpan
 
-            /// Earliest allowed start time (offset from schedule start)
+            /// Earliest allowed start time (offset from schedule start); a hard constraint for both solvers
             EarliestStart: TimeSpan option
 
             /// Latest allowed completion time (deadline, offset from schedule start)
@@ -49,7 +49,10 @@ module Types =
             /// Resource requirements (resource ID -> quantity needed)
             ResourceRequirements: Map<string, float>
 
-            /// Task priority for tie-breaking (higher = more important)
+            /// Task priority for tie-breaking (higher = more important).
+            /// The quantum solver prefers, among sampled schedules equal on the objective,
+            /// the one with the smallest Σ priority × end time. The classical solver starts
+            /// every task at its earliest feasible time, so priority does not change its result.
             Priority: float
 
             /// Custom properties for extensibility
@@ -68,7 +71,8 @@ module Types =
             /// Maximum units available
             Capacity: float
 
-            /// Time windows when available (start, end)
+            /// Time windows when available (start, end), in minutes from schedule start, bounds inclusive.
+            /// A task that requires this resource must run entirely inside one window.
             AvailableWindows: (float * float) list
 
             /// Cost per unit per time unit

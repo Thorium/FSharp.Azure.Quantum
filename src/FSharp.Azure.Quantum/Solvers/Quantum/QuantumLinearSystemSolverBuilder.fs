@@ -115,8 +115,8 @@ module QuantumLinearSystemSolver =
             /// Quantum backend to use (None = LocalBackend)
             Backend: BackendAbstraction.IQuantumBackend option
 
-            /// Not used: the solver reads the solution and its success probability
-            /// from the state vector exactly, without sampling.
+            /// Not used. A simulator is read exactly; a backend that runs complete circuits
+            /// only samples with its own configured shot count.
             Shots: int option
         }
 
@@ -145,10 +145,12 @@ module QuantumLinearSystemSolver =
             /// Whether post-selection was successful
             PostSelectionSuccess: bool
 
-            /// Solution amplitude distribution (basis state → amplitude)
-            /// Only available for local simulation
-            /// For backend execution, use measurement statistics
+            /// Solution amplitude distribution (basis state → amplitude). On a backend that
+            /// runs complete circuits only these are measured magnitudes: see Readout
             SolutionAmplitudes: Map<int, Complex> option
+
+            /// Amplitudes with signs and phases, or measured magnitudes without them
+            Readout: HhlReadout
 
             /// Backend used for execution
             BackendName: string
@@ -329,7 +331,7 @@ module QuantumLinearSystemSolver =
             : LinearSystemProblem =
             { problem with Backend = Some backend }
 
-        /// <summary>Accepted but not used: the solution is read from the state vector exactly.</summary>
+        /// <summary>Accepted but not used: a simulator is read exactly, and a backend that runs complete circuits only uses its own shot count.</summary>
         /// <param name="n">Ignored</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: LinearSystemProblem, n: int) : LinearSystemProblem = { problem with Shots = Some n }
@@ -434,6 +436,7 @@ module QuantumLinearSystemSolver =
                     GateCount = hhlResult.GateCount
                     PostSelectionSuccess = hhlResult.PostSelectionSuccess
                     SolutionAmplitudes = hhlResult.SolutionAmplitudes
+                    Readout = hhlResult.Readout
                     BackendName = backendName
                     IsQuantum = isQuantum
                     Success = hhlResult.PostSelectionSuccess

@@ -197,3 +197,180 @@ module PrimitivesTests =
         match Primitives.expectation h (QuantumState.SparseState(Map.empty, width)) with
         | Error(QuantumError.ValidationError("numQubits", _)) -> ()
         | other -> failwith $"expected a numQubits ValidationError, got: {other}"
+
+    // ========================================================================
+    // Shot-sampling (cloud) backends: measured expectations, no resampling
+    // ========================================================================
+
+    let private pauliTerm (letters: string) (coefficient: float) : TrotterSuzuki.PauliString =
+        {
+            Operators = letters.ToCharArray()
+            Coefficient = Complex(coefficient, 0.0)
+        }
+
+    let private hamiltonianOf (width: int) (terms: TrotterSuzuki.PauliString list) : TrotterSuzuki.PauliHamiltonian =
+        { Terms = terms; NumQubits = width }
+
+    let private exactObserve circuit hamiltonian =
+        match Primitives.observe (backend ()) circuit hamiltonian with
+        | Ok value -> value
+        | Error e -> failwith $"exact observe failed: {e.Message}"
+
+    /// |+i⟩ = S·H|0⟩: ⟨X⟩ = 0, ⟨Y⟩ = 1, ⟨Z⟩ = 0.
+    let private plusI () =
+        CircuitBuilder.empty 1
+        |> CircuitBuilder.addGates [ CircuitBuilder.H 0; CircuitBuilder.S 0 ]
+
+    [<Fact>]
+    let ``observe on a shot-sampling backend measures X and Y of |+i> in rotated bases`` () =
+        for (letter, expected) in [ "X", 0.0; "Y", 1.0; "Z", 0.0 ] do
+            let cloud = CloudStyleBackends.ShotSamplingCloud(20000, 5)
+            let h = hamiltonianOf 1 [ pauliTerm letter 1.0 ]
+
+            match Primitives.sampledExpectation cloud (plusI ()) h with
+            | Error e -> failwith $"sampledExpectation failed: {e.Message}"
+            | Ok estimate ->
+                Assert.True(
+                    abs (estimate.Value - expected) <= 5.0 * estimate.StandardError + 1e-9,
+                    $"<{letter}> = {estimate.Value} ± {estimate.StandardError}, expected {expected}"
+                )
+
+                Assert.Equal(Some 20000, estimate.ShotsPerCircuit)
+                Assert.Equal(1, estimate.Circuits)
+
+            // observe routes shot-sampling backends through the same measurement.
+            match Primitives.observe cloud (plusI ()) h with
+            | Ok value -> Assert.True(abs (value - expected) < 0.05, $"observe <{letter}> = {value}")
+            | Error e -> failwith $"observe failed: {e.Message}"
+
+            Assert.Equal(0, cloud.ApplyOperationCalls)
+
+    /// Seeded random 3-qubit circuit of rotations and CNOTs.
+    let private randomCircuit (seed: int) =
+        let rng = System.Random(seed)
+
+        let angle () =
+            (rng.NextDouble() - 0.5) * 2.0 * System.Math.PI
+
+        [
+            for layer in 0..2 do
+                for q in 0..2 do
+                    yield CircuitBuilder.U3(q, angle (), angle (), angle ())
+
+                yield CircuitBuilder.CNOT(layer % 3, (layer + 1) % 3)
+        ]
+        |> fun gates -> CircuitBuilder.empty 3 |> CircuitBuilder.addGates gates
+
+    /// Multi-term Hamiltonian with every Pauli letter, overlapping supports and a constant.
+    let private mixedHamiltonian () =
+        hamiltonianOf
+            3
+            [
+                pauliTerm "III" -0.7
+                pauliTerm "ZII" 0.4
+                pauliTerm "IZZ" -0.3
+                pauliTerm "XXI" 0.25
+                pauliTerm "IYY" 0.6
+                pauliTerm "XIY" -0.45
+                pauliTerm "YZX" 0.35
+                pauliTerm "ZZZ" 0.2
+            ]
+
+    [<Fact>]
+    let ``sampledExpectation agrees with the exact value within its standard error on random states`` () =
+        let h = mixedHamiltonian ()
+
+        for seed in 1..6 do
+            let circuit = randomCircuit seed
+            let exact = exactObserve circuit h
+            let cloud = CloudStyleBackends.ShotSamplingCloud(8000, 100 + seed)
+
+            match Primitives.sampledExpectation cloud circuit h with
+            | Error e -> failwith $"seed {seed}: {e.Message}"
+            | Ok estimate ->
+                Assert.True(estimate.StandardError > 0.0)
+
+                Assert.True(
+                    abs (estimate.Value - exact) <= 5.0 * estimate.StandardError,
+                    $"seed {seed}: sampled {estimate.Value} ± {estimate.StandardError}, exact {exact}"
+                )
+
+                // One whole-circuit job per qubit-wise commuting group, none for the constant.
+                let groups = Primitives.measurementGroups h
+                Assert.Equal(groups.Length, estimate.Circuits)
+                Assert.Equal(groups.Length, cloud.Jobs)
+
+    [<Fact>]
+    let ``measurementGroups are qubit-wise commuting and cover every non-identity term once`` () =
+        let h = mixedHamiltonian ()
+        let groups = Primitives.measurementGroups h
+
+        let covered = groups |> List.collect (fun g -> g.Terms)
+        Assert.Equal(h.Terms.Length - 1, covered.Length) // all but the identity
+
+        for group in groups do
+            for term in group.Terms do
+                term.Operators
+                |> Array.iteri (fun q p ->
+                    if p <> 'I' then
+                        Assert.Equal(group.Basis.[q], p))
+
+    [<Fact>]
+    let ``sampledExpectation on an exact backend is the exact value and observe keeps its route`` () =
+        let h = mixedHamiltonian ()
+        let circuit = randomCircuit 42
+
+        match Primitives.sampledExpectation (backend ()) circuit h with
+        | Ok estimate ->
+            Assert.True(abs (estimate.Value - exactObserve circuit h) < 1e-9)
+            Assert.Equal(0.0, estimate.StandardError)
+            Assert.Equal(None, estimate.ShotsPerCircuit)
+        | Error e -> failwith e.Message
+
+        // The exact route runs the circuit once and reads the state; it measures no groups.
+        let counting =
+            CloudStyleBackends.CountingBackend(LocalBackend.LocalBackend() :> IQuantumBackend)
+
+        match Primitives.observe counting circuit h with
+        | Ok value -> Assert.True(abs (value - exactObserve circuit h) < 1e-12)
+        | Error e -> failwith e.Message
+
+        Assert.Equal(1, counting.Executions)
+
+    [<Fact>]
+    let ``sample on a shot-sampling backend returns its measured counts without resampling`` () =
+        let measured = Map.ofList [ "00", 13; "01", 5; "10", 1; "11", 981 ]
+        let cloud = CloudStyleBackends.FixedHistogramCloud(measured, 2, 1000)
+
+        // Azure keys are rightmost = qubit 0; sample keys are character q = qubit q.
+        let expected = Map.ofList [ "00", 13; "10", 5; "01", 1; "11", 981 ]
+
+        for _ in 1..3 do
+            match Primitives.sample cloud (bell ()) 1000 with
+            | Ok histogram -> Assert.Equal<Map<string, int>>(expected, histogram)
+            | Error e -> failwith e.Message
+
+        match Primitives.run cloud (bell ()) 1000 with
+        | Ok shots ->
+            Assert.Equal(1000, shots.Length)
+
+            let counted =
+                shots |> Array.countBy (Array.map string >> System.String.Concat) |> Map.ofArray
+
+            Assert.Equal<Map<string, int>>(expected, counted)
+        | Error e -> failwith e.Message
+
+    [<Fact>]
+    let ``sample on a shot-sampling backend refuses a shot count it did not measure`` () =
+        let cloud =
+            CloudStyleBackends.FixedHistogramCloud(Map.ofList [ "00", 1000 ], 2, 1000)
+
+        match Primitives.sample cloud (bell ()) 2048 with
+        | Error(QuantumError.ValidationError("shots", _)) -> ()
+        | other -> failwith $"expected a shots ValidationError, got {other}"
+
+        match Primitives.run cloud (bell ()) 10 with
+        | Error(QuantumError.ValidationError("shots", _)) -> ()
+        | other -> failwith $"expected a shots ValidationError, got {other}"
+
+        Assert.Equal(0, cloud.Jobs)

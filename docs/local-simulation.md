@@ -184,6 +184,8 @@ There is no single result record shared by every call; each level returns what i
 
 Bitstrings from `Primitives.sample` list **qubit 0 first**: `"10"` means qubit 0 measured 1 and qubit 1 measured 0. `QaoaSimulator.simulate` (below) writes the **highest qubit first**, like `Convert.ToString(index, 2)`.
 
+On the local simulator `shots` can be anything. On a cloud backend `sample` and `run` return the job's own measured shots, so `shots` must equal the count the backend was created with (anything else is an `Error`), and `observe` is estimated from shots, one job per commuting group of Pauli terms.
+
 Because every backend returns the same shapes, it is easy to:
 - Compare results between backends
 - Log execution metrics consistently
@@ -348,7 +350,7 @@ The circuit starts from the uniform superposition (H on every qubit). For depth 
    - Rz rotations for single-qubit (diagonal) terms
    - ZZ rotations (CNOT - Rz - CNOT) for two-qubit terms, with angle 2·γ·weight
 2. **Mixer Hamiltonian**: Enables exploration
-   - Rx rotations on all qubits
+   - Rx(-2β) on all qubits: e^(-iβH_M) with H_M = -Σ Xᵢ, whose ground state is the initial |+⟩^⊗n, so positive (γ, β) lower the cost (minimisation)
 
 **QAOA Circuit Formula:**
 

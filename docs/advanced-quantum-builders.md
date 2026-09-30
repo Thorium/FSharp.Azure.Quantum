@@ -6,6 +6,8 @@ This guide covers builders for well-known quantum algorithms: Grover search (tre
 
 **⚠️ Current Limitations**: The builders run on the local simulator by default. Its qubit limit is derived from available memory and capped at 30, and most builders here set tighter limits of their own (16 qubits for the Grover-based builders, 20 for phase estimation precision). A simulator evaluates your predicates and evaluation functions classically for every basis state, so it shows how the algorithms work but gives no speedup. Real RSA-size problems need thousands of error-corrected qubits.
 
+**Cloud backends**: every builder here also takes a gate-based cloud backend (`backend` operation). There the algorithm is built as one complete circuit and submitted as a whole-circuit job, transpiled to the provider's gates: one job per Grover search, per arithmetic operation, per phase estimation and per Shor base. Results come from the job's measured counts, and every job is billed.
+
 ---
 
 ## Table of Contents
@@ -707,7 +709,8 @@ match shor with
         printfn "Period: %d" result.Period
         match result.Factors with
         | Some (p, q) ->
-            printfn "Factors: %d × %d = %d" p q (p * q)
+            // QuantumPeriodFinding, or ClassicalPreprocessing when no circuit ran
+            printfn "Factors: %d × %d = %d (%A)" p q (p * q) result.FactorSource
         | None ->
             printfn "Period found but no factors (retry)"
     | Error err ->
@@ -738,6 +741,7 @@ type PeriodFinderResult = {
     Period: int                  // Period found
     Base: int                    // Base used
     Factors: (int * int) option  // Factors (if found)
+    FactorSource: Algorithms.ShorsTypes.FactorSource  // QuantumPeriodFinding | ClassicalPreprocessing | NotFactored
     PhaseEstimate: float         // QPE phase estimate
     QubitsUsed: int              // Qubits used
     Attempts: int                // QPE shots used by the successful run
@@ -746,6 +750,10 @@ type PeriodFinderResult = {
     Message: string
 }
 ```
+
+`FactorSource` (in `Algorithms.ShorsTypes`) keeps a lucky gcd apart from a quantum result: `ClassicalPreprocessing` means N was even or the drawn base shared a factor with N, so no circuit ran and `Period` is 0.
+
+**Backends**: the period finding runs gate by gate on the local simulator and as one native intent on the topological backend. A cloud backend gets the whole modular-exponentiation circuit as one job per base tried; retries of the phase readout take further samples from that job's counts. Even N = 15 is a deep circuit (20 qubits with 8 counting qubits), far beyond what today's hardware runs without errors.
 
 ### Use Cases
 
@@ -818,7 +826,7 @@ The quantum advantage is exponential in theory, but it needs a fault-tolerant qu
 
 | Key Size | Logical qubits (2n+3, Beauregard circuit) | Available Today? |
 |----------|-------------------------------------------|------------------|
-| 4-bit (N = 15) | ~11, plus precision qubits | ✅ Yes (LocalBackend) |
+| 4-bit (N = 15) | ~11, plus precision qubits | ✅ Yes on LocalBackend; the cloud backends accept the circuit, but today's noise swamps a circuit this deep |
 | 100-bit | ~200 | ❌ No |
 | 2048-bit (standard) | ~4,100 logical, many more physical | ❌ No (needs fault tolerance) |
 | 4096-bit (high-security) | ~8,200 logical | ❌ No |
@@ -992,7 +1000,7 @@ match tGateProblem with
 
 ### Complexity
 
-QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) applications and an inverse QFT. Its advantage comes when U is a Hamiltonian evolution that a quantum computer can apply efficiently but a classical computer cannot simulate; the single-qubit gates here are for learning how QPE works.
+QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) applications and an inverse QFT. Its advantage comes when U is a Hamiltonian evolution that a quantum computer can apply efficiently but a classical computer cannot simulate; the single-qubit gates here are for learning how QPE works. For a molecular Hamiltonian, `GroundStateMethod.QPE` (`QuantumChemistry.QPE.run`) phase-estimates the Trotterised e^(−iHt) of the molecule's integrals and reports every peak of the outcome distribution; see [Bring Your Own Hamiltonian](bring-your-own-hamiltonian.md#quantum-phase-estimation-of-a-molecular-energy).
 
 ### Precision vs. Qubits
 
@@ -1007,7 +1015,7 @@ QPE with n counting qubits resolves φ to 1/2^n using n controlled-U^(2^k) appli
 
 ### See Working Examples
 
-- [`examples/PhaseEstimation/MolecularEnergy.fsx`](../examples/PhaseEstimation/MolecularEnergy.fsx) - Phases of T, Rz(θ) and P(φ) read by QPE; the "molecular" scenario is a one-qubit stand-in, not a molecular Hamiltonian
+- [`examples/PhaseEstimation/MolecularEnergy.fsx`](../examples/PhaseEstimation/MolecularEnergy.fsx) - Phases of T, Rz(θ) and P(φ) read by QPE (the "molecular" scenario is a one-qubit stand-in), and the `h2` scenario: the H₂ ground-state energy by QPE of its STO-3G Hamiltonian, within 0.7 mHa of FCI on 12 qubits
 
 ---
 

@@ -128,6 +128,11 @@ module VariableEncoding =
 
     /// Generate QUBO penalty matrix for encoding constraints.
     /// Weight parameter controls penalty strength (higher = stricter constraint).
+    ///
+    /// The matrix is symmetric and read as x^T Q x (a pair term is split across Q[i,j]
+    /// and Q[j,i]). OneHot: weight × (Σ x - 1)² without its constant, i.e. Q[i,i] = -weight
+    /// and Q[i,j] = Q[j,i] = weight, so k active bits cost weight × (k² - 2k): exactly one
+    /// bit gives -weight, zero or two bits give 0.
     let constraintPenalty (encoding: VariableEncoding) (weight: float) : float[,] =
         let n = qubitCount encoding
         let penalty = Array2D.zeroCreate<float> n n
@@ -139,19 +144,19 @@ module VariableEncoding =
 
         | OneHot _ ->
             // Constraint: Exactly one qubit must be active
-            // Penalty: (Σxi - 1)^2 = Σxi^2 - 2Σxi + ΣΣ(2xixj) + 1
+            // Penalty: (Σxi - 1)^2 = Σxi^2 - 2Σxi + 2Σ_{i<j} xixj + 1
             // For binary: xi^2 = xi
-            // QUBO form: -Σxi + ΣΣ(2xixj)
+            // QUBO form: -Σxi + 2Σ_{i<j} xixj
 
             // Diagonal terms: -weight per qubit
             for i in 0 .. n - 1 do
                 penalty.[i, i] <- -weight
 
-            // Off-diagonal terms: 2 * weight per interaction
+            // Pair term 2 * weight per interaction, split symmetrically
             for i in 0 .. n - 1 do
                 for j in i + 1 .. n - 1 do
-                    penalty.[i, j] <- 2.0 * weight
-                    penalty.[j, i] <- 2.0 * weight
+                    penalty.[i, j] <- weight
+                    penalty.[j, i] <- weight
 
             penalty
 
@@ -235,14 +240,21 @@ module QuboEncoding =
             VariableNames = allQubitNames
         }
 
+    /// Encode variables with a one-hot penalty (Σ bits - 1)² of weight 1 on each
+    /// categorical variable; binary and bounded-integer variables get no penalty.
+    ///
+    /// QUBO form: minimize x^T Q x with Q symmetric (a pair term is split across Q[i,j]
+    /// and Q[j,i]); the constant 1 of each expanded square is dropped. Per categorical
+    /// variable: Q[i,i] = -1 and Q[i,j] = Q[j,i] = 1, so k active bits cost k² - 2k:
+    /// exactly one bit gives -1, and zero or two bits give 0, a gap of 1 above valid.
     let encodeVariablesWithConstraints (variables: Variable list) : QuboMatrix =
         // Start with basic encoding
         let qubo = encodeVariables variables
 
-        // Add one-hot constraints for integer/categorical variables
+        // Add one-hot constraints for categorical variables
         // Constraint: exactly one bit must be set
-        // Penalty: (sum(bits) - 1)^2 = sum(bits^2) - 2*sum(bits) + sum(cross_terms)
-        // For binary: bits^2 = bits, so: -sum(bits) + sum(cross_terms)
+        // Penalty: (sum(bits) - 1)^2 = sum(bits^2) - 2*sum(bits) + 2*sum_{i<j}(bits_i*bits_j) + 1
+        // For binary: bits^2 = bits, so: -sum(bits) + 2*sum_{i<j}(bits_i*bits_j) + 1
 
         // Helper to apply one-hot constraint penalties to a qubit range
         let applyOneHotPenalty startIdx numBits =
@@ -250,13 +262,13 @@ module QuboEncoding =
             [ 0 .. numBits - 1 ]
             |> List.iter (fun i -> qubo.Coefficients.[startIdx + i, startIdx + i] <- -1.0)
 
-            // Off-diagonal penalties: +2 * bit_i * bit_j (discourages multiple)
+            // Pair penalty 2 * bit_i * bit_j (discourages multiple), split symmetrically
             [ 0 .. numBits - 1 ]
             |> List.iter (fun i ->
                 [ i + 1 .. numBits - 1 ]
                 |> List.iter (fun j ->
-                    qubo.Coefficients.[startIdx + i, startIdx + j] <- 2.0
-                    qubo.Coefficients.[startIdx + j, startIdx + i] <- 2.0))
+                    qubo.Coefficients.[startIdx + i, startIdx + j] <- 1.0
+                    qubo.Coefficients.[startIdx + j, startIdx + i] <- 1.0))
 
         // Apply constraints using fold to track offset functionally
         variables
@@ -278,6 +290,11 @@ module QuboEncoding =
 
         qubo
 
+    /// Encode variables with custom constraint penalties.
+    ///
+    /// EqualityConstraint(indices, t): penaltyWeight × (Σ x - t)² without its constant t²,
+    /// in the symmetric x^T Q x convention: Q[i,i] += penaltyWeight × (1 - 2t) and
+    /// Q[i,j] = Q[j,i] += penaltyWeight (2 × penaltyWeight per pair in x^T Q x).
     let encodeVariablesWithCustomConstraints
         (variables: Variable list)
         (constraints: Constraint list)
@@ -294,14 +311,14 @@ module QuboEncoding =
             |> List.iter (fun i ->
                 qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight * (1.0 - 2.0 * target))
 
-            // Off-diagonal terms: 2 * weight
+            // Pair terms: 2 * weight per pair, split symmetrically
             indices
             |> List.iter (fun i ->
                 indices
                 |> List.filter (fun j -> i < j)
                 |> List.iter (fun j ->
-                    qubo.Coefficients.[i, j] <- qubo.Coefficients.[i, j] + penaltyWeight * 2.0
-                    qubo.Coefficients.[j, i] <- qubo.Coefficients.[j, i] + penaltyWeight * 2.0))
+                    qubo.Coefficients.[i, j] <- qubo.Coefficients.[i, j] + penaltyWeight
+                    qubo.Coefficients.[j, i] <- qubo.Coefficients.[j, i] + penaltyWeight))
 
         // Helper to apply inequality constraint penalties
         let applyInequalityConstraint indices maxVal =
@@ -485,10 +502,22 @@ module ProblemTransformer =
     ///
     /// Edge-based: Variable x[i][j] represents "travel from city i to city j"
     /// Objective: minimize total distance = minimize Σ distance[i,j] * x[i,j]
+    /// Constraints (P = constraintPenalty), for every city k:
+    ///   enter once: P * (1 - Σ_i x[i][k])²     exit once: P * (1 - Σ_j x[k][j])²
     ///
-    /// QUBO form: minimize x^T Q x
-    /// - Diagonal Q[k,k] = -distance[i,j] for edge (i,j) at index k
-    /// - Off-diagonal contains constraint penalties
+    /// QUBO form: minimize x^T Q x with Q symmetric (a pair term is split across
+    /// Q[a,b] and Q[b,a]); the constant 2nP of the expanded squares is dropped, so a
+    /// valid assignment has energy (tour length - 2nP).
+    /// - Diagonal Q[k,k] = distance[i,j] - 2P for edge (i,j), i ≠ j (one -P per constraint)
+    /// - Q[a,b] = Q[b,a] = P for two edges entering the same city or leaving the same city
+    /// - Self-loops x[i][i] get diagonal +P and take part in no constraint, so they are never chosen
+    ///
+    /// With non-negative distances, every minimum satisfies the constraints when P exceeds
+    /// n × the largest distance (a violation costs at least P, a valid assignment at most
+    /// that much); smaller penalties can let a constraint violation win. The constraints make the chosen edges a permutation, not a single tour: an
+    /// assignment made of several disjoint cycles (subtours) is valid in this QUBO and
+    /// can be its minimum. Excluding subtours needs extra variables (e.g. the node-based
+    /// position encoding).
     let encodeTspEdgeBased (distances: float[,]) (constraintPenalty: float) : QuboMatrix =
         let n = distances.GetLength 0
         let size = n * n
@@ -497,39 +526,38 @@ module ProblemTransformer =
         // Helper: Convert (i,j) edge to flat index
         let edgeIndex i j = i * n + j
 
-        // Step 1: Encode objective (minimize total distance)
+        // Step 1: Objective plus the linear part of both constraints
         for i in 0 .. n - 1 do
             for j in 0 .. n - 1 do
                 let idx = edgeIndex i j
 
                 if i = j then
-                    // Self-loops: penalize heavily (we don't want city to itself)
+                    // Self-loop: pure cost, no constraint reward
                     q.[idx, idx] <- constraintPenalty
                 else
-                    // Edge weight: negative because we want to minimize distance
-                    // But we also want to SELECT edges, so use negative distance
-                    q.[idx, idx] <- -distances.[i, j]
+                    // Distance, and -P from each of "enter j once" and "exit i once"
+                    q.[idx, idx] <- distances.[i, j] - 2.0 * constraintPenalty
 
-        // Step 2: Add constraint penalties
+        // Step 2: Pairwise part of the constraints: 2P per pair, split symmetrically
         // Constraint 1: Each city must be entered exactly once
         for j in 0 .. n - 1 do
             for i1 in 0 .. n - 1 do
                 for i2 in i1 + 1 .. n - 1 do
-                    let idx1 = edgeIndex i1 j
-                    let idx2 = edgeIndex i2 j
-                    // Penalty for multiple entries to city j
-                    q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
-                    q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+                    if i1 <> j && i2 <> j then
+                        let idx1 = edgeIndex i1 j
+                        let idx2 = edgeIndex i2 j
+                        q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                        q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
 
         // Constraint 2: Each city must be exited exactly once
         for i in 0 .. n - 1 do
             for j1 in 0 .. n - 1 do
                 for j2 in j1 + 1 .. n - 1 do
-                    let idx1 = edgeIndex i j1
-                    let idx2 = edgeIndex i j2
-                    // Penalty for multiple exits from city i
-                    q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
-                    q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+                    if j1 <> i && j2 <> i then
+                        let idx1 = edgeIndex i j1
+                        let idx2 = edgeIndex i j2
+                        q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                        q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
 
         // Generate variable names
         let varNames =

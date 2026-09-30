@@ -224,7 +224,7 @@ module QuantumRiskEngineTests =
         Assert.True(report.ExpectedShortfall.IsSome, "ES should be computed")
 
     [<Fact>]
-    let ``quantum path should compute Volatility classically`` () =
+    let ``quantum path should compute Volatility`` () =
         let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
 
         let config =
@@ -485,3 +485,58 @@ module QuantumRiskEngineTests =
         let report2 = RiskEngine.execute config
         Assert.Equal(report1.VaR, report2.VaR)
         Assert.Equal(report1.Volatility, report2.Volatility)
+
+    // ========================================================================
+    // ROUTES: every quantum metric from amplitude estimation
+    // ========================================================================
+
+    let private quantumConfig (backend: IQuantumBackend) =
+        { defaultConfig with
+            UseAmplitudeEstimation = true
+            Backend = Some backend
+            NumQubits = 4
+            GroverIterations = 2
+            Shots = 1000
+            SimulationPaths = 2000
+            Metrics = [ ValueAtRisk; ConditionalVaR; Volatility ]
+        }
+
+    let private run config =
+        match RiskEngine.executeAsync config |> Async.RunSynchronously with
+        | Ok report -> report
+        | Error e -> failwith $"Expected Ok, got Error: {e}"
+
+    [<Fact>]
+    let ``quantum volatility matches the returns' standard deviation on the local simulator`` () =
+        let report = run (quantumConfig (LocalBackend.LocalBackend()))
+
+        let classical =
+            run
+                { quantumConfig (LocalBackend.LocalBackend()) with
+                    UseAmplitudeEstimation = false
+                }
+
+        match report.Volatility, classical.Volatility with
+        | ValueSome q, ValueSome c ->
+            // Bin midpoints on 16 bins: a few per cent of discretisation error, no more.
+            Assert.True(abs (q - c) / c < 0.05, $"quantum {q} vs sample {c}")
+        | _ -> failwith "Expected both volatilities"
+
+    [<Fact>]
+    let ``quantum VaR and CVaR on a whole-circuit sampling backend agree with the exact local estimates`` () =
+        let backend = SampledWholeCircuit.Backend(8000, 17)
+        let local = run (quantumConfig (LocalBackend.LocalBackend()))
+        let sampled = run (quantumConfig backend)
+
+        Assert.Equal("Quantum Amplitude Estimation", local.Method)
+        Assert.Contains("whole circuits sampled at 8000 shots", sampled.Method)
+        Assert.True(backend.Executed > 0)
+
+        match local.VaR, sampled.VaR, local.CVaR, sampled.CVaR, sampled.Volatility with
+        | ValueSome lv, ValueSome sv, ValueSome lc, ValueSome sc, ValueSome vol ->
+            // Bisection on a sampled CDF may stop one bin away; one bin is 1/16 of the range.
+            let binWidth = 0.02 * 8.0 / 16.0
+            Assert.True(abs (lv - sv) <= binWidth + 1e-9, $"VaR local {lv} vs sampled {sv}")
+            Assert.True(abs (lc - sc) <= binWidth, $"CVaR local {lc} vs sampled {sc}")
+            Assert.True(vol > 0.0)
+        | other -> failwith $"Expected every metric, got {other}"

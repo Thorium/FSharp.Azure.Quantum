@@ -5,6 +5,15 @@ namespace FSharp.Azure.Quantum.Core
 /// Implements QAOA (Quantum Approximate Optimization Algorithm) circuit construction
 /// from QUBO matrices for Azure Quantum submission.
 ///
+/// Sign convention (minimisation): a p-layer circuit prepares
+///   |ψ(γ, β)⟩ = e^(-iβₚH_M) e^(-iγₚH_C) … e^(-iβ₁H_M) e^(-iγ₁H_C) |+⟩^n
+/// where H_C is the Ising form of the QUBO (lower energy = better solution) and the
+/// standard mixer is H_M = -Σ Xᵢ, whose ground state is the initial state |+⟩^n. With
+/// the gate conventions RZ(θ) = e^(-iθZ/2), RZZ(θ) = e^(-iθZZ/2), RX(θ) = e^(-iθX/2), a
+/// term c·P becomes a rotation by 2cγ (cost) or 2cβ (mixer), so each mixer gate is
+/// RX(-2β). Small γ > 0 with 0 < β < π/4 lowers ⟨H_C⟩ below its uniform-superposition
+/// value; the mirrored angles (-γ, β) raise it (the maximisation convention).
+///
 /// ⚠️ CRITICAL: ALL QAOA circuit code in this SINGLE FILE for AI context optimization
 module QaoaCircuit =
 
@@ -211,21 +220,47 @@ module QaoaCircuit =
 
             fromQuboSparse n entries
 
+        /// Scale a Hamiltonian so its largest |coefficient| is 1. A Hamiltonian with no
+        /// non-zero coefficient is returned unchanged.
+        ///
+        /// A positive scale keeps the ground state and the energy order, and puts the cost
+        /// angle γ on a problem-independent scale: e^(-iγH) with γ = 0.5 means the same for a
+        /// unit-weight MaxCut and for a penalty QUBO with coefficients in the thousands, where
+        /// the unscaled phases wrap many times around the circle. The solver pipeline
+        /// (QaoaExecutionHelpers) builds every circuit from the normalised Hamiltonian, so
+        /// solver angles (defaults, grids, optimised parameters) are in these units.
+        let normalize (hamiltonian: ProblemHamiltonian) : ProblemHamiltonian =
+            let scale =
+                hamiltonian.Terms |> Array.fold (fun m term -> max m (abs term.Coefficient)) 0.0
+
+            if scale > 0.0 && scale <> 1.0 then
+                { hamiltonian with
+                    Terms =
+                        hamiltonian.Terms
+                        |> Array.map (fun term ->
+                            { term with
+                                Coefficient = term.Coefficient / scale
+                            })
+                }
+            else
+                hamiltonian
+
     // ============================================================================
     // 3. MIXER HAMILTONIAN CONSTRUCTION
     // ============================================================================
 
     module MixerHamiltonian =
 
-        /// Create standard mixer Hamiltonian (X rotations on all qubits)
+        /// Create the standard transverse-field mixer H_mix = -Σ_i X_i.
         ///
-        /// The mixer Hamiltonian is: H_mix = Σ_i X_i
-        /// This allows exploration of the solution space in QAOA
+        /// The minus sign makes the initial state |+⟩^n the mixer's ground state, so
+        /// positive (γ, β) minimise the cost (see the module's sign convention); e^(-iβH_mix)
+        /// is RX(-2β) on every qubit.
         let create (numQubits: int) : MixerHamiltonian =
             let terms =
                 Array.init numQubits (fun i ->
                     {
-                        Coefficient = 1.0
+                        Coefficient = -1.0
                         QubitsIndices = [| i |]
                         PauliOperators = [| PauliX |]
                     })
@@ -247,7 +282,10 @@ module QaoaCircuit =
         /// For Hamiltonian term with coefficient c and Pauli operator P:
         /// - Single-qubit Z: RZ(2*c*γ)
         /// - Two-qubit ZZ: RZZ(2*c*γ)
-        /// - Single-qubit X: RX(2*c*β)
+        /// - Single-qubit X: RX(2*c*β), i.e. RX(-2β) for the standard mixer (c = -1)
+        ///
+        /// The Hamiltonian is used as given; solvers normalise it first
+        /// (ProblemHamiltonian.normalize).
         let buildLayer
             (problemHam: ProblemHamiltonian)
             (mixerHam: MixerHamiltonian)
