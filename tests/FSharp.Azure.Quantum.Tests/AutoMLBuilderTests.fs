@@ -267,7 +267,9 @@ module AutoMLBuilderTests =
         task {
             match! searchAsync defaultProblem CancellationToken.None with
             | Ok result ->
-                match predict [| 0.1; 0.2 |] result with
+                let! predicted = predictAsync [| 0.1; 0.2 |] result CancellationToken.None
+
+                match predicted with
                 | Ok prediction ->
                     // defaultProblem tries binary classification only
                     match prediction with
@@ -319,73 +321,86 @@ module AutoMLBuilderTests =
 
     [<Fact>]
     let ``CE autoML with trainWith should succeed`` () =
-        let features, labels = makeBinaryData ()
+        task {
+            let features, labels = makeBinaryData ()
 
-        let result =
-            autoML {
-                trainWith features labels
-                maxTrials 1
-                tryBinaryClassification true
-                tryAnomalyDetection false
-                tryRegression false
-                tryArchitectures [ Quantum ]
-                randomSeed 42
-            }
+            let! result =
+                autoML {
+                    trainWith features labels
+                    maxTrials 1
+                    tryBinaryClassification true
+                    tryAnomalyDetection false
+                    tryRegression false
+                    tryArchitectures [ Quantum ]
+                    randomSeed 42
+                }
 
-        match result with
-        | Ok r ->
-            Assert.True(r.BestModelType.Length > 0)
-            Assert.True(r.Score >= 0.0)
-        | Error e -> failwith $"Expected Ok, got Error: {e}"
+            match result with
+            | Ok r ->
+                Assert.True(r.BestModelType.Length > 0)
+                Assert.True(r.Score >= 0.0)
+            | Error e -> failwith $"Expected Ok, got Error: {e}"
+        }
+        :> Task
 
     [<Fact>]
     let ``CE autoML with empty data should return error`` () =
-        let result =
-            autoML {
-                trainWith [||] [||]
-                maxTrials 1
-            }
+        task {
+            let! result =
+                autoML {
+                    trainWith [||] [||]
+                    maxTrials 1
+                }
 
-        match result with
-        | Error(QuantumError.ValidationError _) -> ()
-        | other -> failwith $"Expected ValidationError for empty data, got {other}"
+            match result with
+            | Error(QuantumError.ValidationError _) -> ()
+            | other -> failwith $"Expected ValidationError for empty data, got {other}"
+        }
+        :> Task
 
     [<Fact>]
     let ``CE autoML with explicit backend should succeed`` () =
-        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
-        let features, labels = makeBinaryData ()
+        task {
+            let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let features, labels = makeBinaryData ()
 
-        let result =
-            autoML {
-                trainWith features labels
-                maxTrials 1
-                tryBinaryClassification true
-                tryAnomalyDetection false
-                tryRegression false
-                tryArchitectures [ Quantum ]
-                backend quantumBackend
-                randomSeed 42
-            }
+            let! result =
+                autoML {
+                    trainWith features labels
+                    maxTrials 1
+                    tryBinaryClassification true
+                    tryAnomalyDetection false
+                    tryRegression false
+                    tryArchitectures [ Quantum ]
+                    backend quantumBackend
+                    randomSeed 42
+                }
 
-        result
-        |> Result.map (fun r -> Assert.True(r.BestModelType.Length > 0))
-        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+            result
+            |> Result.map (fun r -> Assert.True(r.BestModelType.Length > 0))
+            |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        }
+        :> Task
 
     [<Fact>]
     let ``CE autoML with maxTrials should limit trial count`` () =
-        let features, labels = makeBinaryData ()
+        task {
+            let features, labels = makeBinaryData ()
 
-        let result =
-            autoML {
-                trainWith features labels
-                maxTrials 2
-                tryBinaryClassification true
-                tryAnomalyDetection false
-                tryRegression false
-                tryArchitectures [ Quantum ]
-                randomSeed 42
-            }
+            let! result =
+                autoML {
+                    trainWith features labels
+                    maxTrials 2
+                    tryBinaryClassification true
+                    tryAnomalyDetection false
+                    tryRegression false
+                    tryArchitectures [ Quantum ]
+                    randomSeed 42
+                }
 
-        result
-        |> Result.map (fun r -> Assert.True(r.AllTrials.Length <= 2, $"Expected <= 2 trials, got {r.AllTrials.Length}"))
-        |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+            result
+            |> Result.map (fun r ->
+                Assert.True(r.AllTrials.Length <= 2, $"Expected <= 2 trials, got {r.AllTrials.Length}"))
+            |> Result.defaultWith (fun e -> failwith $"Expected Ok, got Error: {e}")
+        }
+        :> Task

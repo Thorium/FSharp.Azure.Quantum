@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Tests
 
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
@@ -193,44 +194,50 @@ module QuantumRegressionHHLTests =
 
     [<Fact>]
     let ``PredictiveModel quantum regression configuration`` () =
-        let X = [| [| 1.0; 0.0 |]; [| 0.0; 1.0 |] |]
-        let y = [| 1.0; 2.0 |]
+        task {
+            let X = [| [| 1.0; 0.0 |]; [| 0.0; 1.0 |] |]
+            let y = [| 1.0; 2.0 |]
 
-        let modelResult =
-            predictiveModel {
-                trainWith X y
-                problemType Regression
-                architecture Quantum
-                shots 1000
-                verbose false
-            }
+            let! modelResult =
+                predictiveModel {
+                    trainWith X y
+                    problemType Regression
+                    architecture Quantum
+                    shots 1000
+                    verbose false
+                }
 
-        match modelResult with
-        | Error msg -> Assert.Fail($"Model training failed: {msg}")
-        | Ok model ->
-            Assert.Equal(Regression, model.Metadata.ProblemType)
-            Assert.Equal(Quantum, model.Metadata.Architecture)
-            Assert.True(model.Metadata.NumFeatures > 0)
+            match modelResult with
+            | Error msg -> Assert.Fail($"Model training failed: {msg}")
+            | Ok model ->
+                Assert.Equal(Regression, model.Metadata.ProblemType)
+                Assert.Equal(Quantum, model.Metadata.Architecture)
+                Assert.True(model.Metadata.NumFeatures > 0)
+        }
+        :> Task
 
     [<Fact>]
     let ``PredictiveModel hybrid regression uses HHL`` () =
-        let X = [| [| 1.0; 0.0 |]; [| 0.0; 1.0 |] |]
-        let y = [| 1.0; 2.0 |]
+        task {
+            let X = [| [| 1.0; 0.0 |]; [| 0.0; 1.0 |] |]
+            let y = [| 1.0; 2.0 |]
 
-        let modelResult =
-            predictiveModel {
-                trainWith X y
-                problemType Regression
-                architecture Hybrid
-                shots 1000
-                verbose false
-            }
+            let! modelResult =
+                predictiveModel {
+                    trainWith X y
+                    problemType Regression
+                    architecture Hybrid
+                    shots 1000
+                    verbose false
+                }
 
-        match modelResult with
-        | Error msg -> Assert.Fail($"Hybrid model training failed: {msg}")
-        | Ok model ->
-            Assert.Equal(Regression, model.Metadata.ProblemType)
-            Assert.Equal(Hybrid, model.Metadata.Architecture)
+            match modelResult with
+            | Error msg -> Assert.Fail($"Hybrid model training failed: {msg}")
+            | Ok model ->
+                Assert.Equal(Regression, model.Metadata.ProblemType)
+                Assert.Equal(Hybrid, model.Metadata.Architecture)
+        }
+        :> Task
 
     // ========================================================================
     // COMPREHENSIVE ACCURACY TESTS

@@ -176,7 +176,20 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
         /// <returns>A trained <see cref="IBinaryClassifier"/> instance.</returns>
+        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
         public IBinaryClassifier Build()
+        {
+            return BuildAsync().GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Build and train the classifier without blocking the calling thread.
+        /// Returns a trained classifier ready for predictions.
+        /// </summary>
+        /// <param name="cancellationToken">Cancels training.</param>
+        /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
+        /// <returns>A trained <see cref="IBinaryClassifier"/> instance.</returns>
+        public async Task<IBinaryClassifier> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Build F# problem specification
             var problem = new BinaryClassifier.ClassificationProblem(
@@ -196,7 +209,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 FSharpOption<Microsoft.Extensions.Logging.ILogger>.None);
 
             // Train classifier
-            var result = BinaryClassifier.train(problem);
+            var result = await BinaryClassifier.trainAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -262,7 +275,16 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// </summary>
         /// <param name="sample">Feature vector to classify.</param>
         /// <returns>Prediction result with label and confidence.</returns>
+        [Obsolete("Use ClassifyAsync for non-blocking execution against cloud backends")]
         ClassificationResult Classify(double[] sample);
+
+        /// <summary>
+        /// Classify a new sample without blocking the calling thread.
+        /// </summary>
+        /// <param name="sample">Feature vector to classify.</param>
+        /// <param name="cancellationToken">Cancels the prediction.</param>
+        /// <returns>Prediction result with label and confidence.</returns>
+        Task<ClassificationResult> ClassifyAsync(double[] sample, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Evaluate classifier on test set.
@@ -270,13 +292,32 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <param name="testFeatures">Test samples.</param>
         /// <param name="testLabels">True labels.</param>
         /// <returns>Evaluation metrics.</returns>
+        [Obsolete("Use EvaluateAsync for non-blocking execution against cloud backends")]
         EvaluationMetrics Evaluate(double[][] testFeatures, int[] testLabels);
+
+        /// <summary>
+        /// Evaluate classifier on test set without blocking the calling thread.
+        /// </summary>
+        /// <param name="testFeatures">Test samples.</param>
+        /// <param name="testLabels">True labels.</param>
+        /// <param name="cancellationToken">Cancels the evaluation.</param>
+        /// <returns>Evaluation metrics.</returns>
+        Task<EvaluationMetrics> EvaluateAsync(double[][] testFeatures, int[] testLabels, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Save classifier to file.
         /// </summary>
         /// <param name="path">Path to save the classifier.</param>
+        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
         void SaveTo(string path);
+
+        /// <summary>
+        /// Save classifier to file without blocking the calling thread.
+        /// </summary>
+        /// <param name="path">Path to save the classifier.</param>
+        /// <param name="cancellationToken">Cancels the save.</param>
+        /// <returns>A task that completes when the classifier is saved.</returns>
+        Task SaveToAsync(string path, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Gets get classifier metadata.
@@ -389,9 +430,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             _classifier = classifier;
         }
 
+        [Obsolete("Use ClassifyAsync for non-blocking execution against cloud backends")]
         public ClassificationResult Classify(double[] sample)
         {
-            var result = BinaryClassifier.predict(sample, _classifier);
+            return ClassifyAsync(sample).GetAwaiter().GetResult();
+        }
+
+        public async Task<ClassificationResult> ClassifyAsync(double[] sample, CancellationToken cancellationToken = default)
+        {
+            var result = await BinaryClassifier.predictAsync(sample, _classifier, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -409,9 +456,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
+        [Obsolete("Use EvaluateAsync for non-blocking execution against cloud backends")]
         public EvaluationMetrics Evaluate(double[][] testFeatures, int[] testLabels)
         {
-            var result = BinaryClassifier.evaluate(testFeatures, testLabels, _classifier);
+            return EvaluateAsync(testFeatures, testLabels).GetAwaiter().GetResult();
+        }
+
+        public async Task<EvaluationMetrics> EvaluateAsync(double[][] testFeatures, int[] testLabels, CancellationToken cancellationToken = default)
+        {
+            var result = await BinaryClassifier.evaluateAsync(testFeatures, testLabels, _classifier, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -433,9 +486,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
+        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
         public void SaveTo(string path)
         {
-            var result = BinaryClassifier.save(path, _classifier);
+            SaveToAsync(path).GetAwaiter().GetResult();
+        }
+
+        public async Task SaveToAsync(string path, CancellationToken cancellationToken = default)
+        {
+            var result = await BinaryClassifier.saveAsync(path, _classifier, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {

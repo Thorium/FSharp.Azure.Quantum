@@ -227,7 +227,20 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
         /// <returns>A trained <see cref="IPredictiveModel"/> instance.</returns>
+        [Obsolete("Use BuildAsync for non-blocking execution against cloud backends")]
         public IPredictiveModel Build()
+        {
+            return BuildAsync().GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Build and train the predictive model without blocking the calling thread.
+        /// Returns a trained model ready for predictions.
+        /// </summary>
+        /// <param name="cancellationToken">Cancels training.</param>
+        /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
+        /// <returns>A trained <see cref="IPredictiveModel"/> instance.</returns>
+        public async Task<IPredictiveModel> BuildAsync(CancellationToken cancellationToken = default)
         {
             // Convert ProblemType to F# type
             var fsharpProblemType = _problemType.IsMultiClass
@@ -253,7 +266,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 FSharpOption<System.Threading.CancellationToken>.None);
 
             // Train model
-            var result = PredictiveModel.train(problem);
+            var result = await PredictiveModel.trainAsync(problem, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -268,10 +281,22 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// </summary>
         /// <param name="path">Path to the saved model file.</param>
         /// <returns>A loaded <see cref="IPredictiveModel"/> instance.</returns>
+        [Obsolete("Use LoadFromAsync for non-blocking file I/O")]
         public static IPredictiveModel LoadFrom(string path)
         {
+            return LoadFromAsync(path).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Load a previously trained model from file without blocking the calling thread.
+        /// </summary>
+        /// <param name="path">Path to the saved model file.</param>
+        /// <param name="cancellationToken">Cancels the load.</param>
+        /// <returns>A loaded <see cref="IPredictiveModel"/> instance.</returns>
+        public static async Task<IPredictiveModel> LoadFromAsync(string path, CancellationToken cancellationToken = default)
+        {
             ArgumentNullException.ThrowIfNull(path);
-            var result = PredictiveModel.loadAsync(path, System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            var result = await PredictiveModel.loadAsync(path, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -346,7 +371,17 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <param name="features">Feature vector to predict.</param>
         /// <returns>Regression prediction with value and confidence.</returns>
         /// <exception cref="InvalidOperationException">If model is not regression type.</exception>
+        [Obsolete("Use PredictAsync for non-blocking execution against cloud backends")]
         RegressionPrediction Predict(double[] features);
+
+        /// <summary>
+        /// Predict continuous value (regression only) without blocking the calling thread.
+        /// </summary>
+        /// <param name="features">Feature vector to predict.</param>
+        /// <param name="cancellationToken">Cancels the prediction.</param>
+        /// <returns>Regression prediction with value and confidence.</returns>
+        /// <exception cref="InvalidOperationException">If model is not regression type.</exception>
+        Task<RegressionPrediction> PredictAsync(double[] features, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Predict category (multi-class only).
@@ -362,7 +397,17 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <param name="testFeatures">Test features matrix.</param>
         /// <param name="testTargets">Test targets array.</param>
         /// <returns>Regression evaluation metrics.</returns>
+        [Obsolete("Use EvaluateRegressionAsync for non-blocking execution against cloud backends")]
         RegressionMetrics EvaluateRegression(double[][] testFeatures, double[] testTargets);
+
+        /// <summary>
+        /// Evaluate regression model on test set without blocking the calling thread.
+        /// </summary>
+        /// <param name="testFeatures">Test features matrix.</param>
+        /// <param name="testTargets">Test targets array.</param>
+        /// <param name="cancellationToken">Cancels the evaluation.</param>
+        /// <returns>Regression evaluation metrics.</returns>
+        Task<RegressionMetrics> EvaluateRegressionAsync(double[][] testFeatures, double[] testTargets, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Evaluate multi-class model on test set.
@@ -376,7 +421,16 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Save model to file.
         /// </summary>
         /// <param name="path">Path to save the model.</param>
+        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
         void SaveTo(string path);
+
+        /// <summary>
+        /// Save model to file without blocking the calling thread.
+        /// </summary>
+        /// <param name="path">Path to save the model.</param>
+        /// <param name="cancellationToken">Cancels the save.</param>
+        /// <returns>A task that completes when the model is saved.</returns>
+        Task SaveToAsync(string path, CancellationToken cancellationToken = default);
 
         /// <summary>
         /// Gets get model metadata.
@@ -498,13 +552,20 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             _model = model;
         }
 
+        [Obsolete("Use PredictAsync for non-blocking execution against cloud backends")]
         public RegressionPrediction Predict(double[] features)
         {
-            var result = PredictiveModel.predict(
+            return PredictAsync(features).GetAwaiter().GetResult();
+        }
+
+        public async Task<RegressionPrediction> PredictAsync(double[] features, CancellationToken cancellationToken = default)
+        {
+            var result = await PredictiveModel.predictAsync(
                 features,
                 _model,
                 FSharpOption<IQuantumBackend>.None,
-                FSharpOption<int>.None);
+                FSharpOption<int>.None,
+                cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -552,9 +613,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
+        [Obsolete("Use EvaluateRegressionAsync for non-blocking execution against cloud backends")]
         public RegressionMetrics EvaluateRegression(double[][] testFeatures, double[] testTargets)
         {
-            var result = PredictiveModel.evaluateRegression(testFeatures, testTargets, _model);
+            return EvaluateRegressionAsync(testFeatures, testTargets).GetAwaiter().GetResult();
+        }
+
+        public async Task<RegressionMetrics> EvaluateRegressionAsync(double[][] testFeatures, double[] testTargets, CancellationToken cancellationToken = default)
+        {
+            var result = await PredictiveModel.evaluateRegressionAsync(testFeatures, testTargets, _model, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {
@@ -593,9 +660,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             };
         }
 
+        [Obsolete("Use SaveToAsync for non-blocking file I/O")]
         public void SaveTo(string path)
         {
-            var result = PredictiveModel.saveAsync(path, _model, System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+            SaveToAsync(path).GetAwaiter().GetResult();
+        }
+
+        public async Task SaveToAsync(string path, CancellationToken cancellationToken = default)
+        {
+            var result = await PredictiveModel.saveAsync(path, _model, cancellationToken).ConfigureAwait(false);
 
             if (result.IsError)
             {

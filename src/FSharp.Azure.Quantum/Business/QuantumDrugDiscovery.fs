@@ -551,7 +551,8 @@ type QuantumDrugDiscoveryBuilder() =
             match state.Method with
             | QuantumKernelSVM ->
                 match state.Backend, labelsOpt with
-                | None, _ -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
+                | None, _ ->
+                    return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
                 | _, None ->
                     return!
                         Error(
@@ -576,7 +577,8 @@ type QuantumDrugDiscoveryBuilder() =
                             cancellationToken
             | VQCClassifier ->
                 match state.Backend, labelsOpt with
-                | None, _ -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
+                | None, _ ->
+                    return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
                 | _, None ->
                     return!
                         Error(
@@ -591,7 +593,8 @@ type QuantumDrugDiscoveryBuilder() =
             | QAOADiverseSelection ->
                 match state.Backend with
                 | None -> return! Error(QuantumError.ValidationError("Backend", "No backend provided. Use 'backend'."))
-                | Some backend -> return! this.RunQAOADiverseSelectionAsync backend features labelsOpt state cancellationToken
+                | Some backend ->
+                    return! this.RunQAOADiverseSelectionAsync backend features labelsOpt state cancellationToken
         }
 
     /// The `drugDiscovery { ... }` expression yields a task: `let! result = drugDiscovery { ... }`

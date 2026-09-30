@@ -89,7 +89,9 @@ module DrugDiscoverySolvers =
                 let! (bits, optParams, converged) = executeQaoaWithOptimization backend qubo config
                 return (bits, Some optParams, Some converged)
             else
-                let! (bits, optParams) = executeQaoaWithGridSearchAsync backend qubo config cancellationToken
+                let! (bits, optParams) =
+                    executeQaoaWithGridSearchAsync backend qubo config cancellationToken
+
                 return (bits, Some optParams, None)
         }
 
@@ -210,7 +212,9 @@ module DrugDiscoverySolvers =
                     return! Error(QuantumError.ValidationError("nodes", "Problem has no nodes"))
                 else
                     let qubo = toQubo problem
-                    let! (bits, optParams, converged) = runQaoaAsync backend qubo config cancellationToken
+
+                    let! (bits, optParams, converged) =
+                        runQaoaAsync backend qubo config cancellationToken
 
                     // Apply constraint repair if enabled and solution is invalid
                     let finalBits, wasRepaired =
@@ -477,10 +481,13 @@ module DrugDiscoverySolvers =
                 if problem.Nodes.IsEmpty then
                     return! Error(QuantumError.ValidationError("nodes", "Problem has no nodes"))
                 elif problem.K <= 0 || problem.K > problem.Nodes.Length then
-                    return! Error(QuantumError.ValidationError("k", $"k must be between 1 and %d{problem.Nodes.Length}"))
+                    return!
+                        Error(QuantumError.ValidationError("k", $"k must be between 1 and %d{problem.Nodes.Length}"))
                 else
                     let qubo = toQubo problem
-                    let! (bits, optParams, converged) = runQaoaAsync backend qubo config cancellationToken
+
+                    let! (bits, optParams, converged) =
+                        runQaoaAsync backend qubo config cancellationToken
 
                     let currentCount = bits |> Array.sum
 
@@ -783,7 +790,9 @@ module DrugDiscoverySolvers =
                     return! Error(QuantumError.ValidationError("budget", "Budget must be positive"))
                 else
                     let qubo = toQubo problem
-                    let! (bits, optParams, converged) = runQaoaAsync backend qubo config cancellationToken
+
+                    let! (bits, optParams, converged) =
+                        runQaoaAsync backend qubo config cancellationToken
 
                     let currentCost =
                         problem.Items
