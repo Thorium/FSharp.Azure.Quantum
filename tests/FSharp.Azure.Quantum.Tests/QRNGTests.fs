@@ -939,10 +939,11 @@ module QuantumDistributionsTests =
 
             match!
                 FSharp.Azure.Quantum.Algorithms.QuantumDistributions.sampleWithBackend
-                     FSharp.Azure.Quantum.Algorithms.QuantumDistributions.StandardNormal
-                     manyShots
-                 |> Async.StartImmediateAsTask
+                    FSharp.Azure.Quantum.Algorithms.QuantumDistributions.StandardNormal
+                    manyShots
+                |> Async.StartImmediateAsTask
             with
             | Error(QuantumError.ValidationError("backend", _)) -> ()
             | other -> Assert.Fail($"expected a ValidationError, got {other}")
-        } :> Task
+        }
+        :> Task

@@ -386,18 +386,21 @@ module QuantumMonteCarloTests =
                 Assert.True(abs (qmc.ExpectationValue - 0.3) < 0.03, $"expected ≈ 0.3, got {qmc.ExpectationValue}")
                 Assert.True(backend.Executed >= 4, $"expected one job per Grover power, got {backend.Executed}")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation on the local simulator stays exact`` () =
         task {
             match!
                 estimateExpectation (knownConfig ()) (createBackend ())
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
-            | Ok qmc -> Assert.True(abs (qmc.ExpectationValue - 0.3) < 1e-4, $"expected 0.3, got {qmc.ExpectationValue}")
+            | Ok qmc ->
+                Assert.True(abs (qmc.ExpectationValue - 0.3) < 1e-4, $"expected 0.3, got {qmc.ExpectationValue}")
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateExpectation refuses an oracle that is not a phase oracle`` () =
@@ -410,7 +413,8 @@ module QuantumMonteCarloTests =
             match! estimateExpectation config (createBackend ()) |> Async.StartImmediateAsTask with
             | Error(QuantumError.ValidationError("Oracle", _)) -> ()
             | other -> failwith $"Expected an Oracle validation error, got {other}"
-        } :> Task
+        }
+        :> Task
 
     /// p = [0.1; 0.2; 0.3; 0.4] on two qubits.
     let private fourBinPreparation () =
@@ -429,7 +433,7 @@ module QuantumMonteCarloTests =
         task {
             match!
                 estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 0.5; 0.25; 1.0 |] 4 1000 (createBackend ())
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Ok r ->
                 Assert.True(abs (r.Expectation - 0.575) < 1e-4, $"expected 0.575, got {r.Expectation}")
@@ -438,7 +442,8 @@ module QuantumMonteCarloTests =
                 Assert.Equal<int list>([ 0; 1; 2; 4 ], r.GroverPowers)
                 Assert.True(r.StandardError > 0.0)
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateBoundedExpectation submits whole circuits to a sampling backend`` () =
@@ -447,7 +452,7 @@ module QuantumMonteCarloTests =
 
             match!
                 estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 0.5; 0.25; 1.0 |] 4 1000 backend
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Ok r ->
                 Assert.True(r.WholeCircuit)
@@ -459,18 +464,20 @@ module QuantumMonteCarloTests =
                     $"expected ≈ 0.575, got {r.Expectation} ± {r.StandardError}"
                 )
             | Error e -> failwith $"Expected Ok, got Error: {e}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``estimateBoundedExpectation refuses values outside the unit interval`` () =
         task {
             match!
                 estimateBoundedExpectation (fourBinPreparation ()) [| 0.0; 1.5; 0.25; 1.0 |] 2 1000 (createBackend ())
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Error(QuantumError.ValidationError("values", _)) -> ()
             | other -> failwith $"Expected a values validation error, got {other}"
-        } :> Task
+        }
+        :> Task
 
     // ========================================================================
     // STANDARD ERROR (the fit's Cramér–Rao error, not the O(1/M) query bound)
@@ -498,7 +505,10 @@ module QuantumMonteCarloTests =
     [<Fact>]
     let ``estimateExpectation reports the fit's standard error, not 1 over the iterations`` () =
         task {
-            match! estimateExpectation (quarterConfig 4 1000) (createBackend ()) |> Async.StartImmediateAsTask with
+            match!
+                estimateExpectation (quarterConfig 4 1000) (createBackend ())
+                |> Async.StartImmediateAsTask
+            with
             | Ok r ->
                 // Exact probabilities: the maximum-likelihood fit recovers a (to ~1e-8: a power
                 // whose probability is 1 - 1e-16 pins θ only to √1e-16).

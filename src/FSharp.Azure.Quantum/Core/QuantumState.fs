@@ -323,8 +323,7 @@ module QuantumState =
                 | QuantumState.DensityMatrix(_, n)
                 | QuantumState.MeasurementHistogram(_, n) -> n
                 | QuantumState.FusionSuperposition s -> s.LogicalQubits
-                | QuantumState.IsingSamples _ ->
-                    counts |> Map.fold (fun acc key _ -> max acc key.Length) 0
+                | QuantumState.IsingSamples _ -> counts |> Map.fold (fun acc key _ -> max acc key.Length) 0
 
             let shots =
                 counts

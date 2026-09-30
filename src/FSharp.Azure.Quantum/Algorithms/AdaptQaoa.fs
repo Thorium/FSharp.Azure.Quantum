@@ -214,8 +214,12 @@ module AdaptQaoa =
     /// layers²·G·T·S. solveQubo adds one job for its final sample.
     let estimateCloudJobs (costHamiltonian: TrotterSuzuki.PauliHamiltonian) (poolSize: int) (layers: int) : int =
         let groups = Primitives.measurementGroups costHamiltonian |> List.length
-        let costTerms = costHamiltonian.Terms |> List.filter (isIdentity >> not) |> List.length
-        groups + ([ 1 .. max 0 layers ] |> List.sumBy (layerJobs groups costTerms poolSize))
+
+        let costTerms =
+            costHamiltonian.Terms |> List.filter (isIdentity >> not) |> List.length
+
+        groups
+        + ([ 1 .. max 0 layers ] |> List.sumBy (layerJobs groups costTerms poolSize))
 
     /// ADAPT-QAOA on a shot-sampling backend (see the module notes).
     let private runSampled
@@ -373,8 +377,7 @@ module AdaptQaoa =
 
         // Refuse up front, before any job, when the reference energy and the first layer
         // cannot fit under the cap: such a run could only return the reference state.
-        let firstPlan =
-            groups + (if config.MaxLayers >= 1 then perLayer 1 else 0)
+        let firstPlan = groups + (if config.MaxLayers >= 1 then perLayer 1 else 0)
 
         match config.MaxCloudJobs with
         | Some cap when firstPlan > cap ->
@@ -389,8 +392,7 @@ module AdaptQaoa =
             )
         | _ ->
             energy [] [||]
-            |> Result.bind (fun (reference, referenceError) ->
-                loop 0 [] [||] [ reference ] (reference, referenceError))
+            |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
 
     // ========================================================================
     // RUN

@@ -416,7 +416,9 @@ module QuantumRegressionHHL =
                                 logInfo config.Logger $"   HHL success probability: {hhlResult.SuccessProbability:F4}"
 
                                 if phased.Circuits > 0 then
-                                    logInfo config.Logger $"   Whole-circuit jobs (magnitudes + signs): {phased.Circuits}"
+                                    logInfo
+                                        config.Logger
+                                        $"   Whole-circuit jobs (magnitudes + signs): {phased.Circuits}"
 
                             // The solution-register amplitudes (read exactly, or measured with their
                             // relative signs) are proportional to the regression weights, up to an

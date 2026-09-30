@@ -980,7 +980,10 @@ module HHL =
         : Result<HHLResult, QuantumError> =
         result {
             let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
-            let! (probabilities, finalState, gateCount, spectrumEigenvalues) = wholeCircuitRun backend intent []
+
+            let! (probabilities, finalState, gateCount, spectrumEigenvalues) =
+                wholeCircuitRun backend intent []
+
             let ancillaMask = 1 <<< ancillaQubit
 
             let successProb =
@@ -1170,9 +1173,7 @@ module HHL =
             |> Map.toList
             |> List.map (fun ((i, j), re) ->
                 let im =
-                    imaginaryParts
-                    |> Option.bind (Map.tryFind (i, j))
-                    |> Option.defaultValue 0.0
+                    imaginaryParts |> Option.bind (Map.tryFind (i, j)) |> Option.defaultValue 0.0
 
                 (i, j, Complex(re, im)))
             |> List.sortByDescending (fun (i, j, _) -> magnitudes.[i] * magnitudes.[j])
@@ -1224,7 +1225,10 @@ module HHL =
     /// (real A and b, as in least squares) has a real solution, so only the S Hadamard circuits
     /// are run: 1 + S jobs in all, 1 + 2S for a complex system. Shot noise makes the sign of a
     /// pair unreliable only when both components are small, which assemblePhases avoids.
-    let executeWithRelativePhases (config: HHLConfig) (backend: IQuantumBackend) : Result<HhlPhasedResult, QuantumError> =
+    let executeWithRelativePhases
+        (config: HHLConfig)
+        (backend: IQuantumBackend)
+        : Result<HhlPhasedResult, QuantumError> =
         match execute config backend with
         | Error e -> Error e
         | Ok result when result.Readout <> HhlReadout.MeasuredMagnitudes -> Ok { Result = result; Circuits = 0 }
@@ -1246,7 +1250,10 @@ module HHL =
                     |> Array.indexed
                     |> Array.sumBy (fun (index, p) -> if index &&& ancillaMask <> 0 then p else 0.0)
 
-                if config.UsePostSelection && success > 0.0 then success else 1.0
+                if config.UsePostSelection && success > 0.0 then
+                    success
+                else
+                    1.0
 
             /// Per pair (i, i + 2^q): (P(i) − P(i + 2^q)) / 2 of the post-selected branch after
             /// `gate` on solution qubit q.
@@ -1254,7 +1261,9 @@ module HHL =
                 wholeCircuitRun backend intent [ gate (eigenvalueQubits + q) ]
                 |> Result.map (fun (probabilities, _, _, _) ->
                     let norm = normaliser probabilities
-                    let selected i = probabilities.[(i <<< eigenvalueQubits) ||| ancillaMask] / norm
+
+                    let selected i =
+                        probabilities.[(i <<< eigenvalueQubits) ||| ancillaMask] / norm
 
                     [
                         for i in 0 .. solutionDim - 1 do
@@ -1296,8 +1305,7 @@ module HHL =
                             { magnitudeResult with
                                 Solution = solution
                                 Readout = HhlReadout.MeasuredRelativePhases
-                                SolutionAmplitudes =
-                                    if Map.isEmpty amplitudes then None else Some amplitudes
+                                SolutionAmplitudes = if Map.isEmpty amplitudes then None else Some amplitudes
                             }
                         Circuits = 1 + solutionQubits * (if isReal then 1 else 2)
                     }))

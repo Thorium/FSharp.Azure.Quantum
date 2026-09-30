@@ -249,7 +249,9 @@ module AdaptVqe =
     /// G = Primitives.measurementGroups of the Hamiltonian. Grows as iterations²·G·S.
     let estimateCloudJobs (hamiltonian: TrotterSuzuki.PauliHamiltonian) (poolSize: int) (iterations: int) : int =
         let groups = Primitives.measurementGroups hamiltonian |> List.length
-        groups + ([ 1 .. max 0 iterations ] |> List.sumBy (iterationJobs groups poolSize))
+
+        groups
+        + ([ 1 .. max 0 iterations ] |> List.sumBy (iterationJobs groups poolSize))
 
     /// ADAPT-VQE on a shot-sampling backend (see the module notes).
     let private runSampled
@@ -358,8 +360,7 @@ module AdaptVqe =
 
         // Refuse up front, before any job, when the reference energy and the first operator
         // cannot fit under the cap: such a run could only return the reference state.
-        let firstPlan =
-            groups + (if config.MaxIterations >= 1 then perIteration 1 else 0)
+        let firstPlan = groups + (if config.MaxIterations >= 1 then perIteration 1 else 0)
 
         match config.MaxCloudJobs with
         | Some cap when firstPlan > cap ->
@@ -374,8 +375,7 @@ module AdaptVqe =
             )
         | _ ->
             energy [] [||]
-            |> Result.bind (fun (reference, referenceError) ->
-                loop 0 [] [||] [ reference ] (reference, referenceError))
+            |> Result.bind (fun (reference, referenceError) -> loop 0 [] [||] [ reference ] (reference, referenceError))
 
     // ========================================================================
     // RUN

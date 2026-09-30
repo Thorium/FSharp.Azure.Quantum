@@ -2699,7 +2699,8 @@ module FermionMapping =
                     match p with
                     | QaoaCircuit.PauliOperator.PauliX -> Some(H q)
                     | QaoaCircuit.PauliOperator.PauliY -> Some(RX(q, Math.PI / 2.0))
-                    | QaoaCircuit.PauliOperator.PauliI | QaoaCircuit.PauliOperator.PauliZ -> None)
+                    | QaoaCircuit.PauliOperator.PauliI
+                    | QaoaCircuit.PauliOperator.PauliZ -> None)
 
             preparation |> CircuitBuilder.addGates rotations
 

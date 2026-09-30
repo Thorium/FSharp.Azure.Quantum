@@ -692,10 +692,7 @@ module FinancialDataTests =
                 """{"chart":{"result":[{"meta":{"currency":"USD"},"timestamp":[1704153600,1704240000],"indicators":{"quote":[{"open":[1.0,2.0],"high":[1.0,2.0],"low":[1.0,2.0],"close":[1.0,2.0],"volume":[10,20]}],"adjclose":[{"adjclose":[0.9,1.9]}]}}],"error":null}}"""
 
             let response =
-                new HttpResponseMessage(
-                    System.Net.HttpStatusCode.OK,
-                    Content = new StringContent(json)
-                )
+                new HttpResponseMessage(System.Net.HttpStatusCode.OK, Content = new StringContent(json))
 
             System.Threading.Tasks.Task.FromResult response
 
@@ -827,7 +824,8 @@ module FinancialDataTests =
 
             Assert.True(Result.isError result)
             Assert.Empty(handler.Requests)
-        } :> System.Threading.Tasks.Task
+        }
+        :> System.Threading.Tasks.Task
 
     [<Fact>]
     let ``yahooChartUrl clamps dates outside the Unix range and the future`` () =

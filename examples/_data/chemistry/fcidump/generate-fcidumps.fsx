@@ -61,6 +61,7 @@ let inv = CultureInfo.InvariantCulture
 /// Angstrom per bohr, as PySCF uses it.
 [<Literal>]
 let bohr = 0.52917721092
+
 [<Literal>]
 let basis = "sto-3g"
 
@@ -315,9 +316,11 @@ let transitionStates =
 /// Wall-clock cap per transition state: search and validation.
 [<Literal>]
 let tsSeconds = 900.0
+
 /// Angstrom: a forming bond is made, a breaking bond still intact.
 [<Literal>]
 let tsBonded = 1.7
+
 /// Angstrom: a forming bond not yet made, a breaking bond broken.
 [<Literal>]
 let tsApart = 1.8
@@ -328,6 +331,7 @@ let tsValidation =
     + "(product) and once the other way round (reactant)"
 
 let private slugRegex = Regex "[^a-z0-9]+"
+
 /// Same rule as ChemistryIntegrals.speciesSlug in examples/_common.
 let slug (name: string) =
     slugRegex.Replace(name.ToLowerInvariant(), "-").Trim '-'
@@ -1440,7 +1444,11 @@ let integralDeviation (a: string) (b: string) =
     let norb, _, x = readFcidump a
     let _, _, y = readFcidump b
     let keys = Seq.append x.Keys y.Keys |> Seq.distinct |> Seq.toArray
-    let value (d: IDictionary<_, float>) k = match d.TryGetValue k with | true, value -> value | false, _ -> 0.0
+
+    let value (d: IDictionary<_, float>) k =
+        match d.TryGetValue k with
+        | true, value -> value
+        | false, _ -> 0.0
 
     let deviation (signs: int[]) =
         let s i =
@@ -1465,7 +1473,9 @@ let spectrum (engine: Engine) (path: string) =
     let norb, nelec, x = readFcidump path
 
     let value key =
-        match x.TryGetValue key with | true, value -> value | false, _ -> 0.0
+        match x.TryGetValue key with
+        | true, value -> value
+        | false, _ -> 0.0
 
     let pairs =
         [|

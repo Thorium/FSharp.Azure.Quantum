@@ -194,7 +194,9 @@ module internal LocalQuantumServiceFormats =
                 | "rx", [], _ -> rotationGate CircuitBuilder.RX
                 | "ry", [], _ -> rotationGate CircuitBuilder.RY
                 | "rz", [], _ -> rotationGate CircuitBuilder.RZ
-                | _ -> Error $"Gate #{index}: unsupported IonQ gate '{name}' with {controls.Length} control(s) and {targets.Length} target(s)"
+                | _ ->
+                    Error
+                        $"Gate #{index}: unsupported IonQ gate '{name}' with {controls.Length} control(s) and {targets.Length} target(s)"
 
         try
             use doc = JsonDocument.Parse json
@@ -234,16 +236,22 @@ module internal LocalQuantumServiceFormats =
         with ex ->
             Error $"Invalid IonQ circuit JSON: {ex.Message}"
 
+    let private evaluateExpressionRegex = Regex @"^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?"
     // ============================================================================
     // RIGETTI QUIL
     // ============================================================================
+
+    [<return: Struct>]
+    let inline private (|IsLetter|_|) (input: char) =
+        if Char.IsLetter input then ValueSome input else ValueNone
 
     /// Evaluate a Quil parameter expression: numbers, `pi`, + - * / and parentheses.
     let private evaluateExpression (text: string) : Result<float, string> =
         let s = text.Replace(" ", "")
         let mutable pos = 0
 
-        let peek () = if pos < s.Length then s.[pos] else '\000'
+        let peek () =
+            if pos < s.Length then s.[pos] else '\000'
 
         let rec expr () =
             let mutable value = term ()
@@ -284,7 +292,7 @@ module internal LocalQuantumServiceFormats =
 
                 pos <- pos + 1
                 value
-            | c when Char.IsLetter c ->
+            | IsLetter _ ->
                 let start = pos
 
                 while Char.IsLetter(peek ()) do
@@ -294,7 +302,7 @@ module internal LocalQuantumServiceFormats =
                 | "pi" -> Math.PI
                 | other -> failwith $"unknown identifier '{other}'"
             | _ ->
-                let m = Regex.Match(s.Substring pos, @"^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
+                let m = evaluateExpressionRegex.Match(s.Substring pos)
 
                 if not m.Success then
                     failwith $"unexpected character at '{s.Substring pos}'"
@@ -388,7 +396,10 @@ module internal LocalQuantumServiceFormats =
                 | _ -> fail lineNo $"malformed RESET: {line}"
             elif quilGate.IsMatch line then
                 let m = quilGate.Match line
-                let daggers = Regex.Matches(m.Groups.[1].Value, "DAGGER", RegexOptions.IgnoreCase).Count
+
+                let daggers =
+                    Regex.Matches(m.Groups.[1].Value, "DAGGER", RegexOptions.IgnoreCase).Count
+
                 let inverse = daggers % 2 = 1
                 let name = m.Groups.[2].Value.ToUpperInvariant()
 
@@ -407,10 +418,19 @@ module internal LocalQuantumServiceFormats =
                 let sign = if inverse then -1.0 else 1.0
 
                 let gate: Result<CircuitBuilder.Gate option, string> =
-                    match parameters |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+                    match
+                        parameters
+                        |> List.tryPick (function
+                            | Error e -> Some e
+                            | Ok _ -> None)
+                    with
                     | Some e -> Error e
                     | None ->
-                        let angles = parameters |> List.map (function Ok v -> v | Error _ -> 0.0)
+                        let angles =
+                            parameters
+                            |> List.map (function
+                                | Ok v -> v
+                                | Error _ -> 0.0)
 
                         match name, angles, qubits with
                         | "I", [], [ _ ] -> Ok None
@@ -856,10 +876,9 @@ type internal LocalServiceRoutingHandler(baseUri: Uri, inner: HttpMessageHandler
         elif uri.IsLoopback && uri.Port = baseUri.Port then
             base.SendAsync(request, cancellationToken)
         elif uri.Host.EndsWith(".quantum.azure.com", StringComparison.OrdinalIgnoreCase) then
-            let builder = UriBuilder(uri)
-            builder.Scheme <- baseUri.Scheme
-            builder.Host <- baseUri.Host
-            builder.Port <- baseUri.Port
+            let builder =
+                UriBuilder(uri, Scheme = baseUri.Scheme, Host = baseUri.Host, Port = baseUri.Port)
+
             request.RequestUri <- builder.Uri
             base.SendAsync(request, cancellationToken)
         else
@@ -923,12 +942,12 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
 
     static let jobsRoute =
         Regex(
-            "^(?<ws>" + workspacePrefix + @")/jobs(?:/(?<id>[^/]+)(?<cancel>/cancel)?)?/?$",
+            $@"^(?<ws>{workspacePrefix})/jobs(?:/(?<id>[^/]+)(?<cancel>/cancel)?)?/?$",
             RegexOptions.IgnoreCase ||| RegexOptions.Compiled
         )
 
     static let sasRoute =
-        Regex("^" + workspacePrefix + @"/storage/sasUri/?$", RegexOptions.IgnoreCase ||| RegexOptions.Compiled)
+        Regex($@"^{workspacePrefix}/storage/sasUri/?$", RegexOptions.IgnoreCase ||| RegexOptions.Compiled)
 
     static let blobRoute =
         Regex(@"^/blobs/(?<container>[^/]+)(?:/(?<blob>.+))?$", RegexOptions.Compiled)
@@ -938,7 +957,7 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
     let workspacePath =
         $"/subscriptions/%s{options.SubscriptionId}/resourceGroups/%s{options.ResourceGroup}/providers/Microsoft.Quantum/Workspaces/%s{options.WorkspaceName}"
 
-    let baseText = baseUri.AbsoluteUri.TrimEnd('/')
+    let baseText = baseUri.AbsoluteUri.TrimEnd '/'
     let workspaceUrl = baseText + workspacePath
 
     let jobs = ConcurrentDictionary<string, LocalJobEntry>(StringComparer.Ordinal)
@@ -1023,9 +1042,15 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
 
         w.WriteString("status", statusText job.Reported)
         w.WriteString("creationTime", timestamp job.Created)
-        job.BeginTime |> Option.iter (fun t -> w.WriteString("beginExecutionTime", timestamp t))
-        job.EndTime |> Option.iter (fun t -> w.WriteString("endExecutionTime", timestamp t))
-        job.CancelTime |> Option.iter (fun t -> w.WriteString("cancellationTime", timestamp t))
+
+        job.BeginTime
+        |> Option.iter (fun t -> w.WriteString("beginExecutionTime", timestamp t))
+
+        job.EndTime
+        |> Option.iter (fun t -> w.WriteString("endExecutionTime", timestamp t))
+
+        job.CancelTime
+        |> Option.iter (fun t -> w.WriteString("cancellationTime", timestamp t))
 
         match job.Reported with
         | JobStatus.Failed(code, message) ->
@@ -1063,7 +1088,11 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         if status <> job.Reported then
             job.History <- status :: job.History
 
-        if status <> JobStatus.Waiting && job.BeginTime.IsNone && status <> JobStatus.Cancelled then
+        if
+            status <> JobStatus.Waiting
+            && job.BeginTime.IsNone
+            && status <> JobStatus.Cancelled
+        then
             job.BeginTime <- Some now
 
         if isTerminal status && job.EndTime.IsNone && status <> JobStatus.Cancelled then
@@ -1084,9 +1113,12 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                     && now - job.Created >= options.ExecutionDelay
 
                 let next =
-                    if ready then job.Final
-                    elif job.Polls <= 1 && options.PollsBeforeCompletion >= 2 then JobStatus.Waiting
-                    else JobStatus.Executing
+                    if ready then
+                        job.Final
+                    elif job.Polls <= 1 && options.PollsBeforeCompletion >= 2 then
+                        JobStatus.Waiting
+                    else
+                        JobStatus.Executing
 
                 report job next now
 
@@ -1145,7 +1177,11 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
             let m = blobRoute.Match uri.AbsolutePath
 
             if m.Success && m.Groups.["blob"].Success then
-                Some(Uri.UnescapeDataString m.Groups.["container"].Value + "/" + Uri.UnescapeDataString m.Groups.["blob"].Value)
+                Some(
+                    Uri.UnescapeDataString m.Groups.["container"].Value
+                    + "/"
+                    + Uri.UnescapeDataString m.Groups.["blob"].Value
+                )
             else
                 None
         | _ -> None
@@ -1162,7 +1198,9 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                 match blobs.TryGetValue key with
                 | true, bytes -> Ok(Encoding.UTF8.GetString bytes)
                 | _ -> Error $"inputDataUri blob '{key}' has not been uploaded"
-            | None -> Error "inputDataUri must point at this LocalQuantumService's blob store (external URIs are never fetched)"
+            | None ->
+                Error
+                    "inputDataUri must point at this LocalQuantumService's blob store (external URIs are never fetched)"
         | _ -> Error "Job has neither inputData nor inputDataUri"
 
     /// Decode and run a submission, producing (final status, output, histogram, warnings).
@@ -1228,7 +1266,10 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
 
             match rejection with
             | Some status ->
-                { errorReply (int status) "InjectedRejection" "LocalQuantumService rejected this submission (injected fault)" with
+                { errorReply
+                      (int status)
+                      "InjectedRejection"
+                      "LocalQuantumService rejected this submission (injected fault)" with
                     RetryAfterSeconds = Some 1
                 }
             | None ->
@@ -1296,7 +1337,8 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                                 blobs.[container + "/inputData"] <- Encoding.UTF8.GetBytes input
 
                                 output
-                                |> Option.iter (fun data -> blobs.[container + "/rawOutputData"] <- Encoding.UTF8.GetBytes data)
+                                |> Option.iter (fun data ->
+                                    blobs.[container + "/rawOutputData"] <- Encoding.UTF8.GetBytes data)
 
                                 reply 201 (jobJson entry)
                             else
@@ -1316,7 +1358,10 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
 
         let ordered = jobs.Values |> Seq.sortBy (fun j -> j.Sequence) |> Array.ofSeq
         let pageSize = max 1 options.JobsPageSize
-        let page = ordered |> Array.skip (min skip ordered.Length) |> Array.truncate pageSize
+
+        let page =
+            ordered |> Array.skip (min skip ordered.Length) |> Array.truncate pageSize
+
         let next = skip + page.Length
 
         reply
@@ -1353,7 +1398,12 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                     | Some blob -> blobUri container blob
                     | None -> $"{baseText}/blobs/{Uri.EscapeDataString container}?{sasQuery}"
 
-                reply 200 (writeJson (fun w -> w.WriteStartObject(); w.WriteString("sasUri", uri); w.WriteEndObject()))
+                reply
+                    200
+                    (writeJson (fun w ->
+                        w.WriteStartObject()
+                        w.WriteString("sasUri", uri)
+                        w.WriteEndObject()))
         with ex ->
             errorReply 400 "InvalidRequest" ex.Message
 
@@ -1364,7 +1414,10 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
         if hasBearer then
             // Azure Storage rejects a SAS request that also carries a bearer token meant
             // for the workspace; the library must mark these requests NoAuth.
-            errorReply 401 "InvalidAuthenticationInfo" "Blob requests are authorised by their SAS query; a bearer token must not be sent"
+            errorReply
+                401
+                "InvalidAuthenticationInfo"
+                "Blob requests are authorised by their SAS query; a bearer token must not be sent"
         elif String.IsNullOrEmpty parameters.["sig"] then
             errorReply 403 "AuthenticationFailed" "Blob request has no SAS signature"
         else
@@ -1463,7 +1516,9 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
                         }
 
                     response.StatusCode <- result.Status
-                    result.RetryAfterSeconds |> Option.iter (fun s -> response.AddHeader("Retry-After", string s))
+
+                    result.RetryAfterSeconds
+                    |> Option.iter (fun s -> response.AddHeader("Retry-After", string s))
 
                     if result.Body <> "" then
                         let bytes = Encoding.UTF8.GetBytes result.Body
@@ -1530,11 +1585,19 @@ type LocalQuantumService internal (options: LocalQuantumServiceOptions, listener
     /// (https://{Location}.quantum.azure.com/...) is routed to the service by `httpClient`,
     /// which must come from CreateHttpClient.
     member _.CreateClientConfig(httpClient: HttpClient) : Client.QuantumClientConfig =
-        Client.createConfig options.SubscriptionId options.ResourceGroup options.WorkspaceName options.Location httpClient
+        Client.createConfig
+            options.SubscriptionId
+            options.ResourceGroup
+            options.WorkspaceName
+            options.Location
+            httpClient
 
     /// Snapshots of every accepted job, in submission order.
     member _.Jobs: LocalQuantumJob list =
-        jobs.Values |> Seq.sortBy (fun j -> j.Sequence) |> Seq.map snapshot |> List.ofSeq
+        jobs.Values
+        |> Seq.sortBy (fun j -> j.Sequence)
+        |> Seq.map snapshot
+        |> List.ofSeq
 
     /// Snapshot of one job, if the service accepted it.
     member _.TryGetJob(jobId: string) : LocalQuantumJob option =
@@ -1616,7 +1679,12 @@ module LocalQuantumService =
             let port = if options.Port > 0 then options.Port else freePort ()
             // Windows' http.sys lets non-administrators listen on "localhost" but not on
             // "127.0.0.1"; elsewhere bind the IPv4 loopback address explicitly.
-            let host = if OperatingSystem.IsWindows() then "localhost" else "127.0.0.1"
+            let host =
+                if OperatingSystem.IsWindows() then
+                    "localhost"
+                else
+                    "127.0.0.1"
+
             let prefix = $"http://{host}:{port}/"
             let listener = new HttpListener()
             listener.Prefixes.Add prefix
@@ -1630,7 +1698,9 @@ module LocalQuantumService =
                 if options.Port = 0 && remaining > 0 then
                     attempt (remaining - 1)
                 else
-                    Error(QuantumError.OperationError("LocalQuantumService", $"Cannot listen on {prefix}: {ex.Message}"))
+                    Error(
+                        QuantumError.OperationError("LocalQuantumService", $"Cannot listen on {prefix}: {ex.Message}")
+                    )
 
         attempt 5
 

@@ -19,7 +19,10 @@ open FSharp.Azure.Quantum.GroverSearch
 [<Collection("NonParallel")>]
 module CloudEndToEndTests =
 
-    let private options = { LocalQuantumService.defaultOptions with Seed = Some 7 }
+    let private options =
+        { LocalQuantumService.defaultOptions with
+            Seed = Some 7
+        }
 
     /// Cloud backend class for `provider` pointed at `service`, measuring `shots` per job.
     let private cloud
@@ -94,7 +97,13 @@ module CloudEndToEndTests =
             let oracle = Oracle.forValue 5 3 |> expectOk
 
             let result =
-                Grover.search oracle backend { Grover.defaultConfig with Shots = 1000 } |> expectOk
+                Grover.search
+                    oracle
+                    backend
+                    { Grover.defaultConfig with
+                        Shots = 1000
+                    }
+                |> expectOk
 
             Assert.Equal<int list>([ 5 ], result.Solutions)
             // 500 shots were measured, so 500 are reported, whatever the config asked for.
@@ -123,7 +132,9 @@ module CloudEndToEndTests =
     [<Fact>]
     let ``BB84 makes a 200-bit key from one job and detects Eve in two`` () =
         withCloud "quantinuum" 100 (fun service backend ->
-            let result = QuantumKeyDistribution.runBB84 200 backend 0.15 0.11 (Some 5) |> expectOk
+            let result =
+                QuantumKeyDistribution.runBB84 200 backend 0.15 0.11 (Some 5) |> expectOk
+
             Assert.Equal(0.0, result.EavesdropCheck.ErrorRate)
             Assert.True(result.Success)
             Assert.Equal(1, service.SubmittedJobCount))
@@ -172,7 +183,9 @@ module CloudEndToEndTests =
     [<Fact>]
     let ``QRNG takes its bits from one one-shot job per call`` () =
         withCloud "ionq" 1 (fun service backend ->
-            let result = QRNG.generateWithBackend 16 backend |> Async.RunSynchronously |> expectOk
+            let result =
+                QRNG.generateWithBackend 16 backend |> Async.RunSynchronously |> expectOk
+
             Assert.Equal(16, result.Bits.Length)
             Assert.Equal(1, service.SubmittedJobCount))
 
@@ -188,7 +201,9 @@ module CloudEndToEndTests =
             Assert.Equal(300, counts |> Map.toSeq |> Seq.sumBy snd)
             Assert.True(counts |> Map.forall (fun key _ -> key = "00" || key = "11"))
 
-            let state = backend.ExecuteToState(CircuitAbstraction.CircuitWrapper bell) |> expectOk
+            let state =
+                backend.ExecuteToState(CircuitAbstraction.CircuitWrapper bell) |> expectOk
+
             let shots = UnifiedBackend.measureState state 10000
             Assert.Equal(300, shots.Length)
 

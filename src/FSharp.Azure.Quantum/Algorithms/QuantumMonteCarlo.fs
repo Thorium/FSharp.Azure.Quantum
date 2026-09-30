@@ -228,7 +228,8 @@ module QuantumMonteCarlo =
 
             for KeyValue(key, count) in histogram do
                 let index =
-                    Seq.indexed key |> Seq.sumBy (fun (q, c) -> if c = '1' && q < n then 1 <<< q else 0)
+                    Seq.indexed key
+                    |> Seq.sumBy (fun (q, c) -> if c = '1' && q < n then 1 <<< q else 0)
 
                 probabilities.[index] <- probabilities.[index] + float (max 0 count) / total
 
@@ -380,13 +381,21 @@ module QuantumMonteCarlo =
             |> List.sumBy (fun (k, pGood) ->
                 let m = float (2 * k + 1)
                 let angle = m * theta
-                2.0 * m * (pGood * cos angle / sin angle - (1.0 - pGood) * sin angle / cos angle))
+
+                2.0
+                * m
+                * (pGood * cos angle / sin angle - (1.0 - pGood) * sin angle / cos angle))
 
         let lo = max 0.0 (fine - step / 50.0)
         let hi = min half (fine + step / 50.0)
         let scoreLo, scoreHi = score lo, score hi
 
-        if Double.IsFinite scoreLo && Double.IsFinite scoreHi && scoreLo > 0.0 && scoreHi < 0.0 then
+        if
+            Double.IsFinite scoreLo
+            && Double.IsFinite scoreHi
+            && scoreLo > 0.0
+            && scoreHi < 0.0
+        then
             let rec bisect (a: float) (b: float) (iterations: int) =
                 let mid = 0.5 * (a + b)
 

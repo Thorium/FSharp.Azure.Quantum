@@ -23,7 +23,10 @@ module LocalQuantumServiceTests =
 
     let private shots = 1000
 
-    let private seeded = { LocalQuantumService.defaultOptions with Seed = Some 42 }
+    let private seeded =
+        { LocalQuantumService.defaultOptions with
+            Seed = Some 42
+        }
 
     let private circuitOf (numQubits: int) (gates: CircuitBuilder.Gate list) : ICircuit =
         gates
@@ -128,7 +131,12 @@ module LocalQuantumServiceTests =
         // IonQ: probabilities keyed by decimal basis index
         let ionq = output "ionq"
         let histogram = ionq.GetProperty "histogram"
-        Assert.True(histogram.EnumerateObject() |> Seq.forall (fun p -> p.Name = "0" || p.Name = "3"))
+
+        Assert.True(
+            histogram.EnumerateObject()
+            |> Seq.forall (fun p -> p.Name = "0" || p.Name = "3")
+        )
+
         Assert.Equal(1.0, histogram.EnumerateObject() |> Seq.sumBy (fun p -> p.Value.GetDouble()), 9)
 
         // Rigetti: one ro readout per shot
@@ -154,7 +162,10 @@ module LocalQuantumServiceTests =
     [<Fact>]
     let ``Polling observes Waiting then Executing then Succeeded`` () =
         use service =
-            LocalQuantumService.start { seeded with PollsBeforeCompletion = 2 }
+            LocalQuantumService.start
+                { seeded with
+                    PollsBeforeCompletion = 2
+                }
 
         use http = service.CreateHttpClient()
         let backend = backendFor "ionq" service http (CloudBackendHelpers.JobBudget())
@@ -285,8 +296,12 @@ module LocalQuantumServiceTests =
         backend.ExecuteToState bell |> expectOk |> ignore
 
         let requests = service.Requests
-        let jobRequests = requests |> List.filter (fun r -> r.PathAndQuery.Contains "/jobs/")
-        let blobRequests = requests |> List.filter (fun r -> r.PathAndQuery.StartsWith "/blobs/")
+
+        let jobRequests =
+            requests |> List.filter (fun r -> r.PathAndQuery.Contains "/jobs/")
+
+        let blobRequests =
+            requests |> List.filter (fun r -> r.PathAndQuery.StartsWith "/blobs/")
 
         Assert.NotEmpty jobRequests
         Assert.All(jobRequests, fun r -> Assert.True r.HadBearerToken)
@@ -322,11 +337,7 @@ module LocalQuantumServiceTests =
 
     [<Fact>]
     let ``QuantumClient submits, lists across pages, fetches results and cancels via the routed data-plane URL`` () =
-        use service =
-            LocalQuantumService.start
-                { seeded with
-                    JobsPageSize = 1
-                }
+        use service = LocalQuantumService.start { seeded with JobsPageSize = 1 }
 
         use http = service.CreateHttpClient()
         let client = Client.QuantumClient(service.CreateClientConfig http)
@@ -339,7 +350,9 @@ module LocalQuantumServiceTests =
 
         let submission = IonQBackend.createJobSubmission ionqCircuit 200 "ionq.simulator"
 
-        let submitted = client.SubmitJobAsync submission |> Async.RunSynchronously |> expectOk
+        let submitted =
+            client.SubmitJobAsync submission |> Async.RunSynchronously |> expectOk
+
         Assert.Equal(submission.JobId, submitted.JobId)
         Assert.StartsWith("https://local.quantum.azure.com/subscriptions/", submitted.Uri)
 
@@ -350,7 +363,9 @@ module LocalQuantumServiceTests =
 
         Assert.Equal(JobStatus.Succeeded, finished.Status)
 
-        let result = client.GetResultsAsync submission.JobId |> Async.RunSynchronously |> expectOk
+        let result =
+            client.GetResultsAsync submission.JobId |> Async.RunSynchronously |> expectOk
+
         Assert.Equal("ionq.quantum-results.v1", result.OutputDataFormat)
 
         let histogram =
@@ -437,7 +452,11 @@ module LocalQuantumServiceTests =
 
         // The aggregated shapes are still read.
         Assert.True(RigettiBackend.parseRigettiResults """{"histogram": {"00": 3}}""" |> Result.isOk)
-        Assert.True(QuantinuumBackend.parseQuantinuumResult """{"results": {"00": 3}}""" |> Result.isOk)
+
+        Assert.True(
+            QuantinuumBackend.parseQuantinuumResult """{"results": {"00": 3}}"""
+            |> Result.isOk
+        )
 
     [<Fact>]
     let ``Circuits without measurements are read out in full on every provider`` () =

@@ -614,7 +614,7 @@ module OptionPricingTests =
 
             match!
                 OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Ok price ->
                 let expected = gridCallPrice ()
@@ -622,7 +622,8 @@ module OptionPricingTests =
                 Assert.Contains("amplitude estimation", price.Method)
                 Assert.DoesNotContain("whole circuits", price.Method)
             | Error err -> failwith $"Should succeed, got error: {err}"
-        } :> Task
+        }
+        :> Task
 
     [<Fact>]
     let ``European call on a whole-circuit sampling backend is priced from the sampled amplitude estimate`` () =
@@ -631,7 +632,7 @@ module OptionPricingTests =
 
             match!
                 OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 4 2 1000 backend
-                 |> Async.StartImmediateAsTask
+                |> Async.StartImmediateAsTask
             with
             | Ok price ->
                 let expected = gridCallPrice ()
@@ -644,7 +645,8 @@ module OptionPricingTests =
                 Assert.Contains("whole circuits sampled at 4000 shots", price.Method)
                 Assert.True(backend.Executed >= 3, $"expected one job per Grover power, got {backend.Executed}")
             | Error err -> failwith $"Should succeed, got error: {err}"
-        } :> Task
+        }
+        :> Task
 
     // ========================================================================
     // GREEKS AGAINST BLACK–SCHOLES (exact simulator)
@@ -660,15 +662,14 @@ module OptionPricingTests =
 
         let d2 = d1 - vol * sqrt expiry
         let discount = exp (-rate * expiry)
-        let vega = spot * MathNet.Numerics.Distributions.Normal.PDF(0.0, 1.0, d1) * sqrt expiry
+
+        let vega =
+            spot * MathNet.Numerics.Distributions.Normal.PDF(0.0, 1.0, d1) * sqrt expiry
 
         if isCall then
             spot * cdf d1 - strike * discount * cdf d2, cdf d1, vega, strike * expiry * discount * cdf d2
         else
-            strike * discount * cdf -d2 - spot * cdf -d1,
-            cdf d1 - 1.0,
-            vega,
-            -strike * expiry * discount * cdf -d2
+            strike * discount * cdf -d2 - spot * cdf -d1, cdf d1 - 1.0, vega, -strike * expiry * discount * cdf -d2
 
     [<Theory>]
     [<InlineData(true, 100.0, 100.0)>]
@@ -679,7 +680,13 @@ module OptionPricingTests =
         task {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             let market = createMarketParams spot strike 0.05 0.2 1.0
-            let optionType = if isCall then OptionPricing.EuropeanCall else OptionPricing.EuropeanPut
+
+            let optionType =
+                if isCall then
+                    OptionPricing.EuropeanCall
+                else
+                    OptionPricing.EuropeanPut
+
             let price, delta, vega, rho = blackScholes isCall spot strike 0.05 0.2 1.0
 
             match!
@@ -707,7 +714,13 @@ module OptionPricingTests =
             let gamma = MathNet.Numerics.Distributions.Normal.PDF(0.0, 1.0, d1) / (100.0 * 0.2)
 
             match!
-                OptionPricing.calculateGreeks OptionPricing.EuropeanCall market OptionPricing.defaultGreeksConfig 8 5 backend
+                OptionPricing.calculateGreeks
+                    OptionPricing.EuropeanCall
+                    market
+                    OptionPricing.defaultGreeksConfig
+                    8
+                    5
+                    backend
                 |> Async.StartImmediateAsTask
             with
             | Ok greeks ->

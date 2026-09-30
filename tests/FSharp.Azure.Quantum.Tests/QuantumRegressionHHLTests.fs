@@ -424,10 +424,16 @@ module QuantumRegressionHHLTests =
                 float ((i * 7) % 5) / 4.0
             |])
 
-    let private regressionConfig (x: float array array) (weights: float[]) (backend: IQuantumBackend) : RegressionConfig =
+    let private regressionConfig
+        (x: float array array)
+        (weights: float[])
+        (backend: IQuantumBackend)
+        : RegressionConfig =
         {
             TrainX = x
-            TrainY = x |> Array.map (fun row -> Array.fold2 (fun acc xi wi -> acc + xi * wi) 0.0 row weights)
+            TrainY =
+                x
+                |> Array.map (fun row -> Array.fold2 (fun acc xi wi -> acc + xi * wi) 0.0 row weights)
             EigenvalueQubits = 6
             MinEigenvalue = 1e-6
             Backend = backend
@@ -440,7 +446,12 @@ module QuantumRegressionHHLTests =
     /// Train on the local simulator and on a seeded 10,000-shot cloud-style backend; the cloud
     /// weights (signs measured by interference circuits) must match the exact path within
     /// `tolerance`, with `expectedJobs` whole-circuit jobs.
-    let private assertCloudMatchesExact (x: float array array) (weights: float[]) (expectedJobs: int) (tolerance: float) =
+    let private assertCloudMatchesExact
+        (x: float array array)
+        (weights: float[])
+        (expectedJobs: int)
+        (tolerance: float)
+        =
         let cloud = CloudStyleBackends.ShotSamplingCloud(10000, 17)
 
         match train (regressionConfig x weights (createLocalBackend ())), train (regressionConfig x weights cloud) with

@@ -398,7 +398,12 @@ module QuantumTeleportation =
 
     /// ⟨σ⟩ of Bob's qubit (bit 2) from a copy's distribution: P(q2 = 0) − P(q2 = 1).
     let private expectationOnBob (distribution: float[]) : float =
-        [ 0..7 ] |> List.sumBy (fun index -> if index &&& 4 = 0 then distribution.[index] else -distribution.[index])
+        [ 0..7 ]
+        |> List.sumBy (fun index ->
+            if index &&& 4 = 0 then
+                distribution.[index]
+            else
+                -distribution.[index])
 
     /// Teleportation of the state `prepOps` make on qubit 0, run as ONE whole circuit.
     ///

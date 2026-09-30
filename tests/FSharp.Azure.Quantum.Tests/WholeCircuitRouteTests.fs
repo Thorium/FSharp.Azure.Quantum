@@ -418,8 +418,7 @@ module WholeCircuitRouteTests =
 
     let private diagonalConfig (eigenvalues: float[]) (b: Complex[]) =
         match HHLTypes.createDiagonalMatrix eigenvalues, HHLTypes.createQuantumVector b with
-        | Ok m, Ok v ->
-            (HHLTypes.defaultConfig m v) |> Result.defaultWith (fun e -> failwith e.Message)
+        | Ok m, Ok v -> (HHLTypes.defaultConfig m v) |> Result.defaultWith (fun e -> failwith e.Message)
         | _ -> failwith "invalid HHL input"
 
     [<Fact>]
@@ -499,14 +498,13 @@ module WholeCircuitRouteTests =
 
     /// a and b equal up to one global phase: |⟨a|b⟩| = ‖a‖·‖b‖.
     let private assertSameUpToGlobalPhase (tolerance: float) (a: Complex[]) (b: Complex[]) =
-        let overlap = Array.fold2 (fun acc (x: Complex) y -> acc + Complex.Conjugate x * y) Complex.Zero a b
+        let overlap =
+            Array.fold2 (fun acc (x: Complex) y -> acc + Complex.Conjugate x * y) Complex.Zero a b
+
         let phase = Complex.FromPolarCoordinates(1.0, overlap.Phase)
 
         for i in 0 .. a.Length - 1 do
-            Assert.True(
-                (a.[i] * phase - b.[i]).Magnitude < tolerance,
-                $"component {i}: {a.[i] * phase} vs {b.[i]}"
-            )
+            Assert.True((a.[i] * phase - b.[i]).Magnitude < tolerance, $"component {i}: {a.[i] * phase} vs {b.[i]}")
 
     [<Fact>]
     let ``HHL Route - executeWithRelativePhases measures the signs on a sampling cloud backend`` () =
@@ -1070,12 +1068,18 @@ module WholeCircuitRouteTests =
 
     [<Fact>]
     let ``Grover - a cloud job reports the shots it measured, not the shots requested`` () =
-        let oracle =
-            Oracle.forValue 5 3 |> Result.defaultWith (fun e -> failwith e.Message)
+        let oracle = Oracle.forValue 5 3 |> Result.defaultWith (fun e -> failwith e.Message)
 
         let backend = sampling 500 17
 
-        match Grover.search oracle (backend :> IQuantumBackend) { Grover.defaultConfig with Shots = 1000 } with
+        match
+            Grover.search
+                oracle
+                (backend :> IQuantumBackend)
+                { Grover.defaultConfig with
+                    Shots = 1000
+                }
+        with
         | Ok result ->
             Assert.Equal(500, result.Measurements |> Map.toSeq |> Seq.sumBy snd)
             Assert.Equal<int list>([ 5 ], result.Solutions)
@@ -1110,7 +1114,10 @@ module WholeCircuitRouteTests =
 
         // A computed state is sampled afresh, as many times as asked.
         let local = LocalBackend.LocalBackend() :> IQuantumBackend
-        let plus = local.InitializeState 1 |> Result.bind (local.ApplyOperation(QuantumOperation.Gate(CircuitBuilder.H 0)))
+
+        let plus =
+            local.InitializeState 1
+            |> Result.bind (local.ApplyOperation(QuantumOperation.Gate(CircuitBuilder.H 0)))
 
         match plus with
         | Ok s ->

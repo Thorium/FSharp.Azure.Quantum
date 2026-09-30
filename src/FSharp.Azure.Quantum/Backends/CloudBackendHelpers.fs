@@ -17,35 +17,9 @@ module CloudBackendHelpers =
     // HISTOGRAM → QUANTUM STATE CONVERSION
     // ============================================================================
 
-    /// Convert a measurement histogram to a QuantumState. Three tiers:
-    ///
-    /// - up to StateVector.maxQubits: dense StateVector (amplitudes = sqrt(count/totalShots),
-    ///   zero phase — measurement destroys phase information). That width is derived
-    ///   from available memory, not fixed.
-    /// - above that, through 31 qubits: SparseState — only observed outcomes carry
-    ///   amplitude (≤ shots entries), avoiding the 2^n dense allocation
-    /// - > 31 qubits: MeasurementHistogram — the honest sampled-data
-    ///   representation with NO width limit (basis indices no longer fit Int32).
-    ///   This is what makes wide cloud hardware usable through this path
-    ///   (Quantinuum H2 56q, Rigetti Ankaa ~84q, IBM 127q+).
-    ///
-    /// Bitstring convention IN: rightmost char = qubit 0 (Azure histograms).
-    /// MeasurementHistogram keys OUT use leftmost char = qubit 0 (the
-    /// QuantumState convention), so keys are left-padded and reversed there.
-    ///
-    /// Parameters:
-    ///   histogram - Map<bitstring, count> from cloud execution (e.g., {"00": 480, "11": 520})
-    ///   numQubits - Number of qubits in the circuit
-    ///
-    /// The returned state carries the recorded counts (QuantumState.withRecordedCounts), so
-    /// measuring it yields the job's own shots — never outcomes resampled from its amplitudes.
-    let rec histogramToQuantumState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
-        buildHistogramState histogram numQubits
-        |> QuantumState.withRecordedCounts (recordedCountsOf histogram numQubits)
-
     /// Histogram keys (rightmost char = qubit 0) in the QuantumState convention (character
     /// q = qubit q), with keys that collapse together merged.
-    and private recordedCountsOf (histogram: Map<string, int>) (numQubits: int) : Map<string, int> =
+    let private recordedCountsOf (histogram: Map<string, int>) (numQubits: int) : Map<string, int> =
         histogram
         |> Map.fold
             (fun acc (bitstring: string) count ->
@@ -55,7 +29,7 @@ module CloudBackendHelpers =
                 acc |> Map.add key merged)
             Map.empty
 
-    and private buildHistogramState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
+    let private buildHistogramState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
         // Parse bitstring (rightmost char = qubit 0) to basis state index
         // "00" → 0, "01" → 1, "10" → 2, "11" → 3
         let bitstringToIndex (bitstring: string) =
@@ -124,6 +98,32 @@ module CloudBackendHelpers =
                     amplitudes.[index] <- Complex(amplitude, 0.0)
 
             QuantumState.StateVector(StateVector.create amplitudes)
+
+    /// Convert a measurement histogram to a QuantumState. Three tiers:
+    ///
+    /// - up to StateVector.maxQubits: dense StateVector (amplitudes = sqrt(count/totalShots),
+    ///   zero phase — measurement destroys phase information). That width is derived
+    ///   from available memory, not fixed.
+    /// - above that, through 31 qubits: SparseState — only observed outcomes carry
+    ///   amplitude (≤ shots entries), avoiding the 2^n dense allocation
+    /// - > 31 qubits: MeasurementHistogram — the honest sampled-data
+    ///   representation with NO width limit (basis indices no longer fit Int32).
+    ///   This is what makes wide cloud hardware usable through this path
+    ///   (Quantinuum H2 56q, Rigetti Ankaa ~84q, IBM 127q+).
+    ///
+    /// Bitstring convention IN: rightmost char = qubit 0 (Azure histograms).
+    /// MeasurementHistogram keys OUT use leftmost char = qubit 0 (the
+    /// QuantumState convention), so keys are left-padded and reversed there.
+    ///
+    /// Parameters:
+    ///   histogram - Map<bitstring, count> from cloud execution (e.g., {"00": 480, "11": 520})
+    ///   numQubits - Number of qubits in the circuit
+    ///
+    /// The returned state carries the recorded counts (QuantumState.withRecordedCounts), so
+    /// measuring it yields the job's own shots — never outcomes resampled from its amplitudes.
+    let rec histogramToQuantumState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
+        buildHistogramState histogram numQubits
+        |> QuantumState.withRecordedCounts (recordedCountsOf histogram numQubits)
 
     /// Undo the logical→physical qubit permutation introduced by routing on a
     /// measurement histogram, so results are reported in the caller's logical
@@ -217,7 +217,8 @@ module CloudBackendHelpers =
             ->
             // Gates are stored most-recent-first.
             let measurements =
-                List.init gateCircuit.QubitCount FSharp.Azure.Quantum.CircuitBuilder.Measure |> List.rev
+                List.init gateCircuit.QubitCount FSharp.Azure.Quantum.CircuitBuilder.Measure
+                |> List.rev
 
             CircuitAbstraction.wrapCircuit
                 { gateCircuit with

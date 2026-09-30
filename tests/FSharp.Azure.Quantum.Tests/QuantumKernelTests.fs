@@ -770,14 +770,16 @@ let ``kernel matrices refuse a mismatched shot count before submitting any job``
         let cloud = CloudStyleBackends.ShotSamplingCloud(1000, 3)
         let data = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |]; [| 0.5; 0.6 |] |]
 
-        let! square = computeKernelMatrixAsync cloud AngleEncoding data 2000 CancellationToken.None
+        let! square =
+            computeKernelMatrixAsync cloud AngleEncoding data 2000 CancellationToken.None
 
         let! trainTest =
             computeKernelMatrixTrainTestAsync cloud AngleEncoding data data.[0..1] 2000 CancellationToken.None
 
         for result in [ square; trainTest ] do
             match result with
-            | Error(FSharp.Azure.Quantum.Core.QuantumError.ValidationError("shots", message)) -> Assert.Contains("2000", message)
+            | Error(FSharp.Azure.Quantum.Core.QuantumError.ValidationError("shots", message)) ->
+                Assert.Contains("2000", message)
             | other -> Assert.Fail $"expected a shots ValidationError, got {other}"
 
         Assert.Equal(0, cloud.Jobs)
@@ -787,7 +789,8 @@ let ``kernel matrices refuse a mismatched shot count before submitting any job``
 let ``computeKernelAsync on an exact simulator samples the requested shots`` () =
     task {
         // Orthogonal-ish pair: with 7 shots every estimate is a multiple of 1/7.
-        let! result = computeKernelAsync backend AngleEncoding [| 0.5; 0.3 |] [| 2.0; 1.4 |] 7 CancellationToken.None
+        let! result =
+            computeKernelAsync backend AngleEncoding [| 0.5; 0.3 |] [| 2.0; 1.4 |] 7 CancellationToken.None
 
         match result with
         | Ok k -> Assert.Equal(0.0, (k * 7.0) - round (k * 7.0), 9)

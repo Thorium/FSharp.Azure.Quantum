@@ -152,7 +152,10 @@ module BraketExecution =
     ///
     /// Every tier carries the recorded counts (QuantumState.withRecordedCounts), so measuring
     /// the state yields Braket's own shots rather than outcomes resampled from its amplitudes.
-    let rec private histogramToState (histogram: Map<string, int>) (numQubits: int) : Result<QuantumState, QuantumError> =
+    let rec private histogramToState
+        (histogram: Map<string, int>)
+        (numQubits: int)
+        : Result<QuantumState, QuantumError> =
         // Braket's bitstring order (leftmost char = qubit 0) is already the recorded-counts
         // key convention.
         buildState histogram numQubits

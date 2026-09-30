@@ -1153,9 +1153,7 @@ module CloudBackendTests =
     let ``QFT on a real cloud class takes the whole-circuit route to submission`` () =
         let backend = zeroBudgetBackends () |> List.find (fst >> (=) "ionq") |> snd
 
-        match
-            QFT.execute 3 backend QFT.defaultConfig
-        with
+        match QFT.execute 3 backend QFT.defaultConfig with
         | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) -> ()
         | other -> Assert.Fail($"expected the whole circuit to reach submission, got %A{other}")
 

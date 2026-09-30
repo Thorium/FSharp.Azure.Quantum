@@ -190,7 +190,7 @@ module Shor =
         |> List.filter (fun q -> q > 1L && q < int64 n)
         |> List.map int
         |> List.distinct
-        |> List.collect (fun q -> [ q .. q .. n - 1 ])
+        |> List.collect (fun q -> [ q..q .. n - 1 ])
         |> List.distinct
 
     // ========================================================================

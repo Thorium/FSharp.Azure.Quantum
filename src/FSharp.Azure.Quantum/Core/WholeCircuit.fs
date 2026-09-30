@@ -181,7 +181,7 @@ module WholeCircuit =
         override _.Invoke(state: QuantumState) = apply state
 
     let private asOracle (oracle: GateOracle) : QuantumState -> Result<QuantumState, QuantumError> =
-        unbox<QuantumState -> Result<QuantumState, QuantumError>> (box oracle)
+        unbox<QuantumState -> Result<QuantumState, QuantumError>>(box oracle)
 
     /// An oracle closure `state -> applySequence backend ops state` whose gates stay readable,
     /// so a whole-circuit backend can have the oracle submitted inside the algorithm's circuit.
@@ -189,7 +189,8 @@ module WholeCircuit =
         (backend: IQuantumBackend)
         (ops: QuantumOperation list)
         : QuantumState -> Result<QuantumState, QuantumError> =
-        GateOracle(ops, (fun state -> UnifiedBackend.applySequence backend ops state)) |> asOracle
+        GateOracle(ops, (fun state -> UnifiedBackend.applySequence backend ops state))
+        |> asOracle
 
     /// The identity oracle: no gates, readable on whole-circuit backends like any `gateOracle`.
     let identityOracle: QuantumState -> Result<QuantumState, QuantumError> =

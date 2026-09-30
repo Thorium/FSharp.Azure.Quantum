@@ -85,8 +85,7 @@ module BraketTests =
                 :> BackendAbstraction.IQuantumBackend
 
             match backend.ExecuteToState(CircuitAbstraction.wrapCircuit circuit) with
-            | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) ->
-                ()
+            | Error(QuantumError.AzureError(AzureQuantumError.QuotaExceeded _)) -> ()
             | other -> Assert.Fail($"%s{device}: expected the job-budget refusal, got %A{other}")
 
             Assert.Equal(0, budget.Submitted)

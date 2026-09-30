@@ -260,7 +260,8 @@ module StatisticalDistributions =
                 MathNet.Numerics.Distributions.Normal.CDF(
                     0.0,
                     1.0,
-                    MathNet.Numerics.Distributions.Normal.InvCDF(0.0, 1.0, float i * probability) - sigma
+                    MathNet.Numerics.Distributions.Normal.InvCDF(0.0, 1.0, float i * probability)
+                    - sigma
                 )
 
         Array.init numBins (fun i -> (scale * (shiftedCdf (i + 1) - shiftedCdf i) / probability, probability))

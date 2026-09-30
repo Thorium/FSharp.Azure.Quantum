@@ -425,7 +425,10 @@ if feature = "all" then
     pr "   let errors = calculateErrorBounds config (Some 0.998) None"
     pr ""
     pr "4. Execute on the cloud backend"
-    pr "   let rigetti = CloudBackends.CloudBackendFactory.createRigetti httpClient workspaceUrl \"rigetti.qpu.ankaa-3\" 1000"
+
+    pr
+        "   let rigetti = CloudBackends.CloudBackendFactory.createRigetti httpClient workspaceUrl \"rigetti.qpu.ankaa-3\" 1000"
+
     pr "   match HHL.execute config rigetti with ..."
     pr "   Hardware runs complete circuits only, so HHL submits one circuit (|b> prepared by gates)"
     pr "   and reads the solution from the measured counts."

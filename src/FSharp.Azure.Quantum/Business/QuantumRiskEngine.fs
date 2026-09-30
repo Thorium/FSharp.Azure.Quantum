@@ -218,6 +218,7 @@ module RiskEngine =
                         return Ok(lo, known.[lo])
                     else
                         let mid = (lo + hi) / 2
+
                         match! estimate (Array.init numBins (fun i -> if i < mid then 1.0 else 0.0)) with
                         | Error err -> return Error err
                         | Ok f when f >= target -> return! bisect lo mid (known.Add(mid, f))
